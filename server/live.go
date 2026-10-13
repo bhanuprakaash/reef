@@ -29,6 +29,8 @@ type session interface {
 	Close() error
 }
 
+var _ session = (*channel.Session)(nil)
+
 type frame struct {
 	event string
 	data  []byte
