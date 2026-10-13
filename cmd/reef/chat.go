@@ -65,6 +65,7 @@ func chatCmd(
 
 	var (
 		ch        store.Channel
+		a         agent.Agent
 		sessionID string
 		preamble  string
 	)
@@ -82,7 +83,13 @@ func chatCmd(
 			return err
 		}
 		*role, *backend, sessionID = last.Role, last.Backend, last.SessionID
+		if a, err = newAgent(*backend); err != nil {
+			return err
+		}
 	} else {
+		if a, err = newAgent(*backend); err != nil {
+			return err
+		}
 		f, err := st.FeatureByRef(ctx, pos[0])
 		if err != nil {
 			return err
@@ -112,10 +119,7 @@ func chatCmd(
 	if err != nil {
 		return err
 	}
-	a, err := newAgent(*backend)
-	if err != nil {
-		return err
-	}
+	defer func() { _ = st.DeleteToken(context.WithoutCancel(ctx), tok.Token) }()
 	defer func() { _ = a.Interrupt() }()
 	cfg := agent.Config{
 		Cwd:            p.Path,
@@ -132,6 +136,9 @@ func chatCmd(
 		err = a.Start(ctx, cfg)
 	}
 	if err != nil {
+		if !resuming {
+			err = errors.Join(err, st.DeleteChannel(context.WithoutCancel(ctx), ch.ID))
+		}
 		return err
 	}
 
@@ -193,14 +200,18 @@ func converse(
 			if !ok {
 				return nil
 			}
+			wrap := line == _wrapCommand
+			text := line
 			var seen int64
-			if line == _wrapCommand {
-				line = _wrapPrompt
-				if p, err := st.PendingProposal(ctx, channelID); err == nil {
-					seen = p.ID
+			if wrap {
+				text = _wrapPrompt
+				p, err := st.PendingProposal(ctx, channelID)
+				if err != nil && !errors.Is(err, store.ErrNotFound) {
+					return err
 				}
+				seen = p.ID
 			}
-			if err := r.Send(ctx, line, show); err != nil {
+			if err := r.SendAs(ctx, line, text, show); err != nil {
 				if ctx.Err() != nil {
 					return nil
 				}
@@ -209,7 +220,7 @@ func converse(
 			if _, err := io.WriteString(stdout, "\n\n"); err != nil {
 				return err
 			}
-			if line == _wrapPrompt {
+			if wrap {
 				if err := decideWrap(ctx, st, channelID, seen, lines, stdout); err != nil {
 					return err
 				}
@@ -245,6 +256,18 @@ func decideWrap(
 		}
 		b.WriteString("\n")
 	}
+drain:
+	for {
+		select {
+		case l, ok := <-lines:
+			if !ok {
+				break drain
+			}
+			fmt.Fprintf(&b, "ignored while wrapping: %s\n", l)
+		default:
+			break drain
+		}
+	}
 	b.WriteString("\napprove? [y/N] ")
 	if _, err := io.WriteString(stdout, b.String()); err != nil {
 		return err
@@ -253,7 +276,12 @@ func decideWrap(
 	select {
 	case <-ctx.Done():
 		return nil
-	case answer = <-lines:
+	case l, ok := <-lines:
+		if !ok {
+			_, err = fmt.Fprintf(stdout, "\nproposal %d left pending\n\n", p.ID)
+			return err
+		}
+		answer = l
 	}
 	if a := strings.ToLower(answer); a == "y" || a == "yes" {
 		if _, err := st.ApproveProposal(ctx, p.ID); err != nil {
