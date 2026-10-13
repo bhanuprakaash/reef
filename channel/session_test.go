@@ -109,7 +109,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 		t.Error("InUse while open = false, want true")
 	}
 
-	if err := s.SendAs(ctx, "hi", "hi", discard); err != nil {
+	if err := sendAs(ctx, s, "hi", discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(ag.prompts) != 1 ||
@@ -140,7 +140,7 @@ func TestOpen_QuickSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := s.SendAs(ctx, "hi", "hi", discard); err != nil {
+	if err := sendAs(ctx, s, "hi", discard); err != nil {
 		t.Fatal(err)
 	}
 
@@ -192,7 +192,7 @@ func TestOpen_ResumesNewestSession(t *testing.T) {
 		t.Errorf("stale turn = %q %q, want failed %q", stale.Status, stale.Error, "chat exited")
 	}
 
-	if err := s.SendAs(ctx, "hi", "hi", discard); err != nil {
+	if err := sendAs(ctx, s, "hi", discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(ag.prompts) != 1 || ag.prompts[0] != "hi" {
@@ -281,8 +281,8 @@ func TestSession_Wrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(msgs) != 2 || msgs[0].Author != "user" || msgs[0].Body != "/wrap" {
-		t.Errorf("messages = %+v, want the user message /wrap first", msgs)
+	if len(msgs) != 1 || msgs[0].Author != "architect" {
+		t.Errorf("messages = %+v, want only the agent's reply, no user message", msgs)
 	}
 	if !strings.HasSuffix(ag.prompts[0], _wrapPrompt) {
 		t.Errorf("prompt = %q, want it to end with the wrap prompt", ag.prompts[0])
@@ -323,8 +323,8 @@ func TestSession_Promote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(msgs) != 2 || msgs[0].Author != "user" || msgs[0].Body != "/promote" {
-		t.Errorf("messages = %+v, want the user message /promote first", msgs)
+	if len(msgs) != 1 || msgs[0].Author != "architect" {
+		t.Errorf("messages = %+v, want only the agent's reply, no user message", msgs)
 	}
 	want := `This quick session is now feature "Big idea" (idea). Call the propose_wrap tool once`
 	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], want) {

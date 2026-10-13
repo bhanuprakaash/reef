@@ -34,8 +34,7 @@ var ErrNoProposal = errors.New("no proposal made")
 
 // Session is a channel with a running agent.
 type Session struct {
-	*Runner
-
+	run   *Runner
 	st    *store.Store
 	ag    agent.Agent
 	lock  *os.File
@@ -76,7 +75,10 @@ func open(
 		}
 	}()
 
-	last, err := resumeTurn(ctx, st, channelID)
+	if err := failStaleTurns(ctx, st, channelID); err != nil {
+		return nil, err
+	}
+	last, err := newestSessionTurn(ctx, st, channelID)
 	if err != nil {
 		return nil, err
 	}
@@ -106,19 +108,31 @@ func open(
 	if err != nil {
 		return nil, err
 	}
-	s.Runner = NewRunner(st, ag, channelID, ch.Role, ch.Backend, preamble)
+	s.run = NewRunner(st, ag, channelID, ch.Role, ch.Backend, preamble)
 	return s, nil
 }
 
-// Wrap returns the proposal the agent made in a /wrap turn, or ErrNoProposal.
-func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
-	return s.propose(ctx, WrapCommand, _wrapPrompt, onEvent)
+// SetOnPrompt sets a hook that sees every prompt before it is sent to the agent.
+func (s *Session) SetOnPrompt(f func(prompt string)) { s.run.OnPrompt = f }
+
+// Say stores body as the user message.
+func (s *Session) Say(ctx context.Context, body string) error { return s.run.Say(ctx, body) }
+
+// Run runs one turn with text. A cancelled ctx wraps ctx.Err(); a turn over the tool
+// call cap pauses the channel and wraps ErrCapped.
+func (s *Session) Run(ctx context.Context, text string, onEvent func(agent.Event)) error {
+	return s.run.Run(ctx, text, onEvent)
 }
 
-// Promote returns the proposal the agent made in a /promote turn, or ErrNoProposal.
+// Wrap runs a wrap-up turn and returns the proposal the agent made, or ErrNoProposal.
+func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
+	return s.propose(ctx, _wrapPrompt, onEvent)
+}
+
+// Promote runs a promote turn and returns the proposal the agent made, or ErrNoProposal.
 // The channel must already have its feature.
 func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
-	ch, err := s.st.Channel(ctx, s.channelID)
+	ch, err := s.st.Channel(ctx, s.run.channelID)
 	if err != nil {
 		return store.Proposal{}, err
 	}
@@ -129,20 +143,20 @@ func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store
 	if err != nil {
 		return store.Proposal{}, err
 	}
-	return s.propose(ctx, PromoteCommand, fmt.Sprintf(_promotePrompt, f.Name, f.Slug), onEvent)
+	return s.propose(ctx, fmt.Sprintf(_promotePrompt, f.Name, f.Slug), onEvent)
 }
 
 func (s *Session) propose(
-	ctx context.Context, stored, prompt string, onEvent func(agent.Event),
+	ctx context.Context, prompt string, onEvent func(agent.Event),
 ) (store.Proposal, error) {
-	before, err := s.st.PendingProposal(ctx, s.channelID)
+	before, err := s.st.PendingProposal(ctx, s.run.channelID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, err
 	}
-	if err := s.SendAs(ctx, stored, prompt, onEvent); err != nil {
+	if err := s.run.Run(ctx, prompt, onEvent); err != nil {
 		return store.Proposal{}, err
 	}
-	p, err := s.st.PendingProposal(ctx, s.channelID)
+	p, err := s.st.PendingProposal(ctx, s.run.channelID)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && p.ID == before.ID) {
 		return store.Proposal{}, ErrNoProposal
 	}
@@ -177,19 +191,27 @@ func startPrompt(
 	return Context(ctx, st, *ch.FeatureID, ch.Role)
 }
 
-func resumeTurn(ctx context.Context, st *store.Store, channelID int64) (store.Turn, error) {
+func failStaleTurns(ctx context.Context, st *store.Store, channelID int64) error {
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &channelID, Status: "running"})
+	if err != nil {
+		return err
+	}
+	for _, t := range turns {
+		t.Status, t.Error = "failed", "chat exited"
+		if _, err := st.EndTurn(ctx, t); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func newestSessionTurn(ctx context.Context, st *store.Store, channelID int64) (store.Turn, error) {
 	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &channelID})
 	if err != nil {
 		return store.Turn{}, err
 	}
 	var last store.Turn
 	for _, t := range turns {
-		if t.Status == "running" {
-			t.Status, t.Error = "failed", "chat exited"
-			if _, err := st.EndTurn(ctx, t); err != nil {
-				return store.Turn{}, err
-			}
-		}
 		if t.SessionID != "" {
 			last = t
 		}

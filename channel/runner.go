@@ -15,7 +15,7 @@ const (
 	_toolCap    = 25
 )
 
-// ErrCapped is returned by SendAs when a turn exceeds the tool call cap.
+// ErrCapped is returned by Run when a turn exceeds the tool call cap.
 var ErrCapped = errors.New("capped")
 
 // Runner records one role's exchanges with a started agent in one channel: the
@@ -45,18 +45,18 @@ func NewRunner(
 	}
 }
 
-// SendAs stores stored as the user message and runs one turn with text. A cancelled
-// ctx wraps ctx.Err(); a turn over the tool call cap pauses the channel and wraps
-// ErrCapped.
-func (r *Runner) SendAs(
-	ctx context.Context, stored, text string, onEvent func(agent.Event),
-) error {
-	if _, err := r.st.CreateMessage(ctx, store.Message{
-		ChannelID: r.channelID, Author: _userAuthor, Body: stored,
-	}); err != nil {
-		return err
-	}
-	// From here the turn is recorded even when ctx is cancelled.
+// Say stores body as the user message.
+func (r *Runner) Say(ctx context.Context, body string) error {
+	_, err := r.st.CreateMessage(ctx, store.Message{
+		ChannelID: r.channelID, Author: _userAuthor, Body: body,
+	})
+	return err
+}
+
+// Run runs one turn with text. A cancelled ctx wraps ctx.Err(); a turn over the tool
+// call cap pauses the channel and wraps ErrCapped.
+func (r *Runner) Run(ctx context.Context, text string, onEvent func(agent.Event)) error {
+	// The turn is recorded even when ctx is cancelled.
 	wctx := context.WithoutCancel(ctx)
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
 		ChannelID: r.channelID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
@@ -11,12 +12,14 @@ import (
 
 func TestWrap_RunsWrapTurn(t *testing.T) {
 	env := newLiveEnv(t)
-	sub := subscribe(t, env.url)
-	status, body := do(t, http.MethodPost, env.url+"/channels/1/wrap", "")
+	id := env.featureChannel(t)
+	sub := subscribeTo(t, env.url, id)
+	status, body := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/wrap", env.url, id), "")
 	if status != 202 || body != "" {
 		t.Fatalf("wrap = %d %q, want 202", status, body)
 	}
 	sub.want(t,
+		_idleFrame,
 		`turn {"status":"running"}`,
 		`agent {"kind":"text","text":"wrapped"}`,
 		`turn {"status":"done"}`,
@@ -32,6 +35,7 @@ func TestPromote_NewFeature(t *testing.T) {
 		t.Fatalf("promote = %d %s, want 202 with featureId 1", status, body)
 	}
 	sub.want(t,
+		_idleFrame,
 		`turn {"status":"running"}`,
 		`agent {"kind":"text","text":"promoted"}`,
 		`turn {"status":"done"}`,
@@ -97,6 +101,9 @@ func TestPromote_Errors(t *testing.T) {
 	_, body := do(t, http.MethodGet, env.url+"/channels/1", "")
 	if !strings.Contains(body, `"featureId":null`) {
 		t.Errorf("channel after errors = %s, want featureId null", body)
+	}
+	if got := env.opened.Load(); got != 0 {
+		t.Errorf("sessions opened = %d, want 0: a refused promote does not open the agent", got)
 	}
 }
 

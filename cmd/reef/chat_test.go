@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -20,15 +21,19 @@ type fakeSession struct {
 	propose   bool
 	gate      chan struct{}
 	sent      chan struct{}
+	stored    []string
 	said      []string
 	wraps     int
 }
 
-func (f *fakeSession) SendAs(
-	_ context.Context, stored, _ string, onEvent func(agent.Event),
-) error {
-	f.said = append(f.said, stored)
-	if stored == "cap" {
+func (f *fakeSession) Say(_ context.Context, body string) error {
+	f.stored = append(f.stored, body)
+	return nil
+}
+
+func (f *fakeSession) Run(_ context.Context, text string, onEvent func(agent.Event)) error {
+	f.said = append(f.said, text)
+	if text == "cap" {
 		return fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
 	}
 	onEvent(agent.Event{Kind: agent.KindText, Text: "ok"})
@@ -187,8 +192,9 @@ func TestConverse_Wrap(t *testing.T) {
 				t.Errorf("output = %q, want %q", out, tt.wantExactOut)
 			}
 
-			if w.wraps != 1 || len(w.said) != 0 {
-				t.Errorf("wraps = %d, said = %q, want one wrap and nothing else", w.wraps, w.said)
+			if w.wraps != 1 || len(w.said) != 0 || !slices.Equal(w.stored, []string{"/wrap"}) {
+				t.Errorf("wraps = %d, said = %q, stored = %q, want one wrap, stored as /wrap",
+					w.wraps, w.said, w.stored)
 			}
 			brief, err := st.Brief(ctx, 1)
 			if tt.wantBrief == "" && !errors.Is(err, store.ErrNotFound) ||
@@ -301,8 +307,8 @@ func TestConverse_BlankLineThenMessage(t *testing.T) {
 	c.waitFor(t, "ok")
 	out := c.end(t)
 
-	if len(w.said) != 1 || w.said[0] != "hi" {
-		t.Errorf("said = %q, want [hi]; output %q", w.said, out)
+	if !slices.Equal(w.said, []string{"hi"}) || !slices.Equal(w.stored, []string{"hi"}) {
+		t.Errorf("said = %q, stored = %q, want [hi] for both; output %q", w.said, w.stored, out)
 	}
 }
 

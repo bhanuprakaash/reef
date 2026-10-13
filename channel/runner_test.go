@@ -22,6 +22,18 @@ type fakeAgent struct {
 	prompts []string
 }
 
+type sayRunner interface {
+	Say(ctx context.Context, body string) error
+	Run(ctx context.Context, text string, onEvent func(agent.Event)) error
+}
+
+func sendAs(ctx context.Context, r sayRunner, text string, onEvent func(agent.Event)) error {
+	if err := r.Say(ctx, text); err != nil {
+		return err
+	}
+	return r.Run(ctx, text, onEvent)
+}
+
 func (f *fakeAgent) Start(context.Context, agent.Config) error          { return nil }
 func (f *fakeAgent) Resume(context.Context, agent.Config, string) error { return nil }
 func (f *fakeAgent) Events() <-chan agent.Event                         { return f.events }
@@ -53,7 +65,7 @@ func TestRunner_Send(t *testing.T) {
 
 	var streamed []string
 	for _, text := range []string{"one 1", "two 2"} {
-		err := r.SendAs(ctx, text, text, func(ev agent.Event) {
+		err := sendAs(ctx, r, text, func(ev agent.Event) {
 			if ev.Kind == agent.KindText {
 				streamed = append(streamed, ev.Text)
 			}
@@ -187,7 +199,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			ctx, cancel := context.WithCancel(bg)
 			defer cancel()
 
-			err = r.SendAs(ctx, "hi", "hi", func(ev agent.Event) {
+			err = sendAs(ctx, r, "hi", func(ev agent.Event) {
 				if ev.Kind == tt.cancelOn {
 					cancel()
 				}
@@ -260,7 +272,7 @@ func TestRunner_SendCancelledAfterMessageStoresTurn(t *testing.T) {
 	ctx := &cancelOnDone{Context: bg, done: make(chan struct{})}
 	defer time.AfterFunc(5*time.Second, ctx.cancel).Stop()
 
-	if err := r.SendAs(ctx, "hi", "hi", func(agent.Event) {}); err == nil || err.Error() != "context canceled" {
+	if err := sendAs(ctx, r, "hi", func(agent.Event) {}); err == nil || err.Error() != "context canceled" {
 		t.Fatalf("Send error = %v, want context canceled", err)
 	}
 	msgs, err := st.Messages(bg, ch.ID, 0)
@@ -307,7 +319,7 @@ func TestRunner_SendToolCapIs25(t *testing.T) {
 			}
 			r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
 
-			err = r.SendAs(bg, "hi", "hi", func(agent.Event) {})
+			err = sendAs(bg, r, "hi", func(agent.Event) {})
 			if got := fmt.Sprint(err); (tt.wantErr == "" && err != nil) ||
 				(tt.wantErr != "" && got != tt.wantErr) {
 				t.Errorf("Send error = %v, want %q", err, tt.wantErr)
@@ -333,7 +345,7 @@ func TestRunner_SendCapsToolCalls(t *testing.T) {
 	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
 	r.toolCap = 2
 
-	err = r.SendAs(bg, "hi", "hi", func(agent.Event) {})
+	err = sendAs(bg, r, "hi", func(agent.Event) {})
 	if !errors.Is(err, ErrCapped) || err.Error() != "capped: more than 2 tool calls" {
 		t.Errorf("Send error = %v, want ErrCapped %q", err, "capped: more than 2 tool calls")
 	}

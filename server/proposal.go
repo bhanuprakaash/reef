@@ -27,7 +27,7 @@ func (s *server) wrap(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if err := s.startTurn(r.Context(), id, channel.WrapCommand, nil); err != nil {
+	if err := s.startTurn(r.Context(), id, _wrap, channel.WrapCommand, nil); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -60,16 +60,12 @@ func (s *server) promote(w http.ResponseWriter, r *http.Request) {
 	} else {
 		f.Slug, f.Name = in.Slug, in.Name
 	}
-	ch, err := s.st.Channel(r.Context(), id)
-	if err != nil {
+	if err := s.st.CheckPromote(r.Context(), id, f); err != nil {
 		writeError(w, err)
 		return
 	}
-	if ch.FeatureID != nil {
-		writeError(w, fmt.Errorf("%w: channel %d already has feature %d", store.ErrInvalid, id, *ch.FeatureID))
-		return
-	}
-	err = s.startTurn(r.Context(), id, channel.PromoteCommand, func() error {
+	var ch store.Channel
+	err = s.startTurn(r.Context(), id, _promote, channel.PromoteCommand, func() error {
 		var err error
 		ch, err = s.st.PromoteChannel(r.Context(), id, f)
 		return err
