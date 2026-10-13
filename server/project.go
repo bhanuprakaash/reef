@@ -54,6 +54,14 @@ func (s *server) createProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if in.Path != "" {
+		path, err := store.ResolvePath(in.Path)
+		if err != nil {
+			writeError(w, fmt.Errorf("%w: project path %q: %v", store.ErrInvalid, in.Path, err))
+			return
+		}
+		in.Path = path
+	}
 	p, err := s.st.CreateProject(r.Context(), in)
 	if err != nil {
 		writeError(w, err)
@@ -91,6 +99,14 @@ func (s *server) updateProject(w http.ResponseWriter, r *http.Request) {
 	if err := checkProjectDir(in.Path); err != nil {
 		writeError(w, err)
 		return
+	}
+	if in.Path != "" {
+		path, err := store.ResolvePath(in.Path)
+		if err != nil {
+			writeError(w, fmt.Errorf("%w: project path %q: %v", store.ErrInvalid, in.Path, err))
+			return
+		}
+		in.Path = path
 	}
 	p, err := s.st.UpdateProject(r.Context(), in)
 	if err != nil {
