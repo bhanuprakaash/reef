@@ -159,7 +159,8 @@ func (s *Store) SetTurnSession(ctx context.Context, id int64, sessionID string) 
 
 // FailRunningTurns marks every running turn failed, for turns the last server
 // run left unfinished, and posts one message per affected channel naming them.
-func (s *Store) FailRunningTurns(ctx context.Context) ([]Turn, error) {
+// Turns of a channel for which keep returns true stay running; keep may be nil.
+func (s *Store) FailRunningTurns(ctx context.Context, keep func(channelID int64) bool) ([]Turn, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("fail running turns: %w", err)
@@ -171,9 +172,15 @@ func (s *Store) FailRunningTurns(ctx context.Context) ([]Turn, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list running turns: %w", err)
 	}
-	turns, err := scanAll(rows, scanTurn)
+	running, err := scanAll(rows, scanTurn)
 	if err != nil {
 		return nil, err
+	}
+	var turns []Turn
+	for _, t := range running {
+		if keep == nil || !keep(t.ChannelID) {
+			turns = append(turns, t)
+		}
 	}
 	if len(turns) == 0 {
 		return nil, nil
@@ -181,15 +188,14 @@ func (s *Store) FailRunningTurns(ctx context.Context) ([]Turn, error) {
 
 	now := time.Now().UTC()
 	stamp := now.Format(time.RFC3339Nano)
-	if _, err := tx.ExecContext(ctx,
-		"UPDATE turn SET status = ?, error = ?, ended_at = ? WHERE status = ?",
-		_turnFailed, _restartError, stamp, _turnRunning); err != nil {
-		return nil, fmt.Errorf("fail running turns: %w", err)
-	}
-
 	var names []string
 	for i := range turns {
 		t := &turns[i]
+		if _, err := tx.ExecContext(ctx,
+			"UPDATE turn SET status = ?, error = ?, ended_at = ? WHERE id = ?",
+			_turnFailed, _restartError, stamp, t.ID); err != nil {
+			return nil, fmt.Errorf("fail running turns: %w", err)
+		}
 		t.Status, t.Error, t.EndedAt = _turnFailed, _restartError, &now
 		label := "turn"
 		if len(names) == 0 {
