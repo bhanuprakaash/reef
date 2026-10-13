@@ -57,9 +57,10 @@ Rules for every command:
 
 - `--data DIR` is the data folder, the same as for `reef serve`. Flags can come before or
   after the other arguments.
-- `<feature>` is a feature id (all digits) or a slug. If two projects have a feature with
-  that slug, the command fails with `invalid: feature slug "login" is in projects 1, 3; use
-  the feature id`.
+- `--` ends the flags: every argument after it is positional, even if it starts with `-`.
+- `<feature>` is a feature id (all digits) or a slug. A slug cannot be all digits, so a
+  ref is never both. If two projects have a feature with that slug, the command fails with
+  `invalid: feature slug "login" is in projects 1, 3; use the feature id`.
 - Commands that need a project and get no feature use the project of the current folder:
   the project whose path is the current folder or its nearest parent. If there is none:
   `no reef project for /tmp; run reef project add`.
@@ -92,8 +93,10 @@ Roles are free text for now.
 - A token is 64 hex characters (32 random bytes). It is stored in the `token` table (see
   [server.md](server.md#token)).
 - `reef token` makes one, in a new channel named `<role> (claude code)`. Every start of
-  `reef chat`, new or resumed, makes one for its channel.
-- A token never expires. It goes away only when its channel is deleted.
+  `reef chat`, new or resumed, makes one for its channel, and deletes it when the chat
+  ends. The tokens of `reef token` stay.
+- A token never expires. It goes away when its channel is deleted, or, for a `reef chat`
+  token, when the chat ends.
 - `reef mcp` reads the token from the `REEF_TOKEN` environment variable, not from a flag,
   so it does not show in the process list.
 
@@ -137,9 +140,10 @@ holds a message body. Its shape:
    stage.
 2. `## Brief`: the latest brief, or `No brief yet.`
 3. `## Your notes`: this role's notes, or `No notes yet.`
-4. `## Index`, with `### Decisions` (one line each: id, body, author, date), `###
-   Channels` (one line each: id, name, date, message count) and `### Open tasks` (tasks
-   not `done`). An empty group says `none`.
+4. `## Index`, with `### Decisions` (one line each: id, the first line of the body cut
+   at 100 characters with `…`, author, date), `### Channels` (one line each: id, name,
+   date, message count) and `### Open tasks` (tasks not `done`). An empty group says
+   `none`.
 5. One closing line that names the tools for details.
 
 Example, for a feature with one approved wrap-up:
@@ -185,8 +189,9 @@ so the server can drive it later.
 
 New channel (`<feature> --role R --backend B`):
 
-- It builds the context prompt first, then makes a channel named `N` (default `<role>
-  chat`) on the feature. So the new channel is not in its own index.
+- It checks the backend first, so a typo stores nothing. It builds the context prompt,
+  then makes a channel named `N` (default `<role> chat`) on the feature. So the new
+  channel is not in its own index. If the agent does not start, the channel is deleted.
 - It starts the agent in the project's folder, with one MCP server named `reef`: this
   `reef` binary, `mcp --data <data folder>`, with a new token in `REEF_TOKEN`. Its tools
   need no approval (see [agents.md](agents.md#gotchas)).
@@ -208,6 +213,8 @@ Each turn:
   turn starts `running`, gets the session id, and ends `done` with its token usage. The
   agent's whole reply is stored as one message from the role. A reply with no text stores
   no message.
+- The reply is stored before the turn is marked `done`. If a store write fails during a
+  turn, `reef chat` interrupts the agent and marks the turn `failed` with that error.
 - An agent error ends the turn `failed` with the error text. `reef chat` then exits 1 with
   `reef: agent: <text>`.
 
@@ -232,16 +239,19 @@ Flags:
 
 A channel ends explicitly, never on a timer. The user types `/wrap` in `reef chat`:
 
-1. `reef chat` sends the agent a fixed prompt instead of `/wrap` (stored as the user
-   message). It asks the agent to call `propose_wrap` once, with the full rewritten
-   brief, its own notes on the feature, and the decisions made in this channel that are
-   not recorded yet. Decisions the agent already recorded with `record_decision` are not
-   proposed again.
+1. `reef chat` sends the agent a fixed prompt instead of `/wrap`. The stored user message
+   is still `/wrap`. The prompt asks the agent to call `propose_wrap` once, with the full
+   rewritten brief, its own notes on the feature, and the decisions made in this channel
+   that are not recorded yet. Decisions the agent already recorded with `record_decision`
+   are not proposed again.
 2. `propose_wrap` stores a `pending` proposal (see [server.md](server.md#proposal)).
 3. After the turn, `reef chat` looks for a pending proposal of this channel that is newer
    than the one pending before `/wrap`. With none, it prints `no proposal made`.
 4. Otherwise it prints the proposal: brief, notes and decisions, then `approve? [y/N]`.
-5. The next line decides. `y` or `yes` (any case) approves. Anything else rejects.
+5. The next line decides. `y` or `yes` (any case) approves. Anything else rejects. Lines
+   typed while the agent was still wrapping are not the answer: it prints `ignored while
+   wrapping: <line>` for each, before `approve? [y/N]`. If stdin ends at the prompt, the
+   proposal stays `pending` and it prints `proposal 1 left pending`.
 
 Approve applies everything in one transaction:
 
