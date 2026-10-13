@@ -16,6 +16,7 @@ import (
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/agent/claude"
+	"github.com/bhanuprakaash/reef/agent/codex"
 )
 
 const _usage = `usage: reef-agent --backend claude|codex [--cwd DIR] [--resume ID]
@@ -42,7 +43,7 @@ func newAgent(backend string) (agent.Agent, error) {
 	case "claude":
 		return claude.New(), nil
 	case "codex":
-		return nil, fmt.Errorf("backend %s not built yet", backend)
+		return codex.New(), nil
 	default:
 		return nil, fmt.Errorf("unknown backend %q", backend)
 	}
