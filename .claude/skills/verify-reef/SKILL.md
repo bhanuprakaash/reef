@@ -161,7 +161,7 @@ feature file first.
 REEF_VERIFY_RUN=<id> $H reef --data-name cli -- project add
 REEF_VERIFY_RUN=<id> $H reef -- decide login "Use sessions, not JWT"
 REEF_TOKEN=<token> REEF_VERIFY_RUN=<id> $H mcp-call record_decision '{"body":"Rate limit by IP"}'
-ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/chat-in.txt --timeout 300 \
+ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/in.fifo --timeout 300 \
   -- chat login --role developer --backend claude
 ```
 

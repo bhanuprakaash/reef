@@ -78,7 +78,7 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 | --- | --- | --- |
 | `id` | number | |
 | `projectId` | number | required on create; never changes. Deleting the project deletes the feature |
-| `slug` | string | required; lowercase letters, digits and `-`, not starting with `-` (`^[a-z0-9][a-z0-9-]*$`), because it becomes a branch and folder name; unique within the project (409 if taken); fixed after create, a slug in a `PUT` body is ignored |
+| `slug` | string | required; lowercase letters, digits and `-`, not starting with `-` (`^[a-z0-9][a-z0-9-]*$`) and not only digits (`invalid: feature slug "2024" must contain a letter or -`), because it becomes a branch and folder name and a digit-only `<feature>` ref means an id; unique within the project (409 if taken); fixed after create, a slug in a `PUT` body is ignored |
 | `name` | string | required |
 | `goal` | string | default `""` |
 | `stage` | string | default `ideation`; not checked against a list |
@@ -174,7 +174,8 @@ The list is global. A task belongs to a project and may name a feature.
 ### token
 
 Lets one teammate's `reef mcp` act as one role in one channel. No REST route: `reef
-token` and `reef chat` make them, `reef mcp` reads them. See [memory.md](memory.md#tokens).
+token` and `reef chat` make them, `reef mcp` reads them, and `reef chat` deletes its own
+when it ends. See [memory.md](memory.md#tokens).
 
 | Field | JSON | Notes |
 | --- | --- | --- |
