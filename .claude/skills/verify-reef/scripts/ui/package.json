@@ -1,0 +1,8 @@
+{
+  "name": "verify-reef-ui",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "playwright-core": "1.64.0"
+  }
+}

@@ -1,11 +1,11 @@
 ---
 name: verify-reef
-description: Drive Reef's real surfaces and capture proof. reef-agent (the agent adapters over the claude and codex backends) gives event JSON lines, exit codes and process checks; reef serve (the data server) gives REST calls, SQLite rows, locks and crash recovery; the reef CLI, reef mcp and reef chat (the memory loop) give command output, MCP tool results, chat turns, wrap-up and SQLite rows. Use to verify a ticket or slice acceptance line, to re-check after a change in agent/, cmd/reef-agent, cmd/reef, channel/, server/ or store/, or when asked "does reef-agent / reef serve / reef chat still work". Later slices add the UI; this map grows with them.
+description: Drive Reef's real surfaces and capture proof. reef-agent (the agent adapters over the claude and codex backends) gives event JSON lines, exit codes and process checks; reef serve (the data server) gives REST calls, SQLite rows, locks and crash recovery; the reef CLI, reef mcp and reef chat (the memory loop) give command output, MCP tool results, chat turns, wrap-up and SQLite rows. Use to verify a ticket or slice acceptance line, to re-check after a change in agent/, cmd/reef-agent, cmd/reef, channel/, server/ or store/, or when asked "does reef-agent / reef serve / reef chat still work". The window (the web UI) is driven in Chrome through `verify-reef ui`. Later slices add the Mac shell; this map grows with them.
 ---
 
 # Verify Reef
 
-Three user surfaces exist so far:
+Four user surfaces exist so far:
 
 - `reef-agent` (`cmd/reef-agent`) runs one backend (`claude` or `codex`) and prints one JSON
   `Event` per line. Contract: `docs/agents.md`.
@@ -14,9 +14,10 @@ Three user surfaces exist so far:
 - The memory loop (`cmd/reef`): the CLI (`reef project`, `feature`, `brief`, `decide`,
   `task`, `context`, `token`), `reef mcp` (stdio MCP tools for one teammate) and `reef
   chat` (one role in one channel, in the terminal). Contract: `docs/memory.md`.
+- The window: the React app `reef serve` serves (`web/`). Contract: `docs/server.md` (Web UI).
 
-The UI and the Mac shell do not exist yet. When a later slice adds one, add its Launch,
-Drive and feature files here. The feature map is in
+The Mac shell does not exist yet. When a later slice adds it, add its Launch, Drive and
+feature files here. The feature map is in
 [`features/README.md`](features/README.md). Read the matching feature file before a run.
 
 All commands below run from the repo root. `H=.claude/skills/verify-reef/scripts/verify-reef`.
@@ -194,6 +195,46 @@ Rules:
   lines of the feature file.
 - Quote `reef.log` and `reef-mcp.log` lines as proof, plus the `sql.log` rows for side effects.
 
+## Window
+
+The window is driven in the system Chrome (`/Applications/Google Chrome.app`) with
+`playwright-core` (no browser download), by `scripts/ui/drive.mjs`. It needs a running
+server, so launch as in Server. Read `features/window.md` first.
+
+Launch: build the web app first, because `build` embeds `web/dist` in `reef` (a missing build
+shows 503 `UI not built`). Start the server with the model set: it starts the `claude` agents.
+
+```sh
+(cd web && npm ci && npm run build)
+id=$($H build)
+REEF_VERIFY_RUN=$id $H doctor
+ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=$id $H serve-start --data-name ui
+```
+
+Drive: one scenario per call. The first call runs `npm ci` in `scripts/ui`.
+
+```sh
+REEF_VERIFY_RUN=<id> $H ui live      # claude channel on a feature, tool rows mid-turn, stored reply
+REEF_VERIFY_RUN=<id> $H ui brief     # new channel on a feature with a brief, ask the goal
+REEF_VERIFY_RUN=<id> $H ui promote   # quick session, two exchanges, promote, approve, brief version 1
+REEF_VERIFY_RUN=<id> $H ui cap       # token_budget=1, banner with reason, Continue, next message runs
+```
+
+`ui` runs `node scripts/ui/drive.mjs SCENARIO http://<serve.addr>` with the run's data folder, the
+scratch cwd as the project folder and `~/.reef-verify/<id>/ui` for screenshots. Each scenario adds
+its own project through the form, so any order works on one server. Without the helper, set
+`REEF_UI_DATA` (data folder, for `sqlite3`), `REEF_UI_PROJECT` and `REEF_UI_PROOF`, then
+`node .claude/skills/verify-reef/scripts/ui/drive.mjs SCENARIO BASE_URL`.
+
+Proof: `PASS <scenario>: ...` and `FAIL ...` lines (exit 1 on any `FAIL`), screenshots
+`ui/<scenario>-<step>.png` that you open and look at, and `$H sql` rows (`message`, `turn`, `brief`,
+`proposal`, `channel`).
+
+Rules:
+- Real `claude` on sonnet only; every scenario costs a few turns. Run each once.
+- Never drive a server this run did not start.
+- A `FAIL` is a finding only after you have opened its screenshot.
+
 ## Evidence
 
 Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches it.
@@ -214,6 +255,7 @@ Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches 
 | `serve-second.log` | each `serve-second`: addr, data, exit code, stderr, verdict |
 | `reef.log` | every `reef` call: `--- reef` and the exact args with `--data DIR`, cwd and stdin, `out:` and `err:` lines, the `feed:` line with `--answer` or `--sigint-at-prompt`, then `exit:`, `elapsed_s`, `sigint_after_s`, `children`, `orphans_alive` |
 | `reef-mcp.log` | every `mcp-call`: `> TOOL JSON`, `tools:`, `< isError=...` result, `reef mcp exit:`, stderr |
+| `ui-<scenario>.log`, `ui/<scenario>-<step>.png` | the `PASS`/`FAIL` lines of each `ui` run, and its screenshots |
 
 Proof standards:
 - Drive the real binary against the real `claude` and `codex`. The fake binaries in
@@ -262,4 +304,5 @@ in `~/.codex/sessions`; cleanup leaves them.
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
+| `ui live\|brief\|promote\|cap` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |
