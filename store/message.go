@@ -54,6 +54,20 @@ func (s *Store) Messages(ctx context.Context, channelID, after int64) ([]Message
 	return scanAll(rows, scanMessage)
 }
 
+// CountMessages returns how many messages the channel has.
+func (s *Store) CountMessages(ctx context.Context, channelID int64) (int, error) {
+	if err := s.requireChannel(ctx, channelID); err != nil {
+		return 0, err
+	}
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM message WHERE channel_id = ?", channelID).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("count messages: %w", err)
+	}
+	return n, nil
+}
+
 func scanMessage(r interface{ Scan(...any) error }) (Message, error) {
 	var m Message
 	var created string
