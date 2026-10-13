@@ -117,8 +117,10 @@ func open(
 // SetOnPrompt sets a hook that sees every prompt before it is sent to the agent.
 func (s *Session) SetOnPrompt(f func(prompt string)) { s.run.OnPrompt = f }
 
-// Say stores body as the user message.
-func (s *Session) Say(ctx context.Context, body string) error { return s.run.Say(ctx, body) }
+// Say stores body as the user message, a reply in the thread of parent when it is set.
+func (s *Session) Say(ctx context.Context, body string, parent *int64) error {
+	return s.run.Say(ctx, body, parent)
+}
 
 // Run runs one turn with text. A cancelled ctx wraps ctx.Err(); a turn over the tool
 // call cap pauses the channel and wraps ErrCapped.

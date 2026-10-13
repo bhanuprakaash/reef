@@ -44,6 +44,7 @@ type (
 	threadIn struct {
 		ChannelID int64 `json:"channelId" jsonschema:"channel id, from search_sessions"`
 		After     int64 `json:"after,omitempty" jsonschema:"only messages with a larger id"`
+		Root      int64 `json:"root,omitempty" jsonschema:"id of a top-level message: read it and its replies instead; after is ignored"`
 	}
 	threadOut struct {
 		Messages []store.Message `json:"messages"`
@@ -88,8 +89,9 @@ func NewMCP(st *store.Store, tok store.Token) *mcp.Server {
 		Description: "Read one decision of this feature in full.",
 	}, m.readDecision)
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "read_thread",
-		Description: "Read the messages of one of this feature's channels, oldest first.",
+		Name: "read_thread",
+		Description: "Read the messages of one of this feature's channels, oldest first. " +
+			"Give root, a top-level message id, to read just that message and its replies.",
 	}, m.readThread)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_wrap",
@@ -204,6 +206,10 @@ func (m *mcpServer) readThread(
 	}
 	if c.FeatureID == nil || *c.FeatureID != f.ID {
 		return nil, threadOut{}, fmt.Errorf("channel %d: %w", in.ChannelID, store.ErrNotFound)
+	}
+	if in.Root != 0 {
+		msgs, err := m.st.Thread(ctx, c.ID, in.Root)
+		return nil, threadOut{Messages: msgs}, err
 	}
 	msgs, err := m.st.Messages(ctx, c.ID, in.After)
 	return nil, threadOut{Messages: msgs}, err

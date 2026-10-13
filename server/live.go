@@ -22,7 +22,7 @@ const _keepAlive = 15 * time.Second
 var errStopping = errors.New("server is stopping")
 
 type session interface {
-	Say(ctx context.Context, body string) error
+	Say(ctx context.Context, body string, parent *int64) error
 	Run(ctx context.Context, text string, onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 	Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
@@ -114,7 +114,8 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Text string `json:"text"`
+		Text   string `json:"text"`
+		Parent *int64 `json:"parent"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
@@ -128,18 +129,19 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 	if in.Text == channel.WrapCommand {
 		kind = _wrap
 	}
-	if err := s.startTurn(r.Context(), id, kind, in.Text, nil); err != nil {
+	if err := s.startTurn(r.Context(), id, kind, in.Text, in.Parent, nil); err != nil {
 		writeError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// startTurn stores text as the user message, then starts the turn in the background. It
-// runs prepare, when set, once the agent is open; if it fails no turn starts. A stop that
-// arrives before the turn runs cancels it.
+// startTurn stores text as the user message, a reply in the thread of parent when it is
+// set, then starts the turn in the background. It runs prepare, when set, once the agent
+// is open; if it fails no turn starts. A stop that arrives before the turn runs cancels it.
 func (s *server) startTurn(
-	ctx context.Context, id int64, kind turnKind, text string, prepare func() error,
+	ctx context.Context, id int64, kind turnKind, text string, parent *int64,
+	prepare func() error,
 ) error {
 	if !s.begin() {
 		return errStopping
@@ -190,7 +192,7 @@ func (s *server) startTurn(
 			return giveUp(err)
 		}
 	}
-	if err := sess.Say(ctx, text); err != nil {
+	if err := sess.Say(ctx, text, parent); err != nil {
 		return giveUp(err)
 	}
 	l.mu.Lock()

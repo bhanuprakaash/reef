@@ -26,7 +26,7 @@ type fakeSession struct {
 	wraps     int
 }
 
-func (f *fakeSession) Say(_ context.Context, body string) error {
+func (f *fakeSession) Say(_ context.Context, body string, _ *int64) error {
 	f.stored = append(f.stored, body)
 	return nil
 }

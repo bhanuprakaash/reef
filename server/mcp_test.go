@@ -52,6 +52,7 @@ func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 		{ChannelID: 1, Author: "user", Body: "use sessions for auth"},
 		{ChannelID: 2, Author: "developer", Body: "100% sure, use_sessions"},
 		{ChannelID: 3, Author: "user", Body: "use sessions for billing"},
+		{ChannelID: 2, ParentID: &two, Author: "architect", Body: "agreed"},
 	} {
 		_, err = st.CreateMessage(ctx, m)
 		must(err)
@@ -162,9 +163,25 @@ func TestMCPTools(t *testing.T) {
 		{
 			name: "read thread after an id",
 			tool: "read_thread",
-			give: map[string]any{"channelId": 2, "after": 1},
+			give: map[string]any{"channelId": 2, "after": 2},
+			want: `{"messages":[{"author":"architect","body":"agreed","channelId":2,` +
+				`"createdAt":"T","id":4,"parentId":2}]}`,
+		},
+		{
+			name: "read thread of a root",
+			tool: "read_thread",
+			give: map[string]any{"channelId": 2, "root": 2},
 			want: `{"messages":[{"author":"developer","body":"100% sure, use_sessions",` +
-				`"channelId":2,"createdAt":"T","id":2}]}`,
+				`"channelId":2,"createdAt":"T","id":2,"parentId":null},` +
+				`{"author":"architect","body":"agreed","channelId":2,"createdAt":"T","id":4,` +
+				`"parentId":2}]}`,
+		},
+		{
+			name:    "read thread of a reply",
+			tool:    "read_thread",
+			give:    map[string]any{"channelId": 2, "root": 4},
+			want:    "thread 4: not found",
+			wantErr: true,
 		},
 		{
 			name:    "read another feature's thread",

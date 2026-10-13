@@ -32,9 +32,9 @@ type fakeSession struct {
 	ran []string
 }
 
-func (f *fakeSession) Say(ctx context.Context, body string) error {
+func (f *fakeSession) Say(ctx context.Context, body string, parent *int64) error {
 	_, err := f.st.CreateMessage(ctx, store.Message{
-		ChannelID: f.channelID.Load(), Author: "user", Body: body,
+		ChannelID: f.channelID.Load(), ParentID: parent, Author: "user", Body: body,
 	})
 	return err
 }
@@ -234,6 +234,34 @@ func TestSend_Streams(t *testing.T) {
 	)
 	if got := env.opened.Load(); got != 1 {
 		t.Errorf("sessions opened = %d, want 1: the agent stays alive between turns", got)
+	}
+}
+
+func TestSend_Parent(t *testing.T) {
+	env := newLiveEnv(t)
+	sub := subscribe(t, env.url)
+	sub.want(t, _idleFrame)
+	send := func(body string) int {
+		status, _ := do(t, http.MethodPost, env.url+"/channels/1/send", body)
+		if status == 202 {
+			sub.want(t, `turn {"status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+				`turn {"status":"done"}`)
+		}
+		return status
+	}
+	if status := send(`{"text":"root"}`); status != 202 {
+		t.Fatalf("send = %d, want 202", status)
+	}
+	if status := send(`{"text":"reply","parent":1}`); status != 202 {
+		t.Fatalf("send with parent = %d, want 202", status)
+	}
+	if status := send(`{"text":"deeper","parent":2}`); status != 400 {
+		t.Errorf("send to a reply = %d, want 400", status)
+	}
+	_, body := do(t, http.MethodGet, env.url+"/messages?channel=1", "")
+	if !strings.Contains(body, `"parentId":null`) || !strings.Contains(body, `"parentId":1`) ||
+		strings.Contains(body, "deeper") {
+		t.Errorf("messages = %s, want root with null parentId and one reply with 1", body)
 	}
 }
 
