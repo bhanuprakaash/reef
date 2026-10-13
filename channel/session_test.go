@@ -345,6 +345,53 @@ func TestSession_RunAsRoleAppliedAfterOpen(t *testing.T) {
 	}
 }
 
+func TestSession_RunAsRoleChangedBackend(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
+	architect := store.Role{Name: "architect", Backend: "claude", Persona: "You design."}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	var backends []string
+	mk := func(backend string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		backends = append(backends, backend)
+		return ag, nil
+	}
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.RunAs(ctx, "architect", "plan it", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+
+	architect.Backend = "codex"
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunAs(ctx, "architect", "again", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(ags) != 2 || backends[1] != "codex" || !ags[1].started || ags[1].resumed != "" ||
+		!strings.HasPrefix(ags[1].prompts[0], "You design.") {
+		t.Errorf("second architect: backend %q, started = %v, resumed = %q, prompts = %q, "+
+			"want codex, started fresh with the start prompt", backends[1], ags[1].started,
+			ags[1].resumed, ags[1].prompts)
+	}
+}
+
 func TestOpen_Errors(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
