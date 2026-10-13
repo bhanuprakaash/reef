@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -64,6 +66,35 @@ func (s *Store) Feature(ctx context.Context, id int64) (Feature, error) {
 		return Feature{}, fmt.Errorf("feature %d: %w", id, ErrNotFound)
 	}
 	return f, err
+}
+
+// FeatureByRef returns the feature that ref names: a feature id when ref is all
+// digits, else a slug. A slug used in more than one project is ErrInvalid.
+func (s *Store) FeatureByRef(ctx context.Context, ref string) (Feature, error) {
+	if id, err := strconv.ParseUint(ref, 10, 63); err == nil {
+		return s.Feature(ctx, int64(id))
+	}
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT "+_featureCols+" FROM feature WHERE slug = ? ORDER BY id", ref)
+	if err != nil {
+		return Feature{}, fmt.Errorf("find feature: %w", err)
+	}
+	found, err := scanAll(rows, scanFeature)
+	if err != nil {
+		return Feature{}, fmt.Errorf("find feature: %w", err)
+	}
+	switch len(found) {
+	case 0:
+		return Feature{}, fmt.Errorf("feature %q: %w", ref, ErrNotFound)
+	case 1:
+		return found[0], nil
+	}
+	projects := make([]string, 0, len(found))
+	for _, f := range found {
+		projects = append(projects, strconv.FormatInt(f.ProjectID, 10))
+	}
+	return Feature{}, fmt.Errorf("%w: feature slug %q is in projects %s; use the feature id",
+		ErrInvalid, ref, strings.Join(projects, ", "))
 }
 
 // Features lists features by id, only those of projectID when it is not nil.

@@ -1,4 +1,4 @@
-// Command reef runs the Reef server.
+// Command reef runs the Reef server and its command line.
 package main
 
 import (
@@ -21,7 +21,16 @@ import (
 )
 
 const (
-	_usage             = "usage: reef serve [--addr 127.0.0.1:7700] [--data DIR]"
+	_usage = `usage: reef <command> [args] [--data DIR]
+commands:
+  serve [--addr 127.0.0.1:7700]
+  project add [--name N]
+  feature add <slug> <name> [--goal G]
+  brief <feature>
+  decide <feature> "<body>" [--why W]
+  task add [<feature>] "<title>"
+  task list [<feature>] [--status S]`
+	_serveUsage        = "usage: reef serve [--addr 127.0.0.1:7700] [--data DIR]"
 	_defaultAddr       = "127.0.0.1:7700"
 	_shutdownTimeout   = time.Second
 	_readHeaderTimeout = 10 * time.Second
@@ -29,7 +38,7 @@ const (
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	err := run(ctx, os.Args[1:], os.Stderr)
+	err := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
 	stop()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reef:", err)
@@ -37,38 +46,53 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, args []string, logOut io.Writer) error {
-	if len(args) == 0 || args[0] != "serve" {
+func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+	if len(args) == 0 {
 		return errors.New(_usage)
 	}
+	switch args[0] {
+	case "serve":
+		return serve(ctx, args[1:], stderr)
+	case "project":
+		return projectCmd(ctx, args[1:], stdout)
+	case "feature":
+		return featureCmd(ctx, args[1:], stdout)
+	case "brief":
+		return briefCmd(ctx, args[1:], stdout)
+	case "decide":
+		return decideCmd(ctx, args[1:], stdout)
+	case "task":
+		return taskCmd(ctx, args[1:], stdout)
+	}
+	return errors.New(_usage)
+}
+
+func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	fs := flag.NewFlagSet("reef serve", flag.ContinueOnError)
 	fs.SetOutput(io.Discard)
 	addr := fs.String("addr", _defaultAddr, "")
-	data := fs.String("data", "", "")
-	if err := fs.Parse(args[1:]); err != nil {
-		return fmt.Errorf("%w\n%s", err, _usage)
+	flagData := fs.String("data", "", "")
+	if err := fs.Parse(args); err != nil {
+		return fmt.Errorf("%w\n%s", err, _serveUsage)
 	}
 	if fs.NArg() != 0 {
-		return errors.New(_usage)
+		return errors.New(_serveUsage)
 	}
 	if err := requireLoopback(*addr); err != nil {
 		return err
 	}
-	if *data == "" {
-		dir, err := os.UserConfigDir()
-		if err != nil {
-			return fmt.Errorf("find data dir: %w", err)
-		}
-		*data = filepath.Join(dir, "Reef")
+	data, err := dataDir(*flagData)
+	if err != nil {
+		return err
 	}
 
-	lock, err := lockDataDir(*data)
+	lock, err := lockDataDir(data)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = lock.Close() }()
 
-	st, err := store.Open(*data)
+	st, err := store.Open(data)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
@@ -89,7 +113,7 @@ func run(ctx context.Context, args []string, logOut io.Writer) error {
 	}
 
 	srv := &http.Server{Handler: server.New(st), ReadHeaderTimeout: _readHeaderTimeout}
-	logger.Printf("listening on %s, data in %s", ln.Addr(), *data)
+	logger.Printf("listening on %s, data in %s", ln.Addr(), data)
 
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
@@ -111,6 +135,19 @@ func run(ctx context.Context, args []string, logOut io.Writer) error {
 		return fmt.Errorf("shutdown: %w", shutErr)
 	}
 	return nil
+}
+
+// dataDir is the --data value, or Reef's folder in the user's config folder when
+// it is empty.
+func dataDir(flagValue string) (string, error) {
+	if flagValue != "" {
+		return flagValue, nil
+	}
+	dir, err := os.UserConfigDir()
+	if err != nil {
+		return "", fmt.Errorf("find data dir: %w", err)
+	}
+	return filepath.Join(dir, "Reef"), nil
 }
 
 // lockDataDir takes the data folder's lock until the returned file is closed, so
