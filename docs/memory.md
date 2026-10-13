@@ -250,18 +250,21 @@ A channel ends explicitly, never on a timer. The user types `/wrap` in `reef cha
 4. Otherwise it prints the proposal: brief, notes and decisions, then `approve? [y/N]`.
 5. The next line decides. `y` or `yes` (any case) approves. Anything else rejects. Lines
    typed while the agent was still wrapping are not the answer: it prints `ignored while
-   wrapping: <line>` for each, before `approve? [y/N]`. If stdin ends at the prompt, the
-   proposal stays `pending` and it prints `proposal 1 left pending`.
+   wrapping: <line>` for each, before `approve? [y/N]`. If stdin ends at the prompt, or
+   the user presses Ctrl-C there, the proposal stays `pending` and it prints `proposal 1
+   left pending`. After Ctrl-C it then prints the resume line and exits 0.
 
 Approve applies everything in one transaction:
 
 - a new brief version, with the role as author,
 - the role's notes, replacing the old ones,
-- each proposed decision, with the role as author and no source message,
+- each proposed decision, with the role as author and no source message. A decision whose
+  body is exactly the body of one the feature already has is skipped, so a decision the
+  agent recorded live is not saved twice. A repeat inside the proposal is skipped too,
 - the proposal marked `approved`, with `decidedAt`.
 
 If any step fails, nothing is applied. It prints `approved: brief, notes and 1 decisions
-saved`.
+saved`, counting only the decisions it added.
 
 Reject marks the proposal `rejected` and changes nothing else: `rejected: nothing
 changed`. To change a proposal, reject it, tell the agent what to change, and type
