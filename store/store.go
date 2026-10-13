@@ -76,7 +76,7 @@ func Open(dir string) (*Store, error) {
 	return &Store{db: db}, nil
 }
 
-// Close closes the database.
+// Close closes this process's handle on the database file.
 func (s *Store) Close() error {
 	return s.db.Close()
 }

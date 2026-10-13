@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// The statuses of a Proposal.
+// Proposal statuses. Only a pending proposal can be approved or rejected.
 const (
 	ProposalPending  = "pending"
 	ProposalApproved = "approved"
@@ -18,7 +18,7 @@ const (
 
 const _proposalCols = "id, channel_id, role, brief, notes, decisions, status, created_at, decided_at"
 
-// ProposedDecision is a decision a proposal would record.
+// ProposedDecision is a decision that approving its proposal records.
 type ProposedDecision struct {
 	Body string `json:"body"`
 	Why  string `json:"why"`
@@ -80,11 +80,6 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 	}
 	p.ID, p.Status, p.CreatedAt = id, ProposalPending, now
 	return p, nil
-}
-
-// Proposal returns the proposal with the id, or ErrNotFound.
-func (s *Store) Proposal(ctx context.Context, id int64) (Proposal, error) {
-	return getProposal(ctx, s.db, id)
 }
 
 // PendingProposal returns the channel's newest pending proposal, or ErrNotFound.
@@ -173,7 +168,6 @@ func pendingProposal(ctx context.Context, q rowQuerier, id int64) (Proposal, err
 	return p, nil
 }
 
-// decideProposal sets p's status and commits tx.
 func decideProposal(
 	ctx context.Context, tx *sql.Tx, p Proposal, status string, at time.Time,
 ) (Proposal, error) {

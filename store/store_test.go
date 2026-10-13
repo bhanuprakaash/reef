@@ -190,7 +190,7 @@ func TestIDsNotReused(t *testing.T) {
 		t.Fatal(err)
 	}
 	if p.ID != 2 {
-		t.Errorf("id after deleting project 1 = %d, want 3", p.ID)
+		t.Errorf("id after deleting project 1 = %d, want 2", p.ID)
 	}
 }
 

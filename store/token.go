@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -21,15 +20,7 @@ type Token struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// MessageHit is one message that matched a search.
-type MessageHit struct {
-	ChannelID int64  `json:"channelId"`
-	MessageID int64  `json:"messageId"`
-	Author    string `json:"author"`
-	Snippet   string `json:"snippet"`
-}
-
-// CreateToken adds a token for role in the channel.
+// CreateToken adds a token. It never expires; it goes when its channel is deleted.
 func (s *Store) CreateToken(ctx context.Context, channelID int64, role string) (Token, error) {
 	if role == "" {
 		return Token{}, fmt.Errorf("%w: token role is required", ErrInvalid)
@@ -52,7 +43,7 @@ func (s *Store) CreateToken(ctx context.Context, channelID int64, role string) (
 	return t, nil
 }
 
-// Token returns the token with the value, or ErrNotFound.
+// Token looks a token up by its value, or returns ErrNotFound.
 func (s *Store) Token(ctx context.Context, value string) (Token, error) {
 	t := Token{Token: value}
 	var created string
@@ -71,7 +62,7 @@ func (s *Store) Token(ctx context.Context, value string) (Token, error) {
 	return t, nil
 }
 
-// DeleteToken removes the token with the value, or returns ErrNotFound.
+// DeleteToken revokes the token, or returns ErrNotFound when it is gone.
 func (s *Store) DeleteToken(ctx context.Context, value string) error {
 	res, err := s.db.ExecContext(ctx, "DELETE FROM token WHERE token = ?", value)
 	if err != nil {
@@ -85,28 +76,4 @@ func (s *Store) DeleteToken(ctx context.Context, value string) error {
 		return fmt.Errorf("token: %w", ErrNotFound)
 	}
 	return nil
-}
-
-// SearchMessages finds messages in the feature's channels whose body contains
-// query, ignoring ASCII case, newest first. A hit's snippet is about 120
-// characters of the body around the match.
-func (s *Store) SearchMessages(
-	ctx context.Context, featureID int64, query string, limit int,
-) ([]MessageHit, error) {
-	like := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
-	rows, err := s.db.QueryContext(ctx,
-		`SELECT m.channel_id, m.id, m.author,
-		  substr(m.body, max(instr(lower(m.body), lower(?)) - 40, 1), 120)
-		FROM message m JOIN channel c ON c.id = m.channel_id
-		WHERE c.feature_id = ? AND m.body LIKE '%' || ? || '%' ESCAPE '\'
-		ORDER BY m.id DESC LIMIT ?`,
-		query, featureID, like, limit)
-	if err != nil {
-		return nil, fmt.Errorf("search messages: %w", err)
-	}
-	return scanAll(rows, func(r interface{ Scan(...any) error }) (MessageHit, error) {
-		var h MessageHit
-		err := r.Scan(&h.ChannelID, &h.MessageID, &h.Author, &h.Snippet)
-		return h, err
-	})
 }

@@ -338,24 +338,11 @@ func chatLockPath(dir string, channelID int64) string {
 	return filepath.Join(dir, fmt.Sprintf("chat-%d.lock", channelID))
 }
 
-// lockChat holds the channel's chat lock until the returned file is closed, so
-// only one reef chat runs on a channel.
 func lockChat(dir string, channelID int64) (*os.File, error) {
-	lock, err := os.OpenFile(chatLockPath(dir, channelID), os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		return nil, fmt.Errorf("open chat lock: %w", err)
-	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = lock.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, fmt.Errorf("channel %d is open in another reef chat", channelID)
-		}
-		return nil, fmt.Errorf("lock chat: %w", err)
-	}
-	return lock, nil
+	return flock(chatLockPath(dir, channelID),
+		fmt.Errorf("channel %d is open in another reef chat", channelID))
 }
 
-// chatOpen reports whether a reef chat holds the channel's lock.
 func chatOpen(dir string, channelID int64) bool {
 	lock, err := os.Open(chatLockPath(dir, channelID))
 	if err != nil {
