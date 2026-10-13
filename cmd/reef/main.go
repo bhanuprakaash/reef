@@ -51,6 +51,9 @@ func run(ctx context.Context, args []string, logOut io.Writer) error {
 	if fs.NArg() != 0 {
 		return errors.New(_usage)
 	}
+	if err := requireLoopback(*addr); err != nil {
+		return err
+	}
 	if *data == "" {
 		dir, err := os.UserConfigDir()
 		if err != nil {
@@ -91,8 +94,32 @@ func run(ctx context.Context, args []string, logOut io.Writer) error {
 	}
 	shutCtx, cancel := context.WithTimeout(context.Background(), _shutdownTimeout)
 	defer cancel()
-	if err := srv.Shutdown(shutCtx); err != nil {
-		return fmt.Errorf("shutdown: %w", err)
+	shutErr := srv.Shutdown(shutCtx)
+	if shutErr != nil {
+		_ = srv.Close()
+	}
+	if err := <-served; !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	if shutErr != nil {
+		return fmt.Errorf("shutdown: %w", shutErr)
+	}
+	return nil
+}
+
+// requireLoopback refuses an addr that other machines could reach, since the
+// API has no login. An empty host binds every interface.
+func requireLoopback(addr string) error {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return fmt.Errorf("bad --addr %q: %w", addr, err)
+	}
+	if host == "localhost" {
+		return nil
+	}
+	if ip := net.ParseIP(host); ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("--addr %q is not a loopback address; use localhost, 127.0.0.1 or [::1]",
+			addr)
 	}
 	return nil
 }

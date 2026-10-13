@@ -220,7 +220,7 @@ cmd_mcp_server() {
 	dir="$SCR/mcp"
 	mkdir -p "$dir"
 	cat >"$dir/server.py" <<'EOF'
-import json, sys
+import json, subprocess, sys
 log = open(sys.argv[1], "a")
 def send(m):
     sys.stdout.write(json.dumps(m) + "\n"); sys.stdout.flush()
@@ -235,9 +235,11 @@ for line in sys.stdin:
     if meth == "initialize":
         send({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": m["params"].get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "vping", "version": "0"}}})
     elif meth == "tools/list":
-        send({"jsonrpc": "2.0", "id": mid, "result": {"tools": [{"name": "secret_word", "description": "Returns the secret word.", "inputSchema": {"type": "object", "properties": {}}}]}})
+        send({"jsonrpc": "2.0", "id": mid, "result": {"tools": [{"name": "secret_word", "description": "Returns the secret word.", "inputSchema": {"type": "object", "properties": {}}}, {"name": "sleep_60", "description": "Runs sleep 60 and waits for it.", "inputSchema": {"type": "object", "properties": {}}}]}})
     elif meth == "tools/call":
         log.write(json.dumps({"call": m["params"].get("name")}) + "\n"); log.flush()
+        if m["params"].get("name") == "sleep_60":
+            subprocess.run(["sleep", "60"])
         send({"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text": "kumquat-4417"}]}})
     else:
         send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "method not found"}})
@@ -248,7 +250,6 @@ EOF
 	echo "$dir/mcp.json"
 }
 
-# free_port: a free 127.0.0.1 port, found by binding port 0.
 free_port() {
 	python3 -I -c 'import socket
 s = socket.socket()
@@ -257,7 +258,6 @@ print(s.getsockname()[1])
 s.close()'
 }
 
-# serve_alive PID: PID is alive and runs this run's reef serve.
 serve_alive() {
 	[ -n "$1" ] && kill -0 "$1" 2>/dev/null || return 1
 	case $(ps -o command= -p "$1" 2>/dev/null) in "$REEF_BIN serve"*) return 0 ;; *) return 1 ;; esac

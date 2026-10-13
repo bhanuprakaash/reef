@@ -20,7 +20,7 @@ call their tools with no approval prompt, in any permission mode.
 Preconditions:
 
 - Baseline from the README.
-- `REEF_VERIFY_RUN=<id> $H mcp-server` printed `/private/tmp/reef-verify/<id>/mcp/mcp.json`. It defines server `vping` with tool `secret_word`, which returns `kumquat-4417`.
+- `REEF_VERIFY_RUN=<id> $H mcp-server` printed `/private/tmp/reef-verify/<id>/mcp/mcp.json`. It defines server `vping` with tool `secret_word`, which returns `kumquat-4417`, and tool `sleep_60`, which runs `sleep 60` (for the interrupt drive).
 
 - **Call, claude.** Run `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run --name mcp-claude -- --backend claude --mcp /private/tmp/reef-verify/<id>/mcp/mcp.json "Call the secret_word tool of the vping MCP server and tell me the word."`. `exit: 0`. A `tool_call` with `"toolName":"mcp__vping__secret_word"` and a `tool_result` with the same `toolId`, `"output":"kumquat-4417"` and no `isError`. `~/.reef-verify/<id>/mcp-calls.log` has `{"call": "secret_word"}`.
 - **Call, codex.** Run `REEF_VERIFY_RUN=<id> $H run --name mcp-codex -- --backend codex --mcp /private/tmp/reef-verify/<id>/mcp/mcp.json "Call the secret_word tool of the vping MCP server and tell me the word."`. Same proof: `toolName` `mcp__vping__secret_word`, output `kumquat-4417`, a new line in `mcp-calls.log`.

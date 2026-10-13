@@ -19,10 +19,11 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
   reef`, before it touches the data, whatever its `--addr`. A second instance needs its own
   `--data` and its own `--addr`.
 - `--addr` is where to listen. The default is `127.0.0.1:7700`. The API has no login, so
-  keep it on localhost. It does refuse a request whose `Host` is not `127.0.0.1`,
-  `localhost` or `::1` (403), and a `POST`, `PUT` or `PATCH` whose `Content-Type` is not
-  `application/json` (415). This stops a web page on another origin from writing to it,
-  including through DNS rebinding.
+  `reef serve` refuses an `--addr` whose host is not `localhost` or a loopback IP,
+  including an empty host such as `:7700`, before it opens the data folder. It also refuses
+  a request whose `Host` is not `127.0.0.1`, `localhost` or `::1` (403), and a `POST`,
+  `PUT` or `PATCH` whose `Content-Type` is not `application/json` (415). This stops a web
+  page on another origin from writing to it, including through DNS rebinding.
 - The file opens in WAL mode with foreign keys on. Migrations in
   [`store/migrations`](../store/migrations) run at start, in order, each once. They only
   go forward. A file whose version is newer than the newest migration (made by a newer
@@ -35,7 +36,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 
 | Status | When |
 | --- | --- |
-| 400 | Bad JSON or data after the JSON body, a bad or missing field, a non-number id, an unknown parent id inside a body (`unknown project 9`) |
+| 400 | Bad JSON, an unknown field or data after the JSON body, a bad or missing field, a non-number id, an unknown parent id inside a body (`unknown project 9`) |
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
@@ -44,8 +45,10 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
 
 An id in the path that matches nothing is 404; an id in the body that matches nothing is
-400. Unknown JSON fields in a request are ignored, and so are the server-set fields
-(`id`, `createdAt`, `updatedAt`).
+400. Unknown JSON fields in a request are rejected (`{"error":"invalid: bad JSON: json: unknown
+field \"feature_id\""}`), so a misspelled field never turns into a silent default. The
+server-set fields an entity returns (such as `id` and `createdAt`) are accepted and ignored. A parent
+deleted while a write is in flight gives the same 404 or 400 as one that never existed.
 
 ## Entities
 
@@ -68,7 +71,7 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 | --- | --- | --- |
 | `id` | number | |
 | `projectId` | number | required on create; never changes. Deleting the project deletes the feature |
-| `slug` | string | required; lowercase letters, digits and `-`, not starting with `-` (`^[a-z0-9][a-z0-9-]*$`), because it becomes a branch and folder name; unique within the project (409 if taken) |
+| `slug` | string | required; lowercase letters, digits and `-`, not starting with `-` (`^[a-z0-9][a-z0-9-]*$`), because it becomes a branch and folder name; unique within the project (409 if taken); fixed after create, a slug in a `PUT` body is ignored |
 | `name` | string | required |
 | `goal` | string | default `""` |
 | `stage` | string | default `ideation`; not checked against a list |
@@ -127,7 +130,7 @@ One agent run in a channel.
 | `channelId` | number | required |
 | `role` | string | required |
 | `backend` | string | required; `claude` or `codex` |
-| `sessionId` | string | default `""`; set on create or when the turn ends |
+| `sessionId` | string | default `""`; set on create, while the turn runs, or when it ends |
 | `status` | string | `running`, `done` or `failed`. A new turn is always `running` |
 | `error` | string | default `""` |
 | `usage` | object | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens` (numbers, all four always present). The SQL columns are `input_tokens` and so on |
@@ -180,7 +183,7 @@ a channel takes its messages and turns.
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |
-| `PUT /features/{id}` | `slug`, `name`, `goal`, `stage` | 200 | 400, 404, 409 slug taken |
+| `PUT /features/{id}` | `name`, `goal`, `stage` | 200 | 400, 404 |
 | `DELETE /features/{id}` | | 204 | 404 |
 | `GET /features/{id}/brief` | | 200 latest version | 404 no feature, or no brief yet |
 | `PUT /features/{id}/brief` | `body`, `author` | 201 new version | 400, 404 |
@@ -203,7 +206,7 @@ a channel takes its messages and turns.
 | `GET /turns` | `?channel=ID`, `?status=running\|done\|failed` | 200 | 400 bad id or status |
 | `POST /turns` | `channelId`, `role`, `backend`, `sessionId` | 201 | 400 bad backend or unknown channel |
 | `GET /turns/{id}` | | 200 | 404 |
-| `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId` | 200 | 400 bad status or already ended, 404 |
+| `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId`. With no `status`, only `sessionId` is set and the turn stays `running` | 200 | 400 bad status, negative usage, empty `sessionId` without a status, `error` or `usage` without a status, or already ended; 404 |
 | `GET /decisions` | `?feature=ID` (required) | 200 | 400 no feature, 404 unknown feature |
 | `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field, unknown feature, or a message of another feature |
 | `GET /decisions/{id}` | | 200 | 404 |
@@ -221,8 +224,9 @@ The API has no way to change or remove these rows.
   its decisions; they only lose `messageId`.
 - Briefs: `PUT /features/{id}/brief` adds a version and never edits one. Old versions
   stay in `/brief/versions`. Role notes are not versioned; `PUT` replaces them.
-- Turns: created `running`, ended once with `PATCH` to `done` or `failed`. A second
-  `PATCH` returns 400. A turn has no delete route and no other edit.
+- Turns: created `running`, may get a `sessionId` while running, ended once with `PATCH`
+  to `done` or `failed`. After that every `PATCH` returns 400. A turn has no delete route
+  and no other edit. Restart recovery keeps a session id set this way.
 
 ## Restart recovery
 

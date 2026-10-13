@@ -55,6 +55,14 @@ func TestDecisionStatus(t *testing.T) {
 			wantBody:   `{"error":"invalid: unknown feature 9"}`,
 		},
 		{
+			name:       "missing feature",
+			method:     http.MethodPost,
+			path:       "/decisions",
+			give:       `{"body":"d","author":"user"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: feature is required"}`,
+		},
+		{
 			name:       "missing author",
 			method:     http.MethodPost,
 			path:       "/decisions",

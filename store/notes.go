@@ -22,9 +22,6 @@ func (s *Store) PutRoleNotes(ctx context.Context, n RoleNotes) (RoleNotes, error
 	if n.Role == "" {
 		return RoleNotes{}, fmt.Errorf("%w: role is required", ErrInvalid)
 	}
-	if err := s.requireFeature(ctx, n.FeatureID); err != nil {
-		return RoleNotes{}, err
-	}
 	n.UpdatedAt = time.Now().UTC()
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO role_notes (feature_id, role, body, updated_at) VALUES (?, ?, ?, ?)
@@ -32,7 +29,8 @@ func (s *Store) PutRoleNotes(ctx context.Context, n RoleNotes) (RoleNotes, error
 		DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at`,
 		n.FeatureID, n.Role, n.Body, n.UpdatedAt.Format(time.RFC3339Nano))
 	if err != nil {
-		return RoleNotes{}, fmt.Errorf("upsert role notes: %w", err)
+		return RoleNotes{}, s.writeErr(ctx, "upsert role notes", err, ErrNotFound,
+			parent{table: "feature", id: &n.FeatureID})
 	}
 	return n, nil
 }

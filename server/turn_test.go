@@ -48,6 +48,46 @@ func TestTurnStatus(t *testing.T) {
 			wantBody:   `{"error":"invalid: turn status must be done or failed, got \"running\""}`,
 		},
 		{
+			name:       "patch session only",
+			method:     http.MethodPatch,
+			path:       "/turns/1",
+			give:       `{"sessionId":"abc"}`,
+			wantStatus: 200,
+			wantBody:   `"sessionId":"abc","status":"running","error":""`,
+		},
+		{
+			name:       "patch error without status",
+			method:     http.MethodPatch,
+			path:       "/turns/1",
+			give:       `{"sessionId":"s","error":"boom"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: error and usage need a status"}`,
+		},
+		{
+			name:       "patch nothing",
+			method:     http.MethodPatch,
+			path:       "/turns/1",
+			give:       `{}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: sessionId is required without a status"}`,
+		},
+		{
+			name:       "patch session of unknown turn",
+			method:     http.MethodPatch,
+			path:       "/turns/9",
+			give:       `{"sessionId":"abc"}`,
+			wantStatus: 404,
+			wantBody:   `{"error":"turn 9: not found"}`,
+		},
+		{
+			name:       "negative usage",
+			method:     http.MethodPatch,
+			path:       "/turns/1",
+			give:       `{"status":"done","usage":{"inputTokens":-5}}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: usage counts cannot be negative"}`,
+		},
+		{
 			name:       "patch unknown turn",
 			method:     http.MethodPatch,
 			path:       "/turns/9",
@@ -117,6 +157,11 @@ func TestTurnRoundTrip(t *testing.T) {
 	status, body = do(t, http.MethodPatch, ts.URL+"/turns/1", `{"status":"failed","error":"late"}`)
 	if status != 400 || body != `{"error":"invalid: turn 1 already ended"}` {
 		t.Fatalf("second patch = %d %s", status, body)
+	}
+
+	status, body = do(t, http.MethodPatch, ts.URL+"/turns/1", `{"sessionId":"abc"}`)
+	if status != 400 || body != `{"error":"invalid: turn 1 already ended"}` {
+		t.Fatalf("session patch on ended turn = %d %s", status, body)
 	}
 
 	status, body = do(t, http.MethodGet, ts.URL+"/turns/1", "")
