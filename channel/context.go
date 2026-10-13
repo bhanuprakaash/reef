@@ -76,6 +76,9 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 		if err != nil {
 			return "", err
 		}
+		if n == 0 {
+			continue
+		}
 		lines = append(lines, fmt.Sprintf("channel %d: %s, %s, %d messages",
 			c.ID, c.Name, c.CreatedAt.Format(_dateLayout), n))
 	}
