@@ -10,9 +10,10 @@ Four user surfaces exist so far:
 - `reef-agent` (`cmd/reef-agent`) runs one backend (`claude` or `codex`) and prints one JSON
   `Event` per line. Contract: `docs/agents.md`.
 - `reef serve` (`cmd/reef`) keeps Reef's data in one SQLite file and serves it as a JSON
-  REST API. Contract: `docs/server.md`.
+  REST API. It also runs a channel's team: it routes messages between teammates, holds
+  gated wakes and caps hops. Contract: `docs/server.md`.
 - The memory loop (`cmd/reef`): the CLI (`reef project`, `feature`, `brief`, `decide`,
-  `task`, `context`, `token`), `reef mcp` (stdio MCP tools for one teammate) and `reef
+  `task`, `team`, `context`, `token`), `reef mcp` (stdio MCP tools for one teammate) and `reef
   chat` (one role in one channel, in the terminal). Contract: `docs/memory.md`.
 - The window: the React app `reef serve` serves (`web/`). Contract: `docs/server.md` (Web UI).
 

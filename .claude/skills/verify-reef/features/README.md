@@ -68,6 +68,7 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 - [Turns and restart recovery](./turns-recovery.md): running, done, failed; end once; recovery after a crash or stop; an open chat's turn is skipped.
 - [Decisions](./decisions.md): append-only, author and message rules, cascade.
 - [Live channels](./live-channels.md): send, the event stream, stop and resume, `/wrap` and `/promote` text, wrap-up, promote, approve and reject, caps and continue, delete a live channel. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
+- [Teams](./teams.md): `reef team apply` and `list`, a channel on a team, threads, one agent session per teammate, routing by thread, `@mention` and `post_to_channel`, the hop cap, approval gates, wrap wakes nobody, restart, a codex teammate on the test fixture. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 
 ### Memory loop
 
@@ -75,11 +76,11 @@ Drive these with `$H reef`, `$H mcp-call` and `$H sql`; no server needed. Each n
 data folder with `$H reef --data-name NAME` and assumes ids start at 1.
 
 - [CLI](./cli.md): project, feature, decide, task, brief, context; a write with no server and while `reef serve` runs; `--` args; a slug in two projects; subfolders and `--name`.
-- [reef mcp](./reef-mcp.md): tokens, the seven tools through a scripted MCP client, scope and token errors, plain Claude Code.
+- [reef mcp](./reef-mcp.md): tokens, the eight tools through a scripted MCP client, scope and token errors, plain Claude Code.
 - [reef chat](./chat.md): a piped turn stored as messages and turns, `/wrap` approve, reject and left pending, `reef wrap` list/show/approve/reject, resume, Ctrl-C, on claude and codex; Ctrl-C at the prompt, a decision proposed twice, errors, the chat lock.
 
 ### Window
 
 Drive this with `$H ui SCENARIO` against a server started with `ANTHROPIC_MODEL=sonnet $H serve-start`, after building the web app.
 
-- [Window](./window.md): live channel with tool rows, a new channel that answers from the brief, promote a quick session and approve its brief, a cap banner and Continue.
+- [Window](./window.md): live channel with tool rows, a new channel that answers from the brief, promote a quick session and approve its brief, a cap banner and Continue. Teams in the window (team picker, thread pane, Approve and Reject) are by hand: see the end of [Teams](./teams.md).
