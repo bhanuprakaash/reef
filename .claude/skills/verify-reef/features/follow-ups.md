@@ -33,5 +33,5 @@ Preconditions:
 - The helper feeds stdin from the file, so all lines arrive at once. `reef-agent` still sends each only after a `turn_end`; that is the behavior under test.
 - Blank lines are skipped. Leading and trailing spaces are trimmed.
 - Claude repeats the `session` line every turn with the same id; codex prints it once.
-- Each turn has its own `usage` line. There is no session-total line on a normal exit; only Ctrl-C prints one.
+- A turn without tool calls has one `usage` line (claude sends one per model message). There is no session-total line on a normal exit; only Ctrl-C prints one.
 - An `error` line ends the process with exit 1; later stdin lines are not sent.

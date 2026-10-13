@@ -3,6 +3,7 @@ package claude
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -98,9 +99,23 @@ func TestParse(t *testing.T) {
 			name: "error result",
 			give: `{"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"00000000-0000-0000-0000-000000000000","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0},"errors":["No conversation found with session ID: 00000000-0000-0000-0000-000000000000"]}`,
 			want: []agent.Event{
-				{Kind: agent.KindUsage, Usage: &agent.Usage{}},
 				{Kind: agent.KindError, Text: "No conversation found with session ID: 00000000-0000-0000-0000-000000000000"},
 			},
+		},
+		{
+			name: "message usage",
+			give: `{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":2,"cache_creation_input_tokens":102,"cache_read_input_tokens":18205,"output_tokens":72}},"session_id":"3c1296cc-1e28-4167-a8a8-dfb0facf9381","parent_tool_use_id":null}`,
+			want: []agent.Event{
+				{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 72, CacheReadTokens: 18205, CacheWriteTokens: 102}},
+			},
+		},
+		{
+			name: "assistant usage is skipped",
+			give: `{"type":"assistant","message":{"id":"msg_011CfzhA1pca1AC5oMzamfLt","role":"assistant","content":[{"type":"text","text":"42"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":425,"cache_read_input_tokens":18362,"output_tokens":3}},"parent_tool_use_id":null}`,
+		},
+		{
+			name: "result of a background task",
+			give: `{"type":"result","subtype":"success","is_error":false,"result":"","origin":{"kind":"task-notification"},"num_turns":0,"session_id":"d6c291c5-ec96-403e-9f97-720d1dee78db","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0}}`,
 		},
 		{
 			name: "not json",
@@ -109,9 +124,66 @@ func TestParse(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parse([]byte(tt.give))
+			got := parse([]byte(tt.give), &agent.Usage{})
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("parse() = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestParse_turnUsage(t *testing.T) {
+	delta := func(in, cw, cr, out int) string {
+		return fmt.Sprintf(`{"type":"stream_event","event":{"type":"message_delta","usage":{"input_tokens":%d,"cache_creation_input_tokens":%d,"cache_read_input_tokens":%d,"output_tokens":%d}},"parent_tool_use_id":null}`, in, cw, cr, out)
+	}
+	result := `{"type":"result","subtype":"success","is_error":false,"result":"done","usage":{"input_tokens":8,"cache_creation_input_tokens":204,"cache_read_input_tokens":70674,"output_tokens":214}}`
+	tests := []struct {
+		name string
+		give []string
+		want []agent.Usage
+	}{
+		{
+			name: "messages add up to the result",
+			give: []string{delta(2, 0, 15957, 65), delta(2, 0, 18205, 72), delta(2, 102, 18205, 72), delta(2, 102, 18307, 5), result},
+			want: []agent.Usage{
+				{InputTokens: 2, OutputTokens: 65, CacheReadTokens: 15957},
+				{InputTokens: 2, OutputTokens: 72, CacheReadTokens: 18205},
+				{InputTokens: 2, OutputTokens: 72, CacheReadTokens: 18205, CacheWriteTokens: 102},
+				{InputTokens: 2, OutputTokens: 5, CacheReadTokens: 18307, CacheWriteTokens: 102},
+			},
+		},
+		{
+			name: "result adds what the messages missed",
+			give: []string{delta(2, 0, 15957, 65), result},
+			want: []agent.Usage{
+				{InputTokens: 2, OutputTokens: 65, CacheReadTokens: 15957},
+				{InputTokens: 6, OutputTokens: 149, CacheReadTokens: 54717, CacheWriteTokens: 204},
+			},
+		},
+		{
+			name: "a new turn starts from zero",
+			give: []string{delta(2, 0, 15957, 65), result, delta(1, 0, 3, 4), result},
+			want: []agent.Usage{
+				{InputTokens: 2, OutputTokens: 65, CacheReadTokens: 15957},
+				{InputTokens: 6, OutputTokens: 149, CacheReadTokens: 54717, CacheWriteTokens: 204},
+				{InputTokens: 1, OutputTokens: 4, CacheReadTokens: 3},
+				{InputTokens: 7, OutputTokens: 210, CacheReadTokens: 70671, CacheWriteTokens: 204},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var seen agent.Usage
+			var got []agent.Usage
+			for _, line := range tt.give {
+				for _, ev := range parse([]byte(line), &seen) {
+					if ev.Kind == agent.KindUsage {
+						got = append(got, *ev.Usage)
+					}
+				}
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("usage events = %+v, want %+v", got, tt.want)
 			}
 		})
 	}
@@ -203,8 +275,26 @@ func TestFailedResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []agent.Event{
-		{Kind: agent.KindUsage, Usage: &agent.Usage{}},
 		{Kind: agent.KindError, Text: "No conversation found"},
+	}
+	if got := collect(t, drain(a)); !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %+v, want %+v", got, want)
+	}
+}
+
+func TestResumeAfterBackgroundTask(t *testing.T) {
+	a := fakeClaude(t, "resumebg")
+	if err := a.Resume(context.Background(), agent.Config{Cwd: t.TempDir()}, "d6c291c5"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Send(context.Background(), "What is 7 times 6?"); err != nil {
+		t.Fatal(err)
+	}
+	want := []agent.Event{
+		{Kind: agent.KindSession, SessionID: "d6c291c5-ec96-403e-9f97-720d1dee78db"},
+		{Kind: agent.KindText, Text: "42"},
+		{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 3, CacheReadTokens: 18362, CacheWriteTokens: 425}},
+		{Kind: agent.KindTurnEnd},
 	}
 	if got := collect(t, drain(a)); !reflect.DeepEqual(got, want) {
 		t.Errorf("events = %+v, want %+v", got, want)

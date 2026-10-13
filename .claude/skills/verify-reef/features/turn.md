@@ -37,6 +37,6 @@ Preconditions:
 - Claude's first `session` line comes after the prompt is sent, and repeats every turn. Codex prints `session` once, first.
 - `text` lines are deltas. Join them to read the reply; never assert on one line.
 - Claude with no `--permission-mode` cannot ask, so it denies tools that need permission (Write, Bash) and runs read-only ones (Read). The recipes avoid `bypassPermissions`: the auto-mode safety check on this machine refuses drives that use it.
-- Claude reports usage only on its `result` line, so a crash mid-turn gives an `error` with no `usage` before it.
+- Claude sends a `usage` line as each model message ends and the rest at its `result` line, so a crash mid-turn gives an `error` after the usage of the messages that ended.
 - Claude loads the user's hooks, plugins and settings, so start-up takes a few seconds. That is not a hang.
 - `reef-agent` without `--cwd` uses its own cwd; the helper runs it in the scratch cwd. Claude reports `/private/tmp/...`, not `/tmp/...`.
