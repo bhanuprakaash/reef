@@ -41,11 +41,12 @@ Only `reef serve` takes `reef.lock`. The CLI, `reef mcp` and `reef chat` open `r
 directly, with or without a running server. WAL mode and a 5 second busy timeout let the
 processes share the file.
 
-`reef chat` also locks `chat-<channel id>.lock` in the data folder while it runs. A
-second `reef chat` on the same channel exits with `channel 1 is open in another reef
-chat`. When `reef serve` starts, it fails the turns that a dead server left running (see
-[server.md](server.md#restart-recovery)). It skips a channel whose chat lock is held,
-because that turn is still live in a `reef chat` process.
+`reef chat` also locks `chat-<channel id>.lock` in the data folder while it runs, and so
+does `reef serve` for a channel it runs. A second `reef chat` on the same channel exits
+with `channel 1 is open elsewhere: conflict`. When `reef serve` starts, it fails the
+turns that a dead server left running (see [server.md](server.md#restart-recovery)). It
+skips a channel whose chat lock is held, because that turn is still live in a `reef chat`
+process.
 
 ## CLI
 
@@ -145,7 +146,7 @@ holds a message body. Its shape:
 2. `## Brief`: the latest brief, or `No brief yet.`
 3. `## Your notes`: this role's notes, or `No notes yet.`
 4. `## Index`, with `### Decisions` (one line each: id, the first line of the body cut
-   at 100 characters with `…`, author, date), `### Channels` (one line each: id, name,
+   at 100 characters with `…`, author, date), `### Channels` (channels with messages, one line each: id, name,
    date, message count) and `### Open tasks` (tasks not `done`). An empty group says
    `none`.
 5. One closing line that names the tools for details.
@@ -184,30 +185,38 @@ Details are on demand through the reef MCP tools read_decision, read_thread and 
 
 ```
 reef chat <feature> --role R --backend claude|codex [--name N] [--permission-mode M] [--debug]
-reef chat --channel ID [--permission-mode M] [--debug]
+reef chat --channel ID [--debug]
 ```
 
 `reef chat` runs one role in one channel, in the terminal. It uses the agent adapters
-from [agents.md](agents.md). The runner is in package `channel` and has no terminal code,
-so the server can drive it later.
+from [agents.md](agents.md). The code that opens a channel is in package `channel`
+(`channel.Open`) and has no terminal code. `reef serve` is a second runner of it: the
+window sends messages, wraps up and promotes through the same code (see [server.md](server.md#channels-live)).
 
-New channel (`<feature> --role R --backend B`):
+A channel stores its role, its backend and its permission mode (see
+[server.md](server.md#channel)). `channel.Open` starts its agent in the project's folder,
+with one MCP server named `reef`: this `reef` binary, `mcp --data <data folder>`, with a
+new token in `REEF_TOKEN`. Its tools need no approval (see [agents.md](agents.md#gotchas)).
+It first fails any turn the channel left running (error `chat exited`). That turn
+belonged to a `reef chat` that died, because this one now holds the chat lock.
 
-- It checks the backend first, so a typo stores nothing. It builds the context prompt,
-  then makes a channel named `N` (default `<role> chat`) on the feature. So the new
-  channel is not in its own index. If the agent does not start, the channel is deleted.
-- It starts the agent in the project's folder, with one MCP server named `reef`: this
-  `reef` binary, `mcp --data <data folder>`, with a new token in `REEF_TOKEN`. Its tools
-  need no approval (see [agents.md](agents.md#gotchas)).
-- The context prompt goes before the first message, in the same prompt.
+- With a turn that has a session id, the agent resumes the session of the newest such
+  turn, and the context prompt is not sent again.
+- Without one, the agent starts a new session and the context prompt goes before the
+  first message, in the same prompt. A channel on a feature gets the prompt below. A
+  quick session (no feature) gets two lines: the role, the project's name and folder, and
+  that there is no feature yet.
 
-Resume (`--channel ID`):
+New channel (`<feature> --role R --backend B`): it makes a channel named `N` (default
+`<role> chat`) on the feature, with the role, backend and `--permission-mode`, then opens
+it. A backend typo, or an agent that
+does not start, deletes the channel again.
 
-- Role, backend and session id come from the channel's newest turn that has a session
-  id. The agent resumes that session, so the context prompt is not sent again.
-- First it fails any turn the channel left running (error `chat exited`). That turn
-  belonged to a `reef chat` that died, because this one now holds the chat lock.
-- A channel with no session fails: `channel 1 has no session to resume`.
+Resume (`--channel ID`): role, backend and permission mode come from the channel. The
+flags `--role`, `--backend`, `--name` and `--permission-mode` are refused. It checks the
+caps first (`channel.CheckCaps`, the same check as the server): a paused channel exits 1
+with the reason, and a channel at or over its token budget is paused, then exits 1 with the
+reason. Continue it from the window, or with `POST /channels/{id}/continue`.
 
 Each turn:
 
@@ -233,9 +242,9 @@ Leaving:
 
 Flags:
 
-- `--permission-mode M` goes to the backend as is. See [agents.md](agents.md#gotchas) for
-  the values. Without it, Claude denies tools that need permission. The `reef` tools are
-  allowed anyway.
+- `--permission-mode M` is stored on the channel and goes to the backend as is, on a new
+  channel and on every resume. See [agents.md](agents.md#gotchas) for the values. Without
+  it, Claude denies tools that need permission. The `reef` tools are allowed anyway.
 - `--debug` prints each prompt it sends to stderr, between `--- prompt ---` and `---`.
   Use it to see the context prompt.
 - `--name` is only for a new channel.
@@ -277,6 +286,9 @@ Reject marks the proposal `rejected` and changes nothing else: `rejected: nothin
 changed`. To change a proposal, reject it, tell the agent what to change, and type
 `/wrap` again. A proposal is decided once. A second approve or reject fails with
 `invalid: proposal 1 is already approved`.
+
+`reef serve` offers the same over REST, and promotes a quick session with the same
+approval: see [server.md](server.md#wrap-up-and-promotion).
 
 The chat goes on after `/wrap`. The next session, in any channel, starts from the
 approved brief and notes.

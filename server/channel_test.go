@@ -19,7 +19,7 @@ func TestChannelStatus(t *testing.T) {
 			name:       "unknown project",
 			method:     http.MethodPost,
 			path:       "/channels",
-			give:       `{"projectId":9,"name":"c"}`,
+			give:       `{"projectId":9,"name":"c","backend":"claude"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: unknown project 9"}`,
 		},
@@ -27,7 +27,7 @@ func TestChannelStatus(t *testing.T) {
 			name:       "feature of another project",
 			method:     http.MethodPost,
 			path:       "/channels",
-			give:       `{"projectId":2,"featureId":1,"name":"c"}`,
+			give:       `{"projectId":2,"featureId":1,"name":"c","backend":"claude"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: feature 1 is not in project 2"}`,
 		},
@@ -35,7 +35,7 @@ func TestChannelStatus(t *testing.T) {
 			name:       "unknown feature",
 			method:     http.MethodPost,
 			path:       "/channels",
-			give:       `{"projectId":1,"featureId":9,"name":"c"}`,
+			give:       `{"projectId":1,"featureId":9,"name":"c","backend":"claude"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: unknown feature 9"}`,
 		},
@@ -48,10 +48,18 @@ func TestChannelStatus(t *testing.T) {
 			wantBody:   `{"error":"invalid: bad JSON: json: unknown field \"feature_id\""}`,
 		},
 		{
+			name:       "role other than lead",
+			method:     http.MethodPost,
+			path:       "/channels",
+			give:       `{"projectId":1,"name":"c","role":"architect","backend":"claude"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: role must be lead"}`,
+		},
+		{
 			name:       "missing name",
 			method:     http.MethodPost,
 			path:       "/channels",
-			give:       `{"projectId":1}`,
+			give:       `{"projectId":1,"backend":"claude"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: channel name is required"}`,
 		},
@@ -88,8 +96,8 @@ func TestChannelStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ts := newTestServer(t)
-			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp/reef"}`)
-			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"other","path":"/tmp/other"}`)
+			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"other","path":"/"}`)
 			do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"auth","name":"Auth"}`)
 			status, body := do(t, tt.method, ts.URL+tt.path, tt.give)
 			if status != tt.wantStatus {
@@ -104,15 +112,16 @@ func TestChannelStatus(t *testing.T) {
 
 func TestChannelRoundTrip(t *testing.T) {
 	ts := newTestServer(t)
-	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp/reef"}`)
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
 	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"auth","name":"Auth"}`)
 
-	status, body := do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"scratch"}`)
+	status, body := do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"scratch","role":"lead","backend":"claude","permissionMode":"acceptEdits"}`)
 	if status != 201 || !strings.HasPrefix(body,
-		`{"id":1,"projectId":1,"featureId":null,"name":"scratch","createdAt":"`) {
+		`{"id":1,"projectId":1,"featureId":null,"name":"scratch","role":"lead","backend":"claude",`+
+			`"permissionMode":"acceptEdits","paused":"","tokenBudget":1000000,"createdAt":"`) {
 		t.Fatalf("quick session = %d %s", status, body)
 	}
-	status, body = do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"auth"}`)
+	status, body = do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"auth","backend":"claude"}`)
 	if status != 201 || !strings.Contains(body, `"featureId":1,"name":"auth"`) {
 		t.Fatalf("feature channel = %d %s", status, body)
 	}

@@ -1,9 +1,12 @@
 package server
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -17,8 +20,10 @@ func newTestServer(t *testing.T) *httptest.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	ts := httptest.NewServer(New(st))
+	h := New(st, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
 	return ts
 }
 
@@ -54,9 +59,25 @@ func TestProjectStatus(t *testing.T) {
 			name:       "create",
 			method:     http.MethodPost,
 			path:       "/projects",
-			give:       `{"name":"reef","path":"/tmp/reef"}`,
+			give:       `{"name":"reef","path":"/"}`,
 			wantStatus: 201,
-			wantBody:   `"name":"reef","path":"/tmp/reef"`,
+			wantBody:   `"name":"reef","path":"/"`,
+		},
+		{
+			name:       "path is not a directory",
+			method:     http.MethodPost,
+			path:       "/projects",
+			give:       `{"name":"reef","path":"/no/such/dir"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: project path \"/no/such/dir\": not a directory"}`,
+		},
+		{
+			name:       "path is relative",
+			method:     http.MethodPost,
+			path:       "/projects",
+			give:       `{"name":"reef","path":"repo"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: project path \"repo\": not an absolute path"}`,
 		},
 		{
 			name:       "unknown id",
@@ -77,7 +98,7 @@ func TestProjectStatus(t *testing.T) {
 			name:       "data after the body",
 			method:     http.MethodPost,
 			path:       "/projects",
-			give:       `{"name":"reef","path":"/tmp/reef"} {"name":"x"}`,
+			give:       `{"name":"reef","path":"/tmp"} {"name":"x"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: bad JSON: unexpected data after the body"}`,
 		},
@@ -85,7 +106,7 @@ func TestProjectStatus(t *testing.T) {
 			name:       "missing name",
 			method:     http.MethodPost,
 			path:       "/projects",
-			give:       `{"path":"/tmp/reef"}`,
+			give:       `{"path":"/tmp"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: project name is required"}`,
 		},
@@ -120,19 +141,37 @@ func TestProjectStatus(t *testing.T) {
 
 func TestProjectRoundTrip(t *testing.T) {
 	ts := newTestServer(t)
+	firstPath, secondPath := t.TempDir(), t.TempDir()
+	firstPath, err := store.ResolvePath(firstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPath, err = store.ResolvePath(secondPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	status, body := do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp/reef"}`)
-	if status != 201 || !strings.HasPrefix(body, `{"id":1,"name":"reef","path":"/tmp/reef","createdAt":"`) {
+	status, body := do(t, http.MethodPost, ts.URL+"/projects",
+		fmt.Sprintf(`{"name":"reef","path":%q}`, firstPath))
+	if status != 201 || !strings.HasPrefix(body,
+		fmt.Sprintf(`{"id":1,"name":"reef","path":%q,"createdAt":"`, firstPath)) {
 		t.Fatalf("create = %d %s", status, body)
 	}
 
-	status, body = do(t, http.MethodPut, ts.URL+"/projects/1", `{"name":"reef2","path":"/tmp/reef2"}`)
-	if status != 200 || !strings.HasPrefix(body, `{"id":1,"name":"reef2","path":"/tmp/reef2","createdAt":"`) {
+	status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q}`, secondPath))
+	if status != 200 || !strings.HasPrefix(body,
+		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"createdAt":"`, secondPath)) {
 		t.Fatalf("update = %d %s", status, body)
 	}
 
+	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1", `{"name":"reef2","path":"/no/such/dir"}`); status != 400 {
+		t.Fatalf("update with a bad path = %d %s", status, body)
+	}
+
 	status, body = do(t, http.MethodGet, ts.URL+"/projects", "")
-	if status != 200 || !strings.HasPrefix(body, `[{"id":1,"name":"reef2","path":"/tmp/reef2",`) {
+	if status != 200 || !strings.HasPrefix(body,
+		fmt.Sprintf(`[{"id":1,"name":"reef2","path":%q,`, secondPath)) {
 		t.Fatalf("list = %d %s", status, body)
 	}
 
@@ -143,5 +182,39 @@ func TestProjectRoundTrip(t *testing.T) {
 	status, body = do(t, http.MethodGet, ts.URL+"/projects", "")
 	if status != 200 || body != "[]" {
 		t.Fatalf("list after delete = %d %s", status, body)
+	}
+}
+
+func TestProjectPathsResolveSymlinks(t *testing.T) {
+	ts := newTestServer(t)
+	target := t.TempDir()
+	target, err := store.ResolvePath(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodPost, ts.URL+"/projects",
+		fmt.Sprintf(`{"name":"reef","path":%q}`, link))
+	if status != http.StatusCreated || !strings.Contains(body, fmt.Sprintf(`"path":%q`, target)) {
+		t.Fatalf("create with symlink = %d %s, want path %q", status, body, target)
+	}
+
+	nextTarget := t.TempDir()
+	nextTarget, err = store.ResolvePath(nextTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextLink := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(nextTarget, nextLink); err != nil {
+		t.Fatal(err)
+	}
+	status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef","path":%q}`, nextLink))
+	if status != http.StatusOK || !strings.Contains(body, fmt.Sprintf(`"path":%q`, nextTarget)) {
+		t.Fatalf("update with symlink = %d %s, want path %q", status, body, nextTarget)
 	}
 }

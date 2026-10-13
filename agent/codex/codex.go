@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"syscall"
 	"time"
 
@@ -26,6 +27,9 @@ const (
 	_killAfter  = time.Second
 	_waitDelay  = 2 * time.Second
 	_stderrKeep = 4 << 10
+	_stopWait   = time.Second
+
+	_messageBreak = "\n\n"
 )
 
 type (
@@ -39,12 +43,16 @@ type (
 		nextID   int
 		events   chan agent.Event
 		done     chan struct{} // closed by Interrupt
+		stopped  chan struct{} // closed by run when the turn Interrupt stopped has ended
 		exited   chan struct{} // closed when run has returned and Events is closed
 		writeMu  sync.Mutex    // serializes writes to stdin
 		mu       sync.Mutex    // guards used, cmd and Interrupt
 		used     bool
-		turn     agent.Usage // sum so far of the turn in progress; owned by run
-		inTurn   bool        // between turn/started and the turn's end; resume replays usage outside it
+		msgID    string // agent message item the last text delta belonged to; owned by run
+		wrote    bool   // the turn in progress has sent text; owned by run
+
+		turn     atomic.Pointer[string] // id of the turn between turn/started and its end; resume replays usage outside it
+		stopping atomic.Bool            // Interrupt is stopping the turn in progress
 	}
 
 	// tail keeps the last _stderrKeep bytes written to it.
@@ -60,6 +68,7 @@ type (
 		Method string          `json:"method"`
 		Params struct {
 			Delta      string `json:"delta"`
+			ItemID     string `json:"itemId"`
 			Item       item   `json:"item"`
 			TokenUsage struct {
 				Last struct {
@@ -70,6 +79,7 @@ type (
 				} `json:"last"`
 			} `json:"tokenUsage"`
 			Turn struct {
+				ID     string `json:"id"`
 				Status string `json:"status"`
 				Error  *struct {
 					Message string `json:"message"`
@@ -107,9 +117,10 @@ type (
 // New returns an Agent that has not started.
 func New() *Agent {
 	return &Agent{
-		events: make(chan agent.Event),
-		done:   make(chan struct{}),
-		exited: make(chan struct{}),
+		events:  make(chan agent.Event, 1),
+		done:    make(chan struct{}),
+		stopped: make(chan struct{}),
+		exited:  make(chan struct{}),
 	}
 }
 
@@ -141,7 +152,9 @@ func (a *Agent) Send(_ context.Context, prompt string) error {
 // Events streams events until codex exits, then closes the channel.
 func (a *Agent) Events() <-chan agent.Event { return a.events }
 
-// Interrupt stops codex, waits for it, and closes Events. Codex gets SIGTERM so it can stop
+// Interrupt stops codex, waits for it, and closes Events. A turn in progress is stopped
+// first, so codex reports the usage of the model call it was in; that usage stays in
+// Events, which the caller reads until it closes. Codex then gets SIGTERM so it can stop
 // the commands it started, which run in their own process groups; SIGKILL follows after
 // _killAfter.
 func (a *Agent) Interrupt() error {
@@ -151,11 +164,13 @@ func (a *Agent) Interrupt() error {
 		return nil
 	}
 	a.used = true
-	close(a.done)
 	if a.cmd == nil {
+		close(a.done)
 		close(a.events)
 		return nil
 	}
+	a.stopTurn()
+	close(a.done)
 	select {
 	case <-a.exited:
 		return nil
@@ -169,6 +184,28 @@ func (a *Agent) Interrupt() error {
 		<-a.exited
 	}
 	return err
+}
+
+// stopTurn asks codex to stop the turn in progress and waits for the turn to end. Codex
+// reports the usage of the model call the turn was in just before that.
+func (a *Agent) stopTurn() {
+	id := a.turn.Load()
+	if id == nil {
+		return
+	}
+	a.stopping.Store(true)
+	err := a.write(map[string]any{
+		"id": "stop", "method": "turn/interrupt",
+		"params": map[string]any{"threadId": a.threadID, "turnId": *id},
+	})
+	if err != nil {
+		return
+	}
+	select {
+	case <-a.stopped:
+	case <-a.exited:
+	case <-time.After(_stopWait):
+	}
 }
 
 func (a *Agent) launch(
@@ -228,6 +265,7 @@ func (a *Agent) spawn(
 func (a *Agent) run(method string, params map[string]any, ready chan<- error) {
 	defer close(a.exited)
 	defer close(a.events)
+	defer a.dropUnread()
 	err := a.handshake(method, params)
 	ready <- err
 	if err != nil {
@@ -237,7 +275,7 @@ func (a *Agent) run(method string, params map[string]any, ready chan<- error) {
 	a.read()
 	// Wait closes stdout, so it must come after the last read.
 	err = a.cmd.Wait()
-	if err == nil || a.interrupted() || (a.inTurn && !a.flushUsage()) {
+	if err == nil || a.interrupted() {
 		return
 	}
 	a.emit(agent.Event{
@@ -332,31 +370,60 @@ func (a *Agent) read() {
 }
 
 // handle emits the event for m and reports whether to keep reading. Codex reports each
-// model call; a turn's usage is their sum, emitted before the event that ends the turn.
+// model call; each report is emitted as it arrives, so an interrupted turn keeps its usage.
+// A break goes before the text of a second agent message in a turn.
 func (a *Agent) handle(m message) bool {
+	if a.stopping.Load() {
+		return a.handleStopping(m)
+	}
 	switch m.Method {
 	case "turn/started":
-		a.inTurn = true
+		a.turn.Store(&m.Params.Turn.ID)
+		a.msgID, a.wrote = "", false
 	case "thread/tokenUsage/updated":
-		if ev, _ := m.event(); a.inTurn {
-			a.turn.Add(*ev.Usage)
+		if ev, _ := m.event(); a.turn.Load() != nil {
+			return a.emit(ev)
 		}
 		return true
+	case "item/agentMessage/delta":
+		if a.wrote && m.Params.ItemID != a.msgID &&
+			!a.emit(agent.Event{Kind: agent.KindText, Text: _messageBreak}) {
+			return false
+		}
+		a.msgID, a.wrote = m.Params.ItemID, true
 	}
 	ev, ok := m.event()
 	if !ok {
 		return true
 	}
-	if (ev.Kind == agent.KindTurnEnd || ev.Kind == agent.KindError) && !a.flushUsage() {
-		return false
+	if ev.Kind == agent.KindTurnEnd || ev.Kind == agent.KindError {
+		a.turn.Store(nil)
 	}
 	return a.emit(ev)
 }
 
-func (a *Agent) flushUsage() bool {
-	usage := a.turn
-	a.turn, a.inTurn = agent.Usage{}, false
-	return a.emit(agent.Event{Kind: agent.KindUsage, Usage: &usage})
+// handleStopping keeps only the usage codex reports for the turn Interrupt is stopping, and
+// stops reading when that turn ends. Nobody reads Events any more, so the usage goes into
+// its buffer, added to a usage already there.
+func (a *Agent) handleStopping(m message) bool {
+	switch m.Method {
+	case "thread/tokenUsage/updated":
+		ev, _ := m.event()
+		for {
+			select {
+			case a.events <- ev:
+				return true
+			case old := <-a.events:
+				if old.Kind == agent.KindUsage {
+					ev.Usage.Add(*old.Usage)
+				}
+			}
+		}
+	case "turn/completed":
+		close(a.stopped)
+		return false
+	}
+	return true
 }
 
 func (a *Agent) emit(ev agent.Event) bool {
@@ -365,6 +432,21 @@ func (a *Agent) emit(ev agent.Event) bool {
 		return true
 	case <-a.done:
 		return false
+	}
+}
+
+// dropUnread, after Interrupt, discards the buffered event unless it is usage: nothing but
+// the stopped turn's usage is left in Events once Interrupt returns.
+func (a *Agent) dropUnread() {
+	if !a.interrupted() {
+		return
+	}
+	select {
+	case ev := <-a.events:
+		if ev.Kind == agent.KindUsage {
+			a.events <- ev
+		}
+	default:
 	}
 }
 

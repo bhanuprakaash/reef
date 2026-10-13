@@ -20,7 +20,8 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
   `--addr`. A second instance needs its own `--data` and its own `--addr`.
 - Other `reef` commands (the CLI, `reef mcp`, `reef chat`) do not take the lock. They open
   `reef.db` directly with `store.Open` while the server runs. `reef chat` takes its own
-  `chat-<channel id>.lock` while it runs; restart recovery reads it (see below). WAL mode
+  `chat-<channel id>.lock` while it runs, and so does the server for a live channel;
+  restart recovery reads it (see below). WAL mode
   and a 5 second busy timeout let the processes share the file. Two processes that open a fresh folder at once
   both succeed: each migration runs in one `BEGIN IMMEDIATE` transaction and re-reads
   `user_version` inside it, so a migration is applied once.
@@ -34,7 +35,33 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
   [`store/migrations`](../store/migrations) run at start, in order, each once. They only
   go forward. A file whose version is newer than the newest migration (made by a newer
   reef) is refused: `database is newer than this reef`.
-- SIGINT or SIGTERM stops the server, with one second for requests in flight.
+- SIGINT or SIGTERM stops the server: it interrupts every running channel turn (stored
+  `failed`, `interrupted`), stops every agent, then gives requests in flight one second.
+  The agents stop in parallel, so stop time is about one agent stop (about a second), not
+  one per live channel.
+
+## Web UI
+
+`reef serve` also serves the React app in [`web/`](../web). `web/dist` is embedded in the
+binary with `go:embed` ([`web/embed.go`](../web/embed.go)). A fresh clone builds without
+npm: `web/dist` holds only `.keep`, and a page load answers 503 `UI not built: run npm run
+build in web/` until the app is built.
+
+```
+cd web && npm ci && npm run build
+cd .. && go build -o reef ./cmd/reef
+./reef serve
+```
+
+Then open `http://127.0.0.1:7700`. Build the web app before `go build`, because the binary
+embeds `web/dist` as it was at build time. Add a project (an absolute path to an existing
+folder), then a feature, then a channel. A channel's agent is the `claude` or `codex` CLI,
+logged in and on `PATH`.
+
+Client routes such as `/features/3` and `/tasks` have the same paths as the REST API. In the Go server, `GET /` and `HEAD /` always get the app's `index.html`; other `GET` or `HEAD` requests get it when the `Accept` header includes `text/html`. Every other request goes to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`) are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
+
+Dev mode: run `reef serve` on `:7700`, then `cd web && npm run dev` and open
+`http://localhost:5173`. Vite proxies the API paths to `127.0.0.1:7700`.
 
 ## Errors
 
@@ -46,8 +73,9 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
-| 409 | A unique rule broke: a feature slug is taken in its project |
+| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a paused channel or to a channel open in a `reef chat`; `continue` on a channel that is not paused |
 | 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
+| 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
 
 An id in the path that matches nothing is 404; an id in the body that matches nothing is
@@ -70,7 +98,7 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 | --- | --- | --- |
 | `id` | number | |
 | `name` | string | required |
-| `path` | string | required; the repo folder |
+| `path` | string | required; the repo folder, stored as an absolute path with symlinks resolved |
 | `createdAt` | string | |
 
 ### feature
@@ -114,8 +142,13 @@ One row per feature and role.
 | --- | --- | --- |
 | `id` | number | |
 | `projectId` | number | required on create; never changes |
-| `featureId` | number? | set on create and never changes. `null` is a quick session. Must be a feature of the same project. Deleting the feature deletes the channel |
+| `featureId` | number? | set on create. It changes only from `null`, once, when a promote gives a quick session its feature. `null` is a quick session. Must be a feature of the same project. Deleting the feature deletes the channel |
 | `name` | string | required |
+| `role` | string | the role the channel's agent plays. Empty when not set. For a channel from before this field existed, the role of its newest turn |
+| `backend` | string | `claude` or `codex`, the agent that runs the channel. Empty when not set. For an older channel, the backend of its newest turn |
+| `permissionMode` | string | passed to the backend as is when the channel's agent starts or resumes. Empty means the backend default |
+| `paused` | string | why the channel is paused (see [Caps](#caps)). Empty when it is not paused. Set by the server only; a client cannot set it |
+| `tokenBudget` | number | tokens the channel may use before it pauses. Starts at 1,000,000. Set by the server only |
 | `createdAt` | string | |
 
 ### message
@@ -187,10 +220,10 @@ when it ends. See [memory.md](memory.md#tokens).
 
 ### proposal
 
-A wrap-up proposal: the new brief, the role's notes and the decisions to record. No REST
-route: `propose_wrap` makes one, `reef chat` prompts for approval, and `reef wrap approve`
-or `reef wrap reject` approves or rejects it. See
-[memory.md](memory.md#wrap-up).
+A wrap-up proposal: the new brief, the role's notes and the decisions to record.
+`propose_wrap` makes one. `reef chat` prompts for approval, and `reef wrap approve` or
+`reef wrap reject` decides it; the server offers the same over REST (see [Wrap-up and
+promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -216,9 +249,9 @@ a channel takes its messages, turns, tokens and proposals.
 | --- | --- | --- | --- |
 | `GET /health` | | 200 `{"status":"ok"}` | |
 | `GET /projects` | | 200 | |
-| `POST /projects` | `name`, `path` | 201 | 400 missing field |
+| `POST /projects` | `name`, `path` | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |
-| `PUT /projects/{id}` | `name`, `path` | 200 | 400, 404 |
+| `PUT /projects/{id}` | `name`, `path` | 200 | 400 (same `path` rule), 404 |
 | `DELETE /projects/{id}` | | 204 | 404 |
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
@@ -232,10 +265,19 @@ a channel takes its messages, turns, tokens and proposals.
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
-| `POST /channels` | `projectId`, `featureId`, `name` | 201 | 400 unknown project or feature, feature of another project |
+| `POST /channels` | `projectId`, `featureId`, `name`, `backend` (required: `claude` or `codex`), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`), `role` (empty or `lead`; empty becomes `lead`) | 201 | 400 unknown project or feature, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
-| `PUT /channels/{id}` | `name` only; project and feature stay as created | 200 | 400, 404 |
-| `DELETE /channels/{id}` | | 204 | 404 |
+| `PUT /channels/{id}` | `name` only; project, feature, role, backend and permission mode stay as created | 200 | 400, 404 |
+| `DELETE /channels/{id}` | stops the channel first if it is live | 204 | 404 |
+| `POST /channels/{id}/send` | `text` | 202, no body | 400 empty text, or `/wrap` on a quick session, 404, 409 turn running, channel paused, open elsewhere or stopped before its turn began, 503 |
+| `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
+| `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
+| `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused |
+| `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
+| `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
+| `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
+| `POST /proposals/{id}/approve` | no body needed | 200 the proposal and `decisionsAdded` | 400 already decided, 404 |
+| `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
 | `GET /messages` | `?channel=ID` (required), `?after=ID` (only newer ids) | 200 | 400 no channel, 404 unknown channel |
 | `POST /messages` | `channelId`, `author`, `body` | 201 | 400 unknown channel or missing field |
 | `GET /tasks` | `?project=ID`, `?feature=ID`, `?status=todo\|doing\|done` | 200 | 400 bad id or status |
@@ -251,8 +293,118 @@ a channel takes its messages, turns, tokens and proposals.
 | `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field, unknown feature, or a message of another feature |
 | `GET /decisions/{id}` | | 200 | 404 |
 
+A `POST` with no body (`stop`, `continue`, `wrap`, `approve`, `reject`) still needs
+`Content-Type: application/json`, or the guard answers 415. These routes ignore the body,
+so an empty one or `{}` both work. `send` and `promote` read a JSON body, and an empty one
+is 400.
+
 Create and update take the whole object from the table above. A field you leave out
 takes its default. `PUT` replaces; there is no partial update except `PATCH /turns/{id}`.
+
+## Channels live
+
+`POST /channels/{id}/send` runs one turn of the channel's agent through
+[`channel.Open`](../channel/session.go), the code `reef chat` uses.
+
+- The agent starts at the first send and stays alive between turns, until `POST
+  /channels/{id}/stop` or the server stops. A send after that resumes the agent by the
+  newest session id (see [memory.md](memory.md#reef-chat)).
+- The server holds `chat-<id>.lock` while the agent is alive, so `reef chat --channel ID`
+  fails with `channel 1 is open elsewhere: conflict`. A send to a channel a `reef chat`
+  holds is 409 too.
+- The server stores the user message, then answers 202, and the turn runs in the
+  background, not in the request. A send while a turn runs is 409. The text `/wrap` runs
+  the wrap-up turn (400 on a quick session, before any agent turn). Every other text,
+  `/promote` included, is a plain message: only `POST /channels/{id}/promote` promotes.
+- `stop` interrupts a running turn (stored `failed`, `interrupted`), then stops the
+  agent, deletes its token and releases the lock. It also works while the agent is
+  still starting: the send that began that turn answers 409 `channel 1 was stopped`, and
+  no turn runs. A turn that fails for another reason also stops the agent; the next send
+  starts it again.
+- `DELETE /channels/{id}` does the same as `stop` before it deletes the channel.
+- Server shutdown does the same for every channel before it stops listening.
+
+`GET /channels/{id}/events` is a Server-Sent Events stream. It works for a channel that
+is not live: it waits. A `: keepalive` comment comes every 15 seconds. Three kinds of event:
+
+- `turn`: `{"status":"running"}` when a turn starts, then `{"status":"done"}` or
+  `{"status":"failed","error":"interrupted"}` when it ends. A wrap or promote turn in which
+  the agent made no proposal ends `{"status":"done","note":"no proposal made"}`.
+  `{"status":"idle"}` is sent only when a subscriber connects and no turn runs.
+- `agent`: one [agent event](agents.md) as JSON, as it comes.
+- `pause`: `{"reason":"..."}` when a cap pauses the channel: right after the `turn`
+  event of a capped turn, or when a send finds the token budget used. `{"reason":""}`
+  when `continue` clears the pause.
+
+A subscriber is brought up to date when it connects, so a reconnect needs no other
+request to know the state. The server keeps the events of the running turn in memory. A
+subscriber that connects during a turn first gets `turn` running and every `agent` event
+of that turn so far, then the live ones. One that connects between turns first gets
+`turn` idle. Either gets `pause` with the reason when the channel is paused. The stored
+messages (`GET /messages`) are the history. A slow subscriber only lags; it never holds
+up the agent. When the server stops, a subscriber gets the last frames before the
+stream ends.
+
+```
+event: turn
+data: {"status":"running"}
+
+event: agent
+data: {"kind":"tool_call","toolId":"t1","toolName":"Bash","input":{"command":"ls"}}
+
+event: agent
+data: {"kind":"text","text":"done"}
+
+event: turn
+data: {"status":"done"}
+```
+
+## Wrap-up and promotion
+
+`POST /channels/{id}/wrap` does what a send of the text `/wrap` does: it runs the wrap-up
+turn of [`Session.Wrap`](../channel/session.go) (see [memory.md](memory.md#wrap-up)). The
+agent calls `propose_wrap`; when the turn is done, `GET /channels/{id}/proposal` returns the
+pending proposal, or 404 when the agent made none. `POST /proposals/{id}/approve` and
+`/reject` decide it with the same effect as `reef wrap approve` and `reject`. Approve
+also returns `decisionsAdded`, the decisions it saved. A proposal that is already decided is
+400, like `invalid: proposal 1 is already approved` in the CLI.
+
+`POST /channels/{id}/promote` turns a quick session into a feature. It takes `{"slug":
+"login","name":"Login"}` to create the feature in the channel's project, or `{"featureId":
+3}` for a feature that exists in that project. Only a channel with no feature can be
+promoted. The server first checks that the channel has no feature, that a `featureId` is
+a feature of the channel's project and that a new slug is free, so a refused promote
+changes nothing and never opens the agent. It then checks that no turn runs and the caps,
+as for send, and once the agent is open, in one transaction creates the feature and sets
+the channel's `featureId`. It answers 202 with the
+channel and starts a turn: the stored user message is `/promote`, and the agent gets a
+prompt that names the feature and asks it to call `propose_wrap` once with the first brief,
+written from the session, its notes and the decisions so far. The user approves that
+proposal like a wrap-up, and approval makes brief version 1. A promote that fails (a taken
+slug, a feature of another project) changes nothing.
+
+## Caps
+
+Two caps pause a channel. Both are constants in the code, not settings.
+
+- Tool calls per wake: one turn (one user message) may make 25 tool calls, subagent calls
+  included. The 26th interrupts the agent, ends the turn `failed` with the error `capped:
+  more than 25 tool calls` and pauses the channel with that text as `paused`. The agent
+  stops like after a failed turn; the next send resumes it by session id.
+- Tokens per channel: the input, output and cache write tokens of all the channel's turns,
+  cache reads not counted, against `tokenBudget` (1,000,000). A turn only counts once it
+  has ended. A send that finds the sum at or over the budget pauses the channel with
+  `token budget of 1000000 used: 1000312 tokens`.
+
+A send to a paused channel is 409 with the reason in the error. `POST
+/channels/{id}/continue` clears the pause. When the token sum is at or over the budget it
+also adds 1,000,000 to `tokenBudget`; after a tool cap the next turn simply gets a fresh
+25. `continue` on a channel that is not paused is 409.
+
+The tool cap is counted in `channel.Runner`, so `reef chat` is capped too: it pauses the
+channel, prints the reason and exits, because the interrupt ends the agent. `reef chat
+--channel ID` runs the same pause and token budget check as send (`channel.CheckCaps`): it
+refuses a paused channel and pauses one over budget, exit 1 with the reason.
 
 ## Append-only
 
@@ -303,8 +455,8 @@ reef serve --data /tmp/reef-demo
 ```
 
 ```
-$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/projects -d '{"name":"shop","path":"/tmp/shop"}'
-{"id":1,"name":"shop","path":"/tmp/shop","createdAt":"2026-10-13T09:00:00.123456Z"}
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/projects -d '{"name":"shop","path":"/tmp"}'
+{"id":1,"name":"shop","path":"/tmp","createdAt":"2026-10-13T09:00:00.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Login"}'
 {"id":1,"projectId":1,"slug":"login","name":"Login","goal":"","stage":"ideation","createdAt":"2026-10-13T09:00:01.123456Z"}
@@ -315,8 +467,8 @@ $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d
 $ curl -s -X PUT -H 'Content-Type: application/json' localhost:7700/features/1/brief -d '{"body":"Email and password login","author":"user"}'
 {"id":1,"featureId":1,"body":"Email and password login","author":"user","createdAt":"2026-10-13T09:00:02.123456Z"}
 
-$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/channels -d '{"projectId":1,"featureId":1,"name":"build"}'
-{"id":1,"projectId":1,"featureId":1,"name":"build","createdAt":"2026-10-13T09:00:03.123456Z"}
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/channels -d '{"projectId":1,"featureId":1,"name":"build","backend":"claude"}'
+{"id":1,"projectId":1,"featureId":1,"name":"build","role":"lead","backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"createdAt":"2026-10-13T09:00:03.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/messages -d '{"channelId":1,"author":"user","body":"Start with the form"}'
 {"id":1,"channelId":1,"author":"user","body":"Start with the form","createdAt":"2026-10-13T09:00:04.123456Z"}

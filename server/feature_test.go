@@ -132,7 +132,7 @@ func TestFeatureStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ts := newTestServer(t)
-			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp/reef"}`)
+			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
 			do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"first","name":"First"}`)
 			status, body := do(t, tt.method, ts.URL+tt.path, tt.give)
 			if status != tt.wantStatus {
@@ -147,8 +147,8 @@ func TestFeatureStatus(t *testing.T) {
 
 func TestFeatureRoundTrip(t *testing.T) {
 	ts := newTestServer(t)
-	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp/reef"}`)
-	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"other","path":"/tmp/other"}`)
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"other","path":"/"}`)
 
 	status, body := do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"auth","name":"Auth"}`)
 	if status != 201 || !strings.HasPrefix(body,

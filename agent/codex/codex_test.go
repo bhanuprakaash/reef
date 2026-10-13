@@ -322,7 +322,6 @@ func TestAgent_ExitsOnItsOwn(t *testing.T) {
 	want := []agent.Event{
 		{Kind: agent.KindSession, SessionID: "t1"},
 		{Kind: agent.KindText, Text: "hi"},
-		{Kind: agent.KindUsage, Usage: &agent.Usage{}},
 		{Kind: agent.KindTurnEnd},
 		{Kind: agent.KindError, Text: "codex exited: exit status 3: boom"},
 	}
@@ -361,7 +360,7 @@ func TestAgent_NotStarted(t *testing.T) {
 	}
 }
 
-func TestAgent_OneUsagePerTurn(t *testing.T) {
+func TestAgent_UsageAsItArrives(t *testing.T) {
 	a := fake(t, "twocalls")
 	startTurn(t, a)
 	got := collect(t, a, agent.KindTurnEnd)
@@ -369,8 +368,9 @@ func TestAgent_OneUsagePerTurn(t *testing.T) {
 		{Kind: agent.KindSession, SessionID: "t1"},
 		{Kind: agent.KindText, Text: "hi"},
 		{Kind: agent.KindUsage, Usage: &agent.Usage{
-			InputTokens: 10, OutputTokens: 8, CacheReadTokens: 5, CacheWriteTokens: 2,
+			InputTokens: 4, OutputTokens: 3, CacheReadTokens: 4, CacheWriteTokens: 2,
 		}},
+		{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 6, OutputTokens: 5, CacheReadTokens: 1}},
 		{Kind: agent.KindTurnEnd},
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -400,7 +400,7 @@ func TestAgent_ResumeDropsReplayedUsage(t *testing.T) {
 	}
 }
 
-func TestAgent_UsageBeforeEveryTurnError(t *testing.T) {
+func TestAgent_TurnError(t *testing.T) {
 	tests := []struct {
 		mode string
 		want []agent.Event
@@ -409,7 +409,6 @@ func TestAgent_UsageBeforeEveryTurnError(t *testing.T) {
 			mode: "rejected",
 			want: []agent.Event{
 				{Kind: agent.KindSession, SessionID: "t1"},
-				{Kind: agent.KindUsage, Usage: &agent.Usage{}},
 				{Kind: agent.KindError, Text: "bad turn"},
 			},
 		},
@@ -431,5 +430,70 @@ func TestAgent_UsageBeforeEveryTurnError(t *testing.T) {
 				t.Errorf("events = %+v, want %+v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestAgent_InterruptedTurnKeepsUsage(t *testing.T) {
+	a := fake(t, "usagehang")
+	startTurn(t, a)
+	got := collect(t, a, agent.KindUsage)
+	want := []agent.Event{
+		{Kind: agent.KindSession, SessionID: "t1"},
+		{Kind: agent.KindText, Text: "hi"},
+		{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 6, OutputTokens: 3, CacheReadTokens: 4}},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %+v, want %+v", got, want)
+	}
+	if err := a.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAgent_InterruptKeepsStoppedTurnUsage(t *testing.T) {
+	tests := []struct {
+		mode string
+		want agent.Usage
+	}{
+		{mode: "stopusage", want: agent.Usage{InputTokens: 6, OutputTokens: 5, CacheReadTokens: 1}},
+		{mode: "stopmerge", want: agent.Usage{InputTokens: 12, OutputTokens: 8, CacheReadTokens: 5}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mode, func(t *testing.T) {
+			a := fake(t, tt.mode)
+			startTurn(t, a)
+			collect(t, a, agent.KindToolCall)
+			if err := a.Interrupt(); err != nil {
+				t.Fatal(err)
+			}
+			got := collect(t, a, "")
+			want := []agent.Event{{Kind: agent.KindUsage, Usage: &tt.want}}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("events after Interrupt = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
+func TestAgent_BreakBetweenMessages(t *testing.T) {
+	a := fake(t, "twomsgs")
+	startTurn(t, a)
+	got := collect(t, a, agent.KindTurnEnd)
+	want := []agent.Event{
+		{Kind: agent.KindSession, SessionID: "t1"},
+		{Kind: agent.KindText, Text: "hi"},
+		{Kind: agent.KindText, Text: "a1"},
+		{Kind: agent.KindText, Text: "a2"},
+		{
+			Kind: agent.KindToolCall, ToolID: "c1", ToolName: "commandExecution",
+			Input: json.RawMessage(`{"command":"ls"}`),
+		},
+		{Kind: agent.KindToolResult, ToolID: "c1", Output: "x"},
+		{Kind: agent.KindText, Text: "\n\n"},
+		{Kind: agent.KindText, Text: "b1"},
+		{Kind: agent.KindTurnEnd},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %+v, want %+v", got, want)
 	}
 }

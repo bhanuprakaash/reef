@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -13,44 +15,47 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// wrapAgent answers each prompt with "ok". Like the real agent calling propose_wrap,
-// it stores a proposal when it gets the wrap prompt and propose is set. A turn ends
-// only after gate is closed, when gate is set.
-type wrapAgent struct {
+type fakeSession struct {
 	st        *store.Store
 	channelID int64
 	propose   bool
 	gate      chan struct{}
 	sent      chan struct{}
-	events    chan agent.Event
-	prompts   []string
+	stored    []string
+	said      []string
+	wraps     int
 }
 
-func (w *wrapAgent) Start(context.Context, agent.Config) error          { return nil }
-func (w *wrapAgent) Resume(context.Context, agent.Config, string) error { return nil }
-func (w *wrapAgent) Events() <-chan agent.Event                         { return w.events }
-func (w *wrapAgent) Interrupt() error                                   { return nil }
-
-func (w *wrapAgent) Send(ctx context.Context, prompt string) error {
-	w.prompts = append(w.prompts, prompt)
-	if w.sent != nil {
-		w.sent <- struct{}{}
-	}
-	if w.gate != nil {
-		<-w.gate
-	}
-	if w.propose && prompt == _wrapPrompt {
-		_, err := w.st.CreateProposal(ctx, store.Proposal{
-			ChannelID: w.channelID, Role: "architect", Brief: "new brief", Notes: "my notes",
-			Decisions: []store.ProposedDecision{{Body: "use sessions", Why: "simple"}},
-		})
-		if err != nil {
-			return err
-		}
-	}
-	w.events <- agent.Event{Kind: agent.KindText, Text: "ok"}
-	w.events <- agent.Event{Kind: agent.KindTurnEnd}
+func (f *fakeSession) Say(_ context.Context, body string) error {
+	f.stored = append(f.stored, body)
 	return nil
+}
+
+func (f *fakeSession) Run(_ context.Context, text string, onEvent func(agent.Event)) error {
+	f.said = append(f.said, text)
+	if text == "cap" {
+		return fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
+	}
+	onEvent(agent.Event{Kind: agent.KindText, Text: "ok"})
+	return nil
+}
+
+func (f *fakeSession) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
+	f.wraps++
+	if f.sent != nil {
+		f.sent <- struct{}{}
+	}
+	if f.gate != nil {
+		<-f.gate
+	}
+	onEvent(agent.Event{Kind: agent.KindText, Text: "ok"})
+	if !f.propose {
+		return store.Proposal{}, channel.ErrNoProposal
+	}
+	return f.st.CreateProposal(ctx, store.Proposal{
+		ChannelID: f.channelID, Role: "architect", Brief: "new brief", Notes: "my notes",
+		Decisions: []store.ProposedDecision{{Body: "use sessions", Why: "simple"}},
+	})
 }
 
 // chatRun is converse reading from a pipe the test writes to.
@@ -62,9 +67,9 @@ type chatRun struct {
 	cancel context.CancelFunc
 }
 
-func startChat(t *testing.T, st *store.Store, ch store.Channel, w *wrapAgent) *chatRun {
+func startChat(t *testing.T, st *store.Store, ch store.Channel, w *fakeSession) *chatRun {
 	t.Helper()
-	w.st, w.channelID, w.events = st, ch.ID, make(chan agent.Event, 8)
+	w.st, w.channelID = st, ch.ID
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { _ = pw.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
@@ -73,8 +78,7 @@ func startChat(t *testing.T, st *store.Store, ch store.Channel, w *wrapAgent) *c
 	c := &chatRun{
 		in: pw, lines: lines, out: &syncBuffer{}, done: make(chan error, 1), cancel: cancel,
 	}
-	r := channel.NewRunner(st, w, ch.ID, "architect", "claude", "")
-	go func() { c.done <- converseLines(ctx, st, ch.ID, r, lines, c.out) }()
+	go func() { c.done <- converse(ctx, st, w, lines, c.out) }()
 	return c
 }
 
@@ -170,7 +174,7 @@ func TestConverse_Wrap(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			st, ch := chatFixture(t)
-			w := &wrapAgent{propose: tt.propose}
+			w := &fakeSession{propose: tt.propose}
 			c := startChat(t, st, ch, w)
 
 			c.say(t, "/wrap")
@@ -188,15 +192,9 @@ func TestConverse_Wrap(t *testing.T) {
 				t.Errorf("output = %q, want %q", out, tt.wantExactOut)
 			}
 
-			if len(w.prompts) != 1 || w.prompts[0] != _wrapPrompt {
-				t.Errorf("agent prompts = %q, want the wrap prompt once", w.prompts)
-			}
-			msgs, err := st.Messages(ctx, ch.ID, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(msgs) != 2 || msgs[0].Author != "user" || msgs[0].Body != "/wrap" {
-				t.Errorf("messages = %+v, want the user message /wrap first", msgs)
+			if w.wraps != 1 || len(w.said) != 0 || !slices.Equal(w.stored, []string{"/wrap"}) {
+				t.Errorf("wraps = %d, said = %q, stored = %q, want one wrap, stored as /wrap",
+					w.wraps, w.said, w.stored)
 			}
 			brief, err := st.Brief(ctx, 1)
 			if tt.wantBrief == "" && !errors.Is(err, store.ErrNotFound) ||
@@ -211,9 +209,23 @@ func TestConverse_Wrap(t *testing.T) {
 	}
 }
 
+func TestConverse_CappedTurnPrintsReasonAndEnds(t *testing.T) {
+	st, ch := chatFixture(t)
+	w := &fakeSession{}
+	c := startChat(t, st, ch, w)
+
+	c.say(t, "cap")
+	if err := <-c.done; err != nil {
+		t.Fatalf("converse = %v, want nil", err)
+	}
+	if want := "> \n\ncapped: more than 25 tool calls\n"; c.out.String() != want {
+		t.Errorf("output = %q, want %q", c.out.String(), want)
+	}
+}
+
 func TestConverse_WrapCancelledAtPromptLeavesProposalPending(t *testing.T) {
 	st, ch := chatFixture(t)
-	w := &wrapAgent{propose: true}
+	w := &fakeSession{propose: true}
 	c := startChat(t, st, ch, w)
 
 	c.say(t, "/wrap")
@@ -234,7 +246,7 @@ func TestConverse_WrapCancelledAtPromptLeavesProposalPending(t *testing.T) {
 
 func TestConverse_WrapIgnoresTypedAheadLines(t *testing.T) {
 	st, ch := chatFixture(t)
-	w := &wrapAgent{propose: true, gate: make(chan struct{}), sent: make(chan struct{}, 1)}
+	w := &fakeSession{propose: true, gate: make(chan struct{}), sent: make(chan struct{}, 1)}
 	c := startChat(t, st, ch, w)
 
 	c.say(t, "/wrap")
@@ -261,7 +273,7 @@ func TestConverse_WrapIgnoresTypedAheadLines(t *testing.T) {
 
 func TestConverse_WrapBlankLineAtPromptRejects(t *testing.T) {
 	st, ch := chatFixture(t)
-	w := &wrapAgent{propose: true}
+	w := &fakeSession{propose: true}
 	c := startChat(t, st, ch, w)
 
 	c.say(t, "/wrap")
@@ -287,7 +299,7 @@ func TestConverse_WrapBlankLineAtPromptRejects(t *testing.T) {
 
 func TestConverse_BlankLineThenMessage(t *testing.T) {
 	st, ch := chatFixture(t)
-	w := &wrapAgent{}
+	w := &fakeSession{}
 	c := startChat(t, st, ch, w)
 
 	c.say(t, "")
@@ -295,21 +307,8 @@ func TestConverse_BlankLineThenMessage(t *testing.T) {
 	c.waitFor(t, "ok")
 	out := c.end(t)
 
-	if len(w.prompts) != 1 || w.prompts[0] != "hi" {
-		t.Errorf("agent prompts = %q, want [hi]", w.prompts)
-	}
-	msgs, err := st.Messages(context.Background(), ch.ID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var userMessages []store.Message
-	for _, msg := range msgs {
-		if msg.Author == "user" {
-			userMessages = append(userMessages, msg)
-		}
-	}
-	if len(userMessages) != 1 || userMessages[0].Body != "hi" {
-		t.Errorf("user messages = %+v, want one user message hi; output %q", userMessages, out)
+	if !slices.Equal(w.said, []string{"hi"}) || !slices.Equal(w.stored, []string{"hi"}) {
+		t.Errorf("said = %q, stored = %q, want [hi] for both; output %q", w.said, w.stored, out)
 	}
 }
 
@@ -337,7 +336,7 @@ func TestConverse_WrapDecisionElsewhereContinues(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			st, ch := chatFixture(t)
-			w := &wrapAgent{propose: true}
+			w := &fakeSession{propose: true}
 			c := startChat(t, st, ch, w)
 			c.say(t, "/wrap")
 			c.waitFor(t, "approve? [y/N] ")
@@ -351,8 +350,8 @@ func TestConverse_WrapDecisionElsewhereContinues(t *testing.T) {
 			c.waitFor(t, "ok\n\n> ")
 			out := c.end(t)
 
-			if !strings.Contains(out, wantLine) || len(w.prompts) != 2 || w.prompts[1] != "hi" {
-				t.Errorf("output = %q, prompts = %q; want warning and continued chat", out, w.prompts)
+			if !strings.Contains(out, wantLine) || w.wraps != 1 || len(w.said) != 1 || w.said[0] != "hi" {
+				t.Errorf("output = %q, said = %q; want warning and continued chat", out, w.said)
 			}
 		})
 	}
@@ -369,11 +368,31 @@ func TestRun_McpNeedsKnownToken(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(_tokenEnv, tt.token)
+			t.Setenv(channel.TokenEnv, tt.token)
 			err := run(context.Background(), []string{"mcp", "--data", t.TempDir()},
 				strings.NewReader(""), io.Discard, io.Discard)
 			if err == nil || err.Error() != tt.want {
 				t.Errorf("run mcp = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestRun_ChatResumeRejectsNewSettings(t *testing.T) {
+	tests := []struct {
+		name string
+		give []string
+	}{
+		{"role", []string{"--role", "tester"}},
+		{"backend", []string{"--backend", "codex"}},
+		{"name", []string{"--name", "x"}},
+		{"permission mode", []string{"--permission-mode", "acceptEdits"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := reef(t, t.TempDir(), append([]string{"chat", "--channel", "1"}, tt.give...)...)
+			if err == nil || err.Error() != _chatUsage {
+				t.Errorf("chat error = %v, want the usage", err)
 			}
 		})
 	}
@@ -386,7 +405,7 @@ func TestRun_ChatBackendTypoLeavesNoChannel(t *testing.T) {
 	mustReef(t, dir, "feature", "add", "login", "Login")
 
 	_, err := reef(t, dir, "chat", "login", "--role", "developer", "--backend", "nope")
-	if err == nil || err.Error() != `unknown backend "nope"` {
+	if err == nil || err.Error() != `invalid: unknown backend "nope"` {
 		t.Errorf("chat error = %v, want unknown backend", err)
 	}
 	st, err := store.Open(dir)
@@ -396,5 +415,73 @@ func TestRun_ChatBackendTypoLeavesNoChannel(t *testing.T) {
 	defer func() { _ = st.Close() }()
 	if chs, err := st.Channels(context.Background(), store.ChannelFilter{}); err != nil || len(chs) != 0 {
 		t.Errorf("channels = %+v, %v, want none", chs, err)
+	}
+}
+
+func TestRun_ChatResumeRefusesPausedChannel(t *testing.T) {
+	tests := []struct {
+		name       string
+		givePause  string
+		giveTokens int64
+		wantErr    string
+		wantPaused string
+	}{
+		{
+			name: "paused", givePause: "test pause",
+			wantErr: "channel 1 is paused: test pause: conflict", wantPaused: "test pause",
+		},
+		{
+			name: "over budget", giveTokens: 1000000,
+			wantErr:    "channel 1 is paused: token budget of 1000000 used: 1000000 tokens: conflict",
+			wantPaused: "token budget of 1000000 used: 1000000 tokens",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			dir := t.TempDir()
+			t.Chdir(t.TempDir())
+			mustReef(t, dir, "project", "add")
+			mustReef(t, dir, "feature", "add", "login", "Login")
+			st, err := store.Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = st.Close() }()
+			f, err := st.FeatureByRef(ctx, "login")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ch, err := st.CreateChannel(ctx, store.Channel{
+				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "developer",
+				Backend: "claude",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.givePause != "" {
+				if err := st.PauseChannel(ctx, ch.ID, tt.givePause); err != nil {
+					t.Fatal(err)
+				}
+			}
+			turn, err := st.CreateTurn(ctx, store.Turn{
+				ChannelID: ch.ID, Role: "developer", Backend: "claude",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			turn.Status, turn.Usage = "done", agent.Usage{InputTokens: tt.giveTokens}
+			if _, err := st.EndTurn(ctx, turn); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = reef(t, dir, "chat", "--channel", "1")
+			if err == nil || err.Error() != tt.wantErr {
+				t.Errorf("chat error = %v, want %q", err, tt.wantErr)
+			}
+			if got, err := st.Channel(ctx, ch.ID); err != nil || got.Paused != tt.wantPaused {
+				t.Errorf("paused = %q, %v, want %q", got.Paused, err, tt.wantPaused)
+			}
+		})
 	}
 }

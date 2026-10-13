@@ -10,7 +10,13 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-const _userAuthor = "user"
+const (
+	_userAuthor = "user"
+	_toolCap    = 25
+)
+
+// ErrCapped is returned by Run when a turn exceeds the tool call cap.
+var ErrCapped = errors.New("capped")
 
 // Runner records one role's exchanges with a started agent in one channel: the
 // user messages, the agent's replies and a turn for each exchange.
@@ -25,6 +31,7 @@ type Runner struct {
 	backend   string
 	preamble  string
 	sessionID string
+	toolCap   int
 }
 
 // NewRunner returns a Runner for ag, which must already be started or resumed.
@@ -34,23 +41,22 @@ func NewRunner(
 ) *Runner {
 	return &Runner{
 		st: st, ag: ag, channelID: channelID, role: role, backend: backend, preamble: preamble,
+		toolCap: _toolCap,
 	}
 }
 
-// SendAs stores stored as a user message, runs one turn with text and calls
-// onEvent for each event of the agent. A finished turn is stored done with the
-// agent's reply as a message. An agent error ends the turn failed and is
-// returned. When ctx is cancelled the agent is interrupted, the turn is stored
-// failed as interrupted and the error wraps ctx.Err().
-func (r *Runner) SendAs(
-	ctx context.Context, stored, text string, onEvent func(agent.Event),
-) error {
-	if _, err := r.st.CreateMessage(ctx, store.Message{
-		ChannelID: r.channelID, Author: _userAuthor, Body: stored,
-	}); err != nil {
-		return err
-	}
-	// From here the turn is recorded even when ctx is cancelled.
+// Say stores body as the user message.
+func (r *Runner) Say(ctx context.Context, body string) error {
+	_, err := r.st.CreateMessage(ctx, store.Message{
+		ChannelID: r.channelID, Author: _userAuthor, Body: body,
+	})
+	return err
+}
+
+// Run runs one turn with text. A cancelled ctx wraps ctx.Err(); a turn over the tool
+// call cap pauses the channel and wraps ErrCapped.
+func (r *Runner) Run(ctx context.Context, text string, onEvent func(agent.Event)) error {
+	// The turn is recorded even when ctx is cancelled.
 	wctx := context.WithoutCancel(ctx)
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
 		ChannelID: r.channelID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,
@@ -72,6 +78,7 @@ func (r *Runner) SendAs(
 	r.preamble = ""
 
 	var reply strings.Builder
+	calls := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -90,6 +97,12 @@ func (r *Runner) SendAs(
 				}
 			case agent.KindText:
 				reply.WriteString(ev.Text)
+			case agent.KindToolCall:
+				if calls++; calls > r.toolCap {
+					capped := fmt.Errorf("%w: more than %d tool calls", ErrCapped, r.toolCap)
+					return errors.Join(r.abort(wctx, turn, capped, capped.Error()),
+						r.st.PauseChannel(wctx, r.channelID, capped.Error()))
+				}
 			case agent.KindUsage:
 				if ev.Usage != nil {
 					turn.Usage.Add(*ev.Usage)
@@ -115,9 +128,25 @@ func (r *Runner) SendAs(
 }
 
 // abort interrupts the agent and stores turn as failed with reason. It returns
-// cause joined with the errors of those two steps.
+// cause joined with the errors of those two steps. Usage the agent left in Events while
+// stopping counts to the turn.
 func (r *Runner) abort(ctx context.Context, turn store.Turn, cause error, reason string) error {
-	return errors.Join(cause, r.ag.Interrupt(), r.fail(ctx, turn, reason))
+	err := r.ag.Interrupt()
+drain:
+	for {
+		select {
+		case ev, ok := <-r.ag.Events():
+			if !ok {
+				break drain
+			}
+			if ev.Kind == agent.KindUsage && ev.Usage != nil {
+				turn.Usage.Add(*ev.Usage)
+			}
+		default:
+			break drain
+		}
+	}
+	return errors.Join(cause, err, r.fail(ctx, turn, reason))
 }
 
 func (r *Runner) fail(ctx context.Context, turn store.Turn, reason string) error {

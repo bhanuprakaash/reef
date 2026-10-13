@@ -2,6 +2,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -12,17 +13,56 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
+	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
 )
 
 type server struct {
-	st *store.Store
+	st   *store.Store
+	open func(ctx context.Context, channelID int64) (session, error)
+
+	ctx    context.Context
+	cancel context.CancelFunc
+	wg     sync.WaitGroup
+	quit   chan struct{}
+
+	mu     sync.Mutex
+	closed bool
+	lives  map[int64]*live
 }
 
-// New returns the HTTP handler for the whole API.
-func New(st *store.Store) http.Handler {
-	s := &server{st: st}
+// Handler serves the API. Close it when done.
+type Handler struct {
+	h http.Handler
+	s *server
+}
+
+// New returns the API over st.
+func New(st *store.Store, dataDir, exe string) *Handler {
+	return newHandler(st, func(ctx context.Context, channelID int64) (session, error) {
+		sess, err := channel.Open(ctx, st, dataDir, exe, channelID)
+		if err != nil {
+			return nil, err
+		}
+		return sess, nil
+	})
+}
+
+func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.h.ServeHTTP(w, r) }
+
+// Close waits for running turns to be stored. A send after it gets 503.
+func (h *Handler) Close() { h.s.close() }
+
+func newHandler(
+	st *store.Store, open func(ctx context.Context, channelID int64) (session, error),
+) *Handler {
+	ctx, cancel := context.WithCancel(context.Background())
+	s := &server{
+		st: st, open: open, ctx: ctx, cancel: cancel, quit: make(chan struct{}),
+		lives: map[int64]*live{},
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
@@ -32,10 +72,12 @@ func New(st *store.Store) http.Handler {
 	s.projectRoutes(mux)
 	s.featureRoutes(mux)
 	s.channelRoutes(mux)
+	s.liveRoutes(mux)
+	s.proposalRoutes(mux)
 	s.taskRoutes(mux)
 	s.decisionRoutes(mux)
 	s.turnRoutes(mux)
-	return guard(mux)
+	return &Handler{h: guard(mux), s: s}
 }
 
 // guard rejects requests a browser page on another origin could send to the
@@ -102,6 +144,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func writeError(w http.ResponseWriter, err error) {
 	status, msg := http.StatusInternalServerError, "internal error"
 	switch {
+	case errors.Is(err, errStopping):
+		status, msg = http.StatusServiceUnavailable, err.Error()
 	case errors.Is(err, store.ErrInvalid):
 		status, msg = http.StatusBadRequest, err.Error()
 	case errors.Is(err, store.ErrNotFound):

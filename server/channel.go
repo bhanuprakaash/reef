@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -49,12 +50,46 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if in.Role == "" {
+		in.Role = "lead"
+	}
+	if in.Role != "lead" {
+		writeError(w, fmt.Errorf("%w: role must be lead", store.ErrInvalid))
+		return
+	}
+	if err := validateAgent(in); err != nil {
+		writeError(w, err)
+		return
+	}
 	c, err := s.st.CreateChannel(r.Context(), in)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, c)
+}
+
+func permissionModes(backend string) []string {
+	switch backend {
+	case "claude":
+		return []string{"default", "acceptEdits"}
+	case "codex":
+		return []string{"read-only", "workspace-write"}
+	default:
+		return nil
+	}
+}
+
+func validateAgent(c store.Channel) error {
+	modes := permissionModes(c.Backend)
+	if modes == nil {
+		return fmt.Errorf("%w: backend must be claude or codex", store.ErrInvalid)
+	}
+	if c.PermissionMode != "" && !slices.Contains(modes, c.PermissionMode) {
+		return fmt.Errorf("%w: permissionMode for %s must be empty, %s or %s",
+			store.ErrInvalid, c.Backend, modes[0], modes[1])
+	}
+	return nil
 }
 
 func (s *server) getChannel(w http.ResponseWriter, r *http.Request) {
@@ -97,10 +132,19 @@ func (s *server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.mu.Lock()
+	l := s.lives[id]
+	s.mu.Unlock()
+	if l != nil {
+		s.stopLive(l)
+	}
 	if err := s.st.DeleteChannel(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}
+	s.mu.Lock()
+	delete(s.lives, id)
+	s.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }
 

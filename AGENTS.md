@@ -1,6 +1,6 @@
 # Reef: working agreement for every agent
 
-Read this first. Then [`docs/product.md`](docs/product.md) (what we build and the 20
+Read this first. Then [`docs/product.md`](docs/product.md) (what we build and the 21
 decisions), [`docs/server.md`](docs/server.md) (the data server) and
 [`docs/memory.md`](docs/memory.md) (the CLI, MCP tools, `reef chat` and wrap-up).
 
@@ -45,8 +45,8 @@ channel/      Runner and context prompt for a channel
 cmd/reef-agent  harness CLI
 cmd/reef      main server + CLI (later)
 store/        SQLite schema and queries
-server/       HTTP, WebSocket, MCP server
-web/          React UI
+server/       HTTP, SSE, MCP server
+web/          React UI; source modules in `web/src/modules`, conventions in [docs/react-style.md](docs/react-style.md)
 desktop/      Electron shell
 docs/         product.md, agents.md, server.md, decisions
 ```
@@ -61,6 +61,7 @@ Create a folder only when a ticket needs it.
 - Tick what you proved: after verifying a line, edit the issue body and check it (`gh issue edit`). A line you could not verify stays unchecked with a short note under it. A line only the user can verify (hand test, approval, merge) is left unchecked and the user is asked, in chat, with the exact steps.
 - Decisions that change the product go to `docs/product.md` Decisions table, numbered, with a one-line why. Do not re-open a settled decision; propose a new one with a reason.
 - Go: follow `docs/go-style.md` (condensed Uber guide). Standard library first. No frameworks until a ticket proves the need.
+- React: follow `docs/react-style.md`.
 - Commits: conventional prefix (`feat:`, `fix:`, `docs:`, `chore:`), one-line subject, no ticket ids in the subject. No AI attribution anywhere.
 - Comments only for a constraint the code cannot show.
 - Plain words in UI and code: feature, channel, team, role, brief, decision, task. "Reef" and "jelly" are brand only.
