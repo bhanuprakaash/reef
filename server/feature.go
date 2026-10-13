@@ -1,9 +1,7 @@
 package server
 
 import (
-	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -28,14 +26,10 @@ func (s *server) featureRoutes(mux *http.ServeMux) {
 }
 
 func (s *server) listFeatures(w http.ResponseWriter, r *http.Request) {
-	var projectID *int64
-	if v := r.URL.Query().Get("project"); v != "" {
-		id, err := strconv.ParseInt(v, 10, 64)
-		if err != nil {
-			writeError(w, fmt.Errorf("%w: project %q is not a number", store.ErrInvalid, v))
-			return
-		}
-		projectID = &id
+	projectID, err := queryID(r, "project")
+	if err != nil {
+		writeError(w, err)
+		return
 	}
 	fs, err := s.st.Features(r.Context(), projectID)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// Brief is one version of a feature's brief.
 type Brief struct {
 	ID        int64     `json:"id"`
 	FeatureID int64     `json:"featureId"`
@@ -45,7 +46,8 @@ func (s *Store) PutBrief(ctx context.Context, b Brief) (Brief, error) {
 // Brief returns the latest version of the feature's brief.
 func (s *Store) Brief(ctx context.Context, featureID int64) (Brief, error) {
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, feature_id, body, author, created_at FROM brief WHERE feature_id = ? ORDER BY id DESC LIMIT 1",
+		"SELECT id, feature_id, body, author, created_at FROM brief "+
+			"WHERE feature_id = ? ORDER BY id DESC LIMIT 1",
 		featureID)
 	b, err := scanBrief(row)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -60,32 +62,13 @@ func (s *Store) BriefVersions(ctx context.Context, featureID int64) ([]Brief, er
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, feature_id, body, author, created_at FROM brief WHERE feature_id = ? ORDER BY id",
+		"SELECT id, feature_id, body, author, created_at FROM brief "+
+			"WHERE feature_id = ? ORDER BY id",
 		featureID)
 	if err != nil {
 		return nil, fmt.Errorf("list brief versions: %w", err)
 	}
-	defer rows.Close()
-	var bs []Brief
-	for rows.Next() {
-		b, err := scanBrief(rows)
-		if err != nil {
-			return nil, err
-		}
-		bs = append(bs, b)
-	}
-	return bs, rows.Err()
-}
-
-func (s *Store) requireFeature(ctx context.Context, id int64) error {
-	ok, err := s.exists(ctx, "feature", id)
-	if err != nil {
-		return fmt.Errorf("check feature: %w", err)
-	}
-	if !ok {
-		return fmt.Errorf("feature %d: %w", id, ErrNotFound)
-	}
-	return nil
+	return scanAll(rows, scanBrief)
 }
 
 func scanBrief(r interface{ Scan(...any) error }) (Brief, error) {

@@ -19,6 +19,8 @@ type Decision struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// CreateDecision adds d. A set MessageID must be a message in a channel of
+// d.FeatureID.
 func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error) {
 	if d.Body == "" {
 		return Decision{}, fmt.Errorf("%w: decision body is required", ErrInvalid)
@@ -36,12 +38,14 @@ func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error
 			return Decision{}, fmt.Errorf("check message: %w", err)
 		}
 		if !ok {
-			return Decision{}, fmt.Errorf("%w: message %d is not in a channel of feature %d", ErrInvalid, *d.MessageID, d.FeatureID)
+			return Decision{}, fmt.Errorf("%w: message %d is not in a channel of feature %d",
+				ErrInvalid, *d.MessageID, d.FeatureID)
 		}
 	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO decision (feature_id, message_id, body, why, author, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+		"INSERT INTO decision (feature_id, message_id, body, why, author, created_at) "+
+			"VALUES (?, ?, ?, ?, ?, ?)",
 		d.FeatureID, d.MessageID, d.Body, d.Why, d.Author, now.Format(time.RFC3339Nano))
 	if isForeignKey(err) {
 		return Decision{}, fmt.Errorf("%w: unknown feature %d", ErrInvalid, d.FeatureID)
@@ -57,9 +61,11 @@ func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error
 	return d, nil
 }
 
+// Decision returns the decision with the id, or ErrNotFound.
 func (s *Store) Decision(ctx context.Context, id int64) (Decision, error) {
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, feature_id, message_id, body, why, author, created_at FROM decision WHERE id = ?", id)
+		"SELECT id, feature_id, message_id, body, why, author, created_at FROM decision "+
+			"WHERE id = ?", id)
 	d, err := scanDecision(row)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Decision{}, fmt.Errorf("decision %d: %w", id, ErrNotFound)
@@ -73,27 +79,21 @@ func (s *Store) Decisions(ctx context.Context, featureID int64) ([]Decision, err
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, feature_id, message_id, body, why, author, created_at FROM decision WHERE feature_id = ? ORDER BY id",
+		"SELECT id, feature_id, message_id, body, why, author, created_at FROM decision "+
+			"WHERE feature_id = ? ORDER BY id",
 		featureID)
 	if err != nil {
 		return nil, fmt.Errorf("list decisions: %w", err)
 	}
-	defer rows.Close()
-	var ds []Decision
-	for rows.Next() {
-		d, err := scanDecision(rows)
-		if err != nil {
-			return nil, err
-		}
-		ds = append(ds, d)
-	}
-	return ds, rows.Err()
+	return scanAll(rows, scanDecision)
 }
 
 func scanDecision(r interface{ Scan(...any) error }) (Decision, error) {
 	var d Decision
 	var created string
-	if err := r.Scan(&d.ID, &d.FeatureID, &d.MessageID, &d.Body, &d.Why, &d.Author, &created); err != nil {
+	if err := r.Scan(
+		&d.ID, &d.FeatureID, &d.MessageID, &d.Body, &d.Why, &d.Author, &created,
+	); err != nil {
 		return Decision{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

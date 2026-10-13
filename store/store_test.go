@@ -27,7 +27,7 @@ func TestOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var tables []string
 	for rows.Next() {
 		var name string
@@ -57,7 +57,7 @@ func TestOpen(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestOpenOddDir(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	if _, err := os.Stat(filepath.Join(dir, "reef.db")); err != nil {
 		t.Errorf("reef.db not in the data dir: %v", err)
 	}
@@ -109,7 +109,8 @@ func TestOpenTwice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(dir); err == nil || !strings.Contains(err.Error(), "in use by another reef") {
+	_, err = Open(dir)
+	if err == nil || !strings.Contains(err.Error(), "in use by another reef") {
 		t.Errorf("second Open = %v, want an in-use error", err)
 	}
 	if err := first.Close(); err != nil {
@@ -119,7 +120,7 @@ func TestOpenTwice(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Open after Close: %v", err)
 	}
-	defer second.Close()
+	defer func() { _ = second.Close() }()
 }
 
 func TestForeignKeys(t *testing.T) {
@@ -127,7 +128,7 @@ func TestForeignKeys(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 
 	const feature = "INSERT INTO feature (project_id, slug, name, created_at) " +
 		"VALUES (?, 'a', 'A', '2026-10-13T00:00:00Z')"

@@ -20,16 +20,22 @@ import (
 )
 
 var (
+	// ErrNotFound is wrapped when the id asked for matches no row.
 	ErrNotFound = errors.New("not found")
+	// ErrConflict is wrapped when a unique rule would break.
 	ErrConflict = errors.New("conflict")
-	ErrInvalid  = errors.New("invalid")
+	// ErrInvalid is wrapped when the caller's input is wrong, such as a bad
+	// field or an unknown parent id.
+	ErrInvalid = errors.New("invalid")
 )
 
 //go:embed migrations/*.sql
 var _migrations embed.FS
 
-const _dsnParams = "_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+const _dsnParams = "_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)" +
+	"&_pragma=busy_timeout(5000)"
 
+// Store is Reef's data, read and written through one SQLite file.
 type Store struct {
 	db   *sql.DB
 	lock *os.File
@@ -58,8 +64,8 @@ func Open(dir string) (*Store, error) {
 		_ = lock.Close()
 		return nil, fmt.Errorf("resolve data dir: %w", err)
 	}
-	uri := (&url.URL{Scheme: "file", Path: filepath.Join(abs, "reef.db"), RawQuery: _dsnParams}).String()
-	db, err := sql.Open("sqlite", uri)
+	uri := url.URL{Scheme: "file", Path: filepath.Join(abs, "reef.db"), RawQuery: _dsnParams}
+	db, err := sql.Open("sqlite", uri.String())
 	if err != nil {
 		_ = lock.Close()
 		return nil, fmt.Errorf("open db: %w", err)
@@ -145,12 +151,75 @@ func apply(ctx context.Context, db *sql.DB, version int, body string) error {
 	if err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	if _, err := tx.ExecContext(ctx, body); err != nil {
 		return err
 	}
-	if _, err := tx.ExecContext(ctx, "PRAGMA user_version = "+strconv.Itoa(version)); err != nil {
+	if _, err := tx.ExecContext(ctx,
+		"PRAGMA user_version = "+strconv.Itoa(version)); err != nil {
 		return err
 	}
 	return tx.Commit()
+}
+
+func (s *Store) requireFeature(ctx context.Context, id int64) error {
+	ok, err := s.exists(ctx, "feature", id)
+	if err != nil {
+		return fmt.Errorf("check feature: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("feature %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+func (s *Store) requireChannel(ctx context.Context, id int64) error {
+	ok, err := s.exists(ctx, "channel", id)
+	if err != nil {
+		return fmt.Errorf("check channel: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("channel %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+// scanAll reads every remaining row of rows with scan, then closes rows.
+func scanAll[T any](
+	rows *sql.Rows, scan func(interface{ Scan(...any) error }) (T, error),
+) ([]T, error) {
+	var out []T
+	for rows.Next() {
+		v, err := scan(rows)
+		if err != nil {
+			_ = rows.Close()
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	err := rows.Err()
+	if cerr := rows.Close(); err == nil {
+		err = cerr
+	}
+	return out, err
+}
+
+// checkFeatureInProject requires featureID, when set, to be a feature of projectID.
+func (s *Store) checkFeatureInProject(
+	ctx context.Context, featureID *int64, projectID int64,
+) error {
+	if featureID == nil {
+		return nil
+	}
+	f, err := s.Feature(ctx, *featureID)
+	if errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("%w: unknown feature %d", ErrInvalid, *featureID)
+	}
+	if err != nil {
+		return fmt.Errorf("check feature: %w", err)
+	}
+	if f.ProjectID != projectID {
+		return fmt.Errorf("%w: feature %d is not in project %d", ErrInvalid, f.ID, projectID)
+	}
+	return nil
 }

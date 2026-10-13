@@ -3,7 +3,6 @@ package server
 import (
 	"fmt"
 	"net/http"
-	"strconv"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -147,17 +146,4 @@ func (s *server) createMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, m)
-}
-
-// queryID reads an optional numeric query parameter; nil when absent.
-func queryID(r *http.Request, name string) (*int64, error) {
-	v := r.URL.Query().Get(name)
-	if v == "" {
-		return nil, nil
-	}
-	id, err := strconv.ParseInt(v, 10, 64)
-	if err != nil {
-		return nil, fmt.Errorf("%w: %s %q is not a number", store.ErrInvalid, name, v)
-	}
-	return &id, nil
 }

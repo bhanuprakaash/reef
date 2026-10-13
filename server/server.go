@@ -24,7 +24,7 @@ type server struct {
 func New(st *store.Store) http.Handler {
 	s := &server{st: st}
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("/health", methodNotAllowed)
@@ -69,7 +69,7 @@ func guard(next http.Handler) http.Handler {
 // methodNotAllowed is registered without a method for each path. The mux
 // prefers method patterns, so this only sees the other methods, and it
 // answers in JSON where the mux's own 405 is plain text.
-func methodNotAllowed(w http.ResponseWriter, r *http.Request) {
+func methodNotAllowed(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
 }
 
@@ -119,4 +119,17 @@ func pathID(r *http.Request) (int64, error) {
 		return 0, fmt.Errorf("%w: id %q is not a number", store.ErrInvalid, r.PathValue("id"))
 	}
 	return id, nil
+}
+
+// queryID reads an optional numeric query parameter; nil when absent.
+func queryID(r *http.Request, name string) (*int64, error) {
+	v := r.URL.Query().Get(name)
+	if v == "" {
+		return nil, nil
+	}
+	id, err := strconv.ParseInt(v, 10, 64)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %s %q is not a number", store.ErrInvalid, name, v)
+	}
+	return &id, nil
 }

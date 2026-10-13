@@ -16,7 +16,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { st.Close() })
+	t.Cleanup(func() { _ = st.Close() })
 	ts := httptest.NewServer(New(st))
 	t.Cleanup(ts.Close)
 	return ts
@@ -33,7 +33,7 @@ func do(t *testing.T, method, url, body string) (int, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 	b, err := io.ReadAll(res.Body)
 	if err != nil {
 		t.Fatal(err)
