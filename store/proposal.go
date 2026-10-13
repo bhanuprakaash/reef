@@ -16,11 +16,12 @@ const (
 	ProposalRejected = "rejected"
 )
 
-const _insertNewDecision = "INSERT INTO decision (feature_id, message_id, body, why, author, created_at) " +
-	"SELECT ?, NULL, ?, ?, ?, ? WHERE NOT EXISTS " +
-	"(SELECT 1 FROM decision WHERE feature_id = ? AND body = ?)"
-
-const _proposalCols = "id, channel_id, role, brief, notes, decisions, status, created_at, decided_at"
+const (
+	_insertNewDecision = "INSERT INTO decision (feature_id, message_id, body, why, author, created_at) " +
+		"SELECT ?, NULL, ?, ?, ?, ? WHERE NOT EXISTS " +
+		"(SELECT 1 FROM decision WHERE feature_id = ? AND body = ?)"
+	_proposalCols = "id, channel_id, role, brief, notes, decisions, status, created_at, decided_at"
+)
 
 // ProposedDecision is a decision that approving its proposal records.
 type ProposedDecision struct {
@@ -98,6 +99,49 @@ func (s *Store) PendingProposal(ctx context.Context, channelID int64) (Proposal,
 	return p, err
 }
 
+// Proposal returns the proposal with the id in any status, or ErrNotFound.
+func (s *Store) Proposal(ctx context.Context, id int64) (Proposal, error) {
+	row := s.db.QueryRowContext(ctx, "SELECT "+_proposalCols+" FROM proposal WHERE id = ?", id)
+	p, err := scanProposal(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Proposal{}, fmt.Errorf("proposal %d: %w", id, ErrNotFound)
+	}
+	return p, err
+}
+
+// PendingProposals returns every pending proposal, oldest first. With featureID
+// set, only those of that feature's channels. With projectID set, only that project's.
+func (s *Store) PendingProposals(
+	ctx context.Context, featureID, projectID *int64,
+) ([]Proposal, error) {
+	query, args := "SELECT "+_proposalCols+" FROM proposal WHERE status = ?", []any{ProposalPending}
+	if featureID != nil {
+		query += " AND channel_id IN (SELECT id FROM channel WHERE feature_id = ?)"
+		args = append(args, *featureID)
+	}
+	if projectID != nil {
+		query += " AND channel_id IN (SELECT id FROM channel WHERE project_id = ?)"
+		args = append(args, *projectID)
+	}
+	rows, err := s.db.QueryContext(ctx, query+" ORDER BY id", args...)
+	if err != nil {
+		return nil, fmt.Errorf("list pending proposals: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ps []Proposal
+	for rows.Next() {
+		p, err := scanProposal(rows)
+		if err != nil {
+			return nil, err
+		}
+		ps = append(ps, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list pending proposals: %w", err)
+	}
+	return ps, nil
+}
+
 // ApproveProposal applies the pending proposal in one transaction: a new brief
 // version and the role's notes, both authored by the proposal's role, and each
 // proposed decision whose body the feature does not have yet. It also returns how
@@ -157,22 +201,13 @@ func (s *Store) RejectProposal(ctx context.Context, id int64) (Proposal, error) 
 	return decideProposal(ctx, tx, p, ProposalRejected, time.Now().UTC())
 }
 
-type rowQuerier interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
-func getProposal(ctx context.Context, q rowQuerier, id int64) (Proposal, error) {
-	row := q.QueryRowContext(ctx, "SELECT "+_proposalCols+" FROM proposal WHERE id = ?", id)
+func pendingProposal(ctx context.Context, tx *sql.Tx, id int64) (Proposal, error) {
+	row := tx.QueryRowContext(ctx, "SELECT "+_proposalCols+" FROM proposal WHERE id = ?", id)
 	p, err := scanProposal(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Proposal{}, fmt.Errorf("proposal %d: %w", id, ErrNotFound)
-	}
-	return p, err
-}
-
-func pendingProposal(ctx context.Context, q rowQuerier, id int64) (Proposal, error) {
-	p, err := getProposal(ctx, q, id)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Proposal{}, fmt.Errorf("proposal %d: %w", id, ErrNotFound)
+		}
 		return Proposal{}, err
 	}
 	if p.Status != ProposalPending {

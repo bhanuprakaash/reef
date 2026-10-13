@@ -7,8 +7,10 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 
 	"github.com/bhanuprakaash/reef/agent"
@@ -33,6 +35,9 @@ const _chatUsage = `usage: reef chat <feature> --role R --backend claude|codex [
 func chatCmd(
 	ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer,
 ) error {
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGHUP)
+	defer stop()
+
 	c := newCommand("reef chat", _chatUsage, 0, 1)
 	role := c.fs.String("role", "", "")
 	backend := c.fs.String("backend", "", "")
@@ -162,28 +167,13 @@ func converse(
 	ctx context.Context, st *store.Store, channelID int64, r *channel.Runner,
 	stdin io.Reader, stdout io.Writer,
 ) error {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	// A blocked stdin read cannot be cancelled; the goroutine ends with the process.
-	lines := make(chan string)
-	go func() {
-		defer close(lines)
-		in := bufio.NewReader(stdin)
-		for {
-			line, err := in.ReadString('\n')
-			if s := strings.TrimSpace(line); s != "" {
-				select {
-				case lines <- s:
-				case <-ctx.Done():
-					return
-				}
-			}
-			if err != nil {
-				return
-			}
-		}
-	}()
+	return converseLines(ctx, st, channelID, r, readLines(stdin), stdout)
+}
 
+func converseLines(
+	ctx context.Context, st *store.Store, channelID int64, r *channel.Runner,
+	in *lineReader, stdout io.Writer,
+) error {
 	show := func(ev agent.Event) {
 		if ev.Kind == agent.KindText {
 			_, _ = io.WriteString(stdout, ev.Text)
@@ -193,65 +183,122 @@ func converse(
 		return err
 	}
 	for {
-		select {
-		case <-ctx.Done():
+		line, ok := in.next(ctx)
+		if !ok {
 			return nil
-		case line, ok := <-lines:
-			if !ok {
+		}
+		if line == "" {
+			continue
+		}
+		wrap := line == _wrapCommand
+		text := line
+		var seen int64
+		if wrap {
+			text = _wrapPrompt
+			p, err := st.PendingProposal(ctx, channelID)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return err
+			}
+			seen = p.ID
+		}
+		if err := r.SendAs(ctx, line, text, show); err != nil {
+			if ctx.Err() != nil {
 				return nil
 			}
-			wrap := line == _wrapCommand
-			text := line
-			var seen int64
-			if wrap {
-				text = _wrapPrompt
-				p, err := st.PendingProposal(ctx, channelID)
-				if err != nil && !errors.Is(err, store.ErrNotFound) {
-					return err
-				}
-				seen = p.ID
-			}
-			if err := r.SendAs(ctx, line, text, show); err != nil {
-				if ctx.Err() != nil {
-					return nil
-				}
+			return err
+		}
+		if _, err := io.WriteString(stdout, "\n\n"); err != nil {
+			return err
+		}
+		if wrap {
+			stop, err := decideWrap(ctx, st, channelID, seen, in, stdout)
+			if err != nil {
 				return err
 			}
-			if _, err := io.WriteString(stdout, "\n\n"); err != nil {
-				return err
+			if stop || ctx.Err() != nil {
+				return nil
 			}
-			if wrap {
-				if err := decideWrap(ctx, st, channelID, seen, lines, stdout); err != nil {
-					return err
-				}
-				if ctx.Err() != nil {
-					return nil
-				}
-			}
-			if _, err := io.WriteString(stdout, "> "); err != nil {
-				return err
-			}
+		}
+		if _, err := io.WriteString(stdout, "> "); err != nil {
+			return err
 		}
 	}
 }
 
 // decideWrap prints the proposal the agent made in the turn that just ended, one
 // newer than seen, and approves it when the next line is y or yes, else rejects it.
+// It returns true at end of input or when ctx is done.
 func decideWrap(
 	ctx context.Context, st *store.Store, channelID, seen int64,
-	lines <-chan string, stdout io.Writer,
-) error {
+	in *lineReader, stdout io.Writer,
+) (stop bool, err error) {
 	p, err := st.PendingProposal(ctx, channelID)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && p.ID == seen) {
 		_, err = io.WriteString(stdout, "no proposal made\n\n")
-		return err
+		return false, err
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "proposal %d from %s\n\nbrief:\n%s\n\nnotes:\n%s\n\ndecisions:\n",
-		p.ID, p.Role, p.Brief, p.Notes)
+	b.WriteString(proposalText(p))
+	b.WriteString("\napprove? [y/N] ")
+	if _, err := io.WriteString(stdout, b.String()); err != nil {
+		return false, err
+	}
+	dropped := in.drop()
+	if len(dropped) > 0 {
+		if _, err := io.WriteString(stdout, "\n"); err != nil {
+			return false, err
+		}
+		for _, l := range dropped {
+			if l != "" {
+				if _, err := fmt.Fprintf(stdout, "ignored while wrapping: %s\n", l); err != nil {
+					return false, err
+				}
+			}
+		}
+		if _, err := io.WriteString(stdout, "approve? [y/N] "); err != nil {
+			return false, err
+		}
+	}
+	answer, ok := in.next(ctx)
+	if !ok {
+		_, err = fmt.Fprintf(stdout, "\nproposal %d left pending\n\n", p.ID)
+		return true, err
+	}
+	if a := strings.ToLower(answer); a == "y" || a == "yes" {
+		_, added, err := st.ApproveProposal(ctx, p.ID)
+		if err != nil {
+			if errors.Is(err, store.ErrInvalid) {
+				_, err = fmt.Fprintf(stdout, "reef: %s\n\n", strings.TrimPrefix(err.Error(), "invalid: "))
+				return false, err
+			}
+			return false, err
+		}
+		_, err = fmt.Fprintf(stdout, "approved: brief, notes and %d decisions saved\n\n", added)
+		return false, err
+	}
+	if _, err := st.RejectProposal(ctx, p.ID); err != nil {
+		if errors.Is(err, store.ErrInvalid) {
+			_, err = fmt.Fprintf(stdout, "reef: %s\n\n", strings.TrimPrefix(err.Error(), "invalid: "))
+			return false, err
+		}
+		return false, err
+	}
+	_, err = io.WriteString(stdout, "rejected: nothing changed\n\n")
+	return false, err
+}
+
+func proposalText(p store.Proposal) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "proposal %d from %s\n\n%s", p.ID, p.Role, proposalBodyText(p))
+	return b.String()
+}
+
+func proposalBodyText(p store.Proposal) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "brief:\n%s\n\nnotes:\n%s\n\ndecisions:\n", p.Brief, p.Notes)
 	for _, d := range p.Decisions {
 		fmt.Fprintf(&b, "- %s", d.Body)
 		if d.Why != "" {
@@ -259,45 +306,80 @@ func decideWrap(
 		}
 		b.WriteString("\n")
 	}
-drain:
-	for {
-		select {
-		case l, ok := <-lines:
-			if !ok {
-				break drain
+	return b.String()
+}
+
+// lineReader reads stdin lines in the background, blank ones too, so a line is
+// queued the moment it is typed: whatever is queued when the wrap-up prompt is
+// printed was typed before it.
+type lineReader struct {
+	mu    sync.Mutex
+	lines []string
+	eof   bool
+	wake  chan struct{}
+}
+
+// readLines starts reading r. A blocked read cannot be cancelled; the goroutine ends
+// at the end of r or with the process.
+func readLines(r io.Reader) *lineReader {
+	l := &lineReader{wake: make(chan struct{}, 1)}
+	go func() {
+		in := bufio.NewReader(r)
+		for {
+			line, err := in.ReadString('\n')
+			l.mu.Lock()
+			if err != nil {
+				l.eof = true
 			}
-			fmt.Fprintf(&b, "ignored while wrapping: %s\n", l)
-		default:
-			break drain
+			if s := strings.TrimSpace(line); s != "" || err == nil {
+				l.lines = append(l.lines, s)
+			}
+			l.mu.Unlock()
+			select {
+			case l.wake <- struct{}{}:
+			default:
+			}
+			if err != nil {
+				return
+			}
+		}
+	}()
+	return l
+}
+
+// next returns the oldest queued line, waiting for one. It returns false at the end
+// of stdin or when ctx is done.
+func (l *lineReader) next(ctx context.Context) (string, bool) {
+	for {
+		if ctx.Err() != nil {
+			return "", false
+		}
+		l.mu.Lock()
+		if len(l.lines) > 0 {
+			line := l.lines[0]
+			l.lines = l.lines[1:]
+			l.mu.Unlock()
+			return line, true
+		}
+		eof := l.eof
+		l.mu.Unlock()
+		if eof {
+			return "", false
+		}
+		select {
+		case <-ctx.Done():
+		case <-l.wake:
 		}
 	}
-	b.WriteString("\napprove? [y/N] ")
-	if _, err := io.WriteString(stdout, b.String()); err != nil {
-		return err
-	}
-	var answer string
-	var ok bool
-	select {
-	case <-ctx.Done():
-	case answer, ok = <-lines:
-	}
-	if !ok {
-		_, err = fmt.Fprintf(stdout, "\nproposal %d left pending\n\n", p.ID)
-		return err
-	}
-	if a := strings.ToLower(answer); a == "y" || a == "yes" {
-		_, added, err := st.ApproveProposal(ctx, p.ID)
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintf(stdout, "approved: brief, notes and %d decisions saved\n\n", added)
-		return err
-	}
-	if _, err := st.RejectProposal(ctx, p.ID); err != nil {
-		return err
-	}
-	_, err = io.WriteString(stdout, "rejected: nothing changed\n\n")
-	return err
+}
+
+// drop removes and returns every queued line.
+func (l *lineReader) drop() []string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	dropped := l.lines
+	l.lines = nil
+	return dropped
 }
 
 // resumeTurn is the channel's newest turn that has a session id. It first fails any

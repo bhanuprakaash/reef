@@ -519,7 +519,9 @@ cmd_reef() {
 	use_data "$name"
 	# --data goes right after the command words, so a -- in ARGS keeps the rest positional.
 	n=1
-	case $1 in project | feature | task) [ $# -ge 2 ] && n=2 ;; esac
+	case $1 in
+		project | feature | task | wrap) [ $# -ge 2 ] && n=2 ;;
+	esac
 	argv=("${@:1:n}" --data "$DATA" "${@:n+1}")
 	out="$SCR/reef.out" err="$SCR/reef.err" seen="$SCR/reef.children"
 	: >"$seen"

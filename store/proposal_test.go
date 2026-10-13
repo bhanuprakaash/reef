@@ -216,6 +216,51 @@ func TestDecideProposalTwice(t *testing.T) {
 	}
 }
 
+func TestPendingProposals(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+	if _, err := s.CreateFeature(ctx, Feature{ProjectID: 1, Slug: "billing", Name: "Billing"}); err != nil {
+		t.Fatal(err)
+	}
+	two := int64(2)
+	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, FeatureID: &two, Name: "dev"}); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []Proposal{
+		{ChannelID: 3, Role: "developer", Brief: "b2"},
+		{ChannelID: 1, Role: "reviewer", Brief: "b3"},
+	} {
+		if _, err := s.CreateProposal(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := s.RejectProposal(ctx, 3); err != nil {
+		t.Fatal(err)
+	}
+
+	ids := func(featureID *int64) []int64 {
+		ps, err := s.PendingProposals(ctx, featureID, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got []int64
+		for _, p := range ps {
+			got = append(got, p.ID)
+		}
+		return got
+	}
+	one := int64(1)
+	if got, want := ids(nil), []int64{1, 2}; !reflect.DeepEqual(got, want) {
+		t.Errorf("all pending = %v, want %v", got, want)
+	}
+	if got, want := ids(&one), []int64{1}; !reflect.DeepEqual(got, want) {
+		t.Errorf("pending of feature 1 = %v, want %v", got, want)
+	}
+	if got, want := ids(&two), []int64{2}; !reflect.DeepEqual(got, want) {
+		t.Errorf("pending of feature 2 = %v, want %v", got, want)
+	}
+}
+
 func TestCreateProposalInvalid(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
