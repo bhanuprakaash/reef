@@ -54,9 +54,25 @@ func TestProjectStatus(t *testing.T) {
 			name:       "create",
 			method:     http.MethodPost,
 			path:       "/projects",
-			give:       `{"name":"reef","path":"/tmp/reef"}`,
+			give:       `{"name":"reef","path":"/tmp"}`,
 			wantStatus: 201,
-			wantBody:   `"name":"reef","path":"/tmp/reef"`,
+			wantBody:   `"name":"reef","path":"/tmp"`,
+		},
+		{
+			name:       "path is not a directory",
+			method:     http.MethodPost,
+			path:       "/projects",
+			give:       `{"name":"reef","path":"/no/such/dir"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: project path \"/no/such/dir\": not a directory"}`,
+		},
+		{
+			name:       "path is relative",
+			method:     http.MethodPost,
+			path:       "/projects",
+			give:       `{"name":"reef","path":"repo"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: project path \"repo\": not an absolute path"}`,
 		},
 		{
 			name:       "unknown id",
@@ -77,7 +93,7 @@ func TestProjectStatus(t *testing.T) {
 			name:       "data after the body",
 			method:     http.MethodPost,
 			path:       "/projects",
-			give:       `{"name":"reef","path":"/tmp/reef"} {"name":"x"}`,
+			give:       `{"name":"reef","path":"/tmp"} {"name":"x"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: bad JSON: unexpected data after the body"}`,
 		},
@@ -85,7 +101,7 @@ func TestProjectStatus(t *testing.T) {
 			name:       "missing name",
 			method:     http.MethodPost,
 			path:       "/projects",
-			give:       `{"path":"/tmp/reef"}`,
+			give:       `{"path":"/tmp"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: project name is required"}`,
 		},
@@ -121,18 +137,22 @@ func TestProjectStatus(t *testing.T) {
 func TestProjectRoundTrip(t *testing.T) {
 	ts := newTestServer(t)
 
-	status, body := do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp/reef"}`)
-	if status != 201 || !strings.HasPrefix(body, `{"id":1,"name":"reef","path":"/tmp/reef","createdAt":"`) {
+	status, body := do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	if status != 201 || !strings.HasPrefix(body, `{"id":1,"name":"reef","path":"/tmp","createdAt":"`) {
 		t.Fatalf("create = %d %s", status, body)
 	}
 
-	status, body = do(t, http.MethodPut, ts.URL+"/projects/1", `{"name":"reef2","path":"/tmp/reef2"}`)
-	if status != 200 || !strings.HasPrefix(body, `{"id":1,"name":"reef2","path":"/tmp/reef2","createdAt":"`) {
+	status, body = do(t, http.MethodPut, ts.URL+"/projects/1", `{"name":"reef2","path":"/usr"}`)
+	if status != 200 || !strings.HasPrefix(body, `{"id":1,"name":"reef2","path":"/usr","createdAt":"`) {
 		t.Fatalf("update = %d %s", status, body)
 	}
 
+	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1", `{"name":"reef2","path":"/no/such/dir"}`); status != 400 {
+		t.Fatalf("update with a bad path = %d %s", status, body)
+	}
+
 	status, body = do(t, http.MethodGet, ts.URL+"/projects", "")
-	if status != 200 || !strings.HasPrefix(body, `[{"id":1,"name":"reef2","path":"/tmp/reef2",`) {
+	if status != 200 || !strings.HasPrefix(body, `[{"id":1,"name":"reef2","path":"/usr",`) {
 		t.Fatalf("list = %d %s", status, body)
 	}
 

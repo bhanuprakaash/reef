@@ -240,9 +240,9 @@ a channel takes its messages, turns, tokens and proposals.
 | --- | --- | --- | --- |
 | `GET /health` | | 200 `{"status":"ok"}` | |
 | `GET /projects` | | 200 | |
-| `POST /projects` | `name`, `path` | 201 | 400 missing field |
+| `POST /projects` | `name`, `path` | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |
-| `PUT /projects/{id}` | `name`, `path` | 200 | 400, 404 |
+| `PUT /projects/{id}` | `name`, `path` | 200 | 400 (same `path` rule), 404 |
 | `DELETE /projects/{id}` | | 204 | 404 |
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
@@ -327,8 +327,8 @@ reef serve --data /tmp/reef-demo
 ```
 
 ```
-$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/projects -d '{"name":"shop","path":"/tmp/shop"}'
-{"id":1,"name":"shop","path":"/tmp/shop","createdAt":"2026-10-13T09:00:00.123456Z"}
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/projects -d '{"name":"shop","path":"/tmp"}'
+{"id":1,"name":"shop","path":"/tmp","createdAt":"2026-10-13T09:00:00.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Login"}'
 {"id":1,"projectId":1,"slug":"login","name":"Login","goal":"","stage":"ideation","createdAt":"2026-10-13T09:00:01.123456Z"}

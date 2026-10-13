@@ -1,7 +1,10 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -14,6 +17,19 @@ func (s *server) projectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /projects/{id}", s.updateProject)
 	mux.HandleFunc("DELETE /projects/{id}", s.deleteProject)
 	mux.HandleFunc("/projects/{id}", methodNotAllowed)
+}
+
+func checkProjectDir(path string) error {
+	if path == "" {
+		return nil
+	}
+	if !filepath.IsAbs(path) {
+		return fmt.Errorf("%w: project path %q: not an absolute path", store.ErrInvalid, path)
+	}
+	if fi, err := os.Stat(path); err != nil || !fi.IsDir() {
+		return fmt.Errorf("%w: project path %q: not a directory", store.ErrInvalid, path)
+	}
+	return nil
 }
 
 func (s *server) listProjects(w http.ResponseWriter, r *http.Request) {
@@ -31,6 +47,10 @@ func (s *server) listProjects(w http.ResponseWriter, r *http.Request) {
 func (s *server) createProject(w http.ResponseWriter, r *http.Request) {
 	var in store.Project
 	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := checkProjectDir(in.Path); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -68,6 +88,10 @@ func (s *server) updateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ID = id
+	if err := checkProjectDir(in.Path); err != nil {
+		writeError(w, err)
+		return
+	}
 	p, err := s.st.UpdateProject(r.Context(), in)
 	if err != nil {
 		writeError(w, err)
