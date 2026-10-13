@@ -81,6 +81,7 @@ func notFound(w http.ResponseWriter, _ *http.Request) {
 
 func readJSON(r *http.Request, v any) error {
 	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return fmt.Errorf("%w: bad JSON: %v", store.ErrInvalid, err)
 	}
@@ -121,7 +122,6 @@ func pathID(r *http.Request) (int64, error) {
 	return id, nil
 }
 
-// queryID reads an optional numeric query parameter; nil when absent.
 func queryID(r *http.Request, name string) (*int64, error) {
 	v := r.URL.Query().Get(name)
 	if v == "" {

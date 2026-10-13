@@ -9,7 +9,7 @@ database made by a newer reef.
 
 - `server-lifecycle` starts, answers `GET /health`, stops on SIGINT with exit 0 inside a second, and keeps its data for the next start.
 - `server-lock` a second `reef serve` on the same data folder exits 1 with `data folder ... is in use by another reef`, on the same or a new addr, and changes nothing.
-- `server-localhost` listens on 127.0.0.1 only.
+- `server-localhost` listens on 127.0.0.1 only, and refuses an `--addr` that is not loopback.
 - `server-guard` a foreign `Host` gets 403, a `POST`/`PUT`/`PATCH` without a JSON `Content-Type` gets 415.
 - `server-errors` every error has a JSON body: 400, 403, 404, 405, 409, 415; an unknown path is 404.
 - `server-newer-db` a data folder whose `user_version` is newer than the newest migration is refused.
@@ -28,10 +28,10 @@ Preconditions:
 - Baseline from the README: `build` and `doctor` done. Start fresh: `$H serve-start --data-name server`.
 
 - **Lifecycle.** `$H api GET /health` gives `HTTP 200` and `{"status":"ok"}`. `serve.log` has `listening on 127.0.0.1:<port>, data in .../server`.
-- **Localhost only.** `lsof -nP -iTCP -sTCP:LISTEN -a -p $(cat /private/tmp/reef-verify/<id>/serve.pid)` lists `127.0.0.1:<port>`, not `*:<port>`.
+- **Localhost only.** `lsof -nP -iTCP -sTCP:LISTEN -a -p $(cat /private/tmp/reef-verify/<id>/serve.pid)` lists `127.0.0.1:<port>`, not `*:<port>`. `/private/tmp/reef-verify/<id>/bin/reef serve --addr 0.0.0.0:7700 --data /private/tmp/reef-verify/<id>/cwd/addr`, and the same with `10.0.0.5:7700` and `:7700`, exit 1 with `reef: --addr "<addr>" is not a loopback address; use localhost, 127.0.0.1 or [::1]`; the `addr` folder is never created.
 - **Guard, host.** `$H api -H 'Host: evil.example' GET /projects` gives 403 `{"error":"forbidden host"}`. `$H api -H 'Host: localhost' GET /projects` and `$H api -H 'Host: [::1]:7700' GET /projects` give 200.
 - **Guard, content type.** `$H api -H 'Content-Type: text/plain' POST /projects '{"name":"a","path":"/a"}'` and `$H api -H 'Content-Type:' POST /projects '{"name":"a","path":"/a"}'` give 415. `$H api -H 'Content-Type: application/json; charset=utf-8' POST /projects '{"name":"shop","path":"/tmp/shop"}'` gives 201. `$H sql "select count(*) from project"` is 1: the refused calls wrote nothing.
-- **JSON errors.** Each body is `{"error": ...}`: `$H api POST /projects '{bad'` 400, `$H api POST /projects '{"name":"a","path":"/a"} {}'` 400 (data after the body), `$H api POST /projects '{"name":"a"}'` 400, `$H api GET /projects/abc` 400, `$H api POST /features '{"projectId":99,"slug":"a","name":"A"}'` 400 `unknown project 99`, `$H api GET /projects/99` 404, `$H api GET /nope` 404 `{"error":"not found"}`, `$H api DELETE /health` 405 `{"error":"method not allowed"}`, `$H api PUT /projects '{}'` 405. The 409 is in `projects-features`.
+- **JSON errors.** Each body is `{"error": ...}`: `$H api POST /projects '{bad'` 400, `$H api POST /projects '{"name":"a","path":"/a"} {}'` 400 (data after the body), `$H api POST /projects '{"name":"a"}'` 400, `$H api GET /projects/abc` 400, `$H api POST /features '{"projectId":99,"slug":"a","name":"A"}'` 400 `unknown project 99`, `$H api GET /projects/99` 404, `$H api GET /nope` 404 `{"error":"not found"}`, `$H api DELETE /health` 405 `{"error":"method not allowed"}`, `$H api PUT /projects '{}'` 405, `$H api POST /channels '{"projectId":1,"feature_id":1,"name":"x"}'` 400 `invalid: bad JSON: json: unknown field "feature_id"`. The 409 is in `projects-features`.
 - **Lock.** `$H serve-second --same-addr` and `$H serve-second` print `exit: 1`, stderr `reef: open store: data folder ... is in use by another reef`, `ok: refused`. `$H api GET /projects` still answers with the one project.
 - **Stop and restart.** `$H serve-stop` prints `exit=0` and `elapsed_s` under 1. `$H api GET /health` now fails with `no running server`. `$H serve-start --data-name server`, then `$H api GET /projects` still lists `shop`.
 - **Newer database.** `$H sql "pragma user_version"`, note it. `$H serve-stop`, `$H sql --write "pragma user_version=99"`, then `$H serve-start --data-name server` exits 1 and prints `database is newer than this reef (version 99, this reef knows 1)`. Put the noted version back with `$H sql --write "pragma user_version=1"` and `$H serve-start --data-name server` is ready.

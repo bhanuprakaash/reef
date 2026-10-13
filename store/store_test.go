@@ -180,3 +180,25 @@ func TestIDsNotReused(t *testing.T) {
 		t.Errorf("id after deleting project 1 = %d, want 2", p.ID)
 	}
 }
+
+func TestWriteErrNamesMissingParent(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	ctx := context.Background()
+	p, err := s.CreateProject(ctx, Project{Name: "a", Path: "/a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	feature := int64(7)
+	_, err = s.db.Exec(
+		"INSERT INTO task (project_id, feature_id, title, created_at, updated_at) "+
+			"VALUES (?, ?, 't', '2026-10-13T00:00:00Z', '2026-10-13T00:00:00Z')", p.ID, feature)
+	err = s.writeErr(ctx, "insert task", err, ErrInvalid,
+		parent{table: "project", id: &p.ID}, parent{table: "feature", id: &feature})
+	if want := "invalid: unknown feature 7"; err == nil || err.Error() != want {
+		t.Errorf("writeErr = %v, want %q", err, want)
+	}
+}

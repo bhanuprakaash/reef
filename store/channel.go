@@ -37,11 +37,9 @@ func (s *Store) CreateChannel(ctx context.Context, c Channel) (Channel, error) {
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO channel (project_id, feature_id, name, created_at) VALUES (?, ?, ?, ?)",
 		c.ProjectID, c.FeatureID, c.Name, now.Format(time.RFC3339Nano))
-	if isForeignKey(err) {
-		return Channel{}, fmt.Errorf("%w: unknown project %d", ErrInvalid, c.ProjectID)
-	}
 	if err != nil {
-		return Channel{}, fmt.Errorf("insert channel: %w", err)
+		return Channel{}, s.writeErr(ctx, "insert channel", err, ErrInvalid,
+			parent{table: "project", id: &c.ProjectID}, parent{table: "feature", id: c.FeatureID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
