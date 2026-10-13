@@ -65,12 +65,21 @@ func run(ctx context.Context, args []string, logOut io.Writer) error {
 	}
 	defer st.Close()
 
+	logger := log.New(logOut, "", log.LstdFlags)
+	failed, err := st.FailRunningTurns(ctx)
+	if err != nil {
+		return fmt.Errorf("recover turns: %w", err)
+	}
+	if len(failed) > 0 {
+		logger.Printf("marked %d running turns failed: server restarted", len(failed))
+	}
+
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {
 		return err
 	}
 	srv := &http.Server{Handler: server.New(st), ReadHeaderTimeout: _readHeaderTimeout}
-	log.New(logOut, "", log.LstdFlags).Printf("listening on %s, data in %s", ln.Addr(), *data)
+	logger.Printf("listening on %s, data in %s", ln.Addr(), *data)
 
 	served := make(chan error, 1)
 	go func() { served <- srv.Serve(ln) }()
