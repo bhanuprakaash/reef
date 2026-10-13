@@ -7,9 +7,6 @@ linters:
     - revive
     - staticcheck
     - unused
-  exclusions:
-    paths:
-      - web/node_modules
 formatters:
   enable:
     - goimports

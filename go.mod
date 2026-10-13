@@ -2,6 +2,8 @@ module github.com/bhanuprakaash/reef
 
 go 1.25.0
 
+ignore ./web/node_modules
+
 require (
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	modernc.org/sqlite v1.46.0
