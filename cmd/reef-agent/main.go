@@ -152,10 +152,7 @@ func run(
 			switch ev.Kind {
 			case agent.KindUsage:
 				if ev.Usage != nil {
-					total.InputTokens += ev.Usage.InputTokens
-					total.OutputTokens += ev.Usage.OutputTokens
-					total.CacheReadTokens += ev.Usage.CacheReadTokens
-					total.CacheWriteTokens += ev.Usage.CacheWriteTokens
+					total.Add(*ev.Usage)
 				}
 			case agent.KindError:
 				return fmt.Errorf("agent error: %s", ev.Text)
