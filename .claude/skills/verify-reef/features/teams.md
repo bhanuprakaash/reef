@@ -172,7 +172,7 @@ Window (by hand, in a browser; no `ui` scenario drives this yet). With a server 
 - **New channel.** The New channel form has a team picker with `duo`, `gated`, `keys`, `pingpong`, `solo`. Pick `duo`, create the channel: the sidebar shows it, `GET /channels/<id>` has `"team":"duo"`.
 - **Thread.** Send `DESIGN a login form.`. While the architect runs, the live turn names it. When it ends, the architect's message has a reply count and a Thread pane opens on click; reply there. The architect (not the lead) answers in the pane, and the main list folds the replies under their root with the count.
 - **Gate.** In a `gated` channel, after the lead mentions the architect, a row `lead to architect: ...` shows Approve and Reject. Approve runs the architect; Reject removes the row.
-- **Hop cap.** In a `pingpong` channel, after five turns the cap banner shows `hop cap: 4 agent hops without a user message` and the composer is disabled; Continue runs the held wake.
+- **Hop cap.** In a `pingpong` channel, after five turns the cap banner shows `hop cap: 4 agent hops without a user message` and the composer stays enabled (other pauses disable it); sending a message clears the banner; Continue runs the held wake.
 
 When done: `$H cleanup`.
 
