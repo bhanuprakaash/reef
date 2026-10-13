@@ -26,8 +26,13 @@ export function useLiveTurn(channelId: number): LiveTurn {
     source.addEventListener('turn', (e) => {
       const data: TurnData = JSON.parse(e.data);
       dispatch({ type: 'turn', ...data });
-      if (data.status === 'done') void refresh().then(() => dispatch('clear'));
-      else if (data.status === 'failed') void refresh();
+      if (data.status === 'done') {
+        void refresh().then(() => dispatch('clear'));
+        void queryClient.invalidateQueries({ queryKey: ['proposal', channelId] });
+      } else if (data.status === 'failed') void refresh();
+    });
+    source.addEventListener('pause', () => {
+      void queryClient.invalidateQueries({ queryKey: ['channels', channelId] });
     });
     source.addEventListener('agent', (e) => {
       const event: AgentEvent = JSON.parse(e.data);

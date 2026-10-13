@@ -41,6 +41,23 @@ export type Channel = {
   role: string;
   backend: string;
   permissionMode: string;
+  paused: string;
+  createdAt: string;
+};
+
+export type ProposedDecision = {
+  body: string;
+  why: string;
+};
+
+export type Proposal = {
+  id: number;
+  channelId: number;
+  role: string;
+  brief: string;
+  notes: string;
+  decisions: ProposedDecision[];
+  status: string;
   createdAt: string;
 };
 

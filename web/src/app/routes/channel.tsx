@@ -17,6 +17,7 @@ export function ChannelPage() {
     <ChannelView
       key={id}
       channel={channel.data}
+      features={features.data ?? []}
       scope={channel.data.featureId === null ? 'quick session' : (feature?.name ?? 'feature')}
     />
   );
