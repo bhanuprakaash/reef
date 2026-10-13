@@ -87,6 +87,10 @@ func projectCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("find current folder: %w", err)
 	}
+	cwd, err = store.ResolvePath(cwd)
+	if err != nil {
+		return fmt.Errorf("resolve current folder: %w", err)
+	}
 	existing, err := st.ProjectByPath(ctx, cwd)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err
@@ -284,6 +288,10 @@ func cwdProject(ctx context.Context, st *store.Store) (store.Project, error) {
 	cwd, err := os.Getwd()
 	if err != nil {
 		return store.Project{}, fmt.Errorf("find current folder: %w", err)
+	}
+	cwd, err = store.ResolvePath(cwd)
+	if err != nil {
+		return store.Project{}, fmt.Errorf("resolve current folder: %w", err)
 	}
 	p, err := st.ProjectByPath(ctx, cwd)
 	if errors.Is(err, store.ErrNotFound) {

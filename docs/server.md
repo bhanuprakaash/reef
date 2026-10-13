@@ -96,7 +96,7 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 | --- | --- | --- |
 | `id` | number | |
 | `name` | string | required |
-| `path` | string | required; the repo folder |
+| `path` | string | required; the repo folder, stored as an absolute path with symlinks resolved |
 | `createdAt` | string | |
 
 ### feature

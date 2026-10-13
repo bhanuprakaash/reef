@@ -1,9 +1,12 @@
 package server
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -56,9 +59,9 @@ func TestProjectStatus(t *testing.T) {
 			name:       "create",
 			method:     http.MethodPost,
 			path:       "/projects",
-			give:       `{"name":"reef","path":"/tmp"}`,
+			give:       `{"name":"reef","path":"/"}`,
 			wantStatus: 201,
-			wantBody:   `"name":"reef","path":"/tmp"`,
+			wantBody:   `"name":"reef","path":"/"`,
 		},
 		{
 			name:       "path is not a directory",
@@ -138,14 +141,27 @@ func TestProjectStatus(t *testing.T) {
 
 func TestProjectRoundTrip(t *testing.T) {
 	ts := newTestServer(t)
+	firstPath, secondPath := t.TempDir(), t.TempDir()
+	firstPath, err := store.ResolvePath(firstPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secondPath, err = store.ResolvePath(secondPath)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-	status, body := do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	if status != 201 || !strings.HasPrefix(body, `{"id":1,"name":"reef","path":"/tmp","createdAt":"`) {
+	status, body := do(t, http.MethodPost, ts.URL+"/projects",
+		fmt.Sprintf(`{"name":"reef","path":%q}`, firstPath))
+	if status != 201 || !strings.HasPrefix(body,
+		fmt.Sprintf(`{"id":1,"name":"reef","path":%q,"createdAt":"`, firstPath)) {
 		t.Fatalf("create = %d %s", status, body)
 	}
 
-	status, body = do(t, http.MethodPut, ts.URL+"/projects/1", `{"name":"reef2","path":"/usr"}`)
-	if status != 200 || !strings.HasPrefix(body, `{"id":1,"name":"reef2","path":"/usr","createdAt":"`) {
+	status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q}`, secondPath))
+	if status != 200 || !strings.HasPrefix(body,
+		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"createdAt":"`, secondPath)) {
 		t.Fatalf("update = %d %s", status, body)
 	}
 
@@ -154,7 +170,8 @@ func TestProjectRoundTrip(t *testing.T) {
 	}
 
 	status, body = do(t, http.MethodGet, ts.URL+"/projects", "")
-	if status != 200 || !strings.HasPrefix(body, `[{"id":1,"name":"reef2","path":"/usr",`) {
+	if status != 200 || !strings.HasPrefix(body,
+		fmt.Sprintf(`[{"id":1,"name":"reef2","path":%q,`, secondPath)) {
 		t.Fatalf("list = %d %s", status, body)
 	}
 
@@ -165,5 +182,39 @@ func TestProjectRoundTrip(t *testing.T) {
 	status, body = do(t, http.MethodGet, ts.URL+"/projects", "")
 	if status != 200 || body != "[]" {
 		t.Fatalf("list after delete = %d %s", status, body)
+	}
+}
+
+func TestProjectPathsResolveSymlinks(t *testing.T) {
+	ts := newTestServer(t)
+	target := t.TempDir()
+	target, err := store.ResolvePath(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodPost, ts.URL+"/projects",
+		fmt.Sprintf(`{"name":"reef","path":%q}`, link))
+	if status != http.StatusCreated || !strings.Contains(body, fmt.Sprintf(`"path":%q`, target)) {
+		t.Fatalf("create with symlink = %d %s, want path %q", status, body, target)
+	}
+
+	nextTarget := t.TempDir()
+	nextTarget, err = store.ResolvePath(nextTarget)
+	if err != nil {
+		t.Fatal(err)
+	}
+	nextLink := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(nextTarget, nextLink); err != nil {
+		t.Fatal(err)
+	}
+	status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef","path":%q}`, nextLink))
+	if status != http.StatusOK || !strings.Contains(body, fmt.Sprintf(`"path":%q`, nextTarget)) {
+		t.Fatalf("update with symlink = %d %s, want path %q", status, body, nextTarget)
 	}
 }
