@@ -22,11 +22,11 @@ Preconditions:
 
 - Baseline from the README. `pre-pids.txt` exists (doctor ran).
 
-- **Mid-tool, claude.** Run `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H interrupt --after 15 --name int-claude -- --backend claude --permission-mode bypassPermissions "Run this exact shell command in the foreground, not in the background: python3 -c 'import time; time.sleep(60)'"`. Meta shows `exit: 130`, `exit_after_sigint_s` under 3, and `orphans_alive: none`. `int-claude.children` lists `claude -p ...` and the `Python -c import time; time.sleep(60)` tool process. The jsonl has a `tool_call` with that command and `"run_in_background":false`, and no `tool_result` for it.
+- **Mid-turn, claude.** Run `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H interrupt --after 12 --name int-claude -- --backend claude "Write a 3000-word essay on the history of lighthouses. Do not use any tools. Output the full essay as plain text."`. Meta shows `exit: 130`, `exit_after_sigint_s` under 3, `orphans_alive: none`, and no `turn_end` in `kinds:`. `int-claude.children` lists `claude -p ...`. A claude mid-tool interrupt needs `bypassPermissions` (a long tool must be allowed to run), which this machine refuses: report it as not run; the codex mid-tool drive below covers codex only.
 - **Usage line.** The last line is `{"kind":"usage","usage":{...}}` and it is the only line after the last event of the backend. Mid first turn its counts are all `0`. To check a non-zero total, interrupt between turns (next step).
 - **Between turns, codex.** Run `REEF_VERIFY_RUN=<id> $H interrupt --after 25 --name int-idle-codex -- --backend codex "Reply ok."`. The turn ends (`turn_end`) before SIGINT. `exit: 130`. The last line is a `usage` line equal to the turn's `usage` line before it. `orphans_alive: none`.
 - **Mid-tool, codex.** Run `REEF_VERIFY_RUN=<id> $H interrupt --after 20 --name int-codex -- --backend codex --permission-mode workspace-write "Run this exact shell command in the foreground, not in the background: python3 -c 'import time; time.sleep(60)'"`. `exit: 130`, `orphans_alive: none`; `int-codex.children` lists the `time.sleep(60)` process if it had started.
-- **While starting, codex.** Run `REEF_VERIFY_RUN=<id> $H interrupt --after 0.3 --name int-start-codex -- --backend codex "Reply ok."`. `exit: 130`, the jsonl is one zero `usage` line, `orphans_alive: none`.
+- **While starting, codex.** Run `REEF_VERIFY_RUN=<id> $H interrupt --after 0.3 --name int-start-codex -- --backend codex "Reply ok."`. `exit: 130`, the jsonl ends with one zero `usage` line, `orphans_alive: none`. If the handshake finished within 0.3 s a `session` line comes first; that is still a pass.
 
 ## Gotchas
 
