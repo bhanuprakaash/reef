@@ -156,6 +156,9 @@ func (f *Feature) validateSlug() error {
 	if !_slugPattern.MatchString(f.Slug) {
 		return fmt.Errorf("%w: feature slug %q must match %s", ErrInvalid, f.Slug, _slugPattern)
 	}
+	if strings.Trim(f.Slug, "0123456789") == "" {
+		return fmt.Errorf("%w: feature slug %q must contain a letter or -", ErrInvalid, f.Slug)
+	}
 	return nil
 }
 
