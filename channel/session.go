@@ -14,6 +14,8 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
+// TokenEnv carries the token to the channel's reef mcp. WrapCommand is the text that asks
+// for a wrap-up; PromoteCommand is the stored message of a promote turn.
 const (
 	TokenEnv       = "REEF_TOKEN"
 	WrapCommand    = "/wrap"
