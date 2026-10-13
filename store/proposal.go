@@ -11,16 +11,14 @@ import (
 
 // Proposal statuses. Only a pending proposal can be approved or rejected.
 const (
-	ProposalPending  = "pending"
-	ProposalApproved = "approved"
-	ProposalRejected = "rejected"
+	ProposalPending    = "pending"
+	ProposalApproved   = "approved"
+	ProposalRejected   = "rejected"
+	_insertNewDecision = "INSERT INTO decision (feature_id, message_id, body, why, author, created_at) " +
+		"SELECT ?, NULL, ?, ?, ?, ? WHERE NOT EXISTS " +
+		"(SELECT 1 FROM decision WHERE feature_id = ? AND body = ?)"
+	_proposalCols = "id, channel_id, role, brief, notes, decisions, status, created_at, decided_at"
 )
-
-const _insertNewDecision = "INSERT INTO decision (feature_id, message_id, body, why, author, created_at) " +
-	"SELECT ?, NULL, ?, ?, ?, ? WHERE NOT EXISTS " +
-	"(SELECT 1 FROM decision WHERE feature_id = ? AND body = ?)"
-
-const _proposalCols = "id, channel_id, role, brief, notes, decisions, status, created_at, decided_at"
 
 // ProposedDecision is a decision that approving its proposal records.
 type ProposedDecision struct {
@@ -100,7 +98,12 @@ func (s *Store) PendingProposal(ctx context.Context, channelID int64) (Proposal,
 
 // Proposal returns the proposal with the id in any status, or ErrNotFound.
 func (s *Store) Proposal(ctx context.Context, id int64) (Proposal, error) {
-	return getProposal(ctx, s.db, id)
+	row := s.db.QueryRowContext(ctx, "SELECT "+_proposalCols+" FROM proposal WHERE id = ?", id)
+	p, err := scanProposal(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Proposal{}, fmt.Errorf("proposal %d: %w", id, ErrNotFound)
+	}
+	return p, err
 }
 
 // PendingProposals returns every pending proposal, oldest first. With featureID
@@ -189,22 +192,13 @@ func (s *Store) RejectProposal(ctx context.Context, id int64) (Proposal, error) 
 	return decideProposal(ctx, tx, p, ProposalRejected, time.Now().UTC())
 }
 
-type rowQuerier interface {
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
-func getProposal(ctx context.Context, q rowQuerier, id int64) (Proposal, error) {
-	row := q.QueryRowContext(ctx, "SELECT "+_proposalCols+" FROM proposal WHERE id = ?", id)
+func pendingProposal(ctx context.Context, tx *sql.Tx, id int64) (Proposal, error) {
+	row := tx.QueryRowContext(ctx, "SELECT "+_proposalCols+" FROM proposal WHERE id = ?", id)
 	p, err := scanProposal(row)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Proposal{}, fmt.Errorf("proposal %d: %w", id, ErrNotFound)
-	}
-	return p, err
-}
-
-func pendingProposal(ctx context.Context, q rowQuerier, id int64) (Proposal, error) {
-	p, err := getProposal(ctx, q, id)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Proposal{}, fmt.Errorf("proposal %d: %w", id, ErrNotFound)
+		}
 		return Proposal{}, err
 	}
 	if p.Status != ProposalPending {
