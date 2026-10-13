@@ -37,13 +37,15 @@ An `Event` is one JSON line (the `reef-agent` wire format). Empty fields are lef
 {"kind":"tool_call","toolId":"toolu_01Q...","toolName":"Bash","input":{"command":"echo hi"}}
 {"kind":"tool_result","toolId":"toolu_01Q...","output":"hi"}
 {"kind":"tool_result","toolId":"toolu_01Q...","output":"boom","isError":true}
+{"kind":"tool_call","toolId":"toolu_01B...","toolName":"Bash","parentToolId":"toolu_01R...","input":{"command":"echo sub-hello"}}
 {"kind":"usage","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0}}
 {"kind":"turn_end"}
 {"kind":"error","text":"No conversation found with session ID: ..."}
 ```
 
 `text` is a delta, not a whole message. A `tool_result` carries the `toolId` of its
-`tool_call`. Inside `usage`, no field is left out.
+`tool_call`. `parentToolId` is the `toolId` of the `Agent` call whose subagent made a tool
+call or result (Claude only). Inside `usage`, no field is left out.
 
 `reef-agent --backend claude|codex [--cwd DIR] [--resume ID] [--permission-mode MODE]
 [--mcp FILE] "prompt"` runs one backend and prints these lines. `FILE` is a JSON object of
@@ -82,6 +84,9 @@ Output: one JSON line per message, every line has `session_id`. Samples, trimmed
 {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01Q...","type":"tool_result","content":"hello-from-tool","is_error":false}]},"session_id":"..."}
 // turn end, usage is per turn
 {"type":"result","subtype":"success","is_error":false,"result":"Output: ...","session_id":"...","usage":{"input_tokens":4,"cache_creation_input_tokens":10112,"cache_read_input_tokens":22898,"output_tokens":123}}
+// subagent tool call and result: parent_tool_use_id is the toolu_ id of the Agent call
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01B...","name":"Bash","input":{"command":"echo sub-hello"}}]},"parent_tool_use_id":"toolu_01R...","agent_id":"acbb09e2905459672","session_id":"..."}
+{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01B...","type":"tool_result","content":"sub-hello","is_error":false}]},"parent_tool_use_id":"toolu_01R...","agent_id":"acbb09e2905459672","session_id":"..."}
 // failed resume: process exits 1, no "result" text, message in errors[]
 {"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"0000...","usage":{...},"errors":["No conversation found with session ID: 0000..."]}
 ```
@@ -163,6 +168,12 @@ and `agentMessage`.
 | `usage` | `result` line `usage`: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). One per turn, just before `turn_end` or `error`. | `thread/tokenUsage/updated` `last`. `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. One per model call, several per turn. |
 | `turn_end` | `result` line with `is_error` false | `turn/completed` with any status but `failed` |
 | `error` | `result` with `is_error` true (`result` and `errors[]` joined). Also a non-zero exit when the last event was not already an `error`: `claude exited: ...: <stderr>`. | `turn/completed` with status `failed` (`turn.error.message`), or a JSON-RPC error response. Also a non-zero exit on its own: `codex exited: <err>: <stderr>`. |
+
+`parentToolId`: Claude sets it from `parent_tool_use_id` (null on top-level lines) on
+`tool_call` and `tool_result`. Subagent text is not streamed (no `stream_event` carries a
+parent), so `text` has none. Codex links subagents by thread id (`parentThreadId`,
+`collabAgentToolCall` items), not by tool id. The adapter does not map them, so it sets no
+`parentToolId`. This was not run live.
 
 Both: a tool id is the same in its call and result. Claude's tool input also streams as
 `input_json_delta` fragments; the adapter ignores them and uses the whole `tool_use` block.
