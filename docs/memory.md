@@ -104,20 +104,21 @@ always in `solo`.
   "roles": [
     {"name": "lead", "lead": true, "backend": "claude",
      "persona": "You are the lead. Answer the user. Hand design work to @architect."},
-    {"name": "architect", "backend": "claude", "permission_mode": "default",
+    {"name": "architect", "backend": "claude", "permissionMode": "default",
      "persona": "You are the architect. Reply with a short plan.",
      "skills": "Writing plans.",
      "tools": ["Read", "Grep"],
-     "mcp_servers": [{"command": "my-mcp", "args": ["--stdio"]}]}
+     "mcpServers": [{"command": "my-mcp", "args": ["--stdio"]}]}
   ],
   "gates": [{"from": "lead", "to": "architect", "on": true}]
 }
 ```
 
 - `name` and `roles` are required. A role needs `name` and `backend` (`claude` or `codex`). The
-  other role fields are optional: `lead` (default `false`), `permission_mode`, `persona`,
-  `skills`, `tools` and `mcp_servers`. What each does is in [server.md](server.md#role).
-  Exactly one role has `"lead": true`. A role name can appear once.
+  other role fields are optional: `lead` (default `false`), `permissionMode`, `persona`,
+  `skills`, `tools` and `mcpServers`. What each does is in [server.md](server.md#role).
+  Exactly one role has `"lead": true`. A role name can appear once, uses only letters, digits,
+  `_` and `-` (so an `@mention` can name it), and is not `user`.
 - `gates` is optional. A gate `{"from","to","on"}` names two roles of the team. An edge the
   file does not list uses the default: on for `architect` to `developer` and `developer` to
   `tester`, off for the rest (see [server.md](server.md#gate)).
@@ -127,10 +128,13 @@ always in `solo`.
   session that starts after it. A session that resumes does not get its first prompt again.
 - Errors print `reef: <message>` and exit 1: `reef: invalid: team bad needs exactly one
   lead role, has 0` (or `has 2`), `reef: role a: invalid: backend must be claude or codex`,
+  `reef: invalid: role name "two words" must be letters, digits, _ or -, and not user`,
   `reef: invalid: gate a to ghost names a role team bad does not have`, `reef: parse
   team.json: json: unknown field "color"`.
-- `tools` are the backend's allowed tools: Claude runs them without asking (`--allowedTools`).
-  Codex ignores `tools`. Its limit is `permission_mode`.
+- `tools` are the backend's allowed tools: Claude runs them without asking (`--allowedTools`),
+  and so it does the reef tools (`mcp__reef__*`), but not the tools of the role's own `mcpServers`
+  unless `tools` lists them (`mcp__mcp1__*`).
+  Codex ignores `tools`. Its limit is `permissionMode`.
 
 ## Tokens
 
@@ -268,7 +272,8 @@ running (error `chat exited`). That turn belonged to a `reef chat` that died, be
 one now holds the chat lock. It starts no agent: a teammate's agent starts when that role has
 its first turn, in the project's folder, with one MCP server named `reef` (this `reef`
 binary, `mcp --data <data folder>`, with that teammate's own new token in `REEF_TOKEN`), plus
-the role's own `mcp_servers`. Its tools need no approval (see [agents.md](agents.md#gotchas)).
+the role's own `mcpServers`. Claude runs the reef tools without approval; the role's own
+servers need their tools in `tools` (see [agents.md](agents.md#gotchas)).
 `reef chat` starts the lead at once (`Session.Start`), before the first line is read, so an
 agent that does not start fails the command at the start. In `reef serve` the lead starts at
 its first turn: a first message that goes to a specialist starts no lead.
