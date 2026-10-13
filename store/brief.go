@@ -17,6 +17,8 @@ type Brief struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+const _insertBrief = "INSERT INTO brief (feature_id, body, author, created_at) VALUES (?, ?, ?, ?)"
+
 // PutBrief appends b as a new version of the feature's brief.
 func (s *Store) PutBrief(ctx context.Context, b Brief) (Brief, error) {
 	if b.Body == "" {
@@ -26,8 +28,7 @@ func (s *Store) PutBrief(ctx context.Context, b Brief) (Brief, error) {
 		return Brief{}, fmt.Errorf("%w: brief author is required", ErrInvalid)
 	}
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO brief (feature_id, body, author, created_at) VALUES (?, ?, ?, ?)",
+	res, err := s.db.ExecContext(ctx, _insertBrief,
 		b.FeatureID, b.Body, b.Author, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Brief{}, s.writeErr(ctx, "insert brief", err, ErrNotFound,

@@ -18,6 +18,14 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
+const (
+	_wrapCommand = "/wrap"
+	_wrapPrompt  = "Wrap up this channel. Call the propose_wrap tool once with the full " +
+		"rewritten brief (goal, status, key decisions, open questions), your own notes on " +
+		"this feature, and the decisions made in this channel that are not recorded yet. " +
+		"Then reply with one line saying it is proposed."
+)
+
 const _chatUsage = `usage: reef chat <feature> --role R --backend claude|codex [--name N]
   [--permission-mode M] [--debug] [--data DIR]
        reef chat --channel ID [--permission-mode M] [--debug] [--data DIR]`
@@ -133,16 +141,20 @@ func chatCmd(
 			_, _ = fmt.Fprintf(stderr, "--- prompt ---\n%s\n---\n", prompt)
 		}
 	}
-	if err := converse(ctx, runner, stdin, stdout); err != nil {
+	if err := converse(ctx, st, ch.ID, runner, stdin, stdout); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(stdout, "\nchannel %d: resume with reef chat --channel %d\n", ch.ID, ch.ID)
 	return err
 }
 
-// converse sends each line of stdin as a message and prints the agent's text. It
-// returns nil at the end of stdin or when ctx is cancelled.
-func converse(ctx context.Context, r *channel.Runner, stdin io.Reader, stdout io.Writer) error {
+// converse sends each line of stdin as a message and prints the agent's text. The
+// line /wrap asks the agent for a wrap-up proposal and then asks the user to
+// approve it. It returns nil at the end of stdin or when ctx is cancelled.
+func converse(
+	ctx context.Context, st *store.Store, channelID int64, r *channel.Runner,
+	stdin io.Reader, stdout io.Writer,
+) error {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	// A blocked stdin read cannot be cancelled; the goroutine ends with the process.
@@ -181,17 +193,81 @@ func converse(ctx context.Context, r *channel.Runner, stdin io.Reader, stdout io
 			if !ok {
 				return nil
 			}
+			var seen int64
+			if line == _wrapCommand {
+				line = _wrapPrompt
+				if p, err := st.PendingProposal(ctx, channelID); err == nil {
+					seen = p.ID
+				}
+			}
 			if err := r.Send(ctx, line, show); err != nil {
 				if ctx.Err() != nil {
 					return nil
 				}
 				return err
 			}
-			if _, err := io.WriteString(stdout, "\n\n> "); err != nil {
+			if _, err := io.WriteString(stdout, "\n\n"); err != nil {
+				return err
+			}
+			if line == _wrapPrompt {
+				if err := decideWrap(ctx, st, channelID, seen, lines, stdout); err != nil {
+					return err
+				}
+			}
+			if _, err := io.WriteString(stdout, "> "); err != nil {
 				return err
 			}
 		}
 	}
+}
+
+// decideWrap prints the proposal the agent made in the turn that just ended, one
+// newer than seen, and approves it when the next line is y or yes, else rejects it.
+func decideWrap(
+	ctx context.Context, st *store.Store, channelID, seen int64,
+	lines <-chan string, stdout io.Writer,
+) error {
+	p, err := st.PendingProposal(ctx, channelID)
+	if errors.Is(err, store.ErrNotFound) || (err == nil && p.ID == seen) {
+		_, err = io.WriteString(stdout, "no proposal made\n\n")
+		return err
+	}
+	if err != nil {
+		return err
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "proposal %d from %s\n\nbrief:\n%s\n\nnotes:\n%s\n\ndecisions:\n",
+		p.ID, p.Role, p.Brief, p.Notes)
+	for _, d := range p.Decisions {
+		fmt.Fprintf(&b, "- %s", d.Body)
+		if d.Why != "" {
+			fmt.Fprintf(&b, " (%s)", d.Why)
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("\napprove? [y/N] ")
+	if _, err := io.WriteString(stdout, b.String()); err != nil {
+		return err
+	}
+	var answer string
+	select {
+	case <-ctx.Done():
+		return nil
+	case answer = <-lines:
+	}
+	if a := strings.ToLower(answer); a == "y" || a == "yes" {
+		if _, err := st.ApproveProposal(ctx, p.ID); err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(stdout, "approved: brief, notes and %d decisions saved\n\n",
+			len(p.Decisions))
+		return err
+	}
+	if _, err := st.RejectProposal(ctx, p.ID); err != nil {
+		return err
+	}
+	_, err = io.WriteString(stdout, "rejected: nothing changed\n\n")
+	return err
 }
 
 // resumeTurn is the channel's newest turn that has a session id. It first fails any

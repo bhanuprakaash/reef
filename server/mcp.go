@@ -50,6 +50,15 @@ type (
 	threadOut struct {
 		Messages []store.Message `json:"messages"`
 	}
+	wrapIn struct {
+		Brief     string                   `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
+		Notes     string                   `json:"notes" jsonschema:"your own notes on this feature"`
+		Decisions []store.ProposedDecision `json:"decisions" jsonschema:"decisions made in this channel that are not recorded yet"`
+	}
+	wrapOut struct {
+		ID      int64  `json:"id" jsonschema:"proposal id"`
+		Message string `json:"message"`
+	}
 )
 
 // NewMCP returns the MCP server for one teammate: tok names the channel it
@@ -84,6 +93,13 @@ func NewMCP(st *store.Store, tok store.Token) *mcp.Server {
 		Name:        "read_thread",
 		Description: "Read the messages of one of this feature's channels, oldest first.",
 	}, m.readThread)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "propose_wrap",
+		Description: "Propose how to wrap up this channel; the user approves it before " +
+			"anything is saved. brief is the full rewritten brief (goal, status, key " +
+			"decisions, open questions), notes are your own notes for this feature, " +
+			"decisions are ones made in this channel that are not recorded yet.",
+	}, m.proposeWrap)
 	return srv
 }
 
@@ -193,4 +209,20 @@ func (m *mcpServer) readThread(
 	}
 	msgs, err := m.st.Messages(ctx, c.ID, in.After)
 	return nil, threadOut{Messages: msgs}, err
+}
+
+func (m *mcpServer) proposeWrap(
+	ctx context.Context, _ *mcp.CallToolRequest, in wrapIn,
+) (*mcp.CallToolResult, wrapOut, error) {
+	if _, err := m.feature(ctx); err != nil {
+		return nil, wrapOut{}, err
+	}
+	p, err := m.st.CreateProposal(ctx, store.Proposal{
+		ChannelID: m.tok.ChannelID, Role: m.tok.Role, Brief: in.Brief, Notes: in.Notes,
+		Decisions: in.Decisions,
+	})
+	if err != nil {
+		return nil, wrapOut{}, err
+	}
+	return nil, wrapOut{ID: p.ID, Message: "proposal saved; the user will approve it"}, nil
 }
