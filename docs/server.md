@@ -395,7 +395,8 @@ a message wakes them.
   with its persona and skills (see [memory.md](memory.md#the-context-prompt)).
 - An agent starts when its first turn runs, not when the channel opens. A first message that
   wakes a specialist starts no lead. A role that already has a session resumes it by its own
-  newest session id (see [memory.md](memory.md#reef-chat)).
+  newest session id (see [memory.md](memory.md#reef-chat)). An agent that fails to start shows
+  as a `failed` turn of its role, with the start error. The server logs every failed turn.
 - The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session.

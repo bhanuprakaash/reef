@@ -18,6 +18,7 @@ live, Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 - `thread-send` `POST /channels/{id}/send` with `parent` stores the reply under that top-level message; a parent that is not a top-level message of the channel is 400; `role` is no longer a field (400).
 - `thread-read` the `read_thread` MCP tool with `root` returns the root and its replies in order; a reply id as `root` is `not found`; in a quick session it reads the token's own channel.
 - `lazy-lead` a first message `@architect ...` in a new channel starts only the architect: no lead turn, no lead token, one `claude` child while it runs and none after.
+- `start-fails` a role whose agent fails to start (a `codex` that runs `exit 1` first on `PATH`) leaves one `failed` turn of that role with the start error in `GET /turns?channel=ID`, and the server log has a line with it.
 - `session-per-teammate` the lead's `claude` stays after its turn; a specialist's is gone when its wake ends; each has its own token, its own session id, the role's persona and skills and team line in its first prompt, and the role's `tools` as `--allowedTools`; a second wake resumes the same session.
 - `route-lead-architect` the user asks the lead; the lead's reply `@architect ...` wakes the architect, which posts a top-level message it owns; the lead gets no turn after it.
 - `route-thread-owner` a user reply with `parent` on the architect's message goes to the architect, not the lead, and the answer lands in the same thread.
