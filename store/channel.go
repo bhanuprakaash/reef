@@ -11,6 +11,9 @@ import (
 // TokenBudget is the default channel budget and what continuing over budget adds.
 const TokenBudget = 1_000_000
 
+// HopCap is how many turns woken by agent messages a channel runs between user messages.
+const HopCap = 4
+
 const _channelCols = "id, project_id, feature_id, name, role, backend, permission_mode, " +
 	"paused, token_budget, created_at, (SELECT name FROM team WHERE id = channel.team_id)"
 

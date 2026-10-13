@@ -71,6 +71,10 @@ type live struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	frames []frame
+	// hops counts the turns agent messages woke since the last user message; held is the
+	// queue of wakes a pause kept from running.
+	hops int
+	held []wake
 	// dropped counts the frames of earlier chains of turns, cut from the front of frames.
 	dropped int
 	wake    chan struct{}
@@ -130,7 +134,7 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 	if in.Text == channel.WrapCommand {
 		kind = _wrap
 	}
-	if err := s.startTurn(r.Context(), id, kind, in.Text, in.Parent, nil); err != nil {
+	if err := s.startTurn(r.Context(), id, kind, in.Text, in.Parent, nil, nil); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -141,10 +145,11 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 // set, then starts the turn in the background. A message turn runs for the role the
 // message is routed to, and its reply goes in the same thread; wrap and promote turns
 // run for the lead. It runs prepare, when set, once the agent is open; if it fails no turn
-// starts. A stop that arrives before the turn runs cancels it.
+// starts. A stop that arrives before the turn runs cancels it. With resume set it stores no
+// message and runs those wakes instead.
 func (s *server) startTurn(
 	ctx context.Context, id int64, kind turnKind, text string, parent *int64,
-	prepare func() error,
+	prepare func() error, resume []wake,
 ) error {
 	if !s.begin() {
 		return errStopping
@@ -176,6 +181,11 @@ func (s *server) startTurn(
 	if err != nil {
 		return giveUp(err)
 	}
+	if resume != nil {
+		if err := s.countHop(ctx, id, l, resume[0]); err != nil {
+			return giveUp(err)
+		}
+	}
 	if sess == nil {
 		var err error
 		if sess, err = s.open(turnCtx, id); err != nil {
@@ -196,28 +206,39 @@ func (s *server) startTurn(
 			return giveUp(err)
 		}
 	}
-	before, err := s.st.LastMessageID(ctx, id)
+	queue := resume
+	after, err := s.st.LastMessageID(ctx, id)
 	if err != nil {
 		return giveUp(err)
 	}
-	if err := sess.Say(ctx, text, parent); err != nil {
-		return giveUp(err)
-	}
-	ws, after, err := s.wakes(ctx, id, before)
-	if err != nil {
-		return giveUp(err)
-	}
-	w := wake{role: role, text: text, parent: parent}
-	if kind == _message {
-		w = ws[0]
+	if resume == nil {
+		if err := sess.Say(ctx, text, parent); err != nil {
+			return giveUp(err)
+		}
+		var ws []wake
+		if ws, after, err = s.wakes(ctx, id, after); err != nil {
+			return giveUp(err)
+		}
+		w := wake{from: "user", role: role, text: text, parent: parent}
+		if kind == _message {
+			w = ws[0]
+		}
+		queue = []wake{w}
 	}
 	l.mu.Lock()
 	l.state = _running
+	if resume == nil {
+		l.hops = 0
+	}
 	l.dropped += len(l.frames)
 	l.frames = nil
-	l.publishLocked("turn", turnState{Role: w.role, Status: "running"})
+	if len(l.held) > 0 {
+		l.publishLocked("pause", pauseState{})
+		l.held = nil
+	}
+	l.publishLocked("turn", turnState{Role: queue[0].role, Status: "running"})
 	l.mu.Unlock()
-	go s.runTurn(turnCtx, id, l, sess, kind, w, after, done)
+	go s.runTurn(turnCtx, id, l, sess, kind, queue, after, done)
 	return nil
 }
 
@@ -226,8 +247,8 @@ func (s *server) startTurn(
 // a wrap or promote turn talks to the user and wakes nobody.
 // A turn that fails, or a channel that is paused, ends the chain.
 func (s *server) runTurn(
-	ctx context.Context, id int64, l *live, sess session, kind turnKind, w wake, after int64,
-	done chan struct{},
+	ctx context.Context, id int64, l *live, sess session, kind turnKind, queue []wake,
+	after int64, done chan struct{},
 ) {
 	defer s.wg.Done()
 	finishLocked := func() {
@@ -235,8 +256,8 @@ func (s *server) runTurn(
 		l.state, l.cancel = _idle, nil
 		close(done)
 	}
-	queue := []wake{w}
 	for {
+		var w wake
 		w, queue = queue[0], queue[1:]
 		end, pause, ok := s.runOne(ctx, id, l, sess, kind, w)
 		if ok && kind == _message && ctx.Err() == nil {
@@ -261,11 +282,16 @@ func (s *server) runTurn(
 		}
 		l.mu.Unlock()
 		kind = _message
-		if _, err := s.checkTurn(ctx, id, l, kind); err != nil {
+		_, err := s.checkTurn(ctx, id, l, kind)
+		if err == nil {
+			err = s.countHop(ctx, id, l, queue[0])
+		}
+		if err != nil {
+			l.mu.Lock()
 			if ctx.Err() == nil {
 				log.Printf("wake %s in channel %d: %v", queue[0].role, id, err)
+				l.held = queue
 			}
-			l.mu.Lock()
 			finishLocked()
 			l.mu.Unlock()
 			return
@@ -344,6 +370,29 @@ func (s *server) checkTurn(
 	return ch.Role, err
 }
 
+// countHop counts w as a hop when a message from an agent woke it. A wake over the cap
+// does not run: the channel is paused instead.
+func (s *server) countHop(ctx context.Context, id int64, l *live, w wake) error {
+	if w.from == "user" {
+		return nil
+	}
+	l.mu.Lock()
+	if l.hops < store.HopCap {
+		l.hops++
+		l.mu.Unlock()
+		return nil
+	}
+	l.mu.Unlock()
+	reason := fmt.Sprintf("hop cap: %d agent hops without a user message", store.HopCap)
+	if err := s.st.PauseChannel(ctx, id, reason); err != nil {
+		return err
+	}
+	l.mu.Lock()
+	l.publishLocked("pause", pauseState{Reason: reason})
+	l.mu.Unlock()
+	return fmt.Errorf("channel %d is paused: %s: %w", id, reason, store.ErrConflict)
+}
+
 func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -374,8 +423,18 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	l := s.live(id)
 	l.mu.Lock()
-	l.publishLocked("pause", pauseState{})
+	l.hops = 0
+	held := l.held
+	if len(held) == 0 {
+		l.publishLocked("pause", pauseState{})
+	}
 	l.mu.Unlock()
+	if len(held) > 0 {
+		if err := s.startTurn(r.Context(), id, _message, "", nil, nil, held); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
