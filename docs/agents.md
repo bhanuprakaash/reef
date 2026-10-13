@@ -62,7 +62,7 @@ Spawn, one long-lived process per session (in `cfg.Cwd`):
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
-  --include-partial-messages [--permission-mode MODE] [--mcp-config PATH --allowedTools LIST] [--resume ID]
+  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--mcp-config PATH --allowedTools LIST] [--resume ID]
 ```
 
 Input: one JSON line on stdin per `Send`. Keep stdin open for the whole session. Output is
@@ -105,8 +105,29 @@ answers the first prompt.
 {"type":"result","subtype":"success","is_error":false,"num_turns":0,"result":"","origin":{"kind":"task-notification"},"usage":{"input_tokens":0,"output_tokens":0,...},"session_id":"..."}
 ```
 
+A background task that ends in a live session gives such a turn too, with real text and
+tool events. Its `system` `task_notification` (status `completed`) arrives wherever the task
+ends, also in the middle of a prompt's turn. claude does not interrupt that turn: it ends it
+with its own `result`, then runs the notification turn at once, even when the next prompt is
+already waiting. Sample, trimmed (`agent/claude/testdata/background-task.jsonl`):
+
+```jsonc
+{"type":"system","subtype":"init","session_id":"..."}            // starts every turn
+{"type":"user","message":{"role":"user","content":"What is 7 times 6? ..."},"isReplay":true,...}  // only a prompt's turn
+// notification turn: init, then these, with no isReplay line
+{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"The background command"}},...}
+{"type":"result","subtype":"success","origin":{"kind":"task-notification","producer":"session-task",...},...}
+```
+
+`--replay-user-messages` makes claude echo each prompt as a `user` line with `isReplay` true
+(its `content` is a plain string), right after the `init` of the turn that answers it. A turn
+with no echo is not an answer to any prompt: the adapter drops its `text`, `tool_call` and
+`tool_result` events, from `init` to its `result`. Its `usage` is still sent, so the spend
+counts; it lands in whichever turn is reading then.
+
 Noise, ignored: `system` with subtype `hook_started`, `hook_response`, `commands_changed`,
-`status`, `task_notification`; `rate_limit_event`.
+`status`, `task_notification`, `task_started`, `task_updated`, `background_tasks_changed`;
+`rate_limit_event`.
 
 ```json
 {"type":"rate_limit_event","rate_limit_info":{"status":"allowed"},"session_id":"..."}
@@ -177,7 +198,7 @@ and `agentMessage`.
 | Event kind | Claude Code source | Codex source |
 | --- | --- | --- |
 | `session` | `system`/`init` line, `session_id`. Repeats every turn, same id. First one comes after the first `Send`. | Response to `thread/start` / `thread/resume`, `thread.id`. Once, as the first event, before any `Send`. |
-| `text` | `stream_event` with `content_block_delta` / `text_delta`, `delta.text` | `item/agentMessage/delta`, `params.delta`. Each agent message is its own item (`params.itemId`); the first delta of a later item in the same turn is preceded by a `text` of `"\n\n"`, so messages around a tool call stay apart. |
+| `text` | `stream_event` with `content_block_delta` / `text_delta`, `delta.text`. None in a turn claude ran by itself (no echoed prompt, see above); the same holds for `tool_call` and `tool_result`. | `item/agentMessage/delta`, `params.delta`. Each agent message is its own item (`params.itemId`); the first delta of a later item in the same turn is preceded by a `text` of `"\n\n"`, so messages around a tool call stay apart. |
 | `tool_call` | `assistant` line, each `tool_use` block: `id`, `name`, `input`. A top-level call is sent right after its message's `usage` (the `assistant` line comes before the `message_delta`), so a turn stopped at that call has counted the model call that made it. A subagent's call (`parentToolId` set) is sent at once: its messages have no `message_delta`. | `item/started` for `commandExecution` (name `commandExecution`, input `{"command":...}`), `fileChange` (name `fileChange`, input `changes`), `mcpToolCall` (name `mcp__<server>__<tool>`, input `arguments`) |
 | `tool_result` | `user` line, each `tool_result` block: `tool_use_id`, text of `content`, `is_error` | `item/completed` for the same three item types. Output: `aggregatedOutput` / status (`fileChange`) / MCP error message or joined `result.content` text. `isError` if status is not `completed` or `exitCode` is not 0. |
 | `usage` | `message_delta` `stream_event` `usage`, one per model message, so a turn stopped midway keeps what it spent: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). The `result` line sends only its total minus what the messages already sent (nothing when equal), just before `turn_end` or `error`, so a finished turn adds up to the `result` total. | `thread/tokenUsage/updated` `last`, one `usage` per model call as it arrives, so a turn that is interrupted keeps what it used; the turn's usage is their sum. Codex sends a call's usage only after the call's tool finishes, so `Interrupt` sends `turn/interrupt` first; codex then reports the call the turn was in, unless it was still streaming text (that call is lost). Per call: `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. None for a turn that made no model call. |
