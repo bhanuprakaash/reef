@@ -70,6 +70,13 @@ type (
 		Content string `json:"content"`
 	}
 
+	usageCounts struct {
+		InputTokens      int64 `json:"input_tokens"`
+		OutputTokens     int64 `json:"output_tokens"`
+		CacheReadTokens  int64 `json:"cache_read_input_tokens"`
+		CacheWriteTokens int64 `json:"cache_creation_input_tokens"`
+	}
+
 	outputLine struct {
 		Type      string `json:"type"`
 		Subtype   string `json:"subtype"`
@@ -80,20 +87,19 @@ type (
 				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"delta"`
+			Usage usageCounts `json:"usage"`
 		} `json:"event"`
 		Message struct {
 			Content []block `json:"content"`
 		} `json:"message"`
-		ParentToolUseID string   `json:"parent_tool_use_id"`
-		IsError         bool     `json:"is_error"`
-		Result          string   `json:"result"`
-		Errors          []string `json:"errors"`
-		Usage           struct {
-			InputTokens      int64 `json:"input_tokens"`
-			OutputTokens     int64 `json:"output_tokens"`
-			CacheReadTokens  int64 `json:"cache_read_input_tokens"`
-			CacheWriteTokens int64 `json:"cache_creation_input_tokens"`
-		} `json:"usage"`
+		ParentToolUseID string      `json:"parent_tool_use_id"`
+		IsError         bool        `json:"is_error"`
+		Result          string      `json:"result"`
+		Errors          []string    `json:"errors"`
+		Usage           usageCounts `json:"usage"`
+		Origin          struct {
+			Kind string `json:"kind"`
+		} `json:"origin"`
 	}
 
 	block struct {
@@ -247,9 +253,10 @@ func (a *Agent) read(stdout io.Reader) {
 
 	r := bufio.NewReader(stdout)
 	var last agent.Kind
+	var seen agent.Usage
 	for {
 		line, err := r.ReadBytes('\n')
-		for _, ev := range parse(line) {
+		for _, ev := range parse(line, &seen) {
 			if !a.emit(ev) {
 				_ = a.cmd.Wait()
 				return
@@ -330,7 +337,10 @@ func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
 
 // parse maps one stdout line to Events. Text comes from the partial-message deltas, so
 // the complete assistant text blocks that follow are skipped. Unknown lines give none.
-func parse(line []byte) []agent.Event {
+// Usage is sent as each message ends: its message_delta has the final counts, while the
+// assistant line's output count is only the first few tokens. seen is what the turn has
+// sent so far; the result line sends only what is left of its total.
+func parse(line []byte, seen *agent.Usage) []agent.Event {
 	var l outputLine
 	if err := json.Unmarshal(line, &l); err != nil {
 		return nil
@@ -343,6 +353,11 @@ func parse(line []byte) []agent.Event {
 	case "stream_event":
 		if l.Event.Type == "content_block_delta" && l.Event.Delta.Type == "text_delta" {
 			return []agent.Event{{Kind: agent.KindText, Text: l.Event.Delta.Text}}
+		}
+		if l.Event.Type == "message_delta" {
+			u := l.Event.Usage.usage()
+			seen.Add(u)
+			return []agent.Event{{Kind: agent.KindUsage, Usage: &u}}
 		}
 	case "assistant":
 		var evs []agent.Event
@@ -370,20 +385,38 @@ func parse(line []byte) []agent.Event {
 		}
 		return evs
 	case "result":
-		usage := &agent.Usage{
-			InputTokens:      l.Usage.InputTokens,
-			OutputTokens:     l.Usage.OutputTokens,
-			CacheReadTokens:  l.Usage.CacheReadTokens,
-			CacheWriteTokens: l.Usage.CacheWriteTokens,
+		total := l.Usage.usage()
+		rest := agent.Usage{
+			InputTokens:      total.InputTokens - seen.InputTokens,
+			OutputTokens:     total.OutputTokens - seen.OutputTokens,
+			CacheReadTokens:  total.CacheReadTokens - seen.CacheReadTokens,
+			CacheWriteTokens: total.CacheWriteTokens - seen.CacheWriteTokens,
 		}
-		end := agent.Event{Kind: agent.KindTurnEnd}
+		*seen = agent.Usage{}
+		var evs []agent.Event
+		if rest != (agent.Usage{}) {
+			evs = append(evs, agent.Event{Kind: agent.KindUsage, Usage: &rest})
+		}
+		// A turn claude runs by itself for a background task is not the answer to a prompt.
+		if l.Origin.Kind == "task-notification" {
+			return evs
+		}
 		if l.IsError {
 			text := strings.Join(append([]string{l.Result}, l.Errors...), "\n")
-			end = agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text)}
+			return append(evs, agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text)})
 		}
-		return []agent.Event{{Kind: agent.KindUsage, Usage: usage}, end}
+		return append(evs, agent.Event{Kind: agent.KindTurnEnd})
 	}
 	return nil
+}
+
+func (c usageCounts) usage() agent.Usage {
+	return agent.Usage{
+		InputTokens:      c.InputTokens,
+		OutputTokens:     c.OutputTokens,
+		CacheReadTokens:  c.CacheReadTokens,
+		CacheWriteTokens: c.CacheWriteTokens,
+	}
 }
 
 func resultText(raw json.RawMessage) string {

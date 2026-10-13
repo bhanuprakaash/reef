@@ -83,7 +83,9 @@ Output: one JSON line per message, every line has `session_id`. Samples, trimmed
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"Output: `hello-from-tool`"}]},"session_id":"..."}
 // tool result: content is a string or a list of {"text":...} blocks
 {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01Q...","type":"tool_result","content":"hello-from-tool","is_error":false}]},"session_id":"..."}
-// turn end, usage is per turn
+// message end: final usage of one model message (the assistant line's output_tokens is only the first few tokens)
+{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":2,"cache_creation_input_tokens":102,"cache_read_input_tokens":18307,"output_tokens":5}},"session_id":"..."}
+// turn end, usage is the turn total
 {"type":"result","subtype":"success","is_error":false,"result":"Output: ...","session_id":"...","usage":{"input_tokens":4,"cache_creation_input_tokens":10112,"cache_read_input_tokens":22898,"output_tokens":123}}
 // subagent tool call and result: parent_tool_use_id is the toolu_ id of the Agent call
 {"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01B...","name":"Bash","input":{"command":"echo sub-hello"}}]},"parent_tool_use_id":"toolu_01R...","agent_id":"acbb09e2905459672","session_id":"..."}
@@ -92,8 +94,17 @@ Output: one JSON line per message, every line has `session_id`. Samples, trimmed
 {"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"0000...","usage":{...},"errors":["No conversation found with session ID: 0000..."]}
 ```
 
+A `result` for a turn claude ran by itself (a background task finished, or one that did not
+survive the last session) has `"origin":{"kind":"task-notification"}`; the result of a prompt
+has no `origin`. On resume claude emits this one, with `num_turns` 0 and zero usage, before it
+answers the first prompt.
+```json
+{"type":"system","subtype":"task_notification","status":"stopped","summary":"Background shell command didn't finish before the previous session ended","session_id":"..."}
+{"type":"result","subtype":"success","is_error":false,"num_turns":0,"result":"","origin":{"kind":"task-notification"},"usage":{"input_tokens":0,"output_tokens":0,...},"session_id":"..."}
+```
+
 Noise, ignored: `system` with subtype `hook_started`, `hook_response`, `commands_changed`,
-`status`; `rate_limit_event`.
+`status`, `task_notification`; `rate_limit_event`.
 
 ```json
 {"type":"rate_limit_event","rate_limit_info":{"status":"allowed"},"session_id":"..."}
@@ -166,8 +177,8 @@ and `agentMessage`.
 | `text` | `stream_event` with `content_block_delta` / `text_delta`, `delta.text` | `item/agentMessage/delta`, `params.delta`. Each agent message is its own item (`params.itemId`); the first delta of a later item in the same turn is preceded by a `text` of `"\n\n"`, so messages around a tool call stay apart. |
 | `tool_call` | `assistant` line, each `tool_use` block: `id`, `name`, `input` | `item/started` for `commandExecution` (name `commandExecution`, input `{"command":...}`), `fileChange` (name `fileChange`, input `changes`), `mcpToolCall` (name `mcp__<server>__<tool>`, input `arguments`) |
 | `tool_result` | `user` line, each `tool_result` block: `tool_use_id`, text of `content`, `is_error` | `item/completed` for the same three item types. Output: `aggregatedOutput` / status (`fileChange`) / MCP error message or joined `result.content` text. `isError` if status is not `completed` or `exitCode` is not 0. |
-| `usage` | `result` line `usage`: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). One per turn, just before `turn_end` or `error`. The process-exit `error` has no usage: claude reports usage only in its `result` line. | `thread/tokenUsage/updated` `last`, one `usage` per model call as it arrives, so a turn that is interrupted keeps what it used; the turn's usage is their sum. Per call: `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. None for a turn that made no model call. |
-| `turn_end` | `result` line with `is_error` false | `turn/completed` with any status but `failed` |
+| `usage` | `message_delta` `stream_event` `usage`, one per model message, so a turn stopped midway keeps what it spent: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). The `result` line sends only its total minus what the messages already sent (nothing when equal), just before `turn_end` or `error`, so a finished turn adds up to the `result` total. | `thread/tokenUsage/updated` `last`, one `usage` per model call as it arrives, so a turn that is interrupted keeps what it used; the turn's usage is their sum. Per call: `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. None for a turn that made no model call. |
+| `turn_end` | `result` line with `is_error` false and no `origin` of `task-notification` | `turn/completed` with any status but `failed` |
 | `error` | `result` with `is_error` true (`result` and `errors[]` joined). Also a non-zero exit when the last event was not already an `error`: `claude exited: ...: <stderr>`. | `turn/completed` with status `failed` (`turn.error.message`), or a JSON-RPC error response. Also a non-zero exit on its own: `codex exited: <err>: <stderr>`. |
 
 `parentToolId`: Claude sets it from `parent_tool_use_id` (null on top-level lines) on
@@ -245,7 +256,7 @@ Interrupt and orphans
 Noise and errors
 - Unknown or unparsable lines give no event, on both backends.
 - Claude: a failed resume is exit 1 plus a `result` with `is_error`. The adapter emits
-  `usage` then exactly one `error` (from the result). The exit error
+  exactly one `error` (from the result; its usage is zero, so no `usage` line). The exit error
   (`claude exited: ... <stderr>`) is added only when the last event was not already an
   `error`, so a crash between turns still reports.
 - Codex: a non-zero exit on its own gives one `codex exited: <err>: <stderr>` error. If it
