@@ -200,3 +200,29 @@ func TestContext_DecisionFirstLine(t *testing.T) {
 		})
 	}
 }
+
+func TestTeamIntro(t *testing.T) {
+	lead, architect := store.Role{Name: "lead", Lead: true}, store.Role{Name: "architect"}
+	team := store.Team{Name: "core", Roles: []store.Role{lead, architect}}
+	const common = "\n## Team\nYour team: @lead, @architect. To hand work to a teammate, " +
+		"@mention them in a message: that wakes them. Your reply, and anything you send with " +
+		"post_to_channel, is posted to the channel; nobody sees anything else.\n"
+	tests := []struct {
+		name string
+		team store.Team
+		give store.Role
+		want string
+	}{
+		{"solo team", store.Team{Name: "solo", Roles: []store.Role{lead}}, lead, ""},
+		{"specialist", team, architect, common},
+		{"lead", team, lead,
+			common + "Do not summarize or repeat a specialist's post back to the user: they see it.\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := teamIntro(tt.team, tt.give); got != tt.want {
+				t.Errorf("teamIntro = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
