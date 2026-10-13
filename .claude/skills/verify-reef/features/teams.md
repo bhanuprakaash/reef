@@ -169,11 +169,21 @@ Codex teammate on the test fixture (`mixed`: the architect is on `codex`). The f
 - **Setup.** `$H serve-stop`. `mkdir -p $S/shim && ln -s "$PWD/agent/codex/testdata/codex" $S/shim/codex`. `$H reef --data-name mixed -- team apply $E/mixed.json` prints `applied team mixed: lead*(claude) architect(codex)`. `FAKE_CODEX=replay PATH=$S/shim:$PATH ANTHROPIC_MODEL=sonnet $H serve-start --data-name mixed`, set `A`. `$H api POST /projects '{"name":"teams","path":"'$S'/cwd"}'`, `$H api POST /channels '{"projectId":1,"name":"mixed room","team":"mixed"}'` (a quick session, 201 with `"team":"mixed"`).
 - **Wake.** `$H api POST /channels/1/send '{"text":"DESIGN a form."}'`, `wait_done 1 2`. `$H sql "select id, role, backend, status, session_id from turn"` is `1|lead|claude|done|<uuid>` and `2|architect|codex|done|t1`. `$H api GET '/messages?channel=1'` ends with an `architect` message `hi`.
 
+Failed start, the same `mixed` folder (`start-fails`): a `codex` first on `PATH` that runs `exit 1`, so the architect's agent cannot start.
+
+- **Setup.** `$H serve-stop`. `mkdir -p $S/fail && printf '#!/bin/sh\nexit 1\n' > $S/fail/codex && chmod +x $S/fail/codex`. `PATH=$S/fail:$PATH ANTHROPIC_MODEL=sonnet $H serve-start --data-name mixed`, set `A`.
+- **Failed turn and log line.** `$H api POST /channels/1/send '{"text":"DESIGN a form."}'` is 202. `wait_for '/turns?channel=1&status=failed' architect`. `$H api GET '/turns?channel=1&status=failed'` is one row: `"id":4,"channelId":1,"role":"architect","backend":"codex","sessionId":""`, `"status":"failed"` and `"error":"initialize: write |1: broken pipe"` (the text after `initialize:` depends on when the shim exits). `grep 'turn of architect in channel 1 failed' $E/serve.log` prints one line with the same error. Turn 3 is the lead's, `done`.
+
+Channel role as lead, a new folder `role` (`route-channel-role`). `reef chat` makes a `solo` channel whose `role` is `developer`; the API only makes `lead` channels.
+
+- **Setup.** `$H serve-stop`. `$H reef --data-name role -- project add`, `$H reef -- feature add login Login`. `ANTHROPIC_MODEL=sonnet $H reef -- chat login --role developer --backend claude` prints `channel 1: resume with reef chat --channel 1`, `exit: 0` (stdin is empty, so no turn runs). `$H sql "select channel.id, channel.role, team.name from channel join team on team.id = team_id"` is `1|developer|solo`. `ANTHROPIC_MODEL=sonnet $H serve-start --data-name role`, set `A`.
+- **`@lead` wakes the channel role.** `$H api POST /channels/1/send '{"text":"@lead hi"}'` is 202, `wait_done 1 1`. `$H sql "select id, role, status from turn"` is one row, `1|developer|done`. `$H sql "select role from token"` is `developer` only: no `lead` token. `pgrep -P $(cat $S/serve.pid) -x claude | wc -l` is `1`, the developer's process, which stays like a lead's. The developer's reply may name `@lead` too; it wakes no one.
+
 Window (by hand, in a browser; no `ui` scenario drives this yet). With a server on the `teams` data folder:
 
 - **New channel.** The New channel form has a team picker with `duo`, `gated`, `keys`, `pingpong`, `solo`. Pick `duo`, create the channel: the sidebar shows it, `GET /channels/<id>` has `"team":"duo"`.
 - **Thread.** Send `DESIGN a login form.`. While the architect runs, the live turn names it. When it ends, the architect's message has a reply count and a Thread pane opens on click; reply there. The architect (not the lead) answers in the pane, and the main list folds the replies under their root with the count.
-- **Gate.** In a `gated` channel, after the lead mentions the architect, a row `lead to architect: ...` shows Approve and Reject. Approve runs the architect; Reject removes the row.
+- **Gate.** In a `gated` channel, after the lead mentions the architect, a row `lead → architect: <body of the waking message>` shows Approve and Reject. Approve runs the architect; Reject removes the row.
 - **Hop cap.** In a `pingpong` channel, after five turns the cap banner shows `hop cap: 4 agent hops without a user message` and the composer stays enabled (other pauses disable it); sending a message clears the banner; Continue runs the held wake.
 
 When done: `$H cleanup`.
