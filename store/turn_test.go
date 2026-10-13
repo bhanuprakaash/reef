@@ -26,7 +26,7 @@ func turnRows(t *testing.T, s *Store) []turnRow {
 	}
 	var rows []turnRow
 	for _, tr := range ts {
-		rows = append(rows, turnRow{tr.ID, tr.Status, tr.Error})
+		rows = append(rows, turnRow{ID: tr.ID, Status: tr.Status, Error: tr.Error})
 	}
 	return rows
 }
@@ -83,10 +83,10 @@ func TestFailRunningTurns(t *testing.T) {
 	}
 
 	wantTurns := []turnRow{
-		{1, "failed", "server restarted"},
-		{2, "failed", "server restarted"},
-		{3, "failed", "server restarted"},
-		{4, "done", ""},
+		{ID: 1, Status: "failed", Error: "server restarted"},
+		{ID: 2, Status: "failed", Error: "server restarted"},
+		{ID: 3, Status: "failed", Error: "server restarted"},
+		{ID: 4, Status: "done"},
 	}
 	if got := turnRows(t, s); !reflect.DeepEqual(got, wantTurns) {
 		t.Errorf("turns = %v, want %v", got, wantTurns)

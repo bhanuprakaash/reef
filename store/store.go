@@ -41,6 +41,12 @@ type Store struct {
 	lock *os.File
 }
 
+// parent is a row a write points at. A nil id is a parent the write leaves unset.
+type parent struct {
+	table string
+	id    *int64
+}
+
 // Open opens dir/reef.db, creating dir and the file if needed, and applies
 // any migration newer than the file's user_version. It holds a lock on the
 // folder until Close, so a second Open of the same dir fails.
@@ -87,22 +93,6 @@ func (s *Store) Close() error {
 	return err
 }
 
-func isUnique(err error) bool {
-	var se *sqlite.Error
-	return errors.As(err, &se) && se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE
-}
-
-func isForeignKey(err error) bool {
-	var se *sqlite.Error
-	return errors.As(err, &se) && se.Code() == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY
-}
-
-// parent is a row a write points at. A nil id is a parent the write leaves unset.
-type parent struct {
-	table string
-	id    *int64
-}
-
 // writeErr is the error to return when the INSERT or UPDATE op failed with err.
 // SQLite does not say which foreign key broke, so a foreign-key failure looks up
 // the parents and names the first one that is gone: kind ErrNotFound for a parent
@@ -139,6 +129,57 @@ func (s *Store) exists(ctx context.Context, table string, id int64) (bool, error
 	err := s.db.QueryRowContext(ctx,
 		"SELECT EXISTS (SELECT 1 FROM "+table+" WHERE id = ?)", id).Scan(&ok)
 	return ok, err
+}
+
+func (s *Store) requireFeature(ctx context.Context, id int64) error {
+	ok, err := s.exists(ctx, "feature", id)
+	if err != nil {
+		return fmt.Errorf("check feature: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("feature %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+func (s *Store) requireChannel(ctx context.Context, id int64) error {
+	ok, err := s.exists(ctx, "channel", id)
+	if err != nil {
+		return fmt.Errorf("check channel: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("channel %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
+func (s *Store) checkFeatureInProject(
+	ctx context.Context, featureID *int64, projectID int64,
+) error {
+	if featureID == nil {
+		return nil
+	}
+	f, err := s.Feature(ctx, *featureID)
+	if errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("%w: unknown feature %d", ErrInvalid, *featureID)
+	}
+	if err != nil {
+		return fmt.Errorf("check feature: %w", err)
+	}
+	if f.ProjectID != projectID {
+		return fmt.Errorf("%w: feature %d is not in project %d", ErrInvalid, f.ID, projectID)
+	}
+	return nil
+}
+
+func isUnique(err error) bool {
+	var se *sqlite.Error
+	return errors.As(err, &se) && se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE
+}
+
+func isForeignKey(err error) bool {
+	var se *sqlite.Error
+	return errors.As(err, &se) && se.Code() == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY
 }
 
 func migrate(ctx context.Context, db *sql.DB) error {
@@ -197,29 +238,6 @@ func apply(ctx context.Context, db *sql.DB, version int, body string) error {
 	return tx.Commit()
 }
 
-func (s *Store) requireFeature(ctx context.Context, id int64) error {
-	ok, err := s.exists(ctx, "feature", id)
-	if err != nil {
-		return fmt.Errorf("check feature: %w", err)
-	}
-	if !ok {
-		return fmt.Errorf("feature %d: %w", id, ErrNotFound)
-	}
-	return nil
-}
-
-func (s *Store) requireChannel(ctx context.Context, id int64) error {
-	ok, err := s.exists(ctx, "channel", id)
-	if err != nil {
-		return fmt.Errorf("check channel: %w", err)
-	}
-	if !ok {
-		return fmt.Errorf("channel %d: %w", id, ErrNotFound)
-	}
-	return nil
-}
-
-// scanAll reads every remaining row of rows with scan, then closes rows.
 func scanAll[T any](
 	rows *sql.Rows, scan func(interface{ Scan(...any) error }) (T, error),
 ) ([]T, error) {
@@ -237,24 +255,4 @@ func scanAll[T any](
 		err = cerr
 	}
 	return out, err
-}
-
-// checkFeatureInProject requires featureID, when set, to be a feature of projectID.
-func (s *Store) checkFeatureInProject(
-	ctx context.Context, featureID *int64, projectID int64,
-) error {
-	if featureID == nil {
-		return nil
-	}
-	f, err := s.Feature(ctx, *featureID)
-	if errors.Is(err, ErrNotFound) {
-		return fmt.Errorf("%w: unknown feature %d", ErrInvalid, *featureID)
-	}
-	if err != nil {
-		return fmt.Errorf("check feature: %w", err)
-	}
-	if f.ProjectID != projectID {
-		return fmt.Errorf("%w: feature %d is not in project %d", ErrInvalid, f.ID, projectID)
-	}
-	return nil
 }

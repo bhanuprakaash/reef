@@ -122,7 +122,6 @@ func pathID(r *http.Request) (int64, error) {
 	return id, nil
 }
 
-// queryID reads an optional numeric query parameter; nil when absent.
 func queryID(r *http.Request, name string) (*int64, error) {
 	v := r.URL.Query().Get(name)
 	if v == "" {
