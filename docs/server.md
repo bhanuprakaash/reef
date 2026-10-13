@@ -59,7 +59,9 @@ deleted while a write is in flight gives the same 404 or 400 as one that never e
 
 Ids are integers and are never reused after a delete. Instants (`createdAt`, `startedAt`, ...) are RFC 3339 UTC strings.
 A type with `?` may be `null`. The headings below are the SQL tables in
-[`001_init.sql`](../store/migrations/001_init.sql).
+[`001_init.sql`](../store/migrations/001_init.sql), migration 2
+[`002_token.sql`](../store/migrations/002_token.sql) (`token`) and migration 3
+[`003_proposal.sql`](../store/migrations/003_proposal.sql) (`proposal`).
 
 ### project
 
@@ -169,13 +171,43 @@ The list is global. A task belongs to a project and may name a feature.
 | `createdAt` | string | |
 | `updatedAt` | string | set on every update |
 
+### token
+
+Lets one teammate's `reef mcp` act as one role in one channel. No REST route: `reef
+token` and `reef chat` make them, `reef mcp` reads them. See [memory.md](memory.md#tokens).
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `token` | string | the key; 64 hex characters from 32 random bytes |
+| `channelId` | number | required. Deleting the channel deletes the token |
+| `role` | string | required; the author of what the teammate writes |
+| `createdAt` | string | never expires |
+
+### proposal
+
+A wrap-up proposal: the new brief, the role's notes and the decisions to record. No REST
+route: `propose_wrap` makes one, `reef chat` approves or rejects it. See
+[memory.md](memory.md#wrap-up).
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `id` | number | |
+| `channelId` | number | required; must be a channel of a feature. Deleting the channel deletes the proposal |
+| `role` | string | required; author of the brief, notes and decisions it applies |
+| `brief` | string | required, not empty; the full new brief |
+| `notes` | string | may be empty; replaces the role's notes |
+| `decisions` | array | `{"body", "why"}` each, `body` required. The SQL column holds them as JSON text |
+| `status` | string | `pending` (default), `approved` or `rejected`. Decided once |
+| `createdAt` | string | |
+| `decidedAt` | string? | `null` while pending |
+
 ## REST
 
 `{id}` is a number. Lists come back as `[]` when empty, ordered by id (oldest first).
 Create returns 201 and the row. Update returns 200 and the row. Delete returns 204 and no
 body. Deleting a row deletes what hangs off it by foreign key: a project takes its
 features, channels and tasks; a feature takes its briefs, notes, decisions and channels;
-a channel takes its messages and turns.
+a channel takes its messages, turns, tokens and proposals.
 
 | Route | Filters and body | OK | Notable errors |
 | --- | --- | --- | --- |
