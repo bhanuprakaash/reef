@@ -19,7 +19,8 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
   reef`, before it touches the data, whatever its `--addr`. A second instance needs its own
   `--data` and its own `--addr`.
 - `--addr` is where to listen. The default is `127.0.0.1:7700`. The API has no login, so
-  keep it on localhost. It does refuse a request whose `Host` is not `127.0.0.1`,
+  `reef serve` refuses an `--addr` whose host is not `localhost` or a loopback IP,
+  including an empty host such as `:7700`, before it opens the data folder. It does refuse a request whose `Host` is not `127.0.0.1`,
   `localhost` or `::1` (403), and a `POST`, `PUT` or `PATCH` whose `Content-Type` is not
   `application/json` (415). This stops a web page on another origin from writing to it,
   including through DNS rebinding.
