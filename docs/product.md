@@ -69,7 +69,7 @@ A channel is what the user opens as a session; inside, each teammate is its own 
 
 1. A user reply inside a thread goes to whoever owns that thread
 2. An @mention goes to that teammate
-3. Anything else goes to the lead
+3. Anything else from the user goes to the lead
 
 **How teammates talk.** Through the channel only, never directly. Each teammate gets an MCP tool from Reef, such as post\_to\_channel, to post results and @mention others. The router wakes the mentioned teammate; idle teammates cost nothing.
 

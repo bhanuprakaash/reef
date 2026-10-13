@@ -337,8 +337,8 @@ func TestSend_RoutesAndWakes(t *testing.T) {
 		`turn {"role":"architect","status":"done"}`)
 
 	want := []string{
-		"[channel 2, message 1, thread 1]\nlogin please",
-		"[channel 2, message 2, thread 2]\nlead wrote: @architect plan it",
+		"[channel 2, message 1]\nlogin please",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
 		"[channel 2, message 4, thread 3]\nThread so far:\narchitect: the plan\n\nwhy?",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
@@ -382,8 +382,8 @@ func TestSend_WakesByPost(t *testing.T) {
 		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"architect","status":"done"}`)
 	want := []string{
-		"[channel 2, message 1, thread 1]\ngo",
-		"[channel 2, message 2, thread 2]\nlead wrote: @architect look at this",
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect look at this",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: the post that mentions nobody wakes no one", got, want)
@@ -407,12 +407,54 @@ func TestSend_OneWakePerRole(t *testing.T) {
 		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"architect","status":"done"}`)
 	want := []string{
-		"[channel 2, message 1, thread 1]\ngo",
-		"[channel 2, message 2, thread 2]\nlead wrote: @architect look at this\n\n" +
-			"[channel 2, message 3, thread 3]\nlead wrote: I asked @architect",
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect look at this\n\n" +
+			"[channel 2, message 3]\nlead wrote: I asked @architect",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: one architect turn for both posts", got, want)
+	}
+}
+
+func TestSend_TopLevelWakeHasNoThread(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	var parent atomic.Pointer[int64]
+	parent.Store(new(int64))
+	env.fake.onRun = func(_, _ string, p *int64) { parent.Store(p) }
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "@architect plan it")
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "architect")
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 1]\n@architect plan it"}) {
+		t.Errorf("ran = %q, want a header with no thread", got)
+	}
+	if got := parent.Load(); got != nil {
+		t.Errorf("architect reply parent = %d, want nil: the reply is top-level", *got)
+	}
+}
+
+func TestSend_OneWakePerRoleAndThread(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			one := int64(1)
+			post("lead", "@architect one", nil)
+			post("lead", "@architect two", &one)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead", "architect", "architect")
+	want := []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect one",
+		"[channel 2, message 3, thread 1]\nThread so far:\nuser: go\n\nlead wrote: @architect two",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q: a top-level post and a thread reply wake the architect twice", got, want)
 	}
 }
 
@@ -541,7 +583,7 @@ func TestSend_WrapWakesNobody(t *testing.T) {
 	env.sendTo(t, 3, "ping")
 	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"lead","status":"done"}`)
-	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 3, message 3, thread 3]\nping"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 3, message 3]\nping"}) {
 		t.Errorf("ran = %q, want only ping: the wrap reply wakes no architect", got)
 	}
 }
@@ -607,7 +649,7 @@ func TestSend_UserMessageClearsHopPause(t *testing.T) {
 	sub.want(t, `pause {"reason":""}`)
 	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead")
 	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
-	if got := env.ranTexts(); len(got) != 10 || got[5] != "[channel 2, message 7, thread 7]\nmore" {
+	if got := env.ranTexts(); len(got) != 10 || got[5] != "[channel 2, message 7]\nmore" {
 		t.Errorf("ran = %q, want 10 turns, the sixth the user's: the held wake is dropped and the count starts at 0", got)
 	}
 }
@@ -684,6 +726,34 @@ func TestSend_UserMessageResetsHops(t *testing.T) {
 	}
 }
 
+func TestSend_UserPostMidChainIsNotRouted(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	var runs atomic.Int32
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if runs.Add(1) == 3 {
+			status, body := do(t, http.MethodPost, env.url+"/messages",
+				`{"channelId":2,"author":"user","body":"@architect hey"}`)
+			if status != 201 {
+				t.Errorf("post = %d %s, want 201", status, body)
+			}
+		}
+		if role == "lead" {
+			post("lead", "@architect again", nil)
+		} else {
+			post("architect", "@lead again", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead")
+	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
+	if got := len(env.ranTexts()); got != 5 {
+		t.Errorf("turns run = %d, want 5: the user's post starts no turn and does not reset the hops", got)
+	}
+}
+
 func TestApproval_GateHoldsWake(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
@@ -704,7 +774,7 @@ func TestApproval_GateHoldsWake(t *testing.T) {
 	sub := subscribeTo(t, env.url, id)
 	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
 	const pending = `{"id":1,"channelId":2,"from":"lead","to":"architect","messageId":2,` +
-		`"text":"[channel 2, message 2, thread 2]\nlead wrote: @architect plan it","status":`
+		`"text":"[channel 2, message 2]\nlead wrote: @architect plan it","status":`
 
 	env.sendTo(t, id, "go")
 	sub.want(t, _idleFrame,
@@ -717,7 +787,7 @@ func TestApproval_GateHoldsWake(t *testing.T) {
 	if status != 200 || !strings.HasPrefix(body, "["+pending+`"pending","createdAt":`) {
 		t.Errorf("approvals = %d %s, want the pending approval", status, body)
 	}
-	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 1, thread 1]\ngo"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 1]\ngo"}) {
 		t.Errorf("ran = %q, want only go: no architect turn before approval", got)
 	}
 
@@ -742,8 +812,8 @@ func TestApproval_GateHoldsWake(t *testing.T) {
 		t.Errorf("frames after approve = %q (approved %v), want the architect turn and the approved approval", turn, approved)
 	}
 	if got := env.ranTexts(); !slices.Equal(got, []string{
-		"[channel 2, message 1, thread 1]\ngo",
-		"[channel 2, message 2, thread 2]\nlead wrote: @architect plan it",
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
 	}) {
 		t.Errorf("ran = %q, want the architect to run the held wake", got)
 	}
@@ -822,8 +892,8 @@ func TestApproval_TwoApprovesRunOneTurn(t *testing.T) {
 		sub.next(t)
 	}
 	if got := env.ranTexts(); !slices.Equal(got, []string{
-		"[channel 2, message 1, thread 1]\ngo",
-		"[channel 2, message 2, thread 2]\nlead wrote: @architect plan it",
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
 	}) {
 		t.Errorf("ran = %q, want one architect turn", got)
 	}
@@ -1123,7 +1193,7 @@ func TestSend_PromoteTextIsAMessage(t *testing.T) {
 	env.fake.mu.Lock()
 	ran := env.fake.ran
 	env.fake.mu.Unlock()
-	if !slices.Equal(ran, []string{"[channel 2, message 1, thread 1]\n/promote"}) || env.fake.promoted.Load() != 0 {
+	if !slices.Equal(ran, []string{"[channel 2, message 1]\n/promote"}) || env.fake.promoted.Load() != 0 {
 		t.Errorf("ran = %q, promotes = %d, want the text run as a message, no promote",
 			ran, env.fake.promoted.Load())
 	}

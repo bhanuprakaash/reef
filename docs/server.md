@@ -270,7 +270,7 @@ A wake that waits at a gate. The SQL table is `approval`.
 | `from` | string | the role whose message woke it |
 | `to` | string | the role that would run |
 | `messageId` | number | the message that woke it |
-| `text` | string | the prompt the wake will run, for example `[channel 5, message 28, thread 28]\nlead wrote: @architect design a form` |
+| `text` | string | the prompt the wake will run, for example `[channel 5, message 28]\nlead wrote: @architect design a form` |
 | `status` | string | `pending`, `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 
@@ -412,10 +412,13 @@ a message wakes them.
 
 ### Routing
 
-When a turn ends, the server reads the messages stored since the last one it read: the
-agent's reply, which is stored as a message from the role, and any message the agent posted
-with the `post_to_channel` tool (see [memory.md](memory.md#reef-mcp)). Each goes through the
-router, [`channel.Route`](../channel/route.go), plain code with no model. In order:
+When a turn ends, the server reads the messages stored since the last one it read and routes
+those written by the role of the turn that ended: its reply, which is stored as a message from
+the role, and any message it posted with the `post_to_channel` tool (see
+[memory.md](memory.md#reef-mcp)). Other messages, such as a `POST /messages` from the user in
+the middle of a chain, are skipped: they start no turn and do not reset the hop count. Each
+routed message goes through the router, [`channel.Route`](../channel/route.go), plain code with
+no model. In order:
 
 1. A reply from the user in a thread goes to the thread's owner, the author of the root. When
    the user owns the thread, it goes to the lead. An agent's reply in a thread has no owner
@@ -430,16 +433,18 @@ with `parent` on an architect's thread goes to the architect, and `@architect ..
 architect with no lead turn. `POST /messages` stores a message and wakes nobody. The `/wrap`
 and promote turns are not routed (see below).
 
-A wake is a turn of the woken role. Its prompt starts with a line `[channel 3, message 12,
-thread 9]`: the channel, the waking message and its thread root (the message's own id when it
-is top-level). Then comes the user's text as it is, or `<author> wrote: <body>` for an
-agent's message. For a message in a thread, the earlier messages of the thread (`Thread so
+A wake is a turn of the woken role. Its prompt starts with a line `[channel 3, message 12]`
+for a top-level message, or `[channel 3, message 12, thread 9]` for a reply: the channel, the
+waking message and, for a reply, its thread root. Then comes the user's text as it is, or
+`<author> wrote: <body>` for an agent's message. For a message in a thread, the earlier messages of the thread (`Thread so
 far:`) come between the line and the text; they are the conversation being answered, so they
-stay in the prompt. One routing pass wakes a role once: when several messages wake the same
-role, for example a `post_to_channel` that names `@architect` and a reply that does too,
-their texts are joined in id order into one prompt. The woken role's reply is stored in the same thread
-(`parentId` is the thread root). When a top-level message woke the role, its reply is top-level
-too: it is the root of a thread the role owns.
+stay in the prompt. One routing pass wakes a role once for each thread: when several messages
+in the same thread, or several top-level messages, wake the same role, for example a
+`post_to_channel` that names `@architect` and a reply that does too, their texts are joined in
+id order into one prompt. A top-level message and a reply in a thread that name the same role
+wake it twice. The woken role's reply is stored in the thread the header names (`parentId` is the
+thread root). When a top-level message woke the role, the reply is top-level too: it is the root
+of a thread the role owns, and the user's reply in it goes to the role.
 
 The first turn and the wakes after it are one chain. They run one at a time, in the order
 the messages were stored, and the messages each turn stores are routed in turn and queued at
@@ -499,7 +504,7 @@ event: agent
 data: {"kind":"text","text":"@architect design the form"}
 
 event: approval
-data: {"id":1,"channelId":5,"from":"lead","to":"architect","messageId":28,"text":"[channel 5, message 28, thread 28]\nlead wrote: @architect design the form","status":"pending","createdAt":"2026-10-13T09:00:10.123456Z"}
+data: {"id":1,"channelId":5,"from":"lead","to":"architect","messageId":28,"text":"[channel 5, message 28]\nlead wrote: @architect design the form","status":"pending","createdAt":"2026-10-13T09:00:10.123456Z"}
 
 event: turn
 data: {"role":"lead","status":"done"}
