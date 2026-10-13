@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -21,6 +22,7 @@ const (
 	_taskUsage     = "usage: reef task add|list [<feature>] [--data DIR]"
 	_taskAddUsage  = `usage: reef task add [<feature>] "<title>" [--data DIR]`
 	_taskListUsage = "usage: reef task list [<feature>] [--status S] [--data DIR]"
+	_contextUsage  = "usage: reef context <feature> --role R [--data DIR]"
 )
 
 // command is one CLI command: its flags, which always include --data, and how
@@ -248,6 +250,30 @@ func taskList(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 	}
 	return nil
+}
+
+func contextCmd(ctx context.Context, args []string, stdout io.Writer) error {
+	c := newCommand("reef context", _contextUsage, 1, 1)
+	role := c.fs.String("role", "", "")
+	st, pos, err := c.open(args)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+
+	if *role == "" {
+		return errors.New(_contextUsage)
+	}
+	f, err := st.FeatureByRef(ctx, pos[0])
+	if err != nil {
+		return err
+	}
+	out, err := channel.Context(ctx, st, f.ID, *role)
+	if err != nil {
+		return err
+	}
+	_, err = io.WriteString(stdout, out)
+	return err
 }
 
 // cwdProject is the project of the current folder or its nearest parent.
