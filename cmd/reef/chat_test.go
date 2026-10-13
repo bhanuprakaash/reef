@@ -55,9 +55,10 @@ func (w *wrapAgent) Send(ctx context.Context, prompt string) error {
 
 // chatRun is converse reading from a pipe the test writes to.
 type chatRun struct {
-	in   *io.PipeWriter
-	out  *syncBuffer
-	done chan error
+	in     *io.PipeWriter
+	out    *syncBuffer
+	done   chan error
+	cancel context.CancelFunc
 }
 
 func startChat(t *testing.T, st *store.Store, ch store.Channel, w *wrapAgent) *chatRun {
@@ -65,9 +66,11 @@ func startChat(t *testing.T, st *store.Store, ch store.Channel, w *wrapAgent) *c
 	w.st, w.channelID, w.events = st, ch.ID, make(chan agent.Event, 8)
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { _ = pw.Close() })
-	c := &chatRun{in: pw, out: &syncBuffer{}, done: make(chan error, 1)}
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	c := &chatRun{in: pw, out: &syncBuffer{}, done: make(chan error, 1), cancel: cancel}
 	r := channel.NewRunner(st, w, ch.ID, "architect", "claude", "")
-	go func() { c.done <- converse(context.Background(), st, ch.ID, r, pr, c.out) }()
+	go func() { c.done <- converse(ctx, st, ch.ID, r, pr, c.out) }()
 	return c
 }
 
@@ -177,6 +180,27 @@ func TestConverse_Wrap(t *testing.T) {
 				t.Errorf("PendingProposal error = %v, want pending %v", err, tt.wantPending)
 			}
 		})
+	}
+}
+
+func TestConverse_WrapCancelledAtPromptLeavesProposalPending(t *testing.T) {
+	st, ch := chatFixture(t)
+	w := &wrapAgent{propose: true}
+	c := startChat(t, st, ch, w)
+
+	c.say(t, "/wrap")
+	c.waitFor(t, "approve? [y/N] ")
+	c.cancel()
+	out := c.end(t)
+
+	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nnotes:\nmy notes\n\n" +
+		"decisions:\n- use sessions (simple)\n\napprove? [y/N] \nproposal 1 left pending\n\n"
+	if out != want {
+		t.Errorf("output = %q, want %q", out, want)
+	}
+	p, err := st.PendingProposal(context.Background(), ch.ID)
+	if err != nil || p.ID != 1 || p.DecidedAt != nil {
+		t.Errorf("PendingProposal = %+v, %v, want proposal 1 still pending", p, err)
 	}
 }
 

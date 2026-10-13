@@ -75,7 +75,7 @@ func TestApproveProposal(t *testing.T) {
 	want := []ProposedDecision{{Body: "cookie sessions", Why: "simple"}, {Body: "24h expiry"}}
 	s := proposalFixture(t, want...)
 
-	got, err := s.ApproveProposal(ctx, 1)
+	got, added, err := s.ApproveProposal(ctx, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,18 +101,43 @@ func TestApproveProposal(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var added []ProposedDecision
+	var gotDecisions []ProposedDecision
 	for _, d := range ds[1:] {
 		if d.Author != "architect" {
 			t.Errorf("decision %q author = %q, want architect", d.Body, d.Author)
 		}
-		added = append(added, ProposedDecision{Body: d.Body, Why: d.Why})
+		gotDecisions = append(gotDecisions, ProposedDecision{Body: d.Body, Why: d.Why})
 	}
-	if !reflect.DeepEqual(added, want) {
-		t.Errorf("decisions added = %v, want %v", added, want)
+	if !reflect.DeepEqual(gotDecisions, want) || added != 2 {
+		t.Errorf("decisions added = %v (%d), want %v (2)", gotDecisions, added, want)
 	}
 	if _, err := s.PendingProposal(ctx, 1); !errors.Is(err, ErrNotFound) {
 		t.Errorf("PendingProposal after approve = %v, want ErrNotFound", err)
+	}
+}
+
+func TestApproveProposalSkipsRecordedDecisions(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t,
+		ProposedDecision{Body: "use go", Why: "again"},
+		ProposedDecision{Body: "cookie sessions"},
+		ProposedDecision{Body: "cookie sessions"},
+		ProposedDecision{Body: "Use Go"})
+
+	_, added, err := s.ApproveProposal(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, err := s.Decisions(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var bodies []string
+	for _, d := range ds {
+		bodies = append(bodies, d.Body)
+	}
+	if want := []string{"use go", "cookie sessions", "Use Go"}; !reflect.DeepEqual(bodies, want) || added != 2 {
+		t.Errorf("decisions = %q, added = %d, want %q, 2", bodies, added, want)
 	}
 }
 
@@ -150,7 +175,7 @@ func TestApproveProposalFailureAppliesNothing(t *testing.T) {
 	}
 	before := countRows(t, s)
 
-	if _, err := s.ApproveProposal(ctx, 1); err == nil {
+	if _, _, err := s.ApproveProposal(ctx, 1); err == nil {
 		t.Fatal("ApproveProposal succeeded, want the decision insert to fail")
 	}
 	if after := countRows(t, s); after != before {
@@ -175,12 +200,12 @@ func TestApproveProposalFailureAppliesNothing(t *testing.T) {
 func TestDecideProposalTwice(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
-	if _, err := s.ApproveProposal(ctx, 1); err != nil {
+	if _, _, err := s.ApproveProposal(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
 	before := countRows(t, s)
 
-	if _, err := s.ApproveProposal(ctx, 1); !errors.Is(err, ErrInvalid) {
+	if _, _, err := s.ApproveProposal(ctx, 1); !errors.Is(err, ErrInvalid) {
 		t.Errorf("second approve = %v, want ErrInvalid", err)
 	}
 	if _, err := s.RejectProposal(ctx, 1); !errors.Is(err, ErrInvalid) {
