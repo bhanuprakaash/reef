@@ -17,6 +17,12 @@ turn. Contract: `docs/memory.md`.
 - `chat-resume` `reef chat --channel ID` resumes the same session id with the same role and backend.
 - `chat-wrap-reject` `/wrap` then `n`: the proposal is `rejected` and no brief, notes or decisions change.
 - `chat-wrap-eof` stdin ends at `approve? [y/N]`: the proposal stays `pending` with `proposal N left pending`.
+- `chat-wrap-sigint` Ctrl-C at `approve? [y/N]`: the proposal stays `pending`, it prints `proposal N left pending` and the resume line, and exits 0.
+- `chat-wrap-dedupe` approve (`y` or `yes`) skips a proposed decision whose body the feature already has, so a decision recorded live and proposed again is saved once.
+- `chat-name` `--name N` names a new channel; the default is `<role> chat`.
+- `chat-errors` a usage error, `--channel 99` and a channel with no session fail with `reef: ...` and exit 1, before an agent starts.
+- `chat-lock` a second `reef chat` on an open channel exits 1 with `channel N is open in another reef chat`.
+- `chat-serve-skip` `reef serve` starting while a chat runs leaves that chat's running turn alone and fails only stale turns.
 - `chat-interrupt` Ctrl-C during a turn stores it `failed` with `interrupted`, prints the resume line, exits 0 and leaves no processes.
 - `chat-codex` new, resume, wrap-up and Ctrl-C work the same with `--backend codex`.
 - `chat-token-cleanup` every chat deletes its token when it ends.
@@ -40,6 +46,9 @@ Lines already waiting on stdin when the wrap turn ends are ignored, so a plain f
 a FIFO and keeps it open, polls the live output for `approve? [y/N]`, then writes `A` and
 closes stdin. On `no proposal made` it closes without an answer. The result adds `feed:
 sent "y" after approve? [y/N]` (or why it sent nothing), also in `reef.log`.
+`--sigint-at-prompt` instead of `--answer` sends SIGINT to `reef` at `approve? [y/N]` and
+keeps stdin open until `reef` exits, so the exit comes from Ctrl-C, not end of input. The
+result adds `feed: sent SIGINT after approve? [y/N]`.
 
 Preconditions:
 
@@ -76,7 +85,18 @@ After the chats:
 
 - **Tokens.** `$H sql "select count(*) from token"` is `0` after every chat above.
 - **Backend typo.** `$H reef -- chat login --role tester --backend nope` prints `reef: unknown backend "nope"`, `exit: 1`. `$H sql "select count(*) from channel"` is still 2.
-- **Index line.** Record a decision whose first line is longer than 100 runes, with a second line (a double-quoted argument with a real newline): `$H reef -- decide login "Ünïcode-first line: <80 × é>TAIL` newline `second line must not show"`. `$H reef -- context login --role developer` shows `decision 3: Ünïcode-first line: <80 × é>… (user, <date>)`: cut at 100 runes, no `TAIL`, no second line. `### Channels` shows `channel 1: developer chat, <date>, 11 messages` and `channel 2: reviewer chat, <date>, 7 messages`, the counts `$H sql "select channel_id, count(*) from message group by channel_id"` gives.
+- **Index line.** Record a decision whose first line is longer than 100 runes, with a second line (a double-quoted argument with a real newline): `$H reef -- decide login "Ünïcode-first line: <80 × é>TAIL` newline `second line must not show"`. `$H sql "select max(id) from decision"` gives its id `N`; the model decides how many decisions came before it. `$H reef -- context login --role developer` shows `decision N: Ünïcode-first line: <80 × é>… (user, <date>)`: cut at 100 runes, no `TAIL`, no second line. `### Channels` shows `channel 1: developer chat, <date>, 11 messages` and `channel 2: reviewer chat, <date>, 7 messages`, the counts `$H sql "select channel_id, count(*) from message group by channel_id"` gives.
+
+Claude, a second folder (`chat-extra`). Setup: `$H reef --data-name chat-extra -- project add`, `$H reef -- feature add login "Email login"`. Input files in `~/.reef-verify/<id>/`: `dedupe-in.txt`, two lines: `Use the reef record_decision tool now, once: body 'Sessions expire after 30 minutes of inactivity', why 'Limit stolen-session risk'. Also: when I later type /wrap, include that exact same decision again in the propose_wrap decisions list, even though it is already recorded. Reply in one short sentence.`, `/wrap`.
+
+- **Name, `yes` and a decision proposed twice.** `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/dedupe-in.txt --answer yes --timeout 300 -- chat login --role developer --backend claude --name "Design room"`. stdout has `proposal 1 from developer` with `- Sessions expire after 30 minutes of inactivity` under `decisions:`, and `approved: brief, notes and 0 decisions saved`; result `feed: sent "yes" after approve? [y/N]`, `exit: 0`. `$H sql "select id, name from channel"`: `1|Design room`. `$H sql "select author, body from decision"`: one row, `developer|Sessions expire after 30 minutes of inactivity`. `$H sql "select id, status from proposal"`: `1|approved`.
+- **Ctrl-C at the prompt.** `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/wrap-eof.txt --sigint-at-prompt --timeout 300 -- chat --channel 1`. stdout has `proposal 2 from developer`, `approve? [y/N]`, then `proposal 2 left pending`, then `channel 1: resume with reef chat --channel 1`. Result `feed: sent SIGINT after approve? [y/N]`, `exit: 0`, `orphans_alive: none`, and no `sigint_after_s` (the timeout did not fire). `$H sql "select id, status, decided_at is null from proposal where id = 2"`: `2|pending|1`.
+- **Errors.** `$H reef -- chat --channel 99` prints `reef: channel 99: not found`. `$H reef -- chat login --role developer` (no backend) and `$H reef -- chat --channel 1 --name x` print the usage, `reef: usage: reef chat <feature> --role R --backend claude|codex [--name N]` and two more lines. Each `exit: 1`, `children: 0`. `$H sql "select count(*) from channel"` is still 1.
+- **No session.** `$H reef -- token login --role tester` makes channel 2, which has no turn. `$H reef -- chat --channel 2` prints `reef: channel 2 has no session to resume`, `exit: 1`.
+- **Chat lock and serve skip.** Make a stale turn on channel 2, as if its chat had died: `$H sql --write "insert into turn (channel_id, role, backend, status, started_at) values (2, 'tester', 'claude', 'running', '2026-10-13T00:00:00Z')"` (turn 4). Start a chat on channel 1 in the background (Bash `run_in_background`): `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/long-in.txt --timeout 60 -- chat --channel 1`. Poll `$H sql "select id, channel_id, status, session_id != '' from turn where status = 'running'"` until it shows `5|1|running|1` beside `4|2|running|0`. Then, while it runs:
+  - Lock: run the binary directly, since the helper runs one `reef` at a time: `cd /private/tmp/reef-verify/<id>/cwd && /private/tmp/reef-verify/<id>/bin/reef chat --channel 1 --data /private/tmp/reef-verify/<id>/chat-extra </dev/null; echo "exit: $?"` prints `reef: channel 1 is open in another reef chat`, `exit: 1`. `$H sql "select status from turn where id = 5"` is still `running`.
+  - Serve skip: `$H serve-start --data-name chat-extra`. `serve.log` has `marked 1 running turns failed: server restarted`. `$H api GET '/turns?status=running'` lists only turn 5. `$H api GET '/messages?channel=2'` is one `reef` message, `Turn 4 by tester failed: server restarted. ...`; `$H api GET '/messages?channel=1'` has no `reef` message. `$H serve-stop`.
+  - When the background chat ends: its result has `sigint_after_s: 60`, `exit: 0`, `orphans_alive: none` and the resume line. `$H sql "select id, status, error from turn where id = 5"`: `5|failed|interrupted`.
 
 ## Gotchas
 
@@ -85,4 +105,5 @@ After the chats:
 - The stored user message is `/wrap`; only the agent gets the wrap-up prompt.
 - An interrupted turn's partial reply is not stored, so it adds one message (the user line) to the channel's count.
 - Claude stores sessions per cwd, and the chat runs in the project folder (the scratch cwd). Resume only works inside the same run. Codex threads are global, in `~/.codex/sessions`; cleanup leaves them.
-- The helper cannot hold two chats at once, so the chat lock (`channel 1 is open in another reef chat`) is not driven here; `go test ./cmd/reef` covers serve recovery skipping an open chat.
+- Never run two `$H reef` at once in one run: they share the run's output files. `$H sql`, `$H api` and `$H serve-*` can run beside one background `$H reef`; a second chat for the lock check runs the binary directly.
+- The model may skip the repeated decision in its proposal. Then `decisions:` does not list it and the step proves nothing about the skip; re-run it on a new data folder.
