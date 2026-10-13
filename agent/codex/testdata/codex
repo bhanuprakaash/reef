@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fake `codex app-server`. FAKE_CODEX: hang (default), slowstart, deafstart, rejected, midcrash, failstart, crash, replay, twocalls.
+# Fake `codex app-server`. FAKE_CODEX: hang (default), slowstart, deafstart, rejected, midcrash, failstart, crash, replay, twocalls, twomsgs, usagehang.
 [ "$FAKE_CODEX" = slowstart ] && exec sleep 30
 [ "$FAKE_CODEX" = deafstart ] && { trap '' TERM; exec sleep 30; }
 read -r line
@@ -21,7 +21,7 @@ if [ "$FAKE_CODEX" = rejected ]; then
 fi
 echo '{"id":3,"result":{}}'
 echo '{"method":"turn/started","params":{"turn":{"status":"inProgress"}}}'
-echo '{"method":"item/agentMessage/delta","params":{"delta":"hi"}}'
+echo '{"method":"item/agentMessage/delta","params":{"itemId":"m1","delta":"hi"}}'
 case "$FAKE_CODEX" in
 replay)
 	echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":4,"cacheWriteInputTokens":2,"outputTokens":3}}}}'
@@ -32,6 +32,19 @@ twocalls)
 	echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":4,"cacheWriteInputTokens":2,"outputTokens":3}}}}'
 	echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":7,"cachedInputTokens":1,"outputTokens":5}}}}'
 	echo '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+	exec sleep 30
+	;;
+twomsgs)
+	echo '{"method":"item/agentMessage/delta","params":{"itemId":"m1","delta":"a1"}}'
+	echo '{"method":"item/agentMessage/delta","params":{"itemId":"m1","delta":"a2"}}'
+	echo '{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c1","command":"ls"}}}'
+	echo '{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"c1","status":"completed","aggregatedOutput":"x","exitCode":0}}}'
+	echo '{"method":"item/agentMessage/delta","params":{"itemId":"m2","delta":"b1"}}'
+	echo '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+	exec sleep 30
+	;;
+usagehang)
+	echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":4,"outputTokens":3}}}}'
 	exec sleep 30
 	;;
 midcrash)
