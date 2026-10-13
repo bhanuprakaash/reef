@@ -45,7 +45,7 @@ store/        SQLite schema and queries
 server/       HTTP, WebSocket, MCP server
 web/          React UI
 desktop/      Electron shell
-docs/         product.md, agents.md, decisions
+docs/         product.md, agents.md, server.md, decisions
 ```
 
 Create a folder only when a ticket needs it.
