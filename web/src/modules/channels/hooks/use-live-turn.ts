@@ -27,6 +27,7 @@ export function useLiveTurn(channelId: number): LiveTurn {
       void refresh();
       void queryClient.invalidateQueries({ queryKey: ['channels', channelId] });
       void queryClient.invalidateQueries({ queryKey: ['proposal', channelId] });
+      void queryClient.invalidateQueries({ queryKey: ['approvals', channelId] });
     };
     source.addEventListener('turn', (e) => {
       const data: TurnData = JSON.parse(e.data);
