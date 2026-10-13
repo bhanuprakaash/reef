@@ -26,6 +26,7 @@ func New(st *store.Store) http.Handler {
 	mux.HandleFunc("/health", methodNotAllowed)
 	s.projectRoutes(mux)
 	s.featureRoutes(mux)
+	s.channelRoutes(mux)
 	return mux
 }
 
