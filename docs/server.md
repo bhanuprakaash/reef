@@ -270,7 +270,7 @@ A wake that waits at a gate. The SQL table is `approval`.
 | `from` | string | the role whose message woke it |
 | `to` | string | the role that would run |
 | `messageId` | number | the message that woke it |
-| `text` | string | the prompt the wake will run, for example `lead wrote: @architect design a form` |
+| `text` | string | the prompt the wake will run, for example `[channel 5, message 28, thread 28]\nlead wrote: @architect design a form` |
 | `status` | string | `pending`, `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 
@@ -418,8 +418,9 @@ with the `post_to_channel` tool (see [memory.md](memory.md#reef-mcp)). Each goes
 router, [`channel.Route`](../channel/route.go), plain code with no model. In order:
 
 1. A reply in a thread goes to the thread's owner, the author of the root. When the user owns
-   the thread, it goes to the lead.
-2. Otherwise the first `@name` in the body that is a role of the team goes to that role.
+   the thread, the user's replies go to the lead; an agent's reply there wakes nobody.
+2. Otherwise every `@name` in the body that is a role of the team goes to that role, each
+   once.
 3. Otherwise a message from the user goes to the lead.
 4. Otherwise nobody: a message from an agent that names no one wakes no one.
 
@@ -428,9 +429,14 @@ with `parent` on an architect's thread goes to the architect, and `@architect ..
 architect with no lead turn. `POST /messages` stores a message and wakes nobody. The `/wrap`
 and promote turns are not routed (see below).
 
-A wake is a turn of the woken role. Its prompt is the user's text as it is, or `<author>
-wrote: <body>` for an agent's message. For a message in a thread, the earlier messages of the
-thread come first (`Thread so far:`). The woken role's reply is stored in the same thread
+A wake is a turn of the woken role. Its prompt starts with a line `[channel 3, message 12,
+thread 9]`: the channel, the waking message and its thread root (the message's own id when it
+is top-level). Then comes the user's text as it is, or `<author> wrote: <body>` for an
+agent's message. For a message in a thread, the earlier messages of the thread (`Thread so
+far:`) come between the line and the text; they are the conversation being answered, so they
+stay in the prompt. One routing pass wakes a role once: when several messages wake the same
+role, for example a `post_to_channel` that names `@architect` and a reply that does too,
+their texts are joined in id order into one prompt. The woken role's reply is stored in the same thread
 (`parentId` is the thread root). When a top-level message woke the role, its reply is top-level
 too: it is the root of a thread the role owns.
 
@@ -492,7 +498,7 @@ event: agent
 data: {"kind":"text","text":"@architect design the form"}
 
 event: approval
-data: {"id":1,"channelId":5,"from":"lead","to":"architect","messageId":28,"text":"lead wrote: @architect design the form","status":"pending","createdAt":"2026-10-13T09:00:10.123456Z"}
+data: {"id":1,"channelId":5,"from":"lead","to":"architect","messageId":28,"text":"[channel 5, message 28, thread 28]\nlead wrote: @architect design the form","status":"pending","createdAt":"2026-10-13T09:00:10.123456Z"}
 
 event: turn
 data: {"role":"lead","status":"done"}

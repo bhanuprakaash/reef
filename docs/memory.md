@@ -171,7 +171,8 @@ with exit code 1, when `REEF_TOKEN` is empty (`REEF_TOKEN is not set`) or matche
 token (`unknown REEF_TOKEN`). It stops when stdin closes.
 
 Every tool except `post_to_channel` works on the token's feature. On a quick-session channel
-(no feature) those tools fail with `this channel has no feature`. A result is one JSON object as text. A
+(no feature) those tools fail with `this channel has no feature`, except `read_thread` of the
+token's own channel. A result is one JSON object as text. A
 tool error comes back as a result with `isError: true` and the message as text, so the
 agent can read it. Arguments that do not match the tool's schema are a tool error too
 (`validating "arguments": ... missing properties: ["query"]`). An unknown tool name is a
@@ -184,15 +185,16 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `add_task` | `title` (required), `body` | the new task: `todo`, in the feature's project, tagged with the feature | `invalid: task title is required` |
 | `search_sessions` | `query` (required), `limit` (default 20) | `{"hits": [{"channelId", "messageId", "author", "snippet"}]}`: messages in all of the feature's channels that contain `query`, newest first. Case is ignored for ASCII. The snippet is about 120 characters around the match. `hits` is `null` when nothing matches | `query is required` |
 | `read_decision` | `id` (required) | the decision | `decision 99: not found`, also for a decision of another feature |
-| `read_thread` | `channelId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the channel's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `channel 9: not found`, also for a channel of another feature or a quick session; `thread 9: not found` when `root` is not a top-level message of the channel |
+| `read_thread` | `channelId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the channel's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `channel 9: not found`, also for a channel of another feature or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the channel |
 | `post_to_channel` | `body` (required), `parent` (the id of a top-level message: reply in its thread; leave it out to post at the top level) | the stored message, with the token's role as `author`. It works on a quick session too | `invalid: message body is required`, `invalid: parent 9 is not a top-level message of channel 1` |
 | `propose_wrap` | `brief`, `notes`, `decisions` (all required). Each decision is `{"body", "why"}`; `why` may be `""` | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: decision body is required` |
 
 `propose_wrap` saves a pending proposal and changes nothing else. See Wrap-up.
 
 `post_to_channel` is how a teammate speaks in the channel besides its reply. `reef serve`
-routes the message when the poster's turn ends: an `@role` in the body wakes that teammate,
-and a post that names nobody wakes no one (see [server.md](server.md#routing)). Plain Claude
+routes the message when the poster's turn ends: every `@role` in the body wakes that teammate
+(once, even when the reply names the same role again), and a post that names nobody wakes no
+one (see [server.md](server.md#routing)). Plain Claude
 Code and `reef chat` have no router, so a post there is only stored.
 
 ## The context prompt
@@ -216,7 +218,9 @@ holds a message body. Its shape:
 6. When the team has two or more roles, a `## Team` section: `Your team: @lead, @architect.`
    It says that to hand work over you @mention a teammate in a message, which wakes them, and
    that your reply, and anything you send with `post_to_channel`, is posted to the channel
-   and nobody sees anything else. The lead gets one more line: do not summarize or repeat a
+   and nobody sees anything else. A message that wakes you starts with `[channel N, message
+   N, thread N]`; pass `thread` as the `parent` of `post_to_channel` to reply in that thread.
+   The lead gets one more line: do not summarize or repeat a
    specialist's post back to the user, because they see it. `reef context` does not print it.
 
 A quick session gets the same parts 0 and 6 around its two lines.
