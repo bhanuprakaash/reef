@@ -145,7 +145,7 @@ holds a message body. Its shape:
 2. `## Brief`: the latest brief, or `No brief yet.`
 3. `## Your notes`: this role's notes, or `No notes yet.`
 4. `## Index`, with `### Decisions` (one line each: id, the first line of the body cut
-   at 100 characters with `…`, author, date), `### Channels` (one line each: id, name,
+   at 100 characters with `…`, author, date), `### Channels` (channels with messages, one line each: id, name,
    date, message count) and `### Open tasks` (tasks not `done`). An empty group says
    `none`.
 5. One closing line that names the tools for details.
@@ -207,7 +207,7 @@ belonged to a `reef chat` that died, because this one now holds the chat lock.
 
 New channel (`<feature> --role R --backend B`): it makes a channel named `N` (default
 `<role> chat`) on the feature, with the role, backend and `--permission-mode`, then opens
-it. The channel is in its own index, with 0 messages. A backend typo, or an agent that
+it. A backend typo, or an agent that
 does not start, deletes the channel again.
 
 Resume (`--channel ID`): role, backend and permission mode come from the channel. The
