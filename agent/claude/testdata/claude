@@ -1,0 +1,20 @@
+#!/bin/sh
+# Fake claude for the adapter tests; FAKE_CLAUDE picks the scenario.
+case "$FAKE_CLAUDE" in
+hang)
+	echo '{"type":"system","subtype":"init","session_id":"s1"}'
+	exec sleep 30
+	;;
+big)
+	printf '{"type":"noise","pad":"'
+	head -c 17000000 /dev/zero | tr '\0' a
+	printf '"}\n'
+	echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"done"}]}}'
+	echo '{"type":"result","is_error":false,"usage":{"input_tokens":1,"output_tokens":2,"cache_creation_input_tokens":3,"cache_read_input_tokens":4}}'
+	;;
+badresume)
+	echo '{"type":"result","is_error":true,"errors":["No conversation found"]}'
+	echo boom >&2
+	exit 1
+	;;
+esac
