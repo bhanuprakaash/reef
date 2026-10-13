@@ -217,7 +217,8 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 }
 
 // cancelOnDone reports ctx as cancelled from its nth Done call on. The first three
-// calls are the user message insert, so the fourth is the turn insert.
+// calls happen while inserting the user message; the fourth is the runner waiting for
+// the agent's events.
 type cancelOnDone struct {
 	context.Context
 	calls atomic.Int32

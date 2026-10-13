@@ -56,6 +56,7 @@ func (w *wrapAgent) Send(ctx context.Context, prompt string) error {
 // chatRun is converse reading from a pipe the test writes to.
 type chatRun struct {
 	in     *io.PipeWriter
+	lines  *lineReader
 	out    *syncBuffer
 	done   chan error
 	cancel context.CancelFunc
@@ -68,9 +69,12 @@ func startChat(t *testing.T, st *store.Store, ch store.Channel, w *wrapAgent) *c
 	t.Cleanup(func() { _ = pw.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	c := &chatRun{in: pw, out: &syncBuffer{}, done: make(chan error, 1), cancel: cancel}
+	lines := readLines(pr)
+	c := &chatRun{
+		in: pw, lines: lines, out: &syncBuffer{}, done: make(chan error, 1), cancel: cancel,
+	}
 	r := channel.NewRunner(st, w, ch.ID, "architect", "claude", "")
-	go func() { c.done <- converse(ctx, st, ch.ID, r, pr, c.out) }()
+	go func() { c.done <- converseLines(ctx, st, ch.ID, r, lines, c.out) }()
 	return c
 }
 
@@ -78,6 +82,23 @@ func (c *chatRun) say(t *testing.T, line string) {
 	t.Helper()
 	if _, err := io.WriteString(c.in, line+"\n"); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func (c *chatRun) waitQueued(t *testing.T, count int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		c.lines.mu.Lock()
+		queued := len(c.lines.lines)
+		c.lines.mu.Unlock()
+		if queued >= count {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("line reader queued %d lines, want %d", queued, count)
+		}
+		time.Sleep(time.Millisecond)
 	}
 }
 
@@ -221,13 +242,15 @@ func TestConverse_WrapIgnoresTypedAheadLines(t *testing.T) {
 	c.say(t, "a")
 	c.say(t, "")
 	c.say(t, "y")
+	c.waitQueued(t, 3)
 	close(w.gate)
 	c.waitFor(t, "approve? [y/N] ")
 	out := c.end(t)
 
 	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nnotes:\nmy notes\n\n" +
-		"decisions:\n- use sessions (simple)\nignored while wrapping: a\n" +
-		"ignored while wrapping: y\n\napprove? [y/N] \nproposal 1 left pending\n\n"
+		"decisions:\n- use sessions (simple)\n\napprove? [y/N] \n" +
+		"ignored while wrapping: a\nignored while wrapping: y\napprove? [y/N] \n" +
+		"proposal 1 left pending\n\n"
 	if out != want {
 		t.Errorf("output = %q, want %q", out, want)
 	}
@@ -255,6 +278,79 @@ func TestConverse_WrapBlankLineAtPromptRejects(t *testing.T) {
 	}
 	if brief, err := st.Brief(context.Background(), 1); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("brief = %+v, %v, want no brief", brief, err)
+	}
+}
+
+func TestConverse_BlankLineThenMessage(t *testing.T) {
+	st, ch := chatFixture(t)
+	w := &wrapAgent{}
+	c := startChat(t, st, ch, w)
+
+	c.say(t, "")
+	c.say(t, "hi")
+	c.waitFor(t, "ok")
+	out := c.end(t)
+
+	if len(w.prompts) != 1 || w.prompts[0] != "hi" {
+		t.Errorf("agent prompts = %q, want [hi]", w.prompts)
+	}
+	msgs, err := st.Messages(context.Background(), ch.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var userMessages []store.Message
+	for _, msg := range msgs {
+		if msg.Author == "user" {
+			userMessages = append(userMessages, msg)
+		}
+	}
+	if len(userMessages) != 1 || userMessages[0].Body != "hi" {
+		t.Errorf("user messages = %+v, want one user message hi; output %q", userMessages, out)
+	}
+}
+
+func TestConverse_WrapDecisionElsewhereContinues(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		decide func(*store.Store) error
+		answer string
+		status string
+	}{
+		{
+			name: "approved", answer: "y", status: store.ProposalApproved,
+			decide: func(st *store.Store) error {
+				_, _, err := st.ApproveProposal(context.Background(), 1)
+				return err
+			},
+		},
+		{
+			name: "rejected", answer: "no", status: store.ProposalRejected,
+			decide: func(st *store.Store) error {
+				_, err := st.RejectProposal(context.Background(), 1)
+				return err
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			st, ch := chatFixture(t)
+			w := &wrapAgent{propose: true}
+			c := startChat(t, st, ch, w)
+			c.say(t, "/wrap")
+			c.waitFor(t, "approve? [y/N] ")
+			if err := tt.decide(st); err != nil {
+				t.Fatal(err)
+			}
+			c.say(t, tt.answer)
+			wantLine := "reef: proposal 1 is already " + tt.status
+			c.waitFor(t, wantLine)
+			c.say(t, "hi")
+			c.waitFor(t, "ok\n\n> ")
+			out := c.end(t)
+
+			if !strings.Contains(out, wantLine) || len(w.prompts) != 2 || w.prompts[1] != "hi" {
+				t.Errorf("output = %q, prompts = %q; want warning and continued chat", out, w.prompts)
+			}
+		})
 	}
 }
 
