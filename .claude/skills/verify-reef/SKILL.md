@@ -132,8 +132,9 @@ REEF_VERIFY_RUN=<id> $H serve-stop --kill
   then the body. POST, PUT and PATCH send `Content-Type: application/json` unless a `-H`
   sets one. Any status exits 0 (an error status is often the proof); a failed connection exits 1.
 - `sql [--write] "SQL"` runs `sqlite3` on the run's `reef.db`. Without `--write` the session is
-  `query_only`. Use `--write` only to set up a state the API cannot reach (for example
-  `pragma user_version=99` on a stopped server).
+  `query_only`. Output starts with a header line of column names (`sqlite3 -header`); the
+  recipes quote only the rows after it. Use `--write` only to set up a state the API cannot
+  reach (for example `pragma user_version=99` on a stopped server).
 - `serve-stop` sends SIGINT (what Ctrl-C does) and prints the exit code and seconds. With `--kill`
   it sends SIGKILL, a real crash: the server cannot clean up. Only the recorded pid is signaled.
 - `serve-second [--same-addr]` starts another `reef serve` on the same data folder, on the same
@@ -165,15 +166,20 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/
   --timeout 300 -- chat login --role developer --backend claude
 ```
 
-- `reef [--data-name NAME] [--stdin FILE [--answer A]] [--timeout S] -- ARGS` runs the `reef`
-  binary in the scratch cwd with `--data <folder>` right after the command words
-  (`task add --data <folder> 1 -- "--why not"`), so a `--` in ARGS still ends the flags.
+- `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A | --sigint-at-prompt]]
+  [--timeout S] -- ARGS` runs the `reef` binary in the scratch cwd with `--data <folder>`
+  right after the command words (`task add --data <folder> 1 -- "--why not"`), so a `--` in
+  ARGS still ends the flags.
   `--data-name` picks `<scratch>/NAME`. It refuses
   while this run's server uses another folder. Without it, the call uses the last folder that
   `reef --data-name` or `serve-start` used, or `<scratch>/data`. stdin is `/dev/null` unless
   `--stdin` gives a file. `--answer A` answers a wrap-up: FILE's lines go through a FIFO held
   open until the live output shows `approve? [y/N]`, then `A` is written and stdin closes
-  (see `features/chat.md`). `--timeout S` (default 240) sends SIGINT, which is Ctrl-C. It prints
+  (see `features/chat.md`). `--sigint-at-prompt` feeds FILE the same way, but at `approve?
+  [y/N]` it sends SIGINT to `reef` instead of an answer and keeps stdin open until `reef`
+  exits: Ctrl-C at the prompt. `--cwd DIR` runs in `<scratch>/DIR` instead, made if
+  missing (`--cwd cwd/sub`, `--cwd cwd2`), for a subfolder or a second project; `reef.log`
+  shows that cwd. `--timeout S` (default 240) sends SIGINT, which is Ctrl-C. It prints
   the command's stdout and stderr, then `exit: N elapsed_s: ... children: N orphans_alive:
   ...`, and exits with the command's code.
 - `mcp-call TOOL [JSON]` starts `reef mcp` on the run's folder with the caller's `REEF_TOKEN`,
@@ -206,7 +212,7 @@ Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches 
 | `api.log` | every `api` call: `> METHOD PATH [headers] [body]`, then `< status body` |
 | `sql.log` | every `sql` call: `> SQL`, then its output |
 | `serve-second.log` | each `serve-second`: addr, data, exit code, stderr, verdict |
-| `reef.log` | every `reef` call: `--- reef` and the exact args with `--data DIR`, cwd and stdin, `out:` and `err:` lines, the `feed:` line with `--answer`, then `exit:`, `elapsed_s`, `sigint_after_s`, `children`, `orphans_alive` |
+| `reef.log` | every `reef` call: `--- reef` and the exact args with `--data DIR`, cwd and stdin, `out:` and `err:` lines, the `feed:` line with `--answer` or `--sigint-at-prompt`, then `exit:`, `elapsed_s`, `sigint_after_s`, `children`, `orphans_alive` |
 | `reef-mcp.log` | every `mcp-call`: `> TOOL JSON`, `tools:`, `< isError=...` result, `reef mcp exit:`, stderr |
 
 Proof standards:
@@ -254,6 +260,6 @@ in `~/.codex/sessions`; cleanup leaves them.
 | `serve-second [--same-addr]` | second `reef serve` on the same data folder; must be refused |
 | `api [-H 'N: v']... METHOD PATH [JSON]` | one HTTP call, prints status and body, logs to `api.log` |
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
-| `reef [--data-name NAME] [--stdin FILE [--answer A]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt |
+| `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
 | `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |
