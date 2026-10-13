@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"strings"
 	"testing"
@@ -30,6 +31,9 @@ func (f *fakeSession) SendAs(
 	_ context.Context, stored, _ string, onEvent func(agent.Event),
 ) error {
 	f.said = append(f.said, stored)
+	if stored == "cap" {
+		return fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
+	}
 	onEvent(agent.Event{Kind: agent.KindText, Text: "ok"})
 	return nil
 }
@@ -199,6 +203,20 @@ func TestConverse_Wrap(t *testing.T) {
 				t.Errorf("PendingProposal error = %v, want pending %v", err, tt.wantPending)
 			}
 		})
+	}
+}
+
+func TestConverse_CappedTurnPrintsReasonAndEnds(t *testing.T) {
+	st, ch := chatFixture(t)
+	w := &fakeSession{}
+	c := startChat(t, st, ch, w)
+
+	c.say(t, "cap")
+	if err := <-c.done; err != nil {
+		t.Fatalf("converse = %v, want nil", err)
+	}
+	if want := "> \n\ncapped: more than 25 tool calls\n"; c.out.String() != want {
+		t.Errorf("output = %q, want %q", c.out.String(), want)
 	}
 }
 

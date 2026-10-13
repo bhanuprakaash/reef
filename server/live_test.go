@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -12,12 +13,15 @@ import (
 	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
 )
 
 // fakeSession answers the text "block" with one text event and then waits for
-// release or for its context to end, and every other text with one text event.
+// release or for its context to end, the text "cap" like a runner that capped the
+// turn, and every other text with one text event.
 type fakeSession struct {
+	st      *store.Store
 	started chan struct{}
 	release chan struct{}
 	closed  atomic.Int32
@@ -26,6 +30,11 @@ type fakeSession struct {
 func (f *fakeSession) SendAs(
 	ctx context.Context, _, text string, onEvent func(agent.Event),
 ) error {
+	if text == "cap" {
+		const reason = "capped: more than 25 tool calls"
+		err := fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
+		return errors.Join(err, f.st.PauseChannel(ctx, 1, reason))
+	}
 	if text != "block" {
 		onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
 		return nil
@@ -52,6 +61,7 @@ func (f *fakeSession) Close() error {
 }
 
 type liveEnv struct {
+	st     *store.Store
 	url    string
 	h      *Handler
 	fake   *fakeSession
@@ -66,6 +76,7 @@ func newLiveEnv(t *testing.T) *liveEnv {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	env := &liveEnv{fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{})}}
+	env.st, env.fake.st = st, st
 	env.h = newHandler(st, func(context.Context, int64) (session, error) {
 		env.opened.Add(1)
 		return env.fake, nil
@@ -239,6 +250,76 @@ func TestStop_FailsTurnAndClosesSession(t *testing.T) {
 	}
 }
 
+func TestSend_ToolCapPausesChannel(t *testing.T) {
+	env := newLiveEnv(t)
+	sub := subscribe(t, env.url)
+	env.send(t, "cap")
+	sub.want(t,
+		`turn {"status":"running"}`,
+		`turn {"status":"failed","error":"capped: more than 25 tool calls"}`,
+		`pause {"reason":"capped: more than 25 tool calls"}`,
+	)
+
+	status, body := env.send(t, "hello")
+	if status != 409 ||
+		body != `{"error":"channel 1 is paused: capped: more than 25 tool calls: conflict"}` {
+		t.Errorf("send to paused channel = %d %s, want 409 with the reason", status, body)
+	}
+	_, body = do(t, http.MethodGet, env.url+"/channels/1", "")
+	if !strings.Contains(body, `"paused":"capped: more than 25 tool calls"`) {
+		t.Errorf("channel = %s, want paused with the reason", body)
+	}
+
+	if status, body := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 || body != "" {
+		t.Fatalf("continue = %d %q, want 204", status, body)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	if status, _ := env.send(t, "hello"); status != 202 {
+		t.Errorf("send after continue = %d, want 202", status)
+	}
+	sub.want(t, `turn {"status":"running"}`, `agent {"kind":"text","text":"hi"}`, `turn {"status":"done"}`)
+
+	status, body = do(t, http.MethodPost, env.url+"/channels/1/continue", "")
+	if status != 409 || body != `{"error":"channel 1 is not paused: conflict"}` {
+		t.Errorf("continue when not paused = %d %s, want 409", status, body)
+	}
+}
+
+func TestSend_TokenBudgetPausesChannel(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	turn, err := env.st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "lead", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Status = "done"
+	turn.Usage = agent.Usage{InputTokens: 1000000, OutputTokens: 312, CacheReadTokens: 5000000}
+	if _, err := env.st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	sub := subscribe(t, env.url)
+
+	const reason = "token budget of 1000000 used: 1000312 tokens"
+	status, body := env.send(t, "hello")
+	if status != 409 || body != `{"error":"channel 1 is paused: `+reason+`: conflict"}` {
+		t.Fatalf("send over budget = %d %s, want 409 with the reason", status, body)
+	}
+	sub.want(t, `pause {"reason":"`+reason+`"}`)
+	if ch, err := env.st.Channel(ctx, 1); err != nil || ch.Paused != reason {
+		t.Errorf("channel = %+v, %v, want paused with the reason", ch, err)
+	}
+
+	if status, _ := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	if ch, err := env.st.Channel(ctx, 1); err != nil || ch.Paused != "" || ch.TokenBudget != 2000000 {
+		t.Errorf("channel after continue = %+v, %v, want not paused with budget 2000000", ch, err)
+	}
+	if status, _ := env.send(t, "hello"); status != 202 {
+		t.Errorf("send after continue = %d, want 202", status)
+	}
+}
+
 func TestStop_NotLive(t *testing.T) {
 	env := newLiveEnv(t)
 	if status, body := do(t, http.MethodPost, env.url+"/channels/1/stop", ""); status != 204 || body != "" {
@@ -285,6 +366,12 @@ func TestSend_OpenErrors(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Cleanup(func() { _ = st.Close() })
+			if _, err := st.CreateProject(context.Background(), store.Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.CreateChannel(context.Background(), store.Channel{ProjectID: 1, Name: "chat"}); err != nil {
+				t.Fatal(err)
+			}
 			h := newHandler(st, func(context.Context, int64) (session, error) { return nil, tt.giveErr })
 			t.Cleanup(h.Close)
 			ts := httptest.NewServer(h)

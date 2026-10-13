@@ -8,7 +8,12 @@ import (
 	"time"
 )
 
-const _channelCols = "id, project_id, feature_id, name, role, backend, permission_mode, created_at"
+// TokenBudget is the tokens a channel may use before it pauses, and what continuing
+// a channel over its budget adds.
+const TokenBudget = 1_000_000
+
+const _channelCols = "id, project_id, feature_id, name, role, backend, permission_mode, " +
+	"paused, token_budget, created_at"
 
 // Channel with a nil FeatureID is a quick session.
 type Channel struct {
@@ -19,6 +24,8 @@ type Channel struct {
 	Role           string    `json:"role"`
 	Backend        string    `json:"backend"`
 	PermissionMode string    `json:"permissionMode"`
+	Paused         string    `json:"paused"`
+	TokenBudget    int64     `json:"tokenBudget"`
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
@@ -39,8 +46,8 @@ func (s *Store) CreateChannel(ctx context.Context, c Channel) (Channel, error) {
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO channel (project_id, feature_id, name, role, backend, permission_mode, "+
-			"created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		c.ProjectID, c.FeatureID, c.Name, c.Role, c.Backend, c.PermissionMode,
+			"token_budget, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		c.ProjectID, c.FeatureID, c.Name, c.Role, c.Backend, c.PermissionMode, TokenBudget,
 		now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Channel{}, s.writeErr(ctx, "insert channel", err, ErrInvalid,
@@ -50,7 +57,7 @@ func (s *Store) CreateChannel(ctx context.Context, c Channel) (Channel, error) {
 	if err != nil {
 		return Channel{}, fmt.Errorf("insert channel: %w", err)
 	}
-	c.ID, c.CreatedAt = id, now
+	c.ID, c.Paused, c.TokenBudget, c.CreatedAt = id, "", TokenBudget, now
 	return c, nil
 }
 
@@ -100,6 +107,48 @@ func (s *Store) UpdateChannel(ctx context.Context, c Channel) (Channel, error) {
 	return s.Channel(ctx, c.ID)
 }
 
+// PauseChannel pauses the channel with a reason, which must not be empty.
+func (s *Store) PauseChannel(ctx context.Context, id int64, reason string) error {
+	if reason == "" {
+		return fmt.Errorf("%w: pause reason is required", ErrInvalid)
+	}
+	return s.setChannel(ctx, id, "paused = ?", reason)
+}
+
+// ContinueChannel clears the pause of the channel and raises its token budget by
+// extra tokens.
+func (s *Store) ContinueChannel(ctx context.Context, id, extra int64) error {
+	return s.setChannel(ctx, id, "paused = '', token_budget = token_budget + ?", extra)
+}
+
+// ChannelTokens is the input and output tokens of all turns of the channel. Cache
+// reads and writes are not counted.
+func (s *Store) ChannelTokens(ctx context.Context, id int64) (int64, error) {
+	var n int64
+	err := s.db.QueryRowContext(ctx,
+		"SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM turn WHERE channel_id = ?",
+		id).Scan(&n)
+	if err != nil {
+		return 0, fmt.Errorf("sum channel tokens: %w", err)
+	}
+	return n, nil
+}
+
+func (s *Store) setChannel(ctx context.Context, id int64, set string, args ...any) error {
+	res, err := s.db.ExecContext(ctx, "UPDATE channel SET "+set+" WHERE id = ?", append(args, id)...)
+	if err != nil {
+		return fmt.Errorf("update channel: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update channel: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("channel %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
 // DeleteChannel removes the channel and, by cascade, its messages and turns.
 func (s *Store) DeleteChannel(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, "DELETE FROM channel WHERE id = ?", id)
@@ -127,7 +176,7 @@ func scanChannel(r interface{ Scan(...any) error }) (Channel, error) {
 	var c Channel
 	var created string
 	if err := r.Scan(&c.ID, &c.ProjectID, &c.FeatureID, &c.Name, &c.Role, &c.Backend,
-		&c.PermissionMode, &created); err != nil {
+		&c.PermissionMode, &c.Paused, &c.TokenBudget, &created); err != nil {
 		return Channel{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)
