@@ -3,14 +3,14 @@
 A user runs `reef-agent --backend claude|codex "prompt"`. It starts the backend in the cwd,
 sends the prompt, and prints one JSON event per line as the turn streams: the session id,
 text deltas, tool calls and their results, the turn's token usage, then `turn_end`. With
-stdin closed it exits 0 after the turn. A failed turn prints one `error` line and exits 1.
+stdin closed it exits 0 after the turn. A failed turn ends with one `error` line (usually right after a `usage` line) and exits 1.
 
 ## Sub-features
 
 - `turn-stream` prints `session`, `text`, `usage` and `turn_end` lines for one prompt; exit 0.
 - `turn-tool` prints a `tool_call` and a `tool_result` with the same `toolId`.
 - `turn-permission` passes `--permission-mode` through: allowed tools run, denied tools give a `tool_result` with `isError`.
-- `turn-error` a failed backend gives one `error` line (or a stderr message) and exit 1.
+- `turn-error` a failed backend ends with one `error` line (or gives only a stderr message) and exit 1.
 - `turn-usage-error` a bad command line prints the usage text on stderr and exits 1.
 
 ## How to get to it (user POV)
@@ -24,8 +24,8 @@ Preconditions:
 
 - Baseline from the README: `build` and `doctor` done, `ANTHROPIC_MODEL=sonnet` on claude drives.
 
-- **Stream, claude.** Run `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run --name turn-claude -- --backend claude --permission-mode bypassPermissions "Run the shell command: echo reef-ok"`. Meta shows `exit: 0` and `kinds:` with `session`, `text`, `tool_call`, `tool_result`, `usage`, `turn_end`. The last line is `{"kind":"turn_end"}`.
-- **Tool pair, claude.** `grep -E '"tool_(call|result)"' ~/.reef-verify/<id>/turn-claude.jsonl`. A `tool_call` with `"toolName":"Bash"` and input `echo reef-ok`, and a `tool_result` with the same `toolId` and `"output":"reef-ok"`.
+- **Stream, claude.** Write `reef-read-ok` to `/private/tmp/reef-verify/<id>/cwd/note.txt`. Run `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run --name tool-claude -- --backend claude "Use the Read tool on note.txt in the current directory and tell me its contents."`. Meta shows `exit: 0` and `kinds:` with `session`, `text`, `tool_call`, `tool_result`, `usage`, `turn_end`. The last line is `{"kind":"turn_end"}`.
+- **Tool pair, claude.** `grep -E '"tool_(call|result)"' ~/.reef-verify/<id>/tool-claude.jsonl`. A `tool_call` with `"toolName":"Read"` and a `file_path` ending in `/cwd/note.txt`, and a `tool_result` with the same `toolId`, no `isError`, and output containing `reef-read-ok`.
 - **Stream, codex.** Run `REEF_VERIFY_RUN=<id> $H run --name turn-codex -- --backend codex --permission-mode workspace-write "Run the shell command: echo reef-ok"`. `exit: 0`. The first line is `{"kind":"session",...}`. A `tool_call` with `"toolName":"commandExecution"` and a `tool_result` with the same `toolId` whose output contains `reef-ok`.
 - **Denied tool, claude.** Run `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run --name deny-claude -- --backend claude "Create the file deny.txt with the Write tool, content x"`. A `tool_result` with `"isError":true`, and the scratch cwd has no `deny.txt` (`ls /private/tmp/reef-verify/<id>/cwd`).
 - **Read-only sandbox, codex.** Run `REEF_VERIFY_RUN=<id> $H run --name deny-codex -- --backend codex --permission-mode read-only "Run the shell command: touch deny.txt"`. Either a `tool_result` with `"isError":true` or the model refuses; in both cases no `deny.txt` in the scratch cwd.
@@ -36,7 +36,7 @@ Preconditions:
 
 - Claude's first `session` line comes after the prompt is sent, and repeats every turn. Codex prints `session` once, first.
 - `text` lines are deltas. Join them to read the reply; never assert on one line.
-- Claude with no `--permission-mode` cannot ask, so it denies tools that need permission. Use `bypassPermissions` only in the scratch cwd.
+- Claude with no `--permission-mode` cannot ask, so it denies tools that need permission (Write, Bash) and runs read-only ones (Read). The recipes avoid `bypassPermissions`: the auto-mode safety check on this machine refuses drives that use it.
 - Claude reports usage only on its `result` line, so a crash mid-turn gives an `error` with no `usage` before it.
 - Claude loads the user's hooks, plugins and settings, so start-up takes a few seconds. That is not a hang.
 - `reef-agent` without `--cwd` uses its own cwd; the helper runs it in the scratch cwd. Claude reports `/private/tmp/...`, not `/tmp/...`.

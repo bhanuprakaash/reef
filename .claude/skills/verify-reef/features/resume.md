@@ -31,5 +31,5 @@ Preconditions:
 
 - Claude stores sessions per cwd. Resuming from another cwd gives "No conversation found". Keep both drives in one run id.
 - Claude starts the process before it knows the id is bad, so the failure arrives as events after the prompt is sent. Codex fails during start, so it prints nothing on stdout.
-- Codex replays the last turn's usage on resume; `reef-agent` drops it, so the resumed run has exactly one `usage` per turn.
+- Codex replays the last turn's usage on resume; the codex adapter drops it, so the resumed run has exactly one `usage` per turn.
 - `cleanup` deletes the claude session folder of the scratch cwd, so a session cannot be resumed after cleanup.

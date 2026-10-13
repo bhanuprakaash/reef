@@ -1,6 +1,6 @@
 ---
 name: verify-reef
-description: Drive Reef's real surfaces and capture proof. reef-agent (the agent adapters over the claude and codex backends) gives event JSON lines, exit codes and process checks; reef serve (the slice 2 server) gives REST calls, SQLite rows, locks and crash recovery. Use to verify a ticket or slice acceptance line, to re-check after a change in agent/, cmd/reef-agent, cmd/reef, server/ or store/, or when asked "does reef-agent / reef serve still work". Later slices add the CLI and UI; this map grows with them.
+description: Drive Reef's real surfaces and capture proof. reef-agent (the agent adapters over the claude and codex backends) gives event JSON lines, exit codes and process checks; reef serve (the data server) gives REST calls, SQLite rows, locks and crash recovery. Use to verify a ticket or slice acceptance line, to re-check after a change in agent/, cmd/reef-agent, cmd/reef, server/ or store/, or when asked "does reef-agent / reef serve still work". Later slices add the CLI and UI; this map grows with them.
 ---
 
 # Verify Reef
@@ -58,7 +58,7 @@ sends SIGINT if it runs too long, and the meta file says `timed_out`.
 
 ```sh
 ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef run --name turn-claude \
-  -- --backend claude --permission-mode bypassPermissions "Run the shell command: echo reef-ok"
+  -- --backend claude "Use the Read tool on note.txt in the current directory and tell me its contents."
 REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef run --name turn-codex \
   -- --backend codex --permission-mode workspace-write "Run the shell command: echo reef-ok"
 REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef run --name followups --stdin /path/to/prompts.txt \
@@ -71,8 +71,8 @@ sends SIGINT to `reef-agent` `--after S` seconds. That is what Ctrl-C does: `cla
 
 ```sh
 ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef interrupt --after 12 --name int-claude \
-  -- --backend claude --permission-mode bypassPermissions \
-  "Run this exact shell command in the foreground, not in the background: python3 -c 'import time; time.sleep(60)'"
+  -- --backend claude \
+  "Write a 3000-word essay on the history of lighthouses. Do not use any tools. Output the full essay as plain text."
 ```
 
 `mcp-server` writes a stdio MCP server (`vping`, one tool `secret_word` that returns
