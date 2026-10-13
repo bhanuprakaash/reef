@@ -34,6 +34,23 @@ func (s *Store) PutRoleNotes(ctx context.Context, n RoleNotes) (RoleNotes, error
 	return n, nil
 }
 
+// DeleteRoleNotes removes the notes of one role on a feature.
+func (s *Store) DeleteRoleNotes(ctx context.Context, featureID int64, role string) error {
+	res, err := s.db.ExecContext(ctx,
+		"DELETE FROM role_notes WHERE feature_id = ? AND role = ?", featureID, role)
+	if err != nil {
+		return fmt.Errorf("delete role notes: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete role notes: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("notes of %s on feature %d: %w", role, featureID, ErrNotFound)
+	}
+	return nil
+}
+
 func (s *Store) RoleNotes(ctx context.Context, featureID int64, role string) (RoleNotes, error) {
 	n := RoleNotes{FeatureID: featureID, Role: role}
 	var updated string

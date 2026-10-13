@@ -28,6 +28,7 @@ func New(st *store.Store) http.Handler {
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("/health", methodNotAllowed)
+	mux.HandleFunc("/", notFound)
 	s.projectRoutes(mux)
 	s.featureRoutes(mux)
 	s.channelRoutes(mux)
@@ -70,6 +71,12 @@ func guard(next http.Handler) http.Handler {
 // answers in JSON where the mux's own 405 is plain text.
 func methodNotAllowed(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "method not allowed"})
+}
+
+// notFound answers every path no route claims, in JSON where the mux's own
+// 404 is plain text.
+func notFound(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusNotFound, map[string]string{"error": "not found"})
 }
 
 func readJSON(r *http.Request, v any) error {

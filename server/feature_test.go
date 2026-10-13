@@ -32,6 +32,30 @@ func TestFeatureStatus(t *testing.T) {
 			wantBody:   `{"error":"invalid: feature slug is required"}`,
 		},
 		{
+			name:       "slug with a path",
+			method:     http.MethodPost,
+			path:       "/features",
+			give:       `{"projectId":1,"slug":"../x","name":"A"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: feature slug \"../x\" must match ^[a-z0-9][a-z0-9-]*$"}`,
+		},
+		{
+			name:       "slug with a capital",
+			method:     http.MethodPost,
+			path:       "/features",
+			give:       `{"projectId":1,"slug":"A","name":"A"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: feature slug \"A\" must match ^[a-z0-9][a-z0-9-]*$"}`,
+		},
+		{
+			name:       "slug starting with a dash",
+			method:     http.MethodPut,
+			path:       "/features/1",
+			give:       `{"slug":"-a","name":"A"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: feature slug \"-a\" must match ^[a-z0-9][a-z0-9-]*$"}`,
+		},
+		{
 			name:       "bad project filter",
 			method:     http.MethodGet,
 			path:       "/features?project=x",
@@ -68,8 +92,15 @@ func TestFeatureStatus(t *testing.T) {
 			wantBody:   `{"error":"notes of tester on feature 1: not found"}`,
 		},
 		{
-			name:       "wrong method on notes",
+			name:       "delete missing notes",
 			method:     http.MethodDelete,
+			path:       "/features/1/notes/tester",
+			wantStatus: 404,
+			wantBody:   `{"error":"notes of tester on feature 1: not found"}`,
+		},
+		{
+			name:       "wrong method on notes",
+			method:     http.MethodPatch,
 			path:       "/features/1/notes/tester",
 			wantStatus: 405,
 			wantBody:   `{"error":"method not allowed"}`,
@@ -144,6 +175,13 @@ func TestFeatureRoundTrip(t *testing.T) {
 	if status != 200 || !strings.HasPrefix(body, `{"featureId":1,"role":"architect","body":"two","updatedAt":"`) {
 		t.Fatalf("notes = %d %s", status, body)
 	}
+	if status, body = do(t, http.MethodDelete, ts.URL+"/features/1/notes/architect", ""); status != 204 || body != "" {
+		t.Fatalf("delete notes = %d %s", status, body)
+	}
+	if status, body = do(t, http.MethodGet, ts.URL+"/features/1/notes/architect", ""); status != 404 {
+		t.Fatalf("notes after delete = %d %s, want 404", status, body)
+	}
+	do(t, http.MethodPut, ts.URL+"/features/1/notes/architect", `{"body":"three"}`)
 
 	if status, _ = do(t, http.MethodDelete, ts.URL+"/projects/1", ""); status != 204 {
 		t.Fatalf("delete project = %d", status)

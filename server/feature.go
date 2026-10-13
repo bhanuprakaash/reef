@@ -23,6 +23,7 @@ func (s *server) featureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/features/{id}/brief/versions", methodNotAllowed)
 	mux.HandleFunc("GET /features/{id}/notes/{role}", s.getRoleNotes)
 	mux.HandleFunc("PUT /features/{id}/notes/{role}", s.putRoleNotes)
+	mux.HandleFunc("DELETE /features/{id}/notes/{role}", s.deleteRoleNotes)
 	mux.HandleFunc("/features/{id}/notes/{role}", methodNotAllowed)
 }
 
@@ -191,4 +192,17 @@ func (s *server) putRoleNotes(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, n)
+}
+
+func (s *server) deleteRoleNotes(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.st.DeleteRoleNotes(r.Context(), id, r.PathValue("role")); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
