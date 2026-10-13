@@ -57,7 +57,7 @@ prompts, so the process exits 0 after the last `turn_end`. `--timeout S` (defaul
 sends SIGINT if it runs too long, and the meta file says `timed_out`.
 
 ```sh
-ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef run --name turn-claude \
+ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef run --name tool-claude \
   -- --backend claude "Use the Read tool on note.txt in the current directory and tell me its contents."
 REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef run --name turn-codex \
   -- --backend codex --permission-mode workspace-write "Run the shell command: echo reef-ok"
@@ -75,8 +75,8 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/v
   "Write a 3000-word essay on the history of lighthouses. Do not use any tools. Output the full essay as plain text."
 ```
 
-`mcp-server` writes a stdio MCP server (`vping`, one tool `secret_word` that returns
-`kumquat-4417`) and prints the path of its `--mcp` file. The server appends each
+`mcp-server` writes a stdio MCP server (`vping`: tool `secret_word` returns `kumquat-4417`,
+tool `sleep_60` runs `sleep 60`) and prints the path of its `--mcp` file. The server appends each
 `tools/call` to `~/.reef-verify/<id>/mcp-calls.log`.
 
 ```sh
