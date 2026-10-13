@@ -184,6 +184,27 @@ func TestMCPTools(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "post to channel as the token's role",
+			tool: "post_to_channel",
+			give: map[string]any{"body": "@developer take it"},
+			want: `{"author":"architect","body":"@developer take it","channelId":1,` +
+				`"createdAt":"T","id":5,"parentId":null}`,
+		},
+		{
+			name: "post to channel in a thread",
+			tool: "post_to_channel",
+			give: map[string]any{"body": "done", "parent": 1},
+			want: `{"author":"architect","body":"done","channelId":1,"createdAt":"T","id":6,` +
+				`"parentId":1}`,
+		},
+		{
+			name:    "post to channel under a reply",
+			tool:    "post_to_channel",
+			give:    map[string]any{"body": "x", "parent": 6},
+			want:    "invalid: parent 6 is not a top-level message of channel 1",
+			wantErr: true,
+		},
+		{
 			name:    "read another feature's thread",
 			tool:    "read_thread",
 			give:    map[string]any{"channelId": 3},
