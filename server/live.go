@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"slices"
+	"strconv"
 	"sync"
 	"time"
 
@@ -89,6 +90,10 @@ func (s *server) liveRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/channels/{id}/stop", methodNotAllowed)
 	mux.HandleFunc("POST /channels/{id}/continue", s.continueChannel)
 	mux.HandleFunc("/channels/{id}/continue", methodNotAllowed)
+	mux.HandleFunc("GET /channels/{id}/approvals", s.listApprovals)
+	mux.HandleFunc("/channels/{id}/approvals", methodNotAllowed)
+	mux.HandleFunc("POST /channels/{id}/approvals/{aid}", s.decideApproval)
+	mux.HandleFunc("/channels/{id}/approvals/{aid}", methodNotAllowed)
 }
 
 func (s *server) live(id int64) *live {
@@ -265,7 +270,7 @@ func (s *server) runTurn(
 			if err != nil {
 				log.Printf("route channel %d: %v", id, err)
 			}
-			queue, after = append(queue, ws...), last
+			queue, after = append(queue, s.gate(ctx, id, l, ws)...), last
 		}
 		l.mu.Lock()
 		if !ok {
@@ -370,6 +375,29 @@ func (s *server) checkTurn(
 	return ch.Role, err
 }
 
+// gate returns the wakes of ws that may run, and holds the others as pending approvals.
+func (s *server) gate(ctx context.Context, id int64, l *live, ws []wake) []wake {
+	var open []wake
+	for _, w := range ws {
+		if !w.gated {
+			open = append(open, w)
+			continue
+		}
+		a, err := s.st.CreateApproval(ctx, store.Approval{
+			ChannelID: id, From: w.from, To: w.role, MessageID: w.messageID, Text: w.text,
+			Parent: w.parent,
+		})
+		if err != nil {
+			log.Printf("hold wake %s in channel %d: %v", w.role, id, err)
+			continue
+		}
+		l.mu.Lock()
+		l.publishLocked("approval", a)
+		l.mu.Unlock()
+	}
+	return open
+}
+
 // countHop counts w as a hop when a message from an agent woke it. A wake over the cap
 // does not run: the channel is paused instead.
 func (s *server) countHop(ctx context.Context, id int64, l *live, w wake) error {
@@ -435,6 +463,75 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) listApprovals(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	as, err := s.st.PendingApprovals(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if as == nil {
+		as = []store.Approval{}
+	}
+	writeJSON(w, http.StatusOK, as)
+}
+
+// decideApproval runs the held wake of a pending approval as a new chain, or drops it.
+func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	aid, err := strconv.ParseInt(r.PathValue("aid"), 10, 64)
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: id %q is not a number", store.ErrInvalid, r.PathValue("aid")))
+		return
+	}
+	var in struct {
+		Approve *bool `json:"approve"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	if in.Approve == nil {
+		writeError(w, fmt.Errorf("%w: approve is required", store.ErrInvalid))
+		return
+	}
+	a, err := s.st.Approval(r.Context(), id, aid)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if a.Status != store.ApprovalPending {
+		writeError(w, fmt.Errorf("approval %d is %s: %w", aid, a.Status, store.ErrConflict))
+		return
+	}
+	a.Status = store.ApprovalRejected
+	if *in.Approve {
+		a.Status = store.ApprovalApproved
+		held := wake{from: a.From, messageID: a.MessageID, role: a.To, text: a.Text, parent: a.Parent}
+		if err := s.startTurn(r.Context(), id, _message, "", nil, nil, []wake{held}); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	if err := s.st.DecideApproval(r.Context(), aid, a.Status); err != nil {
+		writeError(w, err)
+		return
+	}
+	l := s.live(id)
+	l.mu.Lock()
+	l.publishLocked("approval", a)
+	l.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }
 

@@ -12,10 +12,24 @@ import (
 // SoloTeam is the lead-only team a channel gets when none is named.
 const SoloTeam = "solo"
 
-// Team is a named set of roles, exactly one of them the lead.
+// Team is a named set of roles, exactly one of them the lead, and the gates between them.
 type Team struct {
 	Name  string `json:"name"`
 	Roles []Role `json:"roles"`
+	Gates []Gate `json:"gates,omitempty"`
+}
+
+// Gate switches approval on or off for the wakes one role sends another.
+type Gate struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+	On   bool   `json:"on"`
+}
+
+// _defaultGates apply to an edge the team does not list.
+var _defaultGates = []Gate{
+	{From: "architect", To: "developer", On: true},
+	{From: "developer", To: "tester", On: true},
 }
 
 // Role is one teammate's setup. Tools are the backend's allowed tools.
@@ -70,6 +84,16 @@ func (s *Store) ApplyTeam(ctx context.Context, t Team) (Team, error) {
 	if _, err := tx.ExecContext(ctx, "DELETE FROM role WHERE team_id = ?", id); err != nil {
 		return Team{}, fmt.Errorf("delete roles: %w", err)
 	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM gate WHERE team_id = ?", id); err != nil {
+		return Team{}, fmt.Errorf("delete gates: %w", err)
+	}
+	for _, g := range t.Gates {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO gate (team_id, from_role, to_role, enabled) VALUES (?, ?, ?, ?)",
+			id, g.From, g.To, g.On); err != nil {
+			return Team{}, fmt.Errorf("insert gate %s to %s: %w", g.From, g.To, err)
+		}
+	}
 	for _, r := range t.Roles {
 		tools, err := json.Marshal(nonNil(r.Tools))
 		if err != nil {
@@ -109,7 +133,31 @@ func (s *Store) Team(ctx context.Context, name string) (Team, error) {
 	if len(roles) == 0 {
 		return Team{}, fmt.Errorf("team %s: %w", name, ErrNotFound)
 	}
-	return Team{Name: name, Roles: roles}, nil
+	rows, err = s.db.QueryContext(ctx,
+		"SELECT from_role, to_role, enabled FROM gate JOIN team ON team.id = team_id "+
+			"WHERE team.name = ? ORDER BY gate.id", name)
+	if err != nil {
+		return Team{}, fmt.Errorf("read gates of team %s: %w", name, err)
+	}
+	gates, err := scanAll(rows, func(r interface{ Scan(...any) error }) (Gate, error) {
+		var g Gate
+		return g, r.Scan(&g.From, &g.To, &g.On)
+	})
+	if err != nil {
+		return Team{}, err
+	}
+	return Team{Name: name, Roles: roles, Gates: gates}, nil
+}
+
+// Gated reports whether a wake from role from to role to waits for approval: the team's
+// gate for that edge when it lists one, else the default.
+func (t Team) Gated(from, to string) bool {
+	for _, g := range slices.Concat(t.Gates, _defaultGates) {
+		if g.From == from && g.To == to {
+			return g.On
+		}
+	}
+	return false
 }
 
 // Teams lists all teams by name.
@@ -154,6 +202,12 @@ func (t Team) validate() error {
 		}
 		if r.Lead {
 			leads++
+		}
+	}
+	for _, g := range t.Gates {
+		if !seen[g.From] || !seen[g.To] {
+			return fmt.Errorf("%w: gate %s to %s names a role team %s does not have",
+				ErrInvalid, g.From, g.To, t.Name)
 		}
 	}
 	if leads != 1 {
