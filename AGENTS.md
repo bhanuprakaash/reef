@@ -1,6 +1,6 @@
 # Reef: working agreement for every agent
 
-Read this first. Then [`docs/product.md`](docs/product.md) (what we build and the 19
+Read this first. Then [`docs/product.md`](docs/product.md) (what we build and the 20
 decisions), [`docs/server.md`](docs/server.md) (the data server) and
 [`docs/memory.md`](docs/memory.md) (the CLI, MCP tools, `reef chat` and wrap-up).
 
@@ -41,6 +41,7 @@ Each slice issue carries this checklist in a **Verification** section.
 
 ```
 agent/        Agent interface, Event type, adapters (agent/claude, agent/codex)
+channel/      Runner and context prompt for a channel
 cmd/reef-agent  harness CLI
 cmd/reef      main server + CLI (later)
 store/        SQLite schema and queries

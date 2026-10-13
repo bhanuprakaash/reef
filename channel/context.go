@@ -94,7 +94,10 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 
 // firstLine is the first line of body, cut to _maxIndexRunes characters.
 func firstLine(body string) string {
-	line, _, _ := strings.Cut(strings.TrimSpace(body), "\n")
+	line := strings.TrimSpace(body)
+	if i := strings.IndexAny(line, "\r\n"); i >= 0 {
+		line = line[:i]
+	}
 	if r := []rune(line); len(r) > _maxIndexRunes {
 		return string(r[:_maxIndexRunes]) + "…"
 	}

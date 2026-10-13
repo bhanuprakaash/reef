@@ -80,6 +80,10 @@ Rules for every command:
 | `reef task list [<feature>] [--status S]` | Lists the feature's tasks, or all tasks of the current folder's project. `S` is `todo`, `doing` or `done` | one task per line, as for `task add` |
 | `reef context <feature> --role R` | Prints the context prompt for role `R` (see below) | the prompt |
 | `reef token <feature> --role R` | Makes a channel and a token for role `R` (see Tokens) | a `claude mcp add` command |
+| `reef wrap list [<feature>]` | Lists pending wrap-up proposals (see Wrap-up): of the feature, or of the current folder's project | `1  login  3  architect  2026-10-13`: id, feature slug, channel id, role, created date |
+| `reef wrap show <id>` | Prints a proposal and its status | `proposal 1 from architect`, status, then brief, notes and decisions |
+| `reef wrap approve <id>` | Approves a pending proposal | `approved: brief, notes and 1 decisions saved` |
+| `reef wrap reject <id>` | Rejects a pending proposal | `rejected: nothing changed` |
 | `reef chat ...` | Runs a channel in the terminal (see below) | the conversation |
 | `reef mcp` | Serves the MCP tools over stdio (see below) | MCP only |
 
@@ -224,7 +228,8 @@ Leaving:
   with reef chat --channel 1` and exits 0.
 - Ctrl-C during a turn interrupts the agent and stores the turn `failed` with error
   `interrupted`. The part of the reply already printed is not stored. Then it prints the
-  same resume line and exits 0.
+  same resume line and exits 0. Closing the terminal (SIGHUP) and SIGTERM do the same.
+  A turn is stored even when the signal comes right after the line is sent.
 
 Flags:
 
@@ -248,11 +253,13 @@ A channel ends explicitly, never on a timer. The user types `/wrap` in `reef cha
 3. After the turn, `reef chat` looks for a pending proposal of this channel that is newer
    than the one pending before `/wrap`. With none, it prints `no proposal made`.
 4. Otherwise it prints the proposal: brief, notes and decisions, then `approve? [y/N]`.
-5. The next line decides. `y` or `yes` (any case) approves. Anything else rejects. Lines
-   typed while the agent was still wrapping are not the answer: it prints `ignored while
-   wrapping: <line>` for each, before `approve? [y/N]`. If stdin ends at the prompt, or
-   the user presses Ctrl-C there, the proposal stays `pending` and it prints `proposal 1
-   left pending`. After Ctrl-C it then prints the resume line and exits 0.
+5. The next line typed after the prompt decides. `y` or `yes` (any case) approves.
+   Anything else, a blank line too, rejects. `reef chat` reads stdin all the time, so it
+   drops lines already queued after first printing `approve? [y/N]`. It prints
+   `ignored while wrapping: <line>` for each non-blank dropped line, then prints the prompt
+   again. Those lines are not answers.
+   If stdin ends at the prompt, or the user presses Ctrl-C there, the proposal stays
+   `pending` and it prints `proposal 1 left pending`. After Ctrl-C it then prints the resume line and exits 0.
 
 Approve applies everything in one transaction:
 
@@ -274,8 +281,13 @@ changed`. To change a proposal, reject it, tell the agent what to change, and ty
 The chat goes on after `/wrap`. The next session, in any channel, starts from the
 approved brief and notes.
 
-Only `reef chat` approves proposals. A proposal made from plain Claude Code (below) stays
-`pending`.
+A proposal stays `pending` until someone decides it. `reef chat` only asks about the one
+`/wrap` just made. Every other pending proposal is decided later with `reef wrap`: one
+left pending by end of input or Ctrl-C, one the agent proposed outside `/wrap`, the older
+of two from one turn, and every proposal from plain Claude Code (below). `reef wrap list`
+shows them, `reef wrap show <id>` prints one, and `reef wrap approve <id>` or `reef wrap
+reject <id>` decides it, with the same effect and output as in the chat. A proposal
+that is already decided fails with `invalid: proposal 1 is already approved`, exit 1.
 
 ## Using it from plain Claude Code
 

@@ -4,7 +4,10 @@ import (
 	"context"
 	"reflect"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/store"
@@ -48,7 +51,7 @@ func TestRunner_Send(t *testing.T) {
 
 	var streamed []string
 	for _, text := range []string{"one 1", "two 2"} {
-		err := r.Send(ctx, text, func(ev agent.Event) {
+		err := r.SendAs(ctx, text, text, func(ev agent.Event) {
 			if ev.Kind == agent.KindText {
 				streamed = append(streamed, ev.Text)
 			}
@@ -182,7 +185,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			ctx, cancel := context.WithCancel(bg)
 			defer cancel()
 
-			err = r.Send(ctx, "hi", func(ev agent.Event) {
+			err = r.SendAs(ctx, "hi", "hi", func(ev agent.Event) {
 				if ev.Kind == tt.cancelOn {
 					cancel()
 				}
@@ -210,5 +213,65 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 				t.Errorf("messages = %+v, want only the user message", msgs)
 			}
 		})
+	}
+}
+
+// cancelOnDone reports ctx as cancelled from its nth Done call on. The first three
+// calls happen while inserting the user message; the fourth is the runner waiting for
+// the agent's events.
+type cancelOnDone struct {
+	context.Context
+	calls atomic.Int32
+	once  sync.Once
+	done  chan struct{}
+}
+
+func (c *cancelOnDone) Done() <-chan struct{} {
+	if c.calls.Add(1) == 4 {
+		c.cancel()
+	}
+	return c.done
+}
+
+func (c *cancelOnDone) cancel() { c.once.Do(func() { close(c.done) }) }
+
+func (c *cancelOnDone) Err() error {
+	select {
+	case <-c.done:
+		return context.Canceled
+	default:
+		return nil
+	}
+}
+
+func TestRunner_SendCancelledAfterMessageStoresTurn(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{events: make(chan agent.Event, 8)}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	ctx := &cancelOnDone{Context: bg, done: make(chan struct{})}
+	defer time.AfterFunc(5*time.Second, ctx.cancel).Stop()
+
+	if err := r.SendAs(ctx, "hi", "hi", func(agent.Event) {}); err == nil || err.Error() != "context canceled" {
+		t.Fatalf("Send error = %v, want context canceled", err)
+	}
+	msgs, err := st.Messages(bg, ch.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	turns, err := st.Turns(bg, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].Body != "hi" || len(turns) != 1 ||
+		turns[0].Status != "failed" || turns[0].Error != "interrupted" {
+		t.Errorf("messages = %+v, turns = %+v, want the user message and one failed interrupted turn",
+			msgs, turns)
 	}
 }
