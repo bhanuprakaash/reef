@@ -1,0 +1,269 @@
+#!/usr/bin/env bash
+# Drive the real reef-agent binary and keep the proof. See ../SKILL.md.
+set -u
+
+usage() {
+	cat >&2 <<'EOF'
+usage: verify-reef build
+       REEF_VERIFY_RUN=ID verify-reef doctor
+       REEF_VERIFY_RUN=ID verify-reef mcp-server
+       REEF_VERIFY_RUN=ID verify-reef run [--name N] [--stdin FILE] [--timeout S] -- REEF_AGENT_ARGS...
+       REEF_VERIFY_RUN=ID verify-reef interrupt --after S [--name N] -- REEF_AGENT_ARGS...
+       REEF_VERIFY_RUN=ID verify-reef cleanup
+EOF
+	exit 2
+}
+
+SCRATCH_ROOT="$(cd /tmp && pwd -P)/reef-verify"
+EVIDENCE_ROOT="$HOME/.reef-verify"
+REPO="$(git -C "$(dirname "$0")" rev-parse --show-toplevel)"
+
+now() { python3 -I -c 'import time; print(f"{time.time():.3f}")'; }
+
+fail() {
+	echo "verify-reef: $*" >&2
+	exit 1
+}
+
+load_run() {
+	[ -n "${REEF_VERIFY_RUN:-}" ] || fail "set REEF_VERIFY_RUN to the id that build printed"
+	SCR="$SCRATCH_ROOT/$REEF_VERIFY_RUN"
+	EV="$EVIDENCE_ROOT/$REEF_VERIFY_RUN"
+	BIN="$SCR/bin/reef-agent"
+	CWD="$SCR/cwd"
+	[ -d "$EV" ] || fail "no evidence dir $EV; run build first"
+}
+
+# Match the process name, not the command line: this script's own path contains "claude".
+agent_pids() { pgrep -x 'claude|codex|reef-agent' | sort; }
+
+# descendants PID: every live process under PID, as "pid command" lines.
+descendants() {
+	ps -axo pid=,ppid=,command= | awk -v root="$1" '
+		{ pid[NR] = $1; ppid[NR] = $2; $1 = ""; $2 = ""; cmd[NR] = substr($0, 3) }
+		END {
+			want[root] = 1
+			do {
+				grew = 0
+				for (i = 1; i <= NR; i++)
+					if ((ppid[i] in want) && !(pid[i] in want)) { want[pid[i]] = 1; grew = 1 }
+			} while (grew)
+			for (i = 1; i <= NR; i++)
+				if ((pid[i] in want) && pid[i] != root) print pid[i], cmd[i]
+		}'
+}
+
+cmd_build() {
+	id="${REEF_VERIFY_RUN:-$(date +%Y%m%d-%H%M%S)-$$}"
+	scr="$SCRATCH_ROOT/$id"
+	ev="$EVIDENCE_ROOT/$id"
+	mkdir -p "$scr/bin" "$scr/cwd" "$ev" || exit 1
+	(cd "$REPO" && go build -o "$scr/bin/reef-agent" ./cmd/reef-agent) || fail "go build failed"
+	{
+		echo "repo=$REPO"
+		echo "head=$(git -C "$REPO" rev-parse HEAD)"
+		echo "dirty=$(git -C "$REPO" status --porcelain | wc -l | tr -d ' ') files"
+		echo "binary=$scr/bin/reef-agent"
+		echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+	} >"$ev/build.txt"
+	echo "$id"
+}
+
+cmd_doctor() {
+	load_run
+	out="$EV/doctor.txt"
+	check() { # check NAME OK DETAIL
+		if [ "$2" = 1 ]; then echo "ok   $1: $3"; else echo "FAIL $1: $3"; fi
+	}
+	{
+		v=$(go version 2>&1); check go "$([ $? = 0 ] && echo 1)" "$v"
+		v=$(claude --version 2>&1); check claude "$([ $? = 0 ] && echo 1)" "$v"
+		v=$(codex --version 2>&1); check codex "$([ $? = 0 ] && echo 1)" "$v"
+		v=$(claude auth status 2>/dev/null | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print(d.get("loggedIn"), d.get("authMethod"))' 2>&1)
+		check claude-auth "$([ "${v%% *}" = True ] && echo 1)" "$v"
+		v=$(codex login status 2>&1); check codex-auth "$([ $? = 0 ] && echo 1)" "$v"
+		head=$(git -C "$REPO" rev-parse HEAD)
+		# Go stamps the outer repo's commit when built in a worktree nested in the checkout,
+		# so trust the HEAD that build recorded instead of vcs.revision.
+		rev=$(sed -n 's/^head=//p' "$EV/build.txt" 2>/dev/null)
+		check binary "$([ -x "$BIN" ] && [ "$rev" = "$head" ] && echo 1)" "$BIN built from ${rev:-unknown}, HEAD $head"
+		check cwd "$([ -d "$CWD" ] && echo 1)" "$CWD"
+		echo "model: ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-<unset: claude picks its default>}"
+	} | tee "$out"
+	agent_pids >"$EV/pre-pids.txt"
+	echo "pre-existing claude/codex/reef-agent pids: $(wc -l <"$EV/pre-pids.txt" | tr -d ' ') (saved to $EV/pre-pids.txt)" | tee -a "$out"
+	grep -q '^FAIL' "$out" && exit 1
+	exit 0
+}
+
+# drive NAME STDIN AFTER TIMEOUT ARGS...: run reef-agent in the scratch cwd and record
+# NAME.jsonl, NAME.stderr and NAME.meta in the evidence dir. AFTER > 0 sends SIGINT then.
+drive() {
+	name=$1 stdin=$2 after=$3 timeout=$4
+	shift 4
+	[ -x "$BIN" ] || fail "no binary $BIN; run build first"
+	[ -f "$EV/pre-pids.txt" ] || fail "run doctor first: it records the pre-run pids"
+	[ ! -e "$EV/$name.meta" ] || fail "$EV/$name.meta exists; pick another --name"
+	out="$EV/$name.jsonl" err="$EV/$name.stderr" meta="$EV/$name.meta"
+	seen="$EV/$name.children"
+	: >"$seen"
+	t0=$(now)
+	(cd "$CWD" && exec "$BIN" "$@" 3>&-) <"$stdin" >"$out" 2>"$err" &
+	pid=$!
+	echo "$pid reef-agent" >>"$SCR/pids"
+	sigint_at="" timed_out=0
+	while kill -0 "$pid" 2>/dev/null; do
+		descendants "$pid" >>"$seen"
+		t=$(now)
+		if [ -z "$sigint_at" ]; then
+			if [ "$after" != 0 ] && awk -v t="$t" -v s="$t0" -v a="$after" 'BEGIN { exit !(t - s >= a) }'; then
+				kill -INT "$pid" && sigint_at=$t
+			elif awk -v t="$t" -v s="$t0" -v a="$timeout" 'BEGIN { exit !(t - s >= a) }'; then
+				kill -INT "$pid" && sigint_at=$t && timed_out=1
+			fi
+		fi
+		sleep 0.2
+	done
+	wait "$pid"
+	code=$?
+	t1=$(now)
+	sort -u -k1,1n "$seen" -o "$seen"
+	cat "$seen" >>"$SCR/pids"
+	orphans=""
+	while read -r p c; do
+		[ -n "$p" ] && kill -0 "$p" 2>/dev/null && orphans="$orphans $p"
+	done <"$seen"
+	new=$(agent_pids | comm -13 "$EV/pre-pids.txt" - | tr '\n' ' ')
+	{
+		echo "args: $*"
+		echo "cwd: $CWD"
+		echo "ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-<unset>}"
+		echo "stdin: $stdin"
+		echo "exit: $code"
+		echo "elapsed_s: $(awk -v a="$t1" -v b="$t0" 'BEGIN { printf "%.2f", a - b }')"
+		[ -n "$sigint_at" ] && echo "sigint_after_s: $(awk -v a="$sigint_at" -v b="$t0" 'BEGIN { printf "%.2f", a - b }')"
+		[ -n "$sigint_at" ] && echo "exit_after_sigint_s: $(awk -v a="$t1" -v b="$sigint_at" 'BEGIN { printf "%.2f", a - b }')"
+		[ "$timed_out" = 1 ] && echo "timed_out: yes (SIGINT at --timeout $timeout s)"
+		echo "kinds: $(python3 -I -c 'import collections,json,sys
+c = collections.Counter()
+for l in open(sys.argv[1]):
+    try: c[json.loads(l)["kind"]] += 1
+    except Exception: c["<not json>"] += 1
+print(" ".join(f"{k}={v}" for k, v in c.items()))' "$out")"
+		echo "last_line: $(tail -n 1 "$out")"
+		echo "children_seen: $(wc -l <"$seen" | tr -d ' ') (listed in $name.children)"
+		echo "orphans_alive:${orphans:- none}"
+		echo "new_pids_since_doctor: ${new:-none} (may include other sessions on this machine)"
+	} | tee "$meta"
+	sed -n '1,5p' "$err" | sed 's/^/stderr: /'
+	return "$code"
+}
+
+cmd_run() {
+	load_run
+	name="" stdin=/dev/null timeout=240
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--name) name=$2; shift 2 ;;
+		--stdin) stdin=$2; shift 2 ;;
+		--timeout) timeout=$2; shift 2 ;;
+		--) shift; break ;;
+		*) usage ;;
+		esac
+	done
+	[ $# -gt 0 ] || usage
+	drive "${name:-run-$(date +%H%M%S)}" "$stdin" 0 "$timeout" "$@"
+}
+
+cmd_interrupt() {
+	load_run
+	name="" after=""
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--name) name=$2; shift 2 ;;
+		--after) after=$2; shift 2 ;;
+		--) shift; break ;;
+		*) usage ;;
+		esac
+	done
+	[ -n "$after" ] && [ $# -gt 0 ] || usage
+	# Hold stdin open so the session is still live when SIGINT lands, as at a terminal.
+	fifo="$SCR/stdin.fifo"
+	rm -f "$fifo" && mkfifo "$fifo"
+	exec 3<>"$fifo"
+	drive "${name:-interrupt-$(date +%H%M%S)}" "$fifo" "$after" "$(awk -v a="$after" 'BEGIN { print a + 240 }')" "$@"
+	code=$?
+	exec 3>&-
+	return "$code"
+}
+
+cmd_mcp_server() {
+	load_run
+	dir="$SCR/mcp"
+	mkdir -p "$dir"
+	cat >"$dir/server.py" <<'EOF'
+import json, sys
+log = open(sys.argv[1], "a")
+def send(m):
+    sys.stdout.write(json.dumps(m) + "\n"); sys.stdout.flush()
+for line in sys.stdin:
+    try:
+        m = json.loads(line)
+    except Exception:
+        continue
+    mid, meth = m.get("id"), m.get("method")
+    if mid is None:
+        continue
+    if meth == "initialize":
+        send({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": m["params"].get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "vping", "version": "0"}}})
+    elif meth == "tools/list":
+        send({"jsonrpc": "2.0", "id": mid, "result": {"tools": [{"name": "secret_word", "description": "Returns the secret word.", "inputSchema": {"type": "object", "properties": {}}}]}})
+    elif meth == "tools/call":
+        log.write(json.dumps({"call": m["params"].get("name")}) + "\n"); log.flush()
+        send({"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text": "kumquat-4417"}]}})
+    else:
+        send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "method not found"}})
+EOF
+	printf '{"vping": {"command": "python3", "args": ["-I", "%s", "%s"]}}\n' \
+		"$dir/server.py" "$EV/mcp-calls.log" >"$dir/mcp.json"
+	cp "$dir/mcp.json" "$EV/mcp.json"
+	echo "$dir/mcp.json"
+}
+
+cmd_cleanup() {
+	load_run
+	if [ -f "$SCR/pids" ]; then
+		sort -u -k1,1n "$SCR/pids" | while read -r p c; do
+			[ -n "$p" ] || continue
+			now_cmd=$(ps -o command= -p "$p" 2>/dev/null | awk '{ $1 = $1; print }')
+			[ -n "$now_cmd" ] || continue
+			# Kill only a pid whose command still matches what this run recorded.
+			case $c in reef-agent) case $now_cmd in "$BIN"*) ;; *) continue ;; esac ;;
+			*) [ "$now_cmd" = "$c" ] || continue ;; esac
+			echo "killing $p $now_cmd"
+			kill -TERM "$p" 2>/dev/null
+			sleep 1
+			kill -0 "$p" 2>/dev/null && kill -KILL "$p" 2>/dev/null
+		done
+	fi
+	key=$(printf '%s' "$CWD" | sed 's/[^A-Za-z0-9]/-/g')
+	for d in "$HOME/.claude/projects/$key" "/private/tmp/claude-$(id -u)/$key"; do
+		[ -d "$d" ] && rm -rf "$d" && echo "removed claude session state $d"
+	done
+	[ -d "$SCR" ] && rm -rf "$SCR" && echo "removed scratch $SCR"
+	echo "evidence kept: $EV"
+	ls -la "$EV"
+}
+
+[ $# -gt 0 ] || usage
+sub=$1
+shift
+case $sub in
+build) cmd_build "$@" ;;
+doctor) cmd_doctor "$@" ;;
+run) cmd_run "$@" ;;
+interrupt) cmd_interrupt "$@" ;;
+mcp-server) cmd_mcp_server "$@" ;;
+cleanup) cmd_cleanup "$@" ;;
+*) usage ;;
+esac
