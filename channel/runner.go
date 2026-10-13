@@ -15,7 +15,7 @@ const (
 	_toolCap    = 25
 )
 
-// ErrCapped is returned by SendAs when the turn used more tool calls than the cap.
+// ErrCapped is returned by SendAs when a turn exceeds the tool call cap.
 var ErrCapped = errors.New("capped")
 
 // Runner records one role's exchanges with a started agent in one channel: the
@@ -45,13 +45,9 @@ func NewRunner(
 	}
 }
 
-// SendAs stores stored as a user message, runs one turn with text and calls
-// onEvent for each event of the agent. A finished turn is stored done with the
-// agent's reply as a message. An agent error ends the turn failed and is
-// returned. When ctx is cancelled the agent is interrupted, the turn is stored
-// failed as interrupted and the error wraps ctx.Err(). A turn with more than the
-// cap of 25 tool calls is interrupted, stored failed as capped, the channel is
-// paused with that reason and the error wraps ErrCapped.
+// SendAs stores stored as the user message and runs one turn with text. A cancelled
+// ctx wraps ctx.Err(); a turn over the tool call cap pauses the channel and wraps
+// ErrCapped.
 func (r *Runner) SendAs(
 	ctx context.Context, stored, text string, onEvent func(agent.Event),
 ) error {

@@ -21,7 +21,6 @@ const _keepAlive = 15 * time.Second
 
 var errStopping = errors.New("server is stopping")
 
-// session is the part of channel.Session that the server drives.
 type session interface {
 	SendAs(ctx context.Context, stored, text string, onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
@@ -29,7 +28,6 @@ type session interface {
 	Close() error
 }
 
-// frame is one server-sent event.
 type frame struct {
 	event string
 	data  []byte
@@ -44,17 +42,15 @@ type pauseState struct {
 	Reason string `json:"reason"`
 }
 
-// live is what the server holds for one channel: its session while the agent runs
-// and the frames of the current turn for subscribers.
 type live struct {
 	mu      sync.Mutex
 	sess    session
-	busy    bool // a send is opening the session or running its turn
-	running bool // a turn has started and not ended
+	busy    bool
+	running bool
 	cancel  context.CancelFunc
-	done    chan struct{} // closed when the latest turn's goroutine is over
+	done    chan struct{}
 	frames  []frame
-	base    int // number of frames dropped before frames[0]
+	base    int
 	wake    chan struct{}
 }
 
@@ -80,8 +76,6 @@ func (s *server) live(id int64) *live {
 	return l
 }
 
-// begin takes a place in the server's wait group, or reports that the server is
-// closing.
 func (s *server) begin() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -116,9 +110,7 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// startTurn starts a turn that stores text as the user message, unless the channel
-// has a turn running, is paused or is open elsewhere. prepare, when set, runs once
-// the agent is open and the turn is sure to start; if it fails, no turn starts.
+// startTurn runs prepare, when set, once the agent is open; if it fails no turn starts.
 func (s *server) startTurn(
 	ctx context.Context, id int64, text string, prepare func() error,
 ) error {
@@ -226,8 +218,6 @@ func (s *server) runTurn(
 	l.mu.Unlock()
 }
 
-// checkCaps refuses a send to a paused channel. A channel that has used its token
-// budget is paused first.
 func (s *server) checkCaps(ctx context.Context, id int64, l *live) error {
 	ch, err := s.st.Channel(ctx, id)
 	if err != nil {
@@ -252,8 +242,6 @@ func (s *server) checkCaps(ctx context.Context, id int64, l *live) error {
 	return fmt.Errorf("channel %d is paused: %s: %w", id, ch.Paused, store.ErrConflict)
 }
 
-// continueChannel clears the pause of a channel. One that has used its token
-// budget gets store.TokenBudget more tokens.
 func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -374,8 +362,7 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// publishLocked adds an event to the current turn and wakes the subscribers. It
-// never waits for a subscriber.
+// publishLocked never waits for a subscriber.
 func (l *live) publishLocked(event string, v any) {
 	data, err := json.Marshal(v)
 	if err != nil {
@@ -387,8 +374,6 @@ func (l *live) publishLocked(event string, v any) {
 	l.wake = make(chan struct{})
 }
 
-// close interrupts every turn, waits until each is stored, ends the event streams
-// and closes the sessions.
 func (s *server) close() {
 	s.mu.Lock()
 	if s.closed {

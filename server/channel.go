@@ -65,8 +65,6 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, c)
 }
 
-// _permissionModes are the values each backend takes: claude's permission modes
-// and codex's sandbox modes.
 var _permissionModes = map[string][]string{
 	"claude": {"default", "acceptEdits"},
 	"codex":  {"read-only", "workspace-write"},

@@ -14,9 +14,6 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// fakeSession answers each message with "ok". Like the real agent calling propose_wrap,
-// Wrap stores a proposal when propose is set, and returns channel.ErrNoProposal
-// otherwise. Wrap ends only after gate is closed, when gate is set.
 type fakeSession struct {
 	st        *store.Store
 	channelID int64

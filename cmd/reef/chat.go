@@ -98,16 +98,11 @@ func chatCmd(
 	return err
 }
 
-// chatSession is the part of channel.Session that converse drives.
 type chatSession interface {
 	SendAs(ctx context.Context, stored, text string, onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 }
 
-// converse sends each line of in as a message and prints the agent's text. The
-// line /wrap asks the agent for a wrap-up proposal and then asks the user to
-// approve it. It returns nil at the end of in, when ctx is cancelled or when a turn
-// is capped, after printing the cap reason.
 func converse(
 	ctx context.Context, st *store.Store, sess chatSession, in *lineReader, stdout io.Writer,
 ) error {
@@ -163,9 +158,6 @@ func converse(
 	}
 }
 
-// decideWrap prints the proposal p, or that there is none, and approves it when the
-// next line is y or yes, else rejects it. It returns true at end of input or when
-// ctx is done.
 func decideWrap(
 	ctx context.Context, st *store.Store, p store.Proposal, noProposal bool,
 	in *lineReader, stdout io.Writer,

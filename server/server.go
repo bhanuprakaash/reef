@@ -25,22 +25,21 @@ type server struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
-	wg     sync.WaitGroup // one for each send until its turn is stored
-	quit   chan struct{}  // closed once every turn is stored; ends the event streams
+	wg     sync.WaitGroup
+	quit   chan struct{}
 
 	mu     sync.Mutex
 	closed bool
 	lives  map[int64]*live
 }
 
-// Handler is the HTTP handler for the whole API. Close it when done.
+// Handler serves the API. Close it when done.
 type Handler struct {
 	h http.Handler
 	s *server
 }
 
-// New returns the API over st. Its channels run their agents with channel.Open on
-// dataDir and the reef executable exe.
+// New returns the API over st.
 func New(st *store.Store, dataDir, exe string) *Handler {
 	return newHandler(st, func(ctx context.Context, channelID int64) (session, error) {
 		sess, err := channel.Open(ctx, st, dataDir, exe, channelID)
@@ -53,8 +52,7 @@ func New(st *store.Store, dataDir, exe string) *Handler {
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.h.ServeHTTP(w, r) }
 
-// Close interrupts the running turns, waits until they are stored and stops every
-// agent. A send after it gets 503. A second Close does nothing.
+// Close waits for running turns to be stored. A send after it gets 503.
 func (h *Handler) Close() { h.s.close() }
 
 func newHandler(
