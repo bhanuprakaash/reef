@@ -52,12 +52,12 @@ func (f *fakeSession) RunAs(
 	if f.onRun != nil {
 		f.onRun(role, text, parent)
 	}
-	switch text {
-	case "cap":
+	switch {
+	case strings.HasSuffix(text, "\ncap"):
 		const reason = "capped: more than 25 tool calls"
 		err := fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
 		return errors.Join(err, f.st.PauseChannel(ctx, f.channelID.Load(), reason))
-	case "cap-lost":
+	case strings.HasSuffix(text, "\ncap-lost"):
 		err := fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
 		return errors.Join(err, f.st.DeleteChannel(ctx, f.channelID.Load()))
 	}
@@ -337,9 +337,9 @@ func TestSend_RoutesAndWakes(t *testing.T) {
 		`turn {"role":"architect","status":"done"}`)
 
 	want := []string{
-		"login please",
-		"lead wrote: @architect plan it",
-		"Thread so far:\narchitect: the plan\n\nwhy?",
+		"[channel 2, message 1, thread 1]\nlogin please",
+		"[channel 2, message 2, thread 2]\nlead wrote: @architect plan it",
+		"[channel 2, message 4, thread 3]\nThread so far:\narchitect: the plan\n\nwhy?",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
@@ -381,10 +381,51 @@ func TestSend_WakesByPost(t *testing.T) {
 		`turn {"role":"lead","status":"done"}`,
 		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"architect","status":"done"}`)
-	want := []string{"go", "lead wrote: @architect look at this"}
+	want := []string{
+		"[channel 2, message 1, thread 1]\ngo",
+		"[channel 2, message 2, thread 2]\nlead wrote: @architect look at this",
+	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: the post that mentions nobody wakes no one", got, want)
 	}
+}
+
+func TestSend_OneWakePerRole(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, parent *int64) {
+		if role == "lead" {
+			post("lead", "@architect look at this", parent)
+			post("lead", "I asked @architect", parent)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`)
+	want := []string{
+		"[channel 2, message 1, thread 1]\ngo",
+		"[channel 2, message 2, thread 2]\nlead wrote: @architect look at this\n\n" +
+			"[channel 2, message 3, thread 3]\nlead wrote: I asked @architect",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q: one architect turn for both posts", got, want)
+	}
+}
+
+func TestSend_MentionsWakeEachRole(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "@architect @lead hi")
+	sub.want(t, _idleFrame,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`)
 }
 
 func TestSend_WhileWakeChainRuns(t *testing.T) {
@@ -500,7 +541,7 @@ func TestSend_WrapWakesNobody(t *testing.T) {
 	env.sendTo(t, 3, "ping")
 	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"lead","status":"done"}`)
-	if got := env.ranTexts(); !slices.Equal(got, []string{"ping"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 3, message 3, thread 3]\nping"}) {
 		t.Errorf("ran = %q, want only ping: the wrap reply wakes no architect", got)
 	}
 }
@@ -594,7 +635,7 @@ func TestApproval_GateHoldsWake(t *testing.T) {
 	sub := subscribeTo(t, env.url, id)
 	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
 	const pending = `{"id":1,"channelId":2,"from":"lead","to":"architect","messageId":2,` +
-		`"text":"lead wrote: @architect plan it","status":`
+		`"text":"[channel 2, message 2, thread 2]\nlead wrote: @architect plan it","status":`
 
 	env.sendTo(t, id, "go")
 	sub.want(t, _idleFrame,
@@ -607,7 +648,7 @@ func TestApproval_GateHoldsWake(t *testing.T) {
 	if status != 200 || !strings.HasPrefix(body, "["+pending+`"pending","createdAt":`) {
 		t.Errorf("approvals = %d %s, want the pending approval", status, body)
 	}
-	if got := env.ranTexts(); !slices.Equal(got, []string{"go"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 1, thread 1]\ngo"}) {
 		t.Errorf("ran = %q, want only go: no architect turn before approval", got)
 	}
 
@@ -631,7 +672,10 @@ func TestApproval_GateHoldsWake(t *testing.T) {
 	if !approved || !slices.Equal(turn, wantTurn) {
 		t.Errorf("frames after approve = %q (approved %v), want the architect turn and the approved approval", turn, approved)
 	}
-	if got := env.ranTexts(); !slices.Equal(got, []string{"go", "lead wrote: @architect plan it"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 2, message 1, thread 1]\ngo",
+		"[channel 2, message 2, thread 2]\nlead wrote: @architect plan it",
+	}) {
 		t.Errorf("ran = %q, want the architect to run the held wake", got)
 	}
 
@@ -671,7 +715,7 @@ func (e *liveEnv) gatedChannel(t *testing.T) (int, *stream, string) {
 		t.Fatal(err)
 	}
 	e.fake.onRun = func(role, text string, _ *int64) {
-		if role == "lead" && text == "go" {
+		if role == "lead" && strings.HasSuffix(text, "\ngo") {
 			post("lead", "@architect plan it", nil)
 		}
 	}
@@ -708,7 +752,10 @@ func TestApproval_TwoApprovesRunOneTurn(t *testing.T) {
 	for range 4 {
 		sub.next(t)
 	}
-	if got := env.ranTexts(); !slices.Equal(got, []string{"go", "lead wrote: @architect plan it"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 2, message 1, thread 1]\ngo",
+		"[channel 2, message 2, thread 2]\nlead wrote: @architect plan it",
+	}) {
 		t.Errorf("ran = %q, want one architect turn", got)
 	}
 	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
@@ -1007,7 +1054,7 @@ func TestSend_PromoteTextIsAMessage(t *testing.T) {
 	env.fake.mu.Lock()
 	ran := env.fake.ran
 	env.fake.mu.Unlock()
-	if !slices.Equal(ran, []string{"/promote"}) || env.fake.promoted.Load() != 0 {
+	if !slices.Equal(ran, []string{"[channel 2, message 1, thread 1]\n/promote"}) || env.fake.promoted.Load() != 0 {
 		t.Errorf("ran = %q, promotes = %d, want the text run as a message, no promote",
 			ran, env.fake.promoted.Load())
 	}
