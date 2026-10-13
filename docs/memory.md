@@ -258,11 +258,13 @@ Approve applies everything in one transaction:
 
 - a new brief version, with the role as author,
 - the role's notes, replacing the old ones,
-- each proposed decision, with the role as author and no source message,
+- each proposed decision, with the role as author and no source message. A decision whose
+  body is exactly the body of one the feature already has is skipped, so a decision the
+  agent recorded live is not saved twice. A repeat inside the proposal is skipped too,
 - the proposal marked `approved`, with `decidedAt`.
 
 If any step fails, nothing is applied. It prints `approved: brief, notes and 1 decisions
-saved`.
+saved`, counting only the decisions it added.
 
 Reject marks the proposal `rejected` and changes nothing else: `rejected: nothing
 changed`. To change a proposal, reject it, tell the agent what to change, and type

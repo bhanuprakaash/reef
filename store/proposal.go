@@ -16,6 +16,10 @@ const (
 	ProposalRejected = "rejected"
 )
 
+const _insertNewDecision = "INSERT INTO decision (feature_id, message_id, body, why, author, created_at) " +
+	"SELECT ?, NULL, ?, ?, ?, ? WHERE NOT EXISTS " +
+	"(SELECT 1 FROM decision WHERE feature_id = ? AND body = ?)"
+
 const _proposalCols = "id, channel_id, role, brief, notes, decisions, status, created_at, decided_at"
 
 // ProposedDecision is a decision that approving its proposal records.
@@ -96,38 +100,47 @@ func (s *Store) PendingProposal(ctx context.Context, channelID int64) (Proposal,
 
 // ApproveProposal applies the pending proposal in one transaction: a new brief
 // version and the role's notes, both authored by the proposal's role, and each
-// proposed decision. Nothing is applied if any step fails.
-func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, error) {
+// proposed decision whose body the feature does not have yet. It also returns how
+// many decisions it added. Nothing is applied if any step fails.
+func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, int, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Proposal{}, fmt.Errorf("begin approve: %w", err)
+		return Proposal{}, 0, fmt.Errorf("begin approve: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
 	p, err := pendingProposal(ctx, tx, id)
 	if err != nil {
-		return Proposal{}, err
+		return Proposal{}, 0, err
 	}
 	var featureID int64
 	err = tx.QueryRowContext(ctx,
 		"SELECT feature_id FROM channel WHERE id = ?", p.ChannelID).Scan(&featureID)
 	if err != nil {
-		return Proposal{}, fmt.Errorf("read feature of proposal %d: %w", id, err)
+		return Proposal{}, 0, fmt.Errorf("read feature of proposal %d: %w", id, err)
 	}
 	now := time.Now().UTC()
 	at := now.Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, _insertBrief, featureID, p.Brief, p.Role, at); err != nil {
-		return Proposal{}, fmt.Errorf("insert brief: %w", err)
+		return Proposal{}, 0, fmt.Errorf("insert brief: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx, _upsertRoleNotes, featureID, p.Role, p.Notes, at); err != nil {
-		return Proposal{}, fmt.Errorf("upsert role notes: %w", err)
+		return Proposal{}, 0, fmt.Errorf("upsert role notes: %w", err)
 	}
+	added := 0
 	for _, d := range p.Decisions {
-		if _, err := tx.ExecContext(ctx, _insertDecision,
-			featureID, nil, d.Body, d.Why, p.Role, at); err != nil {
-			return Proposal{}, fmt.Errorf("insert decision: %w", err)
+		res, err := tx.ExecContext(ctx, _insertNewDecision,
+			featureID, d.Body, d.Why, p.Role, at, featureID, d.Body)
+		if err != nil {
+			return Proposal{}, 0, fmt.Errorf("insert decision: %w", err)
 		}
+		n, err := res.RowsAffected()
+		if err != nil {
+			return Proposal{}, 0, fmt.Errorf("insert decision: %w", err)
+		}
+		added += int(n)
 	}
-	return decideProposal(ctx, tx, p, ProposalApproved, now)
+	p, err = decideProposal(ctx, tx, p, ProposalApproved, now)
+	return p, added, err
 }
 
 // RejectProposal marks the pending proposal rejected and changes nothing else.
