@@ -33,8 +33,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 6 {
-		t.Errorf("user_version = %d, want 6", version)
+	if version != 7 {
+		t.Errorf("user_version = %d, want 7", version)
 	}
 
 	at := func(h, m, sec, ns int) time.Time {

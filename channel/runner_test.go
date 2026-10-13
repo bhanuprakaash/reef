@@ -23,12 +23,12 @@ type fakeAgent struct {
 }
 
 type sayRunner interface {
-	Say(ctx context.Context, body string) error
+	Say(ctx context.Context, body string, parent *int64) error
 	Run(ctx context.Context, text string, onEvent func(agent.Event)) error
 }
 
 func sendAs(ctx context.Context, r sayRunner, text string, onEvent func(agent.Event)) error {
-	if err := r.Say(ctx, text); err != nil {
+	if err := r.Say(ctx, text, nil); err != nil {
 		return err
 	}
 	return r.Run(ctx, text, onEvent)
@@ -140,6 +140,40 @@ func (s *scriptAgent) Send(context.Context, string) error {
 		close(s.events)
 	}
 	return nil
+}
+
+func TestRunner_ReplyStaysInThread(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := st.CreateMessage(ctx, store.Message{ChannelID: ch.ID, Author: "user", Body: "root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fa := &fakeAgent{events: make(chan agent.Event, 8)}
+	r := NewRunner(st, fa, ch.ID, "architect", "claude", "")
+	if err := r.Say(ctx, "one 1", &root.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Run(ctx, "one 1", func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := st.Thread(ctx, ch.ID, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range msgs {
+		got = append(got, m.Author+": "+m.Body)
+	}
+	if want := []string{"user: root", "user: one 1", "architect: reply 1"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("thread = %q, want %q", got, want)
+	}
 }
 
 func TestRunner_SendFailedTurn(t *testing.T) {

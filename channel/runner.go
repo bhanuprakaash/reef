@@ -27,6 +27,7 @@ type Runner struct {
 	st        *store.Store
 	ag        agent.Agent
 	channelID int64
+	parent    *int64
 	role      string
 	backend   string
 	preamble  string
@@ -45,12 +46,16 @@ func NewRunner(
 	}
 }
 
-// Say stores body as the user message.
-func (r *Runner) Say(ctx context.Context, body string) error {
-	_, err := r.st.CreateMessage(ctx, store.Message{
-		ChannelID: r.channelID, Author: _userAuthor, Body: body,
-	})
-	return err
+// Say stores body as the user message, a reply in the thread of parent when it is set.
+// The reply of the next Run goes in the same thread.
+func (r *Runner) Say(ctx context.Context, body string, parent *int64) error {
+	if _, err := r.st.CreateMessage(ctx, store.Message{
+		ChannelID: r.channelID, ParentID: parent, Author: _userAuthor, Body: body,
+	}); err != nil {
+		return err
+	}
+	r.parent = parent
+	return nil
 }
 
 // Run runs one turn with text. A cancelled ctx wraps ctx.Err(); a turn over the tool
@@ -112,7 +117,7 @@ func (r *Runner) Run(ctx context.Context, text string, onEvent func(agent.Event)
 			case agent.KindTurnEnd:
 				if reply.Len() > 0 {
 					if _, err := r.st.CreateMessage(wctx, store.Message{
-						ChannelID: r.channelID, Author: r.role, Body: reply.String(),
+						ChannelID: r.channelID, ParentID: r.parent, Author: r.role, Body: reply.String(),
 					}); err != nil {
 						return r.abort(wctx, turn, err, err.Error())
 					}
