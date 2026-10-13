@@ -216,10 +216,10 @@ when it ends. See [memory.md](memory.md#tokens).
 
 ### proposal
 
-A wrap-up proposal: the new brief, the role's notes and the decisions to record. No REST
-route: `propose_wrap` makes one, `reef chat` prompts for approval, and `reef wrap approve`
-or `reef wrap reject` approves or rejects it. See
-[memory.md](memory.md#wrap-up).
+A wrap-up proposal: the new brief, the role's notes and the decisions to record.
+`propose_wrap` makes one. `reef chat` prompts for approval, and `reef wrap approve` or
+`reef wrap reject` decides it; the server offers the same over REST (see [Wrap-up and
+promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -269,6 +269,11 @@ a channel takes its messages, turns, tokens and proposals.
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
 | `POST /channels/{id}/stop` | | 204, also when the channel is not live | |
 | `POST /channels/{id}/continue` | | 204, no body | 404, 409 not paused |
+| `POST /channels/{id}/wrap` | no body needed; a body is ignored | 202, no body | 404, 409 and 503 as send |
+| `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
+| `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
+| `POST /proposals/{id}/approve` | | 200 the proposal and `decisionsAdded` | 400 already decided, 404 |
+| `POST /proposals/{id}/reject` | | 200 the proposal | 400 already decided, 404 |
 | `GET /messages` | `?channel=ID` (required), `?after=ID` (only newer ids) | 200 | 400 no channel, 404 unknown channel |
 | `POST /messages` | `channelId`, `author`, `body` | 201 | 400 unknown channel or missing field |
 | `GET /tasks` | `?project=ID`, `?feature=ID`, `?status=todo\|doing\|done` | 200 | 400 bad id or status |
@@ -335,6 +340,27 @@ data: {"kind":"text","text":"done"}
 event: turn
 data: {"status":"done"}
 ```
+
+## Wrap-up and promotion
+
+`POST /channels/{id}/wrap` does what a send of the text `/wrap` does: it runs the wrap-up
+turn of [`Session.Wrap`](../channel/session.go) (see [memory.md](memory.md#wrap-up)). The
+agent calls `propose_wrap`; when the turn is done, `GET /channels/{id}/proposal` returns the
+pending proposal, or 404 when the agent made none. `POST /proposals/{id}/approve` and
+`/reject` decide it with the same effect as `reef wrap approve` and `reject`. Approve
+also returns `decisionsAdded`, the decisions it saved. A proposal that is already decided is
+400, like `invalid: proposal 1 is already approved` in the CLI.
+
+`POST /channels/{id}/promote` turns a quick session into a feature. It takes `{"slug":
+"login","name":"Login"}` to create the feature in the channel's project, or `{"featureId":
+3}` for a feature that exists in that project. Only a channel with no feature can be
+promoted. The server checks that no turn runs and the caps, as for send, then in one
+transaction creates the feature and sets the channel's `featureId`. It answers 202 with the
+channel and starts a turn: the stored user message is `/promote`, and the agent gets a
+prompt that names the feature and asks it to call `propose_wrap` once with the first brief,
+written from the session, its notes and the decisions so far. The user approves that
+proposal like a wrap-up, and approval makes brief version 1. A promote that fails (a taken
+slug, a feature of another project) changes nothing.
 
 ## Caps
 

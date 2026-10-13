@@ -19,10 +19,16 @@ const (
 	TokenEnv = "REEF_TOKEN"
 	// WrapCommand is the message that asks for a wrap-up.
 	WrapCommand = "/wrap"
+	// PromoteCommand is the stored message of the turn that follows a promotion.
+	PromoteCommand = "/promote"
 
 	_wrapPrompt = "Wrap up this channel. Call the propose_wrap tool once with the full " +
 		"rewritten brief (goal, status, key decisions, open questions), your own notes on " +
 		"this feature, and the decisions made in this channel that are not recorded yet. " +
+		"Then reply with one line saying it is proposed."
+	_promotePrompt = "This quick session is now feature %q (%s). Call the propose_wrap tool " +
+		"once with the first brief (goal, status, key decisions, open questions) written from " +
+		"this session, your own notes on the feature, and the decisions made so far. " +
 		"Then reply with one line saying it is proposed."
 )
 
@@ -116,11 +122,35 @@ func open(
 // returns the proposal it made in that turn. It returns ErrNoProposal when the agent
 // made none.
 func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
+	return s.propose(ctx, WrapCommand, _wrapPrompt, onEvent)
+}
+
+// Promote tells the agent its quick session is now a feature and asks for the first
+// brief, storing the user message /promote. It returns the proposal the agent made in
+// that turn, or ErrNoProposal. The channel must already have its feature.
+func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
+	ch, err := s.st.Channel(ctx, s.channelID)
+	if err != nil {
+		return store.Proposal{}, err
+	}
+	if ch.FeatureID == nil {
+		return store.Proposal{}, fmt.Errorf("%w: channel %d has no feature", store.ErrInvalid, ch.ID)
+	}
+	f, err := s.st.Feature(ctx, *ch.FeatureID)
+	if err != nil {
+		return store.Proposal{}, err
+	}
+	return s.propose(ctx, PromoteCommand, fmt.Sprintf(_promotePrompt, f.Name, f.Slug), onEvent)
+}
+
+func (s *Session) propose(
+	ctx context.Context, stored, prompt string, onEvent func(agent.Event),
+) (store.Proposal, error) {
 	before, err := s.st.PendingProposal(ctx, s.channelID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, err
 	}
-	if err := s.SendAs(ctx, WrapCommand, _wrapPrompt, onEvent); err != nil {
+	if err := s.SendAs(ctx, stored, prompt, onEvent); err != nil {
 		return store.Proposal{}, err
 	}
 	p, err := s.st.PendingProposal(ctx, s.channelID)

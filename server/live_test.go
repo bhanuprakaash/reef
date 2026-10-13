@@ -55,6 +55,11 @@ func (f *fakeSession) Wrap(_ context.Context, onEvent func(agent.Event)) (store.
 	return store.Proposal{}, nil
 }
 
+func (f *fakeSession) Promote(_ context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
+	onEvent(agent.Event{Kind: agent.KindText, Text: "promoted"})
+	return store.Proposal{}, nil
+}
+
 func (f *fakeSession) Close() error {
 	f.closed.Add(1)
 	return nil
