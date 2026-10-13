@@ -607,7 +607,7 @@ func TestSend_UserMessageClearsHopPause(t *testing.T) {
 	sub.want(t, `pause {"reason":""}`)
 	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead")
 	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
-	if got := env.ranTexts(); len(got) != 10 || got[5] != "more" {
+	if got := env.ranTexts(); len(got) != 10 || got[5] != "[channel 2, message 7, thread 7]\nmore" {
 		t.Errorf("ran = %q, want 10 turns, the sixth the user's: the held wake is dropped and the count starts at 0", got)
 	}
 }
