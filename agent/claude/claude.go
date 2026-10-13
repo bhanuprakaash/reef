@@ -253,10 +253,10 @@ func (a *Agent) read(stdout io.Reader) {
 
 	r := bufio.NewReader(stdout)
 	var last agent.Kind
-	var seen agent.Usage
+	var st state
 	for {
 		line, err := r.ReadBytes('\n')
-		for _, ev := range parse(line, &seen) {
+		for _, ev := range parse(line, &st) {
 			if !a.emit(ev) {
 				_ = a.cmd.Wait()
 				return
@@ -335,12 +335,21 @@ func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
 	return f.Name(), nil
 }
 
+// state is what parse keeps between lines.
+type state struct {
+	seen  agent.Usage   // usage the turn has sent so far
+	calls []agent.Event // tool calls of the message in progress, held until its usage
+}
+
 // parse maps one stdout line to Events. Text comes from the partial-message deltas, so
 // the complete assistant text blocks that follow are skipped. Unknown lines give none.
 // Usage is sent as each message ends: its message_delta has the final counts, while the
-// assistant line's output count is only the first few tokens. seen is what the turn has
-// sent so far; the result line sends only what is left of its total.
-func parse(line []byte, seen *agent.Usage) []agent.Event {
+// assistant line's output count is only the first few tokens. The tool calls of a message
+// follow its usage, so a turn stopped at a call has counted the model call that made it
+// (its assistant line comes before the message_delta). A subagent's messages have no
+// message_delta, so its calls are sent at once. The result line sends only what is left
+// of its usage total.
+func parse(line []byte, st *state) []agent.Event {
 	var l outputLine
 	if err := json.Unmarshal(line, &l); err != nil {
 		return nil
@@ -356,8 +365,10 @@ func parse(line []byte, seen *agent.Usage) []agent.Event {
 		}
 		if l.Event.Type == "message_delta" {
 			u := l.Event.Usage.usage()
-			seen.Add(u)
-			return []agent.Event{{Kind: agent.KindUsage, Usage: &u}}
+			st.seen.Add(u)
+			evs := append([]agent.Event{{Kind: agent.KindUsage, Usage: &u}}, st.calls...)
+			st.calls = nil
+			return evs
 		}
 	case "assistant":
 		var evs []agent.Event
@@ -368,6 +379,10 @@ func parse(line []byte, seen *agent.Usage) []agent.Event {
 					ParentToolID: l.ParentToolUseID,
 				})
 			}
+		}
+		if l.ParentToolUseID == "" {
+			st.calls = append(st.calls, evs...)
+			return nil
 		}
 		return evs
 	case "user":
@@ -387,12 +402,12 @@ func parse(line []byte, seen *agent.Usage) []agent.Event {
 	case "result":
 		total := l.Usage.usage()
 		rest := agent.Usage{
-			InputTokens:      total.InputTokens - seen.InputTokens,
-			OutputTokens:     total.OutputTokens - seen.OutputTokens,
-			CacheReadTokens:  total.CacheReadTokens - seen.CacheReadTokens,
-			CacheWriteTokens: total.CacheWriteTokens - seen.CacheWriteTokens,
+			InputTokens:      total.InputTokens - st.seen.InputTokens,
+			OutputTokens:     total.OutputTokens - st.seen.OutputTokens,
+			CacheReadTokens:  total.CacheReadTokens - st.seen.CacheReadTokens,
+			CacheWriteTokens: total.CacheWriteTokens - st.seen.CacheWriteTokens,
 		}
-		*seen = agent.Usage{}
+		*st = state{}
 		var evs []agent.Event
 		if rest != (agent.Usage{}) {
 			evs = append(evs, agent.Event{Kind: agent.KindUsage, Usage: &rest})

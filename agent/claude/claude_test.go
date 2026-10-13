@@ -43,14 +43,8 @@ func TestParse(t *testing.T) {
 			give: `{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"command\": \"ls -la"}},"session_id":"9fc87746-5f3e-4a0d-8a30-540ee65a50c9","parent_tool_use_id":null}`,
 		},
 		{
-			name: "tool call",
+			name: "tool call is held until its message's usage",
 			give: `{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01QXVfbj1JZFm29Aqmf9Gb8z","name":"Bash","input":{"command":"echo hello-from-tool","description":"Print test string"},"caller":{"type":"direct"}}]},"parent_tool_use_id":null,"session_id":"3c1296cc-1e28-4167-a8a8-dfb0facf9381"}`,
-			want: []agent.Event{{
-				Kind:     agent.KindToolCall,
-				ToolID:   "toolu_01QXVfbj1JZFm29Aqmf9Gb8z",
-				ToolName: "Bash",
-				Input:    json.RawMessage(`{"command":"echo hello-from-tool","description":"Print test string"}`),
-			}},
 		},
 		{
 			name: "assistant text is skipped",
@@ -124,11 +118,36 @@ func TestParse(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := parse([]byte(tt.give), &agent.Usage{})
+			got := parse([]byte(tt.give), &state{})
 			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("parse() = %+v, want %+v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestParse_toolCallsFollowUsage(t *testing.T) {
+	lines := []string{
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01AbYRGNn2oNiJAXmFbwaF6C","name":"Read","input":{"file_path":"/tmp/reef-rec88/note.txt"}},{"type":"tool_use","id":"toolu_02","name":"Bash","input":{"command":"echo second"}}],"usage":{"input_tokens":2,"cache_creation_input_tokens":8139,"cache_read_input_tokens":7817,"output_tokens":16}},"parent_tool_use_id":null}`,
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_sub","name":"Read","input":{}}]},"parent_tool_use_id":"toolu_agent"}`,
+		`{"type":"stream_event","event":{"type":"content_block_stop","index":0},"parent_tool_use_id":null}`,
+		`{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":2,"cache_creation_input_tokens":8139,"cache_read_input_tokens":7817,"output_tokens":63}},"parent_tool_use_id":null}`,
+		`{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"input_tokens":2,"cache_creation_input_tokens":105,"cache_read_input_tokens":18204,"output_tokens":3}},"parent_tool_use_id":null}`,
+	}
+	want := []agent.Event{
+		{Kind: agent.KindToolCall, ToolID: "toolu_sub", ToolName: "Read", ParentToolID: "toolu_agent", Input: json.RawMessage(`{}`)},
+		{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 63, CacheReadTokens: 7817, CacheWriteTokens: 8139}},
+		{Kind: agent.KindToolCall, ToolID: "toolu_01AbYRGNn2oNiJAXmFbwaF6C", ToolName: "Read", Input: json.RawMessage(`{"file_path":"/tmp/reef-rec88/note.txt"}`)},
+		{Kind: agent.KindToolCall, ToolID: "toolu_02", ToolName: "Bash", Input: json.RawMessage(`{"command":"echo second"}`)},
+		{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 3, CacheReadTokens: 18204, CacheWriteTokens: 105}},
+	}
+	var st state
+	var got []agent.Event
+	for _, line := range lines {
+		got = append(got, parse([]byte(line), &st)...)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %+v, want %+v", got, want)
 	}
 }
 
@@ -173,10 +192,10 @@ func TestParse_turnUsage(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			var seen agent.Usage
+			var st state
 			var got []agent.Usage
 			for _, line := range tt.give {
-				for _, ev := range parse([]byte(line), &seen) {
+				for _, ev := range parse([]byte(line), &st) {
 					if ev.Kind == agent.KindUsage {
 						got = append(got, *ev.Usage)
 					}
