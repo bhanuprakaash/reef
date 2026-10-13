@@ -13,7 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"syscall"
+	"time"
 
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
@@ -32,13 +32,14 @@ var (
 //go:embed migrations/*.sql
 var _migrations embed.FS
 
-const _dsnParams = "_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)" +
-	"&_pragma=busy_timeout(5000)"
+const _walTimeout = 5 * time.Second
+
+const _dsnParams = "_pragma=foreign_keys(ON)" +
+	"&_pragma=busy_timeout(5000)&_txlock=immediate"
 
 // Store is Reef's data, read and written through one SQLite file.
 type Store struct {
-	db   *sql.DB
-	lock *os.File
+	db *sql.DB
 }
 
 // parent is a row a write points at. A nil id is a parent the write leaves unset.
@@ -48,49 +49,36 @@ type parent struct {
 }
 
 // Open opens dir/reef.db, creating dir and the file if needed, and applies
-// any migration newer than the file's user_version. It holds a lock on the
-// folder until Close, so a second Open of the same dir fails.
+// any migration newer than the file's user_version. Several processes may
+// open the same dir at once.
 func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
-	lock, err := os.OpenFile(filepath.Join(dir, "reef.lock"), os.O_CREATE|os.O_RDWR, 0o644)
-	if err != nil {
-		return nil, fmt.Errorf("open lock file: %w", err)
-	}
-	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-		_ = lock.Close()
-		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, fmt.Errorf("data folder %s is in use by another reef", dir)
-		}
-		return nil, fmt.Errorf("lock data folder: %w", err)
-	}
 	abs, err := filepath.Abs(dir)
 	if err != nil {
-		_ = lock.Close()
 		return nil, fmt.Errorf("resolve data dir: %w", err)
 	}
 	uri := url.URL{Scheme: "file", Path: filepath.Join(abs, "reef.db"), RawQuery: _dsnParams}
 	db, err := sql.Open("sqlite", uri.String())
 	if err != nil {
-		_ = lock.Close()
 		return nil, fmt.Errorf("open db: %w", err)
 	}
-	if err := migrate(context.Background(), db); err != nil {
+	ctx := context.Background()
+	if err := enableWAL(ctx, db); err != nil {
 		_ = db.Close()
-		_ = lock.Close()
+		return nil, fmt.Errorf("enable WAL: %w", err)
+	}
+	if err := migrate(ctx, db); err != nil {
+		_ = db.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	return &Store{db: db, lock: lock}, nil
+	return &Store{db: db}, nil
 }
 
-// Close closes the database and releases the folder lock.
+// Close closes the database.
 func (s *Store) Close() error {
-	err := s.db.Close()
-	if lerr := s.lock.Close(); err == nil {
-		err = lerr
-	}
-	return err
+	return s.db.Close()
 }
 
 // writeErr is the error to return when the INSERT or UPDATE op failed with err.
@@ -182,6 +170,22 @@ func isForeignKey(err error) bool {
 	return errors.As(err, &se) && se.Code() == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY
 }
 
+// enableWAL switches the file to WAL mode, which sticks to the file. SQLite
+// fails a switch at once, ignoring busy_timeout, when another process is
+// switching the same fresh file, so it retries until the other one is done.
+func enableWAL(ctx context.Context, db *sql.DB) error {
+	deadline := time.Now().Add(_walTimeout)
+	for {
+		_, err := db.ExecContext(ctx, "PRAGMA journal_mode=WAL")
+		var se *sqlite.Error
+		if err == nil || !errors.As(err, &se) || se.Code()&0xff != sqlite3.SQLITE_BUSY ||
+			time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func migrate(ctx context.Context, db *sql.DB) error {
 	var version int
 	if err := db.QueryRowContext(ctx, "PRAGMA user_version").Scan(&version); err != nil {
@@ -228,6 +232,13 @@ func apply(ctx context.Context, db *sql.DB, version int, body string) error {
 		return err
 	}
 	defer func() { _ = tx.Rollback() }()
+	var current int
+	if err := tx.QueryRowContext(ctx, "PRAGMA user_version").Scan(&current); err != nil {
+		return fmt.Errorf("read user_version: %w", err)
+	}
+	if current >= version {
+		return nil
+	}
 	if _, err := tx.ExecContext(ctx, body); err != nil {
 		return err
 	}

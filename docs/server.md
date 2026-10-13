@@ -14,10 +14,15 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
 - `--data` is the data folder. It holds `reef.db` and `reef.lock`, and is created if
   missing. The default is `~/Library/Application Support/Reef`. Use `--data` for tests or a
   second instance.
-- One server owns a data folder. `reef serve` locks `reef.lock` for as long as it runs. A
-  second `reef serve` on the same `--data` exits with `data folder ... is in use by another
-  reef`, before it touches the data, whatever its `--addr`. A second instance needs its own
-  `--data` and its own `--addr`.
+- One server owns a data folder. `reef serve` locks `reef.lock` for as long as it runs; the
+  lock is in `cmd/reef`, not in the store. A second `reef serve` on the same `--data` exits
+  with `data folder ... is in use by another reef`, before it touches the data, whatever its
+  `--addr`. A second instance needs its own `--data` and its own `--addr`.
+- Other `reef` commands (the CLI, `reef mcp`, `reef chat`) do not take the lock. They open
+  `reef.db` directly with `store.Open` while the server runs. WAL mode and a 5 second busy
+  timeout let the processes share the file. Two processes that open a fresh folder at once
+  both succeed: each migration runs in one `BEGIN IMMEDIATE` transaction and re-reads
+  `user_version` inside it, so a migration is applied once.
 - `--addr` is where to listen. The default is `127.0.0.1:7700`. The API has no login, so
   `reef serve` refuses an `--addr` whose host is not `localhost` or a loopback IP,
   including an empty host such as `:7700`, before it opens the data folder. It also refuses

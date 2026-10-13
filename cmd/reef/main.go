@@ -62,6 +62,12 @@ func run(ctx context.Context, args []string, logOut io.Writer) error {
 		*data = filepath.Join(dir, "Reef")
 	}
 
+	lock, err := lockDataDir(*data)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = lock.Close() }()
+
 	st, err := store.Open(*data)
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
@@ -105,6 +111,26 @@ func run(ctx context.Context, args []string, logOut io.Writer) error {
 		return fmt.Errorf("shutdown: %w", shutErr)
 	}
 	return nil
+}
+
+// lockDataDir takes the data folder's lock until the returned file is closed, so
+// only one reef serve runs on a folder.
+func lockDataDir(dir string) (*os.File, error) {
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return nil, fmt.Errorf("create data dir: %w", err)
+	}
+	lock, err := os.OpenFile(filepath.Join(dir, "reef.lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open lock file: %w", err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = lock.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, fmt.Errorf("data folder %s is in use by another reef", dir)
+		}
+		return nil, fmt.Errorf("lock data folder: %w", err)
+	}
+	return lock, nil
 }
 
 // requireLoopback refuses an addr that other machines could reach, since the

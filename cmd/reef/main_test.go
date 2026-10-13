@@ -113,7 +113,7 @@ func TestRun_ServeFailsRunningTurn(t *testing.T) {
 func TestRun_SecondServeLeavesRunningTurn(t *testing.T) {
 	dir := t.TempDir()
 	seedRunningTurn(t, dir)
-	held, err := store.Open(dir)
+	held, err := lockDataDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -129,6 +129,44 @@ func TestRun_SecondServeLeavesRunningTurn(t *testing.T) {
 
 	if got := turnStatus(t, dir); got != "running" {
 		t.Errorf("turn status = %q, want running", got)
+	}
+	again, err := lockDataDir(dir)
+	if err != nil {
+		t.Fatalf("lock after release: %v", err)
+	}
+	_ = again.Close()
+}
+
+func TestRun_StoreOpensWhileServing(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var logs syncBuffer
+	done := make(chan error, 1)
+	go func() {
+		done <- run(ctx, []string{"serve", "--addr", "127.0.0.1:0", "--data", dir}, &logs)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(logs.String(), "listening on") {
+		if time.Now().After(deadline) {
+			t.Fatalf("not listening after 5s; log: %s", logs.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatalf("store.Open while serving: %v", err)
+	}
+	if _, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("run = %v, want nil", err)
 	}
 }
 
