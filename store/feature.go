@@ -42,9 +42,11 @@ func (s *Store) CreateFeature(ctx context.Context, f Feature) (Feature, error) {
 		f.ProjectID, f.Slug, f.Name, f.Goal, f.Stage, now.Format(time.RFC3339Nano))
 	if err != nil {
 		if isUnique(err) {
-			return Feature{}, fmt.Errorf("feature slug %q is taken in its project: %w", f.Slug, ErrConflict)
+			return Feature{}, fmt.Errorf("feature slug %q is taken in its project: %w",
+				f.Slug, ErrConflict)
 		}
-		return Feature{}, s.writeErr(ctx, "write feature", err, ErrInvalid, parent{table: "project", id: &f.ProjectID})
+		return Feature{}, s.writeErr(ctx, "write feature", err, ErrInvalid,
+			parent{table: "project", id: &f.ProjectID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
