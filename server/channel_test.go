@@ -118,7 +118,7 @@ func TestChannelRoundTrip(t *testing.T) {
 	status, body := do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"scratch","role":"lead","backend":"claude","permissionMode":"acceptEdits"}`)
 	if status != 201 || !strings.HasPrefix(body,
 		`{"id":1,"projectId":1,"featureId":null,"name":"scratch","role":"lead","backend":"claude",`+
-			`"permissionMode":"acceptEdits","paused":"","tokenBudget":1000000,"createdAt":"`) {
+			`"permissionMode":"acceptEdits","paused":"","tokenBudget":1000000,"team":"solo","createdAt":"`) {
 		t.Fatalf("quick session = %d %s", status, body)
 	}
 	status, body = do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"auth","backend":"claude"}`)

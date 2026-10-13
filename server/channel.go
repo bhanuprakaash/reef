@@ -1,9 +1,9 @@
 package server
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
-	"slices"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -57,7 +57,25 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: role must be lead", store.ErrInvalid))
 		return
 	}
-	if err := validateAgent(in); err != nil {
+	if in.Team == "" {
+		in.Team = store.SoloTeam
+	}
+	team, err := s.st.Team(r.Context(), in.Team)
+	if errors.Is(err, store.ErrNotFound) {
+		err = fmt.Errorf("%w: unknown team %s", store.ErrInvalid, in.Team)
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	lead := team.Roles[0]
+	if in.Backend == "" {
+		in.Backend = lead.Backend
+	}
+	if in.PermissionMode == "" && in.Backend == lead.Backend {
+		in.PermissionMode = lead.PermissionMode
+	}
+	if err := store.ValidateAgent(in.Backend, in.PermissionMode); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -67,29 +85,6 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, c)
-}
-
-func permissionModes(backend string) []string {
-	switch backend {
-	case "claude":
-		return []string{"default", "acceptEdits"}
-	case "codex":
-		return []string{"read-only", "workspace-write"}
-	default:
-		return nil
-	}
-}
-
-func validateAgent(c store.Channel) error {
-	modes := permissionModes(c.Backend)
-	if modes == nil {
-		return fmt.Errorf("%w: backend must be claude or codex", store.ErrInvalid)
-	}
-	if c.PermissionMode != "" && !slices.Contains(modes, c.PermissionMode) {
-		return fmt.Errorf("%w: permissionMode for %s must be empty, %s or %s",
-			store.ErrInvalid, c.Backend, modes[0], modes[1])
-	}
-	return nil
 }
 
 func (s *server) getChannel(w http.ResponseWriter, r *http.Request) {

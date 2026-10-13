@@ -509,7 +509,7 @@ func TestLiveRoutes_Errors(t *testing.T) {
 		{"send by GET", http.MethodGet, "/channels/1/send", "", 405, `{"error":"method not allowed"}`},
 		{"events by POST", http.MethodPost, "/channels/1/events", "", 405, `{"error":"method not allowed"}`},
 		{"stop by GET", http.MethodGet, "/channels/1/stop", "", 405, `{"error":"method not allowed"}`},
-		{"channel without backend", http.MethodPost, "/channels", `{"projectId":1,"name":"c"}`, 400,
+		{"unknown backend", http.MethodPost, "/channels", `{"projectId":1,"name":"c","backend":"gpt"}`, 400,
 			`{"error":"invalid: backend must be claude or codex"}`},
 		{"bad permission mode", http.MethodPost, "/channels",
 			`{"projectId":1,"name":"c","backend":"codex","permissionMode":"acceptEdits"}`, 400,

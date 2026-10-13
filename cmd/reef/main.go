@@ -32,6 +32,7 @@ commands:
   decide <feature> "<body>" [--why W]
   task add [<feature>] "<title>"
   task list [<feature>] [--status S]
+  team apply FILE.json | team list
   context <feature> --role R
   wrap list [<feature>] | show <id> | approve <id> | reject <id>
   token <feature> --role R
@@ -68,6 +69,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return briefCmd(ctx, args[1:], stdout)
 	case "decide":
 		return decideCmd(ctx, args[1:], stdout)
+	case "team":
+		return teamCmd(ctx, args[1:], stdout)
 	case "task":
 		return taskCmd(ctx, args[1:], stdout)
 	case "context":
