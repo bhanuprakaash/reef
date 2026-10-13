@@ -23,6 +23,18 @@ Eight slices, tracked as GitHub issues labeled `slice`. Each slice is split into
 
 Memory first: 1, 2, 3 before any UI. 1 and 2 have no dependency on each other.
 
+## Slice verification
+
+A slice is not done when its last sub-issue closes. It is done after a verification pass, run by an agent on Opus, never Sonnet:
+
+1. Re-run every acceptance line of every sub-issue against `main`, with the real thing (binary, CLI, server). Record the command and what it showed.
+2. `interrogate` the slice's full diff (first sub-issue branch point to `main`): standards, spec against `docs/product.md`, correctness, design.
+3. `blast-radius` on what the slice changed that earlier slices depend on; prove the one fact it is safe because of by running code.
+4. Every finding becomes a new sub-issue of the slice, or a written reason to skip it. The slice stays open until those close.
+5. Close the slice issue with one comment: acceptance lines and their proof, interrogate and blast-radius summaries, skipped findings with reasons.
+
+Each slice issue carries this checklist in a **Verification** section.
+
 ## Repo layout (target)
 
 ```
