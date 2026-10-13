@@ -1,11 +1,11 @@
 CREATE TABLE project (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   path TEXT NOT NULL,
   created_at TEXT NOT NULL
 );
 CREATE TABLE feature (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
   slug TEXT NOT NULL,
   name TEXT NOT NULL,
@@ -15,7 +15,7 @@ CREATE TABLE feature (
   UNIQUE (project_id, slug)
 );
 CREATE TABLE brief (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   feature_id INTEGER NOT NULL REFERENCES feature(id) ON DELETE CASCADE,
   body TEXT NOT NULL,
   author TEXT NOT NULL,
@@ -30,7 +30,7 @@ CREATE TABLE role_notes (
   PRIMARY KEY (feature_id, role)
 );
 CREATE TABLE channel (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
   feature_id INTEGER REFERENCES feature(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
@@ -39,7 +39,7 @@ CREATE TABLE channel (
 CREATE INDEX channel_project ON channel(project_id);
 CREATE INDEX channel_feature ON channel(feature_id);
 CREATE TABLE message (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   channel_id INTEGER NOT NULL REFERENCES channel(id) ON DELETE CASCADE,
   author TEXT NOT NULL,
   body TEXT NOT NULL,
@@ -47,7 +47,7 @@ CREATE TABLE message (
 );
 CREATE INDEX message_channel ON message(channel_id, id);
 CREATE TABLE turn (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   channel_id INTEGER NOT NULL REFERENCES channel(id) ON DELETE CASCADE,
   role TEXT NOT NULL,
   backend TEXT NOT NULL,
@@ -64,7 +64,7 @@ CREATE TABLE turn (
 CREATE INDEX turn_channel ON turn(channel_id);
 CREATE INDEX turn_status ON turn(status);
 CREATE TABLE decision (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   feature_id INTEGER NOT NULL REFERENCES feature(id) ON DELETE CASCADE,
   message_id INTEGER REFERENCES message(id) ON DELETE SET NULL,
   body TEXT NOT NULL,
@@ -74,7 +74,7 @@ CREATE TABLE decision (
 );
 CREATE INDEX decision_feature ON decision(feature_id);
 CREATE TABLE task (
-  id INTEGER PRIMARY KEY,
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
   project_id INTEGER NOT NULL REFERENCES project(id) ON DELETE CASCADE,
   feature_id INTEGER REFERENCES feature(id) ON DELETE SET NULL,
   title TEXT NOT NULL,
