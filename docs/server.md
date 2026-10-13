@@ -76,7 +76,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
-| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a paused channel or to a channel open in a `reef chat`; `continue` on a channel that is not paused; an approval that is not pending, or one approved while a turn runs or the channel is paused |
+| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; an approval that is not pending, or one approved while a turn runs or the channel is paused |
 | 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
 | 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
@@ -343,10 +343,10 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `GET /channels/{id}` | | 200 | 404 |
 | `PUT /channels/{id}` | `name` only; project, feature, role, backend and permission mode stay as created | 200 | 400, 404 |
 | `DELETE /channels/{id}` | stops the channel first if it is live | 204 | 404 |
-| `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404, 409 turn running, channel paused, open elsewhere or stopped before its turn began, 503 |
+| `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404, 409 turn running, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
-| `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused |
+| `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
 | `GET /channels/{id}/approvals` | | 200 the channel's pending approvals, oldest first; `[]` when none | 404 |
 | `POST /channels/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body | 400 no `approve`, 404 no such approval in this channel, 409 not pending, or approve while a turn runs or the channel is paused (it stays pending), 503 |
 | `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
@@ -444,7 +444,7 @@ too: it is the root of a thread the role owns.
 The first turn and the wakes after it are one chain. They run one at a time, in the order
 the messages were stored, and the messages each turn stores are routed in turn and queued at
 the end. The channel has a turn running until the chain is done, so a `send`, a `wrap`, a
-`promote` or an approve during the chain is 409. A turn that fails, or is capped, ends the
+`promote`, a `continue` or an approve during the chain is 409. A turn that fails, or is capped, ends the
 chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
 lead's reply says `@architect ...`; the architect runs and posts a plan, a new thread it
 owns; the chain ends because the plan names no one. The lead gets no turn after the plan.
@@ -474,7 +474,7 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Four kind
 - `agent`: one [agent event](agents.md) as JSON, as it comes, from the turn that is running.
 - `pause`: `{"reason":"..."}` when a cap pauses the channel: right after the `turn`
   event of a capped turn, when a send finds the token budget used, or when the hop cap holds
-  a wake. `{"reason":""}` when `continue` clears the pause.
+  a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
 - `approval`: an [approval](#approval) as JSON, `pending` when a gate holds a wake, and again
   with `approved` or `rejected` when it is decided.
 
@@ -548,16 +548,18 @@ Three caps pause a channel. All are constants in the code, not settings.
   message`, and the `turn` event of the turn before it is followed by a `pause` event. The wake
   that did not run, and the wakes behind it, are held in memory.
 
-A send to a paused channel is 409 with the reason in the error. `POST
-/channels/{id}/continue` clears the pause. When the token sum is at or over the budget it
+A send to a paused channel is 409 with the reason in the error, except after the hop cap: that
+pause is for agents, so a user message clears it, resets the hop count to 0, drops the held
+wakes and runs. `POST /channels/{id}/continue` clears the pause. When the token sum is at or over the budget it
 also adds 1,000,000 to `tokenBudget`; after a tool cap the next turn simply gets a fresh
-25. `continue` on a channel that is not paused is 409.
+25. `continue` on a channel that is not paused, or has a turn running, is 409.
 
 Held wakes: when a wake cannot run because of a pause (the hop cap, or a token budget that ran
 out in the middle of a chain), the server keeps it and the wakes behind it. `continue` then
 resets the hop count to 0 and runs them as a new chain, with `pause` `{"reason":""}` as the
-chain starts. That chain can reach the hop cap again, and then pauses again. Sending a
-user message resets the hop count to 0 too. Approving a gate does not. A held wake lives in
+chain starts. If the chain cannot start, the channel stays paused and keeps the wakes. That
+chain can reach the hop cap again, and then pauses again. Sending a user message resets the
+hop count to 0 too. Approving a gate does not. A held wake lives in
 memory only: after a restart `continue` just clears the pause and runs nothing.
 
 The tool cap is counted in `channel.Runner`, so `reef chat` is capped too: it pauses the
