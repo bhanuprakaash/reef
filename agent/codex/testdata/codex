@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fake `codex app-server`. FAKE_CODEX: hang (default), slowstart, deafstart, failstart, crash, replay.
+# Fake `codex app-server`. FAKE_CODEX: hang (default), slowstart, deafstart, rejected, midcrash, failstart, crash, replay, twocalls.
 [ "$FAKE_CODEX" = slowstart ] && exec sleep 30
 [ "$FAKE_CODEX" = deafstart ] && { trap '' TERM; exec sleep 30; }
 read -r line
@@ -15,6 +15,10 @@ if [ "$FAKE_CODEX" = replay ]; then
 	echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":100,"cachedInputTokens":0,"outputTokens":1}}}}'
 fi
 read -r line
+if [ "$FAKE_CODEX" = rejected ]; then
+	echo '{"id":3,"error":{"code":-32600,"message":"bad turn"}}'
+	exec sleep 30
+fi
 echo '{"id":3,"result":{}}'
 echo '{"method":"turn/started","params":{"turn":{"status":"inProgress"}}}'
 echo '{"method":"item/agentMessage/delta","params":{"delta":"hi"}}'
@@ -23,6 +27,17 @@ replay)
 	echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":4,"cacheWriteInputTokens":2,"outputTokens":3}}}}'
 	echo '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
 	exec sleep 30
+	;;
+twocalls)
+	echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":4,"cacheWriteInputTokens":2,"outputTokens":3}}}}'
+	echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":7,"cachedInputTokens":1,"outputTokens":5}}}}'
+	echo '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'
+	exec sleep 30
+	;;
+midcrash)
+	echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":4,"outputTokens":3}}}}'
+	echo boom >&2
+	exit 3
 	;;
 crash)
 	echo '{"method":"turn/completed","params":{"turn":{"status":"completed"}}}'

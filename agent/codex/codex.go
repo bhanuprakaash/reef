@@ -43,6 +43,8 @@ type (
 		writeMu  sync.Mutex    // serializes writes to stdin
 		mu       sync.Mutex    // guards used, cmd and Interrupt
 		used     bool
+		turn     agent.Usage // sum so far of the turn in progress; owned by run
+		inTurn   bool        // between turn/started and the turn's end; resume replays usage outside it
 	}
 
 	// tail keeps the last _stderrKeep bytes written to it.
@@ -235,7 +237,7 @@ func (a *Agent) run(method string, params map[string]any, ready chan<- error) {
 	a.read()
 	// Wait closes stdout, so it must come after the last read.
 	err = a.cmd.Wait()
-	if err == nil || a.interrupted() {
+	if err == nil || a.interrupted() || (a.inTurn && !a.flushUsage()) {
 		return
 	}
 	a.emit(agent.Event{
@@ -309,7 +311,6 @@ func (a *Agent) read() {
 	if !a.emit(agent.Event{Kind: agent.KindSession, SessionID: a.threadID}) {
 		return
 	}
-	var inTurn bool // resume replays the last turn's usage before any turn starts
 	for {
 		line, err := a.stdout.ReadBytes('\n')
 		var m message
@@ -320,19 +321,42 @@ func (a *Agent) read() {
 					"id":    m.ID,
 					"error": map[string]any{"code": -32601, "message": "unsupported"},
 				})
-			} else {
-				ev, ok := m.event()
-				inTurn = inTurn || m.Method == "turn/started"
-				if ok && (inTurn || ev.Kind != agent.KindUsage) && !a.emit(ev) {
-					return
-				}
-				inTurn = inTurn && m.Method != "turn/completed"
+			} else if !a.handle(m) {
+				return
 			}
 		}
 		if err != nil {
 			return
 		}
 	}
+}
+
+// handle emits the event for m and reports whether to keep reading. Codex reports each
+// model call; a turn's usage is their sum, emitted before the event that ends the turn.
+func (a *Agent) handle(m message) bool {
+	switch m.Method {
+	case "turn/started":
+		a.inTurn = true
+	case "thread/tokenUsage/updated":
+		if ev, _ := m.event(); a.inTurn {
+			a.turn.Add(*ev.Usage)
+		}
+		return true
+	}
+	ev, ok := m.event()
+	if !ok {
+		return true
+	}
+	if (ev.Kind == agent.KindTurnEnd || ev.Kind == agent.KindError) && !a.flushUsage() {
+		return false
+	}
+	return a.emit(ev)
+}
+
+func (a *Agent) flushUsage() bool {
+	usage := a.turn
+	a.turn, a.inTurn = agent.Usage{}, false
+	return a.emit(agent.Event{Kind: agent.KindUsage, Usage: &usage})
 }
 
 func (a *Agent) emit(ev agent.Event) bool {
