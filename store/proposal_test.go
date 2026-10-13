@@ -239,7 +239,7 @@ func TestPendingProposals(t *testing.T) {
 	}
 
 	ids := func(featureID *int64) []int64 {
-		ps, err := s.PendingProposals(ctx, featureID)
+		ps, err := s.PendingProposals(ctx, featureID, nil)
 		if err != nil {
 			t.Fatal(err)
 		}

@@ -37,14 +37,21 @@ func wrapList(ctx context.Context, args []string, stdout io.Writer) error {
 	defer func() { _ = st.Close() }()
 
 	var featureID *int64
+	var projectID *int64
 	if len(pos) == 1 {
 		f, err := st.FeatureByRef(ctx, pos[0])
 		if err != nil {
 			return err
 		}
 		featureID = &f.ID
+	} else {
+		p, err := cwdProject(ctx, st)
+		if err != nil {
+			return err
+		}
+		projectID = &p.ID
 	}
-	ps, err := st.PendingProposals(ctx, featureID)
+	ps, err := st.PendingProposals(ctx, featureID, projectID)
 	if err != nil {
 		return err
 	}
@@ -83,7 +90,8 @@ func wrapDecide(ctx context.Context, verb string, args []string, stdout io.Write
 		if err != nil {
 			return err
 		}
-		_, err = io.WriteString(stdout, proposalText(p))
+		_, err = fmt.Fprintf(stdout, "proposal %d from %s\nstatus: %s\n\n%s",
+			p.ID, p.Role, p.Status, proposalBodyText(p))
 		return err
 	case "approve":
 		_, added, err := st.ApproveProposal(ctx, id)
