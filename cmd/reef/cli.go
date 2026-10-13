@@ -48,11 +48,16 @@ func (c command) open(args []string) (*store.Store, []string, error) {
 		if err := c.fs.Parse(args); err != nil {
 			return nil, nil, fmt.Errorf("%w\n%s", err, c.usage)
 		}
-		if c.fs.NArg() == 0 {
+		rest := c.fs.Args()
+		if n := len(args) - len(rest); n > 0 && args[n-1] == "--" {
+			pos = append(pos, rest...)
 			break
 		}
-		pos = append(pos, c.fs.Arg(0))
-		args = c.fs.Args()[1:]
+		if len(rest) == 0 {
+			break
+		}
+		pos = append(pos, rest[0])
+		args = rest[1:]
 	}
 	if len(pos) < c.min || len(pos) > c.max {
 		return nil, nil, errors.New(c.usage)

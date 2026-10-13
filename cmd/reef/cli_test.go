@@ -106,6 +106,8 @@ func TestCLI_Errors(t *testing.T) {
 	}{
 		{"bad slug", []string{"feature", "add", "Bad_Slug", "x"},
 			`invalid: feature slug "Bad_Slug" must match ^[a-z0-9][a-z0-9-]*$`},
+		{"digit slug", []string{"feature", "add", "2024", "x"},
+			`invalid: feature slug "2024" must contain a letter or -`},
 		{"unknown feature", []string{"decide", "nope", "x"}, `feature "nope": not found`},
 		{"bad status", []string{"task", "list", "--status", "bogus"},
 			`invalid: unknown status "bogus"`},
@@ -136,5 +138,23 @@ func TestCLI_SlugInTwoProjects(t *testing.T) {
 	if _, err := reef(t, dir, "brief", "2"); err == nil ||
 		err.Error() != "feature 2 has no brief yet" {
 		t.Errorf("brief 2: error = %v, want no brief yet", err)
+	}
+}
+
+func TestCLI_DoubleDashEndsFlags(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(t.TempDir())
+	mustReef(t, dir, "project", "add")
+	mustReef(t, dir, "feature", "add", "login", "Login")
+
+	var out bytes.Buffer
+	err := run(context.Background(),
+		[]string{"task", "add", "login", "--data", dir, "--", "--why not"},
+		strings.NewReader(""), &out, &syncBuffer{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "1  todo  --why not\n"; out.String() != want {
+		t.Errorf("task add = %q, want %q", out.String(), want)
 	}
 }
