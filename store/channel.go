@@ -36,7 +36,7 @@ func (s *Store) CreateChannel(ctx context.Context, c Channel) (Channel, error) {
 	if !ok {
 		return Channel{}, fmt.Errorf("%w: unknown project %d", ErrInvalid, c.ProjectID)
 	}
-	if err := s.checkChannelFeature(ctx, c); err != nil {
+	if err := s.checkFeatureInProject(ctx, c.FeatureID, c.ProjectID); err != nil {
 		return Channel{}, err
 	}
 	now := time.Now().UTC()
@@ -99,7 +99,7 @@ func (s *Store) UpdateChannel(ctx context.Context, c Channel) (Channel, error) {
 		return Channel{}, err
 	}
 	c.ProjectID = cur.ProjectID
-	if err := s.checkChannelFeature(ctx, c); err != nil {
+	if err := s.checkFeatureInProject(ctx, c.FeatureID, c.ProjectID); err != nil {
 		return Channel{}, err
 	}
 	if _, err := s.db.ExecContext(ctx,
@@ -132,20 +132,20 @@ func (c Channel) validate() error {
 	return nil
 }
 
-// checkChannelFeature requires c.FeatureID, when set, to be a feature of c.ProjectID.
-func (s *Store) checkChannelFeature(ctx context.Context, c Channel) error {
-	if c.FeatureID == nil {
+// checkFeatureInProject requires featureID, when set, to be a feature of projectID.
+func (s *Store) checkFeatureInProject(ctx context.Context, featureID *int64, projectID int64) error {
+	if featureID == nil {
 		return nil
 	}
-	f, err := s.Feature(ctx, *c.FeatureID)
+	f, err := s.Feature(ctx, *featureID)
 	if errors.Is(err, ErrNotFound) {
-		return fmt.Errorf("%w: unknown feature %d", ErrInvalid, *c.FeatureID)
+		return fmt.Errorf("%w: unknown feature %d", ErrInvalid, *featureID)
 	}
 	if err != nil {
 		return fmt.Errorf("check feature: %w", err)
 	}
-	if f.ProjectID != c.ProjectID {
-		return fmt.Errorf("%w: feature %d is not in project %d", ErrInvalid, f.ID, c.ProjectID)
+	if f.ProjectID != projectID {
+		return fmt.Errorf("%w: feature %d is not in project %d", ErrInvalid, f.ID, projectID)
 	}
 	return nil
 }
