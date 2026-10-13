@@ -336,8 +336,8 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `GET /features/{id}/notes/{role}` | | 200 | 404 no feature, or no notes for the role |
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
-| `GET /teams` | | 200 all teams by name, each with its roles and gates; no `env` of a role's `mcpServers`, which may hold API keys | |
-| `GET /teams/{name}` | | 200, without the `env` as above | 404 |
+| `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has no `mcpServers`, whose `args` and `url` may hold API keys | |
+| `GET /teams/{name}` | | 200, without `mcpServers` as above | 404 |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
 | `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |

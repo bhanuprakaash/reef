@@ -11,7 +11,7 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-func TestTeamsHideMCPEnv(t *testing.T) {
+func TestTeamsOmitMCPServers(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -19,7 +19,7 @@ func TestTeamsHideMCPEnv(t *testing.T) {
 	t.Cleanup(func() { _ = st.Close() })
 	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "keys", Roles: []store.Role{{
 		Name: "lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
-			{Command: "my-mcp", Args: []string{"--stdio"}, Env: map[string]string{"API_KEY": "sk-secret-123"}},
+			{Command: "my-mcp", Args: []string{"--key", "sk-secret-123"}},
 		},
 	}}})
 	if err != nil {
@@ -32,14 +32,14 @@ func TestTeamsHideMCPEnv(t *testing.T) {
 
 	for _, path := range []string{"/teams", "/teams/keys"} {
 		status, body := do(t, http.MethodGet, ts.URL+path, "")
-		if status != 200 || !strings.Contains(body, `"mcpServers":[{"command":"my-mcp","args":["--stdio"]}]`) ||
-			strings.Contains(body, "sk-secret-123") || strings.Contains(body, "API_KEY") {
-			t.Errorf("GET %s = %d %s, want the server without its env", path, status, body)
+		if status != 200 || !strings.Contains(body, `"name":"lead"`) ||
+			strings.Contains(body, "mcpServers") || strings.Contains(body, "sk-secret-123") {
+			t.Errorf("GET %s = %d %s, want the lead without mcpServers", path, status, body)
 		}
 	}
 	if got, err := st.Team(context.Background(), "keys"); err != nil ||
-		got.Roles[0].MCPServers[0].Env["API_KEY"] != "sk-secret-123" {
-		t.Errorf("stored team = %+v, %v, want the env kept for the agent", got, err)
+		got.Roles[0].MCPServers[0].Args[1] != "sk-secret-123" {
+		t.Errorf("stored team = %+v, %v, want the mcp server kept for the agent", got, err)
 	}
 }
 
@@ -97,9 +97,9 @@ func TestChannelTeam(t *testing.T) {
 
 	status, body := do(t, http.MethodGet, ts.URL+"/teams/core", "")
 	want := `{"name":"core","roles":[{"name":"lead","lead":true,"backend":"codex",` +
-		`"permissionMode":"read-only","persona":"","skills":"","tools":[],"mcpServers":[]},` +
+		`"permissionMode":"read-only","persona":"","skills":"","tools":[]},` +
 		`{"name":"architect","lead":false,"backend":"claude","permissionMode":"","persona":"",` +
-		`"skills":"","tools":[],"mcpServers":[]}]}`
+		`"skills":"","tools":[]}]}`
 	if status != 200 || body != want {
 		t.Errorf("GET /teams/core = %d %s, want %s", status, body, want)
 	}
