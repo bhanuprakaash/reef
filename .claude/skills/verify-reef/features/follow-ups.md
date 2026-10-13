@@ -23,9 +23,9 @@ Preconditions:
 - Baseline from the README.
 - A prompts file outside the scratch dir, e.g. `printf 'What word did I ask you to remember? Answer with the word only.\n\nNow say done.\n' > ~/.reef-verify/<id>/followups.txt` (the blank line must be skipped).
 
-- **Three turns, claude.** Run `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run --name followups-claude --stdin ~/.reef-verify/<id>/followups.txt -- --backend claude "Remember the word heliotrope. Reply ok."`. Meta shows `exit: 0` and `turn_end=3`, `usage=3`, `session=3`. `grep '"session"' ~/.reef-verify/<id>/followups-claude.jsonl | sort -u | wc -l` is `1`: one session id.
+- **Three turns, claude.** Run `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run --name followups-claude --stdin ~/.reef-verify/<id>/followups.txt -- --backend claude "Remember the word heliotrope. Reply ok."`. Meta shows `exit: 0` and `turn_end=3`, `usage` at least 3 (one or more per turn), `session=3`. `grep '"session"' ~/.reef-verify/<id>/followups-claude.jsonl | sort -u | wc -l` is `1`: one session id.
 - **Memory.** Join the `text` lines between the first and second `turn_end` (`python3 -I -c` over the jsonl). They contain `heliotrope`.
-- **Three turns, codex.** Run `REEF_VERIFY_RUN=<id> $H run --name followups-codex --stdin ~/.reef-verify/<id>/followups.txt -- --backend codex "Remember the word heliotrope. Reply ok."`. `exit: 0`, `turn_end=3`, `usage=3`, `session=1`. The second turn's text contains `heliotrope`.
+- **Three turns, codex.** Run `REEF_VERIFY_RUN=<id> $H run --name followups-codex --stdin ~/.reef-verify/<id>/followups.txt -- --backend codex "Remember the word heliotrope. Reply ok."`. `exit: 0`, `turn_end=3`, `usage` at least 3, `session=1`. The second turn's text contains `heliotrope`.
 - **Wait for turn end.** In each jsonl, every `turn_end` but the last is followed by more `text` lines; there is never a second `turn_end` without text in between. `turn_end=3` proves the lines did not merge into one turn.
 
 ## Gotchas

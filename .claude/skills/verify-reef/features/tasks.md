@@ -20,7 +20,7 @@ task is `todo`, `doing` or `done`, and records when it last changed.
 Preconditions:
 
 - Baseline from the README. Fresh server: `$H serve-stop`, then `$H serve-start --data-name tasks`. Ids below assume it.
-- Setup: `$H api POST /projects '{"name":"shop","path":"/tmp"}'`, `$H api POST /projects '{"name":"blog","path":"/private/tmp"}'`, `$H api POST /features '{"projectId":1,"slug":"login","name":"Login"}'`.
+- Setup: `$H api POST /projects '{"name":"shop","path":"/tmp"}'`, `$H api POST /projects '{"name":"blog","path":"/usr"}'`, `$H api POST /features '{"projectId":1,"slug":"login","name":"Login"}'`.
 
 - **Create.** `$H api POST /tasks '{"projectId":1,"featureId":1,"title":"Build the form"}'` gives 201 id 1, `"status":"todo"`, `"body":""`, `updatedAt` equal to `createdAt`. `$H api POST /tasks '{"projectId":1,"title":"Chore"}'` gives id 2, `"featureId":null`. `$H api POST /tasks '{"projectId":2,"title":"Other"}'` gives id 3.
 - **Create errors.** `$H api POST /tasks '{"projectId":1}'` (no title), `$H api POST /tasks '{"projectId":99,"title":"x"}'`, `$H api POST /tasks '{"projectId":2,"featureId":1,"title":"x"}'` (feature of another project) and `$H api POST /tasks '{"projectId":1,"title":"x","status":"blocked"}'` give 400.

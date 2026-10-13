@@ -67,6 +67,7 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 - [Tasks](./tasks.md): global list, filters, status, `updatedAt`, feature delete keeps the task.
 - [Turns and restart recovery](./turns-recovery.md): running, done, failed; end once; recovery after a crash or stop; an open chat's turn is skipped.
 - [Decisions](./decisions.md): append-only, author and message rules, cascade.
+- [Live channels](./live-channels.md): send, the event stream, stop and resume, `/wrap` and `/promote` text, wrap-up, promote, approve and reject, caps and continue, delete a live channel. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 
 ### Memory loop
 
