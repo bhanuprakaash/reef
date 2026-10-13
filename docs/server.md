@@ -36,6 +36,27 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
   reef) is refused: `database is newer than this reef`.
 - SIGINT or SIGTERM stops the server, with one second for requests in flight.
 
+## Web UI
+
+`reef serve` also serves the React app in [`web/`](../web). `web/dist` is embedded in the
+binary with `go:embed` ([`web/embed.go`](../web/embed.go)). A fresh clone builds without
+npm: `web/dist` holds only `.keep`, and a page load answers 503 `UI not built: run npm run
+build in web/` until the app is built.
+
+```
+cd web && npm ci && npm run build
+cd .. && go build ./cmd/reef
+```
+
+Client routes such as `/features/3` and `/tasks` have the same paths as the REST API. One
+rule splits them, in the Go server and in the Vite dev proxy: a `GET` or `HEAD` whose
+`Accept` header includes `text/html` gets the app's `index.html`. Every other request goes
+to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`)
+are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
+
+Dev mode: run `reef serve` on `:7700`, then `cd web && npm run dev` and open
+`http://localhost:5173`. Vite proxies the API paths to `127.0.0.1:7700`.
+
 ## Errors
 
 Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its project: conflict"}`.

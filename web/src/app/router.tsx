@@ -1,0 +1,18 @@
+import { createBrowserRouter } from 'react-router';
+import { Layout } from '@/app/layout';
+import { ChannelPage } from '@/app/routes/channel';
+import { FeaturePage } from '@/app/routes/feature';
+import { HomePage } from '@/app/routes/home';
+import { TasksPage } from '@/app/routes/tasks';
+
+export const router = createBrowserRouter([
+  {
+    element: <Layout />,
+    children: [
+      { path: '/', element: <HomePage /> },
+      { path: '/features/:id', element: <FeaturePage /> },
+      { path: '/channels/:id', element: <ChannelPage /> },
+      { path: '/tasks', element: <TasksPage /> },
+    ],
+  },
+]);
