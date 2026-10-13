@@ -11,9 +11,6 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// recordingAgent notes how it was started and answers each prompt with "ok". Like the
-// real agent calling propose_wrap, it stores a proposal when it gets the wrap prompt
-// and propose is set.
 type recordingAgent struct {
 	st        *store.Store
 	channelID int64

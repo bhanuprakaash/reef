@@ -8,8 +8,7 @@ import (
 	"time"
 )
 
-// TokenBudget is the tokens a channel may use before it pauses, and what continuing
-// a channel over its budget adds.
+// TokenBudget is the default channel budget and what continuing over budget adds.
 const TokenBudget = 1_000_000
 
 const _channelCols = "id, project_id, feature_id, name, role, backend, permission_mode, " +
@@ -107,10 +106,8 @@ func (s *Store) UpdateChannel(ctx context.Context, c Channel) (Channel, error) {
 	return s.Channel(ctx, c.ID)
 }
 
-// PromoteChannel makes the quick session id a channel of a feature, in one
-// transaction. With f.ID set the feature must exist in the channel's project;
-// otherwise f is created there, from its slug, name and goal. A channel that already
-// has a feature is ErrInvalid.
+// PromoteChannel attaches quick session id to feature f: the existing one when f.ID
+// is set, else a new one. A channel that already has a feature is ErrInvalid.
 func (s *Store) PromoteChannel(ctx context.Context, id int64, f Feature) (Channel, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -163,7 +160,7 @@ func (s *Store) PromoteChannel(ctx context.Context, id int64, f Feature) (Channe
 	return s.Channel(ctx, id)
 }
 
-// PauseChannel pauses the channel with a reason, which must not be empty.
+// PauseChannel pauses the channel; the reason must not be empty.
 func (s *Store) PauseChannel(ctx context.Context, id int64, reason string) error {
 	if reason == "" {
 		return fmt.Errorf("%w: pause reason is required", ErrInvalid)
@@ -171,14 +168,12 @@ func (s *Store) PauseChannel(ctx context.Context, id int64, reason string) error
 	return s.setChannel(ctx, id, "paused = ?", reason)
 }
 
-// ContinueChannel clears the pause of the channel and raises its token budget by
-// extra tokens.
+// ContinueChannel clears the pause and adds extra tokens to the budget.
 func (s *Store) ContinueChannel(ctx context.Context, id, extra int64) error {
 	return s.setChannel(ctx, id, "paused = '', token_budget = token_budget + ?", extra)
 }
 
-// ChannelTokens is the input and output tokens of all turns of the channel. Cache
-// reads and writes are not counted.
+// ChannelTokens sums input and output tokens; cache reads and writes are not counted.
 func (s *Store) ChannelTokens(ctx context.Context, id int64) (int64, error) {
 	var n int64
 	err := s.db.QueryRowContext(ctx,

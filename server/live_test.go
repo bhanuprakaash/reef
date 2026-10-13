@@ -17,9 +17,6 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// fakeSession answers the text "block" with one text event and then waits for
-// release or for its context to end, the text "cap" like a runner that capped the
-// turn, and every other text with one text event.
 type fakeSession struct {
 	st      *store.Store
 	started chan struct{}
@@ -100,7 +97,6 @@ func (e *liveEnv) send(t *testing.T, text string) (int, string) {
 	return do(t, http.MethodPost, e.url+"/channels/1/send", `{"text":"`+text+`"}`)
 }
 
-// stream is a subscriber to a channel's events. It yields "event data" lines.
 type stream struct {
 	frames chan string
 }

@@ -49,7 +49,6 @@ type execer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
-// insertFeature adds the validated f. A taken slug is ErrConflict.
 func insertFeature(ctx context.Context, x execer, f Feature) (Feature, error) {
 	now := time.Now().UTC()
 	res, err := x.ExecContext(ctx,

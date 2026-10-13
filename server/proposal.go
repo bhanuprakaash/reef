@@ -21,7 +21,6 @@ func (s *server) proposalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/proposals/{id}/reject", methodNotAllowed)
 }
 
-// wrap sends the text /wrap, ignoring any body.
 func (s *server) wrap(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {

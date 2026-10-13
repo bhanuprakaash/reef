@@ -15,11 +15,8 @@ import (
 )
 
 const (
-	// TokenEnv is the variable that carries the token to the channel's reef mcp.
-	TokenEnv = "REEF_TOKEN"
-	// WrapCommand is the message that asks for a wrap-up.
-	WrapCommand = "/wrap"
-	// PromoteCommand is the stored message of the turn that follows a promotion.
+	TokenEnv       = "REEF_TOKEN"
+	WrapCommand    = "/wrap"
 	PromoteCommand = "/promote"
 
 	_wrapPrompt = "Wrap up this channel. Call the propose_wrap tool once with the full " +
@@ -35,8 +32,7 @@ const (
 // ErrNoProposal is returned by Wrap when the agent made no proposal.
 var ErrNoProposal = errors.New("no proposal made")
 
-// Session is a channel with a running agent. It holds the channel's chat lock and
-// its token until Close.
+// Session is a channel with a running agent.
 type Session struct {
 	*Runner
 
@@ -46,11 +42,7 @@ type Session struct {
 	token string
 }
 
-// Open starts the agent of a channel in its project's folder with the reef MCP
-// server, which is exe mcp on dataDir. It resumes the session of the channel's
-// newest turn that has one, and otherwise starts a new session whose first prompt
-// is the channel's context. It first fails any turn the channel left running.
-// The caller must Close the Session.
+// Open starts or resumes the channel's agent. The caller must Close the Session.
 func Open(
 	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64,
 ) (*Session, error) {
@@ -118,16 +110,13 @@ func open(
 	return s, nil
 }
 
-// Wrap asks the agent for a wrap-up proposal, storing the user message /wrap, and
-// returns the proposal it made in that turn. It returns ErrNoProposal when the agent
-// made none.
+// Wrap returns the proposal the agent made in a /wrap turn, or ErrNoProposal.
 func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
 	return s.propose(ctx, WrapCommand, _wrapPrompt, onEvent)
 }
 
-// Promote tells the agent its quick session is now a feature and asks for the first
-// brief, storing the user message /promote. It returns the proposal the agent made in
-// that turn, or ErrNoProposal. The channel must already have its feature.
+// Promote returns the proposal the agent made in a /promote turn, or ErrNoProposal.
+// The channel must already have its feature.
 func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
 	ch, err := s.st.Channel(ctx, s.channelID)
 	if err != nil {
@@ -160,7 +149,7 @@ func (s *Session) propose(
 	return p, err
 }
 
-// Close stops the agent, deletes the token and releases the chat lock.
+// Close ends the Session.
 func (s *Session) Close() error {
 	errs := []error{s.ag.Interrupt()}
 	if s.token != "" {
@@ -169,7 +158,7 @@ func (s *Session) Close() error {
 	return errors.Join(append(errs, s.lock.Close())...)
 }
 
-// InUse reports whether a Session holds the chat lock of the channel in dataDir.
+// InUse reports whether a Session holds the channel's chat lock.
 func InUse(dataDir string, channelID int64) bool {
 	lock, err := os.Open(chatLockPath(dataDir, channelID))
 	if err != nil {
@@ -188,9 +177,6 @@ func startPrompt(
 	return Context(ctx, st, *ch.FeatureID, ch.Role)
 }
 
-// resumeTurn is the channel's newest turn that has a session id, or the zero Turn.
-// It first fails any turn left running by a chat that crashed; the caller holds the
-// chat lock.
 func resumeTurn(ctx context.Context, st *store.Store, channelID int64) (store.Turn, error) {
 	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &channelID})
 	if err != nil {
