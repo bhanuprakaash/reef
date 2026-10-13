@@ -77,6 +77,9 @@ func (f *fakeSession) RunAs(
 }
 
 func (f *fakeSession) Wrap(_ context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
+	if f.onRun != nil {
+		f.onRun("lead", channel.WrapCommand, nil)
+	}
 	onEvent(agent.Event{Kind: agent.KindText, Text: "wrapped"})
 	if f.noProposal.Load() {
 		return store.Proposal{}, channel.ErrNoProposal
@@ -472,6 +475,33 @@ func TestStop_FailsTurnAndClosesSession(t *testing.T) {
 	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 	if got := env.opened.Load(); got != 2 {
 		t.Errorf("sessions opened = %d, want 2: a send after stop opens the agent again", got)
+	}
+}
+
+func TestSend_WrapWakesNobody(t *testing.T) {
+	env := newLiveEnv(t)
+	env.teamChannel(t)
+	do(t, http.MethodPost, env.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
+	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"featureId":1,"name":"w","team":"core"}`)
+	env.fake.onRun = func(string, string, *int64) {
+		_, err := env.st.CreateMessage(context.Background(),
+			store.Message{ChannelID: 3, Author: "lead", Body: "@architect look at this"})
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	sub := subscribeTo(t, env.url, 3)
+	env.sendTo(t, 3, "/wrap")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"wrapped"}`,
+		`turn {"role":"lead","status":"done"}`)
+
+	env.fake.onRun = nil
+	env.sendTo(t, 3, "ping")
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`)
+	if got := env.ranTexts(); !slices.Equal(got, []string{"ping"}) {
+		t.Errorf("ran = %q, want only ping: the wrap reply wakes no architect", got)
 	}
 }
 
