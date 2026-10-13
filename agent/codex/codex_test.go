@@ -322,6 +322,7 @@ func TestAgent_ExitsOnItsOwn(t *testing.T) {
 	want := []agent.Event{
 		{Kind: agent.KindSession, SessionID: "t1"},
 		{Kind: agent.KindText, Text: "hi"},
+		{Kind: agent.KindUsage, Usage: &agent.Usage{}},
 		{Kind: agent.KindTurnEnd},
 		{Kind: agent.KindError, Text: "codex exited: exit status 3: boom"},
 	}
@@ -360,6 +361,23 @@ func TestAgent_NotStarted(t *testing.T) {
 	}
 }
 
+func TestAgent_OneUsagePerTurn(t *testing.T) {
+	a := fake(t, "twocalls")
+	startTurn(t, a)
+	got := collect(t, a, agent.KindTurnEnd)
+	want := []agent.Event{
+		{Kind: agent.KindSession, SessionID: "t1"},
+		{Kind: agent.KindText, Text: "hi"},
+		{Kind: agent.KindUsage, Usage: &agent.Usage{
+			InputTokens: 10, OutputTokens: 8, CacheReadTokens: 5, CacheWriteTokens: 2,
+		}},
+		{Kind: agent.KindTurnEnd},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %+v, want %+v", got, want)
+	}
+}
+
 func TestAgent_ResumeDropsReplayedUsage(t *testing.T) {
 	a := fake(t, "replay")
 	if err := a.Resume(context.Background(), agent.Config{Cwd: t.TempDir()}, "t1"); err != nil {
@@ -379,5 +397,39 @@ func TestAgent_ResumeDropsReplayedUsage(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("events = %+v, want %+v", got, want)
+	}
+}
+
+func TestAgent_UsageBeforeEveryTurnError(t *testing.T) {
+	tests := []struct {
+		mode string
+		want []agent.Event
+	}{
+		{
+			mode: "rejected",
+			want: []agent.Event{
+				{Kind: agent.KindSession, SessionID: "t1"},
+				{Kind: agent.KindUsage, Usage: &agent.Usage{}},
+				{Kind: agent.KindError, Text: "bad turn"},
+			},
+		},
+		{
+			mode: "midcrash",
+			want: []agent.Event{
+				{Kind: agent.KindSession, SessionID: "t1"},
+				{Kind: agent.KindText, Text: "hi"},
+				{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 6, OutputTokens: 3, CacheReadTokens: 4}},
+				{Kind: agent.KindError, Text: "codex exited: exit status 3: boom"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mode, func(t *testing.T) {
+			a := fake(t, tt.mode)
+			startTurn(t, a)
+			if got := collect(t, a, agent.KindError); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("events = %+v, want %+v", got, tt.want)
+			}
+		})
 	}
 }
