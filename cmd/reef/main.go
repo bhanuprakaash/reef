@@ -31,6 +31,7 @@ commands:
   task add [<feature>] "<title>"
   task list [<feature>] [--status S]
   context <feature> --role R
+  wrap list [<feature>] | show <id> | approve <id> | reject <id>
   token <feature> --role R
   chat <feature> --role R --backend claude|codex | chat --channel ID
   mcp`
@@ -69,6 +70,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return taskCmd(ctx, args[1:], stdout)
 	case "context":
 		return contextCmd(ctx, args[1:], stdout)
+	case "wrap":
+		return wrapCmd(ctx, args[1:], stdout)
 	case "token":
 		return tokenCmd(ctx, args[1:], stdout)
 	case "chat":
