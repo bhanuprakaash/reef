@@ -55,6 +55,7 @@ Create a folder only when a ticket needs it.
 - One ticket at a time, on a branch named after the ticket (`agent-interface`, `claude-adapter`). PR to `main`. Never push `main` directly.
 - Smallest diff that closes the ticket. Nothing speculative, no option or layer the ticket does not need.
 - Prove it: every acceptance line in the ticket is checked by running the real thing. "It compiles" is not proof.
+- Tick what you proved: after verifying a line, edit the issue body and check it (`gh issue edit`). A line you could not verify stays unchecked with a short note under it. A line only the user can verify (hand test, approval, merge) is left unchecked and the user is asked, in chat, with the exact steps.
 - Decisions that change the product go to `docs/product.md` Decisions table, numbered, with a one-line why. Do not re-open a settled decision; propose a new one with a reason.
 - Go: follow `docs/go-style.md` (condensed Uber guide). Standard library first. No frameworks until a ticket proves the need.
 - Commits: conventional prefix (`feat:`, `fix:`, `docs:`, `chore:`), one-line subject, no ticket ids in the subject. No AI attribution anywhere.
