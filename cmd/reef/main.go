@@ -29,7 +29,8 @@ commands:
   brief <feature>
   decide <feature> "<body>" [--why W]
   task add [<feature>] "<title>"
-  task list [<feature>] [--status S]`
+  task list [<feature>] [--status S]
+  context <feature> --role R`
 	_serveUsage        = "usage: reef serve [--addr 127.0.0.1:7700] [--data DIR]"
 	_defaultAddr       = "127.0.0.1:7700"
 	_shutdownTimeout   = time.Second
@@ -63,6 +64,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return decideCmd(ctx, args[1:], stdout)
 	case "task":
 		return taskCmd(ctx, args[1:], stdout)
+	case "context":
+		return contextCmd(ctx, args[1:], stdout)
 	}
 	return errors.New(_usage)
 }
