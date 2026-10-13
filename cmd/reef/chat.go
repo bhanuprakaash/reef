@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -34,6 +35,9 @@ const _chatUsage = `usage: reef chat <feature> --role R --backend claude|codex [
 func chatCmd(
 	ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer,
 ) error {
+	ctx, stop := signal.NotifyContext(ctx, syscall.SIGHUP)
+	defer stop()
+
 	c := newCommand("reef chat", _chatUsage, 0, 1)
 	role := c.fs.String("role", "", "")
 	backend := c.fs.String("backend", "", "")
@@ -163,8 +167,13 @@ func converse(
 	ctx context.Context, st *store.Store, channelID int64, r *channel.Runner,
 	stdin io.Reader, stdout io.Writer,
 ) error {
-	in := readLines(stdin)
+	return converseLines(ctx, st, channelID, r, readLines(stdin), stdout)
+}
 
+func converseLines(
+	ctx context.Context, st *store.Store, channelID int64, r *channel.Runner,
+	in *lineReader, stdout io.Writer,
+) error {
 	show := func(ev agent.Event) {
 		if ev.Kind == agent.KindText {
 			_, _ = io.WriteString(stdout, ev.Text)
@@ -202,11 +211,11 @@ func converse(
 			return err
 		}
 		if wrap {
-			eof, err := decideWrap(ctx, st, channelID, seen, in, stdout)
+			stop, err := decideWrap(ctx, st, channelID, seen, in, stdout)
 			if err != nil {
 				return err
 			}
-			if eof || ctx.Err() != nil {
+			if stop || ctx.Err() != nil {
 				return nil
 			}
 		}
@@ -218,11 +227,11 @@ func converse(
 
 // decideWrap prints the proposal the agent made in the turn that just ended, one
 // newer than seen, and approves it when the next line is y or yes, else rejects it.
-// Lines in in before the prompt is printed are dropped, not taken as the answer.
+// It returns true at end of input or when ctx is done.
 func decideWrap(
 	ctx context.Context, st *store.Store, channelID, seen int64,
 	in *lineReader, stdout io.Writer,
-) (bool, error) {
+) (stop bool, err error) {
 	p, err := st.PendingProposal(ctx, channelID)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && p.ID == seen) {
 		_, err = io.WriteString(stdout, "no proposal made\n\n")
@@ -233,14 +242,25 @@ func decideWrap(
 	}
 	var b strings.Builder
 	b.WriteString(proposalText(p))
-	for _, l := range in.drop() {
-		if l != "" {
-			fmt.Fprintf(&b, "ignored while wrapping: %s\n", l)
-		}
-	}
 	b.WriteString("\napprove? [y/N] ")
 	if _, err := io.WriteString(stdout, b.String()); err != nil {
 		return false, err
+	}
+	dropped := in.drop()
+	if len(dropped) > 0 {
+		if _, err := io.WriteString(stdout, "\n"); err != nil {
+			return false, err
+		}
+		for _, l := range dropped {
+			if l != "" {
+				if _, err := fmt.Fprintf(stdout, "ignored while wrapping: %s\n", l); err != nil {
+					return false, err
+				}
+			}
+		}
+		if _, err := io.WriteString(stdout, "approve? [y/N] "); err != nil {
+			return false, err
+		}
 	}
 	answer, ok := in.next(ctx)
 	if !ok {
@@ -250,12 +270,20 @@ func decideWrap(
 	if a := strings.ToLower(answer); a == "y" || a == "yes" {
 		_, added, err := st.ApproveProposal(ctx, p.ID)
 		if err != nil {
+			if errors.Is(err, store.ErrInvalid) {
+				_, err = fmt.Fprintf(stdout, "reef: %s\n\n", strings.TrimPrefix(err.Error(), "invalid: "))
+				return false, err
+			}
 			return false, err
 		}
 		_, err = fmt.Fprintf(stdout, "approved: brief, notes and %d decisions saved\n\n", added)
 		return false, err
 	}
 	if _, err := st.RejectProposal(ctx, p.ID); err != nil {
+		if errors.Is(err, store.ErrInvalid) {
+			_, err = fmt.Fprintf(stdout, "reef: %s\n\n", strings.TrimPrefix(err.Error(), "invalid: "))
+			return false, err
+		}
 		return false, err
 	}
 	_, err = io.WriteString(stdout, "rejected: nothing changed\n\n")
@@ -264,8 +292,13 @@ func decideWrap(
 
 func proposalText(p store.Proposal) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "proposal %d from %s\n\nbrief:\n%s\n\nnotes:\n%s\n\ndecisions:\n",
-		p.ID, p.Role, p.Brief, p.Notes)
+	fmt.Fprintf(&b, "proposal %d from %s\n\n%s", p.ID, p.Role, proposalBodyText(p))
+	return b.String()
+}
+
+func proposalBodyText(p store.Proposal) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "brief:\n%s\n\nnotes:\n%s\n\ndecisions:\n", p.Brief, p.Notes)
 	for _, d := range p.Decisions {
 		fmt.Fprintf(&b, "- %s", d.Body)
 		if d.Why != "" {
