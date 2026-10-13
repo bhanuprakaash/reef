@@ -187,7 +187,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 26 | The hop count resets when the user sends a message or continues, not when the user approves a gate. A wake over the cap is held, and continue runs it | A user message is new intent; an approval only lets the same chain go on. Held, not dropped, so no work is lost |
 | 27 | Threads have one level: a reply points at a root message, never at another reply. A woken teammate replies in the thread it was woken from | "Who owns the thread" stays one lookup, and the window stays simple |
 | 28 | Wrap-up and promote turns wake nobody | They are the lead talking to the user about the feature, not a handoff |
-| 29 | A team is a JSON file applied with `reef team apply`; a team `solo` (lead only) always exists; a channel keeps the team it was created with | Smallest way to configurable teams now; the workshop in slice 8 can edit them |
+| 29 | A team is a JSON file applied with `reef team apply`; a team `solo` (lead only) always exists; a channel keeps the team it was created with | Smallest way to configurable teams now; the team workshop can edit them later |
 | 30 | A role's `tools` become Claude's allowed tools; Codex ignores them and is limited by its permission mode | Only Claude has a per-tool allow list |
 
 ## Open questions
