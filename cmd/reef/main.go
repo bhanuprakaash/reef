@@ -65,6 +65,11 @@ func run(ctx context.Context, args []string, logOut io.Writer) error {
 	}
 	defer st.Close()
 
+	ln, err := net.Listen("tcp", *addr)
+	if err != nil {
+		return err
+	}
+
 	logger := log.New(logOut, "", log.LstdFlags)
 	failed, err := st.FailRunningTurns(ctx)
 	if err != nil {
@@ -74,10 +79,6 @@ func run(ctx context.Context, args []string, logOut io.Writer) error {
 		logger.Printf("marked %d running turns failed: server restarted", len(failed))
 	}
 
-	ln, err := net.Listen("tcp", *addr)
-	if err != nil {
-		return err
-	}
 	srv := &http.Server{Handler: server.New(st), ReadHeaderTimeout: _readHeaderTimeout}
 	logger.Printf("listening on %s, data in %s", ln.Addr(), *data)
 

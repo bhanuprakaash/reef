@@ -28,6 +28,7 @@ func do(t *testing.T, method, url, body string) (int, string) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	req.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatal(err)
@@ -71,6 +72,14 @@ func TestProjectStatus(t *testing.T) {
 			give:       `{"name":`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: bad JSON: unexpected EOF"}`,
+		},
+		{
+			name:       "data after the body",
+			method:     http.MethodPost,
+			path:       "/projects",
+			give:       `{"name":"reef","path":"/tmp/reef"} {"name":"x"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: bad JSON: unexpected data after the body"}`,
 		},
 		{
 			name:       "missing name",

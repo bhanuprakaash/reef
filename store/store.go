@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"syscall"
 
 	"modernc.org/sqlite"
 	sqlite3 "modernc.org/sqlite/lib"
@@ -29,33 +30,58 @@ var _migrations embed.FS
 const _dsnParams = "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
 
 type Store struct {
-	db *sql.DB
+	db   *sql.DB
+	lock *os.File
 }
 
 // Open opens dir/reef.db, creating dir and the file if needed, and applies
-// any migration newer than the file's user_version.
+// any migration newer than the file's user_version. It holds a lock on the
+// folder until Close, so a second Open of the same dir fails.
 func Open(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
+	lock, err := os.OpenFile(filepath.Join(dir, "reef.lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		return nil, fmt.Errorf("open lock file: %w", err)
+	}
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		_ = lock.Close()
+		if errors.Is(err, syscall.EWOULDBLOCK) {
+			return nil, fmt.Errorf("data folder %s is in use by another reef", dir)
+		}
+		return nil, fmt.Errorf("lock data folder: %w", err)
+	}
 	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "reef.db")+_dsnParams)
 	if err != nil {
+		_ = lock.Close()
 		return nil, fmt.Errorf("open db: %w", err)
 	}
 	if err := migrate(context.Background(), db); err != nil {
-		db.Close()
+		_ = db.Close()
+		_ = lock.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	return &Store{db: db}, nil
+	return &Store{db: db, lock: lock}, nil
 }
 
+// Close closes the database and releases the folder lock.
 func (s *Store) Close() error {
-	return s.db.Close()
+	err := s.db.Close()
+	if lerr := s.lock.Close(); err == nil {
+		err = lerr
+	}
+	return err
 }
 
 func isUnique(err error) bool {
 	var se *sqlite.Error
 	return errors.As(err, &se) && se.Code() == sqlite3.SQLITE_CONSTRAINT_UNIQUE
+}
+
+func isForeignKey(err error) bool {
+	var se *sqlite.Error
+	return errors.As(err, &se) && se.Code() == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY
 }
 
 // exists reports whether table has a row with the id. table is always a

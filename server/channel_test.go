@@ -59,8 +59,8 @@ func TestChannelStatus(t *testing.T) {
 			method:     http.MethodPost,
 			path:       "/messages",
 			give:       `{"channelId":9,"author":"user","body":"hi"}`,
-			wantStatus: 404,
-			wantBody:   `{"error":"channel 9: not found"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: unknown channel 9"}`,
 		},
 		{
 			name:       "message update",
@@ -118,13 +118,16 @@ func TestChannelRoundTrip(t *testing.T) {
 		t.Fatalf("by feature = %d %s", status, body)
 	}
 
-	status, body = do(t, http.MethodPut, ts.URL+"/channels/1", `{"projectId":9,"featureId":1,"name":"promoted"}`)
-	if status != 200 || !strings.Contains(body, `"projectId":1,"featureId":1,"name":"promoted"`) {
-		t.Fatalf("promote = %d %s", status, body)
+	status, body = do(t, http.MethodPut, ts.URL+"/channels/1", `{"projectId":9,"featureId":1,"name":"renamed"}`)
+	if status != 200 || !strings.Contains(body, `"projectId":1,"featureId":null,"name":"renamed"`) {
+		t.Fatalf("rename quick session = %d %s", status, body)
 	}
-	status, body = do(t, http.MethodPut, ts.URL+"/channels/1", `{"name":"promoted"}`)
-	if status != 200 || !strings.Contains(body, `"featureId":null`) {
-		t.Fatalf("clear feature = %d %s", status, body)
+	status, body = do(t, http.MethodPut, ts.URL+"/channels/2", `{"name":"renamed"}`)
+	if status != 200 || !strings.Contains(body, `"projectId":1,"featureId":1,"name":"renamed"`) {
+		t.Fatalf("rename feature channel = %d %s", status, body)
+	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/channels/9", `{"name":"x"}`); status != 404 {
+		t.Fatalf("rename unknown = %d %s, want 404", status, body)
 	}
 
 	for _, b := range []string{"one", "two", "three"} {

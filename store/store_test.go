@@ -3,6 +3,7 @@ package store
 import (
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -69,6 +70,25 @@ func TestOpen(t *testing.T) {
 	if name != "reef" {
 		t.Errorf("project name after reopen = %q, want %q", name, "reef")
 	}
+}
+
+func TestOpenTwice(t *testing.T) {
+	dir := t.TempDir()
+	first, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(dir); err == nil || !strings.Contains(err.Error(), "in use by another reef") {
+		t.Errorf("second Open = %v, want an in-use error", err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	second, err := Open(dir)
+	if err != nil {
+		t.Fatalf("Open after Close: %v", err)
+	}
+	defer second.Close()
 }
 
 func TestForeignKeys(t *testing.T) {

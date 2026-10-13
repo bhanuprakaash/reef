@@ -37,13 +37,6 @@ func (s *Store) CreateTask(ctx context.Context, t Task) (Task, error) {
 	if err := t.validate(); err != nil {
 		return Task{}, err
 	}
-	ok, err := s.exists(ctx, "project", t.ProjectID)
-	if err != nil {
-		return Task{}, fmt.Errorf("check project: %w", err)
-	}
-	if !ok {
-		return Task{}, fmt.Errorf("%w: unknown project %d", ErrInvalid, t.ProjectID)
-	}
 	if err := s.checkFeatureInProject(ctx, t.FeatureID, t.ProjectID); err != nil {
 		return Task{}, err
 	}
@@ -51,6 +44,9 @@ func (s *Store) CreateTask(ctx context.Context, t Task) (Task, error) {
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO task (project_id, feature_id, title, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
 		t.ProjectID, t.FeatureID, t.Title, t.Body, t.Status, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+	if isForeignKey(err) {
+		return Task{}, fmt.Errorf("%w: unknown project %d", ErrInvalid, t.ProjectID)
+	}
 	if err != nil {
 		return Task{}, fmt.Errorf("insert task: %w", err)
 	}

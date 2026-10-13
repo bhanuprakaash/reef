@@ -29,13 +29,6 @@ func (s *Store) CreateChannel(ctx context.Context, c Channel) (Channel, error) {
 	if err := c.validate(); err != nil {
 		return Channel{}, err
 	}
-	ok, err := s.exists(ctx, "project", c.ProjectID)
-	if err != nil {
-		return Channel{}, fmt.Errorf("check project: %w", err)
-	}
-	if !ok {
-		return Channel{}, fmt.Errorf("%w: unknown project %d", ErrInvalid, c.ProjectID)
-	}
 	if err := s.checkFeatureInProject(ctx, c.FeatureID, c.ProjectID); err != nil {
 		return Channel{}, err
 	}
@@ -43,6 +36,9 @@ func (s *Store) CreateChannel(ctx context.Context, c Channel) (Channel, error) {
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO channel (project_id, feature_id, name, created_at) VALUES (?, ?, ?, ?)",
 		c.ProjectID, c.FeatureID, c.Name, now.Format(time.RFC3339Nano))
+	if isForeignKey(err) {
+		return Channel{}, fmt.Errorf("%w: unknown project %d", ErrInvalid, c.ProjectID)
+	}
 	if err != nil {
 		return Channel{}, fmt.Errorf("insert channel: %w", err)
 	}
@@ -88,24 +84,22 @@ func (s *Store) Channels(ctx context.Context, f ChannelFilter) ([]Channel, error
 	return cs, rows.Err()
 }
 
-// UpdateChannel sets the name and feature of c.ID; a nil FeatureID makes it a
-// quick session. A channel never changes project.
+// UpdateChannel sets the name of c.ID. A channel never changes project or
+// feature.
 func (s *Store) UpdateChannel(ctx context.Context, c Channel) (Channel, error) {
 	if err := c.validate(); err != nil {
 		return Channel{}, err
 	}
-	cur, err := s.Channel(ctx, c.ID)
+	res, err := s.db.ExecContext(ctx, "UPDATE channel SET name = ? WHERE id = ?", c.Name, c.ID)
 	if err != nil {
-		return Channel{}, err
-	}
-	c.ProjectID = cur.ProjectID
-	if err := s.checkFeatureInProject(ctx, c.FeatureID, c.ProjectID); err != nil {
-		return Channel{}, err
-	}
-	if _, err := s.db.ExecContext(ctx,
-		"UPDATE channel SET name = ?, feature_id = ? WHERE id = ?",
-		c.Name, c.FeatureID, c.ID); err != nil {
 		return Channel{}, fmt.Errorf("update channel: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return Channel{}, fmt.Errorf("update channel: %w", err)
+	}
+	if n == 0 {
+		return Channel{}, fmt.Errorf("channel %d: %w", c.ID, ErrNotFound)
 	}
 	return s.Channel(ctx, c.ID)
 }
