@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Drive the real reef-agent binary and keep the proof. See ../SKILL.md.
+# Drive the real reef-agent and reef binaries and keep the proof. See ../SKILL.md.
 set -u
 
 usage() {
@@ -14,6 +14,8 @@ usage: verify-reef build
        REEF_VERIFY_RUN=ID verify-reef serve-second [--same-addr]
        REEF_VERIFY_RUN=ID verify-reef api [-H 'Name: value']... METHOD PATH [JSON]
        REEF_VERIFY_RUN=ID verify-reef sql [--write] "SQL"
+       REEF_VERIFY_RUN=ID verify-reef reef [--data-name NAME] [--stdin FILE [--answer A]] [--timeout S] -- REEF_ARGS...
+       REEF_TOKEN=T REEF_VERIFY_RUN=ID verify-reef mcp-call TOOL [JSON]
        REEF_VERIFY_RUN=ID verify-reef cleanup
 EOF
 	exit 2
@@ -435,7 +437,7 @@ cmd_sql() {
 		flags+=(-cmd 'PRAGMA query_only=ON')
 	fi
 	[ $# -eq 1 ] || usage
-	[ -f "$SCR/serve.data" ] || fail "no data folder recorded for this run; serve-start first"
+	[ -f "$SCR/serve.data" ] || fail "no data folder recorded for this run; serve-start or reef first"
 	db="$(cat "$SCR/serve.data")/reef.db"
 	[ -f "$db" ] || fail "no database $db"
 	out=$(sqlite3 "${flags[@]}" "$db" "$1" 2>&1)
@@ -446,6 +448,173 @@ cmd_sql() {
 	} >>"$EV/sql.log"
 	[ -z "$out" ] || echo "$out"
 	return "$rc"
+}
+
+# use_data NAME: set DATA to the run's data folder, the one sql reads. A NAME makes
+# $SCR/NAME that folder; without one it is the last folder used, or $SCR/data.
+use_data() {
+	if [ -n "$1" ]; then
+		case "/$1/" in */../*) fail "--data-name must stay inside the scratch dir" ;; esac
+		if [ -f "$SCR/serve.pid" ] && serve_alive "$(cat "$SCR/serve.pid")" &&
+			[ "$(cat "$SCR/serve.data")" != "$SCR/$1" ]; then
+			fail "this run's server uses $(cat "$SCR/serve.data"); serve-stop first"
+		fi
+		echo "$SCR/$1" >"$SCR/serve.data"
+	elif [ ! -f "$SCR/serve.data" ]; then
+		echo "$SCR/data" >"$SCR/serve.data"
+	fi
+	DATA=$(cat "$SCR/serve.data")
+}
+
+# feed FILE FIFO ANSWER OUT: write FILE's lines to FIFO, then ANSWER once OUT shows the
+# wrap-up prompt, then close FIFO. With no prompt it closes after "no proposal made".
+feed() {
+	exec 4>"$2"
+	cat "$1" >&4
+	while :; do
+		if grep -q 'approve? \[y/N\]' "$4"; then
+			printf '%s\n' "$3" >&4
+			echo "feed: sent \"$3\" after approve? [y/N]" >"$SCR/reef.feed"
+			break
+		fi
+		if grep -q 'no proposal made' "$4"; then
+			echo "feed: no proposal made, answer not sent" >"$SCR/reef.feed"
+			break
+		fi
+		sleep 0.2
+	done
+	exec 4>&-
+}
+
+cmd_reef() {
+	load_run
+	name="" stdin=/dev/null timeout=240 answer=""
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--data-name) [ $# -ge 2 ] || usage; name=$2; shift 2 ;;
+		--stdin) [ $# -ge 2 ] || usage; stdin=$2; shift 2 ;;
+		--answer) [ $# -ge 2 ] || usage; answer=$2; shift 2 ;;
+		--timeout) [ $# -ge 2 ] || usage; timeout=$2; shift 2 ;;
+		--) shift; break ;;
+		*) usage ;;
+		esac
+	done
+	[ $# -gt 0 ] || usage
+	[ -z "$answer" ] || [ "$stdin" != /dev/null ] || fail "--answer needs --stdin FILE"
+	[ -x "$REEF_BIN" ] || fail "no binary $REEF_BIN; run build first"
+	[ -f "$EV/pre-pids.txt" ] || fail "run doctor first: it records the pre-run pids"
+	use_data "$name"
+	# --data goes right after the command words, so a -- in ARGS keeps the rest positional.
+	n=1
+	case $1 in project | feature | task) [ $# -ge 2 ] && n=2 ;; esac
+	argv=("${@:1:n}" --data "$DATA" "${@:n+1}")
+	out="$SCR/reef.out" err="$SCR/reef.err" seen="$SCR/reef.children"
+	: >"$seen"
+	: >"$out"
+	feeder="" shown_stdin=$stdin
+	if [ -n "$answer" ]; then
+		rm -f "$SCR/reef.feed"
+		fifo="$SCR/reef-stdin.fifo"
+		rm -f "$fifo" && mkfifo "$fifo"
+		feed "$stdin" "$fifo" "$answer" "$out" </dev/null >/dev/null 2>&1 3>&- &
+		feeder=$!
+		shown_stdin="$stdin, then --answer $answer"
+		stdin=$fifo
+	fi
+	t0=$(now)
+	SECONDS=0
+	(cd "$CWD" && exec "$REEF_BIN" "${argv[@]}" 3>&-) <"$stdin" >"$out" 2>"$err" &
+	pid=$!
+	echo "$pid reef-cli" >>"$SCR/pids"
+	sigint_at=""
+	while kill -0 "$pid" 2>/dev/null; do
+		descendants "$pid" >>"$seen"
+		if [ -z "$sigint_at" ] && [ "$SECONDS" -ge "$timeout" ]; then
+			kill -INT "$pid" && sigint_at=$SECONDS
+		fi
+		sleep 0.2
+	done
+	wait "$pid"
+	code=$?
+	if [ -n "$feeder" ]; then
+		kill "$feeder" 2>/dev/null
+		wait "$feeder" 2>/dev/null
+		[ -f "$SCR/reef.feed" ] || echo "feed: no wrap-up prompt seen, answer not sent" >"$SCR/reef.feed"
+	fi
+	sort -u -k1,1n "$seen" -o "$seen"
+	cat "$seen" >>"$SCR/pids"
+	orphans=""
+	while read -r p c; do
+		[ -n "$p" ] && kill -0 "$p" 2>/dev/null && orphans="$orphans $p"
+	done <"$seen"
+	result="exit: $code elapsed_s: $(awk -v a="$(now)" -v b="$t0" 'BEGIN { printf "%.2f", a - b }')"
+	[ -n "$sigint_at" ] && result="$result sigint_after_s: $sigint_at"
+	result="$result children: $(wc -l <"$seen" | tr -d ' ') orphans_alive:${orphans:- none}"
+	{
+		echo "--- reef $(python3 -I -c 'import shlex, sys; print(shlex.join(sys.argv[1:]))' "${argv[@]}")"
+		echo "cwd: $CWD stdin: $shown_stdin ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-<unset>}"
+		sed 's/^/out: /' "$out"
+		sed 's/^/err: /' "$err"
+		[ -z "$feeder" ] || cat "$SCR/reef.feed"
+		echo "$result"
+	} >>"$EV/reef.log"
+	cat "$out"
+	cat "$err" >&2
+	[ -z "$feeder" ] || cat "$SCR/reef.feed" >&2
+	echo "$result" >&2
+	return "$code"
+}
+
+# mcp-call TOOL [JSON]: start reef mcp on the run's data folder with the caller's
+# REEF_TOKEN, list its tools and call one, as an MCP client would.
+cmd_mcp_call() {
+	load_run
+	[ $# -ge 1 ] && [ $# -le 2 ] || usage
+	[ -x "$REEF_BIN" ] || fail "no binary $REEF_BIN; run build first"
+	[ -f "$SCR/serve.data" ] || fail "no data folder for this run; run reef or serve-start first"
+	args=${2:-'{}'}
+	python3 -I - "$REEF_BIN" "$(cat "$SCR/serve.data")" "$1" "$args" "$EV/reef-mcp.log" <<'EOF'
+import json, signal, subprocess, sys
+reef, data, tool, args, log = sys.argv[1:6]
+signal.alarm(30)
+p = subprocess.Popen([reef, "mcp", "--data", data], stdin=subprocess.PIPE,
+                     stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+def send(m):
+    p.stdin.write(json.dumps(dict(jsonrpc="2.0", **m)) + "\n")
+    p.stdin.flush()
+def reply(i):
+    for line in p.stdout:
+        m = json.loads(line)
+        if m.get("id") == i:
+            return m
+    return None
+lines, got = ["> " + tool + " " + args], False
+try:
+    send({"id": 1, "method": "initialize", "params": {"protocolVersion": "2025-06-18",
+          "capabilities": {}, "clientInfo": {"name": "verify-reef", "version": "0"}}})
+    if reply(1):
+        send({"method": "notifications/initialized"})
+        send({"id": 2, "method": "tools/list"})
+        lines.append("tools: " + " ".join(t["name"] for t in reply(2)["result"]["tools"]))
+        send({"id": 3, "method": "tools/call", "params": {"name": tool, "arguments": json.loads(args)}})
+        r = reply(3)
+        if "error" in r:
+            lines.append("< rpc error " + json.dumps(r["error"]))
+        else:
+            text = " ".join(c.get("text", "") for c in r["result"].get("content", []))
+            lines.append("< isError=%s %s" % (str(bool(r["result"].get("isError"))).lower(), text))
+            got = True
+    p.stdin.close()
+except BrokenPipeError:
+    pass
+code = p.wait(timeout=10)
+lines.append("reef mcp exit: %d" % code)
+lines += ["stderr: " + l for l in p.stderr.read().splitlines()]
+with open(log, "a") as f:
+    f.write("\n".join(lines) + "\n")
+print("\n".join(lines))
+sys.exit(0 if got else 1)
+EOF
 }
 
 cmd_cleanup() {
@@ -463,6 +632,7 @@ cmd_cleanup() {
 			# Kill only a pid whose command still matches what this run recorded.
 			case $c in reef-agent) case $now_cmd in "$BIN"*) ;; *) continue ;; esac ;;
 			reef-serve) case $now_cmd in "$REEF_BIN serve"*) ;; *) continue ;; esac ;;
+			reef-cli) case $now_cmd in "$REEF_BIN"*) ;; *) continue ;; esac ;;
 			*) [ "$now_cmd" = "$c" ] || continue ;; esac
 			echo "killing $p $now_cmd"
 			kill -TERM "$p" 2>/dev/null
@@ -493,6 +663,8 @@ serve-stop) cmd_serve_stop "$@" ;;
 serve-second) cmd_serve_second "$@" ;;
 api) cmd_api "$@" ;;
 sql) cmd_sql "$@" ;;
+reef) cmd_reef "$@" ;;
+mcp-call) cmd_mcp_call "$@" ;;
 cleanup) cmd_cleanup "$@" ;;
 *) usage ;;
 esac

@@ -1,19 +1,22 @@
 ---
 name: verify-reef
-description: Drive Reef's real surfaces and capture proof. reef-agent (the agent adapters over the claude and codex backends) gives event JSON lines, exit codes and process checks; reef serve (the data server) gives REST calls, SQLite rows, locks and crash recovery. Use to verify a ticket or slice acceptance line, to re-check after a change in agent/, cmd/reef-agent, cmd/reef, server/ or store/, or when asked "does reef-agent / reef serve still work". Later slices add the CLI and UI; this map grows with them.
+description: Drive Reef's real surfaces and capture proof. reef-agent (the agent adapters over the claude and codex backends) gives event JSON lines, exit codes and process checks; reef serve (the data server) gives REST calls, SQLite rows, locks and crash recovery; the reef CLI, reef mcp and reef chat (the memory loop) give command output, MCP tool results, chat turns, wrap-up and SQLite rows. Use to verify a ticket or slice acceptance line, to re-check after a change in agent/, cmd/reef-agent, cmd/reef, channel/, server/ or store/, or when asked "does reef-agent / reef serve / reef chat still work". Later slices add the UI; this map grows with them.
 ---
 
 # Verify Reef
 
-Two user surfaces exist so far:
+Three user surfaces exist so far:
 
 - `reef-agent` (`cmd/reef-agent`) runs one backend (`claude` or `codex`) and prints one JSON
   `Event` per line. Contract: `docs/agents.md`.
 - `reef serve` (`cmd/reef`) keeps Reef's data in one SQLite file and serves it as a JSON
   REST API. Contract: `docs/server.md`.
+- The memory loop (`cmd/reef`): the CLI (`reef project`, `feature`, `brief`, `decide`,
+  `task`, `context`, `token`), `reef mcp` (stdio MCP tools for one teammate) and `reef
+  chat` (one role in one channel, in the terminal). Contract: `docs/memory.md`.
 
-The `reef` CLI subcommands, the UI and the Mac shell do not exist yet. When a later slice
-adds one, add its Launch, Drive and feature files here. The feature map is in
+The UI and the Mac shell do not exist yet. When a later slice adds one, add its Launch,
+Drive and feature files here. The feature map is in
 [`features/README.md`](features/README.md). Read the matching feature file before a run.
 
 All commands below run from the repo root. `H=.claude/skills/verify-reef/scripts/verify-reef`.
@@ -46,8 +49,8 @@ It checks `go`, `claude` and `codex` versions, `claude auth status` (`loggedIn`)
 `codex login status` (each limited to 20 s, so a hung CLI is a `FAIL` line), that `sqlite3`
 and `curl` exist, and that the HEAD `build` recorded in `build.txt` equals `git rev-parse HEAD`
 for both `reef-agent` and `reef` (rebuild after a commit). It also saves the pre-run snapshot
-of `claude`, `codex` and `reef-agent` pids to `pre-pids.txt`. `run`, `interrupt` and
-`serve-start` refuse to start without it. Exit 1 if any line is `FAIL`.
+of `claude`, `codex` and `reef-agent` pids to `pre-pids.txt`. `run`, `interrupt`,
+`serve-start` and `reef` refuse to start without it. Exit 1 if any line is `FAIL`.
 
 ## Drive
 
@@ -148,6 +151,43 @@ Rules:
   `sql.log` rows for side effects.
 - Run `cleanup` at the end. It stops the server if it is still up.
 
+## Memory loop
+
+The CLI, `reef mcp` and `reef chat` open the data folder themselves, so they need no
+server. They share the run's data folder with `serve-start` and `sql`. Read the matching
+feature file first.
+
+```sh
+REEF_VERIFY_RUN=<id> $H reef --data-name cli -- project add
+REEF_VERIFY_RUN=<id> $H reef -- decide login "Use sessions, not JWT"
+REEF_TOKEN=<token> REEF_VERIFY_RUN=<id> $H mcp-call record_decision '{"body":"Rate limit by IP"}'
+ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/chat-in.txt --answer y \
+  --timeout 300 -- chat login --role developer --backend claude
+```
+
+- `reef [--data-name NAME] [--stdin FILE [--answer A]] [--timeout S] -- ARGS` runs the `reef`
+  binary in the scratch cwd with `--data <folder>` right after the command words
+  (`task add --data <folder> 1 -- "--why not"`), so a `--` in ARGS still ends the flags.
+  `--data-name` picks `<scratch>/NAME`. It refuses
+  while this run's server uses another folder. Without it, the call uses the last folder that
+  `reef --data-name` or `serve-start` used, or `<scratch>/data`. stdin is `/dev/null` unless
+  `--stdin` gives a file. `--answer A` answers a wrap-up: FILE's lines go through a FIFO held
+  open until the live output shows `approve? [y/N]`, then `A` is written and stdin closes
+  (see `features/chat.md`). `--timeout S` (default 240) sends SIGINT, which is Ctrl-C. It prints
+  the command's stdout and stderr, then `exit: N elapsed_s: ... children: N orphans_alive:
+  ...`, and exits with the command's code.
+- `mcp-call TOOL [JSON]` starts `reef mcp` on the run's folder with the caller's `REEF_TOKEN`,
+  does the MCP handshake, lists the tools and calls `TOOL` with `JSON` (default `{}`). It
+  prints `tools: ...`, `< isError=false|true <text>` (or `< rpc error ...`), `reef mcp exit:
+  N` and stderr. It exits 0 when a tool result came back.
+- The project folder is the scratch cwd, so `reef chat` runs its agent there and `cleanup`
+  removes claude's session state for it.
+
+Rules:
+- Every `--backend claude` `reef chat` drive sets `ANTHROPIC_MODEL=sonnet`. Keep chats to the
+  lines of the feature file.
+- Quote `reef.log` and `reef-mcp.log` lines as proof, plus the `sql.log` rows for side effects.
+
 ## Evidence
 
 Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches it.
@@ -166,6 +206,8 @@ Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches 
 | `api.log` | every `api` call: `> METHOD PATH [headers] [body]`, then `< status body` |
 | `sql.log` | every `sql` call: `> SQL`, then its output |
 | `serve-second.log` | each `serve-second`: addr, data, exit code, stderr, verdict |
+| `reef.log` | every `reef` call: `--- reef` and the exact args with `--data DIR`, cwd and stdin, `out:` and `err:` lines, the `feed:` line with `--answer`, then `exit:`, `elapsed_s`, `sigint_after_s`, `children`, `orphans_alive` |
+| `reef-mcp.log` | every `mcp-call`: `> TOOL JSON`, `tools:`, `< isError=...` result, `reef mcp exit:`, stderr |
 
 Proof standards:
 - Drive the real binary against the real `claude` and `codex`. The fake binaries in
@@ -186,7 +228,7 @@ REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef cleanup
 ```
 
 If this run's server is still up it gets SIGINT first. Then it sends SIGTERM, then SIGKILL, only to
-pids this run recorded (`reef-agent`, `reef serve` and the children seen under it), and only
+pids this run recorded (`reef-agent`, `reef serve`, `reef` commands and the children seen under them), and only
 while the pid still runs the recorded command. It never
 kills by name: other claude sessions and a managed `codex app-server --listen` daemon may
 run on this machine. It removes `/private/tmp/reef-verify/<id>/` and claude's state for
@@ -212,4 +254,6 @@ in `~/.codex/sessions`; cleanup leaves them.
 | `serve-second [--same-addr]` | second `reef serve` on the same data folder; must be refused |
 | `api [-H 'N: v']... METHOD PATH [JSON]` | one HTTP call, prints status and body, logs to `api.log` |
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
+| `reef [--data-name NAME] [--stdin FILE [--answer A]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt |
+| `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
 | `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |

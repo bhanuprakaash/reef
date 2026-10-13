@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,7 +74,8 @@ func TestRun_ServeFailsRunningTurn(t *testing.T) {
 	var logs syncBuffer
 	done := make(chan error, 1)
 	go func() {
-		done <- run(ctx, []string{"serve", "--addr", "127.0.0.1:0", "--data", dir}, &logs)
+		done <- run(ctx,
+			[]string{"serve", "--addr", "127.0.0.1:0", "--data", dir}, strings.NewReader(""), io.Discard, &logs)
 	}()
 	deadline := time.Now().Add(5 * time.Second)
 	for !strings.Contains(logs.String(), "listening on") {
@@ -113,13 +115,13 @@ func TestRun_ServeFailsRunningTurn(t *testing.T) {
 func TestRun_SecondServeLeavesRunningTurn(t *testing.T) {
 	dir := t.TempDir()
 	seedRunningTurn(t, dir)
-	held, err := store.Open(dir)
+	held, err := lockDataDir(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	err = run(context.Background(),
-		[]string{"serve", "--addr", "127.0.0.1:0", "--data", dir}, &syncBuffer{})
+		[]string{"serve", "--addr", "127.0.0.1:0", "--data", dir}, strings.NewReader(""), io.Discard, &syncBuffer{})
 	if err == nil || !strings.Contains(err.Error(), "is in use by another reef") {
 		t.Errorf("run = %v, want an in-use error", err)
 	}
@@ -130,6 +132,87 @@ func TestRun_SecondServeLeavesRunningTurn(t *testing.T) {
 	if got := turnStatus(t, dir); got != "running" {
 		t.Errorf("turn status = %q, want running", got)
 	}
+	again, err := lockDataDir(dir)
+	if err != nil {
+		t.Fatalf("lock after release: %v", err)
+	}
+	_ = again.Close()
+}
+
+func TestRun_ServeKeepsTurnOfOpenChat(t *testing.T) {
+	dir := t.TempDir()
+	seedRunningTurn(t, dir)
+	lock, err := lockChat(dir, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := lockChat(dir, 1); err == nil ||
+		err.Error() != "channel 1 is open in another reef chat" {
+		t.Errorf("second lockChat = %v, want the open-in-another-chat error", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var logs syncBuffer
+	done := make(chan error, 1)
+	go func() {
+		done <- run(ctx, []string{"serve", "--addr", "127.0.0.1:0", "--data", dir},
+			strings.NewReader(""), io.Discard, &logs)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(logs.String(), "listening on") {
+		if time.Now().After(deadline) {
+			t.Fatalf("not listening after 5s; log: %s", logs.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("run = %v, want nil", err)
+	}
+	if got := turnStatus(t, dir); got != "running" {
+		t.Errorf("turn status = %q, want running", got)
+	}
+	if err := lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if chatOpen(dir, 1) {
+		t.Error("chatOpen after release = true, want false")
+	}
+}
+
+func TestRun_StoreOpensWhileServing(t *testing.T) {
+	dir := t.TempDir()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	var logs syncBuffer
+	done := make(chan error, 1)
+	go func() {
+		done <- run(ctx,
+			[]string{"serve", "--addr", "127.0.0.1:0", "--data", dir}, strings.NewReader(""), io.Discard, &logs)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(logs.String(), "listening on") {
+		if time.Now().After(deadline) {
+			t.Fatalf("not listening after 5s; log: %s", logs.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatalf("store.Open while serving: %v", err)
+	}
+	if _, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("run = %v, want nil", err)
+	}
 }
 
 func TestRun_RefusesNonLoopbackAddr(t *testing.T) {
@@ -137,7 +220,7 @@ func TestRun_RefusesNonLoopbackAddr(t *testing.T) {
 		t.Run(addr, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "data")
 			err := run(context.Background(),
-				[]string{"serve", "--addr", addr, "--data", dir}, &syncBuffer{})
+				[]string{"serve", "--addr", addr, "--data", dir}, strings.NewReader(""), io.Discard, &syncBuffer{})
 			if err == nil || !strings.Contains(err.Error(), "is not a loopback address") ||
 				!strings.Contains(err.Error(), addr) {
 				t.Errorf("run = %v, want a loopback error naming %q", err, addr)

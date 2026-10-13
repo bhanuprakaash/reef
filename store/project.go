@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"time"
 )
 
@@ -45,6 +46,26 @@ func (s *Store) Project(ctx context.Context, id int64) (Project, error) {
 		return Project{}, fmt.Errorf("project %d: %w", id, ErrNotFound)
 	}
 	return p, err
+}
+
+// ProjectByPath returns the project whose path is path or, failing that, the
+// nearest parent folder of path that is a project path, or ErrNotFound.
+func (s *Store) ProjectByPath(ctx context.Context, path string) (Project, error) {
+	for dir := filepath.Clean(path); ; dir = filepath.Dir(dir) {
+		row := s.db.QueryRowContext(ctx,
+			"SELECT id, name, path, created_at FROM project WHERE path = ? ORDER BY id LIMIT 1",
+			dir)
+		p, err := scanProject(row)
+		if err == nil {
+			return p, nil
+		}
+		if !errors.Is(err, sql.ErrNoRows) {
+			return Project{}, err
+		}
+		if filepath.Dir(dir) == dir {
+			return Project{}, fmt.Errorf("project for path %q: %w", path, ErrNotFound)
+		}
+	}
 }
 
 // Projects lists every project by id.

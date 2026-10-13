@@ -1,0 +1,88 @@
+# reef chat
+
+A user runs one role on a feature in the terminal with `reef chat`. The first message
+carries the context prompt. Each line is a stored message and a stored turn, and the
+agent's reply is stored as a message. `/wrap` makes the agent propose a new brief, notes
+and decisions through `reef mcp`; the user approves (all saved in one transaction) or
+rejects (nothing saved). `reef chat --channel ID` resumes the session. Ctrl-C stops the
+turn. Contract: `docs/memory.md`.
+
+## Sub-features
+
+- `chat-turn` one piped line becomes a `user` message, a `done` turn with a session id and usage, and a reply message from the role.
+- `chat-context` the first prompt starts with the context prompt (`--debug` shows it on stderr).
+- `chat-tools` the agent calls the `reef` tools (`get_brief`, `record_decision`, `propose_wrap`) from inside the chat.
+- `chat-wrap-approve` `/wrap` then `y`: the agent calls `propose_wrap`, the proposal prints, and approve adds a brief version, the role's notes and the proposed decisions, and marks the proposal `approved`.
+- `chat-wrap-typed-ahead` a line typed while the agent wraps up prints `ignored while wrapping: <line>` and is not the answer.
+- `chat-resume` `reef chat --channel ID` resumes the same session id with the same role and backend.
+- `chat-wrap-reject` `/wrap` then `n`: the proposal is `rejected` and no brief, notes or decisions change.
+- `chat-wrap-eof` stdin ends at `approve? [y/N]`: the proposal stays `pending` with `proposal N left pending`.
+- `chat-interrupt` Ctrl-C during a turn stores it `failed` with `interrupted`, prints the resume line, exits 0 and leaves no processes.
+- `chat-codex` new, resume, wrap-up and Ctrl-C work the same with `--backend codex`.
+- `chat-token-cleanup` every chat deletes its token when it ends.
+- `chat-bad-backend` a backend typo fails before anything is stored: no channel.
+- `chat-index` the context index cuts a decision's first line at 100 runes with `…` and shows each channel's message count.
+
+## How to get to it (user POV)
+
+- In the project folder: `reef chat login --role developer --backend claude`, type lines, `/wrap`, `y`, Ctrl-D.
+- Later: `reef chat --channel 1`.
+
+## Driving it with verify-reef
+
+`$H reef --stdin FILE --timeout S -- chat ...` runs `reef chat` in the scratch cwd with
+FILE as stdin. At the end of FILE the chat exits by itself. `--timeout S` (default 240)
+sends SIGINT after S seconds, which is Ctrl-C. The result line has `children:` (the agent
+and its `reef mcp`) and `orphans_alive:`.
+
+Lines already waiting on stdin when the wrap turn ends are ignored, so a plain file with
+`/wrap` then `y` never approves. Add `--answer A`: the helper writes FILE's lines through
+a FIFO and keeps it open, polls the live output for `approve? [y/N]`, then writes `A` and
+closes stdin. On `no proposal made` it closes without an answer. The result adds `feed:
+sent "y" after approve? [y/N]` (or why it sent nothing), also in `reef.log`.
+
+Preconditions:
+
+- Baseline from the README. No server needed. Every claude chat drive sets `ANTHROPIC_MODEL=sonnet`.
+- Setup: `$H reef --data-name chat -- project add` (project 1 is the scratch cwd, so the agent runs there), `$H reef -- feature add login "Email login" --goal "Users sign in with email and password"`.
+- Input files in `~/.reef-verify/<id>/`, one line each:
+  - `chat-in.txt`: `Call the reef get_brief tool first. Then note: we decided to lock an account after 5 failed logins, to slow down guessing. Reply in one short sentence.`, `/wrap`, `typed-ahead line`.
+  - `resume-in.txt`: `What did we decide about failed logins? One sentence.`, `/wrap`.
+  - `wrap-eof.txt`: `/wrap`.
+  - `long-in.txt`: `Write a 3000-word essay on the history of lighthouses. Do not use any tools.`
+  - `codex-in.txt`: `Call the reef get_brief tool, then record a decision with the reef record_decision tool: body 'Unlock locked accounts by email reset', why 'No support staff'. Reply in one short sentence.`
+  - `codex-resume-in.txt`: `Say only: ok-codex-2`, `/wrap`.
+
+Claude, channel 1:
+
+- **Turn, context, typed-ahead and wrap approve.** `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/chat-in.txt --answer y --timeout 300 -- chat login --role developer --backend claude --debug`. stderr starts with `--- prompt ---` and `You are the developer on feature "Email login" (login) in project "cwd".`. stdout has the reply, `proposal 1 from developer`, `brief:`, `notes:`, `decisions:`, `ignored while wrapping: typed-ahead line`, `approve? [y/N] approved: brief, notes and N decisions saved`, and `channel 1: resume with reef chat --channel 1`. Result `feed: sent "y" after approve? [y/N]`, `exit: 0`, `orphans_alive: none`. Then:
+  - `$H sql "select id, author, substr(body, 1, 50) from message"`: `user`, `developer`, `user` (`/wrap`), `developer`. The typed-ahead line is not stored.
+  - `$H sql "select id, role, backend, status, session_id != '' as has_session, input_tokens + cache_read_tokens > 0 as has_usage from turn"`: two rows `developer|claude|done|1|1`.
+  - `$H sql "select id, role, status, decided_at is not null from proposal"`: `1|developer|approved|1`.
+  - `$H sql "select count(*) from token"`: `0`, the chat deleted its token when it ended.
+  - `$H sql "select author, substr(body, 1, 40) from brief"`, `$H sql "select role, substr(body, 1, 40) from role_notes"`, `$H sql "select id, author, body from decision"`: a brief and notes by `developer`, and the 5-failed-logins decision by `developer`, either recorded live with `record_decision` or proposed at wrap-up (then `N` above is 1).
+  - Tool calls: `grep -o '"type":"tool_use","id":"[^"]*","name":"mcp__reef__[a-z_]*"' ~/.claude/projects/-private-tmp-reef-verify-<id>-cwd/<session id>.jsonl` lists `mcp__reef__get_brief`, `mcp__reef__propose_wrap` and usually `mcp__reef__record_decision`. The session id is the turn's `session_id`. Grep before `cleanup`, which removes that folder.
+- **Resume and reject.** `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/resume-in.txt --answer n --timeout 300 -- chat --channel 1`. The reply names the 5 failed logins (the session remembers). stdout has `proposal 2 from developer` and `rejected: nothing changed`; result `feed: sent "n" after approve? [y/N]`. `$H sql "select id, session_id, status from turn"`: four `done` turns, one session id. `$H sql "select id, status from proposal"`: `1|approved`, `2|rejected`. `$H sql "select count(*) from brief"` is still 1.
+- **End of input at the prompt.** `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/wrap-eof.txt --timeout 300 -- chat --channel 1` (no `--answer`). stdout has `proposal 3 from developer`, `approve? [y/N]`, then `proposal 3 left pending` and the resume line, `exit: 0`. `$H sql "select id, status from proposal where id = 3"`: `3|pending`.
+- **Interrupt.** `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/long-in.txt --timeout 12 -- chat --channel 1`. Result `exit: 0 ... sigint_after_s: 12 ... orphans_alive: none`, stdout ends with `channel 1: resume with reef chat --channel 1`. `$H sql "select id, status, error, ended_at is not null from turn where id = 6"`: `6|failed|interrupted|1`.
+
+Codex, channel 2 (no `ANTHROPIC_MODEL` needed):
+
+- **New codex chat with tool calls.** `$H reef --stdin ~/.reef-verify/<id>/codex-in.txt --timeout 300 -- chat login --role reviewer --backend codex --debug`. stderr has the context prompt for `reviewer`, with the approved brief and `channel 1: developer chat, ...` in the index. stdout has the reply and `channel 2: resume with reef chat --channel 2`, `exit: 0`, `orphans_alive: none`. `$H sql "select id, role, backend, status, session_id from turn where channel_id = 2"`: one `reviewer|codex|done|<thread id>` row. `$H sql "select author, body, why from decision where author = 'reviewer'"`: `reviewer|Unlock locked accounts by email reset|No support staff`. Tool calls: `grep -o 'tools\.mcp__reef__[a-z_]*' ~/.codex/sessions/*/*/*/rollout-*-<thread id>.jsonl` lists `tools.mcp__reef__get_brief` and `tools.mcp__reef__record_decision` (codex calls MCP tools from its `exec` tool).
+- **Codex resume and wrap approve.** `$H reef --stdin ~/.reef-verify/<id>/codex-resume-in.txt --answer y --timeout 300 -- chat --channel 2`. stdout has `ok-codex-2`, `proposal 4 from reviewer`, `approved: brief, notes and N decisions saved`; result `feed: sent "y" after approve? [y/N]`. The new turns have the same session id; `$H sql "select id, role, status from proposal where id = 4"`: `4|reviewer|approved`.
+- **Codex interrupt.** `$H reef --stdin ~/.reef-verify/<id>/long-in.txt --timeout 12 -- chat --channel 2`. Result `exit: 0 ... sigint_after_s: 12 ... orphans_alive: none` and the resume line. `$H sql "select id, backend, status, error from turn where channel_id = 2 order by id desc limit 1"`: `codex|failed|interrupted`.
+
+After the chats:
+
+- **Tokens.** `$H sql "select count(*) from token"` is `0` after every chat above.
+- **Backend typo.** `$H reef -- chat login --role tester --backend nope` prints `reef: unknown backend "nope"`, `exit: 1`. `$H sql "select count(*) from channel"` is still 2.
+- **Index line.** Record a decision whose first line is longer than 100 runes, with a second line (a double-quoted argument with a real newline): `$H reef -- decide login "Ünïcode-first line: <80 × é>TAIL` newline `second line must not show"`. `$H reef -- context login --role developer` shows `decision 3: Ünïcode-first line: <80 × é>… (user, <date>)`: cut at 100 runes, no `TAIL`, no second line. `### Channels` shows `channel 1: developer chat, <date>, 11 messages` and `channel 2: reviewer chat, <date>, 7 messages`, the counts `$H sql "select channel_id, count(*) from message group by channel_id"` gives.
+
+## Gotchas
+
+- The model may record the decision live with `record_decision` in the first turn. Then the wrap-up proposes no decisions and prints `0 decisions saved`. Both are correct; the `decision` row is the proof either way.
+- If the model does not call `propose_wrap`, stdout says `no proposal made` and the result says `feed: no proposal made, answer not sent`. Re-run with a new data folder rather than reading on.
+- The stored user message is `/wrap`; only the agent gets the wrap-up prompt.
+- An interrupted turn's partial reply is not stored, so it adds one message (the user line) to the channel's count.
+- Claude stores sessions per cwd, and the chat runs in the project folder (the scratch cwd). Resume only works inside the same run. Codex threads are global, in `~/.codex/sessions`; cleanup leaves them.
+- The helper cannot hold two chats at once, so the chat lock (`channel 1 is open in another reef chat`) is not driven here; `go test ./cmd/reef` covers serve recovery skipping an open chat.
