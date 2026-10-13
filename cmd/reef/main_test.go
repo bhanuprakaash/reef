@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,7 +74,8 @@ func TestRun_ServeFailsRunningTurn(t *testing.T) {
 	var logs syncBuffer
 	done := make(chan error, 1)
 	go func() {
-		done <- run(ctx, []string{"serve", "--addr", "127.0.0.1:0", "--data", dir}, &logs)
+		done <- run(ctx,
+			[]string{"serve", "--addr", "127.0.0.1:0", "--data", dir}, io.Discard, &logs)
 	}()
 	deadline := time.Now().Add(5 * time.Second)
 	for !strings.Contains(logs.String(), "listening on") {
@@ -119,7 +121,7 @@ func TestRun_SecondServeLeavesRunningTurn(t *testing.T) {
 	}
 
 	err = run(context.Background(),
-		[]string{"serve", "--addr", "127.0.0.1:0", "--data", dir}, &syncBuffer{})
+		[]string{"serve", "--addr", "127.0.0.1:0", "--data", dir}, io.Discard, &syncBuffer{})
 	if err == nil || !strings.Contains(err.Error(), "is in use by another reef") {
 		t.Errorf("run = %v, want an in-use error", err)
 	}
@@ -144,7 +146,8 @@ func TestRun_StoreOpensWhileServing(t *testing.T) {
 	var logs syncBuffer
 	done := make(chan error, 1)
 	go func() {
-		done <- run(ctx, []string{"serve", "--addr", "127.0.0.1:0", "--data", dir}, &logs)
+		done <- run(ctx,
+			[]string{"serve", "--addr", "127.0.0.1:0", "--data", dir}, io.Discard, &logs)
 	}()
 	deadline := time.Now().Add(5 * time.Second)
 	for !strings.Contains(logs.String(), "listening on") {
@@ -175,7 +178,7 @@ func TestRun_RefusesNonLoopbackAddr(t *testing.T) {
 		t.Run(addr, func(t *testing.T) {
 			dir := filepath.Join(t.TempDir(), "data")
 			err := run(context.Background(),
-				[]string{"serve", "--addr", addr, "--data", dir}, &syncBuffer{})
+				[]string{"serve", "--addr", addr, "--data", dir}, io.Discard, &syncBuffer{})
 			if err == nil || !strings.Contains(err.Error(), "is not a loopback address") ||
 				!strings.Contains(err.Error(), addr) {
 				t.Errorf("run = %v, want a loopback error naming %q", err, addr)
