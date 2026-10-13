@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -58,6 +59,27 @@ func TestParse(t *testing.T) {
 			name: "tool result",
 			give: `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01QXVfbj1JZFm29Aqmf9Gb8z","type":"tool_result","content":"hello-from-tool","is_error":false}]},"parent_tool_use_id":null,"session_id":"3c1296cc-1e28-4167-a8a8-dfb0facf9381"}`,
 			want: []agent.Event{{Kind: agent.KindToolResult, ToolID: "toolu_01QXVfbj1JZFm29Aqmf9Gb8z", Output: "hello-from-tool"}},
+		},
+		{
+			name: "subagent tool call",
+			give: `{"type":"assistant","message":{"model":"claude-sonnet-5-5","role":"assistant","content":[{"type":"tool_use","id":"toolu_01BreQyuMiV9cKxFWNeiHK4Q","name":"Bash","input":{"command":"echo sub-hello","description":"Print sub-hello"},"caller":{"type":"direct"}}]},"parent_tool_use_id":"toolu_01RaXuLo7hgPeWd6uAE8s6vP","agent_id":"acbb09e2905459672","session_id":"5cb3eb98-0d14-468a-9526-3f91b3068676"}`,
+			want: []agent.Event{{
+				Kind:         agent.KindToolCall,
+				ToolID:       "toolu_01BreQyuMiV9cKxFWNeiHK4Q",
+				ToolName:     "Bash",
+				ParentToolID: "toolu_01RaXuLo7hgPeWd6uAE8s6vP",
+				Input:        json.RawMessage(`{"command":"echo sub-hello","description":"Print sub-hello"}`),
+			}},
+		},
+		{
+			name: "subagent tool result",
+			give: `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01BreQyuMiV9cKxFWNeiHK4Q","type":"tool_result","content":"sub-hello","is_error":false}]},"parent_tool_use_id":"toolu_01RaXuLo7hgPeWd6uAE8s6vP","agent_id":"acbb09e2905459672","session_id":"5cb3eb98-0d14-468a-9526-3f91b3068676"}`,
+			want: []agent.Event{{
+				Kind:         agent.KindToolResult,
+				ToolID:       "toolu_01BreQyuMiV9cKxFWNeiHK4Q",
+				Output:       "sub-hello",
+				ParentToolID: "toolu_01RaXuLo7hgPeWd6uAE8s6vP",
+			}},
 		},
 		{
 			name: "tool result as text blocks",
@@ -186,6 +208,39 @@ func TestFailedResume(t *testing.T) {
 	}
 	if got := collect(t, drain(a)); !reflect.DeepEqual(got, want) {
 		t.Errorf("events = %+v, want %+v", got, want)
+	}
+}
+
+func TestMCPServersPreApproved(t *testing.T) {
+	a := fakeClaude(t, "argv")
+	cfg := agent.Config{
+		Cwd:        t.TempDir(),
+		MCPServers: map[string]agent.MCPServer{"reef": {Command: "r"}, "ping": {URL: "http://x"}},
+	}
+	if err := a.Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	got := collect(t, drain(a))
+	if len(got) != 1 || !strings.Contains(got[0].Output, " --allowedTools mcp__ping__*,mcp__reef__*") {
+		t.Errorf("events = %+v", got)
+	}
+}
+
+func TestMCPServerNameRejected(t *testing.T) {
+	a := fakeClaude(t, "argv")
+	cfg := agent.Config{
+		Cwd:        t.TempDir(),
+		MCPServers: map[string]agent.MCPServer{"x,Bash,y": {Command: "r"}},
+	}
+	err := a.Start(context.Background(), cfg)
+	if err == nil || !strings.Contains(err.Error(), `"x,Bash,y"`) {
+		t.Fatalf("Start error = %v", err)
+	}
+	if err := a.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := <-a.Events(); ok {
+		t.Error("Events is open")
 	}
 }
 

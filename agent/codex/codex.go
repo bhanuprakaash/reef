@@ -37,12 +37,14 @@ type (
 		stderr   tail
 		threadID string
 		nextID   int
-		used     bool
 		events   chan agent.Event
 		done     chan struct{} // closed by Interrupt
 		exited   chan struct{} // closed when run has returned and Events is closed
-		stop     sync.Once
-		mu       sync.Mutex // serializes writes to stdin
+		writeMu  sync.Mutex    // serializes writes to stdin
+		mu       sync.Mutex    // guards used, cmd and Interrupt
+		used     bool
+		turn     agent.Usage // sum so far of the turn in progress; owned by run
+		inTurn   bool        // between turn/started and the turn's end; resume replays usage outside it
 	}
 
 	// tail keeps the last _stderrKeep bytes written to it.
@@ -143,35 +145,60 @@ func (a *Agent) Events() <-chan agent.Event { return a.events }
 // the commands it started, which run in their own process groups; SIGKILL follows after
 // _killAfter.
 func (a *Agent) Interrupt() error {
-	var err error
-	a.stop.Do(func() {
-		a.used = true
-		close(a.done)
-		if a.cmd == nil {
-			close(a.events)
-			return
-		}
-		select {
-		case <-a.exited:
-			return
-		default:
-		}
-		err = a.signal(syscall.SIGTERM)
-		select {
-		case <-a.exited:
-		case <-time.After(_killAfter):
-			err = errors.Join(err, a.signal(syscall.SIGKILL))
-			<-a.exited
-		}
-	})
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.interrupted() {
+		return nil
+	}
+	a.used = true
+	close(a.done)
+	if a.cmd == nil {
+		close(a.events)
+		return nil
+	}
+	select {
+	case <-a.exited:
+		return nil
+	default:
+	}
+	err := a.signal(syscall.SIGTERM)
+	select {
+	case <-a.exited:
+	case <-time.After(_killAfter):
+		err = errors.Join(err, a.signal(syscall.SIGKILL))
+		<-a.exited
+	}
 	return err
 }
 
 func (a *Agent) launch(
 	ctx context.Context, cfg agent.Config, method string, params map[string]any,
 ) error {
+	ready, err := a.spawn(cfg, method, params)
+	if err != nil {
+		return err
+	}
+	stop := context.AfterFunc(ctx, func() { _ = a.Interrupt() })
+	err = <-ready
+	if !stop() || err != nil {
+		_ = a.Interrupt()
+		if ctx.Err() != nil {
+			return fmt.Errorf("%s: %w", method, ctx.Err())
+		}
+		return err
+	}
+	return nil
+}
+
+// spawn starts the process and the goroutine that runs the handshake. It holds mu so that
+// Interrupt sees either no process or a started one.
+func (a *Agent) spawn(
+	cfg agent.Config, method string, params map[string]any,
+) (<-chan error, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.used {
-		return errors.New("codex agent already used")
+		return nil, errors.New("codex agent already used")
 	}
 	a.used = true
 	cmd := exec.Command("codex", "app-server")
@@ -182,26 +209,19 @@ func (a *Agent) launch(
 	cmd.WaitDelay = _waitDelay
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start codex: %w", err)
+		return nil, fmt.Errorf("start codex: %w", err)
 	}
 	a.cmd, a.stdin, a.stdout = cmd, stdin, bufio.NewReader(stdout)
-
-	stopKill := context.AfterFunc(ctx, func() { _ = a.signal(syscall.SIGTERM) })
-	defer stopKill()
 	ready := make(chan error, 1)
 	go a.run(method, params, ready)
-	if err := <-ready; err != nil {
-		_ = a.Interrupt()
-		return err
-	}
-	return nil
+	return ready, nil
 }
 
 // run owns stdout: it does the handshake, streams events, then reaps the process.
@@ -217,7 +237,7 @@ func (a *Agent) run(method string, params map[string]any, ready chan<- error) {
 	a.read()
 	// Wait closes stdout, so it must come after the last read.
 	err = a.cmd.Wait()
-	if err == nil || a.interrupted() {
+	if err == nil || a.interrupted() || (a.inTurn && !a.flushUsage()) {
 		return
 	}
 	a.emit(agent.Event{
@@ -281,8 +301,8 @@ func (a *Agent) write(v any) error {
 	if err != nil {
 		return err
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.writeMu.Lock()
+	defer a.writeMu.Unlock()
 	_, err = a.stdin.Write(append(b, '\n'))
 	return err
 }
@@ -291,7 +311,6 @@ func (a *Agent) read() {
 	if !a.emit(agent.Event{Kind: agent.KindSession, SessionID: a.threadID}) {
 		return
 	}
-	var inTurn bool // resume replays the last turn's usage before any turn starts
 	for {
 		line, err := a.stdout.ReadBytes('\n')
 		var m message
@@ -302,19 +321,42 @@ func (a *Agent) read() {
 					"id":    m.ID,
 					"error": map[string]any{"code": -32601, "message": "unsupported"},
 				})
-			} else {
-				ev, ok := m.event()
-				inTurn = inTurn || m.Method == "turn/started"
-				if ok && (inTurn || ev.Kind != agent.KindUsage) && !a.emit(ev) {
-					return
-				}
-				inTurn = inTurn && m.Method != "turn/completed"
+			} else if !a.handle(m) {
+				return
 			}
 		}
 		if err != nil {
 			return
 		}
 	}
+}
+
+// handle emits the event for m and reports whether to keep reading. Codex reports each
+// model call; a turn's usage is their sum, emitted before the event that ends the turn.
+func (a *Agent) handle(m message) bool {
+	switch m.Method {
+	case "turn/started":
+		a.inTurn = true
+	case "thread/tokenUsage/updated":
+		if ev, _ := m.event(); a.inTurn {
+			a.turn.Add(*ev.Usage)
+		}
+		return true
+	}
+	ev, ok := m.event()
+	if !ok {
+		return true
+	}
+	if (ev.Kind == agent.KindTurnEnd || ev.Kind == agent.KindError) && !a.flushUsage() {
+		return false
+	}
+	return a.emit(ev)
+}
+
+func (a *Agent) flushUsage() bool {
+	usage := a.turn
+	a.turn, a.inTurn = agent.Usage{}, false
+	return a.emit(agent.Event{Kind: agent.KindUsage, Usage: &usage})
 }
 
 func (a *Agent) emit(ev agent.Event) bool {

@@ -61,15 +61,16 @@ const (
 // Event is one normalized step of a session. Its JSON is the wire format
 // reef-agent prints, one line per event.
 type Event struct {
-	Kind      Kind            `json:"kind"`
-	Text      string          `json:"text,omitempty"`      // text delta, error message
-	SessionID string          `json:"sessionId,omitempty"` // KindSession
-	ToolID    string          `json:"toolId,omitempty"`    // tool call and its result share it
-	ToolName  string          `json:"toolName,omitempty"`
-	Input     json.RawMessage `json:"input,omitempty"`   // tool call arguments
-	Output    string          `json:"output,omitempty"`  // tool result
-	IsError   bool            `json:"isError,omitempty"` // tool result failed
-	Usage     *Usage          `json:"usage,omitempty"`
+	Kind         Kind            `json:"kind"`
+	Text         string          `json:"text,omitempty"`      // text delta, error message
+	SessionID    string          `json:"sessionId,omitempty"` // KindSession
+	ToolID       string          `json:"toolId,omitempty"`    // tool call and its result share it
+	ToolName     string          `json:"toolName,omitempty"`
+	ParentToolID string          `json:"parentToolId,omitempty"` // ToolID of the Agent call whose subagent made this
+	Input        json.RawMessage `json:"input,omitempty"`        // tool call arguments
+	Output       string          `json:"output,omitempty"`       // tool result
+	IsError      bool            `json:"isError,omitempty"`      // tool result failed
+	Usage        *Usage          `json:"usage,omitempty"`
 }
 
 // Usage is the token count of a turn.
@@ -78,4 +79,12 @@ type Usage struct {
 	OutputTokens     int64 `json:"outputTokens"`
 	CacheReadTokens  int64 `json:"cacheReadTokens"`
 	CacheWriteTokens int64 `json:"cacheWriteTokens"`
+}
+
+// Add adds v's counts to u.
+func (u *Usage) Add(v Usage) {
+	u.InputTokens += v.InputTokens
+	u.OutputTokens += v.OutputTokens
+	u.CacheReadTokens += v.CacheReadTokens
+	u.CacheWriteTokens += v.CacheWriteTokens
 }
