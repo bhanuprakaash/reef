@@ -109,23 +109,49 @@ func (s *Store) UpdateChannel(ctx context.Context, c Channel) (Channel, error) {
 // PromoteChannel attaches quick session id to feature f: the existing one when f.ID
 // is set, else a new one. A channel that already has a feature is ErrInvalid.
 func (s *Store) PromoteChannel(ctx context.Context, id int64, f Feature) (Channel, error) {
+	tx, err := s.promote(ctx, id, f)
+	if err != nil {
+		return Channel{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return Channel{}, fmt.Errorf("commit promote: %w", err)
+	}
+	return s.Channel(ctx, id)
+}
+
+// CheckPromote returns the error PromoteChannel would return, and changes nothing.
+func (s *Store) CheckPromote(ctx context.Context, id int64, f Feature) error {
+	tx, err := s.promote(ctx, id, f)
+	if err != nil {
+		return err
+	}
+	return tx.Rollback()
+}
+
+// promote does the work of PromoteChannel in a transaction it leaves open for the
+// caller to commit or roll back. On error it has rolled the transaction back.
+func (s *Store) promote(ctx context.Context, id int64, f Feature) (_ *sql.Tx, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Channel{}, fmt.Errorf("begin promote: %w", err)
+		return nil, fmt.Errorf("begin promote: %w", err)
 	}
-	defer func() { _ = tx.Rollback() }()
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
 	var projectID int64
 	var featureID *int64
 	err = tx.QueryRowContext(ctx, "SELECT project_id, feature_id FROM channel WHERE id = ?", id).
 		Scan(&projectID, &featureID)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Channel{}, fmt.Errorf("channel %d: %w", id, ErrNotFound)
+		return nil, fmt.Errorf("channel %d: %w", id, ErrNotFound)
 	}
 	if err != nil {
-		return Channel{}, fmt.Errorf("read channel %d: %w", id, err)
+		return nil, fmt.Errorf("read channel %d: %w", id, err)
 	}
 	if featureID != nil {
-		return Channel{}, fmt.Errorf("%w: channel %d already has feature %d", ErrInvalid, id, *featureID)
+		return nil, fmt.Errorf("%w: channel %d already has feature %d", ErrInvalid, id, *featureID)
 	}
 	if f.ID != 0 {
 		var inProject bool
@@ -133,31 +159,28 @@ func (s *Store) PromoteChannel(ctx context.Context, id int64, f Feature) (Channe
 			"SELECT EXISTS (SELECT 1 FROM feature WHERE id = ? AND project_id = ?)",
 			f.ID, projectID).Scan(&inProject)
 		if err != nil {
-			return Channel{}, fmt.Errorf("check feature: %w", err)
+			return nil, fmt.Errorf("check feature: %w", err)
 		}
 		if !inProject {
-			return Channel{}, fmt.Errorf("%w: feature %d is not in project %d", ErrInvalid, f.ID, projectID)
+			return nil, fmt.Errorf("%w: feature %d is not in project %d", ErrInvalid, f.ID, projectID)
 		}
 	} else {
 		if err := f.validateSlug(); err != nil {
-			return Channel{}, err
+			return nil, err
 		}
 		if err := f.validate(); err != nil {
-			return Channel{}, err
+			return nil, err
 		}
 		f.ProjectID = projectID
 		if f, err = insertFeature(ctx, tx, f); err != nil {
-			return Channel{}, err
+			return nil, err
 		}
 	}
 	if _, err := tx.ExecContext(ctx,
 		"UPDATE channel SET feature_id = ? WHERE id = ?", f.ID, id); err != nil {
-		return Channel{}, fmt.Errorf("update channel: %w", err)
+		return nil, fmt.Errorf("update channel: %w", err)
 	}
-	if err := tx.Commit(); err != nil {
-		return Channel{}, fmt.Errorf("commit promote: %w", err)
-	}
-	return s.Channel(ctx, id)
+	return tx, nil
 }
 
 // PauseChannel pauses the channel; the reason must not be empty.
