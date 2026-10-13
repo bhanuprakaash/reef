@@ -97,6 +97,41 @@ func isForeignKey(err error) bool {
 	return errors.As(err, &se) && se.Code() == sqlite3.SQLITE_CONSTRAINT_FOREIGNKEY
 }
 
+// parent is a row a write points at. A nil id is a parent the write leaves unset.
+type parent struct {
+	table string
+	id    *int64
+}
+
+// writeErr is the error to return when the INSERT or UPDATE op failed with err.
+// SQLite does not say which foreign key broke, so a foreign-key failure looks up
+// the parents and names the first one that is gone: kind ErrNotFound for a parent
+// named in the URL, ErrInvalid for one named in the body.
+func (s *Store) writeErr(
+	ctx context.Context, op string, err error, kind error, parents ...parent,
+) error {
+	if !isForeignKey(err) {
+		return fmt.Errorf("%s: %w", op, err)
+	}
+	for _, p := range parents {
+		if p.id == nil {
+			continue
+		}
+		ok, qerr := s.exists(ctx, p.table, *p.id)
+		if qerr != nil {
+			return fmt.Errorf("%s: check %s: %w", op, p.table, qerr)
+		}
+		if ok {
+			continue
+		}
+		if kind == ErrNotFound {
+			return fmt.Errorf("%s %d: %w", p.table, *p.id, ErrNotFound)
+		}
+		return fmt.Errorf("%w: unknown %s %d", kind, p.table, *p.id)
+	}
+	return fmt.Errorf("%s: %w", op, err)
+}
+
 // exists reports whether table has a row with the id. table is always a
 // package constant, never caller input.
 func (s *Store) exists(ctx context.Context, table string, id int64) (bool, error) {

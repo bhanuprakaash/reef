@@ -78,6 +78,22 @@ func TestFeatureStatus(t *testing.T) {
 			wantBody:   `{"error":"feature 9: not found"}`,
 		},
 		{
+			name:       "put brief on unknown feature",
+			method:     http.MethodPut,
+			path:       "/features/9/brief",
+			give:       `{"body":"b","author":"lead"}`,
+			wantStatus: 404,
+			wantBody:   `{"error":"feature 9: not found"}`,
+		},
+		{
+			name:       "put notes on unknown feature",
+			method:     http.MethodPut,
+			path:       "/features/9/notes/tester",
+			give:       `{"body":"n"}`,
+			wantStatus: 404,
+			wantBody:   `{"error":"feature 9: not found"}`,
+		},
+		{
 			name:       "no brief yet",
 			method:     http.MethodGet,
 			path:       "/features/1/brief",

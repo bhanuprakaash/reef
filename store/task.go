@@ -46,11 +46,9 @@ func (s *Store) CreateTask(ctx context.Context, t Task) (Task, error) {
 			"VALUES (?, ?, ?, ?, ?, ?, ?)",
 		t.ProjectID, t.FeatureID, t.Title, t.Body, t.Status,
 		now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
-	if isForeignKey(err) {
-		return Task{}, fmt.Errorf("%w: unknown project %d", ErrInvalid, t.ProjectID)
-	}
 	if err != nil {
-		return Task{}, fmt.Errorf("insert task: %w", err)
+		return Task{}, s.writeErr(ctx, "insert task", err, ErrInvalid,
+			parent{"project", &t.ProjectID}, parent{"feature", t.FeatureID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -111,7 +109,8 @@ func (s *Store) UpdateTask(ctx context.Context, t Task) (Task, error) {
 			"WHERE id = ?",
 		t.Title, t.Body, t.Status, t.FeatureID, time.Now().UTC().Format(time.RFC3339Nano), t.ID)
 	if err != nil {
-		return Task{}, fmt.Errorf("update task: %w", err)
+		return Task{}, s.writeErr(ctx, "update task", err, ErrInvalid,
+			parent{"feature", t.FeatureID})
 	}
 	return s.Task(ctx, t.ID)
 }

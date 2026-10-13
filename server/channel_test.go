@@ -40,6 +40,14 @@ func TestChannelStatus(t *testing.T) {
 			wantBody:   `{"error":"invalid: unknown feature 9"}`,
 		},
 		{
+			name:       "unknown field",
+			method:     http.MethodPost,
+			path:       "/channels",
+			give:       `{"projectId":1,"feature_id":1,"name":"c"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: bad JSON: json: unknown field \"feature_id\""}`,
+		},
+		{
 			name:       "missing name",
 			method:     http.MethodPost,
 			path:       "/channels",

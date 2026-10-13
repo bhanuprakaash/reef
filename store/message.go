@@ -27,11 +27,9 @@ func (s *Store) CreateMessage(ctx context.Context, m Message) (Message, error) {
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO message (channel_id, author, body, created_at) VALUES (?, ?, ?, ?)",
 		m.ChannelID, m.Author, m.Body, now.Format(time.RFC3339Nano))
-	if isForeignKey(err) {
-		return Message{}, fmt.Errorf("%w: unknown channel %d", ErrInvalid, m.ChannelID)
-	}
 	if err != nil {
-		return Message{}, fmt.Errorf("insert message: %w", err)
+		return Message{}, s.writeErr(ctx, "insert message", err, ErrInvalid,
+			parent{"channel", &m.ChannelID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
