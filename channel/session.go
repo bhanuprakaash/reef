@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"slices"
@@ -218,7 +219,8 @@ func (s *Session) Run(
 }
 
 // RunAs is Run for any role of the channel's team. A specialist's agent is closed when
-// its turn ends; its next turn resumes the session.
+// its turn ends; its next turn resumes the session. A failure to close it is logged, and
+// does not fail the turn.
 func (s *Session) RunAs(
 	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
 ) error {
@@ -231,7 +233,10 @@ func (s *Session) RunAs(
 		return err
 	}
 	delete(s.members, role)
-	return errors.Join(err, m.close(s.st))
+	if cerr := m.close(s.st); cerr != nil {
+		log.Printf("close %s of channel %d: %v", role, s.ch.ID, cerr)
+	}
+	return err
 }
 
 // Wrap runs a wrap-up turn and returns the proposal the agent made, or ErrNoProposal.
