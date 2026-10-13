@@ -11,7 +11,7 @@ import (
 func decisionFixture(t *testing.T) *httptest.Server {
 	t.Helper()
 	ts := newTestServer(t)
-	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp/reef"}`)
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
 	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"auth","name":"Auth"}`)
 	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"billing","name":"Billing"}`)
 	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"auth"}`)
