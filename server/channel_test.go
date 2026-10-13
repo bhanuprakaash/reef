@@ -19,7 +19,7 @@ func TestChannelStatus(t *testing.T) {
 			name:       "unknown project",
 			method:     http.MethodPost,
 			path:       "/channels",
-			give:       `{"projectId":9,"name":"c"}`,
+			give:       `{"projectId":9,"name":"c","backend":"claude"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: unknown project 9"}`,
 		},
@@ -27,7 +27,7 @@ func TestChannelStatus(t *testing.T) {
 			name:       "feature of another project",
 			method:     http.MethodPost,
 			path:       "/channels",
-			give:       `{"projectId":2,"featureId":1,"name":"c"}`,
+			give:       `{"projectId":2,"featureId":1,"name":"c","backend":"claude"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: feature 1 is not in project 2"}`,
 		},
@@ -35,7 +35,7 @@ func TestChannelStatus(t *testing.T) {
 			name:       "unknown feature",
 			method:     http.MethodPost,
 			path:       "/channels",
-			give:       `{"projectId":1,"featureId":9,"name":"c"}`,
+			give:       `{"projectId":1,"featureId":9,"name":"c","backend":"claude"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: unknown feature 9"}`,
 		},
@@ -51,7 +51,7 @@ func TestChannelStatus(t *testing.T) {
 			name:       "missing name",
 			method:     http.MethodPost,
 			path:       "/channels",
-			give:       `{"projectId":1}`,
+			give:       `{"projectId":1,"backend":"claude"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: channel name is required"}`,
 		},
@@ -113,7 +113,7 @@ func TestChannelRoundTrip(t *testing.T) {
 			`"permissionMode":"acceptEdits","createdAt":"`) {
 		t.Fatalf("quick session = %d %s", status, body)
 	}
-	status, body = do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"auth"}`)
+	status, body = do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"auth","backend":"claude"}`)
 	if status != 201 || !strings.Contains(body, `"featureId":1,"name":"auth"`) {
 		t.Fatalf("feature channel = %d %s", status, body)
 	}

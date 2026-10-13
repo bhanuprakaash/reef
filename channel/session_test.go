@@ -238,8 +238,8 @@ func TestOpen_Errors(t *testing.T) {
 		}
 		defer func() { _ = s.Close() }()
 		_, err = open(ctx, st, dir, "/bin/reef", ch.ID, newRecordingAgent().factory)
-		if err == nil || err.Error() != "channel 1 is open in another reef chat" {
-			t.Errorf("second open error = %v, want the open-in-another-chat error", err)
+		if err == nil || err.Error() != "channel 1 is open elsewhere: conflict" {
+			t.Errorf("second open error = %v, want the open-elsewhere error", err)
 		}
 	})
 

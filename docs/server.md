@@ -20,7 +20,8 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
   `--addr`. A second instance needs its own `--data` and its own `--addr`.
 - Other `reef` commands (the CLI, `reef mcp`, `reef chat`) do not take the lock. They open
   `reef.db` directly with `store.Open` while the server runs. `reef chat` takes its own
-  `chat-<channel id>.lock` while it runs; restart recovery reads it (see below). WAL mode
+  `chat-<channel id>.lock` while it runs, and so does the server for a live channel;
+  restart recovery reads it (see below). WAL mode
   and a 5 second busy timeout let the processes share the file. Two processes that open a fresh folder at once
   both succeed: each migration runs in one `BEGIN IMMEDIATE` transaction and re-reads
   `user_version` inside it, so a migration is applied once.
@@ -34,7 +35,8 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
   [`store/migrations`](../store/migrations) run at start, in order, each once. They only
   go forward. A file whose version is newer than the newest migration (made by a newer
   reef) is refused: `database is newer than this reef`.
-- SIGINT or SIGTERM stops the server, with one second for requests in flight.
+- SIGINT or SIGTERM stops the server: it interrupts every running channel turn (stored
+  `failed`, `interrupted`), stops every agent, then gives requests in flight one second.
 
 ## Web UI
 
@@ -67,8 +69,9 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
-| 409 | A unique rule broke: a feature slug is taken in its project |
+| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, or a channel open in a `reef chat` |
 | 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
+| 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
 
 An id in the path that matches nothing is 404; an id in the body that matches nothing is
@@ -256,10 +259,13 @@ a channel takes its messages, turns, tokens and proposals.
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
-| `POST /channels` | `projectId`, `featureId`, `name`, `role`, `backend`, `permissionMode` | 201 | 400 unknown project or feature, feature of another project |
+| `POST /channels` | `projectId`, `featureId`, `name`, `backend` (required: `claude` or `codex`), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`), `role` (default `lead`) | 201 | 400 unknown project or feature, feature of another project, bad backend or permission mode |
 | `GET /channels/{id}` | | 200 | 404 |
 | `PUT /channels/{id}` | `name` only; project, feature, role, backend and permission mode stay as created | 200 | 400, 404 |
 | `DELETE /channels/{id}` | | 204 | 404 |
+| `POST /channels/{id}/send` | `text` | 202, no body | 400 empty text, 404, 409 turn running or channel open elsewhere, 503 |
+| `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
+| `POST /channels/{id}/stop` | | 204, also when the channel is not live | |
 | `GET /messages` | `?channel=ID` (required), `?after=ID` (only newer ids) | 200 | 400 no channel, 404 unknown channel |
 | `POST /messages` | `channelId`, `author`, `body` | 201 | 400 unknown channel or missing field |
 | `GET /tasks` | `?project=ID`, `?feature=ID`, `?status=todo\|doing\|done` | 200 | 400 bad id or status |
@@ -277,6 +283,51 @@ a channel takes its messages, turns, tokens and proposals.
 
 Create and update take the whole object from the table above. A field you leave out
 takes its default. `PUT` replaces; there is no partial update except `PATCH /turns/{id}`.
+
+## Channels live
+
+`POST /channels/{id}/send` runs one turn of the channel's agent through
+[`channel.Open`](../channel/session.go), the code `reef chat` uses.
+
+- The agent starts at the first send and stays alive between turns, until `POST
+  /channels/{id}/stop` or the server stops. A send after that resumes the agent by the
+  newest session id (see [memory.md](memory.md#reef-chat)).
+- The server holds `chat-<id>.lock` while the agent is alive, so `reef chat --channel ID`
+  fails with `channel 1 is open elsewhere: conflict`. A send to a channel a `reef chat`
+  holds is 409 too.
+- The turn runs in the background, not in the request, and send answers 202 at once. A
+  send while a turn runs is 409. The text `/wrap` runs the wrap-up turn.
+- `stop` interrupts a running turn (stored `failed`, `interrupted`), then stops the
+  agent, deletes its token and releases the lock. A turn that fails for another reason
+  also stops the agent; the next send starts it again.
+- Server shutdown does the same for every channel before it stops listening.
+
+`GET /channels/{id}/events` is a Server-Sent Events stream. It works for a channel that
+is not live: it waits. A `: keepalive` comment comes every 15 seconds. Two kinds of event:
+
+- `turn`: `{"status":"running"}` when a turn starts, then `{"status":"done"}` or
+  `{"status":"failed","error":"interrupted"}` when it ends.
+- `agent`: one [agent event](agents.md) as JSON, as it comes.
+
+The server keeps the events of the running turn in memory. A subscriber that connects
+during a turn first gets `turn` running and every `agent` event of that turn so far, then
+the live ones. One that connects between turns gets nothing until the next turn starts:
+the stored messages (`GET /messages`) are the history. A slow subscriber only lags; it
+never holds up the agent.
+
+```
+event: turn
+data: {"status":"running"}
+
+event: agent
+data: {"kind":"tool_call","toolId":"t1","toolName":"Bash","input":{"command":"ls"}}
+
+event: agent
+data: {"kind":"text","text":"done"}
+
+event: turn
+data: {"status":"done"}
+```
 
 ## Append-only
 
@@ -339,8 +390,8 @@ $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d
 $ curl -s -X PUT -H 'Content-Type: application/json' localhost:7700/features/1/brief -d '{"body":"Email and password login","author":"user"}'
 {"id":1,"featureId":1,"body":"Email and password login","author":"user","createdAt":"2026-10-13T09:00:02.123456Z"}
 
-$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/channels -d '{"projectId":1,"featureId":1,"name":"build"}'
-{"id":1,"projectId":1,"featureId":1,"name":"build","createdAt":"2026-10-13T09:00:03.123456Z"}
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/channels -d '{"projectId":1,"featureId":1,"name":"build","backend":"claude"}'
+{"id":1,"projectId":1,"featureId":1,"name":"build","role":"lead","backend":"claude","permissionMode":"","createdAt":"2026-10-13T09:00:03.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/messages -d '{"channelId":1,"author":"user","body":"Start with the form"}'
 {"id":1,"channelId":1,"author":"user","body":"Start with the form","createdAt":"2026-10-13T09:00:04.123456Z"}

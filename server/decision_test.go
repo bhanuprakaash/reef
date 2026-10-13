@@ -14,8 +14,8 @@ func decisionFixture(t *testing.T) *httptest.Server {
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
 	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"auth","name":"Auth"}`)
 	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"billing","name":"Billing"}`)
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"auth"}`)
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":2,"name":"billing"}`)
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"auth","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":2,"name":"billing","backend":"claude"}`)
 	do(t, http.MethodPost, ts.URL+"/messages", `{"channelId":1,"author":"user","body":"use sessions"}`)
 	do(t, http.MethodPost, ts.URL+"/messages", `{"channelId":2,"author":"user","body":"use stripe"}`)
 	return ts
