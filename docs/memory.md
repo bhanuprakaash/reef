@@ -126,6 +126,7 @@ always in `solo`.
 - Applying a name that exists replaces its roles and gates in one transaction, and the
   team keeps its channels. One failed check changes nothing. A new persona reaches a
   session that starts after it. A session that resumes does not get its first prompt again.
+  A role applied with a new `backend` starts a new session; it does not resume the old one.
 - Errors print `reef: <message>` and exit 1: `reef: invalid: team bad needs exactly one
   lead role, has 0` (or `has 2`), `reef: role a: invalid: backend must be claude or codex`,
   `reef: invalid: role name "two words" must be letters, digits, _ or -, and not user`,

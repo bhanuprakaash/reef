@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"syscall"
 
 	"github.com/bhanuprakaash/reef/agent"
@@ -103,7 +104,7 @@ func (s *Session) Start(ctx context.Context) error {
 }
 
 // member returns the agent session of role, starting or resuming it from the role's own
-// newest turn with a session id. A new session reads the team from the store, so a team
+// newest turn with a session id on the role's backend. A new session reads the team from the store, so a team
 // applied since the channel opened is the one it gets.
 func (s *Session) member(ctx context.Context, role string) (_ *member, err error) {
 	if m, ok := s.members[role]; ok {
@@ -128,7 +129,7 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 		}
 	}()
 
-	last, err := newestSessionTurn(ctx, s.st, s.ch.ID, role)
+	last, err := newestSessionTurn(ctx, s.st, s.ch.ID, role, r.Backend)
 	if err != nil {
 		return nil, err
 	}
@@ -143,7 +144,7 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 		Env:     map[string]string{TokenEnv: tok.Token},
 	}}
 	for i, srv := range r.MCPServers {
-		servers[fmt.Sprintf("mcp%d", i+1)] = srv
+		servers["mcp"+strconv.Itoa(i+1)] = srv
 	}
 	cfg := agent.Config{
 		Cwd:            s.project.Path,
@@ -327,7 +328,7 @@ func failStaleTurns(ctx context.Context, st *store.Store, channelID int64) error
 }
 
 func newestSessionTurn(
-	ctx context.Context, st *store.Store, channelID int64, role string,
+	ctx context.Context, st *store.Store, channelID int64, role, backend string,
 ) (store.Turn, error) {
 	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &channelID})
 	if err != nil {
@@ -335,7 +336,7 @@ func newestSessionTurn(
 	}
 	var last store.Turn
 	for _, t := range turns {
-		if t.Role == role && t.SessionID != "" {
+		if t.Role == role && t.Backend == backend && t.SessionID != "" {
 			last = t
 		}
 	}
