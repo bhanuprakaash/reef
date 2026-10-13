@@ -267,7 +267,7 @@ a channel takes its messages, turns, tokens and proposals.
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
-| `POST /channels` | `projectId`, `featureId`, `name`, `backend` (required: `claude` or `codex`), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`), `role` (default `lead`) | 201 | 400 unknown project or feature, feature of another project, bad backend or permission mode |
+| `POST /channels` | `projectId`, `featureId`, `name`, `backend` (required: `claude` or `codex`), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`), `role` (empty or `lead`; empty becomes `lead`) | 201 | 400 unknown project or feature, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
 | `PUT /channels/{id}` | `name` only; project, feature, role, backend and permission mode stay as created | 200 | 400, 404 |
 | `DELETE /channels/{id}` | | 204 | 404 |
