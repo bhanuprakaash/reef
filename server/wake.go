@@ -42,6 +42,9 @@ func (s *server) wakes(ctx context.Context, id, after int64, author string) ([]w
 	roles := make([]string, len(team.Roles))
 	for i, r := range team.Roles {
 		roles[i] = r.Name
+		if r.Lead {
+			roles[i] = ch.Role
+		}
 	}
 	msgs, err := s.st.Messages(ctx, id, after)
 	if err != nil {

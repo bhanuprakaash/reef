@@ -365,6 +365,27 @@ func TestSend_RoutesAndWakes(t *testing.T) {
 	}
 }
 
+func TestSend_ChannelRoleStandsInForLead(t *testing.T) {
+	env := newLiveEnv(t)
+	_, err := env.st.CreateChannel(context.Background(), store.Channel{
+		ProjectID: 1, Name: "dev", Role: "developer", Backend: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := subscribeTo(t, env.url, 2)
+
+	if status, _ := env.sendTo(t, 2, "@lead hi"); status != 202 {
+		t.Fatalf("send = %d, want 202", status)
+	}
+	sub.want(t, _idleFrame,
+		`turn {"role":"developer","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"developer","status":"done"}`)
+	if got, want := env.ranTexts(), []string{"[channel 2, message 1]\n@lead hi"}; !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
+	}
+}
+
 func TestSend_WakesByPost(t *testing.T) {
 	env := newLiveEnv(t)
 	id, post := env.teamChannel(t)

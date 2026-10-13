@@ -429,6 +429,9 @@ no model. In order:
 3. Otherwise a message from the user goes to the lead.
 4. Otherwise nobody: a message from an agent that names no one wakes no one, in a thread or not.
 
+The lead is the channel's `role`: on a channel whose role is `developer`, `@lead` names no
+role, so the message goes to `developer` and no `lead` session starts.
+
 A role never wakes itself. The user's own message is routed by the same rules, so a send
 with `parent` on an architect's thread goes to the architect, and `@architect ...` goes to the
 architect with no lead turn. `POST /messages` stores a message and wakes nobody. The `/wrap`
