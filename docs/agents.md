@@ -244,15 +244,16 @@ MCP config injection
   it when `URL` is set. Tool names are `mcp__<server>__<tool>`. MCP tools are deferred, so
   the model may call `ToolSearch` first. The user's own MCP config still loads. Without
   approval, a default-mode session gets an `isError` result ("requested permissions ... but
-  you haven't granted it yet"). The adapter passes `--allowedTools mcp__<name>__*,...`, one
-  comma-joined value (the flag is variadic), for the Config servers and the `Tools` only. Other
-  tools keep the `PermissionMode` behaviour. `Tools` alone, with no servers, also sets the flag. Server names must match `^[A-Za-z0-9_-]+$`: a comma would
+  you haven't granted it yet"). The adapter passes `--allowedTools`, one comma-joined value (the flag is
+  variadic), for the `Tools` only: a caller that wants a server's tools approved lists
+  `mcp__<name>__*` in `Tools` (`reef-agent --mcp` does so for every server in its file; a
+  channel's teammate does so for `reef` only). Other tools keep the `PermissionMode` behaviour. Server names must match `^[A-Za-z0-9_-]+$`: a comma would
   inject extra patterns, and claude rewrites other characters in tool names (`reef.mem` never
   matches), so `Start` rejects them.
 - Codex: `thread/start` `config.mcp_servers`, same fields. With approval `never`, MCP calls
   fail with "requires approval" unless the server has
-  `default_tools_approval_mode: "approve"`. The adapter sets it. So Config MCP servers are
-  pre-approved on both backends.
+  `default_tools_approval_mode: "approve"`. The adapter sets it. So on codex every Config MCP server is
+  pre-approved.
 
 Session and thread ids
 - Claude `session_id` is on every line. `--resume ID` keeps the same id (no new id without
