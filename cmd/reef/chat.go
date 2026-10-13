@@ -85,6 +85,11 @@ func chatCmd(
 		}
 	}
 	sess, err := channel.Open(ctx, st, dir, exe, *channelID)
+	if err == nil {
+		if err = sess.Start(ctx); err != nil {
+			_ = sess.Close()
+		}
+	}
 	if err != nil {
 		if !resuming {
 			err = errors.Join(err, st.DeleteChannel(context.WithoutCancel(ctx), *channelID))

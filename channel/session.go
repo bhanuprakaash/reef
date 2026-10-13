@@ -34,8 +34,8 @@ const (
 // ErrNoProposal is returned by Wrap when the agent made no proposal.
 var ErrNoProposal = errors.New("no proposal made")
 
-// Session is a channel with one agent session per teammate in use. The lead's stays open
-// until Close; a specialist's is opened for its turn and closed after it.
+// Session is a channel with one agent session per teammate in use. Each is opened for its
+// first turn. The lead's stays open until Close; a specialist's is closed after its turn.
 type Session struct {
 	st       *store.Store
 	dataDir  string
@@ -55,7 +55,8 @@ type member struct {
 	token string
 }
 
-// Open starts or resumes the channel's lead. The caller must Close the Session.
+// Open opens the channel; no agent starts until a turn needs it. The caller must Close
+// the Session.
 func Open(
 	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64,
 ) (*Session, error) {
@@ -95,10 +96,13 @@ func open(
 	if err := failStaleTurns(ctx, st, channelID); err != nil {
 		return nil, err
 	}
-	if _, err := s.member(ctx, ch.Role); err != nil {
-		return nil, err
-	}
 	return s, nil
+}
+
+// Start starts or resumes the lead now instead of at its first turn.
+func (s *Session) Start(ctx context.Context) error {
+	_, err := s.member(ctx, s.ch.Role)
+	return err
 }
 
 // member returns the agent session of role, starting or resuming it from the role's own
