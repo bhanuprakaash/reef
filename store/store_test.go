@@ -21,8 +21,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Errorf("user_version = %d, want 2", version)
+	if version != 3 {
+		t.Errorf("user_version = %d, want 3", version)
 	}
 
 	rows, err := s.db.Query("SELECT name FROM sqlite_master WHERE type = 'table' " +
@@ -41,7 +41,7 @@ func TestOpen(t *testing.T) {
 	}
 	want := []string{
 		"brief", "channel", "decision", "feature", "message",
-		"project", "role_notes", "task", "token", "turn",
+		"project", "proposal", "role_notes", "task", "token", "turn",
 	}
 	if !reflect.DeepEqual(tables, want) {
 		t.Errorf("tables = %v, want %v", tables, want)
@@ -64,8 +64,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Errorf("user_version after reopen = %d, want 2", version)
+	if version != 3 {
+		t.Errorf("user_version after reopen = %d, want 3", version)
 	}
 	var name string
 	if err := s.db.QueryRow("SELECT name FROM project WHERE id = 1").Scan(&name); err != nil {
@@ -133,8 +133,8 @@ func TestOpenConcurrent(t *testing.T) {
 	if err := stores[0].db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 2 {
-		t.Errorf("user_version = %d, want 2", version)
+	if version != 3 {
+		t.Errorf("user_version = %d, want 3", version)
 	}
 }
 
@@ -190,7 +190,7 @@ func TestIDsNotReused(t *testing.T) {
 		t.Fatal(err)
 	}
 	if p.ID != 2 {
-		t.Errorf("id after deleting project 1 = %d, want 2", p.ID)
+		t.Errorf("id after deleting project 1 = %d, want 3", p.ID)
 	}
 }
 

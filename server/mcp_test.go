@@ -2,8 +2,10 @@ package server
 
 import (
 	"context"
+	"reflect"
 	"regexp"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -183,6 +185,37 @@ func TestMCPTools(t *testing.T) {
 	}
 }
 
+func TestMCPProposeWrap(t *testing.T) {
+	st, tok := mcpFixture(t)
+	call := callTool(t, st, tok)
+
+	got, isErr := call("propose_wrap", map[string]any{
+		"brief": "v2", "notes": "mine",
+		"decisions": []any{map[string]any{"body": "use sessions", "why": "simple"}},
+	})
+	if want := `{"id":1,"message":"proposal saved; the user will approve it"}`; got != want || isErr {
+		t.Errorf("propose_wrap = %q (error %v), want %q", got, isErr, want)
+	}
+	p, err := st.Proposal(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := store.Proposal{
+		ID: 1, ChannelID: 1, Role: "architect", Brief: "v2", Notes: "mine",
+		Decisions: []store.ProposedDecision{{Body: "use sessions", Why: "simple"}},
+		Status:    store.ProposalPending,
+	}
+	p.CreatedAt = time.Time{}
+	if !reflect.DeepEqual(p, want) {
+		t.Errorf("proposal = %+v, want %+v", p, want)
+	}
+
+	got, isErr = call("propose_wrap", map[string]any{"brief": "", "notes": "n", "decisions": []any{}})
+	if want := "invalid: proposal brief is required"; got != want || !isErr {
+		t.Errorf("propose_wrap with empty brief = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
 func TestMCPQuickSession(t *testing.T) {
 	st, _ := mcpFixture(t)
 	tok, err := st.CreateToken(context.Background(), 4, "architect")
@@ -200,6 +233,7 @@ func TestMCPQuickSession(t *testing.T) {
 		{"search_sessions", map[string]any{"query": "q"}},
 		{"read_decision", map[string]any{"id": 1}},
 		{"read_thread", map[string]any{"channelId": 1}},
+		{"propose_wrap", map[string]any{"brief": "b", "notes": "n", "decisions": []any{}}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.tool, func(t *testing.T) {

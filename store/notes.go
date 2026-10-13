@@ -17,16 +17,18 @@ type RoleNotes struct {
 	UpdatedAt time.Time `json:"updatedAt"`
 }
 
+const _upsertRoleNotes = `INSERT INTO role_notes (feature_id, role, body, updated_at)
+	VALUES (?, ?, ?, ?)
+	ON CONFLICT (feature_id, role)
+	DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at`
+
 // PutRoleNotes sets the notes of one role on a feature, replacing any before.
 func (s *Store) PutRoleNotes(ctx context.Context, n RoleNotes) (RoleNotes, error) {
 	if n.Role == "" {
 		return RoleNotes{}, fmt.Errorf("%w: role is required", ErrInvalid)
 	}
 	n.UpdatedAt = time.Now().UTC()
-	_, err := s.db.ExecContext(ctx,
-		`INSERT INTO role_notes (feature_id, role, body, updated_at) VALUES (?, ?, ?, ?)
-		ON CONFLICT (feature_id, role)
-		DO UPDATE SET body = excluded.body, updated_at = excluded.updated_at`,
+	_, err := s.db.ExecContext(ctx, _upsertRoleNotes,
 		n.FeatureID, n.Role, n.Body, n.UpdatedAt.Format(time.RFC3339Nano))
 	if err != nil {
 		return RoleNotes{}, s.writeErr(ctx, "upsert role notes", err, ErrNotFound,
