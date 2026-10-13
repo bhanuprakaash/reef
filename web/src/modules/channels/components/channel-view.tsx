@@ -10,6 +10,7 @@ import { PromoteForm } from '@/modules/channels/components/promote-form';
 import { ProposalPanel } from '@/modules/channels/components/proposal-panel';
 import { ThreadPane } from '@/modules/channels/components/thread-pane';
 import { useLiveTurn } from '@/modules/channels/hooks/use-live-turn';
+import { blocksUser } from '@/modules/channels/utils/blocks-user';
 import { groupThreads } from '@/modules/channels/utils/group-threads';
 import type { Channel, Feature } from '@/types/api';
 import { buttonClass, errorClass, mutedClass } from '@/utils/classes';
@@ -65,7 +66,7 @@ export function ChannelView({ channel, scope, features }: Props) {
         <ApprovalRows channelId={channel.id} />
         <ProposalPanel channelId={channel.id} featureId={channel.featureId} />
         <div className="sticky bottom-0 bg-white pb-1 pt-2 dark:bg-neutral-900">
-          <Composer channelId={channel.id} running={running} paused={channel.paused !== ''} />
+          <Composer channelId={channel.id} running={running} paused={blocksUser(channel.paused)} />
         </div>
         <div ref={end} />
       </div>
@@ -74,7 +75,7 @@ export function ChannelView({ channel, scope, features }: Props) {
           channelId={channel.id}
           thread={thread}
           running={running}
-          paused={channel.paused !== ''}
+          paused={blocksUser(channel.paused)}
           onClose={() => setThreadId(null)}
         />
       )}
