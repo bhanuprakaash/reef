@@ -43,8 +43,16 @@ func NewRunner(
 // cancelled the agent is interrupted, the turn is stored failed as interrupted
 // and the error wraps ctx.Err().
 func (r *Runner) Send(ctx context.Context, text string, onEvent func(agent.Event)) error {
+	return r.SendAs(ctx, text, text, onEvent)
+}
+
+// SendAs is Send with a different text for the agent: the user message stored is
+// stored, the agent gets text.
+func (r *Runner) SendAs(
+	ctx context.Context, stored, text string, onEvent func(agent.Event),
+) error {
 	if _, err := r.st.CreateMessage(ctx, store.Message{
-		ChannelID: r.channelID, Author: _userAuthor, Body: text,
+		ChannelID: r.channelID, Author: _userAuthor, Body: stored,
 	}); err != nil {
 		return err
 	}
@@ -54,6 +62,8 @@ func (r *Runner) Send(ctx context.Context, text string, onEvent func(agent.Event
 	if err != nil {
 		return err
 	}
+	// From here the turn is recorded even when ctx is cancelled.
+	wctx := context.WithoutCancel(ctx)
 
 	prompt := text
 	if r.preamble != "" {
@@ -63,7 +73,7 @@ func (r *Runner) Send(ctx context.Context, text string, onEvent func(agent.Event
 		r.OnPrompt(prompt)
 	}
 	if err := r.ag.Send(ctx, prompt); err != nil {
-		return errors.Join(err, r.fail(ctx, turn, err.Error()))
+		return errors.Join(err, r.fail(wctx, turn, err.Error()))
 	}
 	r.preamble = ""
 
@@ -71,19 +81,18 @@ func (r *Runner) Send(ctx context.Context, text string, onEvent func(agent.Event
 	for {
 		select {
 		case <-ctx.Done():
-			_ = r.ag.Interrupt()
-			return errors.Join(ctx.Err(), r.fail(ctx, turn, "interrupted"))
+			return r.abort(wctx, turn, ctx.Err(), "interrupted")
 		case ev, ok := <-r.ag.Events():
 			if !ok {
 				const msg = "agent exited"
-				return errors.Join(errors.New(msg), r.fail(ctx, turn, msg))
+				return errors.Join(errors.New(msg), r.fail(wctx, turn, msg))
 			}
 			onEvent(ev)
 			switch ev.Kind {
 			case agent.KindSession:
 				r.sessionID, turn.SessionID = ev.SessionID, ev.SessionID
-				if _, err := r.st.SetTurnSession(ctx, turn.ID, ev.SessionID); err != nil {
-					return err
+				if _, err := r.st.SetTurnSession(wctx, turn.ID, ev.SessionID); err != nil {
+					return r.abort(wctx, turn, err, err.Error())
 				}
 			case agent.KindText:
 				reply.WriteString(ev.Text)
@@ -92,28 +101,33 @@ func (r *Runner) Send(ctx context.Context, text string, onEvent func(agent.Event
 					turn.Usage.Add(*ev.Usage)
 				}
 			case agent.KindError:
-				return errors.Join(fmt.Errorf("agent: %s", ev.Text), r.fail(ctx, turn, ev.Text))
+				return errors.Join(fmt.Errorf("agent: %s", ev.Text), r.fail(wctx, turn, ev.Text))
 			case agent.KindTurnEnd:
+				if reply.Len() > 0 {
+					if _, err := r.st.CreateMessage(wctx, store.Message{
+						ChannelID: r.channelID, Author: r.role, Body: reply.String(),
+					}); err != nil {
+						return r.abort(wctx, turn, err, err.Error())
+					}
+				}
 				turn.Status = "done"
-				if _, err := r.st.EndTurn(ctx, turn); err != nil {
-					return err
+				if _, err := r.st.EndTurn(wctx, turn); err != nil {
+					return r.abort(wctx, turn, err, err.Error())
 				}
-				if reply.Len() == 0 {
-					return nil
-				}
-				_, err := r.st.CreateMessage(ctx, store.Message{
-					ChannelID: r.channelID, Author: r.role, Body: reply.String(),
-				})
-				return err
+				return nil
 			}
 		}
 	}
 }
 
-// fail stores turn as failed. It ignores ctx cancellation so an interrupted turn
-// is still recorded.
+// abort interrupts the agent and stores turn as failed with reason. It returns
+// cause joined with the errors of those two steps.
+func (r *Runner) abort(ctx context.Context, turn store.Turn, cause error, reason string) error {
+	return errors.Join(cause, r.ag.Interrupt(), r.fail(ctx, turn, reason))
+}
+
 func (r *Runner) fail(ctx context.Context, turn store.Turn, reason string) error {
 	turn.Status, turn.Error = "failed", reason
-	_, err := r.st.EndTurn(context.WithoutCancel(ctx), turn)
+	_, err := r.st.EndTurn(ctx, turn)
 	return err
 }

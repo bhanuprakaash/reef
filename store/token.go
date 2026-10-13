@@ -71,6 +71,22 @@ func (s *Store) Token(ctx context.Context, value string) (Token, error) {
 	return t, nil
 }
 
+// DeleteToken removes the token with the value, or returns ErrNotFound.
+func (s *Store) DeleteToken(ctx context.Context, value string) error {
+	res, err := s.db.ExecContext(ctx, "DELETE FROM token WHERE token = ?", value)
+	if err != nil {
+		return fmt.Errorf("delete token: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete token: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("token: %w", ErrNotFound)
+	}
+	return nil
+}
+
 // SearchMessages finds messages in the feature's channels whose body contains
 // query, ignoring ASCII case, newest first. A hit's snippet is about 120
 // characters of the body around the match.
