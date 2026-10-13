@@ -69,14 +69,20 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, c)
 }
 
-var _permissionModes = map[string][]string{
-	"claude": {"default", "acceptEdits"},
-	"codex":  {"read-only", "workspace-write"},
+func permissionModes(backend string) []string {
+	switch backend {
+	case "claude":
+		return []string{"default", "acceptEdits"}
+	case "codex":
+		return []string{"read-only", "workspace-write"}
+	default:
+		return nil
+	}
 }
 
 func validateAgent(c store.Channel) error {
-	modes, ok := _permissionModes[c.Backend]
-	if !ok {
+	modes := permissionModes(c.Backend)
+	if modes == nil {
 		return fmt.Errorf("%w: backend must be claude or codex", store.ErrInvalid)
 	}
 	if c.PermissionMode != "" && !slices.Contains(modes, c.PermissionMode) {

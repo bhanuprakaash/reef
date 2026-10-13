@@ -41,6 +41,18 @@ func TestHandler(t *testing.T) {
 			wantStatus: 200, wantType: "text/html", wantContent: "<html>app</html>",
 		},
 		{
+			name:   "root with wildcard accept gets index",
+			fsys:   built,
+			method: http.MethodGet, path: "/", accept: "*/*",
+			wantStatus: 200, wantType: "text/html", wantContent: "<html>app</html>",
+		},
+		{
+			name:   "head root with wildcard accept gets index",
+			fsys:   built,
+			method: http.MethodHead, path: "/", accept: "*/*",
+			wantStatus: 200, wantType: "text/html",
+		},
+		{
 			name:   "json get goes to the api",
 			fsys:   built,
 			method: http.MethodGet, path: "/projects", accept: "application/json",
@@ -68,6 +80,12 @@ func TestHandler(t *testing.T) {
 			name:   "ui not built",
 			fsys:   fstest.MapFS{".keep": {}},
 			method: http.MethodGet, path: "/tasks", accept: "text/html",
+			wantStatus: 503, wantType: "text/plain", wantContent: "UI not built: run npm run build in web/",
+		},
+		{
+			name:   "root ui not built without html accept",
+			fsys:   fstest.MapFS{".keep": {}},
+			method: http.MethodGet, path: "/", accept: "*/*",
 			wantStatus: 503, wantType: "text/plain", wantContent: "UI not built: run npm run build in web/",
 		},
 	}
