@@ -124,6 +124,23 @@ describe('foldEvent', () => {
     });
   });
 
+  it('resets to an empty turn on idle, as sent when a subscriber connects between turns', () => {
+    const got = fold([
+      { type: 'turn', status: 'running' },
+      agent({ kind: 'text', text: 'partial' }),
+      { type: 'turn', status: 'idle' },
+    ]);
+    expect(got).toEqual({ status: 'idle', items: [] });
+  });
+
+  it('keeps the note of a done turn', () => {
+    const got = fold([
+      { type: 'turn', status: 'running' },
+      { type: 'turn', status: 'done', note: 'no proposal made' },
+    ]);
+    expect(got).toEqual({ status: 'done', note: 'no proposal made', items: [] });
+  });
+
   it('marks the turn done', () => {
     const got = fold([
       { type: 'turn', status: 'running' },

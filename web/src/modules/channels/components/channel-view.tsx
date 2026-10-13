@@ -54,6 +54,7 @@ export function ChannelView({ channel, scope, features }: Props) {
       {messages.isError && <p className={errorClass}>{messages.error.message}</p>}
       {messages.data && <MessageList messages={messages.data} />}
       <LiveTurn turn={turn} role={channel.role || 'agent'} />
+      {turn.note && <p className={mutedClass}>{turn.note}</p>}
       <ProposalPanel channelId={channel.id} featureId={channel.featureId} />
       <div className="sticky bottom-0 bg-white pb-1 pt-2 dark:bg-neutral-900">
         <Composer channelId={channel.id} running={running} paused={channel.paused !== ''} />

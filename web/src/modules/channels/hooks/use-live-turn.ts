@@ -8,11 +8,11 @@ import {
   type StreamEvent,
 } from '@/modules/channels/utils/fold-events';
 
-type TurnData = { status: 'running' | 'done' | 'failed'; error?: string };
+type TurnData = Omit<Extract<StreamEvent, { type: 'turn' }>, 'type'>;
 
 function reduce(turn: LiveTurn, action: StreamEvent | 'clear'): LiveTurn {
   if (action !== 'clear') return foldEvent(turn, action);
-  return turn.status === 'running' ? turn : emptyTurn;
+  return turn.status === 'running' ? turn : { ...emptyTurn, note: turn.note };
 }
 
 export function useLiveTurn(channelId: number): LiveTurn {
@@ -23,6 +23,11 @@ export function useLiveTurn(channelId: number): LiveTurn {
     const source = new EventSource(`/channels/${channelId}/events`);
     const refresh = () => queryClient.invalidateQueries({ queryKey: ['messages', channelId] });
 
+    source.onopen = () => {
+      void refresh();
+      void queryClient.invalidateQueries({ queryKey: ['channels', channelId] });
+      void queryClient.invalidateQueries({ queryKey: ['proposal', channelId] });
+    };
     source.addEventListener('turn', (e) => {
       const data: TurnData = JSON.parse(e.data);
       dispatch({ type: 'turn', ...data });
@@ -37,7 +42,6 @@ export function useLiveTurn(channelId: number): LiveTurn {
     source.addEventListener('agent', (e) => {
       const event: AgentEvent = JSON.parse(e.data);
       dispatch({ type: 'agent', event });
-      if (event.kind === 'session') void refresh();
     });
     return () => source.close();
   }, [channelId, queryClient]);
