@@ -657,6 +657,85 @@ func TestApproval_GateHoldsWake(t *testing.T) {
 	}
 }
 
+// gatedChannel gates lead to architect and makes the lead hold a wake for the architect
+// when it runs "go". It returns the channel id, a stream of it and its approvals URL.
+func (e *liveEnv) gatedChannel(t *testing.T) (int, *stream, string) {
+	t.Helper()
+	id, post := e.teamChannel(t)
+	roles := []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
+	}
+	_, err := e.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: roles,
+		Gates: []store.Gate{{From: "lead", To: "architect", On: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.fake.onRun = func(role, text string, _ *int64) {
+		if role == "lead" && text == "go" {
+			post("lead", "@architect plan it", nil)
+		}
+	}
+	sub := subscribeTo(t, e.url, id)
+	e.sendTo(t, id, "go")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
+	sub.next(t)
+	sub.want(t, `turn {"role":"lead","status":"done"}`)
+	return id, sub, fmt.Sprintf("%s/channels/%d/approvals", e.url, id)
+}
+
+func TestApproval_TwoApprovesRunOneTurn(t *testing.T) {
+	env := newLiveEnv(t)
+	_, sub, approvals := env.gatedChannel(t)
+
+	statuses := make(chan int, 2)
+	for range 2 {
+		go func() {
+			res, err := http.Post(approvals+"/1", "application/json", strings.NewReader(`{"approve":true}`))
+			if err != nil {
+				statuses <- 0
+				return
+			}
+			_ = res.Body.Close()
+			statuses <- res.StatusCode
+		}()
+	}
+	got := []int{<-statuses, <-statuses}
+	slices.Sort(got)
+	if !slices.Equal(got, []int{204, 409}) {
+		t.Errorf("statuses = %v, want one 204 and one 409", got)
+	}
+	for range 4 {
+		sub.next(t)
+	}
+	if got := env.ranTexts(); !slices.Equal(got, []string{"go", "lead wrote: @architect plan it"}) {
+		t.Errorf("ran = %q, want one architect turn", got)
+	}
+	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
+	if status != 409 || body != `{"error":"approval 1 is approved: conflict"}` {
+		t.Errorf("approve again = %d %s, want 409", status, body)
+	}
+}
+
+func TestApproval_ApproveWhileBusyStaysPending(t *testing.T) {
+	env := newLiveEnv(t)
+	id, sub, approvals := env.gatedChannel(t)
+	env.sendTo(t, id, "block")
+	<-env.fake.started
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+
+	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
+	if status != 409 || body != `{"error":"channel 2 has a turn running: conflict"}` {
+		t.Errorf("approve while busy = %d %s, want 409 turn running", status, body)
+	}
+	status, body = do(t, http.MethodGet, approvals, "")
+	if status != 200 || !strings.Contains(body, `"id":1,`) || !strings.Contains(body, `"status":"pending"`) {
+		t.Errorf("approvals = %d %s, want approval 1 pending", status, body)
+	}
+	env.fake.release <- struct{}{}
+	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
+}
+
 func TestApproval_DefaultTeamHasNoGateToArchitect(t *testing.T) {
 	env := newLiveEnv(t)
 	id, post := env.teamChannel(t)
