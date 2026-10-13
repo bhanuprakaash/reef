@@ -726,6 +726,31 @@ func TestSend_UserMessageResetsHops(t *testing.T) {
 	}
 }
 
+func TestCountHop(t *testing.T) {
+	tests := []struct {
+		name     string
+		giveHops int
+		giveFrom string
+		want     bool
+		wantHops int
+	}{
+		{"user wake resets", 3, "user", true, 0},
+		{"user wake resets at the cap", 4, "user", true, 0},
+		{"first agent wake", 0, "lead", true, 1},
+		{"fourth agent wake", 3, "architect", true, 4},
+		{"fifth agent wake is over", 4, "lead", false, 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := &live{hops: tt.giveHops}
+			if got := l.countHop(wake{from: tt.giveFrom}); got != tt.want || l.hops != tt.wantHops {
+				t.Errorf("countHop = %v with hops %d, want %v with hops %d",
+					got, l.hops, tt.want, tt.wantHops)
+			}
+		})
+	}
+}
+
 func TestSend_UserPostMidChainIsNotRouted(t *testing.T) {
 	env := newLiveEnv(t)
 	id, post := env.teamChannel(t)
@@ -900,6 +925,59 @@ func TestApproval_TwoApprovesRunOneTurn(t *testing.T) {
 	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
 	if status != 409 || body != `{"error":"approval 1 is approved: conflict"}` {
 		t.Errorf("approve again = %d %s, want 409", status, body)
+	}
+}
+
+func TestApproval_ApproveSurvivesClientAbort(t *testing.T) {
+	env := newLiveEnv(t)
+	id, sub, approvals := env.gatedChannel(t)
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	ctx, abort := context.WithCancel(context.Background())
+	env.open = func(context.Context) (session, error) {
+		abort()
+		return env.fake, nil
+	}
+	req := httptest.NewRequest(http.MethodPost, env.url+"/channels/2/approvals/1",
+		strings.NewReader(`{"approve":true}`)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	env.h.ServeHTTP(rec, req)
+	if rec.Code != 204 {
+		t.Fatalf("approve = %d %s, want 204", rec.Code, rec.Body)
+	}
+	for range 4 {
+		sub.next(t)
+	}
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
+	}) {
+		t.Errorf("ran = %q, want the architect to run the held wake", got)
+	}
+	status, body := do(t, http.MethodGet, approvals, "")
+	if status != 200 || body != "[]" {
+		t.Errorf("approvals = %d %s, want none pending", status, body)
+	}
+}
+
+func TestApproval_ApproveAtHopCapPausesAndStaysPending(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _, approvals := env.gatedChannel(t)
+	l := env.h.s.live(int64(id))
+	l.mu.Lock()
+	l.hops = 4
+	l.mu.Unlock()
+
+	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
+	if status != 409 || body != `{"error":"channel 2 is paused: `+_hopPause+`: conflict"}` {
+		t.Errorf("approve at 4 hops = %d %s, want 409 paused", status, body)
+	}
+	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
+		t.Errorf("channel = %+v, %v, want paused with the hop cap reason", ch, err)
+	}
+	status, body = do(t, http.MethodGet, approvals, "")
+	if status != 200 || !strings.Contains(body, `"id":1,`) || !strings.Contains(body, `"status":"pending"`) {
+		t.Errorf("approvals = %d %s, want approval 1 pending again", status, body)
 	}
 }
 
