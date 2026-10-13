@@ -37,6 +37,10 @@ type turnState struct {
 	Error  string `json:"error,omitempty"`
 }
 
+type pauseState struct {
+	Reason string `json:"reason"`
+}
+
 // live is what the server holds for one channel: its session while the agent runs
 // and the frames of the current turn for subscribers.
 type live struct {
@@ -58,6 +62,8 @@ func (s *server) liveRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/channels/{id}/events", methodNotAllowed)
 	mux.HandleFunc("POST /channels/{id}/stop", s.stop)
 	mux.HandleFunc("/channels/{id}/stop", methodNotAllowed)
+	mux.HandleFunc("POST /channels/{id}/continue", s.continueChannel)
+	mux.HandleFunc("/channels/{id}/continue", methodNotAllowed)
 }
 
 func (s *server) live(id int64) *live {
@@ -116,12 +122,20 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 	sess := l.sess
 	l.mu.Unlock()
 
+	release := func() {
+		l.mu.Lock()
+		l.busy = false
+		l.mu.Unlock()
+		s.wg.Done()
+	}
+	if err := s.checkCaps(r.Context(), id, l); err != nil {
+		release()
+		writeError(w, err)
+		return
+	}
 	if sess == nil {
 		if sess, err = s.open(s.ctx, id); err != nil {
-			l.mu.Lock()
-			l.busy = false
-			l.mu.Unlock()
-			s.wg.Done()
+			release()
 			writeError(w, err)
 			return
 		}
@@ -134,12 +148,12 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 	l.frames = nil
 	l.publishLocked("turn", turnState{Status: "running"})
 	l.mu.Unlock()
-	go s.runTurn(ctx, l, sess, in.Text, done)
+	go s.runTurn(ctx, id, l, sess, in.Text, done)
 	w.WriteHeader(http.StatusAccepted)
 }
 
 func (s *server) runTurn(
-	ctx context.Context, l *live, sess session, text string, done chan struct{},
+	ctx context.Context, id int64, l *live, sess session, text string, done chan struct{},
 ) {
 	defer s.wg.Done()
 	onEvent := func(ev agent.Event) {
@@ -166,14 +180,88 @@ func (s *server) runTurn(
 			log.Printf("close session: %v", err)
 		}
 	}
+	var paused string
+	if errors.Is(err, channel.ErrCapped) {
+		ch, err := s.st.Channel(context.WithoutCancel(ctx), id)
+		if err != nil {
+			log.Printf("read channel %d: %v", id, err)
+		}
+		paused = ch.Paused
+	}
 	l.mu.Lock()
 	if err != nil {
 		l.sess = nil
 	}
 	l.publishLocked("turn", end)
+	if errors.Is(err, channel.ErrCapped) {
+		l.publishLocked("pause", pauseState{Reason: paused})
+	}
 	l.running, l.busy, l.cancel = false, false, nil
 	close(done)
 	l.mu.Unlock()
+}
+
+// checkCaps refuses a send to a paused channel. A channel that has used its token
+// budget is paused first.
+func (s *server) checkCaps(ctx context.Context, id int64, l *live) error {
+	ch, err := s.st.Channel(ctx, id)
+	if err != nil {
+		return err
+	}
+	if ch.Paused == "" {
+		used, err := s.st.ChannelTokens(ctx, id)
+		if err != nil {
+			return err
+		}
+		if used < ch.TokenBudget {
+			return nil
+		}
+		ch.Paused = fmt.Sprintf("token budget of %d used: %d tokens", ch.TokenBudget, used)
+		if err := s.st.PauseChannel(ctx, id, ch.Paused); err != nil {
+			return err
+		}
+		l.mu.Lock()
+		l.publishLocked("pause", pauseState{Reason: ch.Paused})
+		l.mu.Unlock()
+	}
+	return fmt.Errorf("channel %d is paused: %s: %w", id, ch.Paused, store.ErrConflict)
+}
+
+// continueChannel clears the pause of a channel. One that has used its token
+// budget gets store.TokenBudget more tokens.
+func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ch, err := s.st.Channel(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if ch.Paused == "" {
+		writeError(w, fmt.Errorf("channel %d is not paused: %w", id, store.ErrConflict))
+		return
+	}
+	used, err := s.st.ChannelTokens(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var extra int64
+	if used >= ch.TokenBudget {
+		extra = store.TokenBudget
+	}
+	if err := s.st.ContinueChannel(r.Context(), id, extra); err != nil {
+		writeError(w, err)
+		return
+	}
+	l := s.live(id)
+	l.mu.Lock()
+	l.publishLocked("pause", pauseState{})
+	l.mu.Unlock()
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) stop(w http.ResponseWriter, r *http.Request) {

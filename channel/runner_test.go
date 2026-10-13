@@ -2,6 +2,8 @@ package channel
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -273,5 +275,81 @@ func TestRunner_SendCancelledAfterMessageStoresTurn(t *testing.T) {
 		turns[0].Status != "failed" || turns[0].Error != "interrupted" {
 		t.Errorf("messages = %+v, turns = %+v, want the user message and one failed interrupted turn",
 			msgs, turns)
+	}
+}
+
+func TestRunner_SendToolCapIs25(t *testing.T) {
+	tests := []struct {
+		name    string
+		give    int
+		wantErr string
+	}{
+		{"at the cap", 25, ""},
+		{"over the cap", 26, "capped: more than 25 tool calls"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bg := context.Background()
+			st, f := openStore(t)
+			ch, err := st.CreateChannel(bg, store.Channel{
+				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var script []agent.Event
+			for range tt.give {
+				script = append(script, agent.Event{Kind: agent.KindToolCall})
+			}
+			sa := &scriptAgent{
+				events: make(chan agent.Event, 32),
+				script: append(script, agent.Event{Kind: agent.KindTurnEnd}),
+			}
+			r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+
+			err = r.SendAs(bg, "hi", "hi", func(agent.Event) {})
+			if got := fmt.Sprint(err); (tt.wantErr == "" && err != nil) ||
+				(tt.wantErr != "" && got != tt.wantErr) {
+				t.Errorf("Send error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestRunner_SendCapsToolCalls(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := agent.Event{Kind: agent.KindToolCall, ToolName: "Read"}
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8),
+		script: []agent.Event{call, call, call, {Kind: agent.KindTurnEnd}},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	r.toolCap = 2
+
+	err = r.SendAs(bg, "hi", "hi", func(agent.Event) {})
+	if !errors.Is(err, ErrCapped) || err.Error() != "capped: more than 2 tool calls" {
+		t.Errorf("Send error = %v, want ErrCapped %q", err, "capped: more than 2 tool calls")
+	}
+	if sa.interrupted != 1 {
+		t.Errorf("agent interrupted %d times, want 1", sa.interrupted)
+	}
+	turns, err := st.Turns(bg, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || turns[0].Status != "failed" ||
+		turns[0].Error != "capped: more than 2 tool calls" {
+		t.Errorf("turns = %+v, want one failed turn capped at 2 tool calls", turns)
+	}
+	got, err := st.Channel(bg, ch.ID)
+	if err != nil || got.Paused != "capped: more than 2 tool calls" {
+		t.Errorf("channel = %+v, %v, want paused with the reason", got, err)
 	}
 }

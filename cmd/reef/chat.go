@@ -106,7 +106,8 @@ type chatSession interface {
 
 // converse sends each line of in as a message and prints the agent's text. The
 // line /wrap asks the agent for a wrap-up proposal and then asks the user to
-// approve it. It returns nil at the end of in or when ctx is cancelled.
+// approve it. It returns nil at the end of in, when ctx is cancelled or when a turn
+// is capped, after printing the cap reason.
 func converse(
 	ctx context.Context, st *store.Store, sess chatSession, in *lineReader, stdout io.Writer,
 ) error {
@@ -138,6 +139,9 @@ func converse(
 		if err != nil && !noProposal {
 			if ctx.Err() != nil {
 				return nil
+			}
+			if errors.Is(err, channel.ErrCapped) {
+				_, err = fmt.Fprintf(stdout, "\n\n%v\n", err)
 			}
 			return err
 		}

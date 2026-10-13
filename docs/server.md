@@ -69,7 +69,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
-| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, or a channel open in a `reef chat` |
+| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a paused channel or to a channel open in a `reef chat`; `continue` on a channel that is not paused |
 | 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
 | 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
@@ -143,6 +143,8 @@ One row per feature and role.
 | `role` | string | the role the channel's agent plays. Empty when not set. For a channel from before this field existed, the role of its newest turn |
 | `backend` | string | `claude` or `codex`, the agent that runs the channel. Empty when not set. For an older channel, the backend of its newest turn |
 | `permissionMode` | string | passed to the backend as is when the channel's agent starts or resumes. Empty means the backend default |
+| `paused` | string | why the channel is paused (see [Caps](#caps)). Empty when it is not paused. Set by the server only; a client cannot set it |
+| `tokenBudget` | number | tokens the channel may use before it pauses. Starts at 1,000,000. Set by the server only |
 | `createdAt` | string | |
 
 ### message
@@ -263,9 +265,10 @@ a channel takes its messages, turns, tokens and proposals.
 | `GET /channels/{id}` | | 200 | 404 |
 | `PUT /channels/{id}` | `name` only; project, feature, role, backend and permission mode stay as created | 200 | 400, 404 |
 | `DELETE /channels/{id}` | | 204 | 404 |
-| `POST /channels/{id}/send` | `text` | 202, no body | 400 empty text, 404, 409 turn running or channel open elsewhere, 503 |
+| `POST /channels/{id}/send` | `text` | 202, no body | 400 empty text, 404, 409 turn running, channel paused or open elsewhere, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
 | `POST /channels/{id}/stop` | | 204, also when the channel is not live | |
+| `POST /channels/{id}/continue` | | 204, no body | 404, 409 not paused |
 | `GET /messages` | `?channel=ID` (required), `?after=ID` (only newer ids) | 200 | 400 no channel, 404 unknown channel |
 | `POST /messages` | `channelId`, `author`, `body` | 201 | 400 unknown channel or missing field |
 | `GET /tasks` | `?project=ID`, `?feature=ID`, `?status=todo\|doing\|done` | 200 | 400 bad id or status |
@@ -303,11 +306,15 @@ takes its default. `PUT` replaces; there is no partial update except `PATCH /tur
 - Server shutdown does the same for every channel before it stops listening.
 
 `GET /channels/{id}/events` is a Server-Sent Events stream. It works for a channel that
-is not live: it waits. A `: keepalive` comment comes every 15 seconds. Two kinds of event:
+is not live: it waits. A `: keepalive` comment comes every 15 seconds. Three kinds of event:
 
 - `turn`: `{"status":"running"}` when a turn starts, then `{"status":"done"}` or
   `{"status":"failed","error":"interrupted"}` when it ends.
 - `agent`: one [agent event](agents.md) as JSON, as it comes.
+- `pause`: `{"reason":"..."}` when a cap pauses the channel: right after the `turn`
+  event of a capped turn, or when a send finds the token budget used. `{"reason":""}`
+  when `continue` clears the pause. These come between turns, so only a connected
+  subscriber sees them. For the state on load, read `paused` from `GET /channels/{id}`.
 
 The server keeps the events of the running turn in memory. A subscriber that connects
 during a turn first gets `turn` running and every `agent` event of that turn so far, then
@@ -328,6 +335,28 @@ data: {"kind":"text","text":"done"}
 event: turn
 data: {"status":"done"}
 ```
+
+## Caps
+
+Two caps pause a channel. Both are constants in the code, not settings.
+
+- Tool calls per wake: one turn (one user message) may make 25 tool calls, subagent calls
+  included. The 26th interrupts the agent, ends the turn `failed` with the error `capped:
+  more than 25 tool calls` and pauses the channel with that text as `paused`. The agent
+  stops like after a failed turn; the next send resumes it by session id.
+- Tokens per channel: the input plus output tokens of all the channel's turns, cache reads
+  and writes not counted, against `tokenBudget` (1,000,000). A turn only counts once it
+  has ended. A send that finds the sum at or over the budget pauses the channel with
+  `token budget of 1000000 used: 1000312 tokens`.
+
+A send to a paused channel is 409 with the reason in the error. `POST
+/channels/{id}/continue` clears the pause. When the token sum is at or over the budget it
+also adds 1,000,000 to `tokenBudget`; after a tool cap the next turn simply gets a fresh
+25. `continue` on a channel that is not paused is 409.
+
+The tool cap is counted in `channel.Runner`, so `reef chat` is capped too: it pauses the
+channel, prints the reason and exits, because the interrupt ends the agent. Resume with
+`reef chat --channel ID`. `reef chat` does not check the pause or the token budget.
 
 ## Append-only
 

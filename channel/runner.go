@@ -10,7 +10,13 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-const _userAuthor = "user"
+const (
+	_userAuthor = "user"
+	_toolCap    = 25
+)
+
+// ErrCapped is returned by SendAs when the turn used more tool calls than the cap.
+var ErrCapped = errors.New("capped")
 
 // Runner records one role's exchanges with a started agent in one channel: the
 // user messages, the agent's replies and a turn for each exchange.
@@ -25,6 +31,7 @@ type Runner struct {
 	backend   string
 	preamble  string
 	sessionID string
+	toolCap   int
 }
 
 // NewRunner returns a Runner for ag, which must already be started or resumed.
@@ -34,6 +41,7 @@ func NewRunner(
 ) *Runner {
 	return &Runner{
 		st: st, ag: ag, channelID: channelID, role: role, backend: backend, preamble: preamble,
+		toolCap: _toolCap,
 	}
 }
 
@@ -41,7 +49,9 @@ func NewRunner(
 // onEvent for each event of the agent. A finished turn is stored done with the
 // agent's reply as a message. An agent error ends the turn failed and is
 // returned. When ctx is cancelled the agent is interrupted, the turn is stored
-// failed as interrupted and the error wraps ctx.Err().
+// failed as interrupted and the error wraps ctx.Err(). A turn with more than the
+// cap of 25 tool calls is interrupted, stored failed as capped, the channel is
+// paused with that reason and the error wraps ErrCapped.
 func (r *Runner) SendAs(
 	ctx context.Context, stored, text string, onEvent func(agent.Event),
 ) error {
@@ -72,6 +82,7 @@ func (r *Runner) SendAs(
 	r.preamble = ""
 
 	var reply strings.Builder
+	calls := 0
 	for {
 		select {
 		case <-ctx.Done():
@@ -90,6 +101,12 @@ func (r *Runner) SendAs(
 				}
 			case agent.KindText:
 				reply.WriteString(ev.Text)
+			case agent.KindToolCall:
+				if calls++; calls > r.toolCap {
+					capped := fmt.Errorf("%w: more than %d tool calls", ErrCapped, r.toolCap)
+					return errors.Join(r.abort(wctx, turn, capped, capped.Error()),
+						r.st.PauseChannel(wctx, r.channelID, capped.Error()))
+				}
 			case agent.KindUsage:
 				if ev.Usage != nil {
 					turn.Usage.Add(*ev.Usage)
