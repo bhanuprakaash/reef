@@ -39,7 +39,9 @@ func (f *fakeSession) Say(ctx context.Context, body string, parent *int64) error
 	return err
 }
 
-func (f *fakeSession) Run(ctx context.Context, text string, onEvent func(agent.Event)) error {
+func (f *fakeSession) RunAs(
+	ctx context.Context, _, text string, _ *int64, onEvent func(agent.Event),
+) error {
 	f.mu.Lock()
 	f.ran = append(f.ran, text)
 	f.mu.Unlock()
@@ -217,9 +219,9 @@ func TestSend_Streams(t *testing.T) {
 	}
 	sub.want(t,
 		_idleFrame,
-		`turn {"status":"running"}`,
+		`turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"hi"}`,
-		`turn {"status":"done"}`,
+		`turn {"role":"lead","status":"done"}`,
 	)
 
 	late := subscribe(t, env.url)
@@ -228,9 +230,9 @@ func TestSend_Streams(t *testing.T) {
 	}
 	late.want(t,
 		_idleFrame,
-		`turn {"status":"running"}`,
+		`turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"hi"}`,
-		`turn {"status":"done"}`,
+		`turn {"role":"lead","status":"done"}`,
 	)
 	if got := env.opened.Load(); got != 1 {
 		t.Errorf("sessions opened = %d, want 1: the agent stays alive between turns", got)
@@ -244,8 +246,8 @@ func TestSend_Parent(t *testing.T) {
 	send := func(body string) int {
 		status, _ := do(t, http.MethodPost, env.url+"/channels/1/send", body)
 		if status == 202 {
-			sub.want(t, `turn {"status":"running"}`, `agent {"kind":"text","text":"hi"}`,
-				`turn {"status":"done"}`)
+			sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+				`turn {"role":"lead","status":"done"}`)
 		}
 		return status
 	}
@@ -265,6 +267,32 @@ func TestSend_Parent(t *testing.T) {
 	}
 }
 
+func TestSend_Role(t *testing.T) {
+	env := newLiveEnv(t)
+	_, err := env.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "architect", Backend: "claude"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"name":"t","team":"core"}`)
+	sub := subscribeTo(t, env.url, 2)
+
+	if status, body := do(t, http.MethodPost, env.url+"/channels/2/send",
+		`{"text":"plan","role":"architect"}`); status != 202 {
+		t.Fatalf("send to architect = %d %s, want 202", status, body)
+	}
+	sub.want(t, _idleFrame, `turn {"role":"architect","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`, `turn {"role":"architect","status":"done"}`)
+
+	status, body := do(t, http.MethodPost, env.url+"/channels/2/send",
+		`{"text":"plan","role":"tester"}`)
+	if status != 400 || body != `{"error":"invalid: team core has no role tester"}` {
+		t.Errorf("send to tester = %d %s, want 400 no role tester", status, body)
+	}
+}
+
 func TestSend_Wrap(t *testing.T) {
 	env := newLiveEnv(t)
 	id := env.featureChannel(t)
@@ -274,9 +302,9 @@ func TestSend_Wrap(t *testing.T) {
 	}
 	sub.want(t,
 		_idleFrame,
-		`turn {"status":"running"}`,
+		`turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"wrapped"}`,
-		`turn {"status":"done"}`,
+		`turn {"role":"lead","status":"done"}`,
 	)
 }
 
@@ -285,14 +313,14 @@ func TestSubscribe_ReplaysRunningTurn(t *testing.T) {
 	first := subscribe(t, env.url)
 	env.send(t, "block")
 	<-env.fake.started
-	first.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	first.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	second := subscribe(t, env.url)
-	second.want(t, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	second.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	env.fake.release <- struct{}{}
 	for _, s := range []*stream{first, second} {
-		s.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"status":"done"}`)
+		s.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
 	}
 }
 
@@ -313,12 +341,12 @@ func TestStop_FailsTurnAndClosesSession(t *testing.T) {
 	sub := subscribe(t, env.url)
 	env.send(t, "block")
 	<-env.fake.started
-	sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	if status, body := do(t, http.MethodPost, env.url+"/channels/1/stop", ""); status != 204 || body != "" {
 		t.Fatalf("stop = %d %q, want 204", status, body)
 	}
-	sub.want(t, `turn {"status":"failed","error":"interrupted"}`)
+	sub.want(t, `turn {"role":"lead","status":"failed","error":"interrupted"}`)
 	if got := env.fake.closed.Load(); got != 1 {
 		t.Errorf("session closes = %d, want 1", got)
 	}
@@ -326,7 +354,7 @@ func TestStop_FailsTurnAndClosesSession(t *testing.T) {
 	if status, _ := env.send(t, "hello"); status != 202 {
 		t.Fatalf("send after stop = %d, want 202", status)
 	}
-	sub.want(t, `turn {"status":"running"}`, `agent {"kind":"text","text":"hi"}`, `turn {"status":"done"}`)
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 	if got := env.opened.Load(); got != 2 {
 		t.Errorf("sessions opened = %d, want 2: a send after stop opens the agent again", got)
 	}
@@ -338,8 +366,8 @@ func TestSend_ToolCapPausesChannel(t *testing.T) {
 	env.send(t, "cap")
 	sub.want(t,
 		_idleFrame,
-		`turn {"status":"running"}`,
-		`turn {"status":"failed","error":"capped: more than 25 tool calls"}`,
+		`turn {"role":"lead","status":"running"}`,
+		`turn {"role":"lead","status":"failed","error":"capped: more than 25 tool calls"}`,
 		`pause {"reason":"capped: more than 25 tool calls"}`,
 	)
 
@@ -360,7 +388,7 @@ func TestSend_ToolCapPausesChannel(t *testing.T) {
 	if status, _ := env.send(t, "hello"); status != 202 {
 		t.Errorf("send after continue = %d, want 202", status)
 	}
-	sub.want(t, `turn {"status":"running"}`, `agent {"kind":"text","text":"hi"}`, `turn {"status":"done"}`)
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 
 	status, body = do(t, http.MethodPost, env.url+"/channels/1/continue", "")
 	if status != 409 || body != `{"error":"channel 1 is not paused: conflict"}` {
@@ -418,10 +446,10 @@ func TestClose_FailsRunningTurn(t *testing.T) {
 	sub := subscribe(t, env.url)
 	env.send(t, "block")
 	<-env.fake.started
-	sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	env.h.Close()
-	sub.want(t, `turn {"status":"failed","error":"interrupted"}`)
+	sub.want(t, `turn {"role":"lead","status":"failed","error":"interrupted"}`)
 	if got := env.fake.closed.Load(); got != 1 {
 		t.Errorf("session closes = %d, want 1", got)
 	}
@@ -460,8 +488,8 @@ func TestClose_ClosesSessionsInParallel(t *testing.T) {
 		if status, body := env.sendTo(t, id, "hi"); status != 202 {
 			t.Fatalf("send to %d = %d %s, want 202", id, status, body)
 		}
-		sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"hi"}`,
-			`turn {"status":"done"}`)
+		sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+			`turn {"role":"lead","status":"done"}`)
 	}
 
 	done := make(chan struct{})
@@ -576,9 +604,9 @@ func TestSend_PromoteTextIsAMessage(t *testing.T) {
 	}
 	sub.want(t,
 		_idleFrame,
-		`turn {"status":"running"}`,
+		`turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"hi"}`,
-		`turn {"status":"done"}`,
+		`turn {"role":"lead","status":"done"}`,
 	)
 	env.fake.mu.Lock()
 	ran := env.fake.ran
@@ -680,8 +708,8 @@ func TestSubscribe_StateOnConnect(t *testing.T) {
 	env := newLiveEnv(t)
 	sub := subscribe(t, env.url)
 	env.send(t, "cap")
-	sub.want(t, _idleFrame, `turn {"status":"running"}`,
-		`turn {"status":"failed","error":"capped: more than 25 tool calls"}`,
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
+		`turn {"role":"lead","status":"failed","error":"capped: more than 25 tool calls"}`,
 		`pause {"reason":"capped: more than 25 tool calls"}`)
 
 	late := subscribe(t, env.url)
@@ -693,15 +721,15 @@ func TestSubscribe_StateOnConnect(t *testing.T) {
 	if status, _ := env.send(t, "hello"); status != 202 {
 		t.Fatalf("send after continue = %d, want 202", status)
 	}
-	again.want(t, `turn {"status":"running"}`)
+	again.want(t, `turn {"role":"lead","status":"running"}`)
 }
 
 func TestSend_CapKeepsReasonWhenChannelReadFails(t *testing.T) {
 	env := newLiveEnv(t)
 	sub := subscribe(t, env.url)
 	env.send(t, "cap-lost")
-	sub.want(t, _idleFrame, `turn {"status":"running"}`,
-		`turn {"status":"failed","error":"capped: more than 25 tool calls"}`,
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
+		`turn {"role":"lead","status":"failed","error":"capped: more than 25 tool calls"}`,
 		`pause {"reason":"capped: more than 25 tool calls"}`)
 }
 
@@ -725,8 +753,8 @@ func TestWrap_NoProposalNote(t *testing.T) {
 	id := env.featureChannel(t)
 	sub := subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "/wrap")
-	sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"wrapped"}`,
-		`turn {"status":"done","note":"no proposal made"}`)
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"wrapped"}`,
+		`turn {"role":"lead","status":"done","note":"no proposal made"}`)
 }
 
 func TestDelete_StopsLiveChannel(t *testing.T) {
@@ -734,7 +762,7 @@ func TestDelete_StopsLiveChannel(t *testing.T) {
 	sub := subscribe(t, env.url)
 	env.send(t, "block")
 	<-env.fake.started
-	sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	if status, _ := do(t, http.MethodDelete, env.url+"/channels/1", ""); status != 204 {
 		t.Fatalf("delete = %d, want 204", status)

@@ -95,6 +95,18 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 	return b.String(), nil
 }
 
+// roleIntro is the role's persona and skills, when it has any, to put before its context.
+func roleIntro(r store.Role) string {
+	var b strings.Builder
+	if r.Persona != "" {
+		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(r.Persona))
+	}
+	if r.Skills != "" {
+		fmt.Fprintf(&b, "Your skills:\n%s\n\n", strings.TrimSpace(r.Skills))
+	}
+	return b.String()
+}
+
 func projectContext(p store.Project, role string) string {
 	return fmt.Sprintf("You are the %s in project %q (%s).\n"+
 		"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n",
