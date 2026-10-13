@@ -450,6 +450,31 @@ func TestAgent_InterruptedTurnKeepsUsage(t *testing.T) {
 	}
 }
 
+func TestAgent_InterruptKeepsStoppedTurnUsage(t *testing.T) {
+	tests := []struct {
+		mode string
+		want agent.Usage
+	}{
+		{mode: "stopusage", want: agent.Usage{InputTokens: 6, OutputTokens: 5, CacheReadTokens: 1}},
+		{mode: "stopmerge", want: agent.Usage{InputTokens: 12, OutputTokens: 8, CacheReadTokens: 5}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.mode, func(t *testing.T) {
+			a := fake(t, tt.mode)
+			startTurn(t, a)
+			collect(t, a, agent.KindToolCall)
+			if err := a.Interrupt(); err != nil {
+				t.Fatal(err)
+			}
+			got := collect(t, a, "")
+			want := []agent.Event{{Kind: agent.KindUsage, Usage: &tt.want}}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("events after Interrupt = %+v, want %+v", got, want)
+			}
+		})
+	}
+}
+
 func TestAgent_BreakBetweenMessages(t *testing.T) {
 	a := fake(t, "twomsgs")
 	startTurn(t, a)
