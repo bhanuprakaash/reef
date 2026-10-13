@@ -19,6 +19,7 @@ type recordingAgent struct {
 
 	cfg     agent.Config
 	started bool
+	closed  bool
 	resumed string
 	prompts []string
 	events  chan agent.Event
@@ -39,7 +40,7 @@ func (a *recordingAgent) Resume(_ context.Context, cfg agent.Config, sessionID s
 }
 
 func (a *recordingAgent) Events() <-chan agent.Event { return a.events }
-func (a *recordingAgent) Interrupt() error           { return nil }
+func (a *recordingAgent) Interrupt() error           { a.closed = true; return nil }
 
 func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 	a.prompts = append(a.prompts, prompt)
@@ -93,7 +94,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 	}
 	tok := ag.cfg.MCPServers["reef"].Env["REEF_TOKEN"]
 	want := agent.Config{
-		Cwd: "/tmp/shop", PermissionMode: "acceptEdits",
+		Cwd: "/tmp/shop", PermissionMode: "acceptEdits", Tools: []string{},
 		MCPServers: map[string]agent.MCPServer{"reef": {
 			Command: "/bin/reef", Args: []string{"mcp", "--data", dir},
 			Env: map[string]string{"REEF_TOKEN": tok},
@@ -109,7 +110,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 		t.Error("InUse while open = false, want true")
 	}
 
-	if err := sendAs(ctx, s, "hi", discard); err != nil {
+	if err := sendAs(ctx, st, ch.ID, s.Run, "hi", discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(ag.prompts) != 1 ||
@@ -140,7 +141,7 @@ func TestOpen_QuickSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := sendAs(ctx, s, "hi", discard); err != nil {
+	if err := sendAs(ctx, st, ch.ID, s.Run, "hi", discard); err != nil {
 		t.Fatal(err)
 	}
 
@@ -192,11 +193,89 @@ func TestOpen_ResumesNewestSession(t *testing.T) {
 		t.Errorf("stale turn = %q %q, want failed %q", stale.Status, stale.Error, "chat exited")
 	}
 
-	if err := sendAs(ctx, s, "hi", discard); err != nil {
+	if err := sendAs(ctx, st, ch.ID, s.Run, "hi", discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(ag.prompts) != 1 || ag.prompts[0] != "hi" {
 		t.Errorf("prompts = %q, want [hi] without the context", ag.prompts)
+	}
+}
+
+func TestSession_RunAsSpecialist(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{
+			Name: "architect", Backend: "claude", Persona: "You design.", Skills: "Sketch first.",
+			Tools: []string{"Read", "Grep"}, MCPServers: []agent.MCPServer{{URL: "http://x"}},
+		},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := st.CreateMessage(ctx, store.Message{ChannelID: ch.ID, Author: "user", Body: "root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if len(ags) != 1 {
+		t.Fatalf("agents after open = %d, want only the lead", len(ags))
+	}
+
+	var tokenRole string
+	whoAmI := func(agent.Event) {
+		tok := ags[1].cfg.MCPServers["reef"].Env["REEF_TOKEN"]
+		if got, err := st.Token(ctx, tok); err == nil {
+			tokenRole = got.Role
+		}
+	}
+	if err := s.RunAs(ctx, "architect", "plan it", &root.ID, whoAmI); err != nil {
+		t.Fatal(err)
+	}
+	want := "You design.\n\nYour skills:\nSketch first.\n\nYou are the architect on feature"
+	if len(ags) != 2 || !strings.HasPrefix(ags[1].prompts[0], want) {
+		t.Errorf("prompts = %q, want one starting with %q", ags[1].prompts, want)
+	}
+	if !reflect.DeepEqual(ags[1].cfg.Tools, []string{"Read", "Grep"}) ||
+		ags[1].cfg.MCPServers["mcp1"].URL != "http://x" {
+		t.Errorf("config = %+v, want the role's tools and mcp server", ags[1].cfg)
+	}
+	if tokenRole != "architect" {
+		t.Errorf("token role = %q, want architect", tokenRole)
+	}
+	if thread, err := st.Thread(ctx, ch.ID, root.ID); err != nil || len(thread) != 2 ||
+		thread[1].Author != "architect" {
+		t.Errorf("thread = %+v, %v, want the root and the architect's reply", thread, err)
+	}
+	if !ags[1].closed || ags[0].closed {
+		t.Errorf("closed = architect %v, lead %v, want architect only", ags[1].closed, ags[0].closed)
+	}
+
+	if err := s.RunAs(ctx, "architect", "again", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if ags[2].resumed != "s1" || ags[2].prompts[0] != "again" {
+		t.Errorf("resumed = %q, prompts = %q, want s1 and [again]", ags[2].resumed, ags[2].prompts)
+	}
+	if err := s.RunAs(ctx, "tester", "hi", nil, discard); !errors.Is(err, store.ErrInvalid) {
+		t.Errorf("RunAs unknown role error = %v, want ErrInvalid", err)
 	}
 }
 

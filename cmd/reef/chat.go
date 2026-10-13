@@ -108,7 +108,7 @@ func chatCmd(
 
 type chatSession interface {
 	Say(ctx context.Context, body string, parent *int64) error
-	Run(ctx context.Context, text string, onEvent func(agent.Event)) error
+	Run(ctx context.Context, text string, parent *int64, onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 }
 
@@ -137,7 +137,7 @@ func converse(
 		if err == nil && wrap {
 			p, err = sess.Wrap(ctx, show)
 		} else if err == nil {
-			err = sess.Run(ctx, line, show)
+			err = sess.Run(ctx, line, nil, show)
 		}
 		noProposal := errors.Is(err, channel.ErrNoProposal)
 		if err != nil && !noProposal {
