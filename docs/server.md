@@ -20,7 +20,7 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
   `--data` and its own `--addr`.
 - `--addr` is where to listen. The default is `127.0.0.1:7700`. The API has no login, so
   `reef serve` refuses an `--addr` whose host is not `localhost` or a loopback IP,
-  including an empty host such as `:7700`, before it opens the data folder. It does refuse
+  including an empty host such as `:7700`, before it opens the data folder. It also refuses
   a request whose `Host` is not `127.0.0.1`, `localhost` or `::1` (403), and a `POST`,
   `PUT` or `PATCH` whose `Content-Type` is not `application/json` (415). This stops a web
   page on another origin from writing to it, including through DNS rebinding.
@@ -47,7 +47,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 An id in the path that matches nothing is 404; an id in the body that matches nothing is
 400. Unknown JSON fields in a request are rejected (`{"error":"invalid: bad JSON: json: unknown
 field \"feature_id\""}`), so a misspelled field never turns into a silent default. The
-server-set fields (`id`, `createdAt`, `updatedAt`) are accepted and ignored. A parent
+server-set fields an entity returns (such as `id` and `createdAt`) are accepted and ignored. A parent
 deleted while a write is in flight gives the same 404 or 400 as one that never existed.
 
 ## Entities
