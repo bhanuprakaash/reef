@@ -16,6 +16,7 @@ usage: verify-reef build
        REEF_VERIFY_RUN=ID verify-reef sql [--write] "SQL"
        REEF_VERIFY_RUN=ID verify-reef reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A | --sigint-at-prompt]] [--timeout S] -- REEF_ARGS...
        REEF_TOKEN=T REEF_VERIFY_RUN=ID verify-reef mcp-call TOOL [JSON]
+       REEF_VERIFY_RUN=ID verify-reef ui live|brief|promote|cap
        REEF_VERIFY_RUN=ID verify-reef cleanup
 EOF
 	exit 2
@@ -637,6 +638,19 @@ sys.exit(0 if got else 1)
 EOF
 }
 
+# ui SCENARIO: drive the window of this run's server in Chrome (scripts/ui/drive.mjs).
+cmd_ui() {
+	load_run
+	[ $# -eq 1 ] || usage
+	[ -s "$SCR/serve.addr" ] || fail "no server up; run serve-start first (ANTHROPIC_MODEL=sonnet for claude channels)"
+	ui="$REPO/.claude/skills/verify-reef/scripts/ui"
+	[ -d "$ui/node_modules" ] || (cd "$ui" && npm ci >&2) || fail "npm ci failed in $ui"
+	mkdir -p "$EV/ui"
+	REEF_UI_DATA=$(cat "$SCR/serve.data") REEF_UI_PROJECT=$CWD REEF_UI_PROOF=$EV/ui \
+		node "$ui/drive.mjs" "$1" "http://$(cat "$SCR/serve.addr")" 2>&1 | tee "$EV/ui-$1.log"
+	exit "${PIPESTATUS[0]}"
+}
+
 cmd_cleanup() {
 	load_run
 	if [ -f "$SCR/serve.pid" ] && serve_alive "$(cat "$SCR/serve.pid")"; then
@@ -685,6 +699,7 @@ api) cmd_api "$@" ;;
 sql) cmd_sql "$@" ;;
 reef) cmd_reef "$@" ;;
 mcp-call) cmd_mcp_call "$@" ;;
+ui) cmd_ui "$@" ;;
 cleanup) cmd_cleanup "$@" ;;
 *) usage ;;
 esac

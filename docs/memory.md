@@ -190,7 +190,8 @@ reef chat --channel ID [--debug]
 
 `reef chat` runs one role in one channel, in the terminal. It uses the agent adapters
 from [agents.md](agents.md). The code that opens a channel is in package `channel`
-(`channel.Open`) and has no terminal code, so the server can drive it later.
+(`channel.Open`) and has no terminal code. `reef serve` is a second runner of it: the
+window sends messages, wraps up and promotes through the same code (see [server.md](server.md#channels-live)).
 
 A channel stores its role, its backend and its permission mode (see
 [server.md](server.md#channel)). `channel.Open` starts its agent in the project's folder,

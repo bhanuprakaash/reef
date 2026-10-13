@@ -47,8 +47,14 @@ build in web/` until the app is built.
 
 ```
 cd web && npm ci && npm run build
-cd .. && go build ./cmd/reef
+cd .. && go build -o reef ./cmd/reef
+./reef serve
 ```
+
+Then open `http://127.0.0.1:7700`. Build the web app before `go build`, because the binary
+embeds `web/dist` as it was at build time. Add a project (an absolute path to an existing
+folder), then a feature, then a channel. A channel's agent is the `claude` or `codex` CLI,
+logged in and on `PATH`.
 
 Client routes such as `/features/3` and `/tasks` have the same paths as the REST API. One
 rule splits them, in the Go server and in the Vite dev proxy: a `GET` or `HEAD` whose
@@ -267,13 +273,13 @@ a channel takes its messages, turns, tokens and proposals.
 | `DELETE /channels/{id}` | | 204 | 404 |
 | `POST /channels/{id}/send` | `text` | 202, no body | 400 empty text, 404, 409 turn running, channel paused or open elsewhere, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
-| `POST /channels/{id}/stop` | | 204, also when the channel is not live | |
-| `POST /channels/{id}/continue` | | 204, no body | 404, 409 not paused |
-| `POST /channels/{id}/wrap` | no body needed; a body is ignored | 202, no body | 404, 409 and 503 as send |
+| `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
+| `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused |
+| `POST /channels/{id}/wrap` | no body needed | 202, no body | 404, 409 and 503 as send |
 | `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
 | `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
-| `POST /proposals/{id}/approve` | | 200 the proposal and `decisionsAdded` | 400 already decided, 404 |
-| `POST /proposals/{id}/reject` | | 200 the proposal | 400 already decided, 404 |
+| `POST /proposals/{id}/approve` | no body needed | 200 the proposal and `decisionsAdded` | 400 already decided, 404 |
+| `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
 | `GET /messages` | `?channel=ID` (required), `?after=ID` (only newer ids) | 200 | 400 no channel, 404 unknown channel |
 | `POST /messages` | `channelId`, `author`, `body` | 201 | 400 unknown channel or missing field |
 | `GET /tasks` | `?project=ID`, `?feature=ID`, `?status=todo\|doing\|done` | 200 | 400 bad id or status |
@@ -288,6 +294,11 @@ a channel takes its messages, turns, tokens and proposals.
 | `GET /decisions` | `?feature=ID` (required) | 200 | 400 no feature, 404 unknown feature |
 | `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field, unknown feature, or a message of another feature |
 | `GET /decisions/{id}` | | 200 | 404 |
+
+A `POST` with no body (`stop`, `continue`, `wrap`, `approve`, `reject`) still needs
+`Content-Type: application/json`, or the guard answers 415. These routes ignore the body,
+so an empty one or `{}` both work. `send` and `promote` read a JSON body, and an empty one
+is 400.
 
 Create and update take the whole object from the table above. A field you leave out
 takes its default. `PUT` replaces; there is no partial update except `PATCH /turns/{id}`.
@@ -446,7 +457,7 @@ $ curl -s -X PUT -H 'Content-Type: application/json' localhost:7700/features/1/b
 {"id":1,"featureId":1,"body":"Email and password login","author":"user","createdAt":"2026-10-13T09:00:02.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/channels -d '{"projectId":1,"featureId":1,"name":"build","backend":"claude"}'
-{"id":1,"projectId":1,"featureId":1,"name":"build","role":"lead","backend":"claude","permissionMode":"","createdAt":"2026-10-13T09:00:03.123456Z"}
+{"id":1,"projectId":1,"featureId":1,"name":"build","role":"lead","backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"createdAt":"2026-10-13T09:00:03.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/messages -d '{"channelId":1,"author":"user","body":"Start with the form"}'
 {"id":1,"channelId":1,"author":"user","body":"Start with the form","createdAt":"2026-10-13T09:00:04.123456Z"}
