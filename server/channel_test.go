@@ -48,6 +48,14 @@ func TestChannelStatus(t *testing.T) {
 			wantBody:   `{"error":"invalid: bad JSON: json: unknown field \"feature_id\""}`,
 		},
 		{
+			name:       "role other than lead",
+			method:     http.MethodPost,
+			path:       "/channels",
+			give:       `{"projectId":1,"name":"c","role":"architect","backend":"claude"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: role must be lead"}`,
+		},
+		{
 			name:       "missing name",
 			method:     http.MethodPost,
 			path:       "/channels",

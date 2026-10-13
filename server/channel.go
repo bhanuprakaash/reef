@@ -53,6 +53,10 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 	if in.Role == "" {
 		in.Role = "lead"
 	}
+	if in.Role != "lead" {
+		writeError(w, fmt.Errorf("%w: role must be lead", store.ErrInvalid))
+		return
+	}
 	if err := validateAgent(in); err != nil {
 		writeError(w, err)
 		return
