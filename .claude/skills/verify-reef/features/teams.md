@@ -11,9 +11,10 @@ live, Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 ## Sub-features
 
 - `team-apply` `reef team apply FILE.json` creates a team; `reef team list` shows each team with its roles and backends, the lead starred. The same name again replaces its roles: a changed persona updates the one team.
-- `team-errors` a file with no lead or two leads, a bad backend, an unknown field, a gate that names a missing role, a missing file, and no subcommand each fail with `reef: ...`, exit 1, and change nothing.
-- `team-rest` `GET /teams` lists teams by name (`solo` always exists); `GET /teams/{name}` returns one with its roles and gates, 404 for an unknown name; the routes take no write.
+- `team-errors` a file with no lead or two leads, a role named `user` or with a space, a bad backend, an unknown field, a gate that names a missing role, a missing file, and no subcommand each fail with `reef: ...`, exit 1, and change nothing.
+- `team-rest` `GET /teams` lists teams by name (`solo` always exists); `GET /teams/{name}` returns one with its roles and gates, 404 for an unknown name; the routes take no write; a role's `mcpServers` `env` never shows.
 - `team-channel` `POST /channels` with `team` stores it and fills `role` (the lead's name), `backend` and `permissionMode` from the lead role; with no team the channel is in `solo`; an unknown team and a `role` other than `lead` are 400.
+- `team-reapply-live` a team applied again with a new role while the lead is live: `@tester` runs a tester turn.
 - `thread-send` `POST /channels/{id}/send` with `parent` stores the reply under that top-level message; a parent that is not a top-level message of the channel is 400; `role` is no longer a field (400).
 - `thread-read` the `read_thread` MCP tool with `root` returns the root and its replies in order; a reply id as `root` is `not found`.
 - `lazy-lead` a first message `@architect ...` in a new channel starts only the architect: no lead turn, no lead token, one `claude` child while it runs and none after.
@@ -85,10 +86,14 @@ cat > $E/pingpong.json <<'EOF'
 EOF
 sed 's/Writing short plans./Writing very short plans./' $E/duo.json > $E/duo2.json
 sed 's/"name": "duo",/"name": "gated", "gates": [{"from": "lead", "to": "architect", "on": true}],/' $E/duo.json > $E/gated.json
-sed -e 's/"name": "duo"/"name": "mixed"/' -e '/"name": "architect"/{n;s/"claude"/"codex", "permission_mode": "read-only"/}' $E/duo.json > $E/mixed.json
+sed -e 's/"name": "duo"/"name": "mixed"/' -e '/"name": "architect"/{n;s/"claude"/"codex", "permissionMode": "read-only"/}' $E/duo.json > $E/mixed.json
 printf '{"name":"bad","roles":[{"name":"a","backend":"claude"}]}' > $E/nolead.json
 printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude"},{"name":"b","lead":true,"backend":"codex"}]}' > $E/twolead.json
 printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"gemini"}]}' > $E/badbackend.json
+printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude"},{"name":"user","backend":"claude"}]}' > $E/userrole.json
+printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude"},{"name":"two words","backend":"claude"}]}' > $E/spacerole.json
+printf '{"name":"keys","roles":[{"name":"lead","lead":true,"backend":"claude","mcpServers":[{"command":"true","env":{"API_KEY":"sk-verify-5521"}}]}]}' > $E/keys.json
+printf '{"name":"duo","roles":[{"name":"lead","lead":true,"backend":"claude","persona":"You are the lead. Answer in one short sentence."},{"name":"architect","backend":"claude"},{"name":"tester","backend":"claude","persona":"You are the tester. Answer in one short sentence, and end it with the word TESTED. Never @mention anyone."}]}' > $E/duo3.json
 printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude","color":"red"}]}' > $E/unknownfield.json
 printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude"}],"gates":[{"from":"a","to":"ghost","on":true}]}' > $E/badgate.json
 ```
@@ -101,15 +106,17 @@ Teams, no server needed (data folder `teams`):
   - `nolead.json`: `reef: invalid: team bad needs exactly one lead role, has 0`
   - `twolead.json`: `reef: invalid: team bad needs exactly one lead role, has 2`
   - `badbackend.json`: `reef: role a: invalid: backend must be claude or codex`
+  - `userrole.json`: `reef: invalid: role name "user" must be letters, digits, _ or -, and not user`
+  - `spacerole.json`: `reef: invalid: role name "two words" must be letters, digits, _ or -, and not user`
   - `unknownfield.json`: `reef: parse <path>: json: unknown field "color"`
   - `badgate.json`: `reef: invalid: gate a to ghost names a role team bad does not have`
   - `$H reef -- team apply /nonexistent.json`: `reef: read team file: open /nonexistent.json: no such file or directory`
   - `$H reef -- team`: `reef: usage: reef team apply FILE.json | list [--data DIR]`
-- **Two more teams.** `$H reef -- team apply $E/pingpong.json` and `$H reef -- team apply $E/gated.json` print `applied team ...`.
+- **Three more teams.** `$H reef -- team apply $E/pingpong.json`, `$H reef -- team apply $E/gated.json` and `$H reef -- team apply $E/keys.json` print `applied team ...`. `$H sql "select count(*) from role where mcp_servers like '%sk-verify-5521%'"` is `1`: the env is stored for the agent.
 
 Server (the same folder): `ANTHROPIC_MODEL=sonnet $H serve-start --data-name teams`, then `A=$(cat $S/serve.addr)`.
 
-- **REST.** `$H api GET /teams` is 200 with `duo`, `gated`, `pingpong`, `solo` in that order; each role has `name`, `lead`, `backend`, `permission_mode`, `persona`, `skills`, `tools` and `mcp_servers`, and only `gated` has `"gates":[{"from":"lead","to":"architect","on":true}]`. `$H api GET /teams/gated` is 200 with that team. `$H api GET /teams/nope` is 404 `team nope: not found`. `$H api POST /teams '{}'` is 405.
+- **REST.** `$H api GET /teams` is 200 with `duo`, `gated`, `keys`, `pingpong`, `solo` in that order; each role has `name`, `lead`, `backend`, `permissionMode`, `persona`, `skills`, `tools` and `mcpServers`, and only `gated` has `"gates":[{"from":"lead","to":"architect","on":true}]`. `$H api GET /teams/gated` is 200 with that team. `$H api GET /teams/keys` is 200 and has `"mcpServers":[{"command":"true"}]`; neither it nor `$H api GET /teams` contains `sk-verify-5521` or `API_KEY`. `$H api GET /teams/nope` is 404 `team nope: not found`. `$H api POST /teams '{}'` is 405.
 - **Setup.** `$H api POST /projects '{"name":"teams","path":"'$S'/cwd"}'`, `$H api POST /features '{"projectId":1,"slug":"login","name":"Login"}'`.
 - **Channel on a team.** `$H api POST /channels '{"projectId":1,"featureId":1,"name":"plain","backend":"claude"}'` is 201 id 1 with `"team":"solo"`. `$H api POST /channels '{"projectId":1,"featureId":1,"name":"duo room","team":"duo"}'` is id 2 with `"team":"duo","role":"lead","backend":"claude"`: the backend came from the lead role, the request named none. Then three more, ids 3 to 5: `{"projectId":1,"featureId":1,"name":"lazy","team":"duo"}`, `{"projectId":1,"featureId":1,"name":"ping room","team":"pingpong"}`, `{"projectId":1,"featureId":1,"name":"gate room","team":"gated"}`. `... "team":"nope"` is 400 `invalid: unknown team nope`. `... "team":"duo","role":"architect"` is 400 `invalid: role must be lead`. `$H sql "select channel.id, channel.name, team.name from channel join team on team.id = team_id"` shows `1|plain|solo`, `2|duo room|duo`, `3|lazy|duo`, `4|ping room|pingpong`, `5|gate room|gated`.
 
@@ -144,6 +151,10 @@ Gate, channel 5 (`gated`: lead to architect is on). Start the stream first: `cur
 - **Approve while busy.** `$H api POST /channels/5/send '{"text":"DESIGN a profile page."}'`, `wait_for /channels/5/approvals '"id":3'`, `wait_done 5 4`. Then `$H api POST /channels/5/send '{"text":"Write the numbers 1 to 400 separated by spaces."}'` is 202, and at once `$H api POST /channels/5/approvals/3 '{"approve":true}'` is 409 `channel 5 has a turn running: conflict`. `wait_done 5 5`. `$H api GET /channels/5/approvals` still lists approval 3 as `pending`.
 - **Frames.** `grep -v -e '^$' -e '"kind"' -e 'event: agent' $E/gate-events.txt` shows `event: approval` with `"status":"pending"` while the lead's turn is still running (before its `turn` done), `event: approval` with `"status":"approved"` after the approve (and `rejected` after the reject), and `turn` frames with a `role`.
 
+Re-apply while the lead is live, channel 6:
+
+- **New role mid-channel.** `$H api POST /channels '{"projectId":1,"featureId":1,"name":"reapply","team":"duo"}'` is id 6. `$H api POST /channels/6/send '{"text":"Hello. Reply with one word."}'`, `wait_done 6 1`: the lead's `claude` is live. `$H reef -- team apply $E/duo3.json` prints `applied team duo: lead*(claude) architect(claude) tester(claude)`. `$H api POST /channels/6/send '{"text":"@tester run the checks"}'`, `wait_done 6 2`. `$H sql "select role, status from turn where channel_id = 6 order by id"` is `lead|done`, `tester|done`, and the newest message is by `tester` and ends `TESTED`.
+
 Restart (still gate room, pending approval 3, and the paused channel 4):
 
 - **Held state.** `$H serve-stop`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name teams`, then set `A` again. `$H api GET /channels/5/approvals` still has approval 3 `pending`. `$H sql "select paused from channel where id = 4"` is still the hop cap reason. `$H api POST /channels/4/continue` is 204, `$H sql "select paused from channel where id = 4"` is empty and `$H sql "select count(*) from turn where channel_id = 4"` is still `9`: the held wake was in memory and is gone. `$H api POST /channels/5/approvals/3 '{"approve":true}'` is 204; `wait_done 5 6` and the new turn is `architect`.
@@ -155,7 +166,7 @@ Codex teammate on the test fixture (`mixed`: the architect is on `codex`). The f
 
 Window (by hand, in a browser; no `ui` scenario drives this yet). With a server on the `teams` data folder:
 
-- **New channel.** The New channel form has a team picker with `duo`, `gated`, `pingpong`, `solo`. Pick `duo`, create the channel: the sidebar shows it, `GET /channels/<id>` has `"team":"duo"`.
+- **New channel.** The New channel form has a team picker with `duo`, `gated`, `keys`, `pingpong`, `solo`. Pick `duo`, create the channel: the sidebar shows it, `GET /channels/<id>` has `"team":"duo"`.
 - **Thread.** Send `DESIGN a login form.`. While the architect runs, the live turn names it. When it ends, the architect's message has a reply count and a Thread pane opens on click; reply there. The architect (not the lead) answers in the pane, and the main list folds the replies under their root with the count.
 - **Gate.** In a `gated` channel, after the lead mentions the architect, a row `lead to architect: ...` shows Approve and Reject. Approve runs the architect; Reject removes the row.
 - **Hop cap.** In a `pingpong` channel, after five turns the cap banner shows `hop cap: 4 agent hops without a user message` and the composer is disabled; Continue runs the held wake.

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"regexp"
 	"slices"
 
 	"github.com/bhanuprakaash/reef/agent"
@@ -26,6 +27,8 @@ type Gate struct {
 	On   bool   `json:"on"`
 }
 
+var _roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
 // _defaultGates apply to an edge the team does not list.
 var _defaultGates = []Gate{
 	{From: "architect", To: "developer", On: true},
@@ -37,29 +40,11 @@ type Role struct {
 	Name           string            `json:"name"`
 	Lead           bool              `json:"lead"`
 	Backend        string            `json:"backend"`
-	PermissionMode string            `json:"permission_mode"`
+	PermissionMode string            `json:"permissionMode"`
 	Persona        string            `json:"persona"`
 	Skills         string            `json:"skills"`
 	Tools          []string          `json:"tools"`
-	MCPServers     []agent.MCPServer `json:"mcp_servers"`
-}
-
-// ValidateAgent checks that backend is known and permissionMode, when set, is one it accepts.
-func ValidateAgent(backend, permissionMode string) error {
-	var modes []string
-	switch backend {
-	case "claude":
-		modes = []string{"default", "acceptEdits"}
-	case "codex":
-		modes = []string{"read-only", "workspace-write"}
-	default:
-		return fmt.Errorf("%w: backend must be claude or codex", ErrInvalid)
-	}
-	if permissionMode != "" && !slices.Contains(modes, permissionMode) {
-		return fmt.Errorf("%w: permissionMode for %s must be empty, %s or %s",
-			ErrInvalid, backend, modes[0], modes[1])
-	}
-	return nil
+	MCPServers     []agent.MCPServer `json:"mcpServers"`
 }
 
 // ApplyTeam creates team t, or replaces the roles of the team with that name.
@@ -149,17 +134,6 @@ func (s *Store) Team(ctx context.Context, name string) (Team, error) {
 	return Team{Name: name, Roles: roles, Gates: gates}, nil
 }
 
-// Gated reports whether a wake from role from to role to waits for approval: the team's
-// gate for that edge when it lists one, else the default.
-func (t Team) Gated(from, to string) bool {
-	for _, g := range slices.Concat(t.Gates, _defaultGates) {
-		if g.From == from && g.To == to {
-			return g.On
-		}
-	}
-	return false
-}
-
 // Teams lists all teams by name.
 func (s *Store) Teams(ctx context.Context) ([]Team, error) {
 	rows, err := s.db.QueryContext(ctx, "SELECT name FROM team ORDER BY name")
@@ -184,6 +158,17 @@ func (s *Store) Teams(ctx context.Context) ([]Team, error) {
 	return teams, nil
 }
 
+// Gated reports whether a wake from role from to role to waits for approval: the team's
+// gate for that edge when it lists one, else the default.
+func (t Team) Gated(from, to string) bool {
+	for _, g := range slices.Concat(t.Gates, _defaultGates) {
+		if g.From == from && g.To == to {
+			return g.On
+		}
+	}
+	return false
+}
+
 func (t Team) validate() error {
 	if t.Name == "" {
 		return fmt.Errorf("%w: team name is required", ErrInvalid)
@@ -192,6 +177,10 @@ func (t Team) validate() error {
 	for _, r := range t.Roles {
 		if r.Name == "" {
 			return fmt.Errorf("%w: role name is required", ErrInvalid)
+		}
+		if r.Name == "user" || !_roleName.MatchString(r.Name) {
+			return fmt.Errorf("%w: role name %q must be letters, digits, _ or -, and not user",
+				ErrInvalid, r.Name)
 		}
 		if seen[r.Name] {
 			return fmt.Errorf("%w: role %s appears twice", ErrInvalid, r.Name)
@@ -217,6 +206,24 @@ func (t Team) validate() error {
 	return nil
 }
 
+// ValidateAgent checks that backend is known and permissionMode, when set, is one it accepts.
+func ValidateAgent(backend, permissionMode string) error {
+	var modes []string
+	switch backend {
+	case "claude":
+		modes = []string{"default", "acceptEdits"}
+	case "codex":
+		modes = []string{"read-only", "workspace-write"}
+	default:
+		return fmt.Errorf("%w: backend must be claude or codex", ErrInvalid)
+	}
+	if permissionMode != "" && !slices.Contains(modes, permissionMode) {
+		return fmt.Errorf("%w: permissionMode for %s must be empty, %s or %s",
+			ErrInvalid, backend, modes[0], modes[1])
+	}
+	return nil
+}
+
 func scanRole(r interface{ Scan(...any) error }) (Role, error) {
 	var ro Role
 	var tools, servers string
@@ -228,7 +235,7 @@ func scanRole(r interface{ Scan(...any) error }) (Role, error) {
 		return Role{}, fmt.Errorf("role %s: bad tools: %w", ro.Name, err)
 	}
 	if err := json.Unmarshal([]byte(servers), &ro.MCPServers); err != nil {
-		return Role{}, fmt.Errorf("role %s: bad mcp_servers: %w", ro.Name, err)
+		return Role{}, fmt.Errorf("role %s: bad mcp servers: %w", ro.Name, err)
 	}
 	return ro, nil
 }

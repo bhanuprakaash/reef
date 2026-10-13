@@ -233,14 +233,14 @@ channel that exists at it.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
-| `name` | string | required; unique within the team. It is the `author` of what the role posts, and the name an `@mention` uses |
+| `name` | string | required; unique within the team; letters, digits, `_` and `-` only, and not `user`. It is the `author` of what the role posts, and the name an `@mention` uses |
 | `lead` | boolean | exactly one role of a team is the lead. The lead answers a message that nobody else owns |
 | `backend` | string | required; `claude` or `codex` |
-| `permission_mode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`. The same rule as a channel's `permissionMode` |
+| `permissionMode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`. The same rule as a channel's `permissionMode` |
 | `persona` | string | goes at the start of the role's first prompt |
 | `skills` | string | goes after the persona, under `Your skills:` |
-| `tools` | array of strings | claude: passed as `--allowedTools`, so these tools run without asking. codex: ignored |
-| `mcp_servers` | array | extra MCP servers for the role, each `command`, `args`, `env` (stdio) or `url` (HTTP). They are named `mcp1`, `mcp2`, ... next to the `reef` server |
+| `tools` | array of strings | claude: passed as `--allowedTools` with `mcp__reef__*`, so these tools and the reef tools run without asking; the role's own `mcpServers` do not (list `mcp__mcp1__*` here to allow one). codex: ignored |
+| `mcpServers` | array | extra MCP servers for the role, each `command`, `args`, `env` (stdio) or `url` (HTTP). They are named `mcp1`, `mcp2`, ... next to the `reef` server |
 
 A channel's lead takes the channel's own `backend` and `permissionMode`, which `POST
 /channels` filled from the lead role unless the request set them. The other roles use their
@@ -336,8 +336,8 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `GET /features/{id}/notes/{role}` | | 200 | 404 no feature, or no notes for the role |
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
-| `GET /teams` | | 200 all teams by name, each with its roles and gates | |
-| `GET /teams/{name}` | | 200 | 404 |
+| `GET /teams` | | 200 all teams by name, each with its roles and gates; no `env` of a role's `mcpServers`, which may hold API keys | |
+| `GET /teams/{name}` | | 200, without the `env` as above | 404 |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
 | `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
