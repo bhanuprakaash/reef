@@ -48,7 +48,7 @@ func TestContext(t *testing.T) {
 		}
 	}
 	var decided []store.Decision
-	for _, body := range []string{"use OAuth", "store sessions in SQLite"} {
+	for _, body := range []string{"use OAuth", "store sessions in SQLite\nsecret second line", strings.Repeat("é", 101)} {
 		d, err := st.CreateDecision(ctx, store.Decision{FeatureID: f.ID, Body: body, Author: "user"})
 		if err != nil {
 			t.Fatal(err)
@@ -102,6 +102,7 @@ Keep the session in a cookie.
 ### Decisions
 decision 1: use OAuth (user, ` + day + `)
 decision 2: store sessions in SQLite (user, ` + day + `)
+decision 3: ` + strings.Repeat("é", 100) + `… (user, ` + day + `)
 
 ### Channels
 channel 1: spike, ` + day + `, 1 messages
@@ -115,8 +116,8 @@ Details are on demand through the reef MCP tools read_decision, read_thread and 
 	if got != want {
 		t.Errorf("Context =\n%s\nwant\n%s", got, want)
 	}
-	if strings.Contains(got, "secret message body") {
-		t.Error("Context contains a message body")
+	if strings.Contains(got, "secret message body") || strings.Contains(got, "secret second line") {
+		t.Error("Context contains a message body or a second line of a decision")
 	}
 }
 

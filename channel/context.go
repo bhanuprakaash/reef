@@ -11,8 +11,9 @@ import (
 )
 
 const (
-	_dateLayout = "2006-01-02"
-	_closing    = "Details are on demand through the reef MCP tools read_decision, " +
+	_dateLayout    = "2006-01-02"
+	_maxIndexRunes = 100
+	_closing       = "Details are on demand through the reef MCP tools read_decision, " +
 		"read_thread and search_sessions. Record decisions with record_decision."
 )
 
@@ -66,17 +67,17 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 	var lines []string
 	for _, d := range decisions {
 		lines = append(lines, fmt.Sprintf("decision %d: %s (%s, %s)",
-			d.ID, d.Body, d.Author, d.CreatedAt.Format(_dateLayout)))
+			d.ID, firstLine(d.Body), d.Author, d.CreatedAt.Format(_dateLayout)))
 	}
 	group(&b, "Decisions", lines)
 	lines = nil
 	for _, c := range channels {
-		msgs, err := st.Messages(ctx, c.ID, 0)
+		n, err := st.CountMessages(ctx, c.ID)
 		if err != nil {
 			return "", err
 		}
 		lines = append(lines, fmt.Sprintf("channel %d: %s, %s, %d messages",
-			c.ID, c.Name, c.CreatedAt.Format(_dateLayout), len(msgs)))
+			c.ID, c.Name, c.CreatedAt.Format(_dateLayout), n))
 	}
 	group(&b, "Channels", lines)
 	lines = nil
@@ -89,6 +90,15 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 
 	b.WriteString("\n" + _closing + "\n")
 	return b.String(), nil
+}
+
+// firstLine is the first line of body, cut to _maxIndexRunes characters.
+func firstLine(body string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(body), "\n")
+	if r := []rune(line); len(r) > _maxIndexRunes {
+		return string(r[:_maxIndexRunes]) + "…"
+	}
+	return line
 }
 
 func section(b *strings.Builder, title, body, empty string) {
