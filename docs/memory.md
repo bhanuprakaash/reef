@@ -250,8 +250,9 @@ A channel ends explicitly, never on a timer. The user types `/wrap` in `reef cha
 4. Otherwise it prints the proposal: brief, notes and decisions, then `approve? [y/N]`.
 5. The next line decides. `y` or `yes` (any case) approves. Anything else rejects. Lines
    typed while the agent was still wrapping are not the answer: it prints `ignored while
-   wrapping: <line>` for each, before `approve? [y/N]`. If stdin ends at the prompt, the
-   proposal stays `pending` and it prints `proposal 1 left pending`.
+   wrapping: <line>` for each, before `approve? [y/N]`. If stdin ends at the prompt, or
+   the user presses Ctrl-C there, the proposal stays `pending` and it prints `proposal 1
+   left pending`. After Ctrl-C it then prints the resume line and exits 0.
 
 Approve applies everything in one transaction:
 
