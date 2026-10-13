@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"regexp"
 	"time"
 )
 
@@ -12,6 +13,8 @@ const (
 	_defaultStage = "ideation"
 	_featureCols  = "id, project_id, slug, name, goal, stage, created_at"
 )
+
+var _slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 type Feature struct {
 	ID        int64     `json:"id"`
@@ -114,6 +117,9 @@ func (s *Store) DeleteFeature(ctx context.Context, id int64) error {
 func (f *Feature) validate() error {
 	if f.Slug == "" {
 		return fmt.Errorf("%w: feature slug is required", ErrInvalid)
+	}
+	if !_slugPattern.MatchString(f.Slug) {
+		return fmt.Errorf("%w: feature slug %q must match %s", ErrInvalid, f.Slug, _slugPattern)
 	}
 	if f.Name == "" {
 		return fmt.Errorf("%w: feature name is required", ErrInvalid)

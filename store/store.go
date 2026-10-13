@@ -7,6 +7,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -27,7 +28,7 @@ var (
 //go:embed migrations/*.sql
 var _migrations embed.FS
 
-const _dsnParams = "?_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
+const _dsnParams = "_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=busy_timeout(5000)"
 
 type Store struct {
 	db   *sql.DB
@@ -52,7 +53,13 @@ func Open(dir string) (*Store, error) {
 		}
 		return nil, fmt.Errorf("lock data folder: %w", err)
 	}
-	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "reef.db")+_dsnParams)
+	abs, err := filepath.Abs(dir)
+	if err != nil {
+		_ = lock.Close()
+		return nil, fmt.Errorf("resolve data dir: %w", err)
+	}
+	uri := (&url.URL{Scheme: "file", Path: filepath.Join(abs, "reef.db"), RawQuery: _dsnParams}).String()
+	db, err := sql.Open("sqlite", uri)
 	if err != nil {
 		_ = lock.Close()
 		return nil, fmt.Errorf("open db: %w", err)
@@ -108,11 +115,13 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	}
 	sort.Strings(names)
 
+	var newest int
 	for _, name := range names {
 		n, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
 		if err != nil {
 			return fmt.Errorf("migration %s: bad number: %w", name, err)
 		}
+		newest = n
 		if n <= version {
 			continue
 		}
@@ -123,6 +132,10 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		if err := apply(ctx, db, n, string(body)); err != nil {
 			return fmt.Errorf("apply %s: %w", name, err)
 		}
+	}
+	if version > newest {
+		return fmt.Errorf("database is newer than this reef (version %d, this reef knows %d)",
+			version, newest)
 	}
 	return nil
 }

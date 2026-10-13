@@ -90,6 +90,13 @@ func TestProjectStatus(t *testing.T) {
 			wantBody:   `{"error":"invalid: project name is required"}`,
 		},
 		{
+			name:       "unknown path",
+			method:     http.MethodGet,
+			path:       "/nope",
+			wantStatus: 404,
+			wantBody:   `{"error":"not found"}`,
+		},
+		{
 			name:       "wrong method",
 			method:     http.MethodPatch,
 			path:       "/projects",

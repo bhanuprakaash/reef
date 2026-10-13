@@ -1,6 +1,7 @@
 package store
 
 import (
+	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -69,6 +70,36 @@ func TestOpen(t *testing.T) {
 	}
 	if name != "reef" {
 		t.Errorf("project name after reopen = %q, want %q", name, "reef")
+	}
+}
+
+func TestOpenOddDir(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "a#b?c%20d")
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	if _, err := os.Stat(filepath.Join(dir, "reef.db")); err != nil {
+		t.Errorf("reef.db not in the data dir: %v", err)
+	}
+}
+
+func TestOpenNewerDatabase(t *testing.T) {
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec("PRAGMA user_version = 99"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+	_, err = Open(dir)
+	if err == nil || !strings.Contains(err.Error(), "database is newer than this reef") {
+		t.Errorf("Open = %v, want a newer-database error", err)
 	}
 }
 
