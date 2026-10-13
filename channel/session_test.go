@@ -89,6 +89,12 @@ func TestOpen_StartsNewSession(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if ag.started {
+		t.Error("started after open = true, want false until the first turn")
+	}
+	if err := s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if !ag.started || ag.resumed != "" {
 		t.Errorf("started = %v, resumed = %q, want a new session", ag.started, ag.resumed)
 	}
@@ -179,6 +185,9 @@ func TestOpen_ResumesNewestSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
+	if err := s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
 	if ag.started || ag.resumed != "sess-new" {
 		t.Errorf("started = %v, resumed = %q, want sess-new resumed", ag.started, ag.resumed)
 	}
@@ -235,13 +244,13 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if len(ags) != 1 {
-		t.Fatalf("agents after open = %d, want only the lead", len(ags))
+	if len(ags) != 0 {
+		t.Fatalf("agents after open = %d, want none", len(ags))
 	}
 
 	var tokenRole string
 	whoAmI := func(agent.Event) {
-		tok := ags[1].cfg.MCPServers["reef"].Env["REEF_TOKEN"]
+		tok := ags[0].cfg.MCPServers["reef"].Env["REEF_TOKEN"]
 		if got, err := st.Token(ctx, tok); err == nil {
 			tokenRole = got.Role
 		}
@@ -250,12 +259,12 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := "You design.\n\nYour skills:\nSketch first.\n\nYou are the architect on feature"
-	if len(ags) != 2 || !strings.HasPrefix(ags[1].prompts[0], want) {
-		t.Errorf("prompts = %q, want one starting with %q", ags[1].prompts, want)
+	if len(ags) != 1 || !strings.HasPrefix(ags[0].prompts[0], want) {
+		t.Errorf("prompts = %q, want one starting with %q", ags[0].prompts, want)
 	}
-	if !reflect.DeepEqual(ags[1].cfg.Tools, []string{"Read", "Grep"}) ||
-		ags[1].cfg.MCPServers["mcp1"].URL != "http://x" {
-		t.Errorf("config = %+v, want the role's tools and mcp server", ags[1].cfg)
+	if !reflect.DeepEqual(ags[0].cfg.Tools, []string{"Read", "Grep"}) ||
+		ags[0].cfg.MCPServers["mcp1"].URL != "http://x" {
+		t.Errorf("config = %+v, want the role's tools and mcp server", ags[0].cfg)
 	}
 	if tokenRole != "architect" {
 		t.Errorf("token role = %q, want architect", tokenRole)
@@ -264,15 +273,23 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 		thread[1].Author != "architect" {
 		t.Errorf("thread = %+v, %v, want the root and the architect's reply", thread, err)
 	}
-	if !ags[1].closed || ags[0].closed {
-		t.Errorf("closed = architect %v, lead %v, want architect only", ags[1].closed, ags[0].closed)
+	if !ags[0].closed {
+		t.Error("architect closed after its turn = false, want true")
 	}
 
 	if err := s.RunAs(ctx, "architect", "again", nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	if ags[2].resumed != "s1" || ags[2].prompts[0] != "again" {
-		t.Errorf("resumed = %q, prompts = %q, want s1 and [again]", ags[2].resumed, ags[2].prompts)
+	if ags[1].resumed != "s1" || ags[1].prompts[0] != "again" {
+		t.Errorf("resumed = %q, prompts = %q, want s1 and [again]", ags[1].resumed, ags[1].prompts)
+	}
+	for range 2 {
+		if err := s.Run(ctx, "lead turn", nil, discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if len(ags) != 3 || ags[2].closed || len(ags[2].prompts) != 2 {
+		t.Errorf("agents = %d, want the lead started once at its first turn and still open", len(ags))
 	}
 	if err := s.RunAs(ctx, "tester", "hi", nil, discard); !errors.Is(err, store.ErrInvalid) {
 		t.Errorf("RunAs unknown role error = %v, want ErrInvalid", err)
@@ -299,7 +316,11 @@ func TestOpen_Errors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := Open(ctx, st, t.TempDir(), "/bin/reef", tt.give)
+			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", tt.give)
+			if err == nil {
+				err = s.Start(ctx)
+				_ = s.Close()
+			}
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("Open error = %v, want %q", err, tt.want)
 			}
@@ -323,12 +344,18 @@ func TestOpen_Errors(t *testing.T) {
 		dir := t.TempDir()
 		ag := newRecordingAgent()
 		ag.startErr = errors.New("no claude")
-		_, err := open(ctx, st, dir, "/bin/reef", ch.ID, ag.factory)
-		if err == nil || err.Error() != "no claude" {
-			t.Errorf("open error = %v, want no claude", err)
+		s, err := open(ctx, st, dir, "/bin/reef", ch.ID, ag.factory)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if err := s.Run(ctx, "hi", nil, discard); err == nil || err.Error() != "no claude" {
+			t.Errorf("Run error = %v, want no claude", err)
+		}
+		if err := s.Close(); err != nil {
+			t.Fatal(err)
 		}
 		if InUse(dir, ch.ID) {
-			t.Error("InUse after failed open = true, want false")
+			t.Error("InUse after Close = true, want false")
 		}
 		tok := ag.cfg.MCPServers["reef"].Env["REEF_TOKEN"]
 		if _, err := st.Token(ctx, tok); !errors.Is(err, store.ErrNotFound) {
