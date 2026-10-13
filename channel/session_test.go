@@ -16,6 +16,7 @@ type recordingAgent struct {
 	channelID int64
 	propose   bool
 	startErr  error
+	closeErr  error
 
 	cfg     agent.Config
 	started bool
@@ -40,7 +41,7 @@ func (a *recordingAgent) Resume(_ context.Context, cfg agent.Config, sessionID s
 }
 
 func (a *recordingAgent) Events() <-chan agent.Event { return a.events }
-func (a *recordingAgent) Interrupt() error           { a.closed = true; return nil }
+func (a *recordingAgent) Interrupt() error           { a.closed = true; return a.closeErr }
 
 func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 	a.prompts = append(a.prompts, prompt)
@@ -234,8 +235,10 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 		t.Fatal(err)
 	}
 	var ags []*recordingAgent
+	var closeErr error
 	mk := func(string) (agent.Agent, error) {
 		ag := newRecordingAgent()
+		ag.closeErr = closeErr
 		ags = append(ags, ag)
 		return ag, nil
 	}
@@ -293,6 +296,11 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	}
 	if err := s.RunAs(ctx, "tester", "hi", nil, discard); !errors.Is(err, store.ErrInvalid) {
 		t.Errorf("RunAs unknown role error = %v, want ErrInvalid", err)
+	}
+
+	closeErr = errors.New("close failed")
+	if err := s.RunAs(ctx, "architect", "last", nil, discard); err != nil {
+		t.Errorf("RunAs error = %v, want nil: a failed close does not fail a good turn", err)
 	}
 }
 
