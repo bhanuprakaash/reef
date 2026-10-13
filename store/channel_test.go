@@ -85,3 +85,41 @@ func TestPauseAndContinueChannel(t *testing.T) {
 		t.Errorf("PauseChannel on unknown channel = %v, want ErrNotFound", err)
 	}
 }
+
+func TestCheckPromote_ChangesNothing(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "chat"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.CheckPromote(ctx, 1, Feature{Slug: "login", Name: "Login"}); err != nil {
+		t.Fatalf("CheckPromote = %v, want nil", err)
+	}
+	if got, err := s.Channel(ctx, 1); err != nil || got.FeatureID != nil {
+		t.Errorf("channel after check = %+v, %v, want no feature", got, err)
+	}
+	if fs, err := s.Features(ctx, nil); err != nil || len(fs) != 0 {
+		t.Errorf("features after check = %+v, %v, want none", fs, err)
+	}
+
+	if _, err := s.PromoteChannel(ctx, 1, Feature{Slug: "login", Name: "Login"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "second"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CheckPromote(ctx, 2, Feature{Slug: "login", Name: "Login"}); !errors.Is(err, ErrConflict) {
+		t.Errorf("CheckPromote with a taken slug = %v, want ErrConflict", err)
+	}
+	if err := s.CheckPromote(ctx, 1, Feature{ID: 1}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("CheckPromote on a channel with a feature = %v, want ErrInvalid", err)
+	}
+}
