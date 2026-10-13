@@ -9,12 +9,15 @@ import (
 )
 
 // wake is a turn to run: role answers text, and its reply goes in the thread of parent.
-// from is the author of the message that woke it.
+// from is the author of the message messageID that woke it; gated is set when the team
+// holds wakes from that author to role for approval.
 type wake struct {
-	from   string
-	role   string
-	text   string
-	parent *int64
+	from      string
+	messageID int64
+	gated     bool
+	role      string
+	text      string
+	parent    *int64
 }
 
 // wakes routes the messages of channel id stored after the message with id after, in
@@ -69,7 +72,10 @@ func (s *server) wakes(ctx context.Context, id, after int64) ([]wake, int64, err
 			}
 			text = b.String() + "\n" + text
 		}
-		ws = append(ws, wake{from: m.Author, role: role, text: text, parent: m.ParentID})
+		ws = append(ws, wake{
+			from: m.Author, messageID: m.ID, gated: team.Gated(m.Author, role),
+			role: role, text: text, parent: m.ParentID,
+		})
 	}
 	return ws, after, nil
 }

@@ -574,6 +574,109 @@ func TestSend_UserMessageResetsHops(t *testing.T) {
 	}
 }
 
+func TestApproval_GateHoldsWake(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	roles := []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
+	}
+	_, err := env.st.ApplyTeam(ctx, store.Team{Name: "core", Roles: roles,
+		Gates: []store.Gate{{From: "lead", To: "architect", On: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect plan it", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	const pending = `{"id":1,"channelId":2,"from":"lead","to":"architect","messageId":2,` +
+		`"text":"lead wrote: @architect plan it","status":`
+
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
+	if got := sub.next(t); !strings.HasPrefix(got, "approval "+pending+`"pending","createdAt":`) {
+		t.Errorf("frame = %s, want the pending approval", got)
+	}
+	sub.want(t, `turn {"role":"lead","status":"done"}`)
+	status, body := do(t, http.MethodGet, approvals, "")
+	if status != 200 || !strings.HasPrefix(body, "["+pending+`"pending","createdAt":`) {
+		t.Errorf("approvals = %d %s, want the pending approval", status, body)
+	}
+	if got := env.ranTexts(); !slices.Equal(got, []string{"go"}) {
+		t.Errorf("ran = %q, want only go: no architect turn before approval", got)
+	}
+
+	if status, _ := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`); status != 204 {
+		t.Fatalf("approve = %d, want 204", status)
+	}
+	var turn []string
+	approved := false
+	for range 4 {
+		f := sub.next(t)
+		if strings.HasPrefix(f, "approval "+pending+`"approved","createdAt":`) {
+			approved = true
+			continue
+		}
+		turn = append(turn, f)
+	}
+	wantTurn := []string{
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`,
+	}
+	if !approved || !slices.Equal(turn, wantTurn) {
+		t.Errorf("frames after approve = %q (approved %v), want the architect turn and the approved approval", turn, approved)
+	}
+	if got := env.ranTexts(); !slices.Equal(got, []string{"go", "lead wrote: @architect plan it"}) {
+		t.Errorf("ran = %q, want the architect to run the held wake", got)
+	}
+
+	env.sendTo(t, id, "again")
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
+	sub.next(t)
+	sub.want(t, `turn {"role":"lead","status":"done"}`)
+	if status, _ := do(t, http.MethodPost, approvals+"/2", `{"approve":false}`); status != 204 {
+		t.Fatalf("reject = %d, want 204", status)
+	}
+	if got := sub.next(t); !strings.Contains(got, `"id":2,`) || !strings.Contains(got, `"status":"rejected"`) {
+		t.Errorf("frame = %s, want the rejected approval 2", got)
+	}
+	if got := len(env.ranTexts()); got != 3 {
+		t.Errorf("turns run = %d, want 3: a rejected wake does not run", got)
+	}
+	if status, body := do(t, http.MethodGet, approvals, ""); status != 200 || body != "[]" {
+		t.Errorf("approvals = %d %s, want none pending", status, body)
+	}
+	status, body = do(t, http.MethodPost, approvals+"/2", `{"approve":true}`)
+	if status != 409 || body != `{"error":"approval 2 is rejected: conflict"}` {
+		t.Errorf("approve a rejected approval = %d %s, want 409", status, body)
+	}
+}
+
+func TestApproval_DefaultTeamHasNoGateToArchitect(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect plan it", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`)
+	if status, body := do(t, http.MethodGet, fmt.Sprintf("%s/channels/%d/approvals", env.url, id), ""); status != 200 || body != "[]" {
+		t.Errorf("approvals = %d %s, want none", status, body)
+	}
+}
+
 func TestSend_ToolCapPausesChannel(t *testing.T) {
 	env := newLiveEnv(t)
 	sub := subscribe(t, env.url)
