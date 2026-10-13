@@ -29,8 +29,9 @@ Interrupt() error                     // stop the turn and the process
   leaves the usage of the turn it stopped in `Events` (see Codex below), so read it until it
   closes to count it. A second call is a no-op. Tool processes in their own process group
   may outlive a forced kill. To go on, `Resume` on a new `Agent` with the id from the last `session` event.
-- `Config`: `Cwd`, `PermissionMode` (backend-specific, passed through), `MCPServers`
-  (stdio `Command`/`Args`/`Env` or HTTP `URL`), `Env` (`KEY=value`, added to `os.Environ`).
+- `Config`: `Cwd`, `PermissionMode` (backend-specific, passed through), `Tools` (tools allowed
+  without asking; Codex ignores it), `MCPServers` (stdio `Command`/`Args`/`Env` or HTTP `URL`),
+  `Env` (`KEY=value`, added to `os.Environ`).
 
 An `Event` is one JSON line (the `reef-agent` wire format). Empty fields are left out.
 
@@ -62,7 +63,7 @@ Spawn, one long-lived process per session (in `cfg.Cwd`):
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
-  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--mcp-config PATH --allowedTools LIST] [--resume ID]
+  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--mcp-config PATH] [--allowedTools LIST] [--resume ID]
 ```
 
 Input: one JSON line on stdin per `Send`. Keep stdin open for the whole session. Output is
@@ -244,8 +245,8 @@ MCP config injection
   the model may call `ToolSearch` first. The user's own MCP config still loads. Without
   approval, a default-mode session gets an `isError` result ("requested permissions ... but
   you haven't granted it yet"). The adapter passes `--allowedTools mcp__<name>__*,...`, one
-  comma-joined value (the flag is variadic), for the Config servers only. Other tools keep
-  the `PermissionMode` behaviour. Server names must match `^[A-Za-z0-9_-]+$`: a comma would
+  comma-joined value (the flag is variadic), for the Config servers and the `Tools` only. Other
+  tools keep the `PermissionMode` behaviour. `Tools` alone, with no servers, also sets the flag. Server names must match `^[A-Za-z0-9_-]+$`: a comma would
   inject extra patterns, and claude rewrites other characters in tool names (`reef.mem` never
   matches), so `Start` rejects them.
 - Codex: `thread/start` `config.mcp_servers`, same fields. With approval `never`, MCP calls
