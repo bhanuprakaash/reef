@@ -21,7 +21,8 @@ Interrupt() error                     // stop the turn and the process
   failure gives one `error`.
 - `Events` is unbuffered. The adapter blocks until you read.
 - `ctx` bounds only the call it is passed to. Claude ignores it. Codex uses it to abort the
-  handshake. `Interrupt` is the only way to stop a session.
+  handshake and returns an error wrapping `ctx.Err()`. `Interrupt` is the only way to stop a
+  session, and is safe to call while `Start` runs.
 - `Interrupt` kills the process. When it returns, the process is gone and `Events` is
   closed, also if `Start` failed or never ran. You need not drain `Events` first. A second
   call is a no-op. Tool processes in their own process group may outlive a forced kill. To
@@ -37,13 +38,15 @@ An `Event` is one JSON line (the `reef-agent` wire format). Empty fields are lef
 {"kind":"tool_call","toolId":"toolu_01Q...","toolName":"Bash","input":{"command":"echo hi"}}
 {"kind":"tool_result","toolId":"toolu_01Q...","output":"hi"}
 {"kind":"tool_result","toolId":"toolu_01Q...","output":"boom","isError":true}
+{"kind":"tool_call","toolId":"toolu_01B...","toolName":"Bash","parentToolId":"toolu_01R...","input":{"command":"echo sub-hello"}}
 {"kind":"usage","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0}}
 {"kind":"turn_end"}
 {"kind":"error","text":"No conversation found with session ID: ..."}
 ```
 
 `text` is a delta, not a whole message. A `tool_result` carries the `toolId` of its
-`tool_call`. Inside `usage`, no field is left out.
+`tool_call`. `parentToolId` is the `toolId` of the `Agent` call whose subagent made a tool
+call or result (Claude only). Inside `usage`, no field is left out.
 
 `reef-agent --backend claude|codex [--cwd DIR] [--resume ID] [--permission-mode MODE]
 [--mcp FILE] "prompt"` runs one backend and prints these lines. `FILE` is a JSON object of
@@ -57,7 +60,7 @@ Spawn, one long-lived process per session (in `cfg.Cwd`):
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
-  --include-partial-messages [--permission-mode MODE] [--mcp-config PATH] [--resume ID]
+  --include-partial-messages [--permission-mode MODE] [--mcp-config PATH --allowedTools LIST] [--resume ID]
 ```
 
 Input: one JSON line on stdin per `Send`. Keep stdin open for the whole session. Output is
@@ -82,6 +85,9 @@ Output: one JSON line per message, every line has `session_id`. Samples, trimmed
 {"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01Q...","type":"tool_result","content":"hello-from-tool","is_error":false}]},"session_id":"..."}
 // turn end, usage is per turn
 {"type":"result","subtype":"success","is_error":false,"result":"Output: ...","session_id":"...","usage":{"input_tokens":4,"cache_creation_input_tokens":10112,"cache_read_input_tokens":22898,"output_tokens":123}}
+// subagent tool call and result: parent_tool_use_id is the toolu_ id of the Agent call
+{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01B...","name":"Bash","input":{"command":"echo sub-hello"}}]},"parent_tool_use_id":"toolu_01R...","agent_id":"acbb09e2905459672","session_id":"..."}
+{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01B...","type":"tool_result","content":"sub-hello","is_error":false}]},"parent_tool_use_id":"toolu_01R...","agent_id":"acbb09e2905459672","session_id":"..."}
 // failed resume: process exits 1, no "result" text, message in errors[]
 {"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"0000...","usage":{...},"errors":["No conversation found with session ID: 0000..."]}
 ```
@@ -140,7 +146,7 @@ A JSON-RPC `error` response after the handshake (for example to `turn/start`) be
 // MCP tool
 {"method":"item/started","params":{"item":{"type":"mcpToolCall","id":"exec-fb96...","server":"reef-ping","tool":"reef_ping","status":"inProgress","arguments":{}}}}
 {"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"exec-fb96...","status":"completed","result":{"content":[{"type":"text","text":"pong"}]},"error":null}}}
-// usage: one per model call, several per turn. "last" is that call.
+// usage: one per model call, several per turn. "last" is that call. The adapter sums them.
 {"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"total":{...},"last":{"inputTokens":15026,"cachedInputTokens":14080,"outputTokens":118,"reasoningOutputTokens":45}}}}
 // turn end
 {"method":"turn/completed","params":{"threadId":"...","turn":{"id":"...","status":"completed","error":null}}}
@@ -160,9 +166,15 @@ and `agentMessage`.
 | `text` | `stream_event` with `content_block_delta` / `text_delta`, `delta.text` | `item/agentMessage/delta`, `params.delta` |
 | `tool_call` | `assistant` line, each `tool_use` block: `id`, `name`, `input` | `item/started` for `commandExecution` (name `commandExecution`, input `{"command":...}`), `fileChange` (name `fileChange`, input `changes`), `mcpToolCall` (name `mcp__<server>__<tool>`, input `arguments`) |
 | `tool_result` | `user` line, each `tool_result` block: `tool_use_id`, text of `content`, `is_error` | `item/completed` for the same three item types. Output: `aggregatedOutput` / status (`fileChange`) / MCP error message or joined `result.content` text. `isError` if status is not `completed` or `exitCode` is not 0. |
-| `usage` | `result` line `usage`: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). One per turn, just before `turn_end` or `error`. | `thread/tokenUsage/updated` `last`. `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. One per model call, several per turn. |
+| `usage` | `result` line `usage`: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). One per turn, just before `turn_end` or `error`. The process-exit `error` has no usage: claude reports usage only in its `result` line. | Sum of `thread/tokenUsage/updated` `last` over the turn. Per call: `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. One per turn, just before every error that ends it (`turn/completed` failed, a JSON-RPC error response, `codex exited` mid-turn) and before `turn_end`; zero if the turn made no model call. |
 | `turn_end` | `result` line with `is_error` false | `turn/completed` with any status but `failed` |
 | `error` | `result` with `is_error` true (`result` and `errors[]` joined). Also a non-zero exit when the last event was not already an `error`: `claude exited: ...: <stderr>`. | `turn/completed` with status `failed` (`turn.error.message`), or a JSON-RPC error response. Also a non-zero exit on its own: `codex exited: <err>: <stderr>`. |
+
+`parentToolId`: Claude sets it from `parent_tool_use_id` (null on top-level lines) on
+`tool_call` and `tool_result`. Subagent text is not streamed (no `stream_event` carries a
+parent), so `text` has none. Codex links subagents by thread id (`parentThreadId`,
+`collabAgentToolCall` items), not by tool id. The adapter does not map them, so it sets no
+`parentToolId`. This was not run live.
 
 Both: a tool id is the same in its call and result. Claude's tool input also streams as
 `input_json_delta` fragments; the adapter ignores them and uses the whole `tool_use` block.
@@ -194,10 +206,17 @@ MCP config injection
   secrets off argv. The file is `{"mcpServers":{"name":{"command":..,"args":..,"env":..}}}`. HTTP
   servers need `"type":"http"`; a bare `{"url":...}` is dropped silently. The adapter adds
   it when `URL` is set. Tool names are `mcp__<server>__<tool>`. MCP tools are deferred, so
-  the model may call `ToolSearch` first. The user's own MCP config still loads.
+  the model may call `ToolSearch` first. The user's own MCP config still loads. Without
+  approval, a default-mode session gets an `isError` result ("requested permissions ... but
+  you haven't granted it yet"). The adapter passes `--allowedTools mcp__<name>__*,...`, one
+  comma-joined value (the flag is variadic), for the Config servers only. Other tools keep
+  the `PermissionMode` behaviour. Server names must match `^[A-Za-z0-9_-]+$`: a comma would
+  inject extra patterns, and claude rewrites other characters in tool names (`reef.mem` never
+  matches), so `Start` rejects them.
 - Codex: `thread/start` `config.mcp_servers`, same fields. With approval `never`, MCP calls
   fail with "requires approval" unless the server has
-  `default_tools_approval_mode: "approve"`. The adapter sets it.
+  `default_tools_approval_mode: "approve"`. The adapter sets it. So Config MCP servers are
+  pre-approved on both backends.
 
 Session and thread ids
 - Claude `session_id` is on every line. `--resume ID` keeps the same id (no new id without
@@ -214,7 +233,11 @@ Interrupt and orphans
 - Both start the process in its own group and set `cmd.WaitDelay` to 2 s. `Interrupt` sends
   SIGTERM to the group, then SIGKILL after 1 s. SIGTERM first lets the backend stop the tools it started: those run in
   their own process groups, so SIGKILL alone would orphan them.
-- Claude tools started with `run_in_background` survive. Known leak.
+- Claude tools started with `run_in_background` did not survive Interrupt on claude 2.1.296,
+  in 4 runs: two during a turn and one between turns (one of them on the SIGKILL path), plus a
+  re-check during a turn that also took the SIGKILL path. Their stdin is `/dev/null` and their
+  stdout is a claude task file, not Reef's pipe. An idle claude takes about 1.45 s to exit on
+  SIGTERM, so the 1 s grace usually ends in SIGKILL.
 - Codex has `turn/interrupt`. It is unused: the contract is "process gone".
 - A `codex app-server --listen unix://` daemon may already run. The adapter spawns its own
   stdio server and ignores it.
@@ -225,7 +248,8 @@ Noise and errors
   `usage` then exactly one `error` (from the result). The exit error
   (`claude exited: ... <stderr>`) is added only when the last event was not already an
   `error`, so a crash between turns still reports.
-- Codex: a non-zero exit on its own gives one `codex exited: <err>: <stderr>` error.
+- Codex: a non-zero exit on its own gives one `codex exited: <err>: <stderr>` error. If it
+  dies mid-turn, the adapter emits the usage summed so far first.
 - Both keep the last 4 KiB of stderr, and emit no error after `Interrupt`.
 
 ## Writing a third adapter

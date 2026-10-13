@@ -12,6 +12,8 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -21,6 +23,10 @@ import (
 )
 
 var _ agent.Agent = (*Agent)(nil)
+
+// _serverName is the set claude keeps unchanged in a tool name; anything else would
+// break the comma-joined --allowedTools value or never match.
+var _serverName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 const (
 	// SIGTERM lets claude stop the tool processes it started; they are not in its group.
@@ -78,10 +84,11 @@ type (
 		Message struct {
 			Content []block `json:"content"`
 		} `json:"message"`
-		IsError bool     `json:"is_error"`
-		Result  string   `json:"result"`
-		Errors  []string `json:"errors"`
-		Usage   struct {
+		ParentToolUseID string   `json:"parent_tool_use_id"`
+		IsError         bool     `json:"is_error"`
+		Result          string   `json:"result"`
+		Errors          []string `json:"errors"`
+		Usage           struct {
 			InputTokens      int64 `json:"input_tokens"`
 			OutputTokens     int64 `json:"output_tokens"`
 			CacheReadTokens  int64 `json:"cache_read_input_tokens"`
@@ -187,6 +194,11 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 		args = append(args, "--permission-mode", cfg.PermissionMode)
 	}
 	if len(cfg.MCPServers) > 0 {
+		for name := range cfg.MCPServers {
+			if !_serverName.MatchString(name) {
+				return fmt.Errorf("mcp server name %q: only letters, digits, _ and - allowed", name)
+			}
+		}
 		path, werr := writeMCPConfig(cfg.MCPServers)
 		if werr != nil {
 			return werr
@@ -196,7 +208,7 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 				_ = os.Remove(path)
 			}
 		}()
-		args = append(args, "--mcp-config", path)
+		args = append(args, "--mcp-config", path, "--allowedTools", allowedTools(cfg.MCPServers))
 		a.mcpPath = path
 	}
 	args = append(args, extra...)
@@ -277,6 +289,17 @@ func (a *Agent) emit(ev agent.Event) bool {
 	}
 }
 
+// allowedTools pre-approves every tool of each server. The flag takes a variadic list, so
+// it must be one comma-joined value.
+func allowedTools(servers map[string]agent.MCPServer) string {
+	names := make([]string, 0, len(servers))
+	for name := range servers {
+		names = append(names, "mcp__"+name+"__*")
+	}
+	slices.Sort(names)
+	return strings.Join(names, ",")
+}
+
 func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
 	entries := make(map[string]mcpEntry, len(servers))
 	for name, s := range servers {
@@ -327,6 +350,7 @@ func parse(line []byte) []agent.Event {
 			if b.Type == "tool_use" {
 				evs = append(evs, agent.Event{
 					Kind: agent.KindToolCall, ToolID: b.ID, ToolName: b.Name, Input: b.Input,
+					ParentToolID: l.ParentToolUseID,
 				})
 			}
 		}
@@ -336,8 +360,11 @@ func parse(line []byte) []agent.Event {
 		for _, b := range l.Message.Content {
 			if b.Type == "tool_result" {
 				evs = append(evs, agent.Event{
-					Kind: agent.KindToolResult, ToolID: b.ToolUseID,
-					Output: resultText(b.Content), IsError: b.IsError,
+					Kind:         agent.KindToolResult,
+					ToolID:       b.ToolUseID,
+					Output:       resultText(b.Content),
+					IsError:      b.IsError,
+					ParentToolID: l.ParentToolUseID,
 				})
 			}
 		}
