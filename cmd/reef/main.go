@@ -18,6 +18,7 @@ import (
 
 	"github.com/bhanuprakaash/reef/server"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/web"
 )
 
 const (
@@ -129,7 +130,14 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 		logger.Printf("marked %d running turns failed: server restarted", len(failed))
 	}
 
-	srv := &http.Server{Handler: server.New(st), ReadHeaderTimeout: _readHeaderTimeout}
+	ui, err := web.Dist()
+	if err != nil {
+		return fmt.Errorf("open web ui: %w", err)
+	}
+	srv := &http.Server{
+		Handler:           web.Handler(ui, server.New(st)),
+		ReadHeaderTimeout: _readHeaderTimeout,
+	}
 	logger.Printf("listening on %s, data in %s", ln.Addr(), data)
 
 	served := make(chan error, 1)
