@@ -11,13 +11,22 @@ what it does and why.
 reef serve [--addr 127.0.0.1:7700] [--data DIR]
 ```
 
-- `--data` is the data folder. It holds `reef.db`, and is created if missing. The default
-  is `~/Library/Application Support/Reef`. Use `--data` for tests or a second instance.
-- `--addr` is where to listen. The default is `127.0.0.1:7700`. Nothing in the API checks
-  who calls it, so keep it on localhost.
+- `--data` is the data folder. It holds `reef.db` and `reef.lock`, and is created if
+  missing. The default is `~/Library/Application Support/Reef`. Use `--data` for tests or a
+  second instance.
+- One server owns a data folder. `reef serve` locks `reef.lock` for as long as it runs. A
+  second `reef serve` on the same `--data` exits with `data folder ... is in use by another
+  reef`, before it touches the data, whatever its `--addr`. A second instance needs its own
+  `--data` and its own `--addr`.
+- `--addr` is where to listen. The default is `127.0.0.1:7700`. The API has no login, so
+  keep it on localhost. It does refuse a request whose `Host` is not `127.0.0.1`,
+  `localhost` or `::1` (403), and a `POST`, `PUT` or `PATCH` whose `Content-Type` is not
+  `application/json` (415). This stops a web page on another origin from writing to it,
+  including through DNS rebinding.
 - The file opens in WAL mode with foreign keys on. Migrations in
   [`store/migrations`](../store/migrations) run at start, in order, each once. They only
-  go forward.
+  go forward. A file whose version is newer than the newest migration (made by a newer
+  reef) is refused: `database is newer than this reef`.
 - SIGINT or SIGTERM stops the server, with one second for requests in flight.
 
 ## Errors
@@ -26,15 +35,17 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 
 | Status | When |
 | --- | --- |
-| 400 | Bad JSON, a bad or missing field, a non-number id, an unknown id inside a body |
-| 404 | The id in the path (or a required query filter) matches nothing |
+| 400 | Bad JSON or data after the JSON body, a bad or missing field, a non-number id, an unknown parent id inside a body (`unknown project 9`) |
+| 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
+| 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
 | 409 | A unique rule broke: a feature slug is taken in its project |
+| 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
 
-A path no route knows gets the mux's plain text `404 page not found`, not JSON. Unknown
-JSON fields in a request are ignored, and so are the server-set fields (`id`,
-`createdAt`, `updatedAt`).
+An id in the path that matches nothing is 404; an id in the body that matches nothing is
+400. Unknown JSON fields in a request are ignored, and so are the server-set fields
+(`id`, `createdAt`, `updatedAt`).
 
 ## Entities
 
@@ -57,7 +68,7 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 | --- | --- | --- |
 | `id` | number | |
 | `projectId` | number | required on create; never changes. Deleting the project deletes the feature |
-| `slug` | string | required; unique within the project (409 if taken) |
+| `slug` | string | required; lowercase letters, digits and `-`, not starting with `-` (`^[a-z0-9][a-z0-9-]*$`), because it becomes a branch and folder name; unique within the project (409 if taken) |
 | `name` | string | required |
 | `goal` | string | default `""` |
 | `stage` | string | default `ideation`; not checked against a list |
@@ -92,7 +103,7 @@ One row per feature and role.
 | --- | --- | --- |
 | `id` | number | |
 | `projectId` | number | required on create; never changes |
-| `featureId` | number? | `null` is a quick session. Must be a feature of the same project. Deleting the feature deletes the channel |
+| `featureId` | number? | set on create and never changes. `null` is a quick session. Must be a feature of the same project. Deleting the feature deletes the channel |
 | `name` | string | required |
 | `createdAt` | string | |
 
@@ -176,24 +187,25 @@ a channel takes its messages and turns.
 | `GET /features/{id}/brief/versions` | | 200 oldest first | 404 |
 | `GET /features/{id}/notes/{role}` | | 200 | 404 no feature, or no notes for the role |
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
+| `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
 | `POST /channels` | `projectId`, `featureId`, `name` | 201 | 400 unknown project or feature, feature of another project |
 | `GET /channels/{id}` | | 200 | 404 |
-| `PUT /channels/{id}` | `name`, `featureId` (`null` makes a quick session) | 200 | 400, 404 |
+| `PUT /channels/{id}` | `name` only; project and feature stay as created | 200 | 400, 404 |
 | `DELETE /channels/{id}` | | 204 | 404 |
 | `GET /messages` | `?channel=ID` (required), `?after=ID` (only newer ids) | 200 | 400 no channel, 404 unknown channel |
-| `POST /messages` | `channelId`, `author`, `body` | 201 | 400, 404 unknown channel |
+| `POST /messages` | `channelId`, `author`, `body` | 201 | 400 unknown channel or missing field |
 | `GET /tasks` | `?project=ID`, `?feature=ID`, `?status=todo\|doing\|done` | 200 | 400 bad id or status |
 | `POST /tasks` | `projectId`, `featureId`, `title`, `body`, `status` | 201 | 400 |
 | `GET /tasks/{id}` | | 200 | 404 |
 | `PUT /tasks/{id}` | `title`, `body`, `status`, `featureId` | 200 | 400, 404 |
 | `DELETE /tasks/{id}` | | 204 | 404 |
 | `GET /turns` | `?channel=ID`, `?status=running\|done\|failed` | 200 | 400 bad id or status |
-| `POST /turns` | `channelId`, `role`, `backend`, `sessionId` | 201 | 400 bad backend, 404 unknown channel |
+| `POST /turns` | `channelId`, `role`, `backend`, `sessionId` | 201 | 400 bad backend or unknown channel |
 | `GET /turns/{id}` | | 200 | 404 |
 | `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId` | 200 | 400 bad status or already ended, 404 |
 | `GET /decisions` | `?feature=ID` (required) | 200 | 400 no feature, 404 unknown feature |
-| `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field or foreign message, 404 unknown feature |
+| `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field, unknown feature, or a message of another feature |
 | `GET /decisions/{id}` | | 200 | 404 |
 
 Create and update take the whole object from the table above. A field you leave out
@@ -215,8 +227,10 @@ The API has no way to change or remove these rows.
 ## Restart recovery
 
 A turn is `running` only while a server owns it. If the server stops, the agent process
-dies with it, so a `running` turn in the file can no longer finish. At start, before it
-listens, `reef serve` fails them all:
+dies with it, so a `running` turn in the file can no longer finish. At start, once it
+holds the data folder and has bound `--addr` but before it serves requests, `reef serve`
+fails them all. A second `reef serve` never gets this far on a folder in use, so it cannot
+fail the turns of the server that owns it:
 
 - Each `running` turn becomes `failed`, with `error` `server restarted` and `endedAt` set.
 - Each affected channel gets one message from author `reef`, naming the turns. For turns 2
@@ -240,37 +254,37 @@ reef serve --data /tmp/reef-demo
 ```
 
 ```
-$ curl -s -X POST localhost:7700/projects -d '{"name":"shop","path":"/tmp/shop"}'
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/projects -d '{"name":"shop","path":"/tmp/shop"}'
 {"id":1,"name":"shop","path":"/tmp/shop","createdAt":"2026-10-13T09:00:00.123456Z"}
 
-$ curl -s -X POST localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Login"}'
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Login"}'
 {"id":1,"projectId":1,"slug":"login","name":"Login","goal":"","stage":"ideation","createdAt":"2026-10-13T09:00:01.123456Z"}
 
-$ curl -s -X POST localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Again"}'
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Again"}'
 {"error":"feature slug \"login\" is taken in its project: conflict"}
 
-$ curl -s -X PUT localhost:7700/features/1/brief -d '{"body":"Email and password login","author":"user"}'
+$ curl -s -X PUT -H 'Content-Type: application/json' localhost:7700/features/1/brief -d '{"body":"Email and password login","author":"user"}'
 {"id":1,"featureId":1,"body":"Email and password login","author":"user","createdAt":"2026-10-13T09:00:02.123456Z"}
 
-$ curl -s -X POST localhost:7700/channels -d '{"projectId":1,"featureId":1,"name":"build"}'
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/channels -d '{"projectId":1,"featureId":1,"name":"build"}'
 {"id":1,"projectId":1,"featureId":1,"name":"build","createdAt":"2026-10-13T09:00:03.123456Z"}
 
-$ curl -s -X POST localhost:7700/messages -d '{"channelId":1,"author":"user","body":"Start with the form"}'
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/messages -d '{"channelId":1,"author":"user","body":"Start with the form"}'
 {"id":1,"channelId":1,"author":"user","body":"Start with the form","createdAt":"2026-10-13T09:00:04.123456Z"}
 
-$ curl -s -X POST localhost:7700/decisions -d '{"featureId":1,"messageId":1,"body":"Use sessions, not JWT","why":"One server, no token refresh","author":"user"}'
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/decisions -d '{"featureId":1,"messageId":1,"body":"Use sessions, not JWT","why":"One server, no token refresh","author":"user"}'
 {"id":1,"featureId":1,"messageId":1,"body":"Use sessions, not JWT","why":"One server, no token refresh","author":"user","createdAt":"2026-10-13T09:00:05.123456Z"}
 
-$ curl -s -X POST localhost:7700/tasks -d '{"projectId":1,"featureId":1,"title":"Build the login form"}'
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/tasks -d '{"projectId":1,"featureId":1,"title":"Build the login form"}'
 {"id":1,"projectId":1,"featureId":1,"title":"Build the login form","body":"","status":"todo","createdAt":"2026-10-13T09:00:06.123456Z","updatedAt":"2026-10-13T09:00:06.123456Z"}
 
-$ curl -s -X POST localhost:7700/turns -d '{"channelId":1,"role":"developer","backend":"claude"}'
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/turns -d '{"channelId":1,"role":"developer","backend":"claude"}'
 {"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":null}
 
-$ curl -s -X PATCH localhost:7700/turns/1 -d '{"status":"done","sessionId":"3c1296cc","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0}}'
+$ curl -s -X PATCH -H 'Content-Type: application/json' localhost:7700/turns/1 -d '{"status":"done","sessionId":"3c1296cc","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0}}'
 {"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"3c1296cc","status":"done","error":"","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":"2026-10-13T09:00:08.123456Z"}
 
-$ curl -s -X PATCH localhost:7700/turns/1 -d '{"status":"failed"}'
+$ curl -s -X PATCH -H 'Content-Type: application/json' localhost:7700/turns/1 -d '{"status":"failed"}'
 {"error":"invalid: turn 1 already ended"}
 
 $ curl -s "localhost:7700/messages?channel=1&after=1"
