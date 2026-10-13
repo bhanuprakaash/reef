@@ -13,7 +13,7 @@ import (
 func reef(t *testing.T, dir string, args ...string) (string, error) {
 	t.Helper()
 	var out bytes.Buffer
-	err := run(context.Background(), append(args, "--data", dir), &out, &syncBuffer{})
+	err := run(context.Background(), append(args, "--data", dir), strings.NewReader(""), &out, &syncBuffer{})
 	return out.String(), err
 }
 

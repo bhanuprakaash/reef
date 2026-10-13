@@ -32,6 +32,7 @@ commands:
   task list [<feature>] [--status S]
   context <feature> --role R
   token <feature> --role R
+  chat <feature> --role R --backend claude|codex | chat --channel ID
   mcp`
 	_serveUsage        = "usage: reef serve [--addr 127.0.0.1:7700] [--data DIR]"
 	_defaultAddr       = "127.0.0.1:7700"
@@ -41,7 +42,7 @@ commands:
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	err := run(ctx, os.Args[1:], os.Stdout, os.Stderr)
+	err := run(ctx, os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
 	stop()
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "reef:", err)
@@ -49,7 +50,7 @@ func main() {
 	}
 }
 
-func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
+func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer) error {
 	if len(args) == 0 {
 		return errors.New(_usage)
 	}
@@ -70,6 +71,8 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return contextCmd(ctx, args[1:], stdout)
 	case "token":
 		return tokenCmd(ctx, args[1:], stdout)
+	case "chat":
+		return chatCmd(ctx, args[1:], stdin, stdout, stderr)
 	case "mcp":
 		return mcpCmd(ctx, args[1:])
 	}
@@ -113,7 +116,9 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	}
 
 	logger := log.New(logOut, "", log.LstdFlags)
-	failed, err := st.FailRunningTurns(ctx)
+	failed, err := st.FailRunningTurns(ctx, func(channelID int64) bool {
+		return chatOpen(data, channelID)
+	})
 	if err != nil {
 		return fmt.Errorf("recover turns: %w", err)
 	}
