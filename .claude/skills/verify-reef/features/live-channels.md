@@ -9,7 +9,7 @@ live, Wrap-up and promotion, Caps).
 ## Sub-features
 
 - `live-send` `POST /channels/{id}/send {"text":...}` answers 202 at once and the user message is stored before the answer; a send while a turn runs is 409; an empty text is 400.
-- `live-events` `GET /channels/{id}/events` starts with `turn {"status":"idle"}` between turns, or the running turn's frames so far; then `turn` running, `agent` events, `turn` done or failed, and `pause` frames.
+- `live-events` `GET /channels/{id}/events` starts with `turn {"status":"idle"}` between turns, or the running chain's frames so far; then `turn` running (with the running teammate's `role`, here `lead`), `agent` events, `turn` done or failed, and `pause` frames. Wakes between teammates, approvals and the hop cap are in `teams.md`.
 - `live-stop` `POST /channels/{id}/stop` during a turn stores it `failed`, `interrupted`, stops the agent and frees the chat lock; the next send resumes the session.
 - `live-text-commands` the text `/wrap` runs a wrap-up turn; `/promote` sent as text is a plain message.
 - `live-wrap` `POST /channels/{id}/wrap` on a feature channel ends with a pending proposal (`GET /channels/{id}/proposal`); on a quick session it is 400 before any agent starts.
