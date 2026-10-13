@@ -21,7 +21,8 @@ Interrupt() error                     // stop the turn and the process
   failure gives one `error`.
 - `Events` is unbuffered. The adapter blocks until you read.
 - `ctx` bounds only the call it is passed to. Claude ignores it. Codex uses it to abort the
-  handshake. `Interrupt` is the only way to stop a session.
+  handshake and returns an error wrapping `ctx.Err()`. `Interrupt` is the only way to stop a
+  session, and is safe to call while `Start` runs.
 - `Interrupt` kills the process. When it returns, the process is gone and `Events` is
   closed, also if `Start` failed or never ran. You need not drain `Events` first. A second
   call is a no-op. Tool processes in their own process group may outlive a forced kill. To

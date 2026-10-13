@@ -3,6 +3,8 @@ package codex
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"math/rand/v2"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -232,6 +234,83 @@ func TestAgent_StartFails(t *testing.T) {
 	}
 	if err := a.Interrupt(); err != nil {
 		t.Errorf("Interrupt = %v, want nil", err)
+	}
+}
+
+func TestAgent_InterruptDuringStart(t *testing.T) {
+	fake(t, "hang")
+	for i := range 200 {
+		a := New()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			time.Sleep(time.Duration(i%5) * time.Millisecond)
+			_ = a.Interrupt()
+		}()
+		_ = a.Start(context.Background(), agent.Config{Cwd: t.TempDir()})
+		<-done
+		if ev, ok := recv(t, a); ok {
+			t.Fatalf("event after Interrupt: %+v, want Events closed", ev)
+		}
+	}
+}
+
+func TestAgent_StartCancelled(t *testing.T) {
+	a := fake(t, "slowstart")
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	err := a.Start(ctx, agent.Config{Cwd: t.TempDir()})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Start = %v, want context.Canceled", err)
+	}
+	if ev, ok := recv(t, a); ok {
+		t.Errorf("event after cancelled Start: %+v, want Events closed", ev)
+	}
+}
+
+func TestAgent_StartCancelledIgnoringSIGTERM(t *testing.T) {
+	a := fake(t, "deafstart")
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(100*time.Millisecond, cancel)
+	begin := time.Now()
+	err := a.Start(ctx, agent.Config{Cwd: t.TempDir()})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Start = %v, want context.Canceled", err)
+	}
+	if d := time.Since(begin); d > 2*time.Second {
+		t.Errorf("Start took %v after cancel, want under 2s", d)
+	}
+}
+
+func TestAgent_StartCancelledNearReady(t *testing.T) {
+	fake(t, "hang")
+	for range 200 {
+		a := New()
+		ctx, cancel := context.WithCancel(context.Background())
+		time.AfterFunc(time.Duration(rand.IntN(8000))*time.Microsecond, cancel)
+		err := a.Start(ctx, agent.Config{Cwd: t.TempDir()})
+		if err != nil {
+			if !errors.Is(err, context.Canceled) {
+				t.Fatalf("Start = %v, want nil or context.Canceled", err)
+			}
+			continue
+		}
+		deadline := time.After(20 * time.Millisecond)
+	drain:
+		for {
+			select {
+			case ev, ok := <-a.Events():
+				if !ok {
+					break drain
+				}
+				if ev.Kind == agent.KindError {
+					t.Fatalf("Start = nil, then error event %q", ev.Text)
+				}
+			case <-deadline:
+				break drain
+			}
+		}
+		_ = a.Interrupt()
 	}
 }
 

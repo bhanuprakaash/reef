@@ -20,6 +20,7 @@ type fake struct {
 	sent        []string
 	resumed     string
 	interrupted bool
+	startErr    error
 	events      chan agent.Event
 	done        chan struct{}
 	wg          sync.WaitGroup
@@ -30,7 +31,7 @@ func newFake(turns ...[]agent.Event) *fake {
 	return &fake{turns: turns, events: make(chan agent.Event), done: make(chan struct{})}
 }
 
-func (f *fake) Start(context.Context, agent.Config) error { return nil }
+func (f *fake) Start(context.Context, agent.Config) error { return f.startErr }
 
 func (f *fake) Resume(_ context.Context, _ agent.Config, id string) error {
 	f.resumed = id
@@ -182,6 +183,23 @@ func TestRun_CtrlC(t *testing.T) {
 	}
 	if !f.interrupted {
 		t.Error("agent was not interrupted")
+	}
+}
+
+func TestRun_CtrlCDuringStart(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	f := newFake()
+	f.startErr = context.Canceled
+	var out bytes.Buffer
+	err := run(ctx, []string{"--backend", "codex", "--cwd", "/tmp", "go"},
+		strings.NewReader(""), &out, func(string) (agent.Agent, error) { return f, nil })
+	if !errors.Is(err, errInterrupted) {
+		t.Errorf("err = %v, want errInterrupted", err)
+	}
+	want := `{"kind":"usage","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0}}` + "\n"
+	if out.String() != want {
+		t.Errorf("stdout = %q, want %q", out.String(), want)
 	}
 }
 
