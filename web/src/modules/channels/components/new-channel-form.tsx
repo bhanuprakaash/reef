@@ -10,7 +10,7 @@ type Props = { projectId: number; featureId: number | null };
 export function NewChannelForm({ projectId, featureId }: Props) {
   const label = featureId === null ? 'New quick session' : 'New channel';
   const [open, setOpen] = useState(false);
-  const [backend, setBackend] = useState<string>('claude');
+  const [backend, setBackend] = useState('');
   const [permissionMode, setPermissionMode] = useState('');
   const [team, setTeam] = useState('solo');
   const [name, setName] = useState('');
@@ -36,7 +36,7 @@ export function NewChannelForm({ projectId, featureId }: Props) {
           {
             projectId,
             featureId,
-            name: name.trim() || `${backend} ${time}`,
+            name: name.trim() || `${backend || team} ${time}`,
             team,
             backend,
             permissionMode,
@@ -62,6 +62,7 @@ export function NewChannelForm({ projectId, featureId }: Props) {
             setPermissionMode('');
           }}
         >
+          <option value="">Team default</option>
           {BACKENDS.map((b) => (
             <option key={b} value={b}>
               {b}
@@ -69,22 +70,24 @@ export function NewChannelForm({ projectId, featureId }: Props) {
           ))}
         </select>
       </label>
-      <label className="block space-y-1">
-        <span className={mutedClass}>Permission mode</span>
-        <select
-          className={`${inputClass} w-full`}
-          aria-label="Permission mode"
-          value={permissionMode}
-          onChange={(e) => setPermissionMode(e.target.value)}
-        >
-          <option value="">Backend default</option>
-          {PERMISSION_MODES[backend].map((m) => (
-            <option key={m} value={m}>
-              {m}
-            </option>
-          ))}
-        </select>
-      </label>
+      {backend && (
+        <label className="block space-y-1">
+          <span className={mutedClass}>Permission mode</span>
+          <select
+            className={`${inputClass} w-full`}
+            aria-label="Permission mode"
+            value={permissionMode}
+            onChange={(e) => setPermissionMode(e.target.value)}
+          >
+            <option value="">Backend default</option>
+            {PERMISSION_MODES[backend].map((m) => (
+              <option key={m} value={m}>
+                {m}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
       <label className="block space-y-1">
         <span className={mutedClass}>Team</span>
         <select

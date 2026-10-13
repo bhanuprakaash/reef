@@ -16,7 +16,7 @@ export function ApprovalRows({ channelId }: { channelId: number }) {
             key={a.id}
             className="flex items-center justify-between gap-3 rounded border border-neutral-300 p-3 text-sm dark:border-neutral-700"
           >
-            <p>
+            <p className="whitespace-pre-wrap">
               <span className="font-medium">
                 {a.from} to {a.to}:
               </span>{' '}
