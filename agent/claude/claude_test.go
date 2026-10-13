@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -186,6 +187,39 @@ func TestFailedResume(t *testing.T) {
 	}
 	if got := collect(t, drain(a)); !reflect.DeepEqual(got, want) {
 		t.Errorf("events = %+v, want %+v", got, want)
+	}
+}
+
+func TestMCPServersPreApproved(t *testing.T) {
+	a := fakeClaude(t, "argv")
+	cfg := agent.Config{
+		Cwd:        t.TempDir(),
+		MCPServers: map[string]agent.MCPServer{"reef": {Command: "r"}, "ping": {URL: "http://x"}},
+	}
+	if err := a.Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	got := collect(t, drain(a))
+	if len(got) != 1 || !strings.Contains(got[0].Output, " --allowedTools mcp__ping__*,mcp__reef__*") {
+		t.Errorf("events = %+v", got)
+	}
+}
+
+func TestMCPServerNameRejected(t *testing.T) {
+	a := fakeClaude(t, "argv")
+	cfg := agent.Config{
+		Cwd:        t.TempDir(),
+		MCPServers: map[string]agent.MCPServer{"x,Bash,y": {Command: "r"}},
+	}
+	err := a.Start(context.Background(), cfg)
+	if err == nil || !strings.Contains(err.Error(), `"x,Bash,y"`) {
+		t.Fatalf("Start error = %v", err)
+	}
+	if err := a.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := <-a.Events(); ok {
+		t.Error("Events is open")
 	}
 }
 
