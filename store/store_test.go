@@ -1,6 +1,7 @@
 package store
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -23,7 +24,8 @@ func TestOpen(t *testing.T) {
 		t.Errorf("user_version = %d, want 1", version)
 	}
 
-	rows, err := s.db.Query("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")
+	rows, err := s.db.Query("SELECT name FROM sqlite_master WHERE type = 'table' " +
+		"AND name NOT LIKE 'sqlite_%' ORDER BY name")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -153,5 +155,28 @@ func TestForeignKeys(t *testing.T) {
 	}
 	if n != 0 {
 		t.Errorf("features after project delete = %d, want 0", n)
+	}
+}
+
+func TestIDsNotReused(t *testing.T) {
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	ctx := context.Background()
+	p, err := s.CreateProject(ctx, Project{Name: "a", Path: "/a"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteProject(ctx, p.ID); err != nil {
+		t.Fatal(err)
+	}
+	p, err = s.CreateProject(ctx, Project{Name: "b", Path: "/b"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ID != 2 {
+		t.Errorf("id after deleting project 1 = %d, want 2", p.ID)
 	}
 }

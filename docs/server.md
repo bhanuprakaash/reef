@@ -49,7 +49,7 @@ An id in the path that matches nothing is 404; an id in the body that matches no
 
 ## Entities
 
-Ids are integers. Instants (`createdAt`, `startedAt`, ...) are RFC 3339 UTC strings.
+Ids are integers and are never reused after a delete. Instants (`createdAt`, `startedAt`, ...) are RFC 3339 UTC strings.
 A type with `?` may be `null`. The headings below are the SQL tables in
 [`001_init.sql`](../store/migrations/001_init.sql).
 
