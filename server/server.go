@@ -72,6 +72,7 @@ func newHandler(
 	s.projectRoutes(mux)
 	s.featureRoutes(mux)
 	s.channelRoutes(mux)
+	s.teamRoutes(mux)
 	s.liveRoutes(mux)
 	s.proposalRoutes(mux)
 	s.taskRoutes(mux)
