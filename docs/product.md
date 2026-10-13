@@ -181,4 +181,4 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 
 ## Open questions
 
-- [ ] (spike, week 1) Exact event formats from Claude Code and Codex headless modes, mapped to the Agent interface.
+- [x] (spike, week 1) Exact event formats from Claude Code and Codex headless modes, mapped to the Agent interface. Answered in [agents.md](agents.md).
