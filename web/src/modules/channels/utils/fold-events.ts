@@ -10,7 +10,13 @@ export type AgentEvent = {
 };
 
 export type StreamEvent =
-  | { type: 'turn'; status: 'idle' | 'running' | 'done' | 'failed'; error?: string; note?: string }
+  | {
+      type: 'turn';
+      role?: string;
+      status: 'idle' | 'running' | 'done' | 'failed';
+      error?: string;
+      note?: string;
+    }
   | { type: 'agent'; event: AgentEvent };
 
 export type Tool = {
@@ -26,6 +32,7 @@ export type Tool = {
 export type Item = { type: 'text'; text: string } | { type: 'tool'; tool: Tool };
 
 export type LiveTurn = {
+  role?: string;
   status: 'idle' | 'running' | 'done' | 'failed';
   error?: string;
   note?: string;
@@ -102,6 +109,6 @@ function foldAgent(turn: LiveTurn, ev: AgentEvent): LiveTurn {
 export function foldEvent(turn: LiveTurn, ev: StreamEvent): LiveTurn {
   if (ev.type === 'agent') return foldAgent(turn, ev.event);
   if (ev.status === 'idle') return emptyTurn;
-  if (ev.status === 'running') return { status: 'running', items: [] };
+  if (ev.status === 'running') return { status: 'running', role: ev.role, items: [] };
   return { ...turn, status: ev.status, error: ev.error, note: ev.note };
 }

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useCreateChannel } from '@/modules/channels/api/create-channel';
+import { useTeams } from '@/modules/channels/api/get-teams';
 import { BACKENDS, PERMISSION_MODES } from '@/modules/channels/utils/backends';
 import { buttonClass, errorClass, inputClass, mutedClass } from '@/utils/classes';
 
@@ -11,8 +12,10 @@ export function NewChannelForm({ projectId, featureId }: Props) {
   const [open, setOpen] = useState(false);
   const [backend, setBackend] = useState<string>('claude');
   const [permissionMode, setPermissionMode] = useState('');
+  const [team, setTeam] = useState('solo');
   const [name, setName] = useState('');
   const create = useCreateChannel();
+  const teams = useTeams();
   const navigate = useNavigate();
 
   if (!open) {
@@ -34,6 +37,7 @@ export function NewChannelForm({ projectId, featureId }: Props) {
             projectId,
             featureId,
             name: name.trim() || `${backend} ${time}`,
+            team,
             backend,
             permissionMode,
           },
@@ -77,6 +81,21 @@ export function NewChannelForm({ projectId, featureId }: Props) {
           {PERMISSION_MODES[backend].map((m) => (
             <option key={m} value={m}>
               {m}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="block space-y-1">
+        <span className={mutedClass}>Team</span>
+        <select
+          className={`${inputClass} w-full`}
+          aria-label="Team"
+          value={team}
+          onChange={(e) => setTeam(e.target.value)}
+        >
+          {(teams.data ?? [{ name: 'solo' }]).map((t) => (
+            <option key={t.name} value={t.name}>
+              {t.name}
             </option>
           ))}
         </select>
