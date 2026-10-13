@@ -102,6 +102,13 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if data, err = filepath.Abs(data); err != nil {
+		return fmt.Errorf("resolve data dir: %w", err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("find reef path: %w", err)
+	}
 
 	lock, err := lockDataDir(data)
 	if err != nil {
@@ -135,8 +142,10 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("open web ui: %w", err)
 	}
+	api := server.New(st, data, exe)
+	defer api.Close()
 	srv := &http.Server{
-		Handler:           web.Handler(ui, server.New(st)),
+		Handler:           web.Handler(ui, api),
 		ReadHeaderTimeout: _readHeaderTimeout,
 	}
 	logger.Printf("listening on %s, data in %s", ln.Addr(), data)
@@ -148,6 +157,7 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 		return err
 	case <-ctx.Done():
 	}
+	api.Close()
 	shutCtx, cancel := context.WithTimeout(context.Background(), _shutdownTimeout)
 	defer cancel()
 	shutErr := srv.Shutdown(shutCtx)

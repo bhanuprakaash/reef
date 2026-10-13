@@ -3,6 +3,7 @@ package server
 import (
 	"fmt"
 	"net/http"
+	"slices"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -49,12 +50,38 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if in.Role == "" {
+		in.Role = "lead"
+	}
+	if err := validateAgent(in); err != nil {
+		writeError(w, err)
+		return
+	}
 	c, err := s.st.CreateChannel(r.Context(), in)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusCreated, c)
+}
+
+// _permissionModes are the values each backend takes: claude's permission modes
+// and codex's sandbox modes.
+var _permissionModes = map[string][]string{
+	"claude": {"default", "acceptEdits"},
+	"codex":  {"read-only", "workspace-write"},
+}
+
+func validateAgent(c store.Channel) error {
+	modes, ok := _permissionModes[c.Backend]
+	if !ok {
+		return fmt.Errorf("%w: backend must be claude or codex", store.ErrInvalid)
+	}
+	if c.PermissionMode != "" && !slices.Contains(modes, c.PermissionMode) {
+		return fmt.Errorf("%w: permissionMode for %s must be empty, %s or %s",
+			store.ErrInvalid, c.Backend, modes[0], modes[1])
+	}
+	return nil
 }
 
 func (s *server) getChannel(w http.ResponseWriter, r *http.Request) {

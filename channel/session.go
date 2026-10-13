@@ -188,7 +188,7 @@ func newAgent(backend string) (agent.Agent, error) {
 	case "codex":
 		return codex.New(), nil
 	default:
-		return nil, fmt.Errorf("unknown backend %q", backend)
+		return nil, fmt.Errorf("%w: unknown backend %q", store.ErrInvalid, backend)
 	}
 }
 
@@ -205,7 +205,7 @@ func lockChat(dataDir string, channelID int64) (*os.File, error) {
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = lock.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, fmt.Errorf("channel %d is open in another reef chat", channelID)
+			return nil, fmt.Errorf("channel %d is open elsewhere: %w", channelID, store.ErrConflict)
 		}
 		return nil, fmt.Errorf("lock %s: %w", path, err)
 	}

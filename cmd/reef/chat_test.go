@@ -384,7 +384,7 @@ func TestRun_ChatBackendTypoLeavesNoChannel(t *testing.T) {
 	mustReef(t, dir, "feature", "add", "login", "Login")
 
 	_, err := reef(t, dir, "chat", "login", "--role", "developer", "--backend", "nope")
-	if err == nil || err.Error() != `unknown backend "nope"` {
+	if err == nil || err.Error() != `invalid: unknown backend "nope"` {
 		t.Errorf("chat error = %v, want unknown backend", err)
 	}
 	st, err := store.Open(dir)

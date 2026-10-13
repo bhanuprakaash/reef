@@ -41,11 +41,12 @@ Only `reef serve` takes `reef.lock`. The CLI, `reef mcp` and `reef chat` open `r
 directly, with or without a running server. WAL mode and a 5 second busy timeout let the
 processes share the file.
 
-`reef chat` also locks `chat-<channel id>.lock` in the data folder while it runs. A
-second `reef chat` on the same channel exits with `channel 1 is open in another reef
-chat`. When `reef serve` starts, it fails the turns that a dead server left running (see
-[server.md](server.md#restart-recovery)). It skips a channel whose chat lock is held,
-because that turn is still live in a `reef chat` process.
+`reef chat` also locks `chat-<channel id>.lock` in the data folder while it runs, and so
+does `reef serve` for a channel it runs. A second `reef chat` on the same channel exits
+with `channel 1 is open elsewhere: conflict`. When `reef serve` starts, it fails the
+turns that a dead server left running (see [server.md](server.md#restart-recovery)). It
+skips a channel whose chat lock is held, because that turn is still live in a `reef chat`
+process.
 
 ## CLI
 

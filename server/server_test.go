@@ -17,8 +17,10 @@ func newTestServer(t *testing.T) *httptest.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	ts := httptest.NewServer(New(st))
+	h := New(st, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
 	return ts
 }
 
