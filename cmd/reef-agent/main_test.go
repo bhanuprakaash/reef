@@ -25,6 +25,8 @@ type fake struct {
 	done        chan struct{}
 	wg          sync.WaitGroup
 	closeOnce   sync.Once
+	doneOnce    sync.Once
+	stopUsage   *agent.Event // left in events by Interrupt, like codex's usage of a stopped turn
 }
 
 func newFake(turns ...[]agent.Event) *fake {
@@ -65,9 +67,14 @@ func (f *fake) Events() <-chan agent.Event { return f.events }
 
 func (f *fake) Interrupt() error {
 	f.interrupted = true
-	close(f.done)
+	f.doneOnce.Do(func() { close(f.done) })
 	f.wg.Wait()
-	f.closeOnce.Do(func() { close(f.events) })
+	f.closeOnce.Do(func() {
+		if f.stopUsage != nil {
+			f.events <- *f.stopUsage
+		}
+		close(f.events)
+	})
 	return nil
 }
 
@@ -183,6 +190,28 @@ func TestRun_CtrlC(t *testing.T) {
 	}
 	if !f.interrupted {
 		t.Error("agent was not interrupted")
+	}
+}
+
+func TestRun_CtrlCCountsUsageLeftByInterrupt(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f := newFake([]agent.Event{usage(3, 4, 1)})
+	f.events = make(chan agent.Event, 1)
+	f.afterTurn = cancel
+	stop := usage(7, 2, 0)
+	f.stopUsage = &stop
+	var out bytes.Buffer
+	err := run(ctx, []string{"--backend", "codex", "--cwd", "/tmp", "first"},
+		strings.NewReader(""), &out, func(string) (agent.Agent, error) { return f, nil })
+	if !errors.Is(err, errInterrupted) {
+		t.Errorf("err = %v, want errInterrupted", err)
+	}
+	want := `{"kind":"usage","usage":{"inputTokens":3,"outputTokens":4,"cacheReadTokens":1,"cacheWriteTokens":0}}` + "\n" +
+		`{"kind":"usage","usage":{"inputTokens":7,"outputTokens":2,"cacheReadTokens":0,"cacheWriteTokens":0}}` + "\n" +
+		`{"kind":"usage","usage":{"inputTokens":10,"outputTokens":6,"cacheReadTokens":1,"cacheWriteTokens":0}}` + "\n"
+	if out.String() != want {
+		t.Errorf("stdout = %q, want %q", out.String(), want)
 	}
 }
 

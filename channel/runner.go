@@ -128,9 +128,25 @@ func (r *Runner) Run(ctx context.Context, text string, onEvent func(agent.Event)
 }
 
 // abort interrupts the agent and stores turn as failed with reason. It returns
-// cause joined with the errors of those two steps.
+// cause joined with the errors of those two steps. Usage the agent left in Events while
+// stopping counts to the turn.
 func (r *Runner) abort(ctx context.Context, turn store.Turn, cause error, reason string) error {
-	return errors.Join(cause, r.ag.Interrupt(), r.fail(ctx, turn, reason))
+	err := r.ag.Interrupt()
+drain:
+	for {
+		select {
+		case ev, ok := <-r.ag.Events():
+			if !ok {
+				break drain
+			}
+			if ev.Kind == agent.KindUsage && ev.Usage != nil {
+				turn.Usage.Add(*ev.Usage)
+			}
+		default:
+			break drain
+		}
+	}
+	return errors.Join(cause, err, r.fail(ctx, turn, reason))
 }
 
 func (r *Runner) fail(ctx context.Context, turn store.Turn, reason string) error {
