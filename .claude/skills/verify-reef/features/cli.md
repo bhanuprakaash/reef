@@ -17,6 +17,8 @@ with no server and while `reef serve` runs on the same data folder. Contract:
 - `cli-no-server` every write above works with no `reef serve` running.
 - `cli-with-server` a CLI write while `reef serve` runs on the same folder succeeds and the server reads it at once.
 - `cli-errors` an unknown feature, a folder that is no project, and no command fail with `reef: ...` and exit 1.
+- `cli-slug-two-projects` a slug used in two projects fails with `invalid: feature slug "login" is in projects 1, 2; use the feature id`; the id works.
+- `cli-dash-args` after `--` every argument is positional, even one that starts with `-`.
 
 ## How to get to it (user POV)
 
@@ -27,7 +29,7 @@ with no server and while `reef serve` runs on the same data folder. Contract:
 Preconditions:
 
 - Baseline from the README. No server is running for this run (`$H serve-stop` if one is).
-- The helper runs `reef` in the scratch cwd `/private/tmp/reef-verify/<id>/cwd` and adds `--data`. The first call names the folder: `$H reef --data-name cli -- ...`. Ids below assume it is new.
+- The helper runs `reef` in the scratch cwd `/private/tmp/reef-verify/<id>/cwd` and puts `--data DIR` right after the command words (`task add --data DIR 1 -- "--why not"`), so a `--` in the args still ends the flags. The first call names the folder: `$H reef --data-name cli -- ...`. Ids below assume it is new.
 
 - **Project, no server.** `$H reef --data-name cli -- project add` prints `1  cwd  /private/tmp/reef-verify/<id>/cwd` and `exit: 0`. `$H reef -- project add` prints `reef: /private/tmp/reef-verify/<id>/cwd is already project 1` and `exit: 1`.
 - **Feature and decision, no server.** `$H reef -- feature add login "Email login" --goal "Users sign in with email and password"` prints `1  login  Email login`. `$H reef -- decide login "Use sessions, not JWT" --why "One server, no token refresh"` prints `1  Use sessions, not JWT`. `$H sql "select id, feature_id, body, why, author, message_id from decision"` shows `1|1|Use sessions, not JWT|One server, no token refresh|user|`.
@@ -36,6 +38,8 @@ Preconditions:
 - **Context.** `$H reef -- context login --role developer` starts with `You are the developer on feature "Email login" (login) in project "cwd".`, has `No brief yet.`, `decision 1: Use sessions, not JWT (user, <date>)`, `task 1 [todo]: Build the login form`, and no `Personal todo`.
 - **With a server.** `$H serve-start --data-name cli`. `$H reef -- decide 1 "Lock after 5 failed logins"` prints `2  Lock after 5 failed logins` and `exit: 0`. `$H api GET '/decisions?feature=1'` lists decisions 1 and 2. `$H api PUT /features/1/brief '{"body":"Email and password login","author":"user"}'` gives 201; `$H reef -- brief login` prints `Email and password login`. `$H serve-stop` prints `exit=0`.
 - **Errors.** `$H reef -- brief nope` prints `reef: feature "nope": not found`, `exit: 1`. `$H reef -- context login` (no role) prints the context usage line, `exit: 1`. From a folder that is no project, run the binary directly: `cd /private/tmp && /private/tmp/reef-verify/<id>/bin/reef task list --data /private/tmp/reef-verify/<id>/cli` prints `reef: no reef project for /private/tmp; run reef project add`.
+- **Dash args.** `$H reef -- task add 1 -- "--why not"` prints `3  todo  --why not`, `exit: 0`. `reef.log` shows `--- reef task add --data <dir> 1 -- '--why not'`.
+- **Slug in two projects.** The helper always runs in the scratch cwd, so make the second project from a second folder with the binary: `mkdir /private/tmp/reef-verify/<id>/cwd2 && cd /private/tmp/reef-verify/<id>/cwd2`, then `/private/tmp/reef-verify/<id>/bin/reef project add --data /private/tmp/reef-verify/<id>/cli` prints `2  cwd2  /private/tmp/reef-verify/<id>/cwd2` and `.../bin/reef feature add login "Login again" --data ...` prints `2  login  Login again`. Back in the helper: `$H reef -- brief login` fails with `reef: invalid: feature slug "login" is in projects 1, 2; use the feature id`, `exit: 1`. `$H reef -- brief 1` prints `Email and password login`, `exit: 0`.
 
 ## Gotchas
 
