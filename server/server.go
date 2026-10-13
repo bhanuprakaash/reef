@@ -27,6 +27,7 @@ func New(st *store.Store) http.Handler {
 	s.projectRoutes(mux)
 	s.featureRoutes(mux)
 	s.channelRoutes(mux)
+	s.taskRoutes(mux)
 	return mux
 }
 
