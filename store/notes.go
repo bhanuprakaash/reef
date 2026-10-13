@@ -30,7 +30,7 @@ func (s *Store) PutRoleNotes(ctx context.Context, n RoleNotes) (RoleNotes, error
 		n.FeatureID, n.Role, n.Body, n.UpdatedAt.Format(time.RFC3339Nano))
 	if err != nil {
 		return RoleNotes{}, s.writeErr(ctx, "upsert role notes", err, ErrNotFound,
-			parent{"feature", &n.FeatureID})
+			parent{table: "feature", id: &n.FeatureID})
 	}
 	return n, nil
 }

@@ -1,8 +1,10 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 
+	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -76,6 +78,10 @@ func (s *server) endTurn(w http.ResponseWriter, r *http.Request) {
 	in.ID = id
 	var t store.Turn
 	if in.Status == "" {
+		if in.Error != "" || in.Usage != (agent.Usage{}) {
+			writeError(w, fmt.Errorf("%w: error and usage need a status", store.ErrInvalid))
+			return
+		}
 		t, err = s.st.SetTurnSession(r.Context(), id, in.SessionID)
 	} else {
 		t, err = s.st.EndTurn(r.Context(), in)

@@ -41,7 +41,10 @@ func (s *Store) CreateFeature(ctx context.Context, f Feature) (Feature, error) {
 			"VALUES (?, ?, ?, ?, ?, ?)",
 		f.ProjectID, f.Slug, f.Name, f.Goal, f.Stage, now.Format(time.RFC3339Nano))
 	if err != nil {
-		return Feature{}, s.featureWriteErr(ctx, f, err)
+		if isUnique(err) {
+			return Feature{}, fmt.Errorf("feature slug %q is taken in its project: %w", f.Slug, ErrConflict)
+		}
+		return Feature{}, s.writeErr(ctx, "write feature", err, ErrInvalid, parent{table: "project", id: &f.ProjectID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -132,13 +135,6 @@ func (f *Feature) validate() error {
 		f.Stage = _defaultStage
 	}
 	return nil
-}
-
-func (s *Store) featureWriteErr(ctx context.Context, f Feature, err error) error {
-	if isUnique(err) {
-		return fmt.Errorf("feature slug %q is taken in its project: %w", f.Slug, ErrConflict)
-	}
-	return s.writeErr(ctx, "write feature", err, ErrInvalid, parent{"project", &f.ProjectID})
 }
 
 func scanFeature(r interface{ Scan(...any) error }) (Feature, error) {

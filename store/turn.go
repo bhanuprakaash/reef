@@ -64,7 +64,7 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 		t.ChannelID, t.Role, t.Backend, t.SessionID, _turnRunning, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Turn{}, s.writeErr(ctx, "insert turn", err, ErrInvalid,
-			parent{"channel", &t.ChannelID})
+			parent{table: "channel", id: &t.ChannelID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -157,14 +157,6 @@ func (s *Store) SetTurnSession(ctx context.Context, id int64, sessionID string) 
 	return s.Turn(ctx, id)
 }
 
-// notRunning explains why no running turn id was updated.
-func (s *Store) notRunning(ctx context.Context, id int64) error {
-	if _, err := s.Turn(ctx, id); err != nil {
-		return err
-	}
-	return fmt.Errorf("%w: turn %d already ended", ErrInvalid, id)
-}
-
 // FailRunningTurns marks every running turn failed, for turns the last server
 // run left unfinished, and posts one message per affected channel naming them.
 func (s *Store) FailRunningTurns(ctx context.Context) ([]Turn, error) {
@@ -220,6 +212,13 @@ func (s *Store) FailRunningTurns(ctx context.Context) ([]Turn, error) {
 		return nil, fmt.Errorf("fail running turns: %w", err)
 	}
 	return turns, nil
+}
+
+func (s *Store) notRunning(ctx context.Context, id int64) error {
+	if _, err := s.Turn(ctx, id); err != nil {
+		return err
+	}
+	return fmt.Errorf("%w: turn %d already ended", ErrInvalid, id)
 }
 
 func isTurnStatus(s string) bool {

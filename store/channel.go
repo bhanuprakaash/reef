@@ -39,7 +39,7 @@ func (s *Store) CreateChannel(ctx context.Context, c Channel) (Channel, error) {
 		c.ProjectID, c.FeatureID, c.Name, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Channel{}, s.writeErr(ctx, "insert channel", err, ErrInvalid,
-			parent{"project", &c.ProjectID}, parent{"feature", c.FeatureID})
+			parent{table: "project", id: &c.ProjectID}, parent{table: "feature", id: c.FeatureID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
