@@ -222,7 +222,8 @@ func (s *server) startTurn(
 }
 
 // runTurn runs the first turn, then the turns its messages wake, one after another, and
-// leaves the channel idle once none is left. The queue is the one place a wake is added.
+// leaves the channel idle once none is left. The queue is the one place a wake is added;
+// a wrap or promote turn talks to the user and wakes nobody.
 // A turn that fails, or a channel that is paused, ends the chain.
 func (s *server) runTurn(
 	ctx context.Context, id int64, l *live, sess session, kind turnKind, w wake, after int64,
@@ -238,7 +239,7 @@ func (s *server) runTurn(
 	for {
 		w, queue = queue[0], queue[1:]
 		end, pause, ok := s.runOne(ctx, id, l, sess, kind, w)
-		if ok && ctx.Err() == nil {
+		if ok && kind == _message && ctx.Err() == nil {
 			ws, last, err := s.wakes(ctx, id, after)
 			if err != nil {
 				log.Printf("route channel %d: %v", id, err)
