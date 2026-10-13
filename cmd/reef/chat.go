@@ -224,6 +224,9 @@ func converse(
 				if err := decideWrap(ctx, st, channelID, seen, lines, stdout); err != nil {
 					return err
 				}
+				if ctx.Err() != nil {
+					return nil
+				}
 			}
 			if _, err := io.WriteString(stdout, "> "); err != nil {
 				return err
@@ -273,15 +276,14 @@ drain:
 		return err
 	}
 	var answer string
+	var ok bool
 	select {
 	case <-ctx.Done():
-		return nil
-	case l, ok := <-lines:
-		if !ok {
-			_, err = fmt.Fprintf(stdout, "\nproposal %d left pending\n\n", p.ID)
-			return err
-		}
-		answer = l
+	case answer, ok = <-lines:
+	}
+	if !ok {
+		_, err = fmt.Fprintf(stdout, "\nproposal %d left pending\n\n", p.ID)
+		return err
 	}
 	if a := strings.ToLower(answer); a == "y" || a == "yes" {
 		if _, err := st.ApproveProposal(ctx, p.ID); err != nil {
