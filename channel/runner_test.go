@@ -116,6 +116,7 @@ type scriptAgent struct {
 	events      chan agent.Event
 	script      []agent.Event
 	closeAfter  bool
+	onInterrupt agent.Event // left in events by Interrupt, like codex's usage of a stopped turn
 	interrupted int
 }
 
@@ -125,6 +126,9 @@ func (s *scriptAgent) Events() <-chan agent.Event                         { retu
 
 func (s *scriptAgent) Interrupt() error {
 	s.interrupted++
+	if s.onInterrupt.Kind != "" {
+		s.events <- s.onInterrupt
+	}
 	return nil
 }
 
@@ -397,6 +401,35 @@ func TestRunner_SendCappedTurnKeepsUsage(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := agent.Usage{InputTokens: 12, OutputTokens: 7, CacheReadTokens: 7, CacheWriteTokens: 5}
+	if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Usage != want {
+		t.Errorf("turns = %+v, want one failed turn with usage %+v", turns, want)
+	}
+}
+
+func TestRunner_SendCancelledKeepsStoppedUsage(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{
+		events:      make(chan agent.Event, 8),
+		script:      []agent.Event{{Kind: agent.KindText, Text: "par"}},
+		onInterrupt: agent.Event{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 9, OutputTokens: 2}},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "codex", "")
+	ctx, cancel := context.WithCancel(bg)
+	defer cancel()
+
+	_ = sendAs(ctx, r, "hi", func(agent.Event) { cancel() })
+	turns, err := st.Turns(bg, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := agent.Usage{InputTokens: 9, OutputTokens: 2}
 	if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Usage != want {
 		t.Errorf("turns = %+v, want one failed turn with usage %+v", turns, want)
 	}
