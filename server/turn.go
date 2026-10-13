@@ -74,7 +74,12 @@ func (s *server) endTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	in.ID = id
-	t, err := s.st.EndTurn(r.Context(), in)
+	var t store.Turn
+	if in.Status == "" {
+		t, err = s.st.SetTurnSession(r.Context(), id, in.SessionID)
+	} else {
+		t, err = s.st.EndTurn(r.Context(), in)
+	}
 	if err != nil {
 		writeError(w, err)
 		return

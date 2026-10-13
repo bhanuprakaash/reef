@@ -127,7 +127,7 @@ One agent run in a channel.
 | `channelId` | number | required |
 | `role` | string | required |
 | `backend` | string | required; `claude` or `codex` |
-| `sessionId` | string | default `""`; set on create or when the turn ends |
+| `sessionId` | string | default `""`; set on create, while the turn runs, or when it ends |
 | `status` | string | `running`, `done` or `failed`. A new turn is always `running` |
 | `error` | string | default `""` |
 | `usage` | object | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens` (numbers, all four always present). The SQL columns are `input_tokens` and so on |
@@ -203,7 +203,7 @@ a channel takes its messages and turns.
 | `GET /turns` | `?channel=ID`, `?status=running\|done\|failed` | 200 | 400 bad id or status |
 | `POST /turns` | `channelId`, `role`, `backend`, `sessionId` | 201 | 400 bad backend or unknown channel |
 | `GET /turns/{id}` | | 200 | 404 |
-| `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId` | 200 | 400 bad status or already ended, 404 |
+| `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId`. With no `status`, only `sessionId` is set and the turn stays `running` | 200 | 400 bad status, negative usage, empty `sessionId` without a status, or already ended; 404 |
 | `GET /decisions` | `?feature=ID` (required) | 200 | 400 no feature, 404 unknown feature |
 | `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field, unknown feature, or a message of another feature |
 | `GET /decisions/{id}` | | 200 | 404 |
@@ -221,8 +221,9 @@ The API has no way to change or remove these rows.
   its decisions; they only lose `messageId`.
 - Briefs: `PUT /features/{id}/brief` adds a version and never edits one. Old versions
   stay in `/brief/versions`. Role notes are not versioned; `PUT` replaces them.
-- Turns: created `running`, ended once with `PATCH` to `done` or `failed`. A second
-  `PATCH` returns 400. A turn has no delete route and no other edit.
+- Turns: created `running`, may get a `sessionId` while running, ended once with `PATCH`
+  to `done` or `failed`. After that every `PATCH` returns 400. A turn has no delete route
+  and no other edit. Restart recovery keeps a session id set this way.
 
 ## Restart recovery
 
