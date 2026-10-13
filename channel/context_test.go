@@ -155,3 +155,43 @@ Details are on demand through the reef MCP tools read_decision, read_thread and 
 		t.Errorf("Context =\n%s\nwant\n%s", got, want)
 	}
 }
+
+func TestContext_DecisionFirstLine(t *testing.T) {
+	tests := []struct {
+		name string
+		give string
+		want string
+	}{
+		{
+			name: "windows line ending",
+			give: "first line\r\nsecond",
+			want: "first line",
+		},
+		{
+			name: "carriage return",
+			give: "first line\rsecond",
+			want: "first line",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			st, f := openStore(t)
+			d, err := st.CreateDecision(ctx, store.Decision{
+				FeatureID: f.ID, Body: tt.give, Author: "user",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			got, err := Context(ctx, st, f.ID, "developer")
+			if err != nil {
+				t.Fatal(err)
+			}
+			want := "decision 1: " + tt.want + " (user, " + d.CreatedAt.Format("2006-01-02") + ")"
+			if !strings.Contains(got, want) {
+				t.Errorf("Context index does not contain %q:\n%s", want, got)
+			}
+		})
+	}
+}
