@@ -46,7 +46,7 @@ export function ChannelView({ channel, scope, features }: Props) {
             <button
               type="button"
               className={buttonClass}
-              disabled={running || wrap.isPending || channel.paused !== ''}
+              disabled={running || wrap.isPending || blocksUser(channel.paused)}
               onClick={() => wrap.mutate()}
             >
               Wrap up
@@ -63,7 +63,7 @@ export function ChannelView({ channel, scope, features }: Props) {
         {messages.data && <MessageList threads={threads} onOpen={setThreadId} />}
         <LiveTurn turn={turn} role={turn.role || channel.role || 'agent'} />
         {turn.note && <p className={mutedClass}>{turn.note}</p>}
-        <ApprovalRows channelId={channel.id} />
+        <ApprovalRows channelId={channel.id} messages={messages.data ?? []} />
         <ProposalPanel channelId={channel.id} featureId={channel.featureId} />
         <div className="sticky bottom-0 bg-white pb-1 pt-2 dark:bg-neutral-900">
           <Composer channelId={channel.id} running={running} paused={blocksUser(channel.paused)} />
@@ -72,6 +72,7 @@ export function ChannelView({ channel, scope, features }: Props) {
       </div>
       {thread && (
         <ThreadPane
+          key={thread.root.id}
           channelId={channel.id}
           thread={thread}
           running={running}

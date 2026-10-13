@@ -1,8 +1,9 @@
 import { useDecideApproval } from '@/modules/channels/api/decide-approval';
 import { useApprovals } from '@/modules/channels/api/get-approvals';
+import type { Message } from '@/types/api';
 import { buttonClass, errorClass } from '@/utils/classes';
 
-export function ApprovalRows({ channelId }: { channelId: number }) {
+export function ApprovalRows({ channelId, messages }: { channelId: number; messages: Message[] }) {
   const approvals = useApprovals(channelId);
   const decide = useDecideApproval(channelId);
 
@@ -18,9 +19,9 @@ export function ApprovalRows({ channelId }: { channelId: number }) {
           >
             <p className="whitespace-pre-wrap">
               <span className="font-medium">
-                {a.from} to {a.to}:
+                {a.from} → {a.to}:
               </span>{' '}
-              {a.text}
+              {messages.find((m) => m.id === a.messageId)?.body}
             </p>
             <div className="flex gap-2">
               <button
