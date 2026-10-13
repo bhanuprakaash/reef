@@ -31,7 +31,7 @@ func (s *Store) PutBrief(ctx context.Context, b Brief) (Brief, error) {
 		b.FeatureID, b.Body, b.Author, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Brief{}, s.writeErr(ctx, "insert brief", err, ErrNotFound,
-			parent{"feature", &b.FeatureID})
+			parent{table: "feature", id: &b.FeatureID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {

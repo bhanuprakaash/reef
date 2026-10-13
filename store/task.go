@@ -48,7 +48,7 @@ func (s *Store) CreateTask(ctx context.Context, t Task) (Task, error) {
 		now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Task{}, s.writeErr(ctx, "insert task", err, ErrInvalid,
-			parent{"project", &t.ProjectID}, parent{"feature", t.FeatureID})
+			parent{table: "project", id: &t.ProjectID}, parent{table: "feature", id: t.FeatureID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -110,7 +110,7 @@ func (s *Store) UpdateTask(ctx context.Context, t Task) (Task, error) {
 		t.Title, t.Body, t.Status, t.FeatureID, time.Now().UTC().Format(time.RFC3339Nano), t.ID)
 	if err != nil {
 		return Task{}, s.writeErr(ctx, "update task", err, ErrInvalid,
-			parent{"feature", t.FeatureID})
+			parent{table: "feature", id: t.FeatureID})
 	}
 	return s.Task(ctx, t.ID)
 }

@@ -56,6 +56,14 @@ func TestTurnStatus(t *testing.T) {
 			wantBody:   `"sessionId":"abc","status":"running","error":""`,
 		},
 		{
+			name:       "patch error without status",
+			method:     http.MethodPatch,
+			path:       "/turns/1",
+			give:       `{"sessionId":"s","error":"boom"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: error and usage need a status"}`,
+		},
+		{
 			name:       "patch nothing",
 			method:     http.MethodPatch,
 			path:       "/turns/1",

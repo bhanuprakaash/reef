@@ -31,7 +31,6 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// seedRunningTurn creates channel 1 with running turn 1 in a fresh data dir.
 func seedRunningTurn(t *testing.T, dir string) {
 	t.Helper()
 	ctx := context.Background()
@@ -145,6 +144,25 @@ func TestRun_RefusesNonLoopbackAddr(t *testing.T) {
 			}
 			if _, err := os.Stat(dir); !errors.Is(err, os.ErrNotExist) {
 				t.Errorf("data dir stat = %v, want not exist", err)
+			}
+		})
+	}
+}
+
+func TestRequireLoopback(t *testing.T) {
+	tests := []struct {
+		addr    string
+		wantErr bool
+	}{
+		{"127.0.0.1:0", false},
+		{"localhost:0", false},
+		{"[::1]:0", false},
+		{"[::ffff:10.0.0.5]:7700", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.addr, func(t *testing.T) {
+			if err := requireLoopback(tt.addr); (err != nil) != tt.wantErr {
+				t.Errorf("requireLoopback(%q) = %v, wantErr %v", tt.addr, err, tt.wantErr)
 			}
 		})
 	}

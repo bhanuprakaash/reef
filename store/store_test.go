@@ -197,7 +197,7 @@ func TestWriteErrNamesMissingParent(t *testing.T) {
 		"INSERT INTO task (project_id, feature_id, title, created_at, updated_at) "+
 			"VALUES (?, ?, 't', '2026-10-13T00:00:00Z', '2026-10-13T00:00:00Z')", p.ID, feature)
 	err = s.writeErr(ctx, "insert task", err, ErrInvalid,
-		parent{"project", &p.ID}, parent{"feature", &feature})
+		parent{table: "project", id: &p.ID}, parent{table: "feature", id: &feature})
 	if want := "invalid: unknown feature 7"; err == nil || err.Error() != want {
 		t.Errorf("writeErr = %v, want %q", err, want)
 	}

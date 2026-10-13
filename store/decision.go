@@ -52,7 +52,7 @@ func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error
 		d.FeatureID, d.MessageID, d.Body, d.Why, d.Author, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Decision{}, s.writeErr(ctx, "insert decision", err, ErrInvalid,
-			parent{"feature", &d.FeatureID}, parent{"message", d.MessageID})
+			parent{table: "feature", id: &d.FeatureID}, parent{table: "message", id: d.MessageID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {

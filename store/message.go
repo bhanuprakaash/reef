@@ -29,7 +29,7 @@ func (s *Store) CreateMessage(ctx context.Context, m Message) (Message, error) {
 		m.ChannelID, m.Author, m.Body, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Message{}, s.writeErr(ctx, "insert message", err, ErrInvalid,
-			parent{"channel", &m.ChannelID})
+			parent{table: "channel", id: &m.ChannelID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
