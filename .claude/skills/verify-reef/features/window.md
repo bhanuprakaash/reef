@@ -55,5 +55,4 @@ Proof: the output is saved in `~/.reef-verify/<id>/ui-<scenario>.log`, screensho
 - Not run by `go test` or `npm test`; every scenario starts a real `claude` and takes minutes. Run each once.
 - Scenarios assume the model answers short, tool-free prompts as asked. A `FAIL` on wording (`brief`) needs the screenshot before it is called a bug.
 - `cap` writes to `reef.db` while the server runs; it is the one write the API cannot do (`tokenBudget` is set by the server only).
-- At the cap, the composer also shows the 409 text (`channel N is paused: ...: conflict`) under the banner. That is the send that found the budget used, not a second pause.
 - Quote the PASS lines and say which screenshots you opened. A screenshot you did not open is not proof.
