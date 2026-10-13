@@ -100,7 +100,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 	}
 	tok := ag.cfg.MCPServers["reef"].Env["REEF_TOKEN"]
 	want := agent.Config{
-		Cwd: "/tmp/shop", PermissionMode: "acceptEdits", Tools: []string{},
+		Cwd: "/tmp/shop", PermissionMode: "acceptEdits", Tools: []string{"mcp__reef__*"},
 		MCPServers: map[string]agent.MCPServer{"reef": {
 			Command: "/bin/reef", Args: []string{"mcp", "--data", dir},
 			Env: map[string]string{"REEF_TOKEN": tok},
@@ -262,7 +262,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if len(ags) != 1 || !strings.HasPrefix(ags[0].prompts[0], want) {
 		t.Errorf("prompts = %q, want one starting with %q", ags[0].prompts, want)
 	}
-	if !reflect.DeepEqual(ags[0].cfg.Tools, []string{"Read", "Grep"}) ||
+	if !reflect.DeepEqual(ags[0].cfg.Tools, []string{"Read", "Grep", "mcp__reef__*"}) ||
 		ags[0].cfg.MCPServers["mcp1"].URL != "http://x" {
 		t.Errorf("config = %+v, want the role's tools and mcp server", ags[0].cfg)
 	}
@@ -293,6 +293,47 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	}
 	if err := s.RunAs(ctx, "tester", "hi", nil, discard); !errors.Is(err, store.ErrInvalid) {
 		t.Errorf("RunAs unknown role error = %v, want ErrInvalid", err)
+	}
+}
+
+func TestSession_RunAsRoleAppliedAfterOpen(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	tester := store.Role{Name: "tester", Backend: "claude", Persona: "You test."}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, tester}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunAs(ctx, "tester", "check it", nil, discard); err != nil {
+		t.Fatalf("RunAs tester error = %v, want nil", err)
+	}
+	if len(ags) != 2 || !strings.HasPrefix(ags[1].prompts[0], "You test.") {
+		t.Errorf("agents = %d, tester prompts = %q, want a tester turn with its persona", len(ags), ags[1].prompts)
 	}
 }
 

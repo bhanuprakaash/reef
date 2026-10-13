@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"syscall"
 
 	"github.com/bhanuprakaash/reef/agent"
@@ -42,7 +43,6 @@ type Session struct {
 	exe      string
 	ch       store.Channel
 	project  store.Project
-	team     store.Team
 	mk       func(backend string) (agent.Agent, error)
 	lock     *os.File
 	onPrompt func(prompt string)
@@ -75,16 +75,12 @@ func open(
 	if err != nil {
 		return nil, err
 	}
-	team, err := st.Team(ctx, ch.Team)
-	if err != nil {
-		return nil, err
-	}
 	lock, err := lockChat(dataDir, channelID)
 	if err != nil {
 		return nil, err
 	}
 	s := &Session{
-		st: st, dataDir: dataDir, exe: exe, ch: ch, project: p, team: team, mk: mk, lock: lock,
+		st: st, dataDir: dataDir, exe: exe, ch: ch, project: p, mk: mk, lock: lock,
 		members: map[string]*member{},
 	}
 	defer func() {
@@ -106,12 +102,17 @@ func (s *Session) Start(ctx context.Context) error {
 }
 
 // member returns the agent session of role, starting or resuming it from the role's own
-// newest turn with a session id.
+// newest turn with a session id. A new session reads the team from the store, so a team
+// applied since the channel opened is the one it gets.
 func (s *Session) member(ctx context.Context, role string) (_ *member, err error) {
 	if m, ok := s.members[role]; ok {
 		return m, nil
 	}
-	r, err := s.roleSetup(role)
+	team, err := s.st.Team(ctx, s.ch.Team)
+	if err != nil {
+		return nil, err
+	}
+	r, err := s.roleSetup(team, role)
 	if err != nil {
 		return nil, err
 	}
@@ -146,14 +147,14 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 	cfg := agent.Config{
 		Cwd:            s.project.Path,
 		PermissionMode: r.PermissionMode,
-		Tools:          r.Tools,
+		Tools:          append(slices.Clone(r.Tools), "mcp__reef__*"),
 		MCPServers:     servers,
 	}
 	var preamble string
 	if last.SessionID != "" {
 		err = ag.Resume(ctx, cfg, last.SessionID)
 	} else {
-		if preamble, err = startPrompt(ctx, s.st, s.ch.ID, s.project, s.team, r); err != nil {
+		if preamble, err = startPrompt(ctx, s.st, s.ch.ID, s.project, team, r); err != nil {
 			return nil, err
 		}
 		err = ag.Start(ctx, cfg)
@@ -169,18 +170,18 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 
 // roleSetup is the team's role called name. The lead is the channel's role; it takes the
 // channel's own backend and permission mode.
-func (s *Session) roleSetup(name string) (store.Role, error) {
+func (s *Session) roleSetup(team store.Team, name string) (store.Role, error) {
 	if name == s.ch.Role {
-		lead := s.team.Roles[0]
+		lead := team.Roles[0]
 		lead.Name, lead.Backend, lead.PermissionMode = name, s.ch.Backend, s.ch.PermissionMode
 		return lead, nil
 	}
-	for _, r := range s.team.Roles {
+	for _, r := range team.Roles {
 		if r.Name == name {
 			return r, nil
 		}
 	}
-	return store.Role{}, fmt.Errorf("%w: team %s has no role %s", store.ErrInvalid, s.team.Name, name)
+	return store.Role{}, fmt.Errorf("%w: team %s has no role %s", store.ErrInvalid, team.Name, name)
 }
 
 func (m *member) close(st *store.Store) error {
