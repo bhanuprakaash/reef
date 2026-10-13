@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/bhanuprakaash/reef/channel"
@@ -23,7 +24,9 @@ type wake struct {
 // wakes routes the messages of channel id stored after the message with id after, in
 // order, into the turns they wake. It also returns the id of the last message routed, or
 // after when there is none. A user message runs as its own text; an agent message as
-// "<author> wrote: <body>". A message in a thread comes with the thread before it.
+// "<author> wrote: <body>". Each starts with a line naming the channel, the message and its
+// thread root; a message in a thread comes with the thread before it. A role woken by
+// several messages gets one wake, their texts in id order.
 func (s *server) wakes(ctx context.Context, id, after int64) ([]wake, int64, error) {
 	ch, err := s.st.Channel(ctx, id)
 	if err != nil {
@@ -50,16 +53,18 @@ func (s *server) wakes(ctx context.Context, id, after int64) ([]wake, int64, err
 				return nil, after, err
 			}
 		}
-		role := channel.Route(m, owner, roles, ch.Role)
-		if role == "" {
+		woken := channel.Route(m, owner, roles, ch.Role)
+		if len(woken) == 0 {
 			continue
 		}
 		text := m.Body
 		if m.Author != "user" {
 			text = m.Author + " wrote: " + m.Body
 		}
+		root := m.ID
 		if m.ParentID != nil {
-			thread, err := s.st.Thread(ctx, id, *m.ParentID)
+			root = *m.ParentID
+			thread, err := s.st.Thread(ctx, id, root)
 			if err != nil {
 				return nil, after, err
 			}
@@ -72,10 +77,19 @@ func (s *server) wakes(ctx context.Context, id, after int64) ([]wake, int64, err
 			}
 			text = b.String() + "\n" + text
 		}
-		ws = append(ws, wake{
-			from: m.Author, messageID: m.ID, gated: team.Gated(m.Author, role),
-			role: role, text: text, parent: m.ParentID,
-		})
+		text = fmt.Sprintf("[channel %d, message %d, thread %d]\n%s", id, m.ID, root, text)
+		for _, role := range woken {
+			gated := team.Gated(m.Author, role)
+			if i := slices.IndexFunc(ws, func(w wake) bool { return w.role == role }); i >= 0 {
+				ws[i].text += "\n\n" + text
+				ws[i].gated = ws[i].gated || gated
+				continue
+			}
+			ws = append(ws, wake{
+				from: m.Author, messageID: m.ID, gated: gated,
+				role: role, text: text, parent: m.ParentID,
+			})
+		}
 	}
 	return ws, after, nil
 }

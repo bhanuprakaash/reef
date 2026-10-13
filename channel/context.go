@@ -119,7 +119,9 @@ func teamIntro(team store.Team, r store.Role) string {
 	}
 	s := fmt.Sprintf("\n## Team\nYour team: %s. To hand work to a teammate, @mention them in a "+
 		"message: that wakes them. Your reply, and anything you send with post_to_channel, is "+
-		"posted to the channel; nobody sees anything else.\n", strings.Join(names, ", "))
+		"posted to the channel; nobody sees anything else. A message that wakes you starts with "+
+		"[channel N, message N, thread N]: pass thread as the parent of post_to_channel to "+
+		"reply in that thread.\n", strings.Join(names, ", "))
 	if r.Lead {
 		s += "Do not summarize or repeat a specialist's post back to the user: they see it.\n"
 	}

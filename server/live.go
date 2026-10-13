@@ -224,11 +224,10 @@ func (s *server) startTurn(
 		if ws, after, err = s.wakes(ctx, id, after); err != nil {
 			return giveUp(err)
 		}
-		w := wake{from: "user", role: role, text: text, parent: parent}
+		queue = []wake{{from: "user", role: role, text: text, parent: parent}}
 		if kind == _message {
-			w = ws[0]
+			queue = ws
 		}
-		queue = []wake{w}
 	}
 	l.mu.Lock()
 	l.state = _running

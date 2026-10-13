@@ -206,7 +206,9 @@ func TestTeamIntro(t *testing.T) {
 	team := store.Team{Name: "core", Roles: []store.Role{lead, architect}}
 	const common = "\n## Team\nYour team: @lead, @architect. To hand work to a teammate, " +
 		"@mention them in a message: that wakes them. Your reply, and anything you send with " +
-		"post_to_channel, is posted to the channel; nobody sees anything else.\n"
+		"post_to_channel, is posted to the channel; nobody sees anything else. A message that " +
+		"wakes you starts with [channel N, message N, thread N]: pass thread as the parent of " +
+		"post_to_channel to reply in that thread.\n"
 	tests := []struct {
 		name string
 		team store.Team
