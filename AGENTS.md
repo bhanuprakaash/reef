@@ -23,6 +23,18 @@ Eight slices, tracked as GitHub issues labeled `slice`. Each slice is split into
 
 Memory first: 1, 2, 3 before any UI. 1 and 2 have no dependency on each other.
 
+## Slice verification
+
+A slice is not done when its last sub-issue closes. It is done after a verification pass, run by an agent on Opus, never Sonnet:
+
+1. Re-run every acceptance line of every sub-issue against `main`, with the real thing (binary, CLI, server). Record the command and what it showed.
+2. `interrogate` the slice's full diff (first sub-issue branch point to `main`): standards, spec against `docs/product.md`, correctness, design.
+3. `blast-radius` on what the slice changed that earlier slices depend on; prove the one fact it is safe because of by running code.
+4. Every finding becomes a new sub-issue of the slice, or a written reason to skip it. The slice stays open until those close.
+5. Close the slice issue with one comment: acceptance lines and their proof, interrogate and blast-radius summaries, skipped findings with reasons.
+
+Each slice issue carries this checklist in a **Verification** section.
+
 ## Repo layout (target)
 
 ```
@@ -43,6 +55,7 @@ Create a folder only when a ticket needs it.
 - One ticket at a time, on a branch named after the ticket (`agent-interface`, `claude-adapter`). PR to `main`. Never push `main` directly.
 - Smallest diff that closes the ticket. Nothing speculative, no option or layer the ticket does not need.
 - Prove it: every acceptance line in the ticket is checked by running the real thing. "It compiles" is not proof.
+- Tick what you proved: after verifying a line, edit the issue body and check it (`gh issue edit`). A line you could not verify stays unchecked with a short note under it. A line only the user can verify (hand test, approval, merge) is left unchecked and the user is asked, in chat, with the exact steps.
 - Decisions that change the product go to `docs/product.md` Decisions table, numbered, with a one-line why. Do not re-open a settled decision; propose a new one with a reason.
 - Go: follow `docs/go-style.md` (condensed Uber guide). Standard library first. No frameworks until a ticket proves the need.
 - Commits: conventional prefix (`feat:`, `fix:`, `docs:`, `chore:`), one-line subject, no ticket ids in the subject. No AI attribution anywhere.
