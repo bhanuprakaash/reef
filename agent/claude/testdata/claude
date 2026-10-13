@@ -17,4 +17,7 @@ badresume)
 	echo boom >&2
 	exit 1
 	;;
+argv)
+	echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"'"$*"'"}]}}'
+	;;
 esac
