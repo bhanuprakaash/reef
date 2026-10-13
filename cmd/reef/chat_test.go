@@ -127,18 +127,22 @@ func chatFixture(t *testing.T) (*store.Store, store.Channel) {
 
 func TestConverse_Wrap(t *testing.T) {
 	tests := []struct {
-		name        string
-		propose     bool
-		answer      string
-		wantOut     string
-		wantBrief   string
-		wantPending bool
+		name         string
+		propose      bool
+		answer       string
+		wantOut      string
+		wantExactOut string
+		wantBrief    string
+		wantPending  bool
 	}{
 		{name: "approve", propose: true, answer: "y",
 			wantOut: "approved: brief, notes and 1 decisions saved", wantBrief: "new brief"},
 		{name: "reject", propose: true, answer: "no", wantOut: "rejected: nothing changed"},
 		{name: "end of input", propose: true,
-			wantOut: "proposal 1 left pending", wantPending: true},
+			wantOut: "proposal 1 left pending",
+			wantExactOut: "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nnotes:\nmy notes\n\n" +
+				"decisions:\n- use sessions (simple)\n\napprove? [y/N] \nproposal 1 left pending\n\n",
+			wantPending: true},
 		{name: "no proposal", wantOut: "no proposal made"},
 	}
 	for _, tt := range tests {
@@ -158,7 +162,10 @@ func TestConverse_Wrap(t *testing.T) {
 				_ = c.in.Close()
 			}
 			c.waitFor(t, tt.wantOut)
-			c.end(t)
+			out := c.end(t)
+			if tt.wantExactOut != "" && out != tt.wantExactOut {
+				t.Errorf("output = %q, want %q", out, tt.wantExactOut)
+			}
 
 			if len(w.prompts) != 1 || w.prompts[0] != _wrapPrompt {
 				t.Errorf("agent prompts = %q, want the wrap prompt once", w.prompts)
@@ -220,7 +227,7 @@ func TestConverse_WrapIgnoresTypedAheadLines(t *testing.T) {
 
 	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nnotes:\nmy notes\n\n" +
 		"decisions:\n- use sessions (simple)\nignored while wrapping: a\n" +
-		"ignored while wrapping: y\n\napprove? [y/N] \nproposal 1 left pending\n\n> "
+		"ignored while wrapping: y\n\napprove? [y/N] \nproposal 1 left pending\n\n"
 	if out != want {
 		t.Errorf("output = %q, want %q", out, want)
 	}

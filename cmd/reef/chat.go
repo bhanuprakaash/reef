@@ -202,10 +202,11 @@ func converse(
 			return err
 		}
 		if wrap {
-			if err := decideWrap(ctx, st, channelID, seen, in, stdout); err != nil {
+			eof, err := decideWrap(ctx, st, channelID, seen, in, stdout)
+			if err != nil {
 				return err
 			}
-			if ctx.Err() != nil {
+			if eof || ctx.Err() != nil {
 				return nil
 			}
 		}
@@ -221,14 +222,14 @@ func converse(
 func decideWrap(
 	ctx context.Context, st *store.Store, channelID, seen int64,
 	in *lineReader, stdout io.Writer,
-) error {
+) (bool, error) {
 	p, err := st.PendingProposal(ctx, channelID)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && p.ID == seen) {
 		_, err = io.WriteString(stdout, "no proposal made\n\n")
-		return err
+		return false, err
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	var b strings.Builder
 	b.WriteString(proposalText(p))
@@ -239,26 +240,26 @@ func decideWrap(
 	}
 	b.WriteString("\napprove? [y/N] ")
 	if _, err := io.WriteString(stdout, b.String()); err != nil {
-		return err
+		return false, err
 	}
 	answer, ok := in.next(ctx)
 	if !ok {
 		_, err = fmt.Fprintf(stdout, "\nproposal %d left pending\n\n", p.ID)
-		return err
+		return true, err
 	}
 	if a := strings.ToLower(answer); a == "y" || a == "yes" {
 		_, added, err := st.ApproveProposal(ctx, p.ID)
 		if err != nil {
-			return err
+			return false, err
 		}
 		_, err = fmt.Fprintf(stdout, "approved: brief, notes and %d decisions saved\n\n", added)
-		return err
+		return false, err
 	}
 	if _, err := st.RejectProposal(ctx, p.ID); err != nil {
-		return err
+		return false, err
 	}
 	_, err = io.WriteString(stdout, "rejected: nothing changed\n\n")
-	return err
+	return false, err
 }
 
 func proposalText(p store.Proposal) string {
