@@ -466,18 +466,24 @@ func (s *server) close() {
 	s.cancel()
 	s.wg.Wait()
 	close(s.quit)
+	var sessions []session
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	for _, l := range s.lives {
 		l.mu.Lock()
-		sess := l.sess
-		l.sess = nil
+		if l.sess != nil {
+			sessions = append(sessions, l.sess)
+			l.sess = nil
+		}
 		l.mu.Unlock()
-		if sess == nil {
-			continue
-		}
-		if err := sess.Close(); err != nil {
-			log.Printf("close session: %v", err)
-		}
 	}
+	s.mu.Unlock()
+	var wg sync.WaitGroup
+	for _, sess := range sessions {
+		wg.Go(func() {
+			if err := sess.Close(); err != nil {
+				log.Printf("close session: %v", err)
+			}
+		})
+	}
+	wg.Wait()
 }
