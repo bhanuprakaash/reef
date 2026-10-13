@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -120,5 +121,40 @@ func TestFailRunningTurns(t *testing.T) {
 		if got := messageRows(t, s, ch); !reflect.DeepEqual(got, want) {
 			t.Errorf("channel %d messages after second run = %v, want %v", ch, got, want)
 		}
+	}
+}
+
+func TestSetTurnSession(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "architect", Backend: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.SetTurnSession(ctx, 1, "abc"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FailRunningTurns(ctx); err != nil {
+		t.Fatal(err)
+	}
+	tr, err := s.Turn(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tr.Status != "failed" || tr.SessionID != "abc" {
+		t.Errorf("turn = %q %q, want failed abc", tr.Status, tr.SessionID)
+	}
+	if _, err := s.SetTurnSession(ctx, 1, "def"); !errors.Is(err, ErrInvalid) {
+		t.Errorf("session on ended turn: err = %v, want ErrInvalid", err)
 	}
 }

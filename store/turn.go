@@ -108,6 +108,10 @@ func (s *Store) EndTurn(ctx context.Context, t Turn) (Turn, error) {
 		return Turn{}, fmt.Errorf("%w: turn status must be %s or %s, got %q",
 			ErrInvalid, _turnDone, _turnFailed, t.Status)
 	}
+	u := t.Usage
+	if u.InputTokens < 0 || u.OutputTokens < 0 || u.CacheReadTokens < 0 || u.CacheWriteTokens < 0 {
+		return Turn{}, fmt.Errorf("%w: usage counts cannot be negative", ErrInvalid)
+	}
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE turn SET status = ?, error = ?, input_tokens = ?, output_tokens = ?,
 		cache_read_tokens = ?, cache_write_tokens = ?,
@@ -124,12 +128,37 @@ func (s *Store) EndTurn(ctx context.Context, t Turn) (Turn, error) {
 		return Turn{}, fmt.Errorf("end turn: %w", err)
 	}
 	if n == 0 {
-		if _, err := s.Turn(ctx, t.ID); err != nil {
-			return Turn{}, err
-		}
-		return Turn{}, fmt.Errorf("%w: turn %d already ended", ErrInvalid, t.ID)
+		return Turn{}, s.notRunning(ctx, t.ID)
 	}
 	return s.Turn(ctx, t.ID)
+}
+
+// SetTurnSession records the session id of the running turn id without ending it.
+func (s *Store) SetTurnSession(ctx context.Context, id int64, sessionID string) (Turn, error) {
+	if sessionID == "" {
+		return Turn{}, fmt.Errorf("%w: sessionId is required without a status", ErrInvalid)
+	}
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE turn SET session_id = ? WHERE id = ? AND status = ?", sessionID, id, _turnRunning)
+	if err != nil {
+		return Turn{}, fmt.Errorf("set turn session: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return Turn{}, fmt.Errorf("set turn session: %w", err)
+	}
+	if n == 0 {
+		return Turn{}, s.notRunning(ctx, id)
+	}
+	return s.Turn(ctx, id)
+}
+
+// notRunning explains why no running turn id was updated.
+func (s *Store) notRunning(ctx context.Context, id int64) error {
+	if _, err := s.Turn(ctx, id); err != nil {
+		return err
+	}
+	return fmt.Errorf("%w: turn %d already ended", ErrInvalid, id)
 }
 
 // FailRunningTurns marks every running turn failed, for turns the last server
