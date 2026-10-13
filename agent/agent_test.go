@@ -32,6 +32,11 @@ func TestEvent_JSON(t *testing.T) {
 			want: `{"kind":"tool_result","toolId":"t1","output":"boom","isError":true}`,
 		},
 		{
+			name: "subagent tool call",
+			give: Event{Kind: KindToolCall, ToolID: "t2", ToolName: "Bash", ParentToolID: "t1"},
+			want: `{"kind":"tool_call","toolId":"t2","toolName":"Bash","parentToolId":"t1"}`,
+		},
+		{
 			name: "usage",
 			give: Event{
 				Kind:  KindUsage,
