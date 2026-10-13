@@ -30,7 +30,9 @@ commands:
   decide <feature> "<body>" [--why W]
   task add [<feature>] "<title>"
   task list [<feature>] [--status S]
-  context <feature> --role R`
+  context <feature> --role R
+  token <feature> --role R
+  mcp`
 	_serveUsage        = "usage: reef serve [--addr 127.0.0.1:7700] [--data DIR]"
 	_defaultAddr       = "127.0.0.1:7700"
 	_shutdownTimeout   = time.Second
@@ -66,6 +68,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 		return taskCmd(ctx, args[1:], stdout)
 	case "context":
 		return contextCmd(ctx, args[1:], stdout)
+	case "token":
+		return tokenCmd(ctx, args[1:], stdout)
+	case "mcp":
+		return mcpCmd(ctx, args[1:])
 	}
 	return errors.New(_usage)
 }
