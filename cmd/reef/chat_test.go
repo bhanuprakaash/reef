@@ -276,6 +276,10 @@ func TestConverse_WrapBlankLineAtPromptRejects(t *testing.T) {
 	if _, err := st.PendingProposal(context.Background(), ch.ID); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("PendingProposal error = %v, want none pending", err)
 	}
+	proposal, err := st.Proposal(context.Background(), 1)
+	if err != nil || proposal.Status != store.ProposalRejected {
+		t.Errorf("Proposal status = %q, %v, want %q", proposal.Status, err, store.ProposalRejected)
+	}
 	if brief, err := st.Brief(context.Background(), 1); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("brief = %+v, %v, want no brief", brief, err)
 	}

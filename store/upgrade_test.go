@@ -43,7 +43,7 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	one, ended := int64(1), at(3, 11, 0, 0)
 	tests := []struct {
 		name string
-		got  func() (any, error)
+		give func() (any, error)
 		want any
 	}{
 		{"project", func() (any, error) { return s.Project(ctx, 1) },
@@ -79,7 +79,7 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := tt.got()
+			got, err := tt.give()
 			if err != nil {
 				t.Fatal(err)
 			}
