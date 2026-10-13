@@ -22,13 +22,13 @@ func (s *Store) CreateMessage(ctx context.Context, m Message) (Message, error) {
 	if m.Body == "" {
 		return Message{}, fmt.Errorf("%w: message body is required", ErrInvalid)
 	}
-	if err := s.requireChannel(ctx, m.ChannelID); err != nil {
-		return Message{}, err
-	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO message (channel_id, author, body, created_at) VALUES (?, ?, ?, ?)",
 		m.ChannelID, m.Author, m.Body, now.Format(time.RFC3339Nano))
+	if isForeignKey(err) {
+		return Message{}, fmt.Errorf("%w: unknown channel %d", ErrInvalid, m.ChannelID)
+	}
 	if err != nil {
 		return Message{}, fmt.Errorf("insert message: %w", err)
 	}

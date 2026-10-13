@@ -27,13 +27,6 @@ func (s *Store) CreateFeature(ctx context.Context, f Feature) (Feature, error) {
 	if err := f.validate(); err != nil {
 		return Feature{}, err
 	}
-	ok, err := s.exists(ctx, "project", f.ProjectID)
-	if err != nil {
-		return Feature{}, fmt.Errorf("check project: %w", err)
-	}
-	if !ok {
-		return Feature{}, fmt.Errorf("%w: unknown project %d", ErrInvalid, f.ProjectID)
-	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO feature (project_id, slug, name, goal, stage, created_at) VALUES (?, ?, ?, ?, ?, ?)",
@@ -132,6 +125,9 @@ func (f *Feature) validate() error {
 }
 
 func (f Feature) writeErr(err error) error {
+	if isForeignKey(err) {
+		return fmt.Errorf("%w: unknown project %d", ErrInvalid, f.ProjectID)
+	}
 	if isUnique(err) {
 		return fmt.Errorf("feature slug %q is taken in its project: %w", f.Slug, ErrConflict)
 	}

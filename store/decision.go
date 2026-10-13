@@ -26,9 +26,6 @@ func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error
 	if d.Author == "" {
 		return Decision{}, fmt.Errorf("%w: decision author is required", ErrInvalid)
 	}
-	if err := s.requireFeature(ctx, d.FeatureID); err != nil {
-		return Decision{}, err
-	}
 	if d.MessageID != nil {
 		var ok bool
 		err := s.db.QueryRowContext(ctx,
@@ -46,6 +43,9 @@ func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO decision (feature_id, message_id, body, why, author, created_at) VALUES (?, ?, ?, ?, ?, ?)",
 		d.FeatureID, d.MessageID, d.Body, d.Why, d.Author, now.Format(time.RFC3339Nano))
+	if isForeignKey(err) {
+		return Decision{}, fmt.Errorf("%w: unknown feature %d", ErrInvalid, d.FeatureID)
+	}
 	if err != nil {
 		return Decision{}, fmt.Errorf("insert decision: %w", err)
 	}

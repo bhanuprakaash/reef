@@ -55,13 +55,13 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 	if !_backends[t.Backend] {
 		return Turn{}, fmt.Errorf("%w: unknown backend %q", ErrInvalid, t.Backend)
 	}
-	if err := s.requireChannel(ctx, t.ChannelID); err != nil {
-		return Turn{}, err
-	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO turn (channel_id, role, backend, session_id, status, started_at) VALUES (?, ?, ?, ?, ?, ?)",
 		t.ChannelID, t.Role, t.Backend, t.SessionID, _turnRunning, now.Format(time.RFC3339Nano))
+	if isForeignKey(err) {
+		return Turn{}, fmt.Errorf("%w: unknown channel %d", ErrInvalid, t.ChannelID)
+	}
 	if err != nil {
 		return Turn{}, fmt.Errorf("insert turn: %w", err)
 	}

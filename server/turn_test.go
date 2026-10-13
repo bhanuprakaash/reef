@@ -20,8 +20,8 @@ func TestTurnStatus(t *testing.T) {
 			method:     http.MethodPost,
 			path:       "/turns",
 			give:       `{"channelId":9,"role":"architect","backend":"claude"}`,
-			wantStatus: 404,
-			wantBody:   `{"error":"channel 9: not found"}`,
+			wantStatus: 400,
+			wantBody:   `{"error":"invalid: unknown channel 9"}`,
 		},
 		{
 			name:       "missing role",

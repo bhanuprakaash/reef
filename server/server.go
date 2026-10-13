@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"log"
+	"mime"
+	"net"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -30,7 +34,35 @@ func New(st *store.Store) http.Handler {
 	s.taskRoutes(mux)
 	s.decisionRoutes(mux)
 	s.turnRoutes(mux)
-	return mux
+	return guard(mux)
+}
+
+// guard rejects requests a browser page on another origin could send to the
+// localhost API: a Host that is not a loopback name (DNS rebinding) and a body
+// that is not JSON (a cross-origin form post cannot set that type).
+func guard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host, _, err := net.SplitHostPort(r.Host)
+		if err != nil {
+			host = r.Host
+		}
+		switch strings.Trim(host, "[]") {
+		case "127.0.0.1", "localhost", "::1":
+		default:
+			writeJSON(w, http.StatusForbidden, map[string]string{"error": "forbidden host"})
+			return
+		}
+		switch r.Method {
+		case http.MethodPost, http.MethodPut, http.MethodPatch:
+			mt, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+			if err != nil || mt != "application/json" {
+				writeJSON(w, http.StatusUnsupportedMediaType,
+					map[string]string{"error": "content type must be application/json"})
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // methodNotAllowed is registered without a method for each path. The mux
@@ -41,8 +73,12 @@ func methodNotAllowed(w http.ResponseWriter, r *http.Request) {
 }
 
 func readJSON(r *http.Request, v any) error {
-	if err := json.NewDecoder(r.Body).Decode(v); err != nil {
+	dec := json.NewDecoder(r.Body)
+	if err := dec.Decode(v); err != nil {
 		return fmt.Errorf("%w: bad JSON: %v", store.ErrInvalid, err)
+	}
+	if err := dec.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		return fmt.Errorf("%w: bad JSON: unexpected data after the body", store.ErrInvalid)
 	}
 	return nil
 }
