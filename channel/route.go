@@ -10,18 +10,15 @@ import (
 var _mention = regexp.MustCompile(`\B@([\w-]+)`)
 
 // Route returns the roles that message m wakes, none for nobody. owner is the author of
-// the thread m replies in; roles are the team's role names. In order: a reply wakes its
-// thread's owner, the lead when the user owns it and the user wrote m; every @mentioned
-// role wakes; anything else from the user wakes the lead. A role never wakes itself.
+// the thread m replies in; roles are the team's role names. In order: a user reply wakes
+// its thread's owner, the lead when the user owns it; every @mentioned role wakes; anything
+// else from the user wakes the lead. A role never wakes itself.
 func Route(m store.Message, owner string, roles []string, lead string) []string {
-	if m.ParentID != nil {
+	if m.ParentID != nil && m.Author == _userAuthor {
 		if owner == _userAuthor {
-			owner = ""
-			if m.Author == _userAuthor {
-				owner = lead
-			}
+			owner = lead
 		}
-		if owner != m.Author && slices.Contains(roles, owner) {
+		if slices.Contains(roles, owner) {
 			return []string{owner}
 		}
 	}

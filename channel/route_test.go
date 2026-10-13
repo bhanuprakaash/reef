@@ -29,6 +29,8 @@ func TestRoute(t *testing.T) {
 		{"thread beats mention", store.Message{Author: "user", ParentID: &root, Body: "@developer why?"}, "architect", []string{"architect"}},
 		{"reply in a thread the user owns goes to the lead", store.Message{Author: "user", ParentID: &root, Body: "more"}, "user", []string{"lead"}},
 		{"agent reply in a thread the user owns wakes nobody", store.Message{Author: "architect", ParentID: &root, Body: "done"}, "user", nil},
+		{"agent reply in a lead-owned thread wakes nobody", store.Message{Author: "architect", ParentID: &root, Body: "plan"}, "lead", nil},
+		{"agent reply in a lead-owned thread can mention the lead", store.Message{Author: "architect", ParentID: &root, Body: "@lead plan"}, "lead", []string{"lead"}},
 		{"owner replying in own thread wakes nobody", store.Message{Author: "architect", ParentID: &root, Body: "because"}, "architect", nil},
 		{"owner replying in own thread can still mention", store.Message{Author: "architect", ParentID: &root, Body: "@developer go"}, "architect", []string{"developer"}},
 		{"lead replying in a user thread can mention", store.Message{Author: "lead", ParentID: &root, Body: "@architect plan"}, "user", []string{"architect"}},
