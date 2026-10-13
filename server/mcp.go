@@ -12,8 +12,6 @@ import (
 
 const _defaultSearchLimit = 20
 
-var errNoFeature = errors.New("this channel has no feature")
-
 type mcpServer struct {
 	st  *store.Store
 	tok store.Token
@@ -109,7 +107,7 @@ func (m *mcpServer) feature(ctx context.Context) (store.Feature, error) {
 		return store.Feature{}, err
 	}
 	if c.FeatureID == nil {
-		return store.Feature{}, errNoFeature
+		return store.Feature{}, errors.New("this channel has no feature")
 	}
 	return m.st.Feature(ctx, *c.FeatureID)
 }

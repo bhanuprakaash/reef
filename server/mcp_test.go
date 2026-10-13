@@ -196,7 +196,7 @@ func TestMCPProposeWrap(t *testing.T) {
 	if want := `{"id":1,"message":"proposal saved; the user will approve it"}`; got != want || isErr {
 		t.Errorf("propose_wrap = %q (error %v), want %q", got, isErr, want)
 	}
-	p, err := st.Proposal(context.Background(), 1)
+	p, err := st.PendingProposal(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}

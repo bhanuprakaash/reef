@@ -111,12 +111,8 @@ func TestApproveProposal(t *testing.T) {
 	if !reflect.DeepEqual(added, want) {
 		t.Errorf("decisions added = %v, want %v", added, want)
 	}
-	stored, err := s.Proposal(ctx, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if stored.Status != ProposalApproved {
-		t.Errorf("stored status = %q, want approved", stored.Status)
+	if _, err := s.PendingProposal(ctx, 1); !errors.Is(err, ErrNotFound) {
+		t.Errorf("PendingProposal after approve = %v, want ErrNotFound", err)
 	}
 }
 
@@ -167,7 +163,7 @@ func TestApproveProposalFailureAppliesNothing(t *testing.T) {
 	if n.Body != "old" {
 		t.Errorf("notes = %q, want %q", n.Body, "old")
 	}
-	p, err := s.Proposal(ctx, 1)
+	p, err := s.PendingProposal(ctx, 1)
 	if err != nil {
 		t.Fatal(err)
 	}

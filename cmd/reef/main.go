@@ -151,8 +151,6 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	return nil
 }
 
-// dataDir is the --data value, or Reef's folder in the user's config folder when
-// it is empty.
 func dataDir(flagValue string) (string, error) {
 	if flagValue != "" {
 		return flagValue, nil
@@ -164,22 +162,27 @@ func dataDir(flagValue string) (string, error) {
 	return filepath.Join(dir, "Reef"), nil
 }
 
-// lockDataDir takes the data folder's lock until the returned file is closed, so
-// only one reef serve runs on a folder.
 func lockDataDir(dir string) (*os.File, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, fmt.Errorf("create data dir: %w", err)
 	}
-	lock, err := os.OpenFile(filepath.Join(dir, "reef.lock"), os.O_CREATE|os.O_RDWR, 0o644)
+	return flock(filepath.Join(dir, "reef.lock"),
+		fmt.Errorf("data folder %s is in use by another reef", dir))
+}
+
+// flock takes an exclusive lock on the file at path until the returned file is
+// closed. It returns busy when another process holds the lock.
+func flock(path string, busy error) (*os.File, error) {
+	lock, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o644)
 	if err != nil {
 		return nil, fmt.Errorf("open lock file: %w", err)
 	}
 	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
 		_ = lock.Close()
 		if errors.Is(err, syscall.EWOULDBLOCK) {
-			return nil, fmt.Errorf("data folder %s is in use by another reef", dir)
+			return nil, busy
 		}
-		return nil, fmt.Errorf("lock data folder: %w", err)
+		return nil, fmt.Errorf("lock %s: %w", path, err)
 	}
 	return lock, nil
 }

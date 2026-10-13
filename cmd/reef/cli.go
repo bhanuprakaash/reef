@@ -25,8 +25,6 @@ const (
 	_contextUsage  = "usage: reef context <feature> --role R [--data DIR]"
 )
 
-// command is one CLI command: its flags, which always include --data, and how
-// many positional args it takes.
 type command struct {
 	fs       *flag.FlagSet
 	data     *string

@@ -21,8 +21,7 @@ const (
 	_tokenEnv   = "REEF_TOKEN"
 )
 
-// mcpCmd serves the MCP tools of the channel REEF_TOKEN names, over stdio. Only
-// MCP may go to stdout.
+// mcpCmd must write nothing but MCP to stdout.
 func mcpCmd(ctx context.Context, args []string) error {
 	value := os.Getenv(_tokenEnv)
 	if value == "" {
@@ -93,7 +92,6 @@ func tokenCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
-// shellQuote single-quotes s when a shell would split or expand it.
 func shellQuote(s string) string {
 	if !strings.ContainsAny(s, " \t\n\"'\\$`!*?[]{}()<>|&;#~") {
 		return s
