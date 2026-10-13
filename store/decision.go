@@ -8,6 +8,9 @@ import (
 	"time"
 )
 
+const _insertDecision = "INSERT INTO decision " +
+	"(feature_id, message_id, body, why, author, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+
 // Decision is append-only: there is no update or delete.
 type Decision struct {
 	ID        int64     `json:"id"`
@@ -46,9 +49,7 @@ func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error
 		}
 	}
 	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO decision (feature_id, message_id, body, why, author, created_at) "+
-			"VALUES (?, ?, ?, ?, ?, ?)",
+	res, err := s.db.ExecContext(ctx, _insertDecision,
 		d.FeatureID, d.MessageID, d.Body, d.Why, d.Author, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Decision{}, s.writeErr(ctx, "insert decision", err, ErrInvalid,

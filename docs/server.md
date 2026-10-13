@@ -14,10 +14,15 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
 - `--data` is the data folder. It holds `reef.db` and `reef.lock`, and is created if
   missing. The default is `~/Library/Application Support/Reef`. Use `--data` for tests or a
   second instance.
-- One server owns a data folder. `reef serve` locks `reef.lock` for as long as it runs. A
-  second `reef serve` on the same `--data` exits with `data folder ... is in use by another
-  reef`, before it touches the data, whatever its `--addr`. A second instance needs its own
-  `--data` and its own `--addr`.
+- One server owns a data folder. `reef serve` locks `reef.lock` for as long as it runs; the
+  lock is in `cmd/reef`, not in the store. A second `reef serve` on the same `--data` exits
+  with `data folder ... is in use by another reef`, before it touches the data, whatever its
+  `--addr`. A second instance needs its own `--data` and its own `--addr`.
+- Other `reef` commands (the CLI, `reef mcp`, `reef chat`) do not take the lock. They open
+  `reef.db` directly with `store.Open` while the server runs. WAL mode and a 5 second busy
+  timeout let the processes share the file. Two processes that open a fresh folder at once
+  both succeed: each migration runs in one `BEGIN IMMEDIATE` transaction and re-reads
+  `user_version` inside it, so a migration is applied once.
 - `--addr` is where to listen. The default is `127.0.0.1:7700`. The API has no login, so
   `reef serve` refuses an `--addr` whose host is not `localhost` or a loopback IP,
   including an empty host such as `:7700`, before it opens the data folder. It also refuses
@@ -54,7 +59,9 @@ deleted while a write is in flight gives the same 404 or 400 as one that never e
 
 Ids are integers and are never reused after a delete. Instants (`createdAt`, `startedAt`, ...) are RFC 3339 UTC strings.
 A type with `?` may be `null`. The headings below are the SQL tables in
-[`001_init.sql`](../store/migrations/001_init.sql).
+[`001_init.sql`](../store/migrations/001_init.sql), migration 2
+[`002_token.sql`](../store/migrations/002_token.sql) (`token`) and migration 3
+[`003_proposal.sql`](../store/migrations/003_proposal.sql) (`proposal`).
 
 ### project
 
@@ -71,7 +78,7 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 | --- | --- | --- |
 | `id` | number | |
 | `projectId` | number | required on create; never changes. Deleting the project deletes the feature |
-| `slug` | string | required; lowercase letters, digits and `-`, not starting with `-` (`^[a-z0-9][a-z0-9-]*$`), because it becomes a branch and folder name; unique within the project (409 if taken); fixed after create, a slug in a `PUT` body is ignored |
+| `slug` | string | required; lowercase letters, digits and `-`, not starting with `-` (`^[a-z0-9][a-z0-9-]*$`) and not only digits (`invalid: feature slug "2024" must contain a letter or -`), because it becomes a branch and folder name and a digit-only `<feature>` ref means an id; unique within the project (409 if taken); fixed after create, a slug in a `PUT` body is ignored |
 | `name` | string | required |
 | `goal` | string | default `""` |
 | `stage` | string | default `ideation`; not checked against a list |
@@ -164,13 +171,44 @@ The list is global. A task belongs to a project and may name a feature.
 | `createdAt` | string | |
 | `updatedAt` | string | set on every update |
 
+### token
+
+Lets one teammate's `reef mcp` act as one role in one channel. No REST route: `reef
+token` and `reef chat` make them, `reef mcp` reads them, and `reef chat` deletes its own
+when it ends. See [memory.md](memory.md#tokens).
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `token` | string | the key; 64 hex characters from 32 random bytes |
+| `channelId` | number | required. Deleting the channel deletes the token |
+| `role` | string | required; the author of what the teammate writes |
+| `createdAt` | string | never expires |
+
+### proposal
+
+A wrap-up proposal: the new brief, the role's notes and the decisions to record. No REST
+route: `propose_wrap` makes one, `reef chat` approves or rejects it. See
+[memory.md](memory.md#wrap-up).
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `id` | number | |
+| `channelId` | number | required; must be a channel of a feature. Deleting the channel deletes the proposal |
+| `role` | string | required; author of the brief, notes and decisions it applies |
+| `brief` | string | required, not empty; the full new brief |
+| `notes` | string | may be empty; replaces the role's notes |
+| `decisions` | array | `{"body", "why"}` each, `body` required. The SQL column holds them as JSON text |
+| `status` | string | `pending` (default), `approved` or `rejected`. Decided once |
+| `createdAt` | string | |
+| `decidedAt` | string? | `null` while pending |
+
 ## REST
 
 `{id}` is a number. Lists come back as `[]` when empty, ordered by id (oldest first).
 Create returns 201 and the row. Update returns 200 and the row. Delete returns 204 and no
 body. Deleting a row deletes what hangs off it by foreign key: a project takes its
 features, channels and tasks; a feature takes its briefs, notes, decisions and channels;
-a channel takes its messages and turns.
+a channel takes its messages, turns, tokens and proposals.
 
 | Route | Filters and body | OK | Notable errors |
 | --- | --- | --- | --- |

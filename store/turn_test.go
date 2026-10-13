@@ -74,7 +74,7 @@ func TestFailRunningTurns(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	failed, err := s.FailRunningTurns(ctx)
+	failed, err := s.FailRunningTurns(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,7 +110,7 @@ func TestFailRunningTurns(t *testing.T) {
 		}
 	}
 
-	failed, err = s.FailRunningTurns(ctx)
+	failed, err = s.FailRunningTurns(ctx, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,7 +144,7 @@ func TestSetTurnSession(t *testing.T) {
 	if _, err := s.SetTurnSession(ctx, 1, "abc"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.FailRunningTurns(ctx); err != nil {
+	if _, err := s.FailRunningTurns(ctx, nil); err != nil {
 		t.Fatal(err)
 	}
 	tr, err := s.Turn(ctx, 1)

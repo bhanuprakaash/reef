@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -20,8 +21,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 1 {
-		t.Errorf("user_version = %d, want 1", version)
+	if version != 3 {
+		t.Errorf("user_version = %d, want 3", version)
 	}
 
 	rows, err := s.db.Query("SELECT name FROM sqlite_master WHERE type = 'table' " +
@@ -40,7 +41,7 @@ func TestOpen(t *testing.T) {
 	}
 	want := []string{
 		"brief", "channel", "decision", "feature", "message",
-		"project", "role_notes", "task", "turn",
+		"project", "proposal", "role_notes", "task", "token", "turn",
 	}
 	if !reflect.DeepEqual(tables, want) {
 		t.Errorf("tables = %v, want %v", tables, want)
@@ -63,8 +64,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 1 {
-		t.Errorf("user_version after reopen = %d, want 1", version)
+	if version != 3 {
+		t.Errorf("user_version after reopen = %d, want 3", version)
 	}
 	var name string
 	if err := s.db.QueryRow("SELECT name FROM project WHERE id = 1").Scan(&name); err != nil {
@@ -105,24 +106,36 @@ func TestOpenNewerDatabase(t *testing.T) {
 	}
 }
 
-func TestOpenTwice(t *testing.T) {
-	dir := t.TempDir()
-	first, err := Open(dir)
-	if err != nil {
+func TestOpenConcurrent(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "Reef")
+	const n = 8
+	start := make(chan struct{})
+	stores := make([]*Store, n)
+	errs := make([]error, n)
+	var wg sync.WaitGroup
+	for i := range n {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			stores[i], errs[i] = Open(dir)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	for i := range n {
+		if errs[i] != nil {
+			t.Fatalf("Open %d: %v", i, errs[i])
+		}
+		defer func() { _ = stores[i].Close() }()
+	}
+	var version int
+	if err := stores[0].db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	_, err = Open(dir)
-	if err == nil || !strings.Contains(err.Error(), "in use by another reef") {
-		t.Errorf("second Open = %v, want an in-use error", err)
+	if version != 3 {
+		t.Errorf("user_version = %d, want 3", version)
 	}
-	if err := first.Close(); err != nil {
-		t.Fatal(err)
-	}
-	second, err := Open(dir)
-	if err != nil {
-		t.Fatalf("Open after Close: %v", err)
-	}
-	defer func() { _ = second.Close() }()
 }
 
 func TestForeignKeys(t *testing.T) {
