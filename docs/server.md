@@ -19,8 +19,9 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
   with `data folder ... is in use by another reef`, before it touches the data, whatever its
   `--addr`. A second instance needs its own `--data` and its own `--addr`.
 - Other `reef` commands (the CLI, `reef mcp`, `reef chat`) do not take the lock. They open
-  `reef.db` directly with `store.Open` while the server runs. WAL mode and a 5 second busy
-  timeout let the processes share the file. Two processes that open a fresh folder at once
+  `reef.db` directly with `store.Open` while the server runs. `reef chat` takes its own
+  `chat-<channel id>.lock` while it runs; restart recovery reads it (see below). WAL mode
+  and a 5 second busy timeout let the processes share the file. Two processes that open a fresh folder at once
   both succeed: each migration runs in one `BEGIN IMMEDIATE` transaction and re-reads
   `user_version` inside it, so a migration is applied once.
 - `--addr` is where to listen. The default is `127.0.0.1:7700`. The API has no login, so
@@ -271,8 +272,8 @@ The API has no way to change or remove these rows.
 A turn is `running` only while a server owns it. If the server stops, the agent process
 dies with it, so a `running` turn in the file can no longer finish. At start, once it
 holds the data folder and has bound `--addr` but before it serves requests, `reef serve`
-fails them all. A second `reef serve` never gets this far on a folder in use, so it cannot
-fail the turns of the server that owns it:
+fails them all, except the turns of a live `reef chat`. A second `reef serve` never gets
+this far on a folder in use, so it cannot fail the turns of the server that owns it:
 
 - Each `running` turn becomes `failed`, with `error` `server restarted` and `endedAt` set.
 - Each affected channel gets one message from author `reef`, naming the turns. For turns 2
@@ -282,6 +283,11 @@ fail the turns of the server that owns it:
 
 - With one turn: `Turn 2 by developer failed: server restarted. The worktree may be dirty; retry or roll back.`
 - The server logs `marked N running turns failed: server restarted`.
+- A `running` turn in a channel whose `chat-<channel id>.lock` a live `reef chat` holds is
+  left `running`, and that channel gets no message from `reef`. `reef chat` is a separate
+  process, so a server restart does not kill its agent, and its turn can still finish.
+  The count in the log does not include it. A chat that died leaves its lock free, so
+  its turn is failed like any other.
 
 An agent may have left half-done edits in the worktree, so the message tells the user to
 check before retrying.
