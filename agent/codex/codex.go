@@ -37,12 +37,12 @@ type (
 		stderr   tail
 		threadID string
 		nextID   int
-		used     bool
 		events   chan agent.Event
 		done     chan struct{} // closed by Interrupt
 		exited   chan struct{} // closed when run has returned and Events is closed
-		stop     sync.Once
-		mu       sync.Mutex // serializes writes to stdin
+		writeMu  sync.Mutex    // serializes writes to stdin
+		mu       sync.Mutex    // guards used, cmd and Interrupt
+		used     bool
 	}
 
 	// tail keeps the last _stderrKeep bytes written to it.
@@ -143,35 +143,60 @@ func (a *Agent) Events() <-chan agent.Event { return a.events }
 // the commands it started, which run in their own process groups; SIGKILL follows after
 // _killAfter.
 func (a *Agent) Interrupt() error {
-	var err error
-	a.stop.Do(func() {
-		a.used = true
-		close(a.done)
-		if a.cmd == nil {
-			close(a.events)
-			return
-		}
-		select {
-		case <-a.exited:
-			return
-		default:
-		}
-		err = a.signal(syscall.SIGTERM)
-		select {
-		case <-a.exited:
-		case <-time.After(_killAfter):
-			err = errors.Join(err, a.signal(syscall.SIGKILL))
-			<-a.exited
-		}
-	})
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if a.interrupted() {
+		return nil
+	}
+	a.used = true
+	close(a.done)
+	if a.cmd == nil {
+		close(a.events)
+		return nil
+	}
+	select {
+	case <-a.exited:
+		return nil
+	default:
+	}
+	err := a.signal(syscall.SIGTERM)
+	select {
+	case <-a.exited:
+	case <-time.After(_killAfter):
+		err = errors.Join(err, a.signal(syscall.SIGKILL))
+		<-a.exited
+	}
 	return err
 }
 
 func (a *Agent) launch(
 	ctx context.Context, cfg agent.Config, method string, params map[string]any,
 ) error {
+	ready, err := a.spawn(cfg, method, params)
+	if err != nil {
+		return err
+	}
+	stop := context.AfterFunc(ctx, func() { _ = a.Interrupt() })
+	err = <-ready
+	if !stop() || err != nil {
+		_ = a.Interrupt()
+		if ctx.Err() != nil {
+			return fmt.Errorf("%s: %w", method, ctx.Err())
+		}
+		return err
+	}
+	return nil
+}
+
+// spawn starts the process and the goroutine that runs the handshake. It holds mu so that
+// Interrupt sees either no process or a started one.
+func (a *Agent) spawn(
+	cfg agent.Config, method string, params map[string]any,
+) (<-chan error, error) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
 	if a.used {
-		return errors.New("codex agent already used")
+		return nil, errors.New("codex agent already used")
 	}
 	a.used = true
 	cmd := exec.Command("codex", "app-server")
@@ -182,26 +207,19 @@ func (a *Agent) launch(
 	cmd.WaitDelay = _waitDelay
 	stdin, err := cmd.StdinPipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("start codex: %w", err)
+		return nil, fmt.Errorf("start codex: %w", err)
 	}
 	a.cmd, a.stdin, a.stdout = cmd, stdin, bufio.NewReader(stdout)
-
-	stopKill := context.AfterFunc(ctx, func() { _ = a.signal(syscall.SIGTERM) })
-	defer stopKill()
 	ready := make(chan error, 1)
 	go a.run(method, params, ready)
-	if err := <-ready; err != nil {
-		_ = a.Interrupt()
-		return err
-	}
-	return nil
+	return ready, nil
 }
 
 // run owns stdout: it does the handshake, streams events, then reaps the process.
@@ -281,8 +299,8 @@ func (a *Agent) write(v any) error {
 	if err != nil {
 		return err
 	}
-	a.mu.Lock()
-	defer a.mu.Unlock()
+	a.writeMu.Lock()
+	defer a.writeMu.Unlock()
 	_, err = a.stdin.Write(append(b, '\n'))
 	return err
 }
