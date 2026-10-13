@@ -28,6 +28,10 @@ type fakeSession struct {
 	promoted   atomic.Int32
 	noProposal atomic.Bool
 
+	// onRun, when set, runs inside every message turn: it stands in for the messages an
+	// agent stores while it works.
+	onRun func(role, text string, parent *int64)
+
 	mu  sync.Mutex
 	ran []string
 }
@@ -40,11 +44,14 @@ func (f *fakeSession) Say(ctx context.Context, body string, parent *int64) error
 }
 
 func (f *fakeSession) RunAs(
-	ctx context.Context, _, text string, _ *int64, onEvent func(agent.Event),
+	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
 ) error {
 	f.mu.Lock()
 	f.ran = append(f.ran, text)
 	f.mu.Unlock()
+	if f.onRun != nil {
+		f.onRun(role, text, parent)
+	}
 	switch text {
 	case "cap":
 		const reason = "capped: more than 25 tool calls"
@@ -54,7 +61,7 @@ func (f *fakeSession) RunAs(
 		err := fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
 		return errors.Join(err, f.st.DeleteChannel(ctx, f.channelID.Load()))
 	}
-	if text != "block" {
+	if !strings.HasSuffix(text, "block") {
 		onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
 		return nil
 	}
@@ -267,30 +274,138 @@ func TestSend_Parent(t *testing.T) {
 	}
 }
 
-func TestSend_Role(t *testing.T) {
-	env := newLiveEnv(t)
-	_, err := env.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: []store.Role{
+// teamChannel adds the team core, a lead and an architect, and a channel of it. It returns
+// the channel's id and a function that stores a message as author.
+func (e *liveEnv) teamChannel(t *testing.T) (int, func(author, body string, parent *int64)) {
+	t.Helper()
+	_, err := e.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "architect", Backend: "claude"},
 	}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"name":"t","team":"core"}`)
-	sub := subscribeTo(t, env.url, 2)
-
-	if status, body := do(t, http.MethodPost, env.url+"/channels/2/send",
-		`{"text":"plan","role":"architect"}`); status != 202 {
-		t.Fatalf("send to architect = %d %s, want 202", status, body)
+	do(t, http.MethodPost, e.url+"/channels", `{"projectId":1,"name":"t","team":"core"}`)
+	return 2, func(author, body string, parent *int64) {
+		t.Helper()
+		_, err := e.st.CreateMessage(context.Background(),
+			store.Message{ChannelID: 2, ParentID: parent, Author: author, Body: body})
+		if err != nil {
+			t.Fatal(err)
+		}
 	}
-	sub.want(t, _idleFrame, `turn {"role":"architect","status":"running"}`,
-		`agent {"kind":"text","text":"hi"}`, `turn {"role":"architect","status":"done"}`)
+}
 
-	status, body := do(t, http.MethodPost, env.url+"/channels/2/send",
-		`{"text":"plan","role":"tester"}`)
-	if status != 400 || body != `{"error":"invalid: team core has no role tester"}` {
-		t.Errorf("send to tester = %d %s, want 400 no role tester", status, body)
+func (e *liveEnv) ranTexts() []string {
+	e.fake.mu.Lock()
+	defer e.fake.mu.Unlock()
+	return slices.Clone(e.fake.ran)
+}
+
+func TestSend_RoutesAndWakes(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, text string, parent *int64) {
+		switch {
+		case role == "lead":
+			post("lead", "@architect plan it", parent)
+		case role == "architect" && parent == nil:
+			post("architect", "the plan", nil)
+		case role == "architect":
+			post("architect", "because", parent)
+		}
 	}
+	sub := subscribeTo(t, env.url, id)
+
+	if status, _ := env.sendTo(t, id, "login please"); status != 202 {
+		t.Fatalf("send = %d, want 202", status)
+	}
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`)
+
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/send", env.url, id),
+		`{"text":"why?","parent":3}`); status != 202 {
+		t.Fatalf("reply in the thread = %d, want 202", status)
+	}
+	sub.want(t, `turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`)
+
+	want := []string{
+		"login please",
+		"lead wrote: @architect plan it",
+		"Thread so far:\narchitect: the plan\n\nwhy?",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
+	}
+	msgs, err := env.st.Messages(context.Background(), int64(id), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range msgs {
+		parent := "-"
+		if m.ParentID != nil {
+			parent = fmt.Sprint(*m.ParentID)
+		}
+		got = append(got, fmt.Sprintf("%d %s %s %q", m.ID, m.Author, parent, m.Body))
+	}
+	wantMsgs := []string{
+		`1 user - "login please"`, `2 lead - "@architect plan it"`, `3 architect - "the plan"`,
+		`4 user 3 "why?"`, `5 architect 3 "because"`,
+	}
+	if !slices.Equal(got, wantMsgs) {
+		t.Errorf("messages = %q, want %q", got, wantMsgs)
+	}
+}
+
+func TestSend_WakesByPost(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, parent *int64) {
+		if role == "lead" {
+			post("lead", "@architect look at this", parent)
+			post("lead", "done, nothing to add", parent)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`)
+	want := []string{"go", "lead wrote: @architect look at this"}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q: the post that mentions nobody wakes no one", got, want)
+	}
+}
+
+func TestSend_WhileWakeChainRuns(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect block", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	<-env.fake.started
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+
+	status, body := env.sendTo(t, id, "again")
+	if status != 409 || body != `{"error":"channel 2 has a turn running: conflict"}` {
+		t.Errorf("send during the wake = %d %s, want 409 turn running", status, body)
+	}
+	env.fake.release <- struct{}{}
+	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"architect","status":"done"}`)
 }
 
 func TestSend_Wrap(t *testing.T) {
