@@ -80,8 +80,8 @@ Rules for every command:
 | `reef task list [<feature>] [--status S]` | Lists the feature's tasks, or all tasks of the current folder's project. `S` is `todo`, `doing` or `done` | one task per line, as for `task add` |
 | `reef context <feature> --role R` | Prints the context prompt for role `R` (see below) | the prompt |
 | `reef token <feature> --role R` | Makes a channel and a token for role `R` (see Tokens) | a `claude mcp add` command |
-| `reef wrap list [<feature>]` | Lists pending wrap-up proposals (see Wrap-up): of the feature, or of every feature | `1  login  3  architect  2026-10-13`: id, feature slug, channel id, role, created date |
-| `reef wrap show <id>` | Prints the proposal the way `reef chat` does | `proposal 1 from architect`, then brief, notes and decisions |
+| `reef wrap list [<feature>]` | Lists pending wrap-up proposals (see Wrap-up): of the feature, or of the current folder's project | `1  login  3  architect  2026-10-13`: id, feature slug, channel id, role, created date |
+| `reef wrap show <id>` | Prints a proposal and its status | `proposal 1 from architect`, status, then brief, notes and decisions |
 | `reef wrap approve <id>` | Approves a pending proposal | `approved: brief, notes and 1 decisions saved` |
 | `reef wrap reject <id>` | Rejects a pending proposal | `rejected: nothing changed` |
 | `reef chat ...` | Runs a channel in the terminal (see below) | the conversation |
@@ -254,9 +254,10 @@ A channel ends explicitly, never on a timer. The user types `/wrap` in `reef cha
    than the one pending before `/wrap`. With none, it prints `no proposal made`.
 4. Otherwise it prints the proposal: brief, notes and decisions, then `approve? [y/N]`.
 5. The next line typed after the prompt decides. `y` or `yes` (any case) approves.
-   Anything else, a blank line too, rejects. `reef chat` reads stdin all the time, so a
-   line in its queue when the prompt is printed was typed before it: it is not the
-   answer. It prints `ignored while wrapping: <line>` for each, before `approve? [y/N]`.
+   Anything else, a blank line too, rejects. `reef chat` reads stdin all the time, so it
+   drops lines already queued after first printing `approve? [y/N]`. It prints
+   `ignored while wrapping: <line>` for each non-blank dropped line, then prints the prompt
+   again. Those lines are not answers.
    If stdin ends at the prompt, or the user presses Ctrl-C there, the proposal stays
    `pending` and it prints `proposal 1 left pending`. After Ctrl-C it then prints the resume line and exits 0.
 

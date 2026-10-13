@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"testing"
 	"time"
 
@@ -15,7 +16,11 @@ func TestCLI_Wrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	p, err := st.CreateProject(ctx, store.Project{Name: "shop", Path: "/tmp/shop"})
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.CreateProject(ctx, store.Project{Name: "shop", Path: cwd})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -28,10 +33,24 @@ func TestCLI_Wrap(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
+	other, err := st.CreateProject(ctx, store.Project{Name: "other", Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := st.CreateFeature(ctx, store.Feature{ProjectID: other.ID, Slug: "outside", Name: "outside"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{ProjectID: other.ID, FeatureID: &f.ID, Name: "chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().UTC().Format(time.DateOnly)
 	for _, prop := range []store.Proposal{
 		{ChannelID: 1, Role: "architect", Brief: "sign in with sessions", Notes: "n1",
 			Decisions: []store.ProposedDecision{{Body: "cookie sessions", Why: "simple"}, {Body: "24h expiry"}}},
 		{ChannelID: 2, Role: "reviewer", Brief: "bill monthly", Notes: "n2"},
+		{ChannelID: ch.ID, Role: "developer", Brief: "outside project"},
 	} {
 		if _, err := st.CreateProposal(ctx, prop); err != nil {
 			t.Fatal(err)
@@ -41,7 +60,6 @@ func TestCLI_Wrap(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	day := time.Now().UTC().Format(time.DateOnly)
 	steps := []struct {
 		name string
 		give []string
@@ -51,9 +69,12 @@ func TestCLI_Wrap(t *testing.T) {
 			"1  login  1  architect  " + day + "\n2  billing  2  reviewer  " + day + "\n"},
 		{"list feature", []string{"wrap", "list", "billing"}, "2  billing  2  reviewer  " + day + "\n"},
 		{"show", []string{"wrap", "show", "1"},
-			"proposal 1 from architect\n\nbrief:\nsign in with sessions\n\nnotes:\nn1\n\n" +
+			"proposal 1 from architect\nstatus: pending\n\nbrief:\nsign in with sessions\n\nnotes:\nn1\n\n" +
 				"decisions:\n- cookie sessions (simple)\n- 24h expiry\n"},
 		{"approve", []string{"wrap", "approve", "1"}, "approved: brief, notes and 2 decisions saved\n"},
+		{"show decided", []string{"wrap", "show", "1"},
+			"proposal 1 from architect\nstatus: approved\n\nbrief:\nsign in with sessions\n\nnotes:\nn1\n\n" +
+				"decisions:\n- cookie sessions (simple)\n- 24h expiry\n"},
 		{"reject", []string{"wrap", "reject", "2"}, "rejected: nothing changed\n"},
 		{"list empty", []string{"wrap", "list"}, ""},
 	}

@@ -188,7 +188,8 @@ when it ends. See [memory.md](memory.md#tokens).
 ### proposal
 
 A wrap-up proposal: the new brief, the role's notes and the decisions to record. No REST
-route: `propose_wrap` makes one, `reef chat` approves or rejects it. See
+route: `propose_wrap` makes one, `reef chat` prompts for approval, and `reef wrap approve`
+or `reef wrap reject` approves or rejects it. See
 [memory.md](memory.md#wrap-up).
 
 | Field | JSON | Notes |

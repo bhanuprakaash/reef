@@ -11,9 +11,12 @@ import (
 
 // Proposal statuses. Only a pending proposal can be approved or rejected.
 const (
-	ProposalPending    = "pending"
-	ProposalApproved   = "approved"
-	ProposalRejected   = "rejected"
+	ProposalPending  = "pending"
+	ProposalApproved = "approved"
+	ProposalRejected = "rejected"
+)
+
+const (
 	_insertNewDecision = "INSERT INTO decision (feature_id, message_id, body, why, author, created_at) " +
 		"SELECT ?, NULL, ?, ?, ?, ? WHERE NOT EXISTS " +
 		"(SELECT 1 FROM decision WHERE feature_id = ? AND body = ?)"
@@ -107,12 +110,18 @@ func (s *Store) Proposal(ctx context.Context, id int64) (Proposal, error) {
 }
 
 // PendingProposals returns every pending proposal, oldest first. With featureID
-// set, only those of that feature's channels.
-func (s *Store) PendingProposals(ctx context.Context, featureID *int64) ([]Proposal, error) {
+// set, only those of that feature's channels. With projectID set, only that project's.
+func (s *Store) PendingProposals(
+	ctx context.Context, featureID, projectID *int64,
+) ([]Proposal, error) {
 	query, args := "SELECT "+_proposalCols+" FROM proposal WHERE status = ?", []any{ProposalPending}
 	if featureID != nil {
 		query += " AND channel_id IN (SELECT id FROM channel WHERE feature_id = ?)"
 		args = append(args, *featureID)
+	}
+	if projectID != nil {
+		query += " AND channel_id IN (SELECT id FROM channel WHERE project_id = ?)"
+		args = append(args, *projectID)
 	}
 	rows, err := s.db.QueryContext(ctx, query+" ORDER BY id", args...)
 	if err != nil {
