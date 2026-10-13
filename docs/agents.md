@@ -146,7 +146,7 @@ A JSON-RPC `error` response after the handshake (for example to `turn/start`) be
 // MCP tool
 {"method":"item/started","params":{"item":{"type":"mcpToolCall","id":"exec-fb96...","server":"reef-ping","tool":"reef_ping","status":"inProgress","arguments":{}}}}
 {"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"exec-fb96...","status":"completed","result":{"content":[{"type":"text","text":"pong"}]},"error":null}}}
-// usage: one per model call, several per turn. "last" is that call. The adapter sums them.
+// usage: one per model call, several per turn. "last" is that call. The adapter emits each as a `usage` event.
 {"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"total":{...},"last":{"inputTokens":15026,"cachedInputTokens":14080,"outputTokens":118,"reasoningOutputTokens":45}}}}
 // turn end
 {"method":"turn/completed","params":{"threadId":"...","turn":{"id":"...","status":"completed","error":null}}}
@@ -163,10 +163,10 @@ and `agentMessage`.
 | Event kind | Claude Code source | Codex source |
 | --- | --- | --- |
 | `session` | `system`/`init` line, `session_id`. Repeats every turn, same id. First one comes after the first `Send`. | Response to `thread/start` / `thread/resume`, `thread.id`. Once, as the first event, before any `Send`. |
-| `text` | `stream_event` with `content_block_delta` / `text_delta`, `delta.text` | `item/agentMessage/delta`, `params.delta` |
+| `text` | `stream_event` with `content_block_delta` / `text_delta`, `delta.text` | `item/agentMessage/delta`, `params.delta`. Each agent message is its own item (`params.itemId`); the first delta of a later item in the same turn is preceded by a `text` of `"\n\n"`, so messages around a tool call stay apart. |
 | `tool_call` | `assistant` line, each `tool_use` block: `id`, `name`, `input` | `item/started` for `commandExecution` (name `commandExecution`, input `{"command":...}`), `fileChange` (name `fileChange`, input `changes`), `mcpToolCall` (name `mcp__<server>__<tool>`, input `arguments`) |
 | `tool_result` | `user` line, each `tool_result` block: `tool_use_id`, text of `content`, `is_error` | `item/completed` for the same three item types. Output: `aggregatedOutput` / status (`fileChange`) / MCP error message or joined `result.content` text. `isError` if status is not `completed` or `exitCode` is not 0. |
-| `usage` | `result` line `usage`: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). One per turn, just before `turn_end` or `error`. The process-exit `error` has no usage: claude reports usage only in its `result` line. | Sum of `thread/tokenUsage/updated` `last` over the turn. Per call: `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. One per turn, just before every error that ends it (`turn/completed` failed, a JSON-RPC error response, `codex exited` mid-turn) and before `turn_end`; zero if the turn made no model call. |
+| `usage` | `result` line `usage`: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). One per turn, just before `turn_end` or `error`. The process-exit `error` has no usage: claude reports usage only in its `result` line. | `thread/tokenUsage/updated` `last`, one `usage` per model call as it arrives, so a turn that is interrupted keeps what it used; the turn's usage is their sum. Per call: `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. None for a turn that made no model call. |
 | `turn_end` | `result` line with `is_error` false | `turn/completed` with any status but `failed` |
 | `error` | `result` with `is_error` true (`result` and `errors[]` joined). Also a non-zero exit when the last event was not already an `error`: `claude exited: ...: <stderr>`. | `turn/completed` with status `failed` (`turn.error.message`), or a JSON-RPC error response. Also a non-zero exit on its own: `codex exited: <err>: <stderr>`. |
 
@@ -249,7 +249,7 @@ Noise and errors
   (`claude exited: ... <stderr>`) is added only when the last event was not already an
   `error`, so a crash between turns still reports.
 - Codex: a non-zero exit on its own gives one `codex exited: <err>: <stderr>` error. If it
-  dies mid-turn, the adapter emits the usage summed so far first.
+  dies mid-turn, the usage of the finished model calls was already emitted.
 - Both keep the last 4 KiB of stderr, and emit no error after `Interrupt`.
 
 ## Writing a third adapter

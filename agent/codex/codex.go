@@ -26,6 +26,8 @@ const (
 	_killAfter  = time.Second
 	_waitDelay  = 2 * time.Second
 	_stderrKeep = 4 << 10
+
+	_messageBreak = "\n\n"
 )
 
 type (
@@ -43,8 +45,9 @@ type (
 		writeMu  sync.Mutex    // serializes writes to stdin
 		mu       sync.Mutex    // guards used, cmd and Interrupt
 		used     bool
-		turn     agent.Usage // sum so far of the turn in progress; owned by run
-		inTurn   bool        // between turn/started and the turn's end; resume replays usage outside it
+		inTurn   bool   // between turn/started and the turn's end; resume replays usage outside it
+		msgID    string // agent message item the last text delta belonged to; owned by run
+		wrote    bool   // the turn in progress has sent text; owned by run
 	}
 
 	// tail keeps the last _stderrKeep bytes written to it.
@@ -60,6 +63,7 @@ type (
 		Method string          `json:"method"`
 		Params struct {
 			Delta      string `json:"delta"`
+			ItemID     string `json:"itemId"`
 			Item       item   `json:"item"`
 			TokenUsage struct {
 				Last struct {
@@ -237,7 +241,7 @@ func (a *Agent) run(method string, params map[string]any, ready chan<- error) {
 	a.read()
 	// Wait closes stdout, so it must come after the last read.
 	err = a.cmd.Wait()
-	if err == nil || a.interrupted() || (a.inTurn && !a.flushUsage()) {
+	if err == nil || a.interrupted() {
 		return
 	}
 	a.emit(agent.Event{
@@ -332,31 +336,32 @@ func (a *Agent) read() {
 }
 
 // handle emits the event for m and reports whether to keep reading. Codex reports each
-// model call; a turn's usage is their sum, emitted before the event that ends the turn.
+// model call; each report is emitted as it arrives, so an interrupted turn keeps its usage.
+// A break goes before the text of a second agent message in a turn.
 func (a *Agent) handle(m message) bool {
 	switch m.Method {
 	case "turn/started":
-		a.inTurn = true
+		a.inTurn, a.msgID, a.wrote = true, "", false
 	case "thread/tokenUsage/updated":
 		if ev, _ := m.event(); a.inTurn {
-			a.turn.Add(*ev.Usage)
+			return a.emit(ev)
 		}
 		return true
+	case "item/agentMessage/delta":
+		if a.wrote && m.Params.ItemID != a.msgID &&
+			!a.emit(agent.Event{Kind: agent.KindText, Text: _messageBreak}) {
+			return false
+		}
+		a.msgID, a.wrote = m.Params.ItemID, true
 	}
 	ev, ok := m.event()
 	if !ok {
 		return true
 	}
-	if (ev.Kind == agent.KindTurnEnd || ev.Kind == agent.KindError) && !a.flushUsage() {
-		return false
+	if ev.Kind == agent.KindTurnEnd || ev.Kind == agent.KindError {
+		a.inTurn = false
 	}
 	return a.emit(ev)
-}
-
-func (a *Agent) flushUsage() bool {
-	usage := a.turn
-	a.turn, a.inTurn = agent.Usage{}, false
-	return a.emit(agent.Event{Kind: agent.KindUsage, Usage: &usage})
 }
 
 func (a *Agent) emit(ev agent.Event) bool {
