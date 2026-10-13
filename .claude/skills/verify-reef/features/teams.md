@@ -24,7 +24,7 @@ live, Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 - `route-default-lead` a user message with no mention and no thread goes to the lead.
 - `post-to-channel` a message the lead posts with the `post_to_channel` tool wakes the architect after the lead's turn ends, even when the lead's reply names no one.
 - `route-mentions` one message that mentions two roles wakes both; a turn that posts `@architect` and replies naming `@architect` runs one architect turn; an agent's reply in a thread, owned by the user or the lead, wakes nobody unless it mentions a role.
-- `wake-ids` a wake's prompt starts with `[channel N, message N, thread N]`, and `post_to_channel` with `parent` set to that thread id stores the post in the thread.
+- `wake-ids` a wake's prompt starts with `[channel N, message N]` for a top-level message and `[channel N, message N, thread N]` for a thread reply, and `post_to_channel` with `parent` set to the header's thread id stores the post in the thread.
 - `token-role` a teammate's tool calls carry its own role: `record_decision` by the lead token has author `lead`, by the architect's session author `architect`.
 - `hop-cap` two teammates that keep mentioning each other run 4 hops, the 5th does not run, the channel is paused with `hop cap: 4 agent hops without a user message`; `continue` runs the held wake and counts from 0 again; a user send clears the pause, drops the held wake and counts from 0.
 - `gate-default` the default team has no gate on lead to architect: the wake runs and `GET /channels/{id}/approvals` is `[]`.

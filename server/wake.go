@@ -9,6 +9,8 @@ import (
 	"github.com/bhanuprakaash/reef/channel"
 )
 
+const _userAuthor = "user"
+
 // wake is a turn to run: role answers text, and its reply goes in the thread of parent.
 // from is the author of the message messageID that woke it; gated is set when the team
 // holds wakes from that author to role for approval.
@@ -22,12 +24,13 @@ type wake struct {
 }
 
 // wakes routes the messages of channel id stored after the message with id after, in
-// order, into the turns they wake. It also returns the id of the last message routed, or
-// after when there is none. A user message runs as its own text; an agent message as
-// "<author> wrote: <body>". Each starts with a line naming the channel, the message and its
-// thread root; a message in a thread comes with the thread before it. A role woken by
-// several messages gets one wake, their texts in id order.
-func (s *server) wakes(ctx context.Context, id, after int64) ([]wake, int64, error) {
+// order, into the turns they wake. Only the messages written by author are routed. It also
+// returns the id of the last message read, or after when there is none. A user message runs
+// as its own text; an agent message as "<author> wrote: <body>". Each starts with a line
+// naming the channel and the message, and its thread root when it is a reply; a message in a
+// thread comes with the thread before it. A role woken by several messages in the same
+// thread gets one wake, their texts in id order.
+func (s *server) wakes(ctx context.Context, id, after int64, author string) ([]wake, int64, error) {
 	ch, err := s.st.Channel(ctx, id)
 	if err != nil {
 		return nil, after, err
@@ -47,6 +50,9 @@ func (s *server) wakes(ctx context.Context, id, after int64) ([]wake, int64, err
 	var ws []wake
 	for _, m := range msgs {
 		after = m.ID
+		if m.Author != author {
+			continue
+		}
 		var owner string
 		if m.ParentID != nil {
 			if owner, err = s.st.ThreadOwner(ctx, m.ID); err != nil {
@@ -58,12 +64,13 @@ func (s *server) wakes(ctx context.Context, id, after int64) ([]wake, int64, err
 			continue
 		}
 		text := m.Body
-		if m.Author != "user" {
+		if m.Author != _userAuthor {
 			text = m.Author + " wrote: " + m.Body
 		}
-		root := m.ID
+		header := fmt.Sprintf("[channel %d, message %d]", id, m.ID)
 		if m.ParentID != nil {
-			root = *m.ParentID
+			root := *m.ParentID
+			header = fmt.Sprintf("[channel %d, message %d, thread %d]", id, m.ID, root)
 			thread, err := s.st.Thread(ctx, id, root)
 			if err != nil {
 				return nil, after, err
@@ -77,10 +84,12 @@ func (s *server) wakes(ctx context.Context, id, after int64) ([]wake, int64, err
 			}
 			text = b.String() + "\n" + text
 		}
-		text = fmt.Sprintf("[channel %d, message %d, thread %d]\n%s", id, m.ID, root, text)
+		text = header + "\n" + text
 		for _, role := range woken {
 			gated := team.Gated(m.Author, role)
-			if i := slices.IndexFunc(ws, func(w wake) bool { return w.role == role }); i >= 0 {
+			if i := slices.IndexFunc(ws, func(w wake) bool {
+				return w.role == role && sameParent(w.parent, m.ParentID)
+			}); i >= 0 {
 				ws[i].text += "\n\n" + text
 				ws[i].gated = ws[i].gated || gated
 				continue
@@ -92,4 +101,8 @@ func (s *server) wakes(ctx context.Context, id, after int64) ([]wake, int64, err
 		}
 	}
 	return ws, after, nil
+}
+
+func sameParent(a, b *int64) bool {
+	return a == b || a != nil && b != nil && *a == *b
 }

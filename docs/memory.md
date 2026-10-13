@@ -220,7 +220,9 @@ holds a message body. Its shape:
    It says that to hand work over you @mention a teammate in a message, which wakes them, and
    that your reply, and anything you send with `post_to_channel`, is posted to the channel
    and nobody sees anything else. A message that wakes you starts with `[channel N, message
-   N, thread N]`; pass `thread` as the `parent` of `post_to_channel` to reply in that thread.
+   N]` or `[channel N, message N, thread N]`; your plain reply goes where the header says (a
+   top-level reply starts your own thread), and `post_to_channel` takes the header's `thread` as
+   its `parent` when there is one.
    The lead gets one more line: do not summarize or repeat a
    specialist's post back to the user, because they see it. `reef context` does not print it.
 

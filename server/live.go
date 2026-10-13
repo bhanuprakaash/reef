@@ -296,13 +296,11 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 	if err := sess.Say(ctx, t.text, t.parent); err != nil {
 		return c.release(err)
 	}
-	ws, after, err := s.wakes(ctx, id, after)
-	if err != nil {
-		return c.release(err)
-	}
-	queue := []wake{{from: "user", role: role, text: t.text, parent: t.parent}}
+	queue := []wake{{from: _userAuthor, role: role, text: t.text, parent: t.parent}}
 	if t.kind == _message {
-		queue = ws
+		if queue, after, err = s.wakes(ctx, id, after, _userAuthor); err != nil {
+			return c.release(err)
+		}
 	}
 	return c.start(ctx, sess, t.kind, queue, after)
 }
@@ -342,7 +340,7 @@ func (s *server) runTurn(
 		w, queue = queue[0], queue[1:]
 		end, pause, ok := s.runOne(ctx, id, l, sess, kind, w)
 		if ok && kind == _message && ctx.Err() == nil {
-			ws, last, err := s.wakes(ctx, id, after)
+			ws, last, err := s.wakes(ctx, id, after, w.role)
 			if err != nil {
 				log.Printf("route channel %d: %v", id, err)
 			}
@@ -483,7 +481,7 @@ func (s *server) gate(ctx context.Context, id int64, l *live, ws []wake) []wake 
 // countHop counts w as a hop when a message from an agent woke it, and reports whether w
 // may run: a wake over the cap may not. A message from the user resets the count.
 func (l *live) countHop(w wake) bool {
-	if w.from == "user" {
+	if w.from == _userAuthor {
 		l.hops = 0
 		return true
 	}
