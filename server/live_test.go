@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -18,19 +20,37 @@ import (
 )
 
 type fakeSession struct {
-	st      *store.Store
-	started chan struct{}
-	release chan struct{}
-	closed  atomic.Int32
+	st         *store.Store
+	started    chan struct{}
+	release    chan struct{}
+	closed     atomic.Int32
+	channelID  atomic.Int64
+	promoted   atomic.Int32
+	noProposal atomic.Bool
+
+	mu  sync.Mutex
+	ran []string
 }
 
-func (f *fakeSession) SendAs(
-	ctx context.Context, _, text string, onEvent func(agent.Event),
-) error {
-	if text == "cap" {
+func (f *fakeSession) Say(ctx context.Context, body string) error {
+	_, err := f.st.CreateMessage(ctx, store.Message{
+		ChannelID: f.channelID.Load(), Author: "user", Body: body,
+	})
+	return err
+}
+
+func (f *fakeSession) Run(ctx context.Context, text string, onEvent func(agent.Event)) error {
+	f.mu.Lock()
+	f.ran = append(f.ran, text)
+	f.mu.Unlock()
+	switch text {
+	case "cap":
 		const reason = "capped: more than 25 tool calls"
 		err := fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
-		return errors.Join(err, f.st.PauseChannel(ctx, 1, reason))
+		return errors.Join(err, f.st.PauseChannel(ctx, f.channelID.Load(), reason))
+	case "cap-lost":
+		err := fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
+		return errors.Join(err, f.st.DeleteChannel(ctx, f.channelID.Load()))
 	}
 	if text != "block" {
 		onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
@@ -49,10 +69,14 @@ func (f *fakeSession) SendAs(
 
 func (f *fakeSession) Wrap(_ context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
 	onEvent(agent.Event{Kind: agent.KindText, Text: "wrapped"})
+	if f.noProposal.Load() {
+		return store.Proposal{}, channel.ErrNoProposal
+	}
 	return store.Proposal{}, nil
 }
 
 func (f *fakeSession) Promote(_ context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
+	f.promoted.Add(1)
 	onEvent(agent.Event{Kind: agent.KindText, Text: "promoted"})
 	return store.Proposal{}, nil
 }
@@ -68,6 +92,7 @@ type liveEnv struct {
 	h      *Handler
 	fake   *fakeSession
 	opened atomic.Int32
+	open   func(ctx context.Context) (session, error)
 }
 
 func newLiveEnv(t *testing.T) *liveEnv {
@@ -79,8 +104,12 @@ func newLiveEnv(t *testing.T) *liveEnv {
 	t.Cleanup(func() { _ = st.Close() })
 	env := &liveEnv{fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{})}}
 	env.st, env.fake.st = st, st
-	env.h = newHandler(st, func(context.Context, int64) (session, error) {
+	env.h = newHandler(st, func(ctx context.Context, id int64) (session, error) {
 		env.opened.Add(1)
+		env.fake.channelID.Store(id)
+		if env.open != nil {
+			return env.open(ctx)
+		}
 		return env.fake, nil
 	})
 	ts := httptest.NewServer(env.h)
@@ -94,18 +123,38 @@ func newLiveEnv(t *testing.T) *liveEnv {
 
 func (e *liveEnv) send(t *testing.T, text string) (int, string) {
 	t.Helper()
-	return do(t, http.MethodPost, e.url+"/channels/1/send", `{"text":"`+text+`"}`)
+	return e.sendTo(t, 1, text)
+}
+
+func (e *liveEnv) sendTo(t *testing.T, id int, text string) (int, string) {
+	t.Helper()
+	return do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/send", e.url, id), `{"text":"`+text+`"}`)
+}
+
+// featureChannel adds a feature and a channel on it, and returns the channel's id.
+func (e *liveEnv) featureChannel(t *testing.T) int {
+	t.Helper()
+	do(t, http.MethodPost, e.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
+	do(t, http.MethodPost, e.url+"/channels", `{"projectId":1,"featureId":1,"name":"c","backend":"claude"}`)
+	return 2
 }
 
 type stream struct {
 	frames chan string
 }
 
+const _idleFrame = `turn {"status":"idle"}`
+
 func subscribe(t *testing.T, url string) *stream {
+	t.Helper()
+	return subscribeTo(t, url, 1)
+}
+
+func subscribeTo(t *testing.T, url string, id int) *stream {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url+"/channels/1/events", nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/channels/%d/events", url, id), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -167,6 +216,7 @@ func TestSend_Streams(t *testing.T) {
 		t.Fatalf("send = %d %q, want 202", status, body)
 	}
 	sub.want(t,
+		_idleFrame,
 		`turn {"status":"running"}`,
 		`agent {"kind":"text","text":"hi"}`,
 		`turn {"status":"done"}`,
@@ -177,6 +227,7 @@ func TestSend_Streams(t *testing.T) {
 		t.Fatalf("second send = %d, want 202", status)
 	}
 	late.want(t,
+		_idleFrame,
 		`turn {"status":"running"}`,
 		`agent {"kind":"text","text":"hi"}`,
 		`turn {"status":"done"}`,
@@ -188,11 +239,13 @@ func TestSend_Streams(t *testing.T) {
 
 func TestSend_Wrap(t *testing.T) {
 	env := newLiveEnv(t)
-	sub := subscribe(t, env.url)
-	if status, _ := env.send(t, "/wrap"); status != 202 {
+	id := env.featureChannel(t)
+	sub := subscribeTo(t, env.url, id)
+	if status, _ := env.sendTo(t, id, "/wrap"); status != 202 {
 		t.Fatalf("send = %d, want 202", status)
 	}
 	sub.want(t,
+		_idleFrame,
 		`turn {"status":"running"}`,
 		`agent {"kind":"text","text":"wrapped"}`,
 		`turn {"status":"done"}`,
@@ -204,7 +257,7 @@ func TestSubscribe_ReplaysRunningTurn(t *testing.T) {
 	first := subscribe(t, env.url)
 	env.send(t, "block")
 	<-env.fake.started
-	first.want(t, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	first.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	second := subscribe(t, env.url)
 	second.want(t, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
@@ -232,7 +285,7 @@ func TestStop_FailsTurnAndClosesSession(t *testing.T) {
 	sub := subscribe(t, env.url)
 	env.send(t, "block")
 	<-env.fake.started
-	sub.want(t, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	if status, body := do(t, http.MethodPost, env.url+"/channels/1/stop", ""); status != 204 || body != "" {
 		t.Fatalf("stop = %d %q, want 204", status, body)
@@ -256,6 +309,7 @@ func TestSend_ToolCapPausesChannel(t *testing.T) {
 	sub := subscribe(t, env.url)
 	env.send(t, "cap")
 	sub.want(t,
+		_idleFrame,
 		`turn {"status":"running"}`,
 		`turn {"status":"failed","error":"capped: more than 25 tool calls"}`,
 		`pause {"reason":"capped: more than 25 tool calls"}`,
@@ -305,7 +359,7 @@ func TestSend_TokenBudgetPausesChannel(t *testing.T) {
 	if status != 409 || body != `{"error":"channel 1 is paused: `+reason+`: conflict"}` {
 		t.Fatalf("send over budget = %d %s, want 409 with the reason", status, body)
 	}
-	sub.want(t, `pause {"reason":"`+reason+`"}`)
+	sub.want(t, _idleFrame, `pause {"reason":"`+reason+`"}`)
 	if ch, err := env.st.Channel(ctx, 1); err != nil || ch.Paused != reason {
 		t.Errorf("channel = %+v, %v, want paused with the reason", ch, err)
 	}
@@ -336,7 +390,7 @@ func TestClose_FailsRunningTurn(t *testing.T) {
 	sub := subscribe(t, env.url)
 	env.send(t, "block")
 	<-env.fake.started
-	sub.want(t, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	env.h.Close()
 	sub.want(t, `turn {"status":"failed","error":"interrupted"}`)
@@ -432,5 +486,189 @@ func TestCreateChannel_RoleDefaultsToLead(t *testing.T) {
 		`{"projectId":1,"name":"c","backend":"codex","permissionMode":"workspace-write"}`)
 	if status != 201 || !strings.Contains(body, `"role":"lead","backend":"codex","permissionMode":"workspace-write"`) {
 		t.Errorf("create = %d %s, want role lead", status, body)
+	}
+}
+
+func TestSend_PromoteTextIsAMessage(t *testing.T) {
+	env := newLiveEnv(t)
+	id := env.featureChannel(t)
+	sub := subscribeTo(t, env.url, id)
+
+	if status, _ := env.sendTo(t, id, "/promote"); status != 202 {
+		t.Fatalf("send = %d, want 202", status)
+	}
+	sub.want(t,
+		_idleFrame,
+		`turn {"status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`,
+		`turn {"status":"done"}`,
+	)
+	env.fake.mu.Lock()
+	ran := env.fake.ran
+	env.fake.mu.Unlock()
+	if !slices.Equal(ran, []string{"/promote"}) || env.fake.promoted.Load() != 0 {
+		t.Errorf("ran = %q, promotes = %d, want the text run as a message, no promote",
+			ran, env.fake.promoted.Load())
+	}
+	_, body := do(t, http.MethodGet, fmt.Sprintf("%s/messages?channel=%d", env.url, id), "")
+	if !strings.Contains(body, `"author":"user","body":"/promote"`) {
+		t.Errorf("messages = %s, want the user message /promote", body)
+	}
+}
+
+func TestSend_StoresUserMessageBefore202(t *testing.T) {
+	env := newLiveEnv(t)
+	if status, _ := env.send(t, "block"); status != 202 {
+		t.Fatalf("send = %d, want 202", status)
+	}
+	_, body := do(t, http.MethodGet, env.url+"/messages?channel=1", "")
+	if !strings.Contains(body, `"author":"user","body":"block"`) {
+		t.Errorf("messages right after 202 = %s, want the user message block", body)
+	}
+	env.fake.release <- struct{}{}
+}
+
+func TestStop_WhileOpening(t *testing.T) {
+	tests := []struct {
+		name       string
+		give       func(env *liveEnv) func(ctx context.Context) (session, error)
+		wantCloses int32
+	}{
+		{
+			name: "open returns the cancelled context's error",
+			give: func(*liveEnv) func(context.Context) (session, error) {
+				return func(ctx context.Context) (session, error) {
+					<-ctx.Done()
+					return nil, ctx.Err()
+				}
+			},
+			wantCloses: 0,
+		},
+		{
+			name: "open ignores the cancel and returns a session",
+			give: func(env *liveEnv) func(context.Context) (session, error) {
+				return func(ctx context.Context) (session, error) {
+					<-ctx.Done()
+					return env.fake, nil
+				}
+			},
+			wantCloses: 1,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newLiveEnv(t)
+			opening := make(chan struct{})
+			give := tt.give(env)
+			env.open = func(ctx context.Context) (session, error) {
+				close(opening)
+				return give(ctx)
+			}
+			type reply struct {
+				status int
+				body   string
+			}
+			sent := make(chan reply, 1)
+			go func() {
+				status, body := env.send(t, "hello")
+				sent <- reply{status, body}
+			}()
+			<-opening
+
+			if status, _ := do(t, http.MethodPost, env.url+"/channels/1/stop", ""); status != 204 {
+				t.Fatalf("stop = %d, want 204", status)
+			}
+			got := <-sent
+			if got.status != 409 || got.body != `{"error":"channel 1 was stopped: conflict"}` {
+				t.Errorf("send = %d %s, want 409 stopped", got.status, got.body)
+			}
+			env.fake.mu.Lock()
+			ran := env.fake.ran
+			env.fake.mu.Unlock()
+			if len(ran) != 0 {
+				t.Errorf("ran = %q, want no turn", ran)
+			}
+			_, body := do(t, http.MethodGet, env.url+"/messages?channel=1", "")
+			if body != "[]" {
+				t.Errorf("messages = %s, want none", body)
+			}
+			if got := env.fake.closed.Load(); got != tt.wantCloses {
+				t.Errorf("session closes = %d, want %d", got, tt.wantCloses)
+			}
+		})
+	}
+}
+
+func TestSubscribe_StateOnConnect(t *testing.T) {
+	env := newLiveEnv(t)
+	sub := subscribe(t, env.url)
+	env.send(t, "cap")
+	sub.want(t, _idleFrame, `turn {"status":"running"}`,
+		`turn {"status":"failed","error":"capped: more than 25 tool calls"}`,
+		`pause {"reason":"capped: more than 25 tool calls"}`)
+
+	late := subscribe(t, env.url)
+	late.want(t, _idleFrame, `pause {"reason":"capped: more than 25 tool calls"}`)
+
+	do(t, http.MethodPost, env.url+"/channels/1/continue", "")
+	again := subscribe(t, env.url)
+	again.want(t, _idleFrame)
+	if status, _ := env.send(t, "hello"); status != 202 {
+		t.Fatalf("send after continue = %d, want 202", status)
+	}
+	again.want(t, `turn {"status":"running"}`)
+}
+
+func TestSend_CapKeepsReasonWhenChannelReadFails(t *testing.T) {
+	env := newLiveEnv(t)
+	sub := subscribe(t, env.url)
+	env.send(t, "cap-lost")
+	sub.want(t, _idleFrame, `turn {"status":"running"}`,
+		`turn {"status":"failed","error":"capped: more than 25 tool calls"}`,
+		`pause {"reason":"capped: more than 25 tool calls"}`)
+}
+
+func TestWrap_QuickSession(t *testing.T) {
+	env := newLiveEnv(t)
+	const want = `{"error":"invalid: channel 1 is a quick session, promote it before wrapping up"}`
+	if status, body := do(t, http.MethodPost, env.url+"/channels/1/wrap", ""); status != 400 || body != want {
+		t.Errorf("wrap = %d %s, want 400 %s", status, body, want)
+	}
+	if status, body := env.send(t, "/wrap"); status != 400 || body != want {
+		t.Errorf("send /wrap = %d %s, want 400 %s", status, body, want)
+	}
+	if got := env.opened.Load(); got != 0 {
+		t.Errorf("sessions opened = %d, want 0: no agent turn for a refused wrap", got)
+	}
+}
+
+func TestWrap_NoProposalNote(t *testing.T) {
+	env := newLiveEnv(t)
+	env.fake.noProposal.Store(true)
+	id := env.featureChannel(t)
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "/wrap")
+	sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"wrapped"}`,
+		`turn {"status":"done","note":"no proposal made"}`)
+}
+
+func TestDelete_StopsLiveChannel(t *testing.T) {
+	env := newLiveEnv(t)
+	sub := subscribe(t, env.url)
+	env.send(t, "block")
+	<-env.fake.started
+	sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+
+	if status, _ := do(t, http.MethodDelete, env.url+"/channels/1", ""); status != 204 {
+		t.Fatalf("delete = %d, want 204", status)
+	}
+	if got := env.fake.closed.Load(); got != 1 {
+		t.Errorf("session closes = %d, want 1", got)
+	}
+	env.h.s.mu.Lock()
+	lives := len(env.h.s.lives)
+	env.h.s.mu.Unlock()
+	if lives != 0 {
+		t.Errorf("live channels = %d, want 0 after delete", lives)
 	}
 }

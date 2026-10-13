@@ -126,10 +126,19 @@ func (s *server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.mu.Lock()
+	l := s.lives[id]
+	s.mu.Unlock()
+	if l != nil {
+		s.stopLive(l)
+	}
 	if err := s.st.DeleteChannel(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}
+	s.mu.Lock()
+	delete(s.lives, id)
+	s.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }
 

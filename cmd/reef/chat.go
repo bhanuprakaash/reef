@@ -86,9 +86,9 @@ func chatCmd(
 	defer func() { _ = sess.Close() }()
 
 	if *debug {
-		sess.OnPrompt = func(prompt string) {
+		sess.SetOnPrompt(func(prompt string) {
 			_, _ = fmt.Fprintf(stderr, "--- prompt ---\n%s\n---\n", prompt)
-		}
+		})
 	}
 	if err := converse(ctx, st, sess, readLines(stdin), stdout); err != nil {
 		return err
@@ -99,7 +99,8 @@ func chatCmd(
 }
 
 type chatSession interface {
-	SendAs(ctx context.Context, stored, text string, onEvent func(agent.Event)) error
+	Say(ctx context.Context, body string) error
+	Run(ctx context.Context, text string, onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 }
 
@@ -123,12 +124,12 @@ func converse(
 			continue
 		}
 		var p store.Proposal
-		var err error
 		wrap := line == channel.WrapCommand
-		if wrap {
+		err := sess.Say(ctx, line)
+		if err == nil && wrap {
 			p, err = sess.Wrap(ctx, show)
-		} else {
-			err = sess.SendAs(ctx, line, line, show)
+		} else if err == nil {
+			err = sess.Run(ctx, line, show)
 		}
 		noProposal := errors.Is(err, channel.ErrNoProposal)
 		if err != nil && !noProposal {

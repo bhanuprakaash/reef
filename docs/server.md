@@ -270,12 +270,12 @@ a channel takes its messages, turns, tokens and proposals.
 | `POST /channels` | `projectId`, `featureId`, `name`, `backend` (required: `claude` or `codex`), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`), `role` (empty or `lead`; empty becomes `lead`) | 201 | 400 unknown project or feature, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
 | `PUT /channels/{id}` | `name` only; project, feature, role, backend and permission mode stay as created | 200 | 400, 404 |
-| `DELETE /channels/{id}` | | 204 | 404 |
-| `POST /channels/{id}/send` | `text` | 202, no body | 400 empty text, 404, 409 turn running, channel paused or open elsewhere, 503 |
+| `DELETE /channels/{id}` | stops the channel first if it is live | 204 | 404 |
+| `POST /channels/{id}/send` | `text` | 202, no body | 400 empty text, or `/wrap` on a quick session, 404, 409 turn running, channel paused, open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused |
-| `POST /channels/{id}/wrap` | no body needed | 202, no body | 404, 409 and 503 as send |
+| `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
 | `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
 | `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
 | `POST /proposals/{id}/approve` | no body needed | 200 the proposal and `decisionsAdded` | 400 already decided, 404 |
@@ -314,29 +314,38 @@ takes its default. `PUT` replaces; there is no partial update except `PATCH /tur
 - The server holds `chat-<id>.lock` while the agent is alive, so `reef chat --channel ID`
   fails with `channel 1 is open elsewhere: conflict`. A send to a channel a `reef chat`
   holds is 409 too.
-- The turn runs in the background, not in the request, and send answers 202 at once. A
-  send while a turn runs is 409. The text `/wrap` runs the wrap-up turn.
+- The server stores the user message, then answers 202, and the turn runs in the
+  background, not in the request. A send while a turn runs is 409. The text `/wrap` runs
+  the wrap-up turn (400 on a quick session, before any agent turn). Every other text,
+  `/promote` included, is a plain message: only `POST /channels/{id}/promote` promotes.
 - `stop` interrupts a running turn (stored `failed`, `interrupted`), then stops the
-  agent, deletes its token and releases the lock. A turn that fails for another reason
-  also stops the agent; the next send starts it again.
+  agent, deletes its token and releases the lock. It also works while the agent is
+  still starting: the send that began that turn answers 409 `channel 1 was stopped`, and
+  no turn runs. A turn that fails for another reason also stops the agent; the next send
+  starts it again.
+- `DELETE /channels/{id}` does the same as `stop` before it deletes the channel.
 - Server shutdown does the same for every channel before it stops listening.
 
 `GET /channels/{id}/events` is a Server-Sent Events stream. It works for a channel that
 is not live: it waits. A `: keepalive` comment comes every 15 seconds. Three kinds of event:
 
 - `turn`: `{"status":"running"}` when a turn starts, then `{"status":"done"}` or
-  `{"status":"failed","error":"interrupted"}` when it ends.
+  `{"status":"failed","error":"interrupted"}` when it ends. A wrap or promote turn in which
+  the agent made no proposal ends `{"status":"done","note":"no proposal made"}`.
+  `{"status":"idle"}` is sent only when a subscriber connects and no turn runs.
 - `agent`: one [agent event](agents.md) as JSON, as it comes.
 - `pause`: `{"reason":"..."}` when a cap pauses the channel: right after the `turn`
   event of a capped turn, or when a send finds the token budget used. `{"reason":""}`
-  when `continue` clears the pause. These come between turns, so only a connected
-  subscriber sees them. For the state on load, read `paused` from `GET /channels/{id}`.
+  when `continue` clears the pause.
 
-The server keeps the events of the running turn in memory. A subscriber that connects
-during a turn first gets `turn` running and every `agent` event of that turn so far, then
-the live ones. One that connects between turns gets nothing until the next turn starts:
-the stored messages (`GET /messages`) are the history. A slow subscriber only lags; it
-never holds up the agent.
+A subscriber is brought up to date when it connects, so a reconnect needs no other
+request to know the state. The server keeps the events of the running turn in memory. A
+subscriber that connects during a turn first gets `turn` running and every `agent` event
+of that turn so far, then the live ones. One that connects between turns first gets
+`turn` idle. Either gets `pause` with the reason when the channel is paused. The stored
+messages (`GET /messages`) are the history. A slow subscriber only lags; it never holds
+up the agent. When the server stops, a subscriber gets the last frames before the
+stream ends.
 
 ```
 event: turn
@@ -365,8 +374,11 @@ also returns `decisionsAdded`, the decisions it saved. A proposal that is alread
 `POST /channels/{id}/promote` turns a quick session into a feature. It takes `{"slug":
 "login","name":"Login"}` to create the feature in the channel's project, or `{"featureId":
 3}` for a feature that exists in that project. Only a channel with no feature can be
-promoted. The server checks that no turn runs and the caps, as for send, then in one
-transaction creates the feature and sets the channel's `featureId`. It answers 202 with the
+promoted. The server first checks that the channel has no feature, that a `featureId` is
+a feature of the channel's project and that a new slug is free, so a refused promote
+changes nothing and never opens the agent. It then checks that no turn runs and the caps,
+as for send, and once the agent is open, in one transaction creates the feature and sets
+the channel's `featureId`. It answers 202 with the
 channel and starts a turn: the stored user message is `/promote`, and the agent gets a
 prompt that names the feature and asks it to call `propose_wrap` once with the first brief,
 written from the session, its notes and the decisions so far. The user approves that
