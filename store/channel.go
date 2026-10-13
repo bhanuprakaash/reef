@@ -25,6 +25,7 @@ type ChannelFilter struct {
 	FeatureID *int64
 }
 
+// CreateChannel adds c. A set FeatureID must be a feature of c.ProjectID.
 func (s *Store) CreateChannel(ctx context.Context, c Channel) (Channel, error) {
 	if err := c.validate(); err != nil {
 		return Channel{}, err
@@ -50,6 +51,7 @@ func (s *Store) CreateChannel(ctx context.Context, c Channel) (Channel, error) {
 	return c, nil
 }
 
+// Channel returns the channel with the id, or ErrNotFound.
 func (s *Store) Channel(ctx context.Context, id int64) (Channel, error) {
 	row := s.db.QueryRowContext(ctx, "SELECT "+_channelCols+" FROM channel WHERE id = ?", id)
 	c, err := scanChannel(row)
@@ -72,16 +74,7 @@ func (s *Store) Channels(ctx context.Context, f ChannelFilter) ([]Channel, error
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
 	}
-	defer rows.Close()
-	var cs []Channel
-	for rows.Next() {
-		c, err := scanChannel(rows)
-		if err != nil {
-			return nil, err
-		}
-		cs = append(cs, c)
-	}
-	return cs, rows.Err()
+	return scanAll(rows, scanChannel)
 }
 
 // UpdateChannel sets the name of c.ID. A channel never changes project or
@@ -104,6 +97,7 @@ func (s *Store) UpdateChannel(ctx context.Context, c Channel) (Channel, error) {
 	return s.Channel(ctx, c.ID)
 }
 
+// DeleteChannel removes the channel and, by cascade, its messages and turns.
 func (s *Store) DeleteChannel(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, "DELETE FROM channel WHERE id = ?", id)
 	if err != nil {
@@ -122,24 +116,6 @@ func (s *Store) DeleteChannel(ctx context.Context, id int64) error {
 func (c Channel) validate() error {
 	if c.Name == "" {
 		return fmt.Errorf("%w: channel name is required", ErrInvalid)
-	}
-	return nil
-}
-
-// checkFeatureInProject requires featureID, when set, to be a feature of projectID.
-func (s *Store) checkFeatureInProject(ctx context.Context, featureID *int64, projectID int64) error {
-	if featureID == nil {
-		return nil
-	}
-	f, err := s.Feature(ctx, *featureID)
-	if errors.Is(err, ErrNotFound) {
-		return fmt.Errorf("%w: unknown feature %d", ErrInvalid, *featureID)
-	}
-	if err != nil {
-		return fmt.Errorf("check feature: %w", err)
-	}
-	if f.ProjectID != projectID {
-		return fmt.Errorf("%w: feature %d is not in project %d", ErrInvalid, f.ID, projectID)
 	}
 	return nil
 }

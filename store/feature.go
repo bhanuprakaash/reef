@@ -16,6 +16,7 @@ const (
 
 var _slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
+// Feature is a unit of work in a project. Its slug names its branch and folder.
 type Feature struct {
 	ID        int64     `json:"id"`
 	ProjectID int64     `json:"projectId"`
@@ -26,13 +27,15 @@ type Feature struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// CreateFeature adds f. The slug must be unique within the project.
 func (s *Store) CreateFeature(ctx context.Context, f Feature) (Feature, error) {
 	if err := f.validate(); err != nil {
 		return Feature{}, err
 	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO feature (project_id, slug, name, goal, stage, created_at) VALUES (?, ?, ?, ?, ?, ?)",
+		"INSERT INTO feature (project_id, slug, name, goal, stage, created_at) "+
+			"VALUES (?, ?, ?, ?, ?, ?)",
 		f.ProjectID, f.Slug, f.Name, f.Goal, f.Stage, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Feature{}, f.writeErr(err)
@@ -45,6 +48,7 @@ func (s *Store) CreateFeature(ctx context.Context, f Feature) (Feature, error) {
 	return f, nil
 }
 
+// Feature returns the feature with the id, or ErrNotFound.
 func (s *Store) Feature(ctx context.Context, id int64) (Feature, error) {
 	row := s.db.QueryRowContext(ctx, "SELECT "+_featureCols+" FROM feature WHERE id = ?", id)
 	f, err := scanFeature(row)
@@ -64,16 +68,7 @@ func (s *Store) Features(ctx context.Context, projectID *int64) ([]Feature, erro
 	if err != nil {
 		return nil, fmt.Errorf("list features: %w", err)
 	}
-	defer rows.Close()
-	var fs []Feature
-	for rows.Next() {
-		f, err := scanFeature(rows)
-		if err != nil {
-			return nil, err
-		}
-		fs = append(fs, f)
-	}
-	return fs, rows.Err()
+	return scanAll(rows, scanFeature)
 }
 
 // UpdateFeature sets the slug, name, goal and stage of f.ID. A feature never
@@ -98,6 +93,8 @@ func (s *Store) UpdateFeature(ctx context.Context, f Feature) (Feature, error) {
 	return s.Feature(ctx, f.ID)
 }
 
+// DeleteFeature removes the feature and, by cascade, its briefs, notes,
+// decisions and channels.
 func (s *Store) DeleteFeature(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, "DELETE FROM feature WHERE id = ?", id)
 	if err != nil {
@@ -130,7 +127,7 @@ func (f *Feature) validate() error {
 	return nil
 }
 
-func (f Feature) writeErr(err error) error {
+func (f *Feature) writeErr(err error) error {
 	if isForeignKey(err) {
 		return fmt.Errorf("%w: unknown project %d", ErrInvalid, f.ProjectID)
 	}
@@ -143,7 +140,9 @@ func (f Feature) writeErr(err error) error {
 func scanFeature(r interface{ Scan(...any) error }) (Feature, error) {
 	var f Feature
 	var created string
-	if err := r.Scan(&f.ID, &f.ProjectID, &f.Slug, &f.Name, &f.Goal, &f.Stage, &created); err != nil {
+	if err := r.Scan(
+		&f.ID, &f.ProjectID, &f.Slug, &f.Name, &f.Goal, &f.Stage, &created,
+	); err != nil {
 		return Feature{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

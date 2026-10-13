@@ -63,7 +63,7 @@ func run(ctx context.Context, args []string, logOut io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("open store: %w", err)
 	}
-	defer st.Close()
+	defer func() { _ = st.Close() }()
 
 	ln, err := net.Listen("tcp", *addr)
 	if err != nil {

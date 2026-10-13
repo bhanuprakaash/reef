@@ -8,6 +8,7 @@ import (
 	"time"
 )
 
+// Project is a repo folder Reef works in.
 type Project struct {
 	ID        int64     `json:"id"`
 	Name      string    `json:"name"`
@@ -15,6 +16,7 @@ type Project struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// CreateProject adds p; name and path are required.
 func (s *Store) CreateProject(ctx context.Context, p Project) (Project, error) {
 	if err := p.validate(); err != nil {
 		return Project{}, err
@@ -34,6 +36,7 @@ func (s *Store) CreateProject(ctx context.Context, p Project) (Project, error) {
 	return p, nil
 }
 
+// Project returns the project with the id, or ErrNotFound.
 func (s *Store) Project(ctx context.Context, id int64) (Project, error) {
 	row := s.db.QueryRowContext(ctx,
 		"SELECT id, name, path, created_at FROM project WHERE id = ?", id)
@@ -44,22 +47,14 @@ func (s *Store) Project(ctx context.Context, id int64) (Project, error) {
 	return p, err
 }
 
+// Projects lists every project by id.
 func (s *Store) Projects(ctx context.Context) ([]Project, error) {
 	rows, err := s.db.QueryContext(ctx,
 		"SELECT id, name, path, created_at FROM project ORDER BY id")
 	if err != nil {
 		return nil, fmt.Errorf("list projects: %w", err)
 	}
-	defer rows.Close()
-	var ps []Project
-	for rows.Next() {
-		p, err := scanProject(rows)
-		if err != nil {
-			return nil, err
-		}
-		ps = append(ps, p)
-	}
-	return ps, rows.Err()
+	return scanAll(rows, scanProject)
 }
 
 // UpdateProject sets the name and path of p.ID.
@@ -82,6 +77,8 @@ func (s *Store) UpdateProject(ctx context.Context, p Project) (Project, error) {
 	return s.Project(ctx, p.ID)
 }
 
+// DeleteProject removes the project and, by cascade, its features, channels
+// and tasks.
 func (s *Store) DeleteProject(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, "DELETE FROM project WHERE id = ?", id)
 	if err != nil {

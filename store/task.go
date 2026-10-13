@@ -13,8 +13,7 @@ const (
 	_taskCols          = "id, project_id, feature_id, title, body, status, created_at, updated_at"
 )
 
-var _taskStatuses = map[string]bool{"todo": true, "doing": true, "done": true}
-
+// Task is a to-do in a project, optionally tied to one of its features.
 type Task struct {
 	ID        int64     `json:"id"`
 	ProjectID int64     `json:"projectId"`
@@ -33,6 +32,7 @@ type TaskFilter struct {
 	Status    string
 }
 
+// CreateTask adds t. A set FeatureID must be a feature of t.ProjectID.
 func (s *Store) CreateTask(ctx context.Context, t Task) (Task, error) {
 	if err := t.validate(); err != nil {
 		return Task{}, err
@@ -42,8 +42,10 @@ func (s *Store) CreateTask(ctx context.Context, t Task) (Task, error) {
 	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO task (project_id, feature_id, title, body, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		t.ProjectID, t.FeatureID, t.Title, t.Body, t.Status, now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
+		"INSERT INTO task (project_id, feature_id, title, body, status, created_at, updated_at) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?)",
+		t.ProjectID, t.FeatureID, t.Title, t.Body, t.Status,
+		now.Format(time.RFC3339Nano), now.Format(time.RFC3339Nano))
 	if isForeignKey(err) {
 		return Task{}, fmt.Errorf("%w: unknown project %d", ErrInvalid, t.ProjectID)
 	}
@@ -58,6 +60,7 @@ func (s *Store) CreateTask(ctx context.Context, t Task) (Task, error) {
 	return t, nil
 }
 
+// Task returns the task with the id, or ErrNotFound.
 func (s *Store) Task(ctx context.Context, id int64) (Task, error) {
 	row := s.db.QueryRowContext(ctx, "SELECT "+_taskCols+" FROM task WHERE id = ?", id)
 	t, err := scanTask(row)
@@ -69,7 +72,7 @@ func (s *Store) Task(ctx context.Context, id int64) (Task, error) {
 
 // Tasks lists tasks by id across all projects, narrowed by f.
 func (s *Store) Tasks(ctx context.Context, f TaskFilter) ([]Task, error) {
-	if f.Status != "" && !_taskStatuses[f.Status] {
+	if f.Status != "" && !isTaskStatus(f.Status) {
 		return nil, fmt.Errorf("%w: unknown status %q", ErrInvalid, f.Status)
 	}
 	q, args := "SELECT "+_taskCols+" FROM task WHERE 1 = 1", []any{}
@@ -86,16 +89,7 @@ func (s *Store) Tasks(ctx context.Context, f TaskFilter) ([]Task, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list tasks: %w", err)
 	}
-	defer rows.Close()
-	var ts []Task
-	for rows.Next() {
-		t, err := scanTask(rows)
-		if err != nil {
-			return nil, err
-		}
-		ts = append(ts, t)
-	}
-	return ts, rows.Err()
+	return scanAll(rows, scanTask)
 }
 
 // UpdateTask sets the title, body, status and feature of t.ID. A task never
@@ -113,7 +107,8 @@ func (s *Store) UpdateTask(ctx context.Context, t Task) (Task, error) {
 		return Task{}, err
 	}
 	_, err = s.db.ExecContext(ctx,
-		"UPDATE task SET title = ?, body = ?, status = ?, feature_id = ?, updated_at = ? WHERE id = ?",
+		"UPDATE task SET title = ?, body = ?, status = ?, feature_id = ?, updated_at = ? "+
+			"WHERE id = ?",
 		t.Title, t.Body, t.Status, t.FeatureID, time.Now().UTC().Format(time.RFC3339Nano), t.ID)
 	if err != nil {
 		return Task{}, fmt.Errorf("update task: %w", err)
@@ -121,6 +116,7 @@ func (s *Store) UpdateTask(ctx context.Context, t Task) (Task, error) {
 	return s.Task(ctx, t.ID)
 }
 
+// DeleteTask removes the task.
 func (s *Store) DeleteTask(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, "DELETE FROM task WHERE id = ?", id)
 	if err != nil {
@@ -144,16 +140,26 @@ func (t *Task) validate() error {
 	if t.Status == "" {
 		t.Status = _defaultTaskStatus
 	}
-	if !_taskStatuses[t.Status] {
+	if !isTaskStatus(t.Status) {
 		return fmt.Errorf("%w: unknown status %q", ErrInvalid, t.Status)
 	}
 	return nil
 }
 
+func isTaskStatus(s string) bool {
+	switch s {
+	case "todo", "doing", "done":
+		return true
+	}
+	return false
+}
+
 func scanTask(r interface{ Scan(...any) error }) (Task, error) {
 	var t Task
 	var created, updated string
-	if err := r.Scan(&t.ID, &t.ProjectID, &t.FeatureID, &t.Title, &t.Body, &t.Status, &created, &updated); err != nil {
+	if err := r.Scan(
+		&t.ID, &t.ProjectID, &t.FeatureID, &t.Title, &t.Body, &t.Status, &created, &updated,
+	); err != nil {
 		return Task{}, err
 	}
 	var err error

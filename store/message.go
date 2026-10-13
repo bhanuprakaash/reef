@@ -15,6 +15,7 @@ type Message struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
+// CreateMessage appends m to its channel.
 func (s *Store) CreateMessage(ctx context.Context, m Message) (Message, error) {
 	if m.Author == "" {
 		return Message{}, fmt.Errorf("%w: message author is required", ErrInvalid)
@@ -46,34 +47,25 @@ func (s *Store) Messages(ctx context.Context, channelID, after int64) ([]Message
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, channel_id, author, body, created_at FROM message WHERE channel_id = ? AND id > ? ORDER BY id",
+		"SELECT id, channel_id, author, body, created_at FROM message "+
+			"WHERE channel_id = ? AND id > ? ORDER BY id",
 		channelID, after)
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
-	defer rows.Close()
-	var ms []Message
-	for rows.Next() {
-		var m Message
-		var created string
-		if err := rows.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Body, &created); err != nil {
-			return nil, err
-		}
-		if m.CreatedAt, err = time.Parse(time.RFC3339Nano, created); err != nil {
-			return nil, fmt.Errorf("message %d: bad created_at: %w", m.ID, err)
-		}
-		ms = append(ms, m)
-	}
-	return ms, rows.Err()
+	return scanAll(rows, scanMessage)
 }
 
-func (s *Store) requireChannel(ctx context.Context, id int64) error {
-	ok, err := s.exists(ctx, "channel", id)
+func scanMessage(r interface{ Scan(...any) error }) (Message, error) {
+	var m Message
+	var created string
+	if err := r.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Body, &created); err != nil {
+		return Message{}, err
+	}
+	t, err := time.Parse(time.RFC3339Nano, created)
 	if err != nil {
-		return fmt.Errorf("check channel: %w", err)
+		return Message{}, fmt.Errorf("message %d: bad created_at: %w", m.ID, err)
 	}
-	if !ok {
-		return fmt.Errorf("channel %d: %w", id, ErrNotFound)
-	}
-	return nil
+	m.CreatedAt = t
+	return m, nil
 }
