@@ -286,11 +286,11 @@ drain:
 		return err
 	}
 	if a := strings.ToLower(answer); a == "y" || a == "yes" {
-		if _, err := st.ApproveProposal(ctx, p.ID); err != nil {
+		_, added, err := st.ApproveProposal(ctx, p.ID)
+		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintf(stdout, "approved: brief, notes and %d decisions saved\n\n",
-			len(p.Decisions))
+		_, err = fmt.Fprintf(stdout, "approved: brief, notes and %d decisions saved\n\n", added)
 		return err
 	}
 	if _, err := st.RejectProposal(ctx, p.ID); err != nil {
