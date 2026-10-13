@@ -12,13 +12,19 @@ import (
 )
 
 const (
-	_turnRunning   = "running"
-	_turnDone      = "done"
-	_turnFailed    = "failed"
+	_turnRunning = "running"
+	_turnDone    = "done"
+	_turnFailed  = "failed"
+)
+
+const (
 	_restartError  = "server restarted"
 	_restartAuthor = "reef"
 	_restartAdvice = "The worktree may be dirty; retry or roll back."
-	_turnCols      = "id, channel_id, role, backend, session_id, status, error, " +
+)
+
+const (
+	_turnCols = "id, channel_id, role, backend, session_id, status, error, " +
 		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at"
 )
 

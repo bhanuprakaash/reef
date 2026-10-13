@@ -20,10 +20,10 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
   `--data` and its own `--addr`.
 - `--addr` is where to listen. The default is `127.0.0.1:7700`. The API has no login, so
   `reef serve` refuses an `--addr` whose host is not `localhost` or a loopback IP,
-  including an empty host such as `:7700`, before it opens the data folder. It does refuse a request whose `Host` is not `127.0.0.1`,
-  `localhost` or `::1` (403), and a `POST`, `PUT` or `PATCH` whose `Content-Type` is not
-  `application/json` (415). This stops a web page on another origin from writing to it,
-  including through DNS rebinding.
+  including an empty host such as `:7700`, before it opens the data folder. It does refuse
+  a request whose `Host` is not `127.0.0.1`, `localhost` or `::1` (403), and a `POST`,
+  `PUT` or `PATCH` whose `Content-Type` is not `application/json` (415). This stops a web
+  page on another origin from writing to it, including through DNS rebinding.
 - The file opens in WAL mode with foreign keys on. Migrations in
   [`store/migrations`](../store/migrations) run at start, in order, each once. They only
   go forward. A file whose version is newer than the newest migration (made by a newer

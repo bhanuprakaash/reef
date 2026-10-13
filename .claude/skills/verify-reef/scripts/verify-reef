@@ -250,7 +250,6 @@ EOF
 	echo "$dir/mcp.json"
 }
 
-# free_port: a free 127.0.0.1 port, found by binding port 0.
 free_port() {
 	python3 -I -c 'import socket
 s = socket.socket()
@@ -259,7 +258,6 @@ print(s.getsockname()[1])
 s.close()'
 }
 
-# serve_alive PID: PID is alive and runs this run's reef serve.
 serve_alive() {
 	[ -n "$1" ] && kill -0 "$1" 2>/dev/null || return 1
 	case $(ps -o command= -p "$1" 2>/dev/null) in "$REEF_BIN serve"*) return 0 ;; *) return 1 ;; esac
