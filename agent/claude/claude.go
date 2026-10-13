@@ -218,8 +218,11 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 				_ = os.Remove(path)
 			}
 		}()
-		args = append(args, "--mcp-config", path, "--allowedTools", allowedTools(cfg.MCPServers))
+		args = append(args, "--mcp-config", path)
 		a.mcpPath = path
+	}
+	if allowed := allowedTools(cfg.Tools, cfg.MCPServers); allowed != "" {
+		args = append(args, "--allowedTools", allowed)
 	}
 	args = append(args, extra...)
 
@@ -300,15 +303,15 @@ func (a *Agent) emit(ev agent.Event) bool {
 	}
 }
 
-// allowedTools pre-approves every tool of each server. The flag takes a variadic list, so
-// it must be one comma-joined value.
-func allowedTools(servers map[string]agent.MCPServer) string {
+// allowedTools pre-approves tools and every tool of each server. The flag takes a variadic
+// list, so it must be one comma-joined value.
+func allowedTools(tools []string, servers map[string]agent.MCPServer) string {
 	names := make([]string, 0, len(servers))
 	for name := range servers {
 		names = append(names, "mcp__"+name+"__*")
 	}
 	slices.Sort(names)
-	return strings.Join(names, ",")
+	return strings.Join(append(slices.Clone(tools), names...), ",")
 }
 
 func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
