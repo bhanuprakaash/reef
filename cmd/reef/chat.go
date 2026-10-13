@@ -75,6 +75,14 @@ func chatCmd(
 			return err
 		}
 		*channelID = ch.ID
+	} else {
+		ch, err := st.Channel(ctx, *channelID)
+		if err != nil {
+			return err
+		}
+		if _, err := channel.CheckCaps(ctx, st, &ch); err != nil {
+			return err
+		}
 	}
 	sess, err := channel.Open(ctx, st, dir, exe, *channelID)
 	if err != nil {
