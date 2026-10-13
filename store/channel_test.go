@@ -8,7 +8,7 @@ import (
 	"github.com/bhanuprakaash/reef/agent"
 )
 
-func TestChannelTokens_ExcludesCache(t *testing.T) {
+func TestChannelTokens_ExcludesCacheReads(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
 	if err != nil {
@@ -42,8 +42,8 @@ func TestChannelTokens_ExcludesCache(t *testing.T) {
 		}
 	}
 
-	if got, err := s.ChannelTokens(ctx, 1); err != nil || got != 42 {
-		t.Errorf("ChannelTokens(1) = %d, %v, want 42", got, err)
+	if got, err := s.ChannelTokens(ctx, 1); err != nil || got != 542 {
+		t.Errorf("ChannelTokens(1) = %d, %v, want 542", got, err)
 	}
 }
 

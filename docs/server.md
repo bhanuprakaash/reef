@@ -381,8 +381,8 @@ Two caps pause a channel. Both are constants in the code, not settings.
   included. The 26th interrupts the agent, ends the turn `failed` with the error `capped:
   more than 25 tool calls` and pauses the channel with that text as `paused`. The agent
   stops like after a failed turn; the next send resumes it by session id.
-- Tokens per channel: the input plus output tokens of all the channel's turns, cache reads
-  and writes not counted, against `tokenBudget` (1,000,000). A turn only counts once it
+- Tokens per channel: the input, output and cache write tokens of all the channel's turns,
+  cache reads not counted, against `tokenBudget` (1,000,000). A turn only counts once it
   has ended. A send that finds the sum at or over the budget pauses the channel with
   `token budget of 1000000 used: 1000312 tokens`.
 
