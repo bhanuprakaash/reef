@@ -86,8 +86,8 @@ func (s *Store) Channels(ctx context.Context, f ChannelFilter) ([]Channel, error
 	return scanAll(rows, scanChannel)
 }
 
-// UpdateChannel sets the name of c.ID. A channel never changes project or
-// feature.
+// UpdateChannel sets the name of c.ID. A channel never changes project, and its feature
+// changes only from nil, through PromoteChannel.
 func (s *Store) UpdateChannel(ctx context.Context, c Channel) (Channel, error) {
 	if err := c.validate(); err != nil {
 		return Channel{}, err

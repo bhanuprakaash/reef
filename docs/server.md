@@ -144,7 +144,7 @@ One row per feature and role.
 | --- | --- | --- |
 | `id` | number | |
 | `projectId` | number | required on create; never changes |
-| `featureId` | number? | set on create and never changes. `null` is a quick session. Must be a feature of the same project. Deleting the feature deletes the channel |
+| `featureId` | number? | set on create. It changes only from `null`, once, when a promote gives a quick session its feature. `null` is a quick session. Must be a feature of the same project. Deleting the feature deletes the channel |
 | `name` | string | required |
 | `role` | string | the role the channel's agent plays. Empty when not set. For a channel from before this field existed, the role of its newest turn |
 | `backend` | string | `claude` or `codex`, the agent that runs the channel. Empty when not set. For an older channel, the backend of its newest turn |

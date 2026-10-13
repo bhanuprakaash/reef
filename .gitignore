@@ -3,3 +3,5 @@ node_modules/
 web/dist/*
 !web/dist/.keep
 *.db
+/reef
+/reef-agent
