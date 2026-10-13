@@ -29,6 +29,9 @@ type Feature struct {
 
 // CreateFeature adds f. The slug must be unique within the project.
 func (s *Store) CreateFeature(ctx context.Context, f Feature) (Feature, error) {
+	if err := f.validateSlug(); err != nil {
+		return Feature{}, err
+	}
 	if err := f.validate(); err != nil {
 		return Feature{}, err
 	}
@@ -71,17 +74,17 @@ func (s *Store) Features(ctx context.Context, projectID *int64) ([]Feature, erro
 	return scanAll(rows, scanFeature)
 }
 
-// UpdateFeature sets the slug, name, goal and stage of f.ID. A feature never
-// changes project.
+// UpdateFeature sets the name, goal and stage of f.ID. A feature never changes
+// project or slug: the slug names its branch.
 func (s *Store) UpdateFeature(ctx context.Context, f Feature) (Feature, error) {
 	if err := f.validate(); err != nil {
 		return Feature{}, err
 	}
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE feature SET slug = ?, name = ?, goal = ?, stage = ? WHERE id = ?",
-		f.Slug, f.Name, f.Goal, f.Stage, f.ID)
+		"UPDATE feature SET name = ?, goal = ?, stage = ? WHERE id = ?",
+		f.Name, f.Goal, f.Stage, f.ID)
 	if err != nil {
-		return Feature{}, f.writeErr(err)
+		return Feature{}, fmt.Errorf("update feature: %w", err)
 	}
 	n, err := res.RowsAffected()
 	if err != nil {
@@ -110,14 +113,18 @@ func (s *Store) DeleteFeature(ctx context.Context, id int64) error {
 	return nil
 }
 
-// validate also fills the default stage.
-func (f *Feature) validate() error {
+func (f *Feature) validateSlug() error {
 	if f.Slug == "" {
 		return fmt.Errorf("%w: feature slug is required", ErrInvalid)
 	}
 	if !_slugPattern.MatchString(f.Slug) {
 		return fmt.Errorf("%w: feature slug %q must match %s", ErrInvalid, f.Slug, _slugPattern)
 	}
+	return nil
+}
+
+// validate also fills the default stage.
+func (f *Feature) validate() error {
 	if f.Name == "" {
 		return fmt.Errorf("%w: feature name is required", ErrInvalid)
 	}

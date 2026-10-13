@@ -49,9 +49,9 @@ func TestFeatureStatus(t *testing.T) {
 		},
 		{
 			name:       "slug starting with a dash",
-			method:     http.MethodPut,
-			path:       "/features/1",
-			give:       `{"slug":"-a","name":"A"}`,
+			method:     http.MethodPost,
+			path:       "/features",
+			give:       `{"projectId":1,"slug":"-a","name":"A"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: feature slug \"-a\" must match ^[a-z0-9][a-z0-9-]*$"}`,
 		},
