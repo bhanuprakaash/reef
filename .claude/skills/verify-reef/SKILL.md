@@ -161,15 +161,19 @@ feature file first.
 REEF_VERIFY_RUN=<id> $H reef --data-name cli -- project add
 REEF_VERIFY_RUN=<id> $H reef -- decide login "Use sessions, not JWT"
 REEF_TOKEN=<token> REEF_VERIFY_RUN=<id> $H mcp-call record_decision '{"body":"Rate limit by IP"}'
-ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/in.fifo --timeout 300 \
-  -- chat login --role developer --backend claude
+ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/chat-in.txt --answer y \
+  --timeout 300 -- chat login --role developer --backend claude
 ```
 
-- `reef [--data-name NAME] [--stdin FILE] [--timeout S] -- ARGS` runs the `reef` binary in the
-  scratch cwd with `ARGS --data <folder>`. `--data-name` picks `<scratch>/NAME`. It refuses
+- `reef [--data-name NAME] [--stdin FILE [--answer A]] [--timeout S] -- ARGS` runs the `reef`
+  binary in the scratch cwd with `--data <folder>` right after the command words
+  (`task add --data <folder> 1 -- "--why not"`), so a `--` in ARGS still ends the flags.
+  `--data-name` picks `<scratch>/NAME`. It refuses
   while this run's server uses another folder. Without it, the call uses the last folder that
   `reef --data-name` or `serve-start` used, or `<scratch>/data`. stdin is `/dev/null` unless
-  `--stdin` gives a file. `--timeout S` (default 240) sends SIGINT, which is Ctrl-C. It prints
+  `--stdin` gives a file. `--answer A` answers a wrap-up: FILE's lines go through a FIFO held
+  open until the live output shows `approve? [y/N]`, then `A` is written and stdin closes
+  (see `features/chat.md`). `--timeout S` (default 240) sends SIGINT, which is Ctrl-C. It prints
   the command's stdout and stderr, then `exit: N elapsed_s: ... children: N orphans_alive:
   ...`, and exits with the command's code.
 - `mcp-call TOOL [JSON]` starts `reef mcp` on the run's folder with the caller's `REEF_TOKEN`,
@@ -180,8 +184,8 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/
   removes claude's session state for it.
 
 Rules:
-- Every `reef chat` drive sets `ANTHROPIC_MODEL=sonnet`. Keep chats to the lines of the
-  feature file.
+- Every `--backend claude` `reef chat` drive sets `ANTHROPIC_MODEL=sonnet`. Keep chats to the
+  lines of the feature file.
 - Quote `reef.log` and `reef-mcp.log` lines as proof, plus the `sql.log` rows for side effects.
 
 ## Evidence
@@ -202,7 +206,7 @@ Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches 
 | `api.log` | every `api` call: `> METHOD PATH [headers] [body]`, then `< status body` |
 | `sql.log` | every `sql` call: `> SQL`, then its output |
 | `serve-second.log` | each `serve-second`: addr, data, exit code, stderr, verdict |
-| `reef.log` | every `reef` call: `--- reef ARGS --data DIR`, cwd and stdin, `out:` and `err:` lines, then `exit:`, `elapsed_s`, `sigint_after_s`, `children`, `orphans_alive` |
+| `reef.log` | every `reef` call: `--- reef` and the exact args with `--data DIR`, cwd and stdin, `out:` and `err:` lines, the `feed:` line with `--answer`, then `exit:`, `elapsed_s`, `sigint_after_s`, `children`, `orphans_alive` |
 | `reef-mcp.log` | every `mcp-call`: `> TOOL JSON`, `tools:`, `< isError=...` result, `reef mcp exit:`, stderr |
 
 Proof standards:
@@ -250,6 +254,6 @@ in `~/.codex/sessions`; cleanup leaves them.
 | `serve-second [--same-addr]` | second `reef serve` on the same data folder; must be refused |
 | `api [-H 'N: v']... METHOD PATH [JSON]` | one HTTP call, prints status and body, logs to `api.log` |
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
-| `reef [--data-name NAME] [--stdin FILE] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd on the run's data folder, logs to `reef.log` |
+| `reef [--data-name NAME] [--stdin FILE [--answer A]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
 | `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |

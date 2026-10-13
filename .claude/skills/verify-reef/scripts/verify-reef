@@ -14,7 +14,7 @@ usage: verify-reef build
        REEF_VERIFY_RUN=ID verify-reef serve-second [--same-addr]
        REEF_VERIFY_RUN=ID verify-reef api [-H 'Name: value']... METHOD PATH [JSON]
        REEF_VERIFY_RUN=ID verify-reef sql [--write] "SQL"
-       REEF_VERIFY_RUN=ID verify-reef reef [--data-name NAME] [--stdin FILE] [--timeout S] -- REEF_ARGS...
+       REEF_VERIFY_RUN=ID verify-reef reef [--data-name NAME] [--stdin FILE [--answer A]] [--timeout S] -- REEF_ARGS...
        REEF_TOKEN=T REEF_VERIFY_RUN=ID verify-reef mcp-call TOOL [JSON]
        REEF_VERIFY_RUN=ID verify-reef cleanup
 EOF
@@ -466,27 +466,64 @@ use_data() {
 	DATA=$(cat "$SCR/serve.data")
 }
 
+# feed FILE FIFO ANSWER OUT: write FILE's lines to FIFO, then ANSWER once OUT shows the
+# wrap-up prompt, then close FIFO. With no prompt it closes after "no proposal made".
+feed() {
+	exec 4>"$2"
+	cat "$1" >&4
+	while :; do
+		if grep -q 'approve? \[y/N\]' "$4"; then
+			printf '%s\n' "$3" >&4
+			echo "feed: sent \"$3\" after approve? [y/N]" >"$SCR/reef.feed"
+			break
+		fi
+		if grep -q 'no proposal made' "$4"; then
+			echo "feed: no proposal made, answer not sent" >"$SCR/reef.feed"
+			break
+		fi
+		sleep 0.2
+	done
+	exec 4>&-
+}
+
 cmd_reef() {
 	load_run
-	name="" stdin=/dev/null timeout=240
+	name="" stdin=/dev/null timeout=240 answer=""
 	while [ $# -gt 0 ]; do
 		case $1 in
 		--data-name) [ $# -ge 2 ] || usage; name=$2; shift 2 ;;
 		--stdin) [ $# -ge 2 ] || usage; stdin=$2; shift 2 ;;
+		--answer) [ $# -ge 2 ] || usage; answer=$2; shift 2 ;;
 		--timeout) [ $# -ge 2 ] || usage; timeout=$2; shift 2 ;;
 		--) shift; break ;;
 		*) usage ;;
 		esac
 	done
 	[ $# -gt 0 ] || usage
+	[ -z "$answer" ] || [ "$stdin" != /dev/null ] || fail "--answer needs --stdin FILE"
 	[ -x "$REEF_BIN" ] || fail "no binary $REEF_BIN; run build first"
 	[ -f "$EV/pre-pids.txt" ] || fail "run doctor first: it records the pre-run pids"
 	use_data "$name"
+	# --data goes right after the command words, so a -- in ARGS keeps the rest positional.
+	n=1
+	case $1 in project | feature | task) [ $# -ge 2 ] && n=2 ;; esac
+	argv=("${@:1:n}" --data "$DATA" "${@:n+1}")
 	out="$SCR/reef.out" err="$SCR/reef.err" seen="$SCR/reef.children"
 	: >"$seen"
+	: >"$out"
+	feeder="" shown_stdin=$stdin
+	if [ -n "$answer" ]; then
+		rm -f "$SCR/reef.feed"
+		fifo="$SCR/reef-stdin.fifo"
+		rm -f "$fifo" && mkfifo "$fifo"
+		feed "$stdin" "$fifo" "$answer" "$out" </dev/null >/dev/null 2>&1 3>&- &
+		feeder=$!
+		shown_stdin="$stdin, then --answer $answer"
+		stdin=$fifo
+	fi
 	t0=$(now)
 	SECONDS=0
-	(cd "$CWD" && exec "$REEF_BIN" "$@" --data "$DATA" 3>&-) <"$stdin" >"$out" 2>"$err" &
+	(cd "$CWD" && exec "$REEF_BIN" "${argv[@]}" 3>&-) <"$stdin" >"$out" 2>"$err" &
 	pid=$!
 	echo "$pid reef-cli" >>"$SCR/pids"
 	sigint_at=""
@@ -499,6 +536,11 @@ cmd_reef() {
 	done
 	wait "$pid"
 	code=$?
+	if [ -n "$feeder" ]; then
+		kill "$feeder" 2>/dev/null
+		wait "$feeder" 2>/dev/null
+		[ -f "$SCR/reef.feed" ] || echo "feed: no wrap-up prompt seen, answer not sent" >"$SCR/reef.feed"
+	fi
 	sort -u -k1,1n "$seen" -o "$seen"
 	cat "$seen" >>"$SCR/pids"
 	orphans=""
@@ -509,14 +551,16 @@ cmd_reef() {
 	[ -n "$sigint_at" ] && result="$result sigint_after_s: $sigint_at"
 	result="$result children: $(wc -l <"$seen" | tr -d ' ') orphans_alive:${orphans:- none}"
 	{
-		echo "--- reef $(python3 -I -c 'import shlex, sys; print(shlex.join(sys.argv[1:]))' "$@") --data $DATA"
-		echo "cwd: $CWD stdin: $stdin ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-<unset>}"
+		echo "--- reef $(python3 -I -c 'import shlex, sys; print(shlex.join(sys.argv[1:]))' "${argv[@]}")"
+		echo "cwd: $CWD stdin: $shown_stdin ANTHROPIC_MODEL: ${ANTHROPIC_MODEL:-<unset>}"
 		sed 's/^/out: /' "$out"
 		sed 's/^/err: /' "$err"
+		[ -z "$feeder" ] || cat "$SCR/reef.feed"
 		echo "$result"
 	} >>"$EV/reef.log"
 	cat "$out"
 	cat "$err" >&2
+	[ -z "$feeder" ] || cat "$SCR/reef.feed" >&2
 	echo "$result" >&2
 	return "$code"
 }

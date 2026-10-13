@@ -73,6 +73,6 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 Drive these with `$H reef`, `$H mcp-call` and `$H sql`; no server needed. Each names its
 data folder with `$H reef --data-name NAME` and assumes ids start at 1.
 
-- [CLI](./cli.md): project, feature, decide, task, brief, context; a write with no server and while `reef serve` runs.
-- [reef mcp](./reef-mcp.md): tokens, the seven tools through a scripted MCP client, scope and token errors.
-- [reef chat](./chat.md): a piped turn stored as messages and turns, `/wrap` approve and reject, resume, Ctrl-C.
+- [CLI](./cli.md): project, feature, decide, task, brief, context; a write with no server and while `reef serve` runs; `--` args; a slug in two projects.
+- [reef mcp](./reef-mcp.md): tokens, the seven tools through a scripted MCP client, scope and token errors, plain Claude Code.
+- [reef chat](./chat.md): a piped turn stored as messages and turns, `/wrap` approve, reject and left pending, resume, Ctrl-C, on claude and codex.
