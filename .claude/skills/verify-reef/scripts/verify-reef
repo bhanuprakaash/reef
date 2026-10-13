@@ -521,7 +521,7 @@ cmd_reef() {
 	# --data goes right after the command words, so a -- in ARGS keeps the rest positional.
 	n=1
 	case $1 in
-		project | feature | task | wrap) [ $# -ge 2 ] && n=2 ;;
+		project | feature | task | team | wrap) [ $# -ge 2 ] && n=2 ;;
 	esac
 	argv=("${@:1:n}" --data "$DATA" "${@:n+1}")
 	out="$SCR/reef.out" err="$SCR/reef.err" seen="$SCR/reef.children"
@@ -675,7 +675,7 @@ cmd_cleanup() {
 		done
 	fi
 	key=$(printf '%s' "$CWD" | sed 's/[^A-Za-z0-9]/-/g')
-	for d in "$HOME/.claude/projects/$key" "/private/tmp/claude-$(id -u)/$key"; do
+	for d in "$HOME/.claude/projects/$key" "$(dirname "$SCRATCH_ROOT")/claude-$(id -u)/$key"; do
 		[ -d "$d" ] && rm -rf "$d" && echo "removed claude session state $d"
 	done
 	[ -d "$SCR" ] && rm -rf "$SCR" && echo "removed scratch $SCR"
