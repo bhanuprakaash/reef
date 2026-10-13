@@ -187,7 +187,7 @@ func TestRun_CtrlC(t *testing.T) {
 
 func TestNewAgent(t *testing.T) {
 	tests := []struct{ give, want string }{
-		{"claude", "backend claude not built yet"},
+		{"claude", ""},
 		{"codex", "backend codex not built yet"},
 		{"vim", `unknown backend "vim"`},
 	}
