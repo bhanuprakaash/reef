@@ -21,12 +21,14 @@ turn. Contract: `docs/memory.md`.
 - `chat-wrap-sigint` Ctrl-C at `approve? [y/N]`: the proposal stays `pending`, it prints `proposal N left pending` and the resume line, and exits 0.
 - `chat-wrap-dedupe` approve (`y` or `yes`) skips a proposed decision whose body the feature already has, so a decision recorded live and proposed again is saved once.
 - `chat-name` `--name N` names a new channel; the default is `<role> chat`.
-- `chat-errors` a usage error, `--channel 99` and a channel with no session fail with `reef: ...` and exit 1, before an agent starts.
+- `chat-errors` a usage error, `--channel 99` and a channel with no backend fail with `reef: ...` and exit 1, before an agent starts.
 - `chat-lock` a second `reef chat` on an open channel exits 1 with `channel N is open in another reef chat`.
 - `chat-serve-skip` `reef serve` starting while a chat runs leaves that chat's running turn alone and fails only stale turns.
 - `chat-interrupt` Ctrl-C during a turn stores it `failed` with `interrupted`, prints the resume line, exits 0 and leaves no processes.
 - `chat-codex` new, resume, wrap-up and Ctrl-C work the same with `--backend codex`.
 - `chat-token-cleanup` every chat deletes its token when it ends.
+- `chat-permission-mode` `--permission-mode acceptEdits` is stored on the channel, and `reef chat --channel ID` resumes with it; `--permission-mode` on `--channel` is refused.
+- `chat-quick-session` a channel with no feature starts with a two-line prompt that names the project and says there is no feature yet.
 - `chat-bad-backend` a backend typo fails before anything is stored: no channel.
 - `chat-index` the context index cuts a decision's first line at 100 runes with `…` and shows each channel's message count.
 
@@ -82,6 +84,11 @@ Codex, channel 2 (no `ANTHROPIC_MODEL` needed):
 - **Codex resume and wrap approve.** `$H reef --stdin ~/.reef-verify/<id>/codex-resume-in.txt --answer y --timeout 300 -- chat --channel 2`. stdout has `ok-codex-2`, `proposal 4 from reviewer`, `approved: brief, notes and N decisions saved`; result `feed: sent "y" after approve? [y/N]`. The new turns have the same session id; `$H sql "select id, role, status from proposal where id = 4"`: `4|reviewer|approved`.
 - **Codex interrupt.** `$H reef --stdin ~/.reef-verify/<id>/long-in.txt --timeout 12 -- chat --channel 2`. Result `exit: 0 ... sigint_after_s: 12 ... orphans_alive: none` and the resume line. `$H sql "select id, backend, status, error from turn where channel_id = 2 order by id desc limit 1"`: `codex|failed|interrupted`.
 
+Permission mode and quick session (claude, `chat-extra` folder, project 1, feature `login`):
+
+- **Permission mode kept on resume.** `ANTHROPIC_MODEL=sonnet $H reef --stdin <two lines> --timeout 300 -- chat login --role developer --backend claude --permission-mode acceptEdits`. `$H sql "select id, permission_mode from channel"` shows `acceptEdits`. `ANTHROPIC_MODEL=sonnet $H reef --stdin <a line asking what was said first> --timeout 300 -- chat --channel ID --debug` replies with the earlier message, and `ps` of the live `claude` (or its `--permission-mode` in `reef.log` children) shows `acceptEdits`. `$H reef -- chat --channel ID --permission-mode default` prints the usage, `exit: 1`.
+- **Quick session.** `$H sql --write "insert into channel (project_id, name, role, backend, created_at) values (1, 'quick', 'lead', 'claude', '2026-10-13T00:00:00Z')"` (REST `POST /channels` works too). `ANTHROPIC_MODEL=sonnet $H reef --stdin <one line> --timeout 300 -- chat --channel ID --debug`: stderr starts with `You are the lead in project "<name>" (<folder>).` and `This is a quick session: it has no feature yet`, with no `feature` name, brief or index.
+
 After the chats:
 
 - **Tokens.** `$H sql "select count(*) from token"` is `0` after every chat above.
@@ -93,7 +100,7 @@ Claude, a second folder (`chat-extra`). Setup: `$H reef --data-name chat-extra -
 - **Name, `yes` and a decision proposed twice.** `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/dedupe-in.txt --answer yes --timeout 300 -- chat login --role developer --backend claude --name "Design room"`. stdout has `proposal 1 from developer` with `- Sessions expire after 30 minutes of inactivity` under `decisions:`, and `approved: brief, notes and 0 decisions saved`; result `feed: sent "yes" after approve? [y/N]`, `exit: 0`. `$H sql "select id, name from channel"`: `1|Design room`. `$H sql "select author, body from decision"`: one row, `developer|Sessions expire after 30 minutes of inactivity`. `$H sql "select id, status from proposal"`: `1|approved`.
 - **Ctrl-C at the prompt.** `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/wrap-eof.txt --sigint-at-prompt --timeout 300 -- chat --channel 1`. stdout has `proposal 2 from developer`, `approve? [y/N]`, then `proposal 2 left pending`, then `channel 1: resume with reef chat --channel 1`. Result `feed: sent SIGINT after approve? [y/N]`, `exit: 0`, `orphans_alive: none`, and no `sigint_after_s` (the timeout did not fire). `$H sql "select id, status, decided_at is null from proposal where id = 2"`: `2|pending|1`.
 - **Errors.** `$H reef -- chat --channel 99` prints `reef: channel 99: not found`. `$H reef -- chat login --role developer` (no backend) and `$H reef -- chat --channel 1 --name x` print the usage, `reef: usage: reef chat <feature> --role R --backend claude|codex [--name N]` and two more lines. Each `exit: 1`, `children: 0`. `$H sql "select count(*) from channel"` is still 1.
-- **No session.** `$H reef -- token login --role tester` makes channel 2, which has no turn. `$H reef -- chat --channel 2` prints `reef: channel 2 has no session to resume`, `exit: 1`.
+- **No session.** `$H reef -- token login --role tester` makes channel 2, which has no turn and no backend. `$H reef -- chat --channel 2` prints `reef: unknown backend ""`, `exit: 1`.
 - **Chat lock and serve skip.** Make a stale turn on channel 2, as if its chat had died: `$H sql --write "insert into turn (channel_id, role, backend, status, started_at) values (2, 'tester', 'claude', 'running', '2026-10-13T00:00:00Z')"` (turn 4). Start a chat on channel 1 in the background (Bash `run_in_background`): `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/long-in.txt --timeout 60 -- chat --channel 1`. Poll `$H sql "select id, channel_id, status, session_id != '' from turn where status = 'running'"` until it shows `5|1|running|1` beside `4|2|running|0`. Then, while it runs:
   - Lock: run the binary directly, since the helper runs one `reef` at a time: `cd /private/tmp/reef-verify/<id>/cwd && /private/tmp/reef-verify/<id>/bin/reef chat --channel 1 --data /private/tmp/reef-verify/<id>/chat-extra </dev/null; echo "exit: $?"` prints `reef: channel 1 is open in another reef chat`, `exit: 1`. `$H sql "select status from turn where id = 5"` is still `running`.
   - Serve skip: `$H serve-start --data-name chat-extra`. `serve.log` has `marked 1 running turns failed: server restarted`. `$H api GET '/turns?status=running'` lists only turn 5. `$H api GET '/messages?channel=2'` is one `reef` message, `Turn 4 by tester failed: server restarted. ...`; `$H api GET '/messages?channel=1'` has no `reef` message. `$H serve-stop`.

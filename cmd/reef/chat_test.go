@@ -13,44 +13,43 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// wrapAgent answers each prompt with "ok". Like the real agent calling propose_wrap,
-// it stores a proposal when it gets the wrap prompt and propose is set. A turn ends
-// only after gate is closed, when gate is set.
-type wrapAgent struct {
+// fakeSession answers each message with "ok". Like the real agent calling propose_wrap,
+// Wrap stores a proposal when propose is set, and returns channel.ErrNoProposal
+// otherwise. Wrap ends only after gate is closed, when gate is set.
+type fakeSession struct {
 	st        *store.Store
 	channelID int64
 	propose   bool
 	gate      chan struct{}
 	sent      chan struct{}
-	events    chan agent.Event
-	prompts   []string
+	said      []string
+	wraps     int
 }
 
-func (w *wrapAgent) Start(context.Context, agent.Config) error          { return nil }
-func (w *wrapAgent) Resume(context.Context, agent.Config, string) error { return nil }
-func (w *wrapAgent) Events() <-chan agent.Event                         { return w.events }
-func (w *wrapAgent) Interrupt() error                                   { return nil }
-
-func (w *wrapAgent) Send(ctx context.Context, prompt string) error {
-	w.prompts = append(w.prompts, prompt)
-	if w.sent != nil {
-		w.sent <- struct{}{}
-	}
-	if w.gate != nil {
-		<-w.gate
-	}
-	if w.propose && prompt == _wrapPrompt {
-		_, err := w.st.CreateProposal(ctx, store.Proposal{
-			ChannelID: w.channelID, Role: "architect", Brief: "new brief", Notes: "my notes",
-			Decisions: []store.ProposedDecision{{Body: "use sessions", Why: "simple"}},
-		})
-		if err != nil {
-			return err
-		}
-	}
-	w.events <- agent.Event{Kind: agent.KindText, Text: "ok"}
-	w.events <- agent.Event{Kind: agent.KindTurnEnd}
+func (f *fakeSession) SendAs(
+	_ context.Context, stored, _ string, onEvent func(agent.Event),
+) error {
+	f.said = append(f.said, stored)
+	onEvent(agent.Event{Kind: agent.KindText, Text: "ok"})
 	return nil
+}
+
+func (f *fakeSession) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
+	f.wraps++
+	if f.sent != nil {
+		f.sent <- struct{}{}
+	}
+	if f.gate != nil {
+		<-f.gate
+	}
+	onEvent(agent.Event{Kind: agent.KindText, Text: "ok"})
+	if !f.propose {
+		return store.Proposal{}, channel.ErrNoProposal
+	}
+	return f.st.CreateProposal(ctx, store.Proposal{
+		ChannelID: f.channelID, Role: "architect", Brief: "new brief", Notes: "my notes",
+		Decisions: []store.ProposedDecision{{Body: "use sessions", Why: "simple"}},
+	})
 }
 
 // chatRun is converse reading from a pipe the test writes to.
@@ -62,9 +61,9 @@ type chatRun struct {
 	cancel context.CancelFunc
 }
 
-func startChat(t *testing.T, st *store.Store, ch store.Channel, w *wrapAgent) *chatRun {
+func startChat(t *testing.T, st *store.Store, ch store.Channel, w *fakeSession) *chatRun {
 	t.Helper()
-	w.st, w.channelID, w.events = st, ch.ID, make(chan agent.Event, 8)
+	w.st, w.channelID = st, ch.ID
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { _ = pw.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
@@ -73,8 +72,7 @@ func startChat(t *testing.T, st *store.Store, ch store.Channel, w *wrapAgent) *c
 	c := &chatRun{
 		in: pw, lines: lines, out: &syncBuffer{}, done: make(chan error, 1), cancel: cancel,
 	}
-	r := channel.NewRunner(st, w, ch.ID, "architect", "claude", "")
-	go func() { c.done <- converseLines(ctx, st, ch.ID, r, lines, c.out) }()
+	go func() { c.done <- converse(ctx, st, w, lines, c.out) }()
 	return c
 }
 
@@ -170,7 +168,7 @@ func TestConverse_Wrap(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			st, ch := chatFixture(t)
-			w := &wrapAgent{propose: tt.propose}
+			w := &fakeSession{propose: tt.propose}
 			c := startChat(t, st, ch, w)
 
 			c.say(t, "/wrap")
@@ -188,15 +186,8 @@ func TestConverse_Wrap(t *testing.T) {
 				t.Errorf("output = %q, want %q", out, tt.wantExactOut)
 			}
 
-			if len(w.prompts) != 1 || w.prompts[0] != _wrapPrompt {
-				t.Errorf("agent prompts = %q, want the wrap prompt once", w.prompts)
-			}
-			msgs, err := st.Messages(ctx, ch.ID, 0)
-			if err != nil {
-				t.Fatal(err)
-			}
-			if len(msgs) != 2 || msgs[0].Author != "user" || msgs[0].Body != "/wrap" {
-				t.Errorf("messages = %+v, want the user message /wrap first", msgs)
+			if w.wraps != 1 || len(w.said) != 0 {
+				t.Errorf("wraps = %d, said = %q, want one wrap and nothing else", w.wraps, w.said)
 			}
 			brief, err := st.Brief(ctx, 1)
 			if tt.wantBrief == "" && !errors.Is(err, store.ErrNotFound) ||
@@ -213,7 +204,7 @@ func TestConverse_Wrap(t *testing.T) {
 
 func TestConverse_WrapCancelledAtPromptLeavesProposalPending(t *testing.T) {
 	st, ch := chatFixture(t)
-	w := &wrapAgent{propose: true}
+	w := &fakeSession{propose: true}
 	c := startChat(t, st, ch, w)
 
 	c.say(t, "/wrap")
@@ -234,7 +225,7 @@ func TestConverse_WrapCancelledAtPromptLeavesProposalPending(t *testing.T) {
 
 func TestConverse_WrapIgnoresTypedAheadLines(t *testing.T) {
 	st, ch := chatFixture(t)
-	w := &wrapAgent{propose: true, gate: make(chan struct{}), sent: make(chan struct{}, 1)}
+	w := &fakeSession{propose: true, gate: make(chan struct{}), sent: make(chan struct{}, 1)}
 	c := startChat(t, st, ch, w)
 
 	c.say(t, "/wrap")
@@ -261,7 +252,7 @@ func TestConverse_WrapIgnoresTypedAheadLines(t *testing.T) {
 
 func TestConverse_WrapBlankLineAtPromptRejects(t *testing.T) {
 	st, ch := chatFixture(t)
-	w := &wrapAgent{propose: true}
+	w := &fakeSession{propose: true}
 	c := startChat(t, st, ch, w)
 
 	c.say(t, "/wrap")
@@ -287,7 +278,7 @@ func TestConverse_WrapBlankLineAtPromptRejects(t *testing.T) {
 
 func TestConverse_BlankLineThenMessage(t *testing.T) {
 	st, ch := chatFixture(t)
-	w := &wrapAgent{}
+	w := &fakeSession{}
 	c := startChat(t, st, ch, w)
 
 	c.say(t, "")
@@ -295,21 +286,8 @@ func TestConverse_BlankLineThenMessage(t *testing.T) {
 	c.waitFor(t, "ok")
 	out := c.end(t)
 
-	if len(w.prompts) != 1 || w.prompts[0] != "hi" {
-		t.Errorf("agent prompts = %q, want [hi]", w.prompts)
-	}
-	msgs, err := st.Messages(context.Background(), ch.ID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var userMessages []store.Message
-	for _, msg := range msgs {
-		if msg.Author == "user" {
-			userMessages = append(userMessages, msg)
-		}
-	}
-	if len(userMessages) != 1 || userMessages[0].Body != "hi" {
-		t.Errorf("user messages = %+v, want one user message hi; output %q", userMessages, out)
+	if len(w.said) != 1 || w.said[0] != "hi" {
+		t.Errorf("said = %q, want [hi]; output %q", w.said, out)
 	}
 }
 
@@ -337,7 +315,7 @@ func TestConverse_WrapDecisionElsewhereContinues(t *testing.T) {
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			st, ch := chatFixture(t)
-			w := &wrapAgent{propose: true}
+			w := &fakeSession{propose: true}
 			c := startChat(t, st, ch, w)
 			c.say(t, "/wrap")
 			c.waitFor(t, "approve? [y/N] ")
@@ -351,8 +329,8 @@ func TestConverse_WrapDecisionElsewhereContinues(t *testing.T) {
 			c.waitFor(t, "ok\n\n> ")
 			out := c.end(t)
 
-			if !strings.Contains(out, wantLine) || len(w.prompts) != 2 || w.prompts[1] != "hi" {
-				t.Errorf("output = %q, prompts = %q; want warning and continued chat", out, w.prompts)
+			if !strings.Contains(out, wantLine) || w.wraps != 1 || len(w.said) != 1 || w.said[0] != "hi" {
+				t.Errorf("output = %q, said = %q; want warning and continued chat", out, w.said)
 			}
 		})
 	}
@@ -369,11 +347,31 @@ func TestRun_McpNeedsKnownToken(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(_tokenEnv, tt.token)
+			t.Setenv(channel.TokenEnv, tt.token)
 			err := run(context.Background(), []string{"mcp", "--data", t.TempDir()},
 				strings.NewReader(""), io.Discard, io.Discard)
 			if err == nil || err.Error() != tt.want {
 				t.Errorf("run mcp = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestRun_ChatResumeRejectsNewSettings(t *testing.T) {
+	tests := []struct {
+		name string
+		give []string
+	}{
+		{"role", []string{"--role", "tester"}},
+		{"backend", []string{"--backend", "codex"}},
+		{"name", []string{"--name", "x"}},
+		{"permission mode", []string{"--permission-mode", "acceptEdits"}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := reef(t, t.TempDir(), append([]string{"chat", "--channel", "1"}, tt.give...)...)
+			if err == nil || err.Error() != _chatUsage {
+				t.Errorf("chat error = %v, want the usage", err)
 			}
 		})
 	}

@@ -107,9 +107,10 @@ func TestChannelRoundTrip(t *testing.T) {
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp/reef"}`)
 	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"auth","name":"Auth"}`)
 
-	status, body := do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"scratch"}`)
+	status, body := do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"scratch","role":"lead","backend":"claude","permissionMode":"acceptEdits"}`)
 	if status != 201 || !strings.HasPrefix(body,
-		`{"id":1,"projectId":1,"featureId":null,"name":"scratch","createdAt":"`) {
+		`{"id":1,"projectId":1,"featureId":null,"name":"scratch","role":"lead","backend":"claude",`+
+			`"permissionMode":"acceptEdits","createdAt":"`) {
 		t.Fatalf("quick session = %d %s", status, body)
 	}
 	status, body = do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"auth"}`)

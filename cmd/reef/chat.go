@@ -14,23 +14,13 @@ import (
 	"syscall"
 
 	"github.com/bhanuprakaash/reef/agent"
-	"github.com/bhanuprakaash/reef/agent/claude"
-	"github.com/bhanuprakaash/reef/agent/codex"
 	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
 )
 
-const (
-	_wrapCommand = "/wrap"
-	_wrapPrompt  = "Wrap up this channel. Call the propose_wrap tool once with the full " +
-		"rewritten brief (goal, status, key decisions, open questions), your own notes on " +
-		"this feature, and the decisions made in this channel that are not recorded yet. " +
-		"Then reply with one line saying it is proposed."
-)
-
 const _chatUsage = `usage: reef chat <feature> --role R --backend claude|codex [--name N]
   [--permission-mode M] [--debug] [--data DIR]
-       reef chat --channel ID [--permission-mode M] [--debug] [--data DIR]`
+       reef chat --channel ID [--debug] [--data DIR]`
 
 func chatCmd(
 	ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer,
@@ -52,7 +42,8 @@ func chatCmd(
 	defer func() { _ = st.Close() }()
 
 	resuming := *channelID != 0
-	if resuming == (len(pos) == 1) || (resuming && (*role != "" || *backend != "" || *name != "")) ||
+	if resuming == (len(pos) == 1) ||
+		(resuming && (*role != "" || *backend != "" || *name != "" || *permissionMode != "")) ||
 		(!resuming && (*role == "" || *backend == "")) {
 		return errors.New(_chatUsage)
 	}
@@ -68,111 +59,56 @@ func chatCmd(
 		return fmt.Errorf("find reef path: %w", err)
 	}
 
-	var (
-		ch        store.Channel
-		a         agent.Agent
-		sessionID string
-		preamble  string
-	)
-	if resuming {
-		if ch, err = st.Channel(ctx, *channelID); err != nil {
-			return err
-		}
-		lock, err := lockChat(dir, ch.ID)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = lock.Close() }()
-		last, err := resumeTurn(ctx, st, ch.ID)
-		if err != nil {
-			return err
-		}
-		*role, *backend, sessionID = last.Role, last.Backend, last.SessionID
-		if a, err = newAgent(*backend); err != nil {
-			return err
-		}
-	} else {
-		if a, err = newAgent(*backend); err != nil {
-			return err
-		}
+	if !resuming {
 		f, err := st.FeatureByRef(ctx, pos[0])
 		if err != nil {
-			return err
-		}
-		if preamble, err = channel.Context(ctx, st, f.ID, *role); err != nil {
 			return err
 		}
 		if *name == "" {
 			*name = *role + " chat"
 		}
-		if ch, err = st.CreateChannel(ctx, store.Channel{
-			ProjectID: f.ProjectID, FeatureID: &f.ID, Name: *name,
-		}); err != nil {
-			return err
-		}
-		lock, err := lockChat(dir, ch.ID)
+		ch, err := st.CreateChannel(ctx, store.Channel{
+			ProjectID: f.ProjectID, FeatureID: &f.ID, Name: *name, Role: *role,
+			Backend: *backend, PermissionMode: *permissionMode,
+		})
 		if err != nil {
 			return err
 		}
-		defer func() { _ = lock.Close() }()
+		*channelID = ch.ID
 	}
-	p, err := st.Project(ctx, ch.ProjectID)
-	if err != nil {
-		return err
-	}
-	tok, err := st.CreateToken(ctx, ch.ID, *role)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = st.DeleteToken(context.WithoutCancel(ctx), tok.Token) }()
-	defer func() { _ = a.Interrupt() }()
-	cfg := agent.Config{
-		Cwd:            p.Path,
-		PermissionMode: *permissionMode,
-		MCPServers: map[string]agent.MCPServer{"reef": {
-			Command: exe,
-			Args:    []string{"mcp", "--data", dir},
-			Env:     map[string]string{_tokenEnv: tok.Token},
-		}},
-	}
-	if resuming {
-		err = a.Resume(ctx, cfg, sessionID)
-	} else {
-		err = a.Start(ctx, cfg)
-	}
+	sess, err := channel.Open(ctx, st, dir, exe, *channelID)
 	if err != nil {
 		if !resuming {
-			err = errors.Join(err, st.DeleteChannel(context.WithoutCancel(ctx), ch.ID))
+			err = errors.Join(err, st.DeleteChannel(context.WithoutCancel(ctx), *channelID))
 		}
 		return err
 	}
+	defer func() { _ = sess.Close() }()
 
-	runner := channel.NewRunner(st, a, ch.ID, *role, *backend, preamble)
 	if *debug {
-		runner.OnPrompt = func(prompt string) {
+		sess.OnPrompt = func(prompt string) {
 			_, _ = fmt.Fprintf(stderr, "--- prompt ---\n%s\n---\n", prompt)
 		}
 	}
-	if err := converse(ctx, st, ch.ID, runner, stdin, stdout); err != nil {
+	if err := converse(ctx, st, sess, readLines(stdin), stdout); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(stdout, "\nchannel %d: resume with reef chat --channel %d\n", ch.ID, ch.ID)
+	_, err = fmt.Fprintf(stdout, "\nchannel %d: resume with reef chat --channel %d\n",
+		*channelID, *channelID)
 	return err
 }
 
-// converse sends each line of stdin as a message and prints the agent's text. The
-// line /wrap asks the agent for a wrap-up proposal and then asks the user to
-// approve it. It returns nil at the end of stdin or when ctx is cancelled.
-func converse(
-	ctx context.Context, st *store.Store, channelID int64, r *channel.Runner,
-	stdin io.Reader, stdout io.Writer,
-) error {
-	return converseLines(ctx, st, channelID, r, readLines(stdin), stdout)
+// chatSession is the part of channel.Session that converse drives.
+type chatSession interface {
+	SendAs(ctx context.Context, stored, text string, onEvent func(agent.Event)) error
+	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 }
 
-func converseLines(
-	ctx context.Context, st *store.Store, channelID int64, r *channel.Runner,
-	in *lineReader, stdout io.Writer,
+// converse sends each line of in as a message and prints the agent's text. The
+// line /wrap asks the agent for a wrap-up proposal and then asks the user to
+// approve it. It returns nil at the end of in or when ctx is cancelled.
+func converse(
+	ctx context.Context, st *store.Store, sess chatSession, in *lineReader, stdout io.Writer,
 ) error {
 	show := func(ev agent.Event) {
 		if ev.Kind == agent.KindText {
@@ -190,18 +126,16 @@ func converseLines(
 		if line == "" {
 			continue
 		}
-		wrap := line == _wrapCommand
-		text := line
-		var seen int64
+		var p store.Proposal
+		var err error
+		wrap := line == channel.WrapCommand
 		if wrap {
-			text = _wrapPrompt
-			p, err := st.PendingProposal(ctx, channelID)
-			if err != nil && !errors.Is(err, store.ErrNotFound) {
-				return err
-			}
-			seen = p.ID
+			p, err = sess.Wrap(ctx, show)
+		} else {
+			err = sess.SendAs(ctx, line, line, show)
 		}
-		if err := r.SendAs(ctx, line, text, show); err != nil {
+		noProposal := errors.Is(err, channel.ErrNoProposal)
+		if err != nil && !noProposal {
 			if ctx.Err() != nil {
 				return nil
 			}
@@ -211,7 +145,7 @@ func converseLines(
 			return err
 		}
 		if wrap {
-			stop, err := decideWrap(ctx, st, channelID, seen, in, stdout)
+			stop, err := decideWrap(ctx, st, p, noProposal, in, stdout)
 			if err != nil {
 				return err
 			}
@@ -225,19 +159,15 @@ func converseLines(
 	}
 }
 
-// decideWrap prints the proposal the agent made in the turn that just ended, one
-// newer than seen, and approves it when the next line is y or yes, else rejects it.
-// It returns true at end of input or when ctx is done.
+// decideWrap prints the proposal p, or that there is none, and approves it when the
+// next line is y or yes, else rejects it. It returns true at end of input or when
+// ctx is done.
 func decideWrap(
-	ctx context.Context, st *store.Store, channelID, seen int64,
+	ctx context.Context, st *store.Store, p store.Proposal, noProposal bool,
 	in *lineReader, stdout io.Writer,
 ) (stop bool, err error) {
-	p, err := st.PendingProposal(ctx, channelID)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && p.ID == seen) {
+	if noProposal {
 		_, err = io.WriteString(stdout, "no proposal made\n\n")
-		return false, err
-	}
-	if err != nil {
 		return false, err
 	}
 	var b strings.Builder
@@ -380,58 +310,4 @@ func (l *lineReader) drop() []string {
 	dropped := l.lines
 	l.lines = nil
 	return dropped
-}
-
-// resumeTurn is the channel's newest turn that has a session id. It first fails any
-// turn left running by a chat that crashed; the caller holds the chat lock.
-func resumeTurn(ctx context.Context, st *store.Store, channelID int64) (store.Turn, error) {
-	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &channelID})
-	if err != nil {
-		return store.Turn{}, err
-	}
-	var last store.Turn
-	for _, t := range turns {
-		if t.Status == "running" {
-			t.Status, t.Error = "failed", "chat exited"
-			if _, err := st.EndTurn(ctx, t); err != nil {
-				return store.Turn{}, err
-			}
-		}
-		if t.SessionID != "" {
-			last = t
-		}
-	}
-	if last.ID == 0 {
-		return store.Turn{}, fmt.Errorf("channel %d has no session to resume", channelID)
-	}
-	return last, nil
-}
-
-func newAgent(backend string) (agent.Agent, error) {
-	switch backend {
-	case "claude":
-		return claude.New(), nil
-	case "codex":
-		return codex.New(), nil
-	default:
-		return nil, fmt.Errorf("unknown backend %q", backend)
-	}
-}
-
-func chatLockPath(dir string, channelID int64) string {
-	return filepath.Join(dir, fmt.Sprintf("chat-%d.lock", channelID))
-}
-
-func lockChat(dir string, channelID int64) (*os.File, error) {
-	return flock(chatLockPath(dir, channelID),
-		fmt.Errorf("channel %d is open in another reef chat", channelID))
-}
-
-func chatOpen(dir string, channelID int64) bool {
-	lock, err := os.Open(chatLockPath(dir, channelID))
-	if err != nil {
-		return false
-	}
-	defer func() { _ = lock.Close() }()
-	return errors.Is(syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB), syscall.EWOULDBLOCK)
 }
