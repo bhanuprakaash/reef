@@ -1,0 +1,304 @@
+package codex
+
+import (
+	"context"
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"reflect"
+	"testing"
+	"time"
+
+	"github.com/bhanuprakaash/reef/agent"
+)
+
+func TestMessage_event(t *testing.T) {
+	tests := []struct {
+		name string
+		give string
+		want *agent.Event // nil: skipped
+	}{
+		{
+			name: "text delta",
+			give: `{"method":"item/agentMessage/delta","params":{"threadId":"01a133d7","turnId":"01a133d7","itemId":"msg_057e","delta":"I"}}`,
+			want: &agent.Event{Kind: agent.KindText, Text: "I"},
+		},
+		{
+			name: "command start",
+			give: `{"method":"item/started","params":{"item":{"type":"commandExecution","id":"exec-0ff8","command":"/bin/zsh -lc 'ls -la'","cwd":"/tmp/cx","status":"inProgress","aggregatedOutput":null,"exitCode":null}}}`,
+			want: &agent.Event{
+				Kind:     agent.KindToolCall,
+				ToolID:   "exec-0ff8",
+				ToolName: "commandExecution",
+				Input:    json.RawMessage(`{"command":"/bin/zsh -lc 'ls -la'"}`),
+			},
+		},
+		{
+			name: "command done",
+			give: `{"method":"item/completed","params":{"item":{"type":"commandExecution","id":"exec-0ff8","command":"/bin/zsh -lc 'ls -la'","cwd":"/tmp/cx","status":"completed","aggregatedOutput":"a.txt\nb.go\n","exitCode":0}}}`,
+			want: &agent.Event{Kind: agent.KindToolResult, ToolID: "exec-0ff8", Output: "a.txt\nb.go\n"},
+		},
+		{
+			name: "file change start",
+			give: `{"method":"item/started","params":{"item":{"type":"fileChange","id":"exec-69db","changes":[{"path":"/tmp/cx/notes2.md","kind":{"type":"add"},"diff":"x\n"}],"status":"inProgress"}}}`,
+			want: &agent.Event{
+				Kind:     agent.KindToolCall,
+				ToolID:   "exec-69db",
+				ToolName: "fileChange",
+				Input:    json.RawMessage(`[{"path":"/tmp/cx/notes2.md","kind":{"type":"add"},"diff":"x\n"}]`),
+			},
+		},
+		{
+			name: "file change done",
+			give: `{"method":"item/completed","params":{"item":{"type":"fileChange","id":"exec-69db","changes":[{"path":"/tmp/cx/notes2.md","kind":{"type":"add"},"diff":"x\n"}],"status":"completed"}}}`,
+			want: &agent.Event{Kind: agent.KindToolResult, ToolID: "exec-69db", Output: "completed"},
+		},
+		{
+			name: "mcp start",
+			give: `{"method":"item/started","params":{"item":{"type":"mcpToolCall","id":"exec-fb96","server":"reef-ping","tool":"reef_ping","status":"inProgress","arguments":{},"result":null,"error":null}}}`,
+			want: &agent.Event{
+				Kind:     agent.KindToolCall,
+				ToolID:   "exec-fb96",
+				ToolName: "mcp__reef-ping__reef_ping",
+				Input:    json.RawMessage(`{}`),
+			},
+		},
+		{
+			name: "mcp done",
+			give: `{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"exec-fb96","server":"reef-ping","tool":"reef_ping","status":"completed","arguments":{},"result":{"content":[{"type":"text","text":"pong"}],"structuredContent":null},"error":null}}}`,
+			want: &agent.Event{Kind: agent.KindToolResult, ToolID: "exec-fb96", Output: "pong"},
+		},
+		{
+			name: "mcp refused",
+			give: `{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"exec-2d12","server":"reef-ping","tool":"reef_ping","status":"failed","arguments":{},"result":null,"error":{"message":"MCP tool call requires approval, but approval policy is never"}}}}`,
+			want: &agent.Event{
+				Kind:    agent.KindToolResult,
+				ToolID:  "exec-2d12",
+				Output:  "MCP tool call requires approval, but approval policy is never",
+				IsError: true,
+			},
+		},
+		{
+			name: "usage",
+			give: `{"method":"thread/tokenUsage/updated","params":{"threadId":"01a133d7","turnId":"01a133d7","tokenUsage":{"total":{"totalTokens":30233,"inputTokens":30129,"cachedInputTokens":15872,"outputTokens":104},"last":{"totalTokens":15144,"inputTokens":15026,"cachedInputTokens":14080,"cacheWriteInputTokens":0,"outputTokens":118,"reasoningOutputTokens":45},"modelContextWindow":258400}}}`,
+			want: &agent.Event{
+				Kind:  agent.KindUsage,
+				Usage: &agent.Usage{InputTokens: 946, OutputTokens: 118, CacheReadTokens: 14080},
+			},
+		},
+		{
+			name: "usage with cache write",
+			give: `{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"totalTokens":15144,"inputTokens":15026,"cachedInputTokens":14080,"cacheWriteInputTokens":500,"outputTokens":118,"reasoningOutputTokens":45}}}}`,
+			want: &agent.Event{
+				Kind: agent.KindUsage,
+				Usage: &agent.Usage{
+					InputTokens: 446, OutputTokens: 118, CacheReadTokens: 14080, CacheWriteTokens: 500,
+				},
+			},
+		},
+		{
+			name: "turn end",
+			give: `{"method":"turn/completed","params":{"threadId":"01a133d7","turn":{"id":"01a133d7","itemsView":"summary","status":"completed","error":null,"durationMs":8537}}}`,
+			want: &agent.Event{Kind: agent.KindTurnEnd},
+		},
+		{
+			name: "turn failed",
+			give: `{"method":"turn/completed","params":{"threadId":"01a133d8","turn":{"id":"01a133d8","itemsView":"notLoaded","status":"failed","error":{"message":"model not supported","codexErrorInfo":"other"},"durationMs":3144}}}`,
+			want: &agent.Event{Kind: agent.KindError, Text: "model not supported"},
+		},
+		{
+			name: "request refused",
+			give: `{"id":3,"error":{"code":-32600,"message":"Invalid request: unknown variant"}}`,
+			want: &agent.Event{Kind: agent.KindError, Text: "Invalid request: unknown variant"},
+		},
+		{
+			name: "error notification",
+			give: `{"method":"error","params":{"error":{"message":"model not supported"},"willRetry":false,"threadId":"01a133d8","turnId":"01a133d8"}}`,
+		},
+		{
+			name: "user message",
+			give: `{"method":"item/started","params":{"item":{"type":"userMessage","id":"01a133d7","content":[{"type":"text","text":"list files"}]}}}`,
+		},
+		{
+			name: "reasoning",
+			give: `{"method":"item/completed","params":{"item":{"type":"reasoning","id":"rs_02b4","summary":[],"content":[]}}}`,
+		},
+		{
+			name: "mcp status",
+			give: `{"method":"mcpServer/startupStatus/updated","params":{"threadId":"01a133d1","name":"codex_apps","status":"ready","error":null}}`,
+		},
+		{
+			name: "response",
+			give: `{"id":3,"result":{"turn":{"id":"01a133d7","items":[],"status":"inProgress","error":null}}}`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			var m message
+			if err := json.Unmarshal([]byte(tt.give), &m); err != nil {
+				t.Fatal(err)
+			}
+			got, ok := m.event()
+			if tt.want == nil {
+				if ok {
+					t.Errorf("event() = %+v, want skipped", got)
+				}
+				return
+			}
+			if !ok || !reflect.DeepEqual(got, *tt.want) {
+				t.Errorf("event() = %+v, %v; want %+v", got, ok, *tt.want)
+			}
+		})
+	}
+}
+
+func fake(t *testing.T, mode string) *Agent {
+	t.Helper()
+	dir, err := filepath.Abs("testdata")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_CODEX", mode)
+	a := New()
+	t.Cleanup(func() { _ = a.Interrupt() })
+	return a
+}
+
+func recv(t *testing.T, a *Agent) (agent.Event, bool) {
+	t.Helper()
+	select {
+	case ev, ok := <-a.Events():
+		return ev, ok
+	case <-time.After(2 * time.Second):
+		t.Fatal("no event or close within 2s")
+		return agent.Event{}, false
+	}
+}
+
+func collect(t *testing.T, a *Agent, stop agent.Kind) []agent.Event {
+	t.Helper()
+	var got []agent.Event
+	for {
+		ev, ok := recv(t, a)
+		if !ok {
+			return got
+		}
+		got = append(got, ev)
+		if ev.Kind == stop {
+			return got
+		}
+	}
+}
+
+func startTurn(t *testing.T, a *Agent) {
+	t.Helper()
+	if err := a.Start(context.Background(), agent.Config{Cwd: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Send(context.Background(), "go"); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestAgent_Interrupt(t *testing.T) {
+	a := fake(t, "hang")
+	startTurn(t, a)
+	collect(t, a, agent.KindText)
+
+	begin := time.Now()
+	if err := a.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(begin); d > 2*time.Second {
+		t.Errorf("Interrupt took %v, want under 2s", d)
+	}
+	if ev, ok := recv(t, a); ok {
+		t.Errorf("event after Interrupt: %+v, want Events closed", ev)
+	}
+	if err := a.Interrupt(); err != nil {
+		t.Errorf("second Interrupt = %v, want nil", err)
+	}
+}
+
+func TestAgent_StartFails(t *testing.T) {
+	a := fake(t, "failstart")
+	err := a.Start(context.Background(), agent.Config{Cwd: t.TempDir()})
+	if err == nil || err.Error() != "thread/start: bad sandbox" {
+		t.Fatalf("Start = %v, want thread/start: bad sandbox", err)
+	}
+	if ev, ok := recv(t, a); ok {
+		t.Errorf("event after failed Start: %+v, want Events closed", ev)
+	}
+	if err := a.Interrupt(); err != nil {
+		t.Errorf("Interrupt = %v, want nil", err)
+	}
+}
+
+func TestAgent_ExitsOnItsOwn(t *testing.T) {
+	a := fake(t, "crash")
+	startTurn(t, a)
+
+	got := collect(t, a, "")
+	want := []agent.Event{
+		{Kind: agent.KindSession, SessionID: "t1"},
+		{Kind: agent.KindText, Text: "hi"},
+		{Kind: agent.KindTurnEnd},
+		{Kind: agent.KindError, Text: "codex exited: exit status 3: boom"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %+v, want %+v", got, want)
+	}
+	if a.cmd.ProcessState == nil {
+		t.Error("process not reaped after it exited")
+	}
+	if err := a.Interrupt(); err != nil {
+		t.Errorf("Interrupt = %v, want nil", err)
+	}
+}
+
+func TestAgent_ResumeAfterInterrupt(t *testing.T) {
+	a := fake(t, "hang")
+	startTurn(t, a)
+	if err := a.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Resume(context.Background(), agent.Config{Cwd: t.TempDir()}, "t1"); err == nil {
+		t.Error("Resume on a used Agent = nil, want error")
+	}
+}
+
+func TestAgent_NotStarted(t *testing.T) {
+	a := New()
+	if err := a.Send(context.Background(), "go"); err == nil {
+		t.Error("Send before Start = nil, want error")
+	}
+	if err := a.Interrupt(); err != nil {
+		t.Errorf("Interrupt = %v, want nil", err)
+	}
+	if ev, ok := recv(t, a); ok {
+		t.Errorf("event: %+v, want Events closed", ev)
+	}
+}
+
+func TestAgent_ResumeDropsReplayedUsage(t *testing.T) {
+	a := fake(t, "replay")
+	if err := a.Resume(context.Background(), agent.Config{Cwd: t.TempDir()}, "t1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Send(context.Background(), "go"); err != nil {
+		t.Fatal(err)
+	}
+	got := collect(t, a, agent.KindTurnEnd)
+	want := []agent.Event{
+		{Kind: agent.KindSession, SessionID: "t1"},
+		{Kind: agent.KindText, Text: "hi"},
+		{Kind: agent.KindUsage, Usage: &agent.Usage{
+			InputTokens: 4, OutputTokens: 3, CacheReadTokens: 4, CacheWriteTokens: 2,
+		}},
+		{Kind: agent.KindTurnEnd},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %+v, want %+v", got, want)
+	}
+}
