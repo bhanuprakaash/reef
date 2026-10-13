@@ -27,7 +27,7 @@ func (s *server) wrap(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if err := s.startTurn(r.Context(), id, _wrap, channel.WrapCommand, nil, nil, nil); err != nil {
+	if err := s.startUserTurn(r.Context(), id, userTurn{kind: _wrap, text: channel.WrapCommand}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -65,11 +65,14 @@ func (s *server) promote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var ch store.Channel
-	err = s.startTurn(r.Context(), id, _promote, channel.PromoteCommand, nil, func() error {
-		var err error
-		ch, err = s.st.PromoteChannel(r.Context(), id, f)
-		return err
-	}, nil)
+	err = s.startUserTurn(r.Context(), id, userTurn{
+		kind: _promote, text: channel.PromoteCommand,
+		prepare: func() error {
+			var err error
+			ch, err = s.st.PromoteChannel(r.Context(), id, f)
+			return err
+		},
+	})
 	if err != nil {
 		writeError(w, err)
 		return

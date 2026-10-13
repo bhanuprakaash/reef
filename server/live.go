@@ -22,6 +22,8 @@ const _keepAlive = 15 * time.Second
 
 var errStopping = errors.New("server is stopping")
 
+var _hopReason = fmt.Sprintf("hop cap: %d agent hops without a user message", store.HopCap)
+
 type session interface {
 	Say(ctx context.Context, body string, parent *int64) error
 	RunAs(ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event)) error
@@ -135,115 +137,190 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: text is required", store.ErrInvalid))
 		return
 	}
-	kind := _message
+	t := userTurn{kind: _message, text: in.Text, parent: in.Parent}
 	if in.Text == channel.WrapCommand {
-		kind = _wrap
+		t.kind = _wrap
 	}
-	if err := s.startTurn(r.Context(), id, kind, in.Text, in.Parent, nil, nil); err != nil {
+	if err := s.startUserTurn(r.Context(), id, t); err != nil {
 		writeError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// startTurn stores text as the user message, a reply in the thread of parent when it is
-// set, then starts the turn in the background. A message turn runs for the role the
-// message is routed to, and its reply goes in the same thread; wrap and promote turns
-// run for the lead. It runs prepare, when set, once the agent is open; if it fails no turn
-// starts. A stop that arrives before the turn runs cancels it. With resume set it stores no
-// message and runs those wakes instead.
-func (s *server) startTurn(
-	ctx context.Context, id int64, kind turnKind, text string, parent *int64,
-	prepare func() error, resume []wake,
-) error {
+// userTurn is a turn that starts with a user message: text, a reply in the thread of parent
+// when it is set. A message turn runs for the role the message is routed to, and its reply
+// goes in the same thread; wrap and promote turns run for the lead. prepare, when set, runs
+// once the agent is open; if it fails no turn starts.
+type userTurn struct {
+	kind    turnKind
+	text    string
+	parent  *int64
+	prepare func() error
+}
+
+// chain is the claim on an idle channel to run a chain of turns. It ends with start, which
+// runs the chain, or release, which frees the channel. A stop that arrives before start
+// cancels the chain.
+type chain struct {
+	s      *server
+	id     int64
+	l      *live
+	ctx    context.Context
+	cancel context.CancelFunc
+	done   chan struct{}
+	// unpause is set when start clears the channel's pause and adds tokens to its budget.
+	unpause bool
+	tokens  int64
+}
+
+// claim moves the channel from idle to starting and returns the claim and the channel as
+// stored.
+func (s *server) claim(ctx context.Context, id int64) (*chain, store.Channel, error) {
 	if !s.begin() {
-		return errStopping
+		return nil, store.Channel{}, errStopping
 	}
 	l := s.live(id)
 	turnCtx, cancel := context.WithCancel(s.ctx)
-	done := make(chan struct{})
+	c := &chain{s: s, id: id, l: l, ctx: turnCtx, cancel: cancel, done: make(chan struct{})}
 	l.mu.Lock()
 	if l.state != _idle {
 		l.mu.Unlock()
 		cancel()
 		s.wg.Done()
-		return fmt.Errorf("channel %d has a turn running: %w", id, store.ErrConflict)
+		return nil, store.Channel{}, fmt.Errorf("channel %d has a turn running: %w", id, store.ErrConflict)
 	}
-	l.state, l.cancel, l.done = _starting, cancel, done
-	sess := l.sess
+	l.state, l.cancel, l.done = _starting, cancel, c.done
 	l.mu.Unlock()
+	ch, err := s.st.Channel(ctx, id)
+	if err != nil {
+		return nil, store.Channel{}, c.release(err)
+	}
+	return c, ch, nil
+}
 
-	giveUp := func(err error) error {
-		cancel()
-		l.mu.Lock()
-		l.state, l.cancel = _idle, nil
-		close(done)
-		l.mu.Unlock()
-		s.wg.Done()
-		return err
-	}
-	role, err := s.checkTurn(ctx, id, l, kind)
-	if err != nil {
-		return giveUp(err)
-	}
-	if resume != nil {
-		if err := s.countHop(ctx, id, l, resume[0]); err != nil {
-			return giveUp(err)
-		}
-	}
+func (c *chain) release(err error) error {
+	c.cancel()
+	c.l.mu.Lock()
+	c.l.state, c.l.cancel = _idle, nil
+	close(c.done)
+	c.l.mu.Unlock()
+	c.s.wg.Done()
+	return err
+}
+
+// lift clears the pause in ch and adds tokens to its budget, and has start do the same in
+// the store.
+func (c *chain) lift(ch *store.Channel, tokens int64) {
+	ch.Paused, ch.TokenBudget = "", ch.TokenBudget+tokens
+	c.unpause, c.tokens = true, tokens
+}
+
+// session returns the channel's agent session, opening it when it has none.
+func (c *chain) session() (session, error) {
+	c.l.mu.Lock()
+	sess := c.l.sess
+	c.l.mu.Unlock()
+	var err error
 	if sess == nil {
-		var err error
-		if sess, err = s.open(turnCtx, id); err != nil {
-			if turnCtx.Err() != nil {
-				err = fmt.Errorf("channel %d was stopped: %w", id, store.ErrConflict)
-			}
-			return giveUp(err)
-		}
-		l.mu.Lock()
-		l.sess = sess
-		l.mu.Unlock()
-	}
-	if turnCtx.Err() != nil {
-		return giveUp(fmt.Errorf("channel %d was stopped: %w", id, store.ErrConflict))
-	}
-	if prepare != nil {
-		if err := prepare(); err != nil {
-			return giveUp(err)
+		if sess, err = c.s.open(c.ctx, c.id); err == nil {
+			c.l.mu.Lock()
+			c.l.sess = sess
+			c.l.mu.Unlock()
 		}
 	}
-	queue := resume
-	after, err := s.st.LastMessageID(ctx, id)
-	if err != nil {
-		return giveUp(err)
+	if c.ctx.Err() != nil {
+		return nil, fmt.Errorf("channel %d was stopped: %w", c.id, store.ErrConflict)
 	}
-	if resume == nil {
-		if err := sess.Say(ctx, text, parent); err != nil {
-			return giveUp(err)
-		}
-		var ws []wake
-		if ws, after, err = s.wakes(ctx, id, after); err != nil {
-			return giveUp(err)
-		}
-		queue = []wake{{from: "user", role: role, text: text, parent: parent}}
-		if kind == _message {
-			queue = ws
-		}
-	}
+	return sess, err
+}
+
+// start moves the channel to running and runs queue in the background. A first wake that
+// would pass the hop cap pauses the channel instead.
+func (c *chain) start(
+	ctx context.Context, sess session, kind turnKind, queue []wake, after int64,
+) error {
+	l := c.l
 	l.mu.Lock()
-	l.state = _running
-	if resume == nil {
-		l.hops = 0
+	var err error
+	if c.unpause {
+		err = c.s.st.ContinueChannel(ctx, c.id, c.tokens)
 	}
+	if err == nil && !l.countHop(queue[0]) {
+		err = c.s.capLocked(ctx, c.id, l)
+	}
+	if err != nil {
+		l.mu.Unlock()
+		return c.release(err)
+	}
+	l.state, l.held = _running, nil
 	l.dropped += len(l.frames)
 	l.frames = nil
-	if len(l.held) > 0 {
+	if c.unpause {
 		l.publishLocked("pause", pauseState{})
-		l.held = nil
 	}
 	l.publishLocked("turn", turnState{Role: queue[0].role, Status: "running"})
 	l.mu.Unlock()
-	go s.runTurn(turnCtx, id, l, sess, kind, queue, after, done)
+	go c.s.runTurn(c.ctx, c.id, l, sess, kind, queue, after, c.done)
 	return nil
+}
+
+// startUserTurn stores the user message of t, then starts the turn in the background. A
+// hop cap pause does not stop it: the message clears the pause and drops the held wakes.
+// Any other pause refuses it.
+func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error {
+	c, ch, err := s.claim(ctx, id)
+	if err != nil {
+		return err
+	}
+	if ch.Paused == _hopReason {
+		c.lift(&ch, 0)
+	}
+	role, err := s.checkChannel(ctx, c.l, t.kind, ch)
+	if err != nil {
+		return c.release(err)
+	}
+	sess, err := c.session()
+	if err != nil {
+		return c.release(err)
+	}
+	if t.prepare != nil {
+		if err := t.prepare(); err != nil {
+			return c.release(err)
+		}
+	}
+	after, err := s.st.LastMessageID(ctx, id)
+	if err != nil {
+		return c.release(err)
+	}
+	if err := sess.Say(ctx, t.text, t.parent); err != nil {
+		return c.release(err)
+	}
+	ws, after, err := s.wakes(ctx, id, after)
+	if err != nil {
+		return c.release(err)
+	}
+	queue := []wake{{from: "user", role: role, text: t.text, parent: t.parent}}
+	if t.kind == _message {
+		queue = ws
+	}
+	return c.start(ctx, sess, t.kind, queue, after)
+}
+
+// resume runs queue as a new chain, after the checks of a turn on ch, with no user message.
+func (c *chain) resume(ctx context.Context, ch store.Channel, queue []wake) error {
+	if _, err := c.s.checkChannel(ctx, c.l, _message, ch); err != nil {
+		return c.release(err)
+	}
+	sess, err := c.session()
+	if err != nil {
+		return c.release(err)
+	}
+	after, err := c.s.st.LastMessageID(ctx, c.id)
+	if err != nil {
+		return c.release(err)
+	}
+	return c.start(ctx, sess, _message, queue, after)
 }
 
 // runTurn runs the first turn, then the turns its messages wake, one after another, and
@@ -287,11 +364,11 @@ func (s *server) runTurn(
 		l.mu.Unlock()
 		kind = _message
 		_, err := s.checkTurn(ctx, id, l, kind)
-		if err == nil {
-			err = s.countHop(ctx, id, l, queue[0])
+		l.mu.Lock()
+		if err == nil && !l.countHop(queue[0]) {
+			err = s.capLocked(ctx, id, l)
 		}
 		if err != nil {
-			l.mu.Lock()
 			if ctx.Err() == nil {
 				log.Printf("wake %s in channel %d: %v", queue[0].role, id, err)
 				l.held = queue
@@ -300,7 +377,6 @@ func (s *server) runTurn(
 			l.mu.Unlock()
 			return
 		}
-		l.mu.Lock()
 		l.publishLocked("turn", turnState{Role: queue[0].role, Status: "running"})
 		l.mu.Unlock()
 	}
@@ -361,9 +437,16 @@ func (s *server) checkTurn(
 	if err != nil {
 		return "", err
 	}
+	return s.checkChannel(ctx, l, kind, ch)
+}
+
+// checkChannel is checkTurn on a channel already read.
+func (s *server) checkChannel(
+	ctx context.Context, l *live, kind turnKind, ch store.Channel,
+) (string, error) {
 	if kind == _wrap && ch.FeatureID == nil {
 		return "", fmt.Errorf("%w: channel %d is a quick session, promote it before wrapping up",
-			store.ErrInvalid, id)
+			store.ErrInvalid, ch.ID)
 	}
 	pausedNow, err := channel.CheckCaps(ctx, s.st, &ch)
 	if pausedNow {
@@ -397,70 +480,77 @@ func (s *server) gate(ctx context.Context, id int64, l *live, ws []wake) []wake 
 	return open
 }
 
-// countHop counts w as a hop when a message from an agent woke it. A wake over the cap
-// does not run: the channel is paused instead.
-func (s *server) countHop(ctx context.Context, id int64, l *live, w wake) error {
+// countHop counts w as a hop when a message from an agent woke it, and reports whether w
+// may run: a wake over the cap may not. A message from the user resets the count.
+func (l *live) countHop(w wake) bool {
 	if w.from == "user" {
-		return nil
+		l.hops = 0
+		return true
 	}
-	l.mu.Lock()
-	if l.hops < store.HopCap {
-		l.hops++
-		l.mu.Unlock()
-		return nil
+	if l.hops >= store.HopCap {
+		return false
 	}
-	l.mu.Unlock()
-	reason := fmt.Sprintf("hop cap: %d agent hops without a user message", store.HopCap)
-	if err := s.st.PauseChannel(ctx, id, reason); err != nil {
-		return err
-	}
-	l.mu.Lock()
-	l.publishLocked("pause", pauseState{Reason: reason})
-	l.mu.Unlock()
-	return fmt.Errorf("channel %d is paused: %s: %w", id, reason, store.ErrConflict)
+	l.hops++
+	return true
 }
 
+// capLocked pauses the channel because the hop cap held a wake, and returns the error of
+// the refused turn.
+func (s *server) capLocked(ctx context.Context, id int64, l *live) error {
+	if err := s.st.PauseChannel(ctx, id, _hopReason); err != nil {
+		return err
+	}
+	l.publishLocked("pause", pauseState{Reason: _hopReason})
+	return fmt.Errorf("channel %d is paused: %s: %w", id, _hopReason, store.ErrConflict)
+}
+
+// continueChannel clears the pause, and runs the wakes the pause held as a new chain. A
+// channel with a turn running is 409; if the held wakes cannot start the channel stays
+// paused and keeps them.
 func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	ch, err := s.st.Channel(r.Context(), id)
+	c, ch, err := s.claim(r.Context(), id)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	if ch.Paused == "" {
-		writeError(w, fmt.Errorf("channel %d is not paused: %w", id, store.ErrConflict))
+		writeError(w, c.release(fmt.Errorf("channel %d is not paused: %w", id, store.ErrConflict)))
 		return
 	}
 	used, err := s.st.ChannelTokens(r.Context(), id)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, c.release(err))
 		return
 	}
 	var extra int64
 	if used >= ch.TokenBudget {
 		extra = store.TokenBudget
 	}
-	if err := s.st.ContinueChannel(r.Context(), id, extra); err != nil {
-		writeError(w, err)
-		return
-	}
-	l := s.live(id)
+	l := c.l
 	l.mu.Lock()
 	l.hops = 0
 	held := l.held
-	if len(held) == 0 {
-		l.publishLocked("pause", pauseState{})
-	}
 	l.mu.Unlock()
 	if len(held) > 0 {
-		if err := s.startTurn(r.Context(), id, _message, "", nil, nil, held); err != nil {
-			writeError(w, err)
-			return
+		c.lift(&ch, extra)
+		err = c.resume(r.Context(), ch, held)
+	} else {
+		err = s.st.ContinueChannel(r.Context(), id, extra)
+		if err == nil {
+			l.mu.Lock()
+			l.publishLocked("pause", pauseState{})
+			l.mu.Unlock()
 		}
+		err = c.release(err)
+	}
+	if err != nil {
+		writeError(w, err)
+		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
@@ -524,7 +614,11 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	if *in.Approve {
 		held := wake{from: a.From, messageID: a.MessageID, role: a.To, text: a.Text, parent: a.Parent}
-		if err := s.startTurn(r.Context(), id, _message, "", nil, nil, []wake{held}); err != nil {
+		c, ch, err := s.claim(r.Context(), id)
+		if err == nil {
+			err = c.resume(r.Context(), ch, []wake{held})
+		}
+		if err != nil {
 			if rerr := s.st.ReopenApproval(r.Context(), aid); rerr != nil {
 				err = errors.Join(err, rerr)
 			}

@@ -546,44 +546,113 @@ func TestSend_WrapWakesNobody(t *testing.T) {
 	}
 }
 
-func TestSend_HopCapPausesChannel(t *testing.T) {
-	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
-	env.fake.onRun = func(role, _ string, _ *int64) {
+const _hopPause = "hop cap: 4 agent hops without a user message"
+
+// pingPong makes the lead and the architect answer each other until the hop cap pauses the
+// channel, and returns the channel's id and a stream of it, after the pause.
+func (e *liveEnv) pingPong(t *testing.T) (int, *stream) {
+	t.Helper()
+	id, post := e.teamChannel(t)
+	e.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" {
 			post("lead", "@architect again", nil)
 		} else {
 			post("architect", "@lead again", nil)
 		}
 	}
-	sub := subscribeTo(t, env.url, id)
-	env.sendTo(t, id, "go")
+	sub := subscribeTo(t, e.url, id)
+	e.sendTo(t, id, "go")
 	sub.want(t, _idleFrame)
-	for _, role := range []string{"lead", "architect", "lead", "architect", "lead"} {
-		sub.want(t, `turn {"role":"`+role+`","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead")
+	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
+	return id, sub
+}
+
+func (s *stream) wantTurns(t *testing.T, roles ...string) {
+	t.Helper()
+	for _, role := range roles {
+		s.want(t, `turn {"role":"`+role+`","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 			`turn {"role":"`+role+`","status":"done"}`)
 	}
-	const reason = "hop cap: 4 agent hops without a user message"
-	sub.want(t, `pause {"reason":"`+reason+`"}`)
+}
+
+func TestSend_HopCapPausesChannel(t *testing.T) {
+	env := newLiveEnv(t)
+	id, sub := env.pingPong(t)
 	if got := len(env.ranTexts()); got != 5 {
 		t.Errorf("turns run = %d, want 5: the user's turn and 4 hops", got)
 	}
-	status, body := env.sendTo(t, id, "more")
-	if status != 409 || body != `{"error":"channel 2 is paused: `+reason+`: conflict"}` {
-		t.Errorf("send while paused = %d %s, want 409 with the reason", status, body)
+	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
+		t.Errorf("channel = %+v, %v, want paused with the hop cap reason", ch, err)
 	}
 
 	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
 	sub.want(t, `pause {"reason":""}`)
-	for _, role := range []string{"architect", "lead", "architect", "lead"} {
-		sub.want(t, `turn {"role":"`+role+`","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
-			`turn {"role":"`+role+`","status":"done"}`)
-	}
-	sub.want(t, `pause {"reason":"`+reason+`"}`)
+	sub.wantTurns(t, "architect", "lead", "architect", "lead")
+	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
 	if got := len(env.ranTexts()); got != 9 {
 		t.Errorf("turns run after continue = %d, want 9: the held wake and 3 more hops", got)
+	}
+}
+
+func TestSend_UserMessageClearsHopPause(t *testing.T) {
+	env := newLiveEnv(t)
+	id, sub := env.pingPong(t)
+
+	if status, body := env.sendTo(t, id, "more"); status != 202 || body != "" {
+		t.Fatalf("send while hop paused = %d %q, want 202", status, body)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead")
+	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
+	if got := env.ranTexts(); len(got) != 10 || got[5] != "more" {
+		t.Errorf("ran = %q, want 10 turns, the sixth the user's: the held wake is dropped and the count starts at 0", got)
+	}
+}
+
+func TestContinue_WhileRunning(t *testing.T) {
+	env := newLiveEnv(t)
+	env.send(t, "block")
+	<-env.fake.started
+	if err := env.st.PauseChannel(context.Background(), 1, "capped"); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodPost, env.url+"/channels/1/continue", "")
+	if status != 409 || body != `{"error":"channel 1 has a turn running: conflict"}` {
+		t.Errorf("continue while running = %d %s, want 409 turn running", status, body)
+	}
+	if ch, err := env.st.Channel(context.Background(), 1); err != nil || ch.Paused != "capped" {
+		t.Errorf("channel = %+v, %v, want still paused", ch, err)
+	}
+	env.fake.release <- struct{}{}
+}
+
+func TestContinue_StartFailureKeepsHeldWakes(t *testing.T) {
+	env := newLiveEnv(t)
+	id, sub := env.pingPong(t)
+	continueURL := fmt.Sprintf("%s/channels/%d/continue", env.url, id)
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	env.open = func(context.Context) (session, error) { return nil, errors.New("boom") }
+
+	if status, body := do(t, http.MethodPost, continueURL, ""); status != 500 {
+		t.Fatalf("continue = %d %s, want 500: the agent did not open", status, body)
+	}
+	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
+		t.Fatalf("channel = %+v, %v, want still paused with the hop cap reason", ch, err)
+	}
+
+	env.open = nil
+	if status, _ := do(t, http.MethodPost, continueURL, ""); status != 204 {
+		t.Fatalf("second continue = %d, want 204", status)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "architect", "lead", "architect", "lead")
+	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
+	if got := len(env.ranTexts()); got != 9 {
+		t.Errorf("turns run = %d, want 9: the wakes held before the failed continue ran", got)
 	}
 }
 
