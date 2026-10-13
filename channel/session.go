@@ -149,7 +149,7 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 	if last.SessionID != "" {
 		err = ag.Resume(ctx, cfg, last.SessionID)
 	} else {
-		if preamble, err = startPrompt(ctx, s.st, s.ch.ID, s.project, r); err != nil {
+		if preamble, err = startPrompt(ctx, s.st, s.ch.ID, s.project, s.team, r); err != nil {
 			return nil, err
 		}
 		err = ag.Start(ctx, cfg)
@@ -288,17 +288,18 @@ func InUse(dataDir string, channelID int64) bool {
 }
 
 func startPrompt(
-	ctx context.Context, st *store.Store, channelID int64, p store.Project, r store.Role,
+	ctx context.Context, st *store.Store, channelID int64, p store.Project, team store.Team,
+	r store.Role,
 ) (string, error) {
 	ch, err := st.Channel(ctx, channelID)
 	if err != nil {
 		return "", err
 	}
 	if ch.FeatureID == nil {
-		return roleIntro(r) + projectContext(p, r.Name), nil
+		return roleIntro(r) + projectContext(p, r.Name) + teamIntro(team, r), nil
 	}
 	body, err := Context(ctx, st, *ch.FeatureID, r.Name)
-	return roleIntro(r) + body, err
+	return roleIntro(r) + body + teamIntro(team, r), err
 }
 
 func failStaleTurns(ctx context.Context, st *store.Store, channelID int64) error {
