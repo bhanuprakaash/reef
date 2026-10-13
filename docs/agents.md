@@ -19,14 +19,16 @@ Interrupt() error                     // stop the turn and the process
   process and sends no prompt. `Send` is not safe for concurrent use.
 - A turn ends with a `turn_end` or `error` event. Call `Send` again only after that. A
   failure gives one `error`.
-- `Events` is unbuffered. The adapter blocks until you read.
+- `Events` is unbuffered, except Codex's, which holds one event (see `Interrupt`). The
+  adapter blocks until you read.
 - `ctx` bounds only the call it is passed to. Claude ignores it. Codex uses it to abort the
   handshake and returns an error wrapping `ctx.Err()`. `Interrupt` is the only way to stop a
   session, and is safe to call while `Start` runs.
 - `Interrupt` kills the process. When it returns, the process is gone and `Events` is
-  closed, also if `Start` failed or never ran. You need not drain `Events` first. A second
-  call is a no-op. Tool processes in their own process group may outlive a forced kill. To
-  go on, `Resume` on a new `Agent` with the id from the last `session` event.
+  closed, also if `Start` failed or never ran. You need not drain `Events` first, but Codex
+  leaves the usage of the turn it stopped in `Events` (see Codex below), so read it until it
+  closes to count it. A second call is a no-op. Tool processes in their own process group
+  may outlive a forced kill. To go on, `Resume` on a new `Agent` with the id from the last `session` event.
 - `Config`: `Cwd`, `PermissionMode` (backend-specific, passed through), `MCPServers`
   (stdio `Command`/`Args`/`Env` or HTTP `URL`), `Env` (`KEY=value`, added to `os.Environ`).
 
@@ -158,6 +160,7 @@ A JSON-RPC `error` response after the handshake (for example to `turn/start`) be
 {"method":"item/started","params":{"item":{"type":"mcpToolCall","id":"exec-fb96...","server":"reef-ping","tool":"reef_ping","status":"inProgress","arguments":{}}}}
 {"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"exec-fb96...","status":"completed","result":{"content":[{"type":"text","text":"pong"}]},"error":null}}}
 // usage: one per model call, several per turn. "last" is that call. The adapter emits each as a `usage` event.
+// Codex sends it after the call's tool finished, not when the call ended.
 {"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"total":{...},"last":{"inputTokens":15026,"cachedInputTokens":14080,"outputTokens":118,"reasoningOutputTokens":45}}}}
 // turn end
 {"method":"turn/completed","params":{"threadId":"...","turn":{"id":"...","status":"completed","error":null}}}
@@ -177,7 +180,7 @@ and `agentMessage`.
 | `text` | `stream_event` with `content_block_delta` / `text_delta`, `delta.text` | `item/agentMessage/delta`, `params.delta`. Each agent message is its own item (`params.itemId`); the first delta of a later item in the same turn is preceded by a `text` of `"\n\n"`, so messages around a tool call stay apart. |
 | `tool_call` | `assistant` line, each `tool_use` block: `id`, `name`, `input` | `item/started` for `commandExecution` (name `commandExecution`, input `{"command":...}`), `fileChange` (name `fileChange`, input `changes`), `mcpToolCall` (name `mcp__<server>__<tool>`, input `arguments`) |
 | `tool_result` | `user` line, each `tool_result` block: `tool_use_id`, text of `content`, `is_error` | `item/completed` for the same three item types. Output: `aggregatedOutput` / status (`fileChange`) / MCP error message or joined `result.content` text. `isError` if status is not `completed` or `exitCode` is not 0. |
-| `usage` | `message_delta` `stream_event` `usage`, one per model message, so a turn stopped midway keeps what it spent: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). The `result` line sends only its total minus what the messages already sent (nothing when equal), just before `turn_end` or `error`, so a finished turn adds up to the `result` total. | `thread/tokenUsage/updated` `last`, one `usage` per model call as it arrives, so a turn that is interrupted keeps what it used; the turn's usage is their sum. Per call: `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. None for a turn that made no model call. |
+| `usage` | `message_delta` `stream_event` `usage`, one per model message, so a turn stopped midway keeps what it spent: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). The `result` line sends only its total minus what the messages already sent (nothing when equal), just before `turn_end` or `error`, so a finished turn adds up to the `result` total. | `thread/tokenUsage/updated` `last`, one `usage` per model call as it arrives, so a turn that is interrupted keeps what it used; the turn's usage is their sum. Codex sends a call's usage only after the call's tool finishes, so `Interrupt` sends `turn/interrupt` first; codex then reports the call the turn was in, unless it was still streaming text (that call is lost). Per call: `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. None for a turn that made no model call. |
 | `turn_end` | `result` line with `is_error` false and no `origin` of `task-notification` | `turn/completed` with any status but `failed` |
 | `error` | `result` with `is_error` true (`result` and `errors[]` joined). Also a non-zero exit when the last event was not already an `error`: `claude exited: ...: <stderr>`. | `turn/completed` with status `failed` (`turn.error.message`), or a JSON-RPC error response. Also a non-zero exit on its own: `codex exited: <err>: <stderr>`. |
 
@@ -249,7 +252,24 @@ Interrupt and orphans
   re-check during a turn that also took the SIGKILL path. Their stdin is `/dev/null` and their
   stdout is a claude task file, not Reef's pipe. An idle claude takes about 1.45 s to exit on
   SIGTERM, so the 1 s grace usually ends in SIGKILL.
-- Codex has `turn/interrupt`. It is unused: the contract is "process gone".
+- Codex: `Interrupt` first sends `turn/interrupt` for a turn in progress and waits (1 s at
+  most) for its `turn/completed`, then does the above. Codex sends the usage of the model
+  call the turn was in only after that call's tool finishes, so a turn stopped inside its
+  first tool call had no usage yet. On `turn/interrupt` it sends that usage, then the
+  `interrupted` turn end (measured, codex 0.162.1, a `time.sleep(60)` command stopped 6 s in):
+
+  ```
+  -> {"id":"stop","method":"turn/interrupt","params":{"threadId":"...","turnId":"..."}}
+  <- {"method":"thread/tokenUsage/updated","params":{...,"tokenUsage":{"total":{"totalTokens":17325,...},"last":{"totalTokens":17325,"inputTokens":17279,"cachedInputTokens":16128,"outputTokens":46,...}}}}
+  <- {"id":"stop","result":{}}
+  <- {"method":"turn/completed","params":{"turn":{"status":"interrupted","items":[],...}}}
+  ```
+
+  The adapter keeps only that usage, drops the `interrupted` turn end, and puts the usage in
+  `Events`' one-event buffer, added to a usage already unread there. Without `turn/interrupt`
+  (SIGTERM only) codex sent nothing, so the stopped turn counted 0. A turn stopped while a
+  model call streams its text gets no usage even from `turn/interrupt` (12 s into a
+  2000-word essay: 557 text events, then only the zero total): that call's tokens are lost.
 - A `codex app-server --listen unix://` daemon may already run. The adapter spawns its own
   stdio server and ignores it.
 
