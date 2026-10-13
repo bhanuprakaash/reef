@@ -2,7 +2,7 @@
 
 A user runs `reef-agent --backend claude|codex "prompt"`. It starts the backend in the cwd,
 sends the prompt, and prints one JSON event per line as the turn streams: the session id,
-text deltas, tool calls and their results, the turn's token usage, then `turn_end`. With
+text deltas, tool calls and their results, token usage (one `usage` line per model message), then `turn_end`. With
 stdin closed it exits 0 after the turn. A failed turn ends with one `error` line (usually right after a `usage` line) and exits 1.
 
 ## Sub-features
@@ -40,3 +40,4 @@ Preconditions:
 - Claude sends a `usage` line as each model message ends and the rest at its `result` line, so a crash mid-turn gives an `error` after the usage of the messages that ended.
 - Claude loads the user's hooks, plugins and settings, so start-up takes a few seconds. That is not a hang.
 - `reef-agent` without `--cwd` uses its own cwd; the helper runs it in the scratch cwd. Claude reports `/private/tmp/...`, not `/tmp/...`.
+- Codex sends each agent message as its own item; between two messages of one turn the adapter emits a `text` line of `"\n\n"`, so text before and after a tool call stays apart.

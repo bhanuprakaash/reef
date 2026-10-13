@@ -1,5 +1,5 @@
 // Drives the Reef window in the system Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof).
 import { chromium } from 'playwright-core';
@@ -9,9 +9,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -201,6 +201,96 @@ async function cap() {
   const state = sql(`select token_budget,paused from channel where id=${cid}`);
   const lead = sql(`select count(*) from message where channel_id=${cid} and author='lead'`);
   check(lead === '2', 'next message ran after Continue', `channel row (budget|paused): ${state}; lead messages: ${lead}`);
+}
+
+async function pages() {
+  await page.goto(base + '/');
+  await page.getByRole('button', { name: 'Add project' }).click();
+  await page.getByLabel('Project name').fill('bad path');
+  await page.getByLabel('Project path').fill('/nonexistent-reef-ui');
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  const err = page.getByText(/not a directory/);
+  await err.waitFor({ timeout: 10000 });
+  await shot('bad-path');
+  check(true, 'a bad project path shows the server error', await err.innerText());
+  await page.reload();
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const fid = page.url().split('/').pop();
+  await main.getByRole('combobox').first().selectOption('live-testing');
+  await main.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+  await page.reload();
+  const stage = await main.getByRole('combobox').first().inputValue();
+  check(stage === 'live-testing', 'stage survives a reload', `select ${stage}, row ${sql(`select stage from feature where id=${fid}`)}`);
+  await page.goto(base + '/tasks');
+  const title = `ui task ${Date.now().toString(36)}`;
+  await page.getByLabel('Task title').fill(title);
+  const pid = sql(`select project_id from feature where id=${fid}`);
+  await page.getByLabel('Task project').selectOption(pid);
+  await page.getByLabel('Task feature').selectOption(fid);
+  await page.getByRole('button', { name: 'Add task' }).click();
+  const row = main.locator('li', { hasText: title });
+  await row.waitFor();
+  await page.getByLabel('Filter by project').selectOption(pid);
+  await page.getByLabel('Filter by feature').selectOption(fid);
+  await row.getByRole('button', { name: 'Mark done' }).click();
+  await row.getByRole('button', { name: 'Mark done' }).waitFor({ state: 'hidden' });
+  await page.getByLabel('Filter by status').selectOption('done');
+  await row.waitFor();
+  await shot('tasks-done');
+  check(
+    sql(`select status from task where title='${title}'`) === 'done' && page.url().includes('status=done'),
+    'a task added in the window is marked done and filtered',
+    `row ${sql(`select id,project_id,feature_id,status from task where title='${title}'`)}; url ${page.url().replace(base, '')}`,
+  );
+}
+
+async function stop() {
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const cid = await newChannel(main, 'New channel', 'stop chat');
+  await send('Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
+  await working();
+  await page.waitForTimeout(4000);
+  await page.getByRole('button', { name: 'Stop' }).click();
+  await page.getByText(/Failed: interrupted/).waitFor({ timeout: 30000 });
+  await shot('stopped');
+  check(true, 'Stop shows the turn failed', sql(`select id,status,error from turn where channel_id=${cid}`));
+  await exchange('What was the secret word? Answer with the word only.');
+  await shot('resumed');
+  const answer = sql(`select body from message where channel_id=${cid} and author='lead' order by id desc limit 1`);
+  check(/pineapple/i.test(answer), 'the next message resumes the session', `answer: ${answer}`);
+}
+
+async function wrap() {
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const cid = await newChannel(main, 'New channel', 'wrap chat');
+  await exchange('We are building email login. Decision: sessions, not JWT, because there is one server.');
+  await page.getByRole('button', { name: 'Wrap up' }).click();
+  await working();
+  const panel = page.getByRole('region', { name: 'Proposal' });
+  await panel.waitFor({ timeout: 240000 });
+  await shot('proposal');
+  await panel.getByRole('button', { name: 'Reject' }).click();
+  await page.getByText('rejected', { exact: true }).waitFor();
+  const fid = sql(`select feature_id from channel where id=${cid}`);
+  check(
+    sql(`select status from proposal where channel_id=${cid} order by id desc limit 1`) === 'rejected' &&
+      sql(`select count(*) from brief where feature_id=${fid}`) === '0',
+    'Reject leaves the brief unchanged',
+    `proposals ${sql(`select id,status from proposal where channel_id=${cid}`)}`,
+  );
+  await send('/wrap');
+  await working();
+  await panel.waitFor({ timeout: 240000 });
+  await panel.getByRole('button', { name: 'Approve' }).click();
+  await page.getByText(/approved: \d+ decisions added/).waitFor();
+  await shot('approved');
+  await section.getByRole('link', { name: 'Login', exact: true }).click();
+  await page.getByText('Version 1 by').waitFor();
+  check(sql(`select count(*) from brief where feature_id=${fid}`) === '1', '/wrap then Approve makes brief version 1', `brief rows ${sql(`select id,author from brief where feature_id=${fid}`)}`);
 }
 
 try {

@@ -29,7 +29,8 @@ turn. Contract: `docs/memory.md`.
 - `chat-token-cleanup` every chat deletes its token when it ends.
 - `chat-permission-mode` `--permission-mode acceptEdits` is stored on the channel, and `reef chat --channel ID` resumes with it; `--permission-mode` on `--channel` is refused.
 - `chat-quick-session` a channel with no feature starts with a two-line prompt that names the project and says there is no feature yet.
-- `chat-bad-backend` a backend typo fails before anything is stored: no channel.
+- `chat-bad-backend` a backend typo fails and leaves no channel (the channel made for it is removed).
+- `chat-paused` `reef chat --channel ID` on a paused channel, or one whose token budget is used, exits 1 with `channel N is paused: <reason>: conflict` before an agent starts; a used-up budget is stored as the pause.
 - `chat-index` the context index cuts a decision's first line at 100 runes with `…` and shows each channel's message count.
 
 ## How to get to it (user POV)
@@ -87,11 +88,12 @@ Codex, channel 2 (no `ANTHROPIC_MODEL` needed):
 Permission mode and quick session (claude, `chat-extra` folder, project 1, feature `login`):
 
 - **Permission mode kept on resume.** `ANTHROPIC_MODEL=sonnet $H reef --stdin <two lines> --timeout 300 -- chat login --role developer --backend claude --permission-mode acceptEdits`. `$H sql "select id, permission_mode from channel"` shows `acceptEdits`. `ANTHROPIC_MODEL=sonnet $H reef --stdin <a line asking what was said first> --timeout 300 -- chat --channel ID --debug` replies with the earlier message, and `ps` of the live `claude` (or its `--permission-mode` in `reef.log` children) shows `acceptEdits`. `$H reef -- chat --channel ID --permission-mode default` prints the usage, `exit: 1`.
+- **Paused.** On that channel: `$H sql --write "update channel set paused='test pause' where id=ID"`, then `$H reef -- chat --channel ID` prints `reef: channel ID is paused: test pause: conflict`, `exit: 1`, `children: 0`. `$H sql --write "update channel set paused='', token_budget=1 where id=ID"`, the same command prints `paused: token budget of 1 used: N tokens`, and `$H sql "select paused from channel where id=ID"` now holds that reason.
 - **Quick session.** `$H sql --write "insert into channel (project_id, name, role, backend, created_at) values (1, 'quick', 'lead', 'claude', '2026-10-13T00:00:00Z')"` (REST `POST /channels` works too). `ANTHROPIC_MODEL=sonnet $H reef --stdin <one line> --timeout 300 -- chat --channel ID --debug`: stderr starts with `You are the lead in project "<name>" (<folder>).` and `This is a quick session: it has no feature yet`, with no `feature` name, brief or index.
 
 After the chats:
 
-- **Tokens.** `$H sql "select count(*) from token"` is `0` after every chat above.
+- **Tokens.** `$H sql "select count(*) from token"` is `0` after every chat above (in the `chat` folder; `reef token` in `chat-extra` keeps its own row).
 - **Backend typo.** `$H reef -- chat login --role tester --backend nope` prints `reef: invalid: unknown backend "nope"`, `exit: 1`. `$H sql "select count(*) from channel"` is still 2.
 - **Index line.** Record a decision whose first line is longer than 100 runes, with a second line (a double-quoted argument with a real newline): `$H reef -- decide login "Ünïcode-first line: <80 × é>TAIL` newline `second line must not show"`. `$H sql "select max(id) from decision"` gives its id `N`; the model decides how many decisions came before it. `$H reef -- context login --role developer` shows `decision N: Ünïcode-first line: <80 × é>… (user, <date>)`: cut at 100 runes, no `TAIL`, no second line. `### Channels` shows `channel 1: developer chat, <date>, 11 messages` and `channel 2: reviewer chat, <date>, 7 messages`, the counts `$H sql "select channel_id, count(*) from message group by channel_id"` gives.
 

@@ -6,7 +6,7 @@ set of notes per role. Deleting a project deletes its features.
 
 ## Sub-features
 
-- `project-crud` create, list, get, replace and delete a project; a missing field is 400, an unknown id 404.
+- `project-crud` create, list, get, replace and delete a project; a missing field, a relative path or a path that is not a folder is 400, an unknown id 404; the path is stored with symlinks resolved (`/tmp` reads back as `/private/tmp` on macOS).
 - `feature-crud` features list, filter by `?project=ID`, get, replace and delete; goal and stage default.
 - `feature-slug` a slug is lowercase letters, digits and `-`, not starting with `-` and not only digits; a taken slug in the same project is 409; the same slug in another project is fine; `projectId` and the slug never change after create.
 - `brief-versions` each `PUT .../brief` adds a version; the brief is the latest; old versions stay, oldest first.
