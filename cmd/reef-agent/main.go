@@ -17,7 +17,8 @@ import (
 	"github.com/bhanuprakaash/reef/agent"
 )
 
-const _usage = `usage: reef-agent --backend claude|codex [--cwd DIR] [--resume ID] "prompt"`
+const _usage = `usage: reef-agent --backend claude|codex [--cwd DIR] [--resume ID]
+  [--permission-mode MODE] [--mcp FILE] "prompt"`
 
 var errInterrupted = errors.New("interrupted")
 
@@ -56,6 +57,8 @@ func run(
 	backend := fs.String("backend", "", "")
 	cwd := fs.String("cwd", "", "")
 	resume := fs.String("resume", "", "")
+	permissionMode := fs.String("permission-mode", "", "")
+	mcpFile := fs.String("mcp", "", "")
 	if err := fs.Parse(args); err != nil {
 		return fmt.Errorf("%w\n%s", err, _usage)
 	}
@@ -74,7 +77,16 @@ func run(
 	if err != nil {
 		return err
 	}
-	cfg := agent.Config{Cwd: *cwd}
+	cfg := agent.Config{Cwd: *cwd, PermissionMode: *permissionMode}
+	if *mcpFile != "" {
+		b, err := os.ReadFile(*mcpFile)
+		if err != nil {
+			return err
+		}
+		if err := json.Unmarshal(b, &cfg.MCPServers); err != nil {
+			return fmt.Errorf("parse %s: %w", *mcpFile, err)
+		}
+	}
 	if *resume != "" {
 		err = a.Resume(ctx, cfg, *resume)
 	} else {
