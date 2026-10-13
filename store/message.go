@@ -82,6 +82,17 @@ func (s *Store) Messages(ctx context.Context, channelID, after int64) ([]Message
 	return scanAll(rows, scanMessage)
 }
 
+// LastMessageID returns the id of the channel's newest message, 0 when it has none.
+func (s *Store) LastMessageID(ctx context.Context, channelID int64) (int64, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx,
+		"SELECT COALESCE(MAX(id), 0) FROM message WHERE channel_id = ?", channelID).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("last message: %w", err)
+	}
+	return id, nil
+}
+
 // Thread lists the top-level message root of the channel and its replies, oldest first.
 func (s *Store) Thread(ctx context.Context, channelID, root int64) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx,
