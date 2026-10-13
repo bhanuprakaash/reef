@@ -51,7 +51,7 @@ func TestRunner_Send(t *testing.T) {
 
 	var streamed []string
 	for _, text := range []string{"one 1", "two 2"} {
-		err := r.Send(ctx, text, func(ev agent.Event) {
+		err := r.SendAs(ctx, text, text, func(ev agent.Event) {
 			if ev.Kind == agent.KindText {
 				streamed = append(streamed, ev.Text)
 			}
@@ -185,7 +185,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			ctx, cancel := context.WithCancel(bg)
 			defer cancel()
 
-			err = r.Send(ctx, "hi", func(ev agent.Event) {
+			err = r.SendAs(ctx, "hi", "hi", func(ev agent.Event) {
 				if ev.Kind == tt.cancelOn {
 					cancel()
 				}
@@ -257,7 +257,7 @@ func TestRunner_SendCancelledAfterMessageStoresTurn(t *testing.T) {
 	ctx := &cancelOnDone{Context: bg, done: make(chan struct{})}
 	defer time.AfterFunc(5*time.Second, ctx.cancel).Stop()
 
-	if err := r.Send(ctx, "hi", func(agent.Event) {}); err == nil || err.Error() != "context canceled" {
+	if err := r.SendAs(ctx, "hi", "hi", func(agent.Event) {}); err == nil || err.Error() != "context canceled" {
 		t.Fatalf("Send error = %v, want context canceled", err)
 	}
 	msgs, err := st.Messages(bg, ch.ID, 0)

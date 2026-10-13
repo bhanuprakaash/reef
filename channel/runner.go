@@ -37,17 +37,11 @@ func NewRunner(
 	}
 }
 
-// Send stores text as a user message, runs one turn and calls onEvent for each
-// event of the agent. A finished turn is stored done with the agent's reply as
-// a message. An agent error ends the turn failed and is returned. When ctx is
-// cancelled the agent is interrupted, the turn is stored failed as interrupted
-// and the error wraps ctx.Err().
-func (r *Runner) Send(ctx context.Context, text string, onEvent func(agent.Event)) error {
-	return r.SendAs(ctx, text, text, onEvent)
-}
-
-// SendAs is Send with a different text for the agent: the user message stored is
-// stored, the agent gets text.
+// SendAs stores stored as a user message, runs one turn with text and calls
+// onEvent for each event of the agent. A finished turn is stored done with the
+// agent's reply as a message. An agent error ends the turn failed and is
+// returned. When ctx is cancelled the agent is interrupted, the turn is stored
+// failed as interrupted and the error wraps ctx.Err().
 func (r *Runner) SendAs(
 	ctx context.Context, stored, text string, onEvent func(agent.Event),
 ) error {
