@@ -173,11 +173,11 @@ func (s *Store) ContinueChannel(ctx context.Context, id, extra int64) error {
 	return s.setChannel(ctx, id, "paused = '', token_budget = token_budget + ?", extra)
 }
 
-// ChannelTokens sums input and output tokens; cache reads and writes are not counted.
+// ChannelTokens sums input, output and cache write tokens; cache reads are not counted.
 func (s *Store) ChannelTokens(ctx context.Context, id int64) (int64, error) {
 	var n int64
 	err := s.db.QueryRowContext(ctx,
-		"SELECT COALESCE(SUM(input_tokens + output_tokens), 0) FROM turn WHERE channel_id = ?",
+		"SELECT COALESCE(SUM(input_tokens + output_tokens + cache_write_tokens), 0) FROM turn WHERE channel_id = ?",
 		id).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("sum channel tokens: %w", err)
