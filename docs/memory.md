@@ -228,7 +228,8 @@ Leaving:
   with reef chat --channel 1` and exits 0.
 - Ctrl-C during a turn interrupts the agent and stores the turn `failed` with error
   `interrupted`. The part of the reply already printed is not stored. Then it prints the
-  same resume line and exits 0.
+  same resume line and exits 0. Closing the terminal (SIGHUP) and SIGTERM do the same.
+  A turn is stored even when the signal comes right after the line is sent.
 
 Flags:
 

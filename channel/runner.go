@@ -56,14 +56,14 @@ func (r *Runner) SendAs(
 	}); err != nil {
 		return err
 	}
-	turn, err := r.st.CreateTurn(ctx, store.Turn{
+	// From here the turn is recorded even when ctx is cancelled.
+	wctx := context.WithoutCancel(ctx)
+	turn, err := r.st.CreateTurn(wctx, store.Turn{
 		ChannelID: r.channelID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,
 	})
 	if err != nil {
 		return err
 	}
-	// From here the turn is recorded even when ctx is cancelled.
-	wctx := context.WithoutCancel(ctx)
 
 	prompt := text
 	if r.preamble != "" {
