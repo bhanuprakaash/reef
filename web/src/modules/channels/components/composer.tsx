@@ -24,7 +24,7 @@ export function Composer({ channelId, running, paused }: Props) {
         submit();
       }}
     >
-      {send.isError && <p className={errorClass}>{send.error.message}</p>}
+      {send.isError && !paused && <p className={errorClass}>{send.error.message}</p>}
       <textarea
         className={`${inputClass} w-full`}
         rows={3}
