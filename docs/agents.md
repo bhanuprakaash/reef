@@ -214,7 +214,11 @@ Interrupt and orphans
 - Both start the process in its own group and set `cmd.WaitDelay` to 2 s. `Interrupt` sends
   SIGTERM to the group, then SIGKILL after 1 s. SIGTERM first lets the backend stop the tools it started: those run in
   their own process groups, so SIGKILL alone would orphan them.
-- Claude tools started with `run_in_background` survive. Known leak.
+- Claude tools started with `run_in_background` did not survive Interrupt on claude 2.1.296,
+  in 4 runs: two during a turn and one between turns (one of them on the SIGKILL path), plus a
+  re-check during a turn that also took the SIGKILL path. Their stdin is `/dev/null` and their
+  stdout is a claude task file, not Reef's pipe. An idle claude takes about 1.45 s to exit on
+  SIGTERM, so the 1 s grace usually ends in SIGKILL.
 - Codex has `turn/interrupt`. It is unused: the contract is "process gone".
 - A `codex app-server --listen unix://` daemon may already run. The adapter spawns its own
   stdio server and ignores it.
