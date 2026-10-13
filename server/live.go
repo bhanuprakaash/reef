@@ -272,23 +272,13 @@ func (s *server) checkTurn(ctx context.Context, id int64, l *live, kind turnKind
 		return fmt.Errorf("%w: channel %d is a quick session, promote it before wrapping up",
 			store.ErrInvalid, id)
 	}
-	if ch.Paused == "" {
-		used, err := s.st.ChannelTokens(ctx, id)
-		if err != nil {
-			return err
-		}
-		if used < ch.TokenBudget {
-			return nil
-		}
-		ch.Paused = fmt.Sprintf("token budget of %d used: %d tokens", ch.TokenBudget, used)
-		if err := s.st.PauseChannel(ctx, id, ch.Paused); err != nil {
-			return err
-		}
+	pausedNow, err := channel.CheckCaps(ctx, s.st, &ch)
+	if pausedNow {
 		l.mu.Lock()
 		l.publishLocked("pause", pauseState{Reason: ch.Paused})
 		l.mu.Unlock()
 	}
-	return fmt.Errorf("channel %d is paused: %s: %w", id, ch.Paused, store.ErrConflict)
+	return err
 }
 
 func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {

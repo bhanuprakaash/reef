@@ -417,3 +417,71 @@ func TestRun_ChatBackendTypoLeavesNoChannel(t *testing.T) {
 		t.Errorf("channels = %+v, %v, want none", chs, err)
 	}
 }
+
+func TestRun_ChatResumeRefusesPausedChannel(t *testing.T) {
+	tests := []struct {
+		name       string
+		givePause  string
+		giveTokens int64
+		wantErr    string
+		wantPaused string
+	}{
+		{
+			name: "paused", givePause: "test pause",
+			wantErr: "channel 1 is paused: test pause: conflict", wantPaused: "test pause",
+		},
+		{
+			name: "over budget", giveTokens: 1000000,
+			wantErr:    "channel 1 is paused: token budget of 1000000 used: 1000000 tokens: conflict",
+			wantPaused: "token budget of 1000000 used: 1000000 tokens",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			dir := t.TempDir()
+			t.Chdir(t.TempDir())
+			mustReef(t, dir, "project", "add")
+			mustReef(t, dir, "feature", "add", "login", "Login")
+			st, err := store.Open(dir)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = st.Close() }()
+			f, err := st.FeatureByRef(ctx, "login")
+			if err != nil {
+				t.Fatal(err)
+			}
+			ch, err := st.CreateChannel(ctx, store.Channel{
+				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "developer",
+				Backend: "claude",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.givePause != "" {
+				if err := st.PauseChannel(ctx, ch.ID, tt.givePause); err != nil {
+					t.Fatal(err)
+				}
+			}
+			turn, err := st.CreateTurn(ctx, store.Turn{
+				ChannelID: ch.ID, Role: "developer", Backend: "claude",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			turn.Status, turn.Usage = "done", agent.Usage{InputTokens: tt.giveTokens}
+			if _, err := st.EndTurn(ctx, turn); err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = reef(t, dir, "chat", "--channel", "1")
+			if err == nil || err.Error() != tt.wantErr {
+				t.Errorf("chat error = %v, want %q", err, tt.wantErr)
+			}
+			if got, err := st.Channel(ctx, ch.ID); err != nil || got.Paused != tt.wantPaused {
+				t.Errorf("paused = %q, %v, want %q", got.Paused, err, tt.wantPaused)
+			}
+		})
+	}
+}

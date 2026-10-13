@@ -400,8 +400,9 @@ also adds 1,000,000 to `tokenBudget`; after a tool cap the next turn simply gets
 25. `continue` on a channel that is not paused is 409.
 
 The tool cap is counted in `channel.Runner`, so `reef chat` is capped too: it pauses the
-channel, prints the reason and exits, because the interrupt ends the agent. Resume with
-`reef chat --channel ID`. `reef chat` does not check the pause or the token budget.
+channel, prints the reason and exits, because the interrupt ends the agent. `reef chat
+--channel ID` runs the same pause and token budget check as send (`channel.CheckCaps`): it
+refuses a paused channel and pauses one over budget, exit 1 with the reason.
 
 ## Append-only
 

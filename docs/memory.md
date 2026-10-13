@@ -213,7 +213,10 @@ it. A backend typo, or an agent that
 does not start, deletes the channel again.
 
 Resume (`--channel ID`): role, backend and permission mode come from the channel. The
-flags `--role`, `--backend`, `--name` and `--permission-mode` are refused.
+flags `--role`, `--backend`, `--name` and `--permission-mode` are refused. It checks the
+caps first (`channel.CheckCaps`, the same check as the server): a paused channel exits 1
+with the reason, and a channel at or over its token budget is paused, then exits 1 with the
+reason. Continue it from the window, or with `POST /channels/{id}/continue`.
 
 Each turn:
 
