@@ -90,9 +90,10 @@ type (
 			Usage usageCounts `json:"usage"`
 		} `json:"event"`
 		Message struct {
-			Content []block `json:"content"`
+			Content blocks `json:"content"`
 		} `json:"message"`
 		ParentToolUseID string      `json:"parent_tool_use_id"`
+		IsReplay        bool        `json:"isReplay"`
 		IsError         bool        `json:"is_error"`
 		Result          string      `json:"result"`
 		Errors          []string    `json:"errors"`
@@ -101,6 +102,8 @@ type (
 			Kind string `json:"kind"`
 		} `json:"origin"`
 	}
+
+	blocks []block
 
 	block struct {
 		Type      string          `json:"type"`
@@ -195,6 +198,7 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 		"--output-format", "stream-json",
 		"--verbose",
 		"--include-partial-messages",
+		"--replay-user-messages",
 	}
 	if cfg.PermissionMode != "" {
 		args = append(args, "--permission-mode", cfg.PermissionMode)
@@ -339,6 +343,11 @@ func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
 type state struct {
 	seen  agent.Usage   // usage the turn has sent so far
 	calls []agent.Event // tool calls of the message in progress, held until its usage
+
+	// unprompted is set from a turn's init line until the echo of a prompt
+	// (--replay-user-messages, a user line with isReplay). A turn with no such echo is one
+	// claude ran by itself for a background task: its text and tool events answer no prompt.
+	unprompted bool
 }
 
 // parse maps one stdout line to Events. Text comes from the partial-message deltas, so
@@ -348,8 +357,18 @@ type state struct {
 // follow its usage, so a turn stopped at a call has counted the model call that made it
 // (its assistant line comes before the message_delta). A subagent's messages have no
 // message_delta, so its calls are sent at once. The result line sends only what is left
-// of its usage total.
+// of its usage total. An unprompted turn gives only its usage.
 func parse(line []byte, st *state) []agent.Event {
+	evs := parseLine(line, st)
+	if !st.unprompted {
+		return evs
+	}
+	return slices.DeleteFunc(evs, func(ev agent.Event) bool {
+		return ev.Kind == agent.KindText || ev.Kind == agent.KindToolCall || ev.Kind == agent.KindToolResult
+	})
+}
+
+func parseLine(line []byte, st *state) []agent.Event {
 	var l outputLine
 	if err := json.Unmarshal(line, &l); err != nil {
 		return nil
@@ -357,6 +376,7 @@ func parse(line []byte, st *state) []agent.Event {
 	switch l.Type {
 	case "system":
 		if l.Subtype == "init" {
+			st.unprompted = true
 			return []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID}}
 		}
 	case "stream_event":
@@ -386,6 +406,9 @@ func parse(line []byte, st *state) []agent.Event {
 		}
 		return evs
 	case "user":
+		if l.IsReplay {
+			st.unprompted = false
+		}
 		var evs []agent.Event
 		for _, b := range l.Message.Content {
 			if b.Type == "tool_result" {
@@ -421,6 +444,16 @@ func parse(line []byte, st *state) []agent.Event {
 			return append(evs, agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text)})
 		}
 		return append(evs, agent.Event{Kind: agent.KindTurnEnd})
+	}
+	return nil
+}
+
+// UnmarshalJSON reads a list of blocks. The content of a replayed prompt is a plain
+// string; it has none.
+func (c *blocks) UnmarshalJSON(data []byte) error {
+	var list []block
+	if json.Unmarshal(data, &list) == nil {
+		*c = list
 	}
 	return nil
 }

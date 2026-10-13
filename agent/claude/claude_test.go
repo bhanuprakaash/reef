@@ -151,6 +151,41 @@ func TestParse_toolCallsFollowUsage(t *testing.T) {
 	}
 }
 
+// background-task.jsonl is a real session, trimmed: a background Bash task starts in turn 1
+// and ends while turn 2 runs; claude then runs a turn of its own (init, no echoed prompt,
+// result with origin task-notification) before it answers turn 3.
+func TestParse_backgroundTaskTurn(t *testing.T) {
+	raw, err := os.ReadFile("testdata/background-task.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st state
+	var got []string
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		for _, ev := range parse([]byte(line), &st) {
+			s := string(ev.Kind)
+			switch ev.Kind {
+			case agent.KindText:
+				s += " " + ev.Text
+			case agent.KindToolCall:
+				s += " " + ev.ToolName
+			case agent.KindUsage:
+				s += fmt.Sprintf(" out=%d", ev.Usage.OutputTokens)
+			}
+			got = append(got, s)
+		}
+	}
+	want := []string{
+		"session", "usage out=112", "tool_call Bash", "tool_result", "text started.", "usage out=4", "turn_end",
+		"session", "text Tides are the", "text  r", "usage out=546", "turn_end",
+		"session", "usage out=45",
+		"session", "text 42", "usage out=3", "turn_end",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %q, want %q", got, want)
+	}
+}
+
 func TestParse_turnUsage(t *testing.T) {
 	delta := func(in, cw, cr, out int) string {
 		return fmt.Sprintf(`{"type":"stream_event","event":{"type":"message_delta","usage":{"input_tokens":%d,"cache_creation_input_tokens":%d,"cache_read_input_tokens":%d,"output_tokens":%d}},"parent_tool_use_id":null}`, in, cw, cr, out)
@@ -310,6 +345,7 @@ func TestResumeAfterBackgroundTask(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []agent.Event{
+		{Kind: agent.KindSession, SessionID: "d6c291c5-ec96-403e-9f97-720d1dee78db"},
 		{Kind: agent.KindSession, SessionID: "d6c291c5-ec96-403e-9f97-720d1dee78db"},
 		{Kind: agent.KindText, Text: "42"},
 		{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 3, CacheReadTokens: 18362, CacheWriteTokens: 425}},
