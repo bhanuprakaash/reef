@@ -8,15 +8,18 @@ import (
 	"time"
 )
 
-const _channelCols = "id, project_id, feature_id, name, created_at"
+const _channelCols = "id, project_id, feature_id, name, role, backend, permission_mode, created_at"
 
 // Channel with a nil FeatureID is a quick session.
 type Channel struct {
-	ID        int64     `json:"id"`
-	ProjectID int64     `json:"projectId"`
-	FeatureID *int64    `json:"featureId"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID             int64     `json:"id"`
+	ProjectID      int64     `json:"projectId"`
+	FeatureID      *int64    `json:"featureId"`
+	Name           string    `json:"name"`
+	Role           string    `json:"role"`
+	Backend        string    `json:"backend"`
+	PermissionMode string    `json:"permissionMode"`
+	CreatedAt      time.Time `json:"createdAt"`
 }
 
 // ChannelFilter narrows Channels to one project and/or one feature when set.
@@ -35,8 +38,10 @@ func (s *Store) CreateChannel(ctx context.Context, c Channel) (Channel, error) {
 	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO channel (project_id, feature_id, name, created_at) VALUES (?, ?, ?, ?)",
-		c.ProjectID, c.FeatureID, c.Name, now.Format(time.RFC3339Nano))
+		"INSERT INTO channel (project_id, feature_id, name, role, backend, permission_mode, "+
+			"created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		c.ProjectID, c.FeatureID, c.Name, c.Role, c.Backend, c.PermissionMode,
+		now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Channel{}, s.writeErr(ctx, "insert channel", err, ErrInvalid,
 			parent{table: "project", id: &c.ProjectID}, parent{table: "feature", id: c.FeatureID})
@@ -121,7 +126,8 @@ func (c Channel) validate() error {
 func scanChannel(r interface{ Scan(...any) error }) (Channel, error) {
 	var c Channel
 	var created string
-	if err := r.Scan(&c.ID, &c.ProjectID, &c.FeatureID, &c.Name, &created); err != nil {
+	if err := r.Scan(&c.ID, &c.ProjectID, &c.FeatureID, &c.Name, &c.Role, &c.Backend,
+		&c.PermissionMode, &created); err != nil {
 		return Channel{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

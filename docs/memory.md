@@ -184,30 +184,34 @@ Details are on demand through the reef MCP tools read_decision, read_thread and 
 
 ```
 reef chat <feature> --role R --backend claude|codex [--name N] [--permission-mode M] [--debug]
-reef chat --channel ID [--permission-mode M] [--debug]
+reef chat --channel ID [--debug]
 ```
 
 `reef chat` runs one role in one channel, in the terminal. It uses the agent adapters
-from [agents.md](agents.md). The runner is in package `channel` and has no terminal code,
-so the server can drive it later.
+from [agents.md](agents.md). The code that opens a channel is in package `channel`
+(`channel.Open`) and has no terminal code, so the server can drive it later.
 
-New channel (`<feature> --role R --backend B`):
+A channel stores its role, its backend and its permission mode (see
+[server.md](server.md#channel)). `channel.Open` starts its agent in the project's folder,
+with one MCP server named `reef`: this `reef` binary, `mcp --data <data folder>`, with a
+new token in `REEF_TOKEN`. Its tools need no approval (see [agents.md](agents.md#gotchas)).
+It first fails any turn the channel left running (error `chat exited`). That turn
+belonged to a `reef chat` that died, because this one now holds the chat lock.
 
-- It checks the backend first, so a typo stores nothing. It builds the context prompt,
-  then makes a channel named `N` (default `<role> chat`) on the feature. So the new
-  channel is not in its own index. If the agent does not start, the channel is deleted.
-- It starts the agent in the project's folder, with one MCP server named `reef`: this
-  `reef` binary, `mcp --data <data folder>`, with a new token in `REEF_TOKEN`. Its tools
-  need no approval (see [agents.md](agents.md#gotchas)).
-- The context prompt goes before the first message, in the same prompt.
+- With a turn that has a session id, the agent resumes the session of the newest such
+  turn, and the context prompt is not sent again.
+- Without one, the agent starts a new session and the context prompt goes before the
+  first message, in the same prompt. A channel on a feature gets the prompt below. A
+  quick session (no feature) gets two lines: the role, the project's name and folder, and
+  that there is no feature yet.
 
-Resume (`--channel ID`):
+New channel (`<feature> --role R --backend B`): it makes a channel named `N` (default
+`<role> chat`) on the feature, with the role, backend and `--permission-mode`, then opens
+it. The channel is in its own index, with 0 messages. A backend typo, or an agent that
+does not start, deletes the channel again.
 
-- Role, backend and session id come from the channel's newest turn that has a session
-  id. The agent resumes that session, so the context prompt is not sent again.
-- First it fails any turn the channel left running (error `chat exited`). That turn
-  belonged to a `reef chat` that died, because this one now holds the chat lock.
-- A channel with no session fails: `channel 1 has no session to resume`.
+Resume (`--channel ID`): role, backend and permission mode come from the channel. The
+flags `--role`, `--backend`, `--name` and `--permission-mode` are refused.
 
 Each turn:
 
@@ -233,9 +237,9 @@ Leaving:
 
 Flags:
 
-- `--permission-mode M` goes to the backend as is. See [agents.md](agents.md#gotchas) for
-  the values. Without it, Claude denies tools that need permission. The `reef` tools are
-  allowed anyway.
+- `--permission-mode M` is stored on the channel and goes to the backend as is, on a new
+  channel and on every resume. See [agents.md](agents.md#gotchas) for the values. Without
+  it, Claude denies tools that need permission. The `reef` tools are allowed anyway.
 - `--debug` prints each prompt it sends to stderr, between `--- prompt ---` and `---`.
   Use it to see the context prompt.
 - `--name` is only for a new channel.

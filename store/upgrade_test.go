@@ -33,8 +33,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 3 {
-		t.Errorf("user_version = %d, want 3", version)
+	if version != 4 {
+		t.Errorf("user_version = %d, want 4", version)
 	}
 
 	at := func(h, m, sec, ns int) time.Time {
@@ -59,7 +59,7 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 				UpdatedAt: at(3, 7, 0, 0)}},
 		{"channel", func() (any, error) { return s.Channel(ctx, 1) },
 			Channel{ID: 1, ProjectID: 1, FeatureID: &one, Name: "architect chat",
-				CreatedAt: at(3, 8, 0, 0)}},
+				Role: "architect", Backend: "claude", CreatedAt: at(3, 8, 0, 0)}},
 		{"messages", func() (any, error) { return s.Messages(ctx, 1, 0) },
 			[]Message{{ID: 1, ChannelID: 1, Author: "user", Body: "how do we sign in?",
 				CreatedAt: at(3, 9, 0, 0)}}},

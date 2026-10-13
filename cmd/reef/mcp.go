@@ -11,6 +11,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/server"
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -18,14 +19,13 @@ import (
 const (
 	_mcpUsage   = "usage: reef mcp [--data DIR]"
 	_tokenUsage = "usage: reef token <feature> --role R [--data DIR]"
-	_tokenEnv   = "REEF_TOKEN"
 )
 
 // mcpCmd must write nothing but MCP to stdout.
 func mcpCmd(ctx context.Context, args []string) error {
-	value := os.Getenv(_tokenEnv)
+	value := os.Getenv(channel.TokenEnv)
 	if value == "" {
-		return errors.New(_tokenEnv + " is not set")
+		return errors.New(channel.TokenEnv + " is not set")
 	}
 	c := newCommand("reef mcp", _mcpUsage, 0, 0)
 	st, _, err := c.open(args)
@@ -36,7 +36,7 @@ func mcpCmd(ctx context.Context, args []string) error {
 
 	tok, err := st.Token(ctx, value)
 	if errors.Is(err, store.ErrNotFound) {
-		return errors.New("unknown " + _tokenEnv)
+		return errors.New("unknown " + channel.TokenEnv)
 	}
 	if err != nil {
 		return err
@@ -88,7 +88,7 @@ func tokenCmd(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("resolve data dir: %w", err)
 	}
 	_, err = fmt.Fprintf(stdout, "claude mcp add reef --env %s=%s -- %s mcp --data %s\n",
-		_tokenEnv, tok.Token, shellQuote(exe), shellQuote(dir))
+		channel.TokenEnv, tok.Token, shellQuote(exe), shellQuote(dir))
 	return err
 }
 

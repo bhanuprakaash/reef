@@ -92,6 +92,14 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 	return b.String(), nil
 }
 
+// projectContext is the first prompt of a role in a quick session: it names the
+// project and says there is no feature yet.
+func projectContext(p store.Project, role string) string {
+	return fmt.Sprintf("You are the %s in project %q (%s).\n"+
+		"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n",
+		role, p.Name, p.Path)
+}
+
 // firstLine is the first line of body, cut to _maxIndexRunes characters.
 func firstLine(body string) string {
 	line := strings.TrimSpace(body)

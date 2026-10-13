@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/server"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/web"
@@ -121,7 +122,7 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 
 	logger := log.New(logOut, "", log.LstdFlags)
 	failed, err := st.FailRunningTurns(ctx, func(channelID int64) bool {
-		return chatOpen(data, channelID)
+		return channel.InUse(data, channelID)
 	})
 	if err != nil {
 		return fmt.Errorf("recover turns: %w", err)

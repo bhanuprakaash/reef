@@ -137,6 +137,9 @@ One row per feature and role.
 | `projectId` | number | required on create; never changes |
 | `featureId` | number? | set on create and never changes. `null` is a quick session. Must be a feature of the same project. Deleting the feature deletes the channel |
 | `name` | string | required |
+| `role` | string | the role the channel's agent plays. Empty when not set. For a channel from before this field existed, the role of its newest turn |
+| `backend` | string | `claude` or `codex`, the agent that runs the channel. Empty when not set. For an older channel, the backend of its newest turn |
+| `permissionMode` | string | passed to the backend as is when the channel's agent starts or resumes. Empty means the backend default |
 | `createdAt` | string | |
 
 ### message
@@ -253,9 +256,9 @@ a channel takes its messages, turns, tokens and proposals.
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
-| `POST /channels` | `projectId`, `featureId`, `name` | 201 | 400 unknown project or feature, feature of another project |
+| `POST /channels` | `projectId`, `featureId`, `name`, `role`, `backend`, `permissionMode` | 201 | 400 unknown project or feature, feature of another project |
 | `GET /channels/{id}` | | 200 | 404 |
-| `PUT /channels/{id}` | `name` only; project and feature stay as created | 200 | 400, 404 |
+| `PUT /channels/{id}` | `name` only; project, feature, role, backend and permission mode stay as created | 200 | 400, 404 |
 | `DELETE /channels/{id}` | | 204 | 404 |
 | `GET /messages` | `?channel=ID` (required), `?after=ID` (only newer ids) | 200 | 400 no channel, 404 unknown channel |
 | `POST /messages` | `channelId`, `author`, `body` | 201 | 400 unknown channel or missing field |
