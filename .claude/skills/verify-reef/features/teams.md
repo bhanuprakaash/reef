@@ -23,7 +23,7 @@ live, Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 - `route-thread-owner` a user reply with `parent` on the architect's message goes to the architect, not the lead, and the answer lands in the same thread.
 - `route-default-lead` a user message with no mention and no thread goes to the lead.
 - `post-to-channel` a message the lead posts with the `post_to_channel` tool wakes the architect after the lead's turn ends, even when the lead's reply names no one.
-- `route-mentions` one message that mentions two roles wakes both; a turn that posts `@architect` and replies naming `@architect` runs one architect turn; an agent's reply in a thread the user owns wakes nobody.
+- `route-mentions` one message that mentions two roles wakes both; a turn that posts `@architect` and replies naming `@architect` runs one architect turn; an agent's reply in a thread, owned by the user or the lead, wakes nobody unless it mentions a role.
 - `wake-ids` a wake's prompt starts with `[channel N, message N, thread N]`, and `post_to_channel` with `parent` set to that thread id stores the post in the thread.
 - `token-role` a teammate's tool calls carry its own role: `record_decision` by the lead token has author `lead`, by the architect's session author `architect`.
 - `hop-cap` two teammates that keep mentioning each other run 4 hops, the 5th does not run, the channel is paused with `hop cap: 4 agent hops without a user message`; a send is 409; `continue` runs the held wake and counts from 0 again.
