@@ -270,6 +270,7 @@ func (s *server) runOne(
 		if ctx.Err() != nil {
 			end.Error = "interrupted"
 		}
+		log.Printf("turn of %s in channel %d failed: %s", w.role, id, end.Error)
 		if err := sess.Close(); err != nil {
 			log.Printf("close session: %v", err)
 		}

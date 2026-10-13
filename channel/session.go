@@ -105,7 +105,8 @@ func (s *Session) Start(ctx context.Context) error {
 
 // member returns the agent session of role, starting or resuming it from the role's own
 // newest turn with a session id on the role's backend. A new session reads the team from the store, so a team
-// applied since the channel opened is the one it gets.
+// applied since the channel opened is the one it gets. An agent that fails to start leaves a
+// failed turn for the role.
 func (s *Session) member(ctx context.Context, role string) (_ *member, err error) {
 	if m, ok := s.members[role]; ok {
 		return m, nil
@@ -162,7 +163,15 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 		err = ag.Start(ctx, cfg)
 	}
 	if err != nil {
-		return nil, err
+		wctx := context.WithoutCancel(ctx)
+		t, terr := s.st.CreateTurn(wctx, store.Turn{
+			ChannelID: s.ch.ID, Role: role, Backend: r.Backend,
+		})
+		if terr == nil {
+			t.Status, t.Error = "failed", err.Error()
+			_, terr = s.st.EndTurn(wctx, t)
+		}
+		return nil, errors.Join(err, terr)
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.OnPrompt = s.onPrompt

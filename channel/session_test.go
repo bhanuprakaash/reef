@@ -447,6 +447,14 @@ func TestOpen_Errors(t *testing.T) {
 		if err := s.Run(ctx, "hi", nil, discard); err == nil || err.Error() != "no claude" {
 			t.Errorf("Run error = %v, want no claude", err)
 		}
+		turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(turns) != 1 || turns[0].Role != "architect" || turns[0].Status != "failed" ||
+			turns[0].Error != "no claude" {
+			t.Errorf("turns = %+v, want one failed architect turn with error no claude", turns)
+		}
 		if err := s.Close(); err != nil {
 			t.Fatal(err)
 		}
