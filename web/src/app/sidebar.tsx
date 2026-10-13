@@ -1,5 +1,6 @@
 import { Link } from 'react-router';
 import { useChannels } from '@/modules/channels/api/get-channels';
+import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
 import { useProjects } from '@/modules/projects/api/get-projects';
@@ -65,8 +66,9 @@ export function Sidebar() {
                   </ul>
                 </div>
               )}
-              <div className="pl-2">
+              <div className="space-y-2 pl-2">
                 <AddFeatureForm projectId={p.id} />
+                <NewChannelForm projectId={p.id} featureId={null} />
               </div>
             </section>
           );

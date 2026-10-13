@@ -38,6 +38,17 @@ export type Channel = {
   projectId: number;
   featureId: number | null;
   name: string;
+  role: string;
+  backend: string;
+  permissionMode: string;
+  createdAt: string;
+};
+
+export type Message = {
+  id: number;
+  channelId: number;
+  author: string;
+  body: string;
   createdAt: string;
 };
 
