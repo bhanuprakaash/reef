@@ -282,3 +282,28 @@ func TestMCPQuickSession(t *testing.T) {
 		})
 	}
 }
+
+func TestMCPQuickSessionReadsItsOwnThread(t *testing.T) {
+	st, _ := mcpFixture(t)
+	ctx := context.Background()
+	tok, err := st.CreateToken(ctx, 4, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := st.CreateMessage(ctx, store.Message{ChannelID: 4, Author: "user", Body: "plan it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.CreateMessage(ctx, store.Message{
+		ChannelID: 4, ParentID: &root.ID, Author: "architect", Body: "ok",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, isErr := callTool(t, st, tok)("read_thread", map[string]any{"channelId": 4, "root": root.ID})
+	want := `{"messages":[{"author":"user","body":"plan it","channelId":4,"createdAt":"T","id":5,` +
+		`"parentId":null},{"author":"architect","body":"ok","channelId":4,"createdAt":"T","id":6,` +
+		`"parentId":5}]}`
+	if got != want || isErr {
+		t.Errorf("read_thread = %q (error %v), want %q", got, isErr, want)
+	}
+}

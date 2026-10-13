@@ -205,16 +205,18 @@ func (m *mcpServer) readDecision(
 func (m *mcpServer) readThread(
 	ctx context.Context, _ *mcp.CallToolRequest, in threadIn,
 ) (*mcp.CallToolResult, threadOut, error) {
-	f, err := m.feature(ctx)
-	if err != nil {
-		return nil, threadOut{}, err
-	}
 	c, err := m.st.Channel(ctx, in.ChannelID)
 	if err != nil {
 		return nil, threadOut{}, err
 	}
-	if c.FeatureID == nil || *c.FeatureID != f.ID {
-		return nil, threadOut{}, fmt.Errorf("channel %d: %w", in.ChannelID, store.ErrNotFound)
+	if c.ID != m.tok.ChannelID {
+		f, err := m.feature(ctx)
+		if err != nil {
+			return nil, threadOut{}, err
+		}
+		if c.FeatureID == nil || *c.FeatureID != f.ID {
+			return nil, threadOut{}, fmt.Errorf("channel %d: %w", in.ChannelID, store.ErrNotFound)
+		}
 	}
 	if in.Root != 0 {
 		msgs, err := m.st.Thread(ctx, c.ID, in.Root)
