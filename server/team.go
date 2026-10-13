@@ -3,9 +3,26 @@ package server
 import (
 	"net/http"
 
-	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/store"
 )
+
+// teamView is a team as REST shows it. A role's MCP servers are left out: their args and
+// url may carry keys.
+type teamView struct {
+	Name  string       `json:"name"`
+	Roles []roleView   `json:"roles"`
+	Gates []store.Gate `json:"gates,omitempty"`
+}
+
+type roleView struct {
+	Name           string   `json:"name"`
+	Lead           bool     `json:"lead"`
+	Backend        string   `json:"backend"`
+	PermissionMode string   `json:"permissionMode"`
+	Persona        string   `json:"persona"`
+	Skills         string   `json:"skills"`
+	Tools          []string `json:"tools"`
+}
 
 func (s *server) teamRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /teams", s.listTeams)
@@ -20,10 +37,11 @@ func (s *server) listTeams(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	for i := range ts {
-		ts[i] = withoutEnv(ts[i])
+	views := make([]teamView, len(ts))
+	for i, t := range ts {
+		views[i] = viewTeam(t)
 	}
-	writeJSON(w, http.StatusOK, ts)
+	writeJSON(w, http.StatusOK, views)
 }
 
 func (s *server) getTeam(w http.ResponseWriter, r *http.Request) {
@@ -32,21 +50,16 @@ func (s *server) getTeam(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, withoutEnv(t))
+	writeJSON(w, http.StatusOK, viewTeam(t))
 }
 
-// withoutEnv copies t with every MCP server's env removed: it may hold API keys.
-func withoutEnv(t store.Team) store.Team {
-	roles := make([]store.Role, len(t.Roles))
+func viewTeam(t store.Team) teamView {
+	roles := make([]roleView, len(t.Roles))
 	for i, r := range t.Roles {
-		servers := make([]agent.MCPServer, len(r.MCPServers))
-		for j, m := range r.MCPServers {
-			m.Env = nil
-			servers[j] = m
+		roles[i] = roleView{
+			Name: r.Name, Lead: r.Lead, Backend: r.Backend, PermissionMode: r.PermissionMode,
+			Persona: r.Persona, Skills: r.Skills, Tools: r.Tools,
 		}
-		r.MCPServers = servers
-		roles[i] = r
 	}
-	t.Roles = roles
-	return t
+	return teamView{Name: t.Name, Roles: roles, Gates: t.Gates}
 }
