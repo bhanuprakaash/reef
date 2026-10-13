@@ -34,6 +34,6 @@ Preconditions:
 ## Gotchas
 
 - Create and update take the whole object; a left-out field takes its default, so a `PUT` without `goal` blanks it.
-- Unknown JSON fields in a body are 400 naming the field; `id`, `createdAt`, `updatedAt` are accepted and ignored.
+- Unknown JSON fields in a body are 400 naming the field; server-set fields the entity returns (`id`, `createdAt`, and `updatedAt` where it has one) are accepted and ignored; `updatedAt` on a project is 400.
 - An id in the path that matches nothing is 404; an id inside the body that matches nothing is 400.
 - A failed create (409 or 400) writes no row, so the next create still gets the next id.
