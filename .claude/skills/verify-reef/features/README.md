@@ -65,7 +65,7 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 - [Projects and features](./projects-features.md): project CRUD, features and slugs, brief versions, role notes.
 - [Channels and messages](./channels-messages.md): quick-session and feature channels, filters, append-only messages, cascade.
 - [Tasks](./tasks.md): global list, filters, status, `updatedAt`, feature delete keeps the task.
-- [Turns and restart recovery](./turns-recovery.md): running, done, failed; end once; recovery after a crash or stop.
+- [Turns and restart recovery](./turns-recovery.md): running, done, failed; end once; recovery after a crash or stop; an open chat's turn is skipped.
 - [Decisions](./decisions.md): append-only, author and message rules, cascade.
 
 ### Memory loop
@@ -73,6 +73,6 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 Drive these with `$H reef`, `$H mcp-call` and `$H sql`; no server needed. Each names its
 data folder with `$H reef --data-name NAME` and assumes ids start at 1.
 
-- [CLI](./cli.md): project, feature, decide, task, brief, context; a write with no server and while `reef serve` runs; `--` args; a slug in two projects.
+- [CLI](./cli.md): project, feature, decide, task, brief, context; a write with no server and while `reef serve` runs; `--` args; a slug in two projects; subfolders and `--name`.
 - [reef mcp](./reef-mcp.md): tokens, the seven tools through a scripted MCP client, scope and token errors, plain Claude Code.
-- [reef chat](./chat.md): a piped turn stored as messages and turns, `/wrap` approve, reject and left pending, resume, Ctrl-C, on claude and codex.
+- [reef chat](./chat.md): a piped turn stored as messages and turns, `/wrap` approve, reject and left pending, resume, Ctrl-C, on claude and codex; Ctrl-C at the prompt, a decision proposed twice, errors, the chat lock.

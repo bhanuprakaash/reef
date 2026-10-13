@@ -26,6 +26,7 @@ Preconditions:
 - **Call, codex.** Run `REEF_VERIFY_RUN=<id> $H run --name mcp-codex -- --backend codex --mcp /private/tmp/reef-verify/<id>/mcp/mcp.json "Call the secret_word tool of the vping MCP server and tell me the word."`. Same proof: `toolName` `mcp__vping__secret_word`, output `kumquat-4417`, a new line in `mcp-calls.log`.
 - **Bad name, claude.** Write `{"v.ping": {"command": "true"}}` to `~/.reef-verify/<id>/badname.json`. Run `REEF_VERIFY_RUN=<id> $H run --name mcp-badname-claude -- --backend claude --mcp ~/.reef-verify/<id>/badname.json "hi"`. `exit: 1`, empty jsonl, stderr `reef-agent: mcp server name "v.ping": only letters, digits, _ and - allowed`.
 - **Bad file.** Run `REEF_VERIFY_RUN=<id> $H run --name mcp-nofile -- --backend codex --mcp /nonexistent.json "hi"`. `exit: 1`, stderr `reef-agent: open /nonexistent.json: no such file or directory`.
+- **Not JSON.** Write `not json {` to `~/.reef-verify/<id>/notjson.json`. Run `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run --name mcp-notjson-claude -- --backend claude --mcp ~/.reef-verify/<id>/notjson.json "hi"` and `REEF_VERIFY_RUN=<id> $H run --name mcp-notjson-codex -- --backend codex --mcp ~/.reef-verify/<id>/notjson.json "hi"`. Both `exit: 1`, empty jsonl, stderr `reef-agent: parse /Users/<you>/.reef-verify/<id>/notjson.json: invalid character 'o' in literal null (expecting 'u')`.
 
 ## Gotchas
 
