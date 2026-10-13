@@ -96,7 +96,18 @@ func run(
 	} else {
 		err = a.Start(ctx, cfg)
 	}
+	enc := json.NewEncoder(stdout)
+	var total agent.Usage
+	interrupted := func() error {
+		if err := enc.Encode(agent.Event{Kind: agent.KindUsage, Usage: &total}); err != nil {
+			return err
+		}
+		return errInterrupted
+	}
 	if err != nil {
+		if ctx.Err() != nil {
+			return interrupted()
+		}
 		return err
 	}
 	defer func() { _ = a.Interrupt() }()
@@ -126,16 +137,11 @@ func run(
 	if err := a.Send(ctx, fs.Arg(0)); err != nil {
 		return err
 	}
-	enc := json.NewEncoder(stdout)
-	var total agent.Usage
 	var idle <-chan string // set between a turn end and the next prompt
 	for {
 		select {
 		case <-ctx.Done():
-			if err := enc.Encode(agent.Event{Kind: agent.KindUsage, Usage: &total}); err != nil {
-				return err
-			}
-			return errInterrupted
+			return interrupted()
 		case ev, ok := <-a.Events():
 			if !ok {
 				return errors.New("agent events closed unexpectedly")

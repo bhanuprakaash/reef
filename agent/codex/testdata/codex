@@ -1,5 +1,7 @@
 #!/bin/sh
-# Fake `codex app-server`. FAKE_CODEX: hang (default), failstart, crash, replay.
+# Fake `codex app-server`. FAKE_CODEX: hang (default), slowstart, deafstart, failstart, crash, replay.
+[ "$FAKE_CODEX" = slowstart ] && exec sleep 30
+[ "$FAKE_CODEX" = deafstart ] && { trap '' TERM; exec sleep 30; }
 read -r line
 echo '{"id":1,"result":{"userAgent":"fake"}}'
 read -r line
