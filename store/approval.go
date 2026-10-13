@@ -93,6 +93,15 @@ func (s *Store) DecideApproval(ctx context.Context, id int64, status string) err
 	return nil
 }
 
+// ReopenApproval sets a decided approval back to pending, for a wake that could not start.
+func (s *Store) ReopenApproval(ctx context.Context, id int64) error {
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE approval SET status = ? WHERE id = ?", ApprovalPending, id); err != nil {
+		return fmt.Errorf("reopen approval: %w", err)
+	}
+	return nil
+}
+
 func scanApproval(r interface{ Scan(...any) error }) (Approval, error) {
 	var a Approval
 	var created string

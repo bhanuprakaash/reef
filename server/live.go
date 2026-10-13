@@ -518,15 +518,20 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	a.Status = store.ApprovalRejected
 	if *in.Approve {
 		a.Status = store.ApprovalApproved
-		held := wake{from: a.From, messageID: a.MessageID, role: a.To, text: a.Text, parent: a.Parent}
-		if err := s.startTurn(r.Context(), id, _message, "", nil, nil, []wake{held}); err != nil {
-			writeError(w, err)
-			return
-		}
 	}
 	if err := s.st.DecideApproval(r.Context(), aid, a.Status); err != nil {
 		writeError(w, err)
 		return
+	}
+	if *in.Approve {
+		held := wake{from: a.From, messageID: a.MessageID, role: a.To, text: a.Text, parent: a.Parent}
+		if err := s.startTurn(r.Context(), id, _message, "", nil, nil, []wake{held}); err != nil {
+			if rerr := s.st.ReopenApproval(r.Context(), aid); rerr != nil {
+				err = errors.Join(err, rerr)
+			}
+			writeError(w, err)
+			return
+		}
 	}
 	l := s.live(id)
 	l.mu.Lock()
