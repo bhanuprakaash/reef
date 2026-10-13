@@ -84,10 +84,11 @@ type (
 		Message struct {
 			Content []block `json:"content"`
 		} `json:"message"`
-		IsError bool     `json:"is_error"`
-		Result  string   `json:"result"`
-		Errors  []string `json:"errors"`
-		Usage   struct {
+		ParentToolUseID string   `json:"parent_tool_use_id"`
+		IsError         bool     `json:"is_error"`
+		Result          string   `json:"result"`
+		Errors          []string `json:"errors"`
+		Usage           struct {
 			InputTokens      int64 `json:"input_tokens"`
 			OutputTokens     int64 `json:"output_tokens"`
 			CacheReadTokens  int64 `json:"cache_read_input_tokens"`
@@ -349,6 +350,7 @@ func parse(line []byte) []agent.Event {
 			if b.Type == "tool_use" {
 				evs = append(evs, agent.Event{
 					Kind: agent.KindToolCall, ToolID: b.ID, ToolName: b.Name, Input: b.Input,
+					ParentToolID: l.ParentToolUseID,
 				})
 			}
 		}
@@ -358,8 +360,11 @@ func parse(line []byte) []agent.Event {
 		for _, b := range l.Message.Content {
 			if b.Type == "tool_result" {
 				evs = append(evs, agent.Event{
-					Kind: agent.KindToolResult, ToolID: b.ToolUseID,
-					Output: resultText(b.Content), IsError: b.IsError,
+					Kind:         agent.KindToolResult,
+					ToolID:       b.ToolUseID,
+					Output:       resultText(b.Content),
+					IsError:      b.IsError,
+					ParentToolID: l.ParentToolUseID,
 				})
 			}
 		}

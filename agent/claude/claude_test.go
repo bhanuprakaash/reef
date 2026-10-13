@@ -61,6 +61,27 @@ func TestParse(t *testing.T) {
 			want: []agent.Event{{Kind: agent.KindToolResult, ToolID: "toolu_01QXVfbj1JZFm29Aqmf9Gb8z", Output: "hello-from-tool"}},
 		},
 		{
+			name: "subagent tool call",
+			give: `{"type":"assistant","message":{"model":"claude-sonnet-5-5","role":"assistant","content":[{"type":"tool_use","id":"toolu_01BreQyuMiV9cKxFWNeiHK4Q","name":"Bash","input":{"command":"echo sub-hello","description":"Print sub-hello"},"caller":{"type":"direct"}}]},"parent_tool_use_id":"toolu_01RaXuLo7hgPeWd6uAE8s6vP","agent_id":"acbb09e2905459672","session_id":"5cb3eb98-0d14-468a-9526-3f91b3068676"}`,
+			want: []agent.Event{{
+				Kind:         agent.KindToolCall,
+				ToolID:       "toolu_01BreQyuMiV9cKxFWNeiHK4Q",
+				ToolName:     "Bash",
+				ParentToolID: "toolu_01RaXuLo7hgPeWd6uAE8s6vP",
+				Input:        json.RawMessage(`{"command":"echo sub-hello","description":"Print sub-hello"}`),
+			}},
+		},
+		{
+			name: "subagent tool result",
+			give: `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01BreQyuMiV9cKxFWNeiHK4Q","type":"tool_result","content":"sub-hello","is_error":false}]},"parent_tool_use_id":"toolu_01RaXuLo7hgPeWd6uAE8s6vP","agent_id":"acbb09e2905459672","session_id":"5cb3eb98-0d14-468a-9526-3f91b3068676"}`,
+			want: []agent.Event{{
+				Kind:         agent.KindToolResult,
+				ToolID:       "toolu_01BreQyuMiV9cKxFWNeiHK4Q",
+				Output:       "sub-hello",
+				ParentToolID: "toolu_01RaXuLo7hgPeWd6uAE8s6vP",
+			}},
+		},
+		{
 			name: "tool result as text blocks",
 			give: `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01","type":"tool_result","content":[{"type":"text","text":"a"},{"type":"text","text":"b"}],"is_error":true}]}}`,
 			want: []agent.Event{{Kind: agent.KindToolResult, ToolID: "toolu_01", Output: "a\nb", IsError: true}},
