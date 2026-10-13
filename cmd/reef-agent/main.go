@@ -99,6 +99,24 @@ func run(
 	enc := json.NewEncoder(stdout)
 	var total agent.Usage
 	interrupted := func() error {
+		_ = a.Interrupt()
+	drain:
+		for {
+			select {
+			case ev, ok := <-a.Events():
+				if !ok {
+					break drain
+				}
+				if err := enc.Encode(ev); err != nil {
+					return err
+				}
+				if ev.Kind == agent.KindUsage && ev.Usage != nil {
+					total.Add(*ev.Usage)
+				}
+			default:
+				break drain
+			}
+		}
 		if err := enc.Encode(agent.Event{Kind: agent.KindUsage, Usage: &total}); err != nil {
 			return err
 		}

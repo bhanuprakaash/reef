@@ -76,6 +76,9 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 		if err != nil {
 			return "", err
 		}
+		if n == 0 {
+			continue
+		}
 		lines = append(lines, fmt.Sprintf("channel %d: %s, %s, %d messages",
 			c.ID, c.Name, c.CreatedAt.Format(_dateLayout), n))
 	}
@@ -90,6 +93,12 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 
 	b.WriteString("\n" + _closing + "\n")
 	return b.String(), nil
+}
+
+func projectContext(p store.Project, role string) string {
+	return fmt.Sprintf("You are the %s in project %q (%s).\n"+
+		"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n",
+		role, p.Name, p.Path)
 }
 
 // firstLine is the first line of body, cut to _maxIndexRunes characters.

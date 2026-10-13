@@ -16,8 +16,10 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/server"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/web"
 )
 
 const (
@@ -100,6 +102,13 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	if err != nil {
 		return err
 	}
+	if data, err = filepath.Abs(data); err != nil {
+		return fmt.Errorf("resolve data dir: %w", err)
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("find reef path: %w", err)
+	}
 
 	lock, err := lockDataDir(data)
 	if err != nil {
@@ -120,7 +129,7 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 
 	logger := log.New(logOut, "", log.LstdFlags)
 	failed, err := st.FailRunningTurns(ctx, func(channelID int64) bool {
-		return chatOpen(data, channelID)
+		return channel.InUse(data, channelID)
 	})
 	if err != nil {
 		return fmt.Errorf("recover turns: %w", err)
@@ -129,7 +138,16 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 		logger.Printf("marked %d running turns failed: server restarted", len(failed))
 	}
 
-	srv := &http.Server{Handler: server.New(st), ReadHeaderTimeout: _readHeaderTimeout}
+	ui, err := web.Dist()
+	if err != nil {
+		return fmt.Errorf("open web ui: %w", err)
+	}
+	api := server.New(st, data, exe)
+	defer api.Close()
+	srv := &http.Server{
+		Handler:           web.Handler(ui, api),
+		ReadHeaderTimeout: _readHeaderTimeout,
+	}
 	logger.Printf("listening on %s, data in %s", ln.Addr(), data)
 
 	served := make(chan error, 1)
@@ -139,6 +157,7 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 		return err
 	case <-ctx.Done():
 	}
+	api.Close()
 	shutCtx, cancel := context.WithTimeout(context.Background(), _shutdownTimeout)
 	defer cancel()
 	shutErr := srv.Shutdown(shutCtx)

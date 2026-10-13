@@ -2,6 +2,8 @@ package channel
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
@@ -18,6 +20,18 @@ import (
 type fakeAgent struct {
 	events  chan agent.Event
 	prompts []string
+}
+
+type sayRunner interface {
+	Say(ctx context.Context, body string) error
+	Run(ctx context.Context, text string, onEvent func(agent.Event)) error
+}
+
+func sendAs(ctx context.Context, r sayRunner, text string, onEvent func(agent.Event)) error {
+	if err := r.Say(ctx, text); err != nil {
+		return err
+	}
+	return r.Run(ctx, text, onEvent)
 }
 
 func (f *fakeAgent) Start(context.Context, agent.Config) error          { return nil }
@@ -51,7 +65,7 @@ func TestRunner_Send(t *testing.T) {
 
 	var streamed []string
 	for _, text := range []string{"one 1", "two 2"} {
-		err := r.SendAs(ctx, text, text, func(ev agent.Event) {
+		err := sendAs(ctx, r, text, func(ev agent.Event) {
 			if ev.Kind == agent.KindText {
 				streamed = append(streamed, ev.Text)
 			}
@@ -102,6 +116,7 @@ type scriptAgent struct {
 	events      chan agent.Event
 	script      []agent.Event
 	closeAfter  bool
+	onInterrupt agent.Event // left in events by Interrupt, like codex's usage of a stopped turn
 	interrupted int
 }
 
@@ -111,6 +126,9 @@ func (s *scriptAgent) Events() <-chan agent.Event                         { retu
 
 func (s *scriptAgent) Interrupt() error {
 	s.interrupted++
+	if s.onInterrupt.Kind != "" {
+		s.events <- s.onInterrupt
+	}
 	return nil
 }
 
@@ -185,7 +203,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			ctx, cancel := context.WithCancel(bg)
 			defer cancel()
 
-			err = r.SendAs(ctx, "hi", "hi", func(ev agent.Event) {
+			err = sendAs(ctx, r, "hi", func(ev agent.Event) {
 				if ev.Kind == tt.cancelOn {
 					cancel()
 				}
@@ -258,7 +276,7 @@ func TestRunner_SendCancelledAfterMessageStoresTurn(t *testing.T) {
 	ctx := &cancelOnDone{Context: bg, done: make(chan struct{})}
 	defer time.AfterFunc(5*time.Second, ctx.cancel).Stop()
 
-	if err := r.SendAs(ctx, "hi", "hi", func(agent.Event) {}); err == nil || err.Error() != "context canceled" {
+	if err := sendAs(ctx, r, "hi", func(agent.Event) {}); err == nil || err.Error() != "context canceled" {
 		t.Fatalf("Send error = %v, want context canceled", err)
 	}
 	msgs, err := st.Messages(bg, ch.ID, 0)
@@ -273,5 +291,146 @@ func TestRunner_SendCancelledAfterMessageStoresTurn(t *testing.T) {
 		turns[0].Status != "failed" || turns[0].Error != "interrupted" {
 		t.Errorf("messages = %+v, turns = %+v, want the user message and one failed interrupted turn",
 			msgs, turns)
+	}
+}
+
+func TestRunner_SendToolCapIs25(t *testing.T) {
+	tests := []struct {
+		name    string
+		give    int
+		wantErr string
+	}{
+		{"at the cap", 25, ""},
+		{"over the cap", 26, "capped: more than 25 tool calls"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bg := context.Background()
+			st, f := openStore(t)
+			ch, err := st.CreateChannel(bg, store.Channel{
+				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var script []agent.Event
+			for range tt.give {
+				script = append(script, agent.Event{Kind: agent.KindToolCall})
+			}
+			sa := &scriptAgent{
+				events: make(chan agent.Event, 32),
+				script: append(script, agent.Event{Kind: agent.KindTurnEnd}),
+			}
+			r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+
+			err = sendAs(bg, r, "hi", func(agent.Event) {})
+			if got := fmt.Sprint(err); (tt.wantErr == "" && err != nil) ||
+				(tt.wantErr != "" && got != tt.wantErr) {
+				t.Errorf("Send error = %v, want %q", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestRunner_SendCapsToolCalls(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := agent.Event{Kind: agent.KindToolCall, ToolName: "Read"}
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8),
+		script: []agent.Event{call, call, call, {Kind: agent.KindTurnEnd}},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	r.toolCap = 2
+
+	err = sendAs(bg, r, "hi", func(agent.Event) {})
+	if !errors.Is(err, ErrCapped) || err.Error() != "capped: more than 2 tool calls" {
+		t.Errorf("Send error = %v, want ErrCapped %q", err, "capped: more than 2 tool calls")
+	}
+	if sa.interrupted != 1 {
+		t.Errorf("agent interrupted %d times, want 1", sa.interrupted)
+	}
+	turns, err := st.Turns(bg, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || turns[0].Status != "failed" ||
+		turns[0].Error != "capped: more than 2 tool calls" {
+		t.Errorf("turns = %+v, want one failed turn capped at 2 tool calls", turns)
+	}
+	got, err := st.Channel(bg, ch.ID)
+	if err != nil || got.Paused != "capped: more than 2 tool calls" {
+		t.Errorf("channel = %+v, %v, want paused with the reason", got, err)
+	}
+}
+
+func TestRunner_SendCappedTurnKeepsUsage(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := agent.Event{Kind: agent.KindToolCall, ToolName: "Read"}
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8),
+		script: []agent.Event{
+			{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 10, OutputTokens: 4, CacheReadTokens: 7}},
+			call,
+			{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 3, CacheWriteTokens: 5}},
+			call,
+			{Kind: agent.KindTurnEnd},
+		},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "codex", "")
+	r.toolCap = 1
+
+	if err := sendAs(bg, r, "hi", func(agent.Event) {}); !errors.Is(err, ErrCapped) {
+		t.Fatalf("Send error = %v, want ErrCapped", err)
+	}
+	turns, err := st.Turns(bg, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := agent.Usage{InputTokens: 12, OutputTokens: 7, CacheReadTokens: 7, CacheWriteTokens: 5}
+	if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Usage != want {
+		t.Errorf("turns = %+v, want one failed turn with usage %+v", turns, want)
+	}
+}
+
+func TestRunner_SendCancelledKeepsStoppedUsage(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{
+		events:      make(chan agent.Event, 8),
+		script:      []agent.Event{{Kind: agent.KindText, Text: "par"}},
+		onInterrupt: agent.Event{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 9, OutputTokens: 2}},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "codex", "")
+	ctx, cancel := context.WithCancel(bg)
+	defer cancel()
+
+	_ = sendAs(ctx, r, "hi", func(agent.Event) { cancel() })
+	turns, err := st.Turns(bg, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := agent.Usage{InputTokens: 9, OutputTokens: 2}
+	if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Usage != want {
+		t.Errorf("turns = %+v, want one failed turn with usage %+v", turns, want)
 	}
 }

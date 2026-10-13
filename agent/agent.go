@@ -25,6 +25,7 @@ type Agent interface {
 	// Interrupt stops the current turn and the backend process. When it returns the
 	// process is gone and Events is closed, also when Start failed or never ran. Tool
 	// processes the backend started in their own process group may outlive a forced kill.
+	// Events may still hold the usage of the stopped turn: read it until it closes.
 	Interrupt() error
 }
 

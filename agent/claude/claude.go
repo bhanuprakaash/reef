@@ -70,6 +70,13 @@ type (
 		Content string `json:"content"`
 	}
 
+	usageCounts struct {
+		InputTokens      int64 `json:"input_tokens"`
+		OutputTokens     int64 `json:"output_tokens"`
+		CacheReadTokens  int64 `json:"cache_read_input_tokens"`
+		CacheWriteTokens int64 `json:"cache_creation_input_tokens"`
+	}
+
 	outputLine struct {
 		Type      string `json:"type"`
 		Subtype   string `json:"subtype"`
@@ -80,21 +87,23 @@ type (
 				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"delta"`
+			Usage usageCounts `json:"usage"`
 		} `json:"event"`
 		Message struct {
-			Content []block `json:"content"`
+			Content blocks `json:"content"`
 		} `json:"message"`
-		ParentToolUseID string   `json:"parent_tool_use_id"`
-		IsError         bool     `json:"is_error"`
-		Result          string   `json:"result"`
-		Errors          []string `json:"errors"`
-		Usage           struct {
-			InputTokens      int64 `json:"input_tokens"`
-			OutputTokens     int64 `json:"output_tokens"`
-			CacheReadTokens  int64 `json:"cache_read_input_tokens"`
-			CacheWriteTokens int64 `json:"cache_creation_input_tokens"`
-		} `json:"usage"`
+		ParentToolUseID string      `json:"parent_tool_use_id"`
+		IsReplay        bool        `json:"isReplay"`
+		IsError         bool        `json:"is_error"`
+		Result          string      `json:"result"`
+		Errors          []string    `json:"errors"`
+		Usage           usageCounts `json:"usage"`
+		Origin          struct {
+			Kind string `json:"kind"`
+		} `json:"origin"`
 	}
+
+	blocks []block
 
 	block struct {
 		Type      string          `json:"type"`
@@ -189,6 +198,7 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 		"--output-format", "stream-json",
 		"--verbose",
 		"--include-partial-messages",
+		"--replay-user-messages",
 	}
 	if cfg.PermissionMode != "" {
 		args = append(args, "--permission-mode", cfg.PermissionMode)
@@ -247,9 +257,10 @@ func (a *Agent) read(stdout io.Reader) {
 
 	r := bufio.NewReader(stdout)
 	var last agent.Kind
+	var st state
 	for {
 		line, err := r.ReadBytes('\n')
-		for _, ev := range parse(line) {
+		for _, ev := range parse(line, &st) {
 			if !a.emit(ev) {
 				_ = a.cmd.Wait()
 				return
@@ -328,9 +339,36 @@ func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
 	return f.Name(), nil
 }
 
+// state is what parse keeps between lines.
+type state struct {
+	seen  agent.Usage   // usage the turn has sent so far
+	calls []agent.Event // tool calls of the message in progress, held until its usage
+
+	// unprompted is set from a turn's init line until the echo of a prompt
+	// (--replay-user-messages, a user line with isReplay). A turn with no such echo is one
+	// claude ran by itself for a background task: its text and tool events answer no prompt.
+	unprompted bool
+}
+
 // parse maps one stdout line to Events. Text comes from the partial-message deltas, so
 // the complete assistant text blocks that follow are skipped. Unknown lines give none.
-func parse(line []byte) []agent.Event {
+// Usage is sent as each message ends: its message_delta has the final counts, while the
+// assistant line's output count is only the first few tokens. The tool calls of a message
+// follow its usage, so a turn stopped at a call has counted the model call that made it
+// (its assistant line comes before the message_delta). A subagent's messages have no
+// message_delta, so its calls are sent at once. The result line sends only what is left
+// of its usage total. An unprompted turn gives only its usage.
+func parse(line []byte, st *state) []agent.Event {
+	evs := parseLine(line, st)
+	if !st.unprompted {
+		return evs
+	}
+	return slices.DeleteFunc(evs, func(ev agent.Event) bool {
+		return ev.Kind == agent.KindText || ev.Kind == agent.KindToolCall || ev.Kind == agent.KindToolResult
+	})
+}
+
+func parseLine(line []byte, st *state) []agent.Event {
 	var l outputLine
 	if err := json.Unmarshal(line, &l); err != nil {
 		return nil
@@ -338,11 +376,19 @@ func parse(line []byte) []agent.Event {
 	switch l.Type {
 	case "system":
 		if l.Subtype == "init" {
+			st.unprompted = true
 			return []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID}}
 		}
 	case "stream_event":
 		if l.Event.Type == "content_block_delta" && l.Event.Delta.Type == "text_delta" {
 			return []agent.Event{{Kind: agent.KindText, Text: l.Event.Delta.Text}}
+		}
+		if l.Event.Type == "message_delta" {
+			u := l.Event.Usage.usage()
+			st.seen.Add(u)
+			evs := append([]agent.Event{{Kind: agent.KindUsage, Usage: &u}}, st.calls...)
+			st.calls = nil
+			return evs
 		}
 	case "assistant":
 		var evs []agent.Event
@@ -354,8 +400,15 @@ func parse(line []byte) []agent.Event {
 				})
 			}
 		}
+		if l.ParentToolUseID == "" {
+			st.calls = append(st.calls, evs...)
+			return nil
+		}
 		return evs
 	case "user":
+		if l.IsReplay {
+			st.unprompted = false
+		}
 		var evs []agent.Event
 		for _, b := range l.Message.Content {
 			if b.Type == "tool_result" {
@@ -370,20 +423,48 @@ func parse(line []byte) []agent.Event {
 		}
 		return evs
 	case "result":
-		usage := &agent.Usage{
-			InputTokens:      l.Usage.InputTokens,
-			OutputTokens:     l.Usage.OutputTokens,
-			CacheReadTokens:  l.Usage.CacheReadTokens,
-			CacheWriteTokens: l.Usage.CacheWriteTokens,
+		total := l.Usage.usage()
+		rest := agent.Usage{
+			InputTokens:      total.InputTokens - st.seen.InputTokens,
+			OutputTokens:     total.OutputTokens - st.seen.OutputTokens,
+			CacheReadTokens:  total.CacheReadTokens - st.seen.CacheReadTokens,
+			CacheWriteTokens: total.CacheWriteTokens - st.seen.CacheWriteTokens,
 		}
-		end := agent.Event{Kind: agent.KindTurnEnd}
+		*st = state{}
+		var evs []agent.Event
+		if rest != (agent.Usage{}) {
+			evs = append(evs, agent.Event{Kind: agent.KindUsage, Usage: &rest})
+		}
+		// A turn claude runs by itself for a background task is not the answer to a prompt.
+		if l.Origin.Kind == "task-notification" {
+			return evs
+		}
 		if l.IsError {
 			text := strings.Join(append([]string{l.Result}, l.Errors...), "\n")
-			end = agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text)}
+			return append(evs, agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text)})
 		}
-		return []agent.Event{{Kind: agent.KindUsage, Usage: usage}, end}
+		return append(evs, agent.Event{Kind: agent.KindTurnEnd})
 	}
 	return nil
+}
+
+// UnmarshalJSON reads a list of blocks. The content of a replayed prompt is a plain
+// string; it has none.
+func (c *blocks) UnmarshalJSON(data []byte) error {
+	var list []block
+	if json.Unmarshal(data, &list) == nil {
+		*c = list
+	}
+	return nil
+}
+
+func (c usageCounts) usage() agent.Usage {
+	return agent.Usage{
+		InputTokens:      c.InputTokens,
+		OutputTokens:     c.OutputTokens,
+		CacheReadTokens:  c.CacheReadTokens,
+		CacheWriteTokens: c.CacheWriteTokens,
+	}
 }
 
 func resultText(raw json.RawMessage) string {

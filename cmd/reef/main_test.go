@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -142,13 +143,9 @@ func TestRun_SecondServeLeavesRunningTurn(t *testing.T) {
 func TestRun_ServeKeepsTurnOfOpenChat(t *testing.T) {
 	dir := t.TempDir()
 	seedRunningTurn(t, dir)
-	lock, err := lockChat(dir, 1)
+	lock, err := flock(filepath.Join(dir, "chat-1.lock"), errors.New("busy"))
 	if err != nil {
 		t.Fatal(err)
-	}
-	if _, err := lockChat(dir, 1); err == nil ||
-		err.Error() != "channel 1 is open in another reef chat" {
-		t.Errorf("second lockChat = %v, want the open-in-another-chat error", err)
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -176,8 +173,8 @@ func TestRun_ServeKeepsTurnOfOpenChat(t *testing.T) {
 	if err := lock.Close(); err != nil {
 		t.Fatal(err)
 	}
-	if chatOpen(dir, 1) {
-		t.Error("chatOpen after release = true, want false")
+	if channel.InUse(dir, 1) {
+		t.Error("InUse after release = true, want false")
 	}
 }
 

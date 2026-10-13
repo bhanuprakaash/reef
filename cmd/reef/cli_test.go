@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -30,6 +31,10 @@ func TestCLI_Flow(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(t.TempDir())
 	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cwd, err = store.ResolvePath(cwd)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -138,6 +143,27 @@ func TestCLI_SlugInTwoProjects(t *testing.T) {
 	if _, err := reef(t, dir, "brief", "2"); err == nil ||
 		err.Error() != "feature 2 has no brief yet" {
 		t.Errorf("brief 2: error = %v, want no brief yet", err)
+	}
+}
+
+func TestCLI_SymlinkedCWDFindsProject(t *testing.T) {
+	dir := t.TempDir()
+	target := t.TempDir()
+	link := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	target, err := store.ResolvePath(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(link)
+	if got, want := mustReef(t, dir, "project", "add", "--name", "shop"),
+		"1  shop  "+target+"\n"; got != want {
+		t.Fatalf("project add from symlinked folder = %q, want %q", got, want)
+	}
+	if got := mustReef(t, dir, "feature", "add", "login", "Login"); got != "1  login  Login\n" {
+		t.Fatalf("feature add from symlinked folder = %q, want project feature", got)
 	}
 }
 

@@ -148,7 +148,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | Backend | Go local server | Router, teammates, sessions, memory, Reef MCP server |
 | Storage | SQLite | Projects, features, tasks, channels, decisions |
 | Agent adapters | Claude Code and Codex CLIs in headless JSON-streaming mode, both in the baseline | One common Agent interface (Start, Send, Events, Interrupt, Resume); Jellyfish later |
-| UI | React, rendered inside the Mac app window | Talks to the Go server over HTTP and WebSocket on localhost |
+| UI | React, rendered inside the Mac app window | Talks to the Go server over HTTP and Server-Sent Events on localhost |
 | Desktop shell | Electron (the Mac app) | Main process launches the Go server; renderer shows the UI; hosts the built-in browser pane |
 | Browser | Electron WebContentsView, driven via Chrome DevTools Protocol | Built-in browser pane; agents control it through Reef's MCP server (Go proxies calls to Electron) |
 | Terminal | xterm.js | Built-in terminal pane |
@@ -179,6 +179,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 18 | Promotion re-parents the channel and the lead writes the initial brief | Brief exists from day one of the feature |
 | 19 | Claude Code and Codex both in the baseline | Prove the Agent interface with two real backends |
 | 20 | One stdio MCP process per teammate on one shared database, each with its own token (amends 12) | Works with the server down, adapters already launch stdio MCP servers, no ports |
+| 21 | Live agent output streams to the UI over Server-Sent Events, one GET stream per channel; users send messages with POST | Standard library only, data flows one way, and EventSource reconnects |
 
 ## Open questions
 

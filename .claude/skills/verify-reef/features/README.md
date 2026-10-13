@@ -2,9 +2,9 @@
 
 This directory is the maintained source for verifying what a Reef user can do. So far that
 is the `reef-agent` CLI over two backends, `claude` and `codex`, the `reef serve` REST
-server, and the memory loop: the `reef` CLI, `reef mcp` and `reef chat`. Read this index,
-then use the matching feature file as the recipe. Later slices add the UI; add a file here
-for each feature they bring.
+server, the memory loop: the `reef` CLI, `reef mcp` and `reef chat`, and the window (the web
+app `reef serve` serves). Read this index, then use the matching feature file as the recipe.
+Later slices add the Mac shell; add a file here for each feature they bring.
 
 ## Baseline preconditions
 
@@ -67,6 +67,7 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 - [Tasks](./tasks.md): global list, filters, status, `updatedAt`, feature delete keeps the task.
 - [Turns and restart recovery](./turns-recovery.md): running, done, failed; end once; recovery after a crash or stop; an open chat's turn is skipped.
 - [Decisions](./decisions.md): append-only, author and message rules, cascade.
+- [Live channels](./live-channels.md): send, the event stream, stop and resume, `/wrap` and `/promote` text, wrap-up, promote, approve and reject, caps and continue, delete a live channel. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 
 ### Memory loop
 
@@ -76,3 +77,9 @@ data folder with `$H reef --data-name NAME` and assumes ids start at 1.
 - [CLI](./cli.md): project, feature, decide, task, brief, context; a write with no server and while `reef serve` runs; `--` args; a slug in two projects; subfolders and `--name`.
 - [reef mcp](./reef-mcp.md): tokens, the seven tools through a scripted MCP client, scope and token errors, plain Claude Code.
 - [reef chat](./chat.md): a piped turn stored as messages and turns, `/wrap` approve, reject and left pending, `reef wrap` list/show/approve/reject, resume, Ctrl-C, on claude and codex; Ctrl-C at the prompt, a decision proposed twice, errors, the chat lock.
+
+### Window
+
+Drive this with `$H ui SCENARIO` against a server started with `ANTHROPIC_MODEL=sonnet $H serve-start`, after building the web app.
+
+- [Window](./window.md): live channel with tool rows, a new channel that answers from the brief, promote a quick session and approve its brief, a cap banner and Continue.

@@ -120,8 +120,8 @@ func TestTurnStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ts := newTestServer(t)
-			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp/reef"}`)
-			do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"c"}`)
+			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+			do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"c","backend":"claude"}`)
 			do(t, http.MethodPost, ts.URL+"/turns", `{"channelId":1,"role":"architect","backend":"claude"}`)
 			status, body := do(t, tt.method, ts.URL+tt.path, tt.give)
 			if status != tt.wantStatus {
@@ -136,8 +136,8 @@ func TestTurnStatus(t *testing.T) {
 
 func TestTurnRoundTrip(t *testing.T) {
 	ts := newTestServer(t)
-	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp/reef"}`)
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"c"}`)
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"c","backend":"claude"}`)
 
 	status, body := do(t, http.MethodPost, ts.URL+"/turns", `{"channelId":1,"role":"architect","backend":"claude","status":"done"}`)
 	if status != 201 || !strings.HasPrefix(body,

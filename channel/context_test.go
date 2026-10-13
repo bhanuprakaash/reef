@@ -70,6 +70,11 @@ func TestContext(t *testing.T) {
 			}
 		}
 	}
+	if _, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "empty",
+	}); err != nil {
+		t.Fatal(err)
+	}
 	for _, task := range []store.Task{
 		{ProjectID: f.ProjectID, FeatureID: &f.ID, Title: "write tests"},
 		{ProjectID: f.ProjectID, FeatureID: &f.ID, Title: "set up OAuth app", Status: "done"},

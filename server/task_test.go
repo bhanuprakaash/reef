@@ -118,8 +118,8 @@ func TestTaskStatus(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ts := newTestServer(t)
-			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp/reef"}`)
-			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"other","path":"/tmp/other"}`)
+			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"other","path":"/"}`)
 			do(t, http.MethodPost, ts.URL+"/features", `{"projectId":2,"slug":"far","name":"Far"}`)
 			do(t, http.MethodPost, ts.URL+"/tasks", `{"projectId":1,"title":"first"}`)
 			status, body := do(t, tt.method, ts.URL+tt.path, tt.give)
@@ -135,8 +135,8 @@ func TestTaskStatus(t *testing.T) {
 
 func TestTaskRoundTrip(t *testing.T) {
 	ts := newTestServer(t)
-	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp/reef"}`)
-	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"other","path":"/tmp/other"}`)
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"other","path":"/"}`)
 	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"auth","name":"Auth"}`)
 
 	status, body := do(t, http.MethodPost, ts.URL+"/tasks", `{"projectId":1,"featureId":1,"title":"login"}`)
