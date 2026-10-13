@@ -98,6 +98,38 @@ func (s *Store) PendingProposal(ctx context.Context, channelID int64) (Proposal,
 	return p, err
 }
 
+// Proposal returns the proposal with the id in any status, or ErrNotFound.
+func (s *Store) Proposal(ctx context.Context, id int64) (Proposal, error) {
+	return getProposal(ctx, s.db, id)
+}
+
+// PendingProposals returns every pending proposal, oldest first. With featureID
+// set, only those of that feature's channels.
+func (s *Store) PendingProposals(ctx context.Context, featureID *int64) ([]Proposal, error) {
+	query, args := "SELECT "+_proposalCols+" FROM proposal WHERE status = ?", []any{ProposalPending}
+	if featureID != nil {
+		query += " AND channel_id IN (SELECT id FROM channel WHERE feature_id = ?)"
+		args = append(args, *featureID)
+	}
+	rows, err := s.db.QueryContext(ctx, query+" ORDER BY id", args...)
+	if err != nil {
+		return nil, fmt.Errorf("list pending proposals: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ps []Proposal
+	for rows.Next() {
+		p, err := scanProposal(rows)
+		if err != nil {
+			return nil, err
+		}
+		ps = append(ps, p)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("list pending proposals: %w", err)
+	}
+	return ps, nil
+}
+
 // ApproveProposal applies the pending proposal in one transaction: a new brief
 // version and the role's notes, both authored by the proposal's role, and each
 // proposed decision whose body the feature does not have yet. It also returns how

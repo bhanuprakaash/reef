@@ -250,15 +250,7 @@ func decideWrap(
 		return err
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "proposal %d from %s\n\nbrief:\n%s\n\nnotes:\n%s\n\ndecisions:\n",
-		p.ID, p.Role, p.Brief, p.Notes)
-	for _, d := range p.Decisions {
-		fmt.Fprintf(&b, "- %s", d.Body)
-		if d.Why != "" {
-			fmt.Fprintf(&b, " (%s)", d.Why)
-		}
-		b.WriteString("\n")
-	}
+	b.WriteString(proposalText(p))
 drain:
 	for {
 		select {
@@ -298,6 +290,20 @@ drain:
 	}
 	_, err = io.WriteString(stdout, "rejected: nothing changed\n\n")
 	return err
+}
+
+func proposalText(p store.Proposal) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "proposal %d from %s\n\nbrief:\n%s\n\nnotes:\n%s\n\ndecisions:\n",
+		p.ID, p.Role, p.Brief, p.Notes)
+	for _, d := range p.Decisions {
+		fmt.Fprintf(&b, "- %s", d.Body)
+		if d.Why != "" {
+			fmt.Fprintf(&b, " (%s)", d.Why)
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 // resumeTurn is the channel's newest turn that has a session id. It first fails any

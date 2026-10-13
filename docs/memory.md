@@ -80,6 +80,10 @@ Rules for every command:
 | `reef task list [<feature>] [--status S]` | Lists the feature's tasks, or all tasks of the current folder's project. `S` is `todo`, `doing` or `done` | one task per line, as for `task add` |
 | `reef context <feature> --role R` | Prints the context prompt for role `R` (see below) | the prompt |
 | `reef token <feature> --role R` | Makes a channel and a token for role `R` (see Tokens) | a `claude mcp add` command |
+| `reef wrap list [<feature>]` | Lists pending wrap-up proposals (see Wrap-up): of the feature, or of every feature | `1  login  3  architect  2026-10-13`: id, feature slug, channel id, role, created date |
+| `reef wrap show <id>` | Prints the proposal the way `reef chat` does | `proposal 1 from architect`, then brief, notes and decisions |
+| `reef wrap approve <id>` | Approves a pending proposal | `approved: brief, notes and 1 decisions saved` |
+| `reef wrap reject <id>` | Rejects a pending proposal | `rejected: nothing changed` |
 | `reef chat ...` | Runs a channel in the terminal (see below) | the conversation |
 | `reef mcp` | Serves the MCP tools over stdio (see below) | MCP only |
 
@@ -274,8 +278,13 @@ changed`. To change a proposal, reject it, tell the agent what to change, and ty
 The chat goes on after `/wrap`. The next session, in any channel, starts from the
 approved brief and notes.
 
-Only `reef chat` approves proposals. A proposal made from plain Claude Code (below) stays
-`pending`.
+A proposal stays `pending` until someone decides it. `reef chat` only asks about the one
+`/wrap` just made. Every other pending proposal is decided later with `reef wrap`: one
+left pending by end of input or Ctrl-C, one the agent proposed outside `/wrap`, the older
+of two from one turn, and every proposal from plain Claude Code (below). `reef wrap list`
+shows them, `reef wrap show <id>` prints one, and `reef wrap approve <id>` or `reef wrap
+reject <id>` decides it, with the same effect and output as in the chat. A proposal
+that is already decided fails with `invalid: proposal 1 is already approved`, exit 1.
 
 ## Using it from plain Claude Code
 
