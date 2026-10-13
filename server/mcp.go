@@ -1,0 +1,196 @@
+package server
+
+import (
+	"context"
+	"errors"
+	"fmt"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/bhanuprakaash/reef/store"
+)
+
+const _defaultSearchLimit = 20
+
+var errNoFeature = errors.New("this channel has no feature")
+
+type mcpServer struct {
+	st  *store.Store
+	tok store.Token
+}
+
+type (
+	briefOut struct {
+		Brief string `json:"brief" jsonschema:"the feature brief, empty if none yet"`
+		Notes string `json:"notes" jsonschema:"your role's notes on this feature, empty if none"`
+	}
+	decideIn struct {
+		Body      string `json:"body" jsonschema:"the decision"`
+		Why       string `json:"why,omitempty" jsonschema:"the reason for it"`
+		MessageID *int64 `json:"messageId,omitempty" jsonschema:"id of the message it came from"`
+	}
+	taskIn struct {
+		Title string `json:"title" jsonschema:"short task title"`
+		Body  string `json:"body,omitempty" jsonschema:"details"`
+	}
+	searchIn struct {
+		Query string `json:"query" jsonschema:"text to find"`
+		Limit int    `json:"limit,omitempty" jsonschema:"most hits to return, default 20"`
+	}
+	searchOut struct {
+		Hits []store.MessageHit `json:"hits"`
+	}
+	decisionIn struct {
+		ID int64 `json:"id" jsonschema:"decision id"`
+	}
+	threadIn struct {
+		ChannelID int64 `json:"channelId" jsonschema:"channel id, from search_sessions"`
+		After     int64 `json:"after,omitempty" jsonschema:"only messages with a larger id"`
+	}
+	threadOut struct {
+		Messages []store.Message `json:"messages"`
+	}
+)
+
+// NewMCP returns the MCP server for one teammate: tok names the channel it
+// works in, the role it speaks as and, through the channel, the feature.
+func NewMCP(st *store.Store, tok store.Token) *mcp.Server {
+	m := &mcpServer{st: st, tok: tok}
+	srv := mcp.NewServer(&mcp.Implementation{Name: "reef", Version: "v0.1.0"}, nil)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "get_brief",
+		Description: "Get this feature's brief and your role's notes on it. " +
+			"Call it first when you start work.",
+	}, m.getBrief)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "record_decision",
+		Description: "Record a decision made on this feature, with why " +
+			"and the message it came from.",
+	}, m.recordDecision)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "add_task",
+		Description: "Add a task to this feature's project.",
+	}, m.addTask)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "search_sessions",
+		Description: "Search messages in all of this feature's channels, newest first. " +
+			"Returns channel and message ids; read more with read_thread.",
+	}, m.searchSessions)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "read_decision",
+		Description: "Read one decision of this feature in full.",
+	}, m.readDecision)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "read_thread",
+		Description: "Read the messages of one of this feature's channels, oldest first.",
+	}, m.readThread)
+	return srv
+}
+
+func (m *mcpServer) feature(ctx context.Context) (store.Feature, error) {
+	c, err := m.st.Channel(ctx, m.tok.ChannelID)
+	if err != nil {
+		return store.Feature{}, err
+	}
+	if c.FeatureID == nil {
+		return store.Feature{}, errNoFeature
+	}
+	return m.st.Feature(ctx, *c.FeatureID)
+}
+
+func (m *mcpServer) getBrief(
+	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
+) (*mcp.CallToolResult, briefOut, error) {
+	f, err := m.feature(ctx)
+	if err != nil {
+		return nil, briefOut{}, err
+	}
+	b, err := m.st.Brief(ctx, f.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, briefOut{}, err
+	}
+	n, err := m.st.RoleNotes(ctx, f.ID, m.tok.Role)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, briefOut{}, err
+	}
+	return nil, briefOut{Brief: b.Body, Notes: n.Body}, nil
+}
+
+func (m *mcpServer) recordDecision(
+	ctx context.Context, _ *mcp.CallToolRequest, in decideIn,
+) (*mcp.CallToolResult, store.Decision, error) {
+	f, err := m.feature(ctx)
+	if err != nil {
+		return nil, store.Decision{}, err
+	}
+	d, err := m.st.CreateDecision(ctx, store.Decision{
+		FeatureID: f.ID, MessageID: in.MessageID, Body: in.Body, Why: in.Why,
+		Author: m.tok.Role,
+	})
+	return nil, d, err
+}
+
+func (m *mcpServer) addTask(
+	ctx context.Context, _ *mcp.CallToolRequest, in taskIn,
+) (*mcp.CallToolResult, store.Task, error) {
+	f, err := m.feature(ctx)
+	if err != nil {
+		return nil, store.Task{}, err
+	}
+	t, err := m.st.CreateTask(ctx, store.Task{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Title: in.Title, Body: in.Body,
+	})
+	return nil, t, err
+}
+
+func (m *mcpServer) searchSessions(
+	ctx context.Context, _ *mcp.CallToolRequest, in searchIn,
+) (*mcp.CallToolResult, searchOut, error) {
+	f, err := m.feature(ctx)
+	if err != nil {
+		return nil, searchOut{}, err
+	}
+	if in.Query == "" {
+		return nil, searchOut{}, errors.New("query is required")
+	}
+	if in.Limit <= 0 {
+		in.Limit = _defaultSearchLimit
+	}
+	hits, err := m.st.SearchMessages(ctx, f.ID, in.Query, in.Limit)
+	return nil, searchOut{Hits: hits}, err
+}
+
+func (m *mcpServer) readDecision(
+	ctx context.Context, _ *mcp.CallToolRequest, in decisionIn,
+) (*mcp.CallToolResult, store.Decision, error) {
+	f, err := m.feature(ctx)
+	if err != nil {
+		return nil, store.Decision{}, err
+	}
+	d, err := m.st.Decision(ctx, in.ID)
+	if err != nil {
+		return nil, store.Decision{}, err
+	}
+	if d.FeatureID != f.ID {
+		return nil, store.Decision{}, fmt.Errorf("decision %d: %w", in.ID, store.ErrNotFound)
+	}
+	return nil, d, nil
+}
+
+func (m *mcpServer) readThread(
+	ctx context.Context, _ *mcp.CallToolRequest, in threadIn,
+) (*mcp.CallToolResult, threadOut, error) {
+	f, err := m.feature(ctx)
+	if err != nil {
+		return nil, threadOut{}, err
+	}
+	c, err := m.st.Channel(ctx, in.ChannelID)
+	if err != nil {
+		return nil, threadOut{}, err
+	}
+	if c.FeatureID == nil || *c.FeatureID != f.ID {
+		return nil, threadOut{}, fmt.Errorf("channel %d: %w", in.ChannelID, store.ErrNotFound)
+	}
+	msgs, err := m.st.Messages(ctx, c.ID, in.After)
+	return nil, threadOut{Messages: msgs}, err
+}

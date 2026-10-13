@@ -178,6 +178,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 17 | One worktree per feature, shared by its channels; quick sessions on main checkout | Follows from single-writer rule |
 | 18 | Promotion re-parents the channel and the lead writes the initial brief | Brief exists from day one of the feature |
 | 19 | Claude Code and Codex both in the baseline | Prove the Agent interface with two real backends |
+| 20 | One stdio MCP process per teammate on one shared database, each with its own token (amends 12) | Works with the server down, adapters already launch stdio MCP servers, no ports |
 
 ## Open questions
 
