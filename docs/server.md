@@ -417,12 +417,13 @@ agent's reply, which is stored as a message from the role, and any message the a
 with the `post_to_channel` tool (see [memory.md](memory.md#reef-mcp)). Each goes through the
 router, [`channel.Route`](../channel/route.go), plain code with no model. In order:
 
-1. A reply in a thread goes to the thread's owner, the author of the root. When the user owns
-   the thread, the user's replies go to the lead; an agent's reply there wakes nobody.
+1. A reply from the user in a thread goes to the thread's owner, the author of the root. When
+   the user owns the thread, it goes to the lead. An agent's reply in a thread has no owner
+   rule: it wakes only the roles it mentions.
 2. Otherwise every `@name` in the body that is a role of the team goes to that role, each
    once.
 3. Otherwise a message from the user goes to the lead.
-4. Otherwise nobody: a message from an agent that names no one wakes no one.
+4. Otherwise nobody: a message from an agent that names no one wakes no one, in a thread or not.
 
 A role never wakes itself. The user's own message is routed by the same rules, so a send
 with `parent` on an architect's thread goes to the architect, and `@architect ...` goes to the

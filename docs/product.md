@@ -67,7 +67,7 @@ A channel is what the user opens as a session; inside, each teammate is its own 
 
 **Routing rules** (plain code, not an LLM):
 
-1. A reply inside a thread goes to whoever owns that thread
+1. A user reply inside a thread goes to whoever owns that thread
 2. An @mention goes to that teammate
 3. Anything else goes to the lead
 
@@ -181,7 +181,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 20 | One stdio MCP process per teammate on one shared database, each with its own token (amends 12) | Works with the server down, adapters already launch stdio MCP servers, no ports |
 | 21 | Live agent output streams to the UI over Server-Sent Events, one GET stream per channel; users send messages with POST | Standard library only, data flows one way, and EventSource reconnects |
 | 22 | Routing runs when a turn ends, over the messages that turn stored. Wakes run one at a time per channel | No agent is interrupted, and the message log fixes the order |
-| 23 | A message from an agent that names no one wakes nobody | Ends a chain, and the lead does not answer every specialist post |
+| 23 | A message from an agent wakes only the roles it @mentions, also a reply in a thread; the thread owner rule is for the user | Ends a chain, and the lead does not answer every specialist post |
 | 24 | Every agent starts when first woken. A specialist's agent stops after each wake and resumes its session next time; the lead stays live | Idle teammates cost nothing, and the lead is who the user talks to |
 | 25 | A wake across a gate that is on is held as a pending approval: approve runs it, reject drops it, and a restart keeps it | The user decides before tokens are spent, and a crash must not lose the question |
 | 26 | The hop count resets when the user sends a message or continues, not when the user approves a gate. A wake over the cap is held, and continue runs it | A user message is new intent; an approval only lets the same chain go on. Held, not dropped, so no work is lost |
