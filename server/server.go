@@ -28,6 +28,7 @@ func New(st *store.Store) http.Handler {
 	s.featureRoutes(mux)
 	s.channelRoutes(mux)
 	s.taskRoutes(mux)
+	s.decisionRoutes(mux)
 	return mux
 }
 
