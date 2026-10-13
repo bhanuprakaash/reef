@@ -211,17 +211,43 @@ func TestConverse_WrapIgnoresTypedAheadLines(t *testing.T) {
 
 	c.say(t, "/wrap")
 	<-w.sent
+	c.say(t, "a")
+	c.say(t, "")
 	c.say(t, "y")
 	close(w.gate)
 	c.waitFor(t, "approve? [y/N] ")
 	out := c.end(t)
 
-	if !strings.Contains(out, "ignored while wrapping: y\n") ||
-		!strings.Contains(out, "proposal 1 left pending") {
-		t.Errorf("output = %q, want the typed-ahead y ignored and proposal 1 left pending", out)
+	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nnotes:\nmy notes\n\n" +
+		"decisions:\n- use sessions (simple)\nignored while wrapping: a\n" +
+		"ignored while wrapping: y\n\napprove? [y/N] \nproposal 1 left pending\n\n> "
+	if out != want {
+		t.Errorf("output = %q, want %q", out, want)
 	}
 	if p, err := st.PendingProposal(context.Background(), ch.ID); err != nil || p.ID != 1 {
-		t.Errorf("PendingProposal = %+v, %v, want proposal 1", p, err)
+		t.Errorf("PendingProposal = %+v, %v, want proposal 1 still pending", p, err)
+	}
+}
+
+func TestConverse_WrapBlankLineAtPromptRejects(t *testing.T) {
+	st, ch := chatFixture(t)
+	w := &wrapAgent{propose: true}
+	c := startChat(t, st, ch, w)
+
+	c.say(t, "/wrap")
+	c.waitFor(t, "approve? [y/N] ")
+	c.say(t, "")
+	c.waitFor(t, "rejected: nothing changed")
+	out := c.end(t)
+
+	if !strings.HasSuffix(out, "approve? [y/N] rejected: nothing changed\n\n> ") {
+		t.Errorf("output = %q, want the blank line to reject", out)
+	}
+	if _, err := st.PendingProposal(context.Background(), ch.ID); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("PendingProposal error = %v, want none pending", err)
+	}
+	if brief, err := st.Brief(context.Background(), 1); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("brief = %+v, %v, want no brief", brief, err)
 	}
 }
 
