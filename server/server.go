@@ -75,6 +75,7 @@ func newHandler(
 	s.featureRoutes(mux)
 	s.channelRoutes(mux)
 	s.liveRoutes(mux)
+	s.proposalRoutes(mux)
 	s.taskRoutes(mux)
 	s.decisionRoutes(mux)
 	s.turnRoutes(mux)
@@ -145,6 +146,8 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func writeError(w http.ResponseWriter, err error) {
 	status, msg := http.StatusInternalServerError, "internal error"
 	switch {
+	case errors.Is(err, errStopping):
+		status, msg = http.StatusServiceUnavailable, err.Error()
 	case errors.Is(err, store.ErrInvalid):
 		status, msg = http.StatusBadRequest, err.Error()
 	case errors.Is(err, store.ErrNotFound):

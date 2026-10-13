@@ -46,7 +46,7 @@ func (a *recordingAgent) Interrupt() error           { return nil }
 
 func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 	a.prompts = append(a.prompts, prompt)
-	if strings.HasSuffix(prompt, _wrapPrompt) && a.propose {
+	if strings.Contains(prompt, "propose_wrap") && a.propose {
 		_, err := a.st.CreateProposal(ctx, store.Proposal{
 			ChannelID: a.channelID, Role: "architect", Brief: "new brief", Notes: "my notes",
 		})
@@ -294,5 +294,43 @@ func TestSession_Wrap(t *testing.T) {
 	ag.propose = false
 	if _, err := s.Wrap(ctx, discard); !errors.Is(err, ErrNoProposal) {
 		t.Errorf("Wrap with an older proposal pending error = %v, want ErrNoProposal", err)
+	}
+}
+
+func TestSession_Promote(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionChannel(t, st, f, true)
+	ag := newRecordingAgent()
+	ag.st, ag.channelID, ag.propose = st, ch.ID, true
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if _, err := s.Promote(ctx, discard); !errors.Is(err, store.ErrInvalid) {
+		t.Errorf("Promote before the channel has a feature error = %v, want ErrInvalid", err)
+	}
+	if _, err := st.PromoteChannel(ctx, ch.ID, store.Feature{Slug: "idea", Name: "Big idea"}); err != nil {
+		t.Fatal(err)
+	}
+	p, err := s.Promote(ctx, discard)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.ID != 1 || p.Brief != "new brief" {
+		t.Errorf("proposal = %+v, want proposal 1 with the new brief", p)
+	}
+	msgs, err := st.Messages(ctx, ch.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 || msgs[0].Author != "user" || msgs[0].Body != "/promote" {
+		t.Errorf("messages = %+v, want the user message /promote first", msgs)
+	}
+	want := `This quick session is now feature "Big idea" (idea). Call the propose_wrap tool once`
+	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], want) {
+		t.Errorf("prompts = %q, want one with %q", ag.prompts, want)
 	}
 }

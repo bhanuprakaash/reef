@@ -19,10 +19,13 @@ import (
 
 const _keepAlive = 15 * time.Second
 
+var errStopping = errors.New("server is stopping")
+
 // session is the part of channel.Session that the server drives.
 type session interface {
 	SendAs(ctx context.Context, stored, text string, onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
+	Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 	Close() error
 }
 
@@ -106,17 +109,28 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: text is required", store.ErrInvalid))
 		return
 	}
-	if !s.begin() {
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "server is stopping"})
+	if err := s.startTurn(r.Context(), id, in.Text, nil); err != nil {
+		writeError(w, err)
 		return
+	}
+	w.WriteHeader(http.StatusAccepted)
+}
+
+// startTurn starts a turn that stores text as the user message, unless the channel
+// has a turn running, is paused or is open elsewhere. prepare, when set, runs once
+// the agent is open and the turn is sure to start; if it fails, no turn starts.
+func (s *server) startTurn(
+	ctx context.Context, id int64, text string, prepare func() error,
+) error {
+	if !s.begin() {
+		return errStopping
 	}
 	l := s.live(id)
 	l.mu.Lock()
 	if l.busy {
 		l.mu.Unlock()
 		s.wg.Done()
-		writeError(w, fmt.Errorf("channel %d has a turn running: %w", id, store.ErrConflict))
-		return
+		return fmt.Errorf("channel %d has a turn running: %w", id, store.ErrConflict)
 	}
 	l.busy = true
 	sess := l.sess
@@ -128,28 +142,36 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 		l.mu.Unlock()
 		s.wg.Done()
 	}
-	if err := s.checkCaps(r.Context(), id, l); err != nil {
+	if err := s.checkCaps(ctx, id, l); err != nil {
 		release()
-		writeError(w, err)
-		return
+		return err
 	}
 	if sess == nil {
+		var err error
 		if sess, err = s.open(s.ctx, id); err != nil {
 			release()
-			writeError(w, err)
-			return
+			return err
+		}
+		l.mu.Lock()
+		l.sess = sess
+		l.mu.Unlock()
+	}
+	if prepare != nil {
+		if err := prepare(); err != nil {
+			release()
+			return err
 		}
 	}
-	ctx, cancel := context.WithCancel(s.ctx)
+	turnCtx, cancel := context.WithCancel(s.ctx)
 	done := make(chan struct{})
 	l.mu.Lock()
-	l.sess, l.cancel, l.done, l.running = sess, cancel, done, true
+	l.cancel, l.done, l.running = cancel, done, true
 	l.base += len(l.frames)
 	l.frames = nil
 	l.publishLocked("turn", turnState{Status: "running"})
 	l.mu.Unlock()
-	go s.runTurn(ctx, id, l, sess, in.Text, done)
-	w.WriteHeader(http.StatusAccepted)
+	go s.runTurn(turnCtx, id, l, sess, text, done)
+	return nil
 }
 
 func (s *server) runTurn(
@@ -162,13 +184,16 @@ func (s *server) runTurn(
 		l.mu.Unlock()
 	}
 	var err error
-	if text == channel.WrapCommand {
+	switch text {
+	case channel.WrapCommand:
 		_, err = sess.Wrap(ctx, onEvent)
-		if errors.Is(err, channel.ErrNoProposal) {
-			err = nil
-		}
-	} else {
+	case channel.PromoteCommand:
+		_, err = sess.Promote(ctx, onEvent)
+	default:
 		err = sess.SendAs(ctx, text, text, onEvent)
+	}
+	if errors.Is(err, channel.ErrNoProposal) {
+		err = nil
 	}
 	end := turnState{Status: "done"}
 	if err != nil {

@@ -37,22 +37,34 @@ func (s *Store) CreateFeature(ctx context.Context, f Feature) (Feature, error) {
 	if err := f.validate(); err != nil {
 		return Feature{}, err
 	}
-	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO feature (project_id, slug, name, goal, stage, created_at) "+
-			"VALUES (?, ?, ?, ?, ?, ?)",
-		f.ProjectID, f.Slug, f.Name, f.Goal, f.Stage, now.Format(time.RFC3339Nano))
-	if err != nil {
-		if isUnique(err) {
-			return Feature{}, fmt.Errorf("feature slug %q is taken in its project: %w",
-				f.Slug, ErrConflict)
-		}
+	f, err := insertFeature(ctx, s.db, f)
+	if err != nil && !errors.Is(err, ErrConflict) {
 		return Feature{}, s.writeErr(ctx, "write feature", err, ErrInvalid,
 			parent{table: "project", id: &f.ProjectID})
 	}
+	return f, err
+}
+
+type execer interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+}
+
+// insertFeature adds the validated f. A taken slug is ErrConflict.
+func insertFeature(ctx context.Context, x execer, f Feature) (Feature, error) {
+	now := time.Now().UTC()
+	res, err := x.ExecContext(ctx,
+		"INSERT INTO feature (project_id, slug, name, goal, stage, created_at) "+
+			"VALUES (?, ?, ?, ?, ?, ?)",
+		f.ProjectID, f.Slug, f.Name, f.Goal, f.Stage, now.Format(time.RFC3339Nano))
+	if isUnique(err) {
+		return f, fmt.Errorf("feature slug %q is taken in its project: %w", f.Slug, ErrConflict)
+	}
+	if err != nil {
+		return f, fmt.Errorf("insert feature: %w", err)
+	}
 	id, err := res.LastInsertId()
 	if err != nil {
-		return Feature{}, fmt.Errorf("insert feature: %w", err)
+		return f, fmt.Errorf("insert feature: %w", err)
 	}
 	f.ID, f.CreatedAt = id, now
 	return f, nil

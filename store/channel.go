@@ -107,6 +107,62 @@ func (s *Store) UpdateChannel(ctx context.Context, c Channel) (Channel, error) {
 	return s.Channel(ctx, c.ID)
 }
 
+// PromoteChannel makes the quick session id a channel of a feature, in one
+// transaction. With f.ID set the feature must exist in the channel's project;
+// otherwise f is created there, from its slug, name and goal. A channel that already
+// has a feature is ErrInvalid.
+func (s *Store) PromoteChannel(ctx context.Context, id int64, f Feature) (Channel, error) {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Channel{}, fmt.Errorf("begin promote: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var projectID int64
+	var featureID *int64
+	err = tx.QueryRowContext(ctx, "SELECT project_id, feature_id FROM channel WHERE id = ?", id).
+		Scan(&projectID, &featureID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Channel{}, fmt.Errorf("channel %d: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return Channel{}, fmt.Errorf("read channel %d: %w", id, err)
+	}
+	if featureID != nil {
+		return Channel{}, fmt.Errorf("%w: channel %d already has feature %d", ErrInvalid, id, *featureID)
+	}
+	if f.ID != 0 {
+		var inProject bool
+		err = tx.QueryRowContext(ctx,
+			"SELECT EXISTS (SELECT 1 FROM feature WHERE id = ? AND project_id = ?)",
+			f.ID, projectID).Scan(&inProject)
+		if err != nil {
+			return Channel{}, fmt.Errorf("check feature: %w", err)
+		}
+		if !inProject {
+			return Channel{}, fmt.Errorf("%w: feature %d is not in project %d", ErrInvalid, f.ID, projectID)
+		}
+	} else {
+		if err := f.validateSlug(); err != nil {
+			return Channel{}, err
+		}
+		if err := f.validate(); err != nil {
+			return Channel{}, err
+		}
+		f.ProjectID = projectID
+		if f, err = insertFeature(ctx, tx, f); err != nil {
+			return Channel{}, err
+		}
+	}
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE channel SET feature_id = ? WHERE id = ?", f.ID, id); err != nil {
+		return Channel{}, fmt.Errorf("update channel: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Channel{}, fmt.Errorf("commit promote: %w", err)
+	}
+	return s.Channel(ctx, id)
+}
+
 // PauseChannel pauses the channel with a reason, which must not be empty.
 func (s *Store) PauseChannel(ctx context.Context, id int64, reason string) error {
 	if reason == "" {

@@ -283,6 +283,9 @@ changed`. To change a proposal, reject it, tell the agent what to change, and ty
 `/wrap` again. A proposal is decided once. A second approve or reject fails with
 `invalid: proposal 1 is already approved`.
 
+`reef serve` offers the same over REST, and promotes a quick session with the same
+approval: see [server.md](server.md#wrap-up-and-promotion).
+
 The chat goes on after `/wrap`. The next session, in any channel, starts from the
 approved brief and notes.
 
