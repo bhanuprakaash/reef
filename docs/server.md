@@ -69,7 +69,7 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 | --- | --- | --- |
 | `id` | number | |
 | `projectId` | number | required on create; never changes. Deleting the project deletes the feature |
-| `slug` | string | required; lowercase letters, digits and `-`, not starting with `-` (`^[a-z0-9][a-z0-9-]*$`), because it becomes a branch and folder name; unique within the project (409 if taken) |
+| `slug` | string | required; lowercase letters, digits and `-`, not starting with `-` (`^[a-z0-9][a-z0-9-]*$`), because it becomes a branch and folder name; unique within the project (409 if taken); fixed after create, a slug in a `PUT` body is ignored |
 | `name` | string | required |
 | `goal` | string | default `""` |
 | `stage` | string | default `ideation`; not checked against a list |
@@ -181,7 +181,7 @@ a channel takes its messages and turns.
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |
-| `PUT /features/{id}` | `slug`, `name`, `goal`, `stage` | 200 | 400, 404, 409 slug taken |
+| `PUT /features/{id}` | `name`, `goal`, `stage` | 200 | 400, 404 |
 | `DELETE /features/{id}` | | 204 | 404 |
 | `GET /features/{id}/brief` | | 200 latest version | 404 no feature, or no brief yet |
 | `PUT /features/{id}/brief` | `body`, `author` | 201 new version | 400, 404 |
