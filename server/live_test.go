@@ -402,6 +402,55 @@ func TestClose_FailsRunningTurn(t *testing.T) {
 	}
 }
 
+type meetSession struct {
+	*fakeSession
+	closing *sync.WaitGroup
+	met     *atomic.Int32
+}
+
+// Close returns only once every session is closing, so it never returns when the
+// sessions are closed one after another.
+func (m *meetSession) Close() error {
+	m.closing.Done()
+	m.closing.Wait()
+	m.met.Add(1)
+	return nil
+}
+
+func TestClose_ClosesSessionsInParallel(t *testing.T) {
+	env := newLiveEnv(t)
+	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"name":"two","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"name":"three","backend":"claude"}`)
+	var closing sync.WaitGroup
+	var met atomic.Int32
+	closing.Add(3)
+	env.open = func(context.Context) (session, error) {
+		return &meetSession{fakeSession: env.fake, closing: &closing, met: &met}, nil
+	}
+	for id := 1; id <= 3; id++ {
+		sub := subscribeTo(t, env.url, id)
+		if status, body := env.sendTo(t, id, "hi"); status != 202 {
+			t.Fatalf("send to %d = %d %s, want 202", id, status, body)
+		}
+		sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+			`turn {"status":"done"}`)
+	}
+
+	done := make(chan struct{})
+	go func() {
+		env.h.Close()
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("Close did not return after 5s: sessions are closed one at a time")
+	}
+	if got := met.Load(); got != 3 {
+		t.Errorf("sessions closed = %d, want 3", got)
+	}
+}
+
 func TestSend_OpenErrors(t *testing.T) {
 	tests := []struct {
 		name       string

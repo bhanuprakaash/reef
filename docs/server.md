@@ -37,6 +37,8 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
   reef) is refused: `database is newer than this reef`.
 - SIGINT or SIGTERM stops the server: it interrupts every running channel turn (stored
   `failed`, `interrupted`), stops every agent, then gives requests in flight one second.
+  The agents stop in parallel, so stop time is about one agent stop (about a second), not
+  one per live channel.
 
 ## Web UI
 
