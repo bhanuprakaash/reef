@@ -81,6 +81,7 @@ func notFound(w http.ResponseWriter, _ *http.Request) {
 
 func readJSON(r *http.Request, v any) error {
 	dec := json.NewDecoder(r.Body)
+	dec.DisallowUnknownFields()
 	if err := dec.Decode(v); err != nil {
 		return fmt.Errorf("%w: bad JSON: %v", store.ErrInvalid, err)
 	}

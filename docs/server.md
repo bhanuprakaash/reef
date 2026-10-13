@@ -36,7 +36,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 
 | Status | When |
 | --- | --- |
-| 400 | Bad JSON or data after the JSON body, a bad or missing field, a non-number id, an unknown parent id inside a body (`unknown project 9`) |
+| 400 | Bad JSON, an unknown field or data after the JSON body, a bad or missing field, a non-number id, an unknown parent id inside a body (`unknown project 9`) |
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
@@ -45,8 +45,10 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
 
 An id in the path that matches nothing is 404; an id in the body that matches nothing is
-400. Unknown JSON fields in a request are ignored, and so are the server-set fields
-(`id`, `createdAt`, `updatedAt`).
+400. Unknown JSON fields in a request are rejected (`{"error":"invalid: bad JSON: json: unknown
+field \"feature_id\""}`), so a misspelled field never turns into a silent default. The
+server-set fields (`id`, `createdAt`, `updatedAt`) are accepted and ignored. A parent
+deleted while a write is in flight gives the same 404 or 400 as one that never existed.
 
 ## Entities
 

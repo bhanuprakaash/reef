@@ -25,15 +25,13 @@ func (s *Store) PutBrief(ctx context.Context, b Brief) (Brief, error) {
 	if b.Author == "" {
 		return Brief{}, fmt.Errorf("%w: brief author is required", ErrInvalid)
 	}
-	if err := s.requireFeature(ctx, b.FeatureID); err != nil {
-		return Brief{}, err
-	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO brief (feature_id, body, author, created_at) VALUES (?, ?, ?, ?)",
 		b.FeatureID, b.Body, b.Author, now.Format(time.RFC3339Nano))
 	if err != nil {
-		return Brief{}, fmt.Errorf("insert brief: %w", err)
+		return Brief{}, s.writeErr(ctx, "insert brief", err, ErrNotFound,
+			parent{"feature", &b.FeatureID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {

@@ -56,11 +56,9 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 		"INSERT INTO turn (channel_id, role, backend, session_id, status, started_at) "+
 			"VALUES (?, ?, ?, ?, ?, ?)",
 		t.ChannelID, t.Role, t.Backend, t.SessionID, _turnRunning, now.Format(time.RFC3339Nano))
-	if isForeignKey(err) {
-		return Turn{}, fmt.Errorf("%w: unknown channel %d", ErrInvalid, t.ChannelID)
-	}
 	if err != nil {
-		return Turn{}, fmt.Errorf("insert turn: %w", err)
+		return Turn{}, s.writeErr(ctx, "insert turn", err, ErrInvalid,
+			parent{"channel", &t.ChannelID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
