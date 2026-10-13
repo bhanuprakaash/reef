@@ -9,6 +9,11 @@ usage: verify-reef build
        REEF_VERIFY_RUN=ID verify-reef mcp-server
        REEF_VERIFY_RUN=ID verify-reef run [--name N] [--stdin FILE] [--timeout S] -- REEF_AGENT_ARGS...
        REEF_VERIFY_RUN=ID verify-reef interrupt --after S [--name N] -- REEF_AGENT_ARGS...
+       REEF_VERIFY_RUN=ID verify-reef serve-start [--data-name NAME]
+       REEF_VERIFY_RUN=ID verify-reef serve-stop [--kill]
+       REEF_VERIFY_RUN=ID verify-reef serve-second [--same-addr]
+       REEF_VERIFY_RUN=ID verify-reef api [-H 'Name: value']... METHOD PATH [JSON]
+       REEF_VERIFY_RUN=ID verify-reef sql [--write] "SQL"
        REEF_VERIFY_RUN=ID verify-reef cleanup
 EOF
 	exit 2
@@ -30,8 +35,17 @@ load_run() {
 	SCR="$SCRATCH_ROOT/$REEF_VERIFY_RUN"
 	EV="$EVIDENCE_ROOT/$REEF_VERIFY_RUN"
 	BIN="$SCR/bin/reef-agent"
+	REEF_BIN="$SCR/bin/reef"
 	CWD="$SCR/cwd"
 	[ -d "$EV" ] || fail "no evidence dir $EV; run build first"
+}
+
+# lim CMD...: run CMD with a 20 s limit, so a hung CLI is a failed check, not a hang.
+lim() {
+	perl -e 'alarm 20; exec @ARGV' -- "$@"
+	rc=$?
+	[ "$rc" = 142 ] && echo "timed out after 20 s"
+	return "$rc"
 }
 
 # Match the process name, not the command line: this script's own path contains "claude".
@@ -58,12 +72,13 @@ cmd_build() {
 	scr="$SCRATCH_ROOT/$id"
 	ev="$EVIDENCE_ROOT/$id"
 	mkdir -p "$scr/bin" "$scr/cwd" "$ev" || exit 1
-	(cd "$REPO" && go build -o "$scr/bin/reef-agent" ./cmd/reef-agent) || fail "go build failed"
+	(cd "$REPO" && go build -o "$scr/bin/reef-agent" ./cmd/reef-agent && go build -o "$scr/bin/reef" ./cmd/reef) || fail "go build failed"
 	{
 		echo "repo=$REPO"
 		echo "head=$(git -C "$REPO" rev-parse HEAD)"
 		echo "dirty=$(git -C "$REPO" status --porcelain | wc -l | tr -d ' ') files"
 		echo "binary=$scr/bin/reef-agent"
+		echo "reef_binary=$scr/bin/reef"
 		echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 	} >"$ev/build.txt"
 	echo "$id"
@@ -76,17 +91,20 @@ cmd_doctor() {
 		if [ "$2" = 1 ]; then echo "ok   $1: $3"; else echo "FAIL $1: $3"; fi
 	}
 	{
-		v=$(go version 2>&1); check go "$([ $? = 0 ] && echo 1)" "$v"
-		v=$(claude --version 2>&1); check claude "$([ $? = 0 ] && echo 1)" "$v"
-		v=$(codex --version 2>&1); check codex "$([ $? = 0 ] && echo 1)" "$v"
-		v=$(claude auth status 2>/dev/null | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print(d.get("loggedIn"), d.get("authMethod"))' 2>&1)
+		v=$(lim go version 2>&1); check go "$([ $? = 0 ] && echo 1)" "$v"
+		v=$(lim claude --version 2>&1); check claude "$([ $? = 0 ] && echo 1)" "$v"
+		v=$(lim codex --version 2>&1); check codex "$([ $? = 0 ] && echo 1)" "$v"
+		v=$(lim claude auth status 2>/dev/null | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print(d.get("loggedIn"), d.get("authMethod"))' 2>&1)
 		check claude-auth "$([ "${v%% *}" = True ] && echo 1)" "$v"
-		v=$(codex login status 2>&1); check codex-auth "$([ $? = 0 ] && echo 1)" "$v"
+		v=$(lim codex login status 2>&1); check codex-auth "$([ $? = 0 ] && echo 1)" "$v"
+		v=$(command -v sqlite3); check sqlite3 "$([ -n "$v" ] && echo 1)" "${v:-not found}"
+		v=$(command -v curl); check curl "$([ -n "$v" ] && echo 1)" "${v:-not found}"
 		head=$(git -C "$REPO" rev-parse HEAD)
 		# Go stamps the outer repo's commit when built in a worktree nested in the checkout,
 		# so trust the HEAD that build recorded instead of vcs.revision.
 		rev=$(sed -n 's/^head=//p' "$EV/build.txt" 2>/dev/null)
 		check binary "$([ -x "$BIN" ] && [ "$rev" = "$head" ] && echo 1)" "$BIN built from ${rev:-unknown}, HEAD $head"
+		check reef "$([ -x "$REEF_BIN" ] && [ "$rev" = "$head" ] && echo 1)" "$REEF_BIN built from ${rev:-unknown}, HEAD $head"
 		check cwd "$([ -d "$CWD" ] && echo 1)" "$CWD"
 		echo "model: ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-<unset: claude picks its default>}"
 	} | tee "$out"
@@ -230,8 +248,213 @@ EOF
 	echo "$dir/mcp.json"
 }
 
+# free_port: a free 127.0.0.1 port, found by binding port 0.
+free_port() {
+	python3 -I -c 'import socket
+s = socket.socket()
+s.bind(("127.0.0.1", 0))
+print(s.getsockname()[1])
+s.close()'
+}
+
+# serve_alive PID: PID is alive and runs this run's reef serve.
+serve_alive() {
+	[ -n "$1" ] && kill -0 "$1" 2>/dev/null || return 1
+	case $(ps -o command= -p "$1" 2>/dev/null) in "$REEF_BIN serve"*) return 0 ;; *) return 1 ;; esac
+}
+
+cmd_serve_start() {
+	load_run
+	name=data
+	while [ $# -gt 0 ]; do
+		case $1 in
+		--data-name) [ $# -ge 2 ] || usage; name=$2; shift 2 ;;
+		*) usage ;;
+		esac
+	done
+	[ -n "$name" ] || fail "--data-name is empty"
+	case "/$name/" in */../*) fail "--data-name must stay inside the scratch dir" ;; esac
+	[ -x "$REEF_BIN" ] || fail "no binary $REEF_BIN; run build first"
+	[ -f "$EV/pre-pids.txt" ] || fail "run doctor first: it records the pre-run pids"
+	if [ -f "$SCR/serve.pid" ] && serve_alive "$(cat "$SCR/serve.pid")"; then
+		fail "this run's server is already up (pid $(cat "$SCR/serve.pid"), $(cat "$SCR/serve.addr")); serve-stop first"
+	fi
+	rm -f "$SCR/serve.pid" "$SCR/serve.exit" "$SCR/serve.addr"
+	addr="127.0.0.1:$(free_port)"
+	data="$SCR/$name"
+	echo "$data" >"$SCR/serve.data"
+	log="$EV/serve.log"
+	echo "--- serve-start $(date -u +%Y-%m-%dT%H:%M:%SZ) addr=$addr data=$data" >>"$log"
+	mark=$(wc -c <"$log" | tr -d ' ')
+	t0=$(now)
+	# The wrapper subshell outlives this call and records reef's exit code in serve.exit.
+	(
+		"$REEF_BIN" serve --addr "$addr" --data "$data" &
+		echo $! >"$SCR/serve.pid"
+		wait $!
+		echo $? >"$SCR/serve.exit"
+	) </dev/null >/dev/null 2>>"$log" 3>&- &
+	for _ in $(seq 1 50); do [ -s "$SCR/serve.pid" ] && break; sleep 0.1; done
+	pid=$(cat "$SCR/serve.pid" 2>/dev/null)
+	[ -n "$pid" ] || fail "reef serve did not start"
+	echo "$pid reef-serve" >>"$SCR/pids"
+	for _ in $(seq 1 100); do
+		[ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://$addr/health" 2>/dev/null)" = 200 ] && break
+		if ! kill -0 "$pid" 2>/dev/null; then
+			sleep 0.3
+			rm -f "$SCR/serve.pid"
+			echo "FAIL serve-start: reef serve exited (exit $(cat "$SCR/serve.exit" 2>/dev/null)) before /health answered; log:" >&2
+			tail -c +$((mark + 1)) "$log" | tail -n 20 >&2
+			exit 1
+		fi
+		sleep 0.1
+	done
+	if [ "$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://$addr/health" 2>/dev/null)" != 200 ]; then
+		kill -KILL "$pid" 2>/dev/null
+		rm -f "$SCR/serve.pid"
+		echo "FAIL serve-start: /health not 200 within 10 s; log:" >&2
+		tail -c +$((mark + 1)) "$log" | tail -n 20 >&2
+		exit 1
+	fi
+	echo "$addr" >"$SCR/serve.addr"
+	echo "serve: ready pid=$pid addr=$addr data=$data in $(awk -v a="$(now)" -v b="$t0" 'BEGIN { printf "%.2f", a - b }') s"
+}
+
+cmd_serve_stop() {
+	load_run
+	sig=INT
+	case ${1:-} in
+	--kill) sig=KILL ;;
+	"") ;;
+	*) usage ;;
+	esac
+	[ -f "$SCR/serve.pid" ] || fail "no server recorded for this run; serve-start first"
+	pid=$(cat "$SCR/serve.pid")
+	if ! serve_alive "$pid"; then
+		rm -f "$SCR/serve.pid"
+		fail "pid $pid is not running this run's reef serve (exit $(cat "$SCR/serve.exit" 2>/dev/null || echo unknown))"
+	fi
+	t0=$(now)
+	kill -"$sig" "$pid"
+	for _ in $(seq 1 150); do kill -0 "$pid" 2>/dev/null || break; sleep 0.1; done
+	if kill -0 "$pid" 2>/dev/null; then
+		fail "pid $pid still running 15 s after SIG$sig; left for cleanup"
+	fi
+	for _ in $(seq 1 30); do [ -s "$SCR/serve.exit" ] && break; sleep 0.1; done
+	line="serve-stop: SIG$sig pid=$pid exit=$(cat "$SCR/serve.exit" 2>/dev/null || echo unknown) elapsed_s=$(awk -v a="$(now)" -v b="$t0" 'BEGIN { printf "%.2f", a - b }')"
+	echo "$line" | tee -a "$EV/serve.log"
+	rm -f "$SCR/serve.pid" "$SCR/serve.addr"
+}
+
+cmd_serve_second() {
+	load_run
+	same=0
+	case ${1:-} in
+	--same-addr) same=1 ;;
+	"") ;;
+	*) usage ;;
+	esac
+	[ -f "$SCR/serve.pid" ] && serve_alive "$(cat "$SCR/serve.pid")" || fail "no running server for this run; serve-start first"
+	data=$(cat "$SCR/serve.data")
+	if [ "$same" = 1 ]; then addr=$(cat "$SCR/serve.addr"); else addr="127.0.0.1:$(free_port)"; fi
+	err="$SCR/serve-second.err"
+	log="$EV/serve-second.log"
+	"$REEF_BIN" serve --addr "$addr" --data "$data" </dev/null >/dev/null 2>"$err" 3>&- &
+	p=$!
+	echo "$p reef-serve" >>"$SCR/pids"
+	for _ in $(seq 1 50); do kill -0 "$p" 2>/dev/null || break; sleep 0.1; done
+	if kill -0 "$p" 2>/dev/null; then
+		kill -INT "$p"
+		sleep 1
+		kill -0 "$p" 2>/dev/null && kill -KILL "$p"
+		wait "$p" 2>/dev/null
+		verdict="FAIL: still running after 5 s, so the lock did not hold; killed it"
+		code=none
+	else
+		wait "$p"
+		code=$?
+		if [ "$code" != 0 ] && grep -q 'is in use by another reef' "$err"; then
+			verdict="ok: refused"
+		else
+			verdict="FAIL: exited, but not with the in-use refusal"
+		fi
+	fi
+	{
+		echo "--- serve-second $([ "$same" = 1 ] && echo same-addr || echo new-addr) addr=$addr data=$data"
+		echo "exit: $code"
+		sed 's/^/stderr: /' "$err"
+		echo "$verdict"
+	} | tee -a "$log"
+	case $verdict in ok*) return 0 ;; *) return 1 ;; esac
+}
+
+cmd_api() {
+	load_run
+	hdrs=()
+	while [ "${1:-}" = -H ]; do
+		[ $# -ge 2 ] || usage
+		hdrs+=("$2")
+		shift 2
+	done
+	[ $# -ge 2 ] && [ $# -le 3 ] || usage
+	method=$1 path=$2
+	case $path in /*) ;; *) usage ;; esac
+	[ -f "$SCR/serve.addr" ] && [ -f "$SCR/serve.pid" ] || fail "no running server for this run; serve-start first"
+	args=(-sS -g --path-as-is --max-time 10 -X "$method")
+	has_ct=0 shown=""
+	for h in ${hdrs[@]+"${hdrs[@]}"}; do
+		case $(printf '%s' "$h" | tr 'A-Z' 'a-z') in content-type:*) has_ct=1 ;; esac
+		args+=(-H "$h")
+		shown="$shown -H '$h'"
+	done
+	case $method in POST | PUT | PATCH) [ "$has_ct" = 1 ] || args+=(-H 'Content-Type: application/json') ;; esac
+	[ $# -eq 3 ] && args+=(--data-binary "$3")
+	tmp="$SCR/api.body"
+	status=$(curl "${args[@]}" -o "$tmp" -w '%{http_code}' "http://$(cat "$SCR/serve.addr")$path")
+	rc=$?
+	if [ "$rc" != 0 ]; then
+		echo "> $method $path$shown${3:+ $3}" >>"$EV/api.log"
+		echo "< curl failed (exit $rc)" >>"$EV/api.log"
+		fail "curl failed (exit $rc)"
+	fi
+	{
+		echo "> $method $path$shown${3:+ $3}"
+		echo "< $status $(cat "$tmp")"
+	} >>"$EV/api.log"
+	echo "HTTP $status"
+	cat "$tmp"
+}
+
+cmd_sql() {
+	load_run
+	flags=(-header -cmd '.timeout 5000')
+	if [ "${1:-}" = --write ]; then
+		flags+=(-cmd 'PRAGMA foreign_keys=ON')
+		shift
+	else
+		flags+=(-cmd 'PRAGMA query_only=ON')
+	fi
+	[ $# -eq 1 ] || usage
+	[ -f "$SCR/serve.data" ] || fail "no data folder recorded for this run; serve-start first"
+	db="$(cat "$SCR/serve.data")/reef.db"
+	[ -f "$db" ] || fail "no database $db"
+	out=$(sqlite3 "${flags[@]}" "$db" "$1" 2>&1)
+	rc=$?
+	{
+		echo "> $1"
+		[ -z "$out" ] || echo "$out"
+	} >>"$EV/sql.log"
+	[ -z "$out" ] || echo "$out"
+	return "$rc"
+}
+
 cmd_cleanup() {
 	load_run
+	if [ -f "$SCR/serve.pid" ] && serve_alive "$(cat "$SCR/serve.pid")"; then
+		echo "stopping server pid $(cat "$SCR/serve.pid")"
+		kill -INT "$(cat "$SCR/serve.pid")" 2>/dev/null
+		for _ in $(seq 1 50); do kill -0 "$(cat "$SCR/serve.pid")" 2>/dev/null || break; sleep 0.1; done
+	fi
 	if [ -f "$SCR/pids" ]; then
 		sort -u -k1,1n "$SCR/pids" | while read -r p c; do
 			[ -n "$p" ] || continue
@@ -239,6 +462,7 @@ cmd_cleanup() {
 			[ -n "$now_cmd" ] || continue
 			# Kill only a pid whose command still matches what this run recorded.
 			case $c in reef-agent) case $now_cmd in "$BIN"*) ;; *) continue ;; esac ;;
+			reef-serve) case $now_cmd in "$REEF_BIN serve"*) ;; *) continue ;; esac ;;
 			*) [ "$now_cmd" = "$c" ] || continue ;; esac
 			echo "killing $p $now_cmd"
 			kill -TERM "$p" 2>/dev/null
@@ -264,6 +488,11 @@ doctor) cmd_doctor "$@" ;;
 run) cmd_run "$@" ;;
 interrupt) cmd_interrupt "$@" ;;
 mcp-server) cmd_mcp_server "$@" ;;
+serve-start) cmd_serve_start "$@" ;;
+serve-stop) cmd_serve_stop "$@" ;;
+serve-second) cmd_serve_second "$@" ;;
+api) cmd_api "$@" ;;
+sql) cmd_sql "$@" ;;
 cleanup) cmd_cleanup "$@" ;;
 *) usage ;;
 esac

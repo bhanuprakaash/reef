@@ -1,16 +1,19 @@
 ---
 name: verify-reef
-description: Drive Reef's real reef-agent CLI (the agent adapters, Reef's only surface so far) over the claude and codex backends and capture proof - event JSON lines, exit codes, process checks. Use to verify a ticket or slice acceptance line, to re-check the adapters after a change in agent/ or cmd/reef-agent, or when asked "does reef-agent still work". Later slices add the server and UI; this map grows with them.
+description: Drive Reef's real surfaces and capture proof. reef-agent (the agent adapters over the claude and codex backends) gives event JSON lines, exit codes and process checks; reef serve (the data server) gives REST calls, SQLite rows, locks and crash recovery. Use to verify a ticket or slice acceptance line, to re-check after a change in agent/, cmd/reef-agent, cmd/reef, server/ or store/, or when asked "does reef-agent / reef serve still work". Later slices add the CLI and UI; this map grows with them.
 ---
 
 # Verify Reef
 
-Today the only user surface is the `reef-agent` CLI (`cmd/reef-agent`). It runs one backend
-(`claude` or `codex`) and prints one JSON `Event` per line. The server, the `reef` CLI, the
-UI and the Mac shell do not exist yet. When a later slice adds one, add its Launch, Drive
-and feature files here.
+Two user surfaces exist so far:
 
-The contract and every backend detail are in `docs/agents.md`. The feature map is in
+- `reef-agent` (`cmd/reef-agent`) runs one backend (`claude` or `codex`) and prints one JSON
+  `Event` per line. Contract: `docs/agents.md`.
+- `reef serve` (`cmd/reef`) keeps Reef's data in one SQLite file and serves it as a JSON
+  REST API. Contract: `docs/server.md`.
+
+The `reef` CLI subcommands, the UI and the Mac shell do not exist yet. When a later slice
+adds one, add its Launch, Drive and feature files here. The feature map is in
 [`features/README.md`](features/README.md). Read the matching feature file before a run.
 
 All commands below run from the repo root. `H=.claude/skills/verify-reef/scripts/verify-reef`.
@@ -18,18 +21,18 @@ Each Bash call starts a new shell, so pass `REEF_VERIFY_RUN=<id>` on every call.
 
 ## Launch
 
-There is no server to keep alive. Launch means: build the binary once per run, then start
-each drive as its own process in the run's scratch cwd.
+Build the binaries once per run. `reef-agent` drives are each their own process in the run's
+scratch cwd; the server is started separately (see Server).
 
 ```sh
 .claude/skills/verify-reef/scripts/verify-reef build
 # prints the run id, e.g. 20261013-134053-78591
 ```
 
-`build` runs `go build ./cmd/reef-agent` into `/private/tmp/reef-verify/<id>/bin/`, makes
+`build` runs `go build` for `./cmd/reef-agent` and `./cmd/reef` into `/private/tmp/reef-verify/<id>/bin/`, makes
 the scratch cwd `/private/tmp/reef-verify/<id>/cwd/`, and writes
-`~/.reef-verify/<id>/build.txt` (HEAD sha, dirty file count). Ready = it printed an id and
-exited 0.
+`~/.reef-verify/<id>/build.txt` (HEAD sha, dirty file count, both binary paths). Ready = it
+printed an id and exited 0.
 
 ## Doctor
 
@@ -40,10 +43,11 @@ REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef doctor
 ```
 
 It checks `go`, `claude` and `codex` versions, `claude auth status` (`loggedIn`),
-`codex login status`, and that the HEAD `build` recorded in `build.txt` equals `git rev-parse HEAD`
-(rebuild after a commit). It also saves the pre-run snapshot of `claude`, `codex` and
-`reef-agent` pids to `pre-pids.txt`. `run` and `interrupt` refuse to start without it.
-Exit 1 if any line is `FAIL`.
+`codex login status` (each limited to 20 s, so a hung CLI is a `FAIL` line), that `sqlite3`
+and `curl` exist, and that the HEAD `build` recorded in `build.txt` equals `git rev-parse HEAD`
+for both `reef-agent` and `reef` (rebuild after a commit). It also saves the pre-run snapshot
+of `claude`, `codex` and `reef-agent` pids to `pre-pids.txt`. `run`, `interrupt` and
+`serve-start` refuse to start without it. Exit 1 if any line is `FAIL`.
 
 ## Drive
 
@@ -54,7 +58,7 @@ sends SIGINT if it runs too long, and the meta file says `timed_out`.
 
 ```sh
 ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef run --name turn-claude \
-  -- --backend claude --permission-mode bypassPermissions "Run the shell command: echo reef-ok"
+  -- --backend claude "Use the Read tool on note.txt in the current directory and tell me its contents."
 REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef run --name turn-codex \
   -- --backend codex --permission-mode workspace-write "Run the shell command: echo reef-ok"
 REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef run --name followups --stdin /path/to/prompts.txt \
@@ -67,8 +71,8 @@ sends SIGINT to `reef-agent` `--after S` seconds. That is what Ctrl-C does: `cla
 
 ```sh
 ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef interrupt --after 12 --name int-claude \
-  -- --backend claude --permission-mode bypassPermissions \
-  "Run this exact shell command in the foreground, not in the background: python3 -c 'import time; time.sleep(60)'"
+  -- --backend claude \
+  "Write a 3000-word essay on the history of lighthouses. Do not use any tools. Output the full essay as plain text."
 ```
 
 `mcp-server` writes a stdio MCP server (`vping`, one tool `secret_word` that returns
@@ -93,6 +97,57 @@ Rules for live runs:
   `sleep` is blocked) and hook processes show up as children. Read the `tool_result` before
   calling a drive wrong.
 
+## Server
+
+`reef serve` is long-lived, so it is the one thing that stays up between Bash calls. One
+server per run, driven serially. Read the matching feature file first.
+
+Launch:
+
+```sh
+REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef serve-start [--data-name NAME]
+# serve: ready pid=... addr=127.0.0.1:PORT data=/private/tmp/reef-verify/<id>/NAME in 0.4 s
+```
+
+It picks a free 127.0.0.1 port, starts `reef serve --addr ... --data <scratch>/NAME` (default
+`data`), and waits up to 10 s for `GET /health` to answer 200. Otherwise it fails and prints the
+tail of `serve.log`. It refuses if this run's server is already up. While a server runs,
+`pgrep -fl 'reef serve'` also lists a `bash ... verify-reef serve-start` line: that is the
+wrapper that records the exit code, and it ends with the server.
+
+Drive:
+
+```sh
+REEF_VERIFY_RUN=<id> $H api POST /projects '{"name":"shop","path":"/tmp/shop"}'
+REEF_VERIFY_RUN=<id> $H api -H 'Host: evil.example' GET /projects
+REEF_VERIFY_RUN=<id> $H sql "select id, status, error from turn"
+REEF_VERIFY_RUN=<id> $H serve-second --same-addr
+REEF_VERIFY_RUN=<id> $H serve-stop --kill
+```
+
+- `api [-H 'Name: value']... METHOD PATH [JSON]` calls the running server. It prints `HTTP <status>`
+  then the body. POST, PUT and PATCH send `Content-Type: application/json` unless a `-H`
+  sets one. Any status exits 0 (an error status is often the proof); a failed connection exits 1.
+- `sql [--write] "SQL"` runs `sqlite3` on the run's `reef.db`. Without `--write` the session is
+  `query_only`. Use `--write` only to set up a state the API cannot reach (for example
+  `pragma user_version=99` on a stopped server).
+- `serve-stop` sends SIGINT (what Ctrl-C does) and prints the exit code and seconds. With `--kill`
+  it sends SIGKILL, a real crash: the server cannot clean up. Only the recorded pid is signaled.
+- `serve-second [--same-addr]` starts another `reef serve` on the same data folder, on the same
+  addr or a new free port. It must exit within 5 s with `data folder ... is in use by another
+  reef`. If it is still running it kills it and exits 1.
+- Restart = `serve-stop` (or `--kill`), then `serve-start` with the same `--data-name`. The
+  folder stays, the port changes. A different `--data-name` is a fresh, empty server.
+
+Rules:
+- One long-lived server per run, driven serially. Never drive a `reef serve` this run did not start.
+- Every write sends JSON. A body that is not JSON is only for the 415 check.
+- Ids start at 1 on a fresh data folder and are never reused. Each feature file says which
+  state it assumes.
+- Quote lines of `api.log` (`> METHOD PATH body`, `< status body`) as proof, plus the
+  `sql.log` rows for side effects.
+- Run `cleanup` at the end. It stops the server if it is still up.
+
 ## Evidence
 
 Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches it.
@@ -107,6 +162,10 @@ Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches 
 | `<name>.meta` | args, cwd, `ANTHROPIC_MODEL`, exit, elapsed, SIGINT time, event kind counts, last line, child count, orphans, new pids since doctor |
 | `<name>.children` | every child process of `reef-agent` seen during the drive, `pid command` |
 | `mcp.json`, `mcp-calls.log` | the `--mcp` file used, and one line per MCP tool call the server got |
+| `serve.log` | `reef serve` stderr (`listening on ...`, `marked N running turns failed`), plus one line per `serve-start` and `serve-stop` (signal, pid, exit code, seconds) |
+| `api.log` | every `api` call: `> METHOD PATH [headers] [body]`, then `< status body` |
+| `sql.log` | every `sql` call: `> SQL`, then its output |
+| `serve-second.log` | each `serve-second`: addr, data, exit code, stderr, verdict |
 
 Proof standards:
 - Drive the real binary against the real `claude` and `codex`. The fake binaries in
@@ -126,18 +185,20 @@ Proof standards:
 REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef cleanup
 ```
 
-It sends SIGTERM, then SIGKILL, only to pids this run recorded (`reef-agent` and the
-children seen under it), and only while the pid still runs the recorded command. It never
+If this run's server is still up it gets SIGINT first. Then it sends SIGTERM, then SIGKILL, only to
+pids this run recorded (`reef-agent`, `reef serve` and the children seen under it), and only
+while the pid still runs the recorded command. It never
 kills by name: other claude sessions and a managed `codex app-server --listen` daemon may
 run on this machine. It removes `/private/tmp/reef-verify/<id>/` and claude's state for
 the scratch cwd (`~/.claude/projects/-private-tmp-reef-verify-<id>-cwd` and its task
 folder under `/private/tmp/claude-<uid>/`), then
-lists the evidence dir it kept. Run it after every run, failed ones too. Codex threads stay
+lists the evidence dir it kept. The server's data folder goes with the scratch dir; `sql.log`
+keeps what you read from it. Run it after every run, failed ones too. Codex threads stay
 in `~/.codex/sessions`; cleanup leaves them.
 
 ## Helper
 
-`.claude/skills/verify-reef/scripts/verify-reef` (bash; uses go, python3, pgrep, ps, awk).
+`.claude/skills/verify-reef/scripts/verify-reef` (bash; uses go, python3, perl, curl, sqlite3, pgrep, ps, awk).
 
 | Subcommand | Does |
 | --- | --- |
@@ -146,4 +207,9 @@ in `~/.codex/sessions`; cleanup leaves them.
 | `run [--name N] [--stdin FILE] [--timeout S] -- ARGS` | one `reef-agent` drive, records evidence |
 | `interrupt --after S [--name N] -- ARGS` | drive with stdin held open, SIGINT after S seconds |
 | `mcp-server` | writes the test MCP server and `mcp.json`, prints its path |
-| `cleanup` | kills only this run's pids, removes scratch, keeps evidence |
+| `serve-start [--data-name NAME]` | starts `reef serve` on a free port, waits for `/health` |
+| `serve-stop [--kill]` | SIGINT (or SIGKILL) to the recorded server, prints exit code and seconds |
+| `serve-second [--same-addr]` | second `reef serve` on the same data folder; must be refused |
+| `api [-H 'N: v']... METHOD PATH [JSON]` | one HTTP call, prints status and body, logs to `api.log` |
+| `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
+| `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |

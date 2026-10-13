@@ -1,9 +1,9 @@
 # Reef verification map
 
 This directory is the maintained source for verifying what a Reef user can do. So far that
-is the `reef-agent` CLI over two backends, `claude` and `codex`. Read this index, then
-use the matching feature file as the recipe. Later slices add the server, the `reef` CLI and
-the UI; add a file here for each feature they bring.
+is the `reef-agent` CLI over two backends, `claude` and `codex`, and the `reef serve`
+REST server. Read this index, then use the matching feature file as the recipe. Later
+slices add the `reef` CLI and the UI; add a file here for each feature they bring.
 
 ## Baseline preconditions
 
@@ -12,11 +12,14 @@ the UI; add a file here for each feature they bring.
 - `REEF_VERIFY_RUN=<id> $H doctor` shows only `ok` lines: both CLIs logged in, binary built
   from HEAD, pre-run pids saved.
 - Every `--backend claude` drive sets `ANTHROPIC_MODEL=sonnet`.
-- Never drive a `reef-agent` that this run did not start.
+- Never drive a `reef-agent` or `reef serve` that this run did not start.
+- Server features also need `$H serve-start`: one server per run, on a fresh data folder
+  (`$H serve-stop`, then `$H serve-start --data-name NAME`). Each server feature file names
+  its folder and assumes ids start at 1. Drive it with `$H api`, `$H sql` and `$H serve-*`.
 
 ## Driving conventions
 
-- Drive only through `$H run` and `$H interrupt`. They run the binary in the scratch cwd
+- Drive `reef-agent` only through `$H run` and `$H interrupt`. They run the binary in the scratch cwd
   `/private/tmp/reef-verify/<id>/cwd` and record evidence.
 - Give each drive a new `--name` that says the feature and backend, e.g. `resume-claude`.
 - Treat commands as literal. Prompts that name a shell command must keep it exact, so the
@@ -50,3 +53,14 @@ commands, required state and observable proof.
 - [Interrupt](./interrupt.md): Ctrl-C prints one usage line, exits 130, leaves no processes.
 - [MCP servers](./mcp.md): `--mcp FILE` gives the session extra tools, pre-approved.
 - [Subagent tool calls](./subagents.md): claude subagent tool calls carry `parentToolId`.
+
+### Server
+
+Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data folder.
+
+- [Server](./server.md): start and stop, data folder and lock, localhost only, request guard, JSON errors, newer database, odd folder names.
+- [Projects and features](./projects-features.md): project CRUD, features and slugs, brief versions, role notes.
+- [Channels and messages](./channels-messages.md): quick-session and feature channels, filters, append-only messages, cascade.
+- [Tasks](./tasks.md): global list, filters, status, `updatedAt`, feature delete keeps the task.
+- [Turns and restart recovery](./turns-recovery.md): running, done, failed; end once; recovery after a crash or stop.
+- [Decisions](./decisions.md): append-only, author and message rules, cascade.

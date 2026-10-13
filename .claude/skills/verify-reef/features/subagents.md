@@ -20,8 +20,8 @@ Preconditions:
 
 - Baseline from the README.
 
-- **Subagent, claude.** Run `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run --name subagent-claude -- --backend claude --permission-mode bypassPermissions "Use the Agent tool to start a subagent that runs the shell command: echo sub-hello. Then tell me what it printed."`. `exit: 0`.
-- **Parent link.** `grep '"toolName":"Agent"' ~/.reef-verify/<id>/subagent-claude.jsonl` gives one `tool_call`, toolId `A`, with no `parentToolId`. `grep '"parentToolId"' ...` gives a `tool_call` with `"toolName":"Bash"`, input `echo sub-hello`, `"parentToolId":"A"`, and its `tool_result` with `"output":"sub-hello"` and the same `parentToolId`.
+- **Subagent, claude.** Write `sub-hello` to `/private/tmp/reef-verify/<id>/cwd/sub.txt`. Run `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run --name subagent-claude -- --backend claude "Use the Agent tool to start a subagent that reads the file sub.txt in the current directory with the Read tool. Then tell me its contents."`. `exit: 0`.
+- **Parent link.** `grep '"toolName":"Agent"' ~/.reef-verify/<id>/subagent-claude.jsonl` gives one `tool_call`, toolId `A`, with no `parentToolId`. `grep '"parentToolId"' ...` gives a `tool_call` with `"toolName":"Read"`, a `file_path` ending in `/cwd/sub.txt`, `"parentToolId":"A"`, and its `tool_result` with output containing `sub-hello` and the same `parentToolId`.
 - **Agent result.** A `tool_result` with `toolId` `A` and no `parentToolId` comes after the subagent's events.
 - **Codex.** Not applicable: `grep -c parentToolId` on any codex jsonl is `0`. Report `subagent-codex` as a known gap, not a failure.
 
@@ -29,4 +29,4 @@ Preconditions:
 
 - Subagent text is not streamed, so `text` lines never carry `parentToolId`.
 - The model may answer without a subagent. If there is no `Agent` call, re-run once with the same prompt; do not report the link as proven from a run without one.
-- The subagent's Bash needs permission too; without `bypassPermissions` its `tool_result` is an `isError` denial, still with `parentToolId`.
+- The subagent has the same permissions as the session: Read runs, Bash or Write is denied with an `isError` `tool_result` that still carries `parentToolId`.
