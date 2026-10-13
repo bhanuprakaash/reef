@@ -45,7 +45,7 @@ channel/      Runner and context prompt for a channel
 cmd/reef-agent  harness CLI
 cmd/reef      main server + CLI (later)
 store/        SQLite schema and queries
-server/       HTTP, WebSocket, MCP server
+server/       HTTP, SSE, MCP server
 web/          React UI; source modules in `web/src/modules`, conventions in [docs/react-style.md](docs/react-style.md)
 desktop/      Electron shell
 docs/         product.md, agents.md, server.md, decisions
