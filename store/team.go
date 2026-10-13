@@ -27,14 +27,6 @@ type Gate struct {
 	On   bool   `json:"on"`
 }
 
-var _roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-
-// _defaultGates apply to an edge the team does not list.
-var _defaultGates = []Gate{
-	{From: "architect", To: "developer", On: true},
-	{From: "developer", To: "tester", On: true},
-}
-
 // Role is one teammate's setup. Tools are the backend's allowed tools.
 type Role struct {
 	Name           string            `json:"name"`
@@ -45,6 +37,14 @@ type Role struct {
 	Skills         string            `json:"skills"`
 	Tools          []string          `json:"tools"`
 	MCPServers     []agent.MCPServer `json:"mcpServers"`
+}
+
+var _roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// _defaultGates apply to an edge the team does not list.
+var _defaultGates = []Gate{
+	{From: "architect", To: "developer", On: true},
+	{From: "developer", To: "tester", On: true},
 }
 
 // ApplyTeam creates team t, or replaces the roles of the team with that name.
