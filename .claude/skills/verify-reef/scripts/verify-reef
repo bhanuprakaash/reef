@@ -220,7 +220,7 @@ cmd_mcp_server() {
 	dir="$SCR/mcp"
 	mkdir -p "$dir"
 	cat >"$dir/server.py" <<'EOF'
-import json, sys
+import json, subprocess, sys
 log = open(sys.argv[1], "a")
 def send(m):
     sys.stdout.write(json.dumps(m) + "\n"); sys.stdout.flush()
@@ -235,9 +235,11 @@ for line in sys.stdin:
     if meth == "initialize":
         send({"jsonrpc": "2.0", "id": mid, "result": {"protocolVersion": m["params"].get("protocolVersion", "2024-11-05"), "capabilities": {"tools": {}}, "serverInfo": {"name": "vping", "version": "0"}}})
     elif meth == "tools/list":
-        send({"jsonrpc": "2.0", "id": mid, "result": {"tools": [{"name": "secret_word", "description": "Returns the secret word.", "inputSchema": {"type": "object", "properties": {}}}]}})
+        send({"jsonrpc": "2.0", "id": mid, "result": {"tools": [{"name": "secret_word", "description": "Returns the secret word.", "inputSchema": {"type": "object", "properties": {}}}, {"name": "sleep_60", "description": "Runs sleep 60 and waits for it.", "inputSchema": {"type": "object", "properties": {}}}]}})
     elif meth == "tools/call":
         log.write(json.dumps({"call": m["params"].get("name")}) + "\n"); log.flush()
+        if m["params"].get("name") == "sleep_60":
+            subprocess.run(["sleep", "60"])
         send({"jsonrpc": "2.0", "id": mid, "result": {"content": [{"type": "text", "text": "kumquat-4417"}]}})
     else:
         send({"jsonrpc": "2.0", "id": mid, "error": {"code": -32601, "message": "method not found"}})
