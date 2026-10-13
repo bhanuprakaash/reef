@@ -38,6 +38,7 @@ export type Channel = {
   projectId: number;
   featureId: number | null;
   name: string;
+  team: string;
   role: string;
   backend: string;
   permissionMode: string;
@@ -64,8 +65,25 @@ export type Proposal = {
 export type Message = {
   id: number;
   channelId: number;
+  parentId: number | null;
   author: string;
   body: string;
+  createdAt: string;
+};
+
+export type Team = {
+  name: string;
+  roles: { name: string; lead: boolean }[];
+};
+
+export type Approval = {
+  id: number;
+  channelId: number;
+  from: string;
+  to: string;
+  messageId: number;
+  text: string;
+  status: string;
   createdAt: string;
 };
 

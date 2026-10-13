@@ -6,6 +6,7 @@ type NewChannel = {
   projectId: number;
   featureId: number | null;
   name: string;
+  team: string;
   backend: string;
   permissionMode: string;
 };
