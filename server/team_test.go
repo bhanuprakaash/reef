@@ -23,6 +23,12 @@ func TestChannelTeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "boss", Lead: true, Backend: "claude"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
 	h := New(st, t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
@@ -41,6 +47,8 @@ func TestChannelTeam(t *testing.T) {
 			`"backend":"codex","permissionMode":"read-only","paused":"","tokenBudget":1000000,"team":"core"`},
 		{"request overrides lead", `{"projectId":1,"name":"c","team":"core","backend":"claude"}`, 201,
 			`"backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"team":"core"`},
+		{"lead role names the channel", `{"projectId":1,"name":"e","team":"crew"}`, 201,
+			`"name":"e","role":"boss"`},
 		{"unknown team", `{"projectId":1,"name":"d","team":"nope"}`, 400,
 			`{"error":"invalid: unknown team nope"}`},
 	}

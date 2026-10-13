@@ -69,6 +69,7 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	lead := team.Roles[0]
+	in.Role = lead.Name
 	if in.Backend == "" {
 		in.Backend = lead.Backend
 	}
