@@ -56,24 +56,6 @@ function loginShellPath() {
   });
 }
 
-function waitForHealth(url) {
-  return new Promise((resolve) => {
-    const poll = async () => {
-      try {
-        const res = await fetch(url);
-        if (res.ok) {
-          resolve();
-          return;
-        }
-      } catch {
-        // not listening yet
-      }
-      setTimeout(poll, 100);
-    };
-    poll();
-  });
-}
-
 let server = null;
 let quitting = false;
 
@@ -83,14 +65,17 @@ async function startServer(PATH) {
     stdio: ['ignore', 'ignore', 'pipe'],
   });
   let stderr = '';
-  server.stderr.on('data', (chunk) => {
-    const text = chunk.toString();
-    process.stderr.write(text);
-    stderr = (stderr + text).slice(-STDERR_TAIL);
+  // reef serve logs "listening on" only after it bound ADDR itself, so the window never opens
+  // on another process that already answers there.
+  const listening = new Promise((resolve) => {
+    server.stderr.on('data', (chunk) => {
+      const text = chunk.toString();
+      process.stderr.write(text);
+      stderr = (stderr + text).slice(-STDERR_TAIL);
+      if (stderr.includes(`listening on ${ADDR}`)) resolve(true);
+    });
+    server.once('exit', () => resolve(false));
   });
-  // The window must only ever show this process's own reef serve, never whatever else
-  // answers on the port: an exit here, before the window opens or after, while the app
-  // isn't quitting on purpose, means the app can no longer trust what's on ADDR.
   server.on('exit', (code) => {
     if (quitting) return;
     const message = stderr.trim() || `reef serve exited (code ${code})`;
@@ -98,10 +83,7 @@ async function startServer(PATH) {
     dialog.showErrorBox('Reef stopped unexpectedly', message);
     app.exit(1);
   });
-  return Promise.race([
-    waitForHealth(`http://${ADDR}/health`).then(() => true),
-    new Promise((resolve) => server.once('exit', () => resolve(false))),
-  ]);
+  return listening;
 }
 
 function stopServer() {
