@@ -215,7 +215,7 @@ launches that binary with `--no-sandbox`:
 ```sh
 PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev npx playwright@1.64.0 install chromium
 npx playwright@1.64.0 install-deps chromium   # or the same libraries with apt
-export REEF_VERIFY_CHROME=$HOME/.cache/ms-playwright/chromium-<rev>/chrome-linux/chrome
+export REEF_VERIFY_CHROME=$(ls $HOME/.cache/ms-playwright/chromium-*/chrome-linux*/chrome | tail -1)  # chrome-linux/ on x64, chrome-linux-arm64/ on arm64
 ```
 
 `1.64.0` is the `playwright-core` version in `scripts/ui/package.json`. The default download host
