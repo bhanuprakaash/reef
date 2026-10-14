@@ -1,10 +1,35 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
 )
+
+func TestUpdateChannelPermissionModeUsedWhenSessionOpens(t *testing.T) {
+	env := newLiveEnv(t)
+	var openedMode string
+	env.open = func(ctx context.Context) (session, error) {
+		ch, err := env.st.Channel(ctx, 1)
+		if err != nil {
+			return nil, err
+		}
+		openedMode = ch.PermissionMode
+		return env.fake, nil
+	}
+
+	if status, body := do(t, http.MethodPut, env.url+"/channels/1",
+		`{"name":"scratch","permissionMode":"acceptEdits"}`); status != 200 {
+		t.Fatalf("update channel = %d %s, want 200", status, body)
+	}
+	if status, body := env.send(t, "hello"); status != 202 {
+		t.Fatalf("send = %d %s, want 202", status, body)
+	}
+	if openedMode != "acceptEdits" {
+		t.Errorf("permission mode at session open = %q, want acceptEdits", openedMode)
+	}
+}
 
 func TestChannelStatus(t *testing.T) {
 	tests := []struct {

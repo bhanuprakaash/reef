@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -415,6 +417,51 @@ func TestRun_ChatBackendTypoLeavesNoChannel(t *testing.T) {
 	defer func() { _ = st.Close() }()
 	if chs, err := st.Channels(context.Background(), store.ChannelFilter{}); err != nil || len(chs) != 0 {
 		t.Errorf("channels = %+v, %v, want none", chs, err)
+	}
+}
+
+func TestRun_ChatResumesPausedChannel(t *testing.T) {
+	dir := t.TempDir()
+	projectPath := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.CreateProject(context.Background(), store.Project{Name: "shop", Path: projectPath})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(context.Background(), store.Channel{
+		ProjectID: p.ID, Name: "chat", Role: "lead", Backend: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.PauseChannel(context.Background(), ch.ID, "capped: more than 25 tool calls"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	fakeClaude, err := filepath.Abs("../../agent/claude/testdata/claude")
+	if err != nil {
+		t.Fatal(err)
+	}
+	binDir := t.TempDir()
+	if err := os.Symlink(fakeClaude, filepath.Join(binDir, "claude")); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_CLAUDE", "hang")
+
+	out, err := reef(t, dir, "chat", "--channel", "1")
+	if err != nil {
+		t.Fatalf("reef chat --channel 1 = %v, output %q", err, out)
+	}
+	want := "> \nchannel 1: resume with reef chat --channel 1\n"
+	if out != want {
+		t.Errorf("reef chat output = %q, want %q", out, want)
 	}
 }
 
