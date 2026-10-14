@@ -14,6 +14,8 @@ import (
 	"github.com/bhanuprakaash/reef/agent"
 )
 
+var resultCost = 0.0123
+
 func TestParse(t *testing.T) {
 	tests := []struct {
 		name string
@@ -23,7 +25,7 @@ func TestParse(t *testing.T) {
 		{
 			name: "init",
 			give: `{"type":"system","subtype":"init","cwd":"/private/tmp/scratch-claude","session_id":"3c1296cc-1e28-4167-a8a8-dfb0facf9381","model":"claude-opus-5-5","permissionMode":"bypassPermissions"}`,
-			want: []agent.Event{{Kind: agent.KindSession, SessionID: "3c1296cc-1e28-4167-a8a8-dfb0facf9381"}},
+			want: []agent.Event{{Kind: agent.KindSession, SessionID: "3c1296cc-1e28-4167-a8a8-dfb0facf9381", Model: "claude-opus-5-5"}},
 		},
 		{
 			name: "hook is skipped",
@@ -83,10 +85,10 @@ func TestParse(t *testing.T) {
 		},
 		{
 			name: "result",
-			give: `{"type":"result","subtype":"success","is_error":false,"result":"Output: hello-from-tool","session_id":"3c1296cc-1e28-4167-a8a8-dfb0facf9381","usage":{"input_tokens":4,"cache_creation_input_tokens":10112,"cache_read_input_tokens":22898,"output_tokens":123}}`,
+			give: `{"type":"result","subtype":"success","is_error":false,"result":"Output: hello-from-tool","session_id":"3c1296cc-1e28-4167-a8a8-dfb0facf9381","total_cost_usd":0.0123,"usage":{"input_tokens":4,"cache_creation_input_tokens":10112,"cache_read_input_tokens":22898,"output_tokens":123}}`,
 			want: []agent.Event{
 				{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 4, OutputTokens: 123, CacheReadTokens: 22898, CacheWriteTokens: 10112}},
-				{Kind: agent.KindTurnEnd},
+				{Kind: agent.KindTurnEnd, CostUSD: &resultCost},
 			},
 		},
 		{

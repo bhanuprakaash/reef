@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -212,5 +213,105 @@ func TestSetTurnRetried(t *testing.T) {
 	}
 	if got, _ := s.Turn(ctx, 1); got.Retried {
 		t.Errorf("turn = %+v, want not retried", got)
+	}
+}
+
+func TestEndTurn_InspectFields(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "architect", Backend: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	cost := 0.0123
+	if _, err := s.EndTurn(ctx, Turn{
+		ID: 1, Status: "done", Model: "claude-opus-5-5", CostUSD: &cost, Prompt: "do it",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Turn(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Model != "claude-opus-5-5" || got.CostUSD == nil || *got.CostUSD != cost || got.Prompt != "do it" {
+		t.Errorf("turn = %+v, want model claude-opus-5-5, cost %v, prompt %q", got, cost, "do it")
+	}
+}
+
+func TestToolCall(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "architect", Backend: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	tc, err := s.CreateToolCall(ctx, 1, "Bash", `{"command":"ls"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetToolCallResult(ctx, tc.ID, "a.txt\n"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ToolCalls(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []ToolCall{{ID: 1, TurnID: 1, Name: "Bash", Input: `{"command":"ls"}`, Result: "a.txt\n"}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("tool calls = %+v, want %+v", got, want)
+	}
+}
+
+func TestCreateToolCall_CutsLongInput(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "architect", Backend: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	long := strings.Repeat("a", 5000)
+	tc, err := s.CreateToolCall(ctx, 1, "Bash", long)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tc.Input) != 4096 {
+		t.Errorf("input len = %d, want 4096", len(tc.Input))
+	}
+	if err := s.SetToolCallResult(ctx, tc.ID, long); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ToolCalls(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got[0].Result) != 4096 {
+		t.Errorf("result len = %d, want 4096", len(got[0].Result))
 	}
 }

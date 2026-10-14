@@ -201,6 +201,22 @@ One agent run in a channel.
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
 | `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<turn id>`. `null` for a turn of a role without `write`, for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
+| `model` | string | default `""`; the backend's model name, set from the agent's first event once the turn ends |
+| `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one |
+| `prompt` | string | default `""`; the full text sent to the agent (context preamble and notes included), set once the turn ends |
+
+### tool_call
+
+One tool call of a turn. Input and result are cut to 4 KB each. There is no update or
+delete; deleting the turn deletes its tool calls.
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `id` | number | |
+| `turnId` | number | required |
+| `name` | string | the tool's name |
+| `input` | string | cut to 4 KB |
+| `result` | string | default `""` until the call's result arrives, then cut to 4 KB |
 
 ### decision
 
@@ -331,7 +347,8 @@ promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 Create returns 201 and the row. Update returns 200 and the row. Delete returns 204 and no
 body. Deleting a row deletes what hangs off it by foreign key: a project takes its
 features, channels and tasks; a feature takes its briefs, notes, decisions and channels;
-a channel takes its messages, turns, tokens, proposals and approvals.
+a channel takes its messages, turns, tokens, proposals and approvals; a turn takes its
+tool calls.
 
 | Route | Filters and body | OK | Notable errors |
 | --- | --- | --- | --- |
@@ -362,6 +379,7 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `DELETE /channels/{id}` | stops the channel first if it is live; a send during the delete is 404 | 204 | 404 |
 | `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 turn running, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
+| `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed); per turn: `id`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `toolCalls` (`name`, `input`, `result`) | 404 |
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
 | `GET /channels/{id}/approvals` | | 200 the channel's pending gate approvals, oldest first; `[]` when none | 404 |
