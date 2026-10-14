@@ -35,12 +35,19 @@ One `WebContentsView` ([`desktop/browser.js`](../desktop/browser.js)), for the w
 shared by every channel. It sits to the right of the main area with an address bar; a preload
 script reports the pane's size to the main process so the native view stays lined up with it.
 The main process drives the view over the Chrome DevTools Protocol
-(`webContents.debugger`), and listens on `browser.sock` in the data folder (mode 0600) for
-calls from `reef mcp` (see [memory.md](memory.md#reef-mcp)): one JSON line request
-(`{"tool":"navigate","args":{"url":"..."}}`), one JSON line reply (`{"text":"..."}`,
+(`webContents.debugger`), and listens on `browser.sock` in the data folder (mode 0600 from the
+moment it is created) for calls from `reef mcp` (see [memory.md](memory.md#reef-mcp)): one JSON
+line request (`{"tool":"navigate","args":{"url":"..."}}`), one JSON line reply (`{"text":"..."}`,
 `{"image":"<base64 png>"}` or `{"error":"..."}`), per connection. `reef mcp` dials the socket
 directly, not through `reef serve`. A stale socket from a crash is unlinked before the app
 listens again.
+
+`navigate` only opens `http:` and `https:` URLs, and refuses Reef's own server (host
+`127.0.0.1`, `localhost` or `[::1]`, port 7700), with `refused: the browser pane cannot open
+Reef itself`: otherwise an agent could open Reef's own UI and approve its own proposals. The same
+check blocks a link or a redirect inside the page that targets Reef's origin, and denies any
+`window.open`, opening the URL in the pane itself instead of a new window. The main window has
+its own, simpler guard: no new windows, and navigation stays on Reef's own origin.
 
 `snapshot` reads the page's accessibility tree (CDP `Accessibility.getFullAXTree`) and renders
 it as text, one line per element, indented to match the tree, each with a ref such as `e12`
@@ -49,18 +56,21 @@ only for the latest snapshot: a new snapshot, or a navigation, clears it. `click
 a ref from that map: `click` scrolls the node into view, finds its box's centre and dispatches a
 mouse press and release there; `type` focuses the node and inserts the text. A ref not in the
 map, or a node CDP no longer finds, fails with `ref e12 is not on the page; take a new snapshot`.
+Any other failure to click or type fails with `cannot click e12: <message>` or `cannot type into
+e12: <message>`.
 
 `console` and `network` report what happened since the last navigation of the page itself: CDP
-`Runtime.consoleAPICalled` and `Runtime.exceptionThrown` fill the console list, one entry per
-call with its level (`log`, `error`, ...); `Network.requestWillBeSent`,
+`Runtime.consoleAPICalled`, `Runtime.exceptionThrown` and `Log.entryAdded` fill the console list,
+one entry per call with its level (`log`, `error`, ...); `Network.requestWillBeSent`,
 `Network.responseReceived` and `Network.loadingFailed` fill the network list with each request's
 method, URL and status. Both lists are cleared on `Page.frameStartedLoading` for the page's main
-frame, so a new navigation starts them empty.
+frame, so a new navigation starts them empty, and each is capped at the last 500 entries.
 
 A "Take over" button next to the address bar flips a boolean in the main process. While it is on,
 every tool call over `browser.sock` fails with `the user has the browser`, and the button reads
 "Hand back" to release it. The button's own address-bar navigation goes over IPC, not the socket,
-so it still works while taken over.
+so it still works while taken over. Reloading the main window (for example after an update) turns
+take-over back off, so the button and the main process agree.
 
 ## Terminal pane
 
