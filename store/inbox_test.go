@@ -120,10 +120,10 @@ func TestInbox_Approval(t *testing.T) {
 func TestInbox_Paused(t *testing.T) {
 	e := newInboxEnv(t)
 	e.say(1, "user", "go")
-	if err := e.s.PauseChannel(e.ctx, 1, "hop cap: 4 agent hops without a user message"); err != nil {
+	if err := e.s.PauseChannel(e.ctx, 1, "hop cap: 6 agent hops without a user message"); err != nil {
 		t.Fatal(err)
 	}
-	e.want("paused 1 hop cap: 4 agent hops without a user message")
+	e.want("paused 1 hop cap: 6 agent hops without a user message")
 
 	if err := e.s.ContinueChannel(e.ctx, 1, TokenBudget); err != nil {
 		t.Fatal(err)

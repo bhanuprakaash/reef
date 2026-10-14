@@ -24,8 +24,8 @@ func TestApproval_HoldsAreNotApprovals(t *testing.T) {
 	if status != 404 || body != `{"error":"approval 1 of channel 2: not found"}` {
 		t.Errorf("approve a hold = %d %s, want 404", status, body)
 	}
-	if got := len(env.ranTexts()); got != 5 {
-		t.Errorf("turns run = %d, want 5: the hold did not run", got)
+	if got := len(env.ranTexts()); got != 7 {
+		t.Errorf("turns run = %d, want 7: the hold did not run", got)
 	}
 }
 
@@ -265,12 +265,12 @@ func TestApproval_ApproveAtHopCapPausesAndStaysPending(t *testing.T) {
 	id, _, approvals := env.gatedChannel(t)
 	l := env.h.s.lookup(int64(id))
 	l.mu.Lock()
-	l.hops = 4
+	l.hops = 6
 	l.mu.Unlock()
 
 	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
 	if status != 409 || body != `{"error":"channel 2 is paused: `+_hopPause+`: conflict"}` {
-		t.Errorf("approve at 4 hops = %d %s, want 409 paused", status, body)
+		t.Errorf("approve at 6 hops = %d %s, want 409 paused", status, body)
 	}
 	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
 		t.Errorf("channel = %+v, %v, want paused with the hop cap reason", ch, err)

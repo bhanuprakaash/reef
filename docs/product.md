@@ -77,7 +77,7 @@ A channel is what the user opens as a session; inside, each teammate is its own 
 
 **Approval gates.** The user can require approval before work passes between roles. Defaults: lead → architect is free; lead → developer, architect → developer and developer → tester require approval. Each gate can be switched off per team.
 
-**Caps** (plain code): max agent-to-agent hops without a user message (default 4), max turns per teammate per wake (default 25), token budget per channel (default 1M). On any cap the channel pauses and an item goes to the needs-you inbox.
+**Caps** (plain code): max agent-to-agent hops without a user message (default 6), max turns per teammate per wake (default 25), token budget per channel (default 1M). On any cap the channel pauses and an item goes to the needs-you inbox.
 
 **Crash recovery.** Every turn is recorded as running, done or failed. On restart, running turns are marked failed and a note is posted to the channel; the worktree may be dirty. No automatic retry; the user retries or rolls back to a checkpoint.
 
@@ -196,6 +196,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 35 | Rollback resets the files and the branch to the checkpoint, not the agent's session, and leaves a note in the channel | Sessions cannot be rewound; the note tells the agent |
 | 36 | The needs-you inbox is a view over approvals, pauses, failed turns and who spoke last; no ask-user tool | No new state to keep in sync, and Reef cannot tell a question from an answer |
 | 37 | Default gates also hold a lead's wake of the developer (amends 14) | Decision 14 gates the steps that touch code; an ungated lead→developer edge let the lead skip the architect→developer gate |
+| 38 | Default hop cap is 6 (amends 10) | The spec's full flow lead→architect→developer→tester→lead uses 4 hops; one clarifying question must fit without a pause |
 
 ## Open questions
 

@@ -724,10 +724,10 @@ func TestSend_UserPostMidChainIsNotRouted(t *testing.T) {
 	sub := subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "go")
 	sub.want(t, _idleFrame)
-	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead")
+	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead", "architect", "lead")
 	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
-	if got := len(env.ranTexts()); got != 5 {
-		t.Errorf("turns run = %d, want 5: the user's post starts no turn and does not reset the hops", got)
+	if got := len(env.ranTexts()); got != 7 {
+		t.Errorf("turns run = %d, want 7: the user's post starts no turn and does not reset the hops", got)
 	}
 }
 

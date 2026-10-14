@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-const _hopPause = "hop cap: 4 agent hops without a user message"
+const _hopPause = "hop cap: 6 agent hops without a user message"
 
 // pingPong makes the lead and the architect answer each other until the hop cap pauses the
 // channel, and returns the channel's id and a stream of it, after the pause.
@@ -25,7 +25,7 @@ func (e *liveEnv) pingPong(t *testing.T) (int, *stream) {
 	sub := subscribeTo(t, e.url, id)
 	e.sendTo(t, id, "go")
 	sub.want(t, _idleFrame)
-	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead")
+	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead", "architect", "lead")
 	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
 	return id, sub
 }
@@ -33,8 +33,8 @@ func (e *liveEnv) pingPong(t *testing.T) (int, *stream) {
 func TestSend_HopCapPausesChannel(t *testing.T) {
 	env := newLiveEnv(t)
 	id, sub := env.pingPong(t)
-	if got := len(env.ranTexts()); got != 5 {
-		t.Errorf("turns run = %d, want 5: the user's turn and 4 hops", got)
+	if got := len(env.ranTexts()); got != 7 {
+		t.Errorf("turns run = %d, want 7: the user's turn and 6 hops", got)
 	}
 	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
 		t.Errorf("channel = %+v, %v, want paused with the hop cap reason", ch, err)
@@ -44,10 +44,10 @@ func TestSend_HopCapPausesChannel(t *testing.T) {
 		t.Fatalf("continue = %d, want 204", status)
 	}
 	sub.want(t, `pause {"reason":""}`)
-	sub.wantTurns(t, "architect", "lead", "architect", "lead")
+	sub.wantTurns(t, "architect", "lead", "architect", "lead", "architect", "lead")
 	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
-	if got := len(env.ranTexts()); got != 9 {
-		t.Errorf("turns run after continue = %d, want 9: the held wake and 3 more hops", got)
+	if got := len(env.ranTexts()); got != 13 {
+		t.Errorf("turns run after continue = %d, want 13: the held wake and 5 more hops", got)
 	}
 }
 
@@ -59,10 +59,10 @@ func TestSend_UserMessageClearsHopPause(t *testing.T) {
 		t.Fatalf("send while hop paused = %d %q, want 202", status, body)
 	}
 	sub.want(t, `pause {"reason":""}`)
-	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead")
+	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead", "architect", "lead")
 	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
-	if got := env.ranTexts(); len(got) != 10 || got[5] != "[channel 2, message 7]\nmore" {
-		t.Errorf("ran = %q, want 10 turns, the sixth the user's: the held wake is dropped and the count starts at 0", got)
+	if got := env.ranTexts(); len(got) != 14 || got[7] != "[channel 2, message 9]\nmore" {
+		t.Errorf("ran = %q, want 14 turns, the eighth the user's: the held wake is dropped and the count starts at 0", got)
 	}
 }
 
@@ -95,11 +95,11 @@ func TestContinue_RunsHopHeldWakeAfterRestart(t *testing.T) {
 		t.Fatalf("continue = %d, want 204", status)
 	}
 	sub.want(t, `pause {"reason":""}`)
-	sub.wantTurns(t, "architect", "lead", "architect", "lead")
+	sub.wantTurns(t, "architect", "lead", "architect", "lead", "architect", "lead")
 	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
 	got := env.ranTexts()
-	if len(got) != 9 || got[5] != "[channel 2, message 6]\nlead wrote: @architect again" {
-		t.Errorf("ran = %q, want 9 turns, the sixth the wake held before the restart", got)
+	if len(got) != 13 || got[7] != "[channel 2, message 8]\nlead wrote: @architect again" {
+		t.Errorf("ran = %q, want 13 turns, the eighth the wake held before the restart", got)
 	}
 }
 
@@ -108,7 +108,7 @@ func TestSend_UserMessageResetsHops(t *testing.T) {
 	id, post := env.teamChannel(t)
 	var runs atomic.Int32
 	env.fake.onRun = func(role, _ string, _ *int64) {
-		if runs.Add(1)%4 == 0 {
+		if runs.Add(1)%5 == 0 {
 			return
 		}
 		if role == "lead" {
@@ -121,13 +121,13 @@ func TestSend_UserMessageResetsHops(t *testing.T) {
 	sub.want(t, _idleFrame)
 	for range 2 {
 		env.sendTo(t, id, "go")
-		for _, role := range []string{"lead", "architect", "lead", "architect"} {
+		for _, role := range []string{"lead", "architect", "lead", "architect", "lead"} {
 			sub.want(t, `turn {"role":"`+role+`","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 				`turn {"role":"`+role+`","status":"done"}`)
 		}
 	}
 	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != "" {
-		t.Errorf("channel = %+v, %v, want not paused after 6 hops in 2 chains", ch, err)
+		t.Errorf("channel = %+v, %v, want not paused after 8 hops in 2 chains", ch, err)
 	}
 }
 
@@ -140,10 +140,10 @@ func TestCountHop(t *testing.T) {
 		wantHops int
 	}{
 		{"user wake resets", 3, "user", true, 0},
-		{"user wake resets at the cap", 4, "user", true, 0},
+		{"user wake resets at the cap", 6, "user", true, 0},
 		{"first agent wake", 0, "lead", true, 1},
-		{"fourth agent wake", 3, "architect", true, 4},
-		{"fifth agent wake is over", 4, "lead", false, 4},
+		{"sixth agent wake", 5, "architect", true, 6},
+		{"seventh agent wake is over", 6, "lead", false, 6},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

@@ -364,7 +364,7 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
 | `GET /channels/{id}/approvals` | | 200 the channel's pending gate approvals, oldest first; `[]` when none | 404 |
-| `POST /channels/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body | 400 no `approve`, 404 no such approval in this channel, 409 not pending, or approve while a turn runs, the channel is paused or 4 hops ran (it stays pending), 503 |
+| `POST /channels/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body | 400 no `approve`, 404 no such approval in this channel, 409 not pending, or approve while a turn runs, the channel is paused or 6 hops ran (it stays pending), 503 |
 | `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
 | `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
 | `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
@@ -576,7 +576,7 @@ wake across a gate that is on does not run. The server stores an [approval](#app
 the prompt it would have run and goes on with the rest of the chain. `GET
 /channels/{id}/approvals` lists the pending ones. `POST /channels/{id}/approvals/{aid}` with
 `{"approve":true}` runs the wake as a new chain (it needs an idle channel that is not
-paused, else 409 and the approval stays pending). An approve at 4 hops pauses the channel for
+paused, else 409 and the approval stays pending). An approve at 6 hops pauses the channel for
 the hop cap, answers 409 and reopens the approval. With `{"approve":false}` it only marks the
 approval `rejected`. A decided approval is 409. Pending approvals are stored, so they survive a
 restart.
@@ -707,7 +707,7 @@ Three caps pause a channel. All are constants in the code, not settings.
   budget pauses the channel with `token budget of 1000000 used: 1000312 tokens`.
 - Agent hops: a hop is a turn that an agent's message woke. The turn that answers the user's
   message is not a hop. The server counts hops per channel since the last user message. The
-  5th hop does not run: the channel is paused with `hop cap: 4 agent hops without a user
+  7th hop does not run: the channel is paused with `hop cap: 6 agent hops without a user
   message`, and the `turn` event of the turn before it is followed by a `pause` event. The wake
   that did not run, and the wakes behind it, are stored as holds.
 
