@@ -49,6 +49,16 @@ func TestTeam_GatedLeadDefaults(t *testing.T) {
 	}
 }
 
+func TestTeam_GatedTesterDefaults(t *testing.T) {
+	if !(Team{}).Gated("tester", "developer") {
+		t.Error("a team with no gates should default tester to developer on")
+	}
+	off := Team{Gates: []Gate{{From: "tester", To: "developer", On: false}}}
+	if off.Gated("tester", "developer") {
+		t.Error("a team that lists tester to developer off should not gate it")
+	}
+}
+
 func TestApplyTeam_Gates(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
