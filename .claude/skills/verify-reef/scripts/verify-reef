@@ -17,6 +17,8 @@ usage: verify-reef build
        REEF_VERIFY_RUN=ID verify-reef reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A | --sigint-at-prompt]] [--timeout S] -- REEF_ARGS...
        REEF_TOKEN=T REEF_VERIFY_RUN=ID verify-reef mcp-call TOOL [JSON]
        REEF_VERIFY_RUN=ID verify-reef ui live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox
+       REEF_VERIFY_RUN=ID verify-reef feature NAME
+       REEF_VERIFY_RUN=ID verify-reef real
        REEF_VERIFY_RUN=ID verify-reef cleanup
 EOF
 	exit 2
@@ -651,6 +653,36 @@ cmd_ui() {
 	exit "${PIPESTATUS[0]}"
 }
 
+# feature NAME: run features/NAME.sh with H, REEF_VERIFY_RUN, E, S exported, tee its
+# output to feature-NAME.log, exit 1 if any line is FAIL.
+cmd_feature() {
+	load_run
+	[ $# -eq 1 ] || usage
+	name=$1
+	script="$REPO/.claude/skills/verify-reef/features/$name.sh"
+	[ -x "$script" ] || fail "no script $script"
+	[ -f "$EV/pre-pids.txt" ] || fail "run doctor first: it records the pre-run pids"
+	log="$EV/feature-$name.log"
+	(cd "$REPO" && H="$REPO/.claude/skills/verify-reef/scripts/verify-reef" REEF_VERIFY_RUN="$REEF_VERIFY_RUN" E="$EV" S="$SCR" "$script") 2>&1 | tee "$log"
+	rc=${PIPESTATUS[0]}
+	grep -q '^FAIL' "$log" && exit 1
+	exit "$rc"
+}
+
+# real: the real-claude set (write-claude-refused, write-settings, turn-permission,
+# subagent-parent, subagent-top-level), forced onto real claude.
+cmd_real() {
+	load_run
+	script="$REPO/.claude/skills/verify-reef/scripts/real.sh"
+	[ -x "$script" ] || fail "no script $script"
+	[ -f "$EV/pre-pids.txt" ] || fail "run doctor first: it records the pre-run pids"
+	log="$EV/real.log"
+	(cd "$REPO" && H="$REPO/.claude/skills/verify-reef/scripts/verify-reef" REEF_VERIFY_RUN="$REEF_VERIFY_RUN" E="$EV" S="$SCR" REEF_VERIFY_CLAUDE=real ANTHROPIC_MODEL=sonnet "$script") 2>&1 | tee "$log"
+	rc=${PIPESTATUS[0]}
+	grep -q '^FAIL' "$log" && exit 1
+	exit "$rc"
+}
+
 cmd_cleanup() {
 	load_run
 	if [ -f "$SCR/serve.pid" ] && serve_alive "$(cat "$SCR/serve.pid")"; then
@@ -700,6 +732,8 @@ sql) cmd_sql "$@" ;;
 reef) cmd_reef "$@" ;;
 mcp-call) cmd_mcp_call "$@" ;;
 ui) cmd_ui "$@" ;;
+feature) cmd_feature "$@" ;;
+real) cmd_real "$@" ;;
 cleanup) cmd_cleanup "$@" ;;
 *) usage ;;
 esac
