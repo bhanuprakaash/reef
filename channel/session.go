@@ -165,12 +165,13 @@ func (s *Session) RunAs(
 	return err
 }
 
-// run runs a turn of m, holding m's tree when it writes. A ctx cancelled while it waits
-// leaves an interrupted turn.
+// run runs a turn of m, holding m's tree when it writes and counting as a reader of it when
+// it does not. A ctx cancelled while it waits leaves an interrupted turn.
 func (s *Session) run(
 	ctx context.Context, m *member, text string, parent *int64, onEvent func(agent.Event),
 ) error {
 	if !m.write {
+		defer s.trees.Read(m.dir)()
 		return m.run.Run(ctx, text, parent, onEvent)
 	}
 	unlock, err := s.trees.Lock(ctx, m.dir)

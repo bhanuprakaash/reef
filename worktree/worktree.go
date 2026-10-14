@@ -80,11 +80,16 @@ func Checkpoint(ctx context.Context, dir, ref string) error {
 	if err != nil {
 		return err
 	}
-	stagedCommit, err := commitTree(ctx, dir, staged, head)
+	stagedCommit, err := commitTree(ctx, dir, staged, "reef checkpoint", head)
 	if err != nil {
 		return err
 	}
-	commit, err := commitTree(ctx, dir, tree, head, stagedCommit)
+	branch, err := git(ctx, dir, "branch", "--show-current")
+	if err != nil {
+		return err
+	}
+	message := fmt.Sprintf("reef checkpoint\n\ndir: %s\nbranch: %s", dir, branch)
+	commit, err := commitTree(ctx, dir, tree, message, head, stagedCommit)
 	if err != nil {
 		return err
 	}
@@ -92,12 +97,38 @@ func Checkpoint(ctx context.Context, dir, ref string) error {
 	return err
 }
 
-// Restore puts the checkout at dir back as Checkpoint saw it at ref: the branch at the HEAD
-// it had, the files as they were, untracked ones included, and the same changes staged. Files
+// Origin is the directory and the branch the checkpoint at ref was taken in. The branch is
+// empty when HEAD was detached. repo is any checkout of the repository that holds ref.
+func Origin(ctx context.Context, repo, ref string) (dir, branch string, err error) {
+	msg, err := git(ctx, repo, "log", "-1", "--format=%B", ref)
+	if err != nil {
+		return "", "", err
+	}
+	for _, line := range strings.Split(msg, "\n") {
+		if v, ok := strings.CutPrefix(line, "dir: "); ok {
+			dir = v
+		} else if v, ok := strings.CutPrefix(line, "branch: "); ok {
+			branch = v
+		}
+	}
+	return dir, branch, nil
+}
+
+// Restore puts the checkout at dir back as Checkpoint saw it at ref: the branch it was on,
+// checked out at the HEAD it had, the files as they were, untracked ones included, and the
+// same changes staged. A checkpoint of a detached HEAD resets whatever is checked out. Files
 // made since are removed. Ignored files are left alone.
 func Restore(ctx context.Context, dir, ref string) error {
+	_, branch, err := Origin(ctx, dir, ref)
+	if err != nil {
+		return err
+	}
+	back := []string{"reset", "--hard", ref + "^1"}
+	if branch != "" {
+		back = []string{"checkout", "--force", "-B", branch, ref + "^1"}
+	}
 	steps := [][]string{
-		{"reset", "--hard", ref + "^1"},
+		back,
 		{"clean", "-fd"},
 		{"read-tree", "--reset", "-u", ref},
 		{"read-tree", ref + "^2"},
@@ -110,12 +141,12 @@ func Restore(ctx context.Context, dir, ref string) error {
 	return nil
 }
 
-func commitTree(ctx context.Context, dir, tree string, parents ...string) (string, error) {
+func commitTree(ctx context.Context, dir, tree, message string, parents ...string) (string, error) {
 	args := []string{"-c", "user.name=Reef", "-c", "user.email=reef@localhost", "commit-tree", tree}
 	for _, p := range parents {
 		args = append(args, "-p", p)
 	}
-	return git(ctx, dir, append(args, "-m", "reef checkpoint")...)
+	return git(ctx, dir, append(args, "-m", message)...)
 }
 
 func git(ctx context.Context, repo string, args ...string) (string, error) {

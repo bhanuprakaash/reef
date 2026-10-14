@@ -81,7 +81,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
-| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; `retry` of a turn that is not failed or was retried, or on a channel with a turn running or paused; `rollback` on a channel with a turn running or a tree a write turn holds; an approval that is not pending, or one approved while a turn runs or the channel is paused |
+| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; `retry` of a turn that is not failed or was retried, or on a channel with a turn running or paused; `rollback` on a channel with a turn running or open in a `reef chat`, on a tree other than the checkpoint's, or on a tree a turn runs on; an approval that is not pending, or one approved while a turn runs or the channel is paused |
 | 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
 | 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
@@ -382,7 +382,7 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not failed, retried already, no `wakeText`, or as send for a channel with a turn running or paused, 503 |
 | `GET /inbox` | | 200 the items waiting on the user, newest first; `[]` when none. See [Inbox](#inbox) | |
 | `GET /inbox/events` | | 200 `text/event-stream` | |
-| `POST /turns/{id}/rollback` | no body needed | 204, no body; the channel's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the channel has a turn running or a write turn runs on the tree, 503 |
+| `POST /turns/{id}/rollback` | no body needed | 204, no body; the channel's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the channel has a turn running, a `reef chat` has it open, its tree is not the one the checkpoint was taken in, or a turn of any role runs on the tree, 503 |
 | `GET /decisions` | `?feature=ID` (required) | 200 | 400 no feature, 404 unknown feature |
 | `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field, unknown feature, or a message of another feature |
 | `GET /decisions/{id}` | | 200 | 404 |
@@ -434,20 +434,28 @@ a message wakes them.
   example a repo with no commit), the turn is stored `failed` with git's error and the agent
   gets no prompt. A role without `write` gets none. The checkpoint commit has two parents:
   HEAD, then a commit of the index as it was, so a rollback can bring back what was staged.
+  Its message records the directory and the branch it was taken in (`dir:` and `branch:`
+  lines; no branch when HEAD was detached).
 - One write turn at a time runs on a tree, across all channels of the server: the feature's
   worktree, or the project path for quick sessions. A wake of a role with `write` waits for
   the write turn that runs on its tree, then runs. Its turn row is created when it starts, so
   `startedAt` is after the other turn's `endedAt`. A stop ends the wait, and the turn is
-  stored `failed` as `interrupted`. A role without `write` is not held, and the first start
+  stored `failed` as `interrupted`. A role without `write` is not held: it runs beside a
+  write turn, and counts as a reader of the tree for its turn, which only a rollback
+  respects. The first start
   of a feature's worktree takes a lock of its own, so two channels waking at once add it once.
   The lock lives in the server's process: `reef chat` in another process is not held by it.
 - `POST /turns/{id}/rollback` puts the channel's tree (the feature's worktree, or the project
-  path of a quick session) back as the turn's checkpoint saw it: the branch is reset to the
-  HEAD it had, so commits made since are dropped from it; tracked and untracked files get the
-  content they had, the same changes are staged, and files made since are removed. Ignored
-  files are left alone. It claims the channel like a send, and takes the tree's write lock
-  without waiting, so it is 409 while the channel has a turn running or a write turn of any
-  channel runs on the tree. A turn with no `checkpoint` is 400. Then `reef` posts `Rolled back
+  path of a quick session) back as the turn's checkpoint saw it: the branch the checkpoint was
+  taken on is checked out at the HEAD it had, so commits made since, and a branch the turn
+  switched to, are left behind (a detached checkpoint resets whatever is checked out); tracked
+  and untracked files get the content they had, the same changes are staged, and files made
+  since are removed. Ignored files are left alone. It claims the channel like a send. It is
+  409, never a wait, when the channel's tree is not the directory the checkpoint was taken in
+  (a quick session's turn after a promote), when a `reef chat` holds the channel, or when a
+  turn of any role of any channel runs on the tree (the write lock is held, or a read-only
+  turn is a reader). A reader that starts during the restore is not held back. A turn with
+  no `checkpoint` is 400. Then `reef` posts `Rolled back
   to before turn N.` in the channel. The agent's session is not rewound. The next wake of
   each role that has run before in the channel starts with the lines `reef wrote: ...` that
   `reef` posted since that role's last turn began, so the role learns of the rollback (and of

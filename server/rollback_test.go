@@ -144,7 +144,7 @@ func TestRollback_Refused(t *testing.T) {
 		t.Fatal(err)
 	}
 	status, body := do(t, http.MethodPost, env.url+"/turns/1/rollback", "")
-	if status != 409 || !strings.HasSuffix(body, `has a write turn running: conflict"}`) {
+	if status != 409 || !strings.HasSuffix(body, `has a turn running: conflict"}`) {
 		t.Errorf("rollback while a write turn holds the tree = %d %s, want 409", status, body)
 	}
 	unlock()
