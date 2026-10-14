@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/store"
 )
 
 const _userAuthor = "user"
@@ -23,21 +24,33 @@ type wake struct {
 	parent    *int64
 }
 
-// wakes routes the messages of channel id stored after the message with id after, in
-// order, into the turns they wake. Only the messages written by author are routed. It also
-// returns the id of the last message read, or after when there is none. A user message runs
-// as its own text; an agent message as "<author> wrote: <body>". Each starts with a line
-// naming the channel and the message, and its thread root when it is a reply; a message in a
-// thread comes with the thread before it. A role woken by several messages in the same
-// thread gets one wake, their texts in id order.
+// wakes routes the messages of channel id stored after the message with id after. It also
+// returns the id of the last message read, or after when there is none. See route.
 func (s *server) wakes(ctx context.Context, id, after int64, author string) ([]wake, int64, error) {
-	ch, err := s.st.Channel(ctx, id)
+	msgs, err := s.st.Messages(ctx, id, after)
 	if err != nil {
 		return nil, after, err
 	}
+	if len(msgs) > 0 {
+		after = msgs[len(msgs)-1].ID
+	}
+	ws, err := s.route(ctx, id, msgs, author)
+	return ws, after, err
+}
+
+// route routes msgs of channel id, in order, into the turns they wake. Only the messages
+// written by author are routed. A user message runs as its own text; an agent message as
+// "<author> wrote: <body>". Each starts with a line naming the channel and the message, and
+// its thread root when it is a reply; a message in a thread comes with the thread before it.
+// A role woken by several messages in the same thread gets one wake, their texts in id order.
+func (s *server) route(ctx context.Context, id int64, msgs []store.Message, author string) ([]wake, error) {
+	ch, err := s.st.Channel(ctx, id)
+	if err != nil {
+		return nil, err
+	}
 	team, err := s.st.Team(ctx, ch.Team)
 	if err != nil {
-		return nil, after, err
+		return nil, err
 	}
 	roles := make([]string, len(team.Roles))
 	for i, r := range team.Roles {
@@ -46,20 +59,15 @@ func (s *server) wakes(ctx context.Context, id, after int64, author string) ([]w
 			roles[i] = ch.Role
 		}
 	}
-	msgs, err := s.st.Messages(ctx, id, after)
-	if err != nil {
-		return nil, after, err
-	}
 	var ws []wake
 	for _, m := range msgs {
-		after = m.ID
 		if m.Author != author {
 			continue
 		}
 		var owner string
 		if m.ParentID != nil {
 			if owner, err = s.st.ThreadOwner(ctx, m.ID); err != nil {
-				return nil, after, err
+				return nil, err
 			}
 		}
 		woken := channel.Route(m, owner, roles, ch.Role)
@@ -76,7 +84,7 @@ func (s *server) wakes(ctx context.Context, id, after int64, author string) ([]w
 			header = fmt.Sprintf("[channel %d, message %d, thread %d]", id, m.ID, root)
 			thread, err := s.st.Thread(ctx, id, root)
 			if err != nil {
-				return nil, after, err
+				return nil, err
 			}
 			var b strings.Builder
 			b.WriteString("Thread so far:\n")
@@ -103,7 +111,7 @@ func (s *server) wakes(ctx context.Context, id, after int64, author string) ([]w
 			})
 		}
 	}
-	return ws, after, nil
+	return ws, nil
 }
 
 func sameParent(a, b *int64) bool {

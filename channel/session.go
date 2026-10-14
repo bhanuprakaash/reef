@@ -224,12 +224,12 @@ func (s *Session) SetOnPrompt(f func(prompt string)) {
 	}
 }
 
-// Say stores body as the user message, a reply in the thread of parent when it is set.
-func (s *Session) Say(ctx context.Context, body string, parent *int64) error {
-	_, err := s.st.CreateMessage(ctx, store.Message{
+// Say stores body as the user message, a reply in the thread of parent when it is set, and
+// returns it.
+func (s *Session) Say(ctx context.Context, body string, parent *int64) (store.Message, error) {
+	return s.st.CreateMessage(ctx, store.Message{
 		ChannelID: s.ch.ID, ParentID: parent, Author: _userAuthor, Body: body,
 	})
-	return err
 }
 
 // Run runs one turn of the lead with text. A cancelled ctx wraps ctx.Err(); a turn over
