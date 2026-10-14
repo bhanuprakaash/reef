@@ -721,3 +721,37 @@ func TestDelete_StopsLiveChannel(t *testing.T) {
 		t.Errorf("live channels = %d, want 0 after delete", lives)
 	}
 }
+
+func TestDelete_FeatureOrProjectStopsLiveChannel(t *testing.T) {
+	tests := []struct {
+		name string
+		give string
+	}{
+		{name: "feature", give: "/features/1"},
+		{name: "project", give: "/projects/1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newLiveEnv(t)
+			id := env.featureChannel(t)
+			sub := subscribeTo(t, env.url, id)
+			env.sendTo(t, id, "block")
+			<-env.fake.started
+			sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+
+			if status, _ := do(t, http.MethodDelete, env.url+tt.give, ""); status != 204 {
+				t.Fatalf("delete = %d, want 204", status)
+			}
+			sub.want(t, `turn {"status":"failed","error":"interrupted"}`)
+			if got := env.fake.closed.Load(); got != 1 {
+				t.Errorf("session closes = %d, want 1", got)
+			}
+			env.h.s.mu.Lock()
+			_, ok := env.h.s.lives[int64(id)]
+			env.h.s.mu.Unlock()
+			if ok {
+				t.Error("live entry kept after delete")
+			}
+		})
+	}
+}

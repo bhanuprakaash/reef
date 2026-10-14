@@ -323,6 +323,7 @@ its default. Update behavior is route-specific: `PUT /channels/{id}` keeps an om
   no turn runs. A turn that fails for another reason also stops the agent; the next send
   starts it again.
 - `DELETE /channels/{id}` does the same as `stop` before it deletes the channel.
+  `DELETE /features/{id}` and `DELETE /projects/{id}` do it for each of their channels.
 - Server shutdown does the same for every channel before it stops listening.
 
 `GET /channels/{id}/events` is a Server-Sent Events stream. It works for a channel that
