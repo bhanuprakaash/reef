@@ -789,19 +789,24 @@ exist in `reef chat`: it wakes nobody.
 `reef serve` polls GitHub for each feature that has a worktree, every `REEF_GH_INTERVAL`
 (default 60s), once right away and then on that interval until the server closes: `gh pr
 view feature/<slug> --json number,url,state,statusCheckRollup`, run in the project's
-folder. `statusCheckRollup` items are either a `CheckRun` (`name`, `status`, `conclusion`)
-or a `StatusContext` (`context`, `state`); both are read.
+folder. `statusCheckRollup` items are either a `CheckRun` (`name`, `status`, `conclusion`,
+`detailsUrl`, `completedAt`) or a `StatusContext` (`context`, `state`, `targetUrl`,
+`startedAt`); both are read.
 
-When the PR first appears, changes state (`open`, `merged`, `closed`) or a check finishes
-(a `CheckRun` whose `status` is `COMPLETED`, or a `StatusContext` whose `state` is not
-`PENDING`/`EXPECTED`), the feature's most recent channel (the one with the newest message
-across the feature, or, when it has none, its most recently created channel) gets one
-message from author `reef`: `PR #12 open: <url>` or `<check name> succeeded`/`failed`. The
-last state posted is stored (migration 16
-[`016_feature_github.sql`](../store/migrations/016_feature_github.sql), tables
+When the PR first appears, changes state (`open`, `merged`, `closed`) or a check run
+finishes (a `CheckRun` whose `status` is `COMPLETED`, or a `StatusContext` whose `state` is
+not `PENDING`/`EXPECTED`), the feature's most recent channel (the one with the newest
+message across the feature, or, when it has none, its most recently created channel) gets
+one message from author `reef`: `PR #12 open: <url>` or `<check name> succeeded`/`failed`.
+A check run is identified by its name plus its `detailsUrl`/`targetUrl` (falling back to
+`completedAt`/`startedAt`), so a rerun of the same check name, such as CI run again on a
+later push, is noted again. The last state posted is stored (migration 16
+[`016_feature_github.sql`](../store/migrations/016_feature_github.sql), migration 17
+[`017_feature_github_run.sql`](../store/migrations/017_feature_github_run.sql), tables
 `feature_github` and `feature_github_check`), so a restart does not repeat it and a second
 poll with the same answer posts nothing. No `gh` on `PATH`: nothing is posted, logged once.
-`gh` erroring (not logged in, no PR for the branch): nothing is posted, logged.
+`gh` erroring (not logged in, no PR for the branch): nothing is posted, logged once per
+feature for that cause; logged again once the cause changes.
 
 ## Append-only
 
