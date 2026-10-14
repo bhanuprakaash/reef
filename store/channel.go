@@ -209,9 +209,15 @@ func (s *Store) PauseChannel(ctx context.Context, id int64, reason string) error
 	return s.setChannel(ctx, id, "paused = ?", reason)
 }
 
-// ContinueChannel clears the pause and raises the budget to at least budget.
+// ContinueChannel clears the pause, drops the pending holds it left and raises the budget to
+// at least budget.
 func (s *Store) ContinueChannel(ctx context.Context, id, budget int64) error {
-	res, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin continue: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx,
 		"UPDATE channel SET paused = '', token_budget = MAX(token_budget, ?) WHERE id = ? AND paused <> ''",
 		budget, id)
 	if err != nil {
@@ -224,7 +230,12 @@ func (s *Store) ContinueChannel(ctx context.Context, id, budget int64) error {
 	if n == 0 {
 		return fmt.Errorf("channel %d is not paused: %w", id, ErrConflict)
 	}
-	return nil
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE approval SET status = ? WHERE channel_id = ? AND status = ? AND kind = ?",
+		ApprovalRejected, id, ApprovalPending, ApprovalHold); err != nil {
+		return fmt.Errorf("drop holds: %w", err)
+	}
+	return tx.Commit()
 }
 
 // ChannelTokens sums input, output and cache write tokens; cache reads are not counted.

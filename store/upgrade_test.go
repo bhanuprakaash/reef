@@ -2,6 +2,9 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -33,8 +36,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 8 {
-		t.Errorf("user_version = %d, want 8", version)
+	if version != 9 {
+		t.Errorf("user_version = %d, want 9", version)
 	}
 
 	at := func(h, m, sec, ns int) time.Time {
@@ -91,5 +94,64 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 				t.Errorf("got %+v, want %+v", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestOpen_UpgradesVersion8Database(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "reef.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := 1; n <= 8; n++ {
+		files, err := fs.Glob(_migrations, fmt.Sprintf("migrations/%03d_*.sql", n))
+		if err != nil || len(files) != 1 {
+			t.Fatalf("migration %d: %v, %v", n, files, err)
+		}
+		body, err := _migrations.ReadFile(files[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(string(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, stmt := range []string{
+		"INSERT INTO project (name, path, created_at) VALUES ('shop', '/work/shop', '2026-01-02T03:04:05Z')",
+		"INSERT INTO channel (project_id, name, created_at, team_id) " +
+			"VALUES (1, 'c', '2026-01-02T03:04:05Z', 1)",
+		"INSERT INTO message (channel_id, author, body, created_at) " +
+			"VALUES (1, 'lead', '@architect plan', '2026-01-02T03:04:05Z')",
+		"INSERT INTO approval (channel_id, from_role, to_role, message_id, text, created_at) " +
+			"VALUES (1, 'lead', 'architect', 1, 'plan it', '2026-01-02T03:04:05Z')",
+		"PRAGMA user_version = 8",
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	var version int
+	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		t.Fatal(err)
+	}
+	if version != 9 {
+		t.Errorf("user_version = %d, want 9", version)
+	}
+	as, err := s.PendingApprovals(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(as) != 1 || as[0].Kind != ApprovalGate || as[0].Text != "plan it" {
+		t.Errorf("approvals = %+v, want the one approval with kind gate", as)
 	}
 }

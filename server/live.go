@@ -75,7 +75,7 @@ type live struct {
 	done   chan struct{}
 	frames []frame
 	// hops counts the turns agent messages woke since the last user message; held is the
-	// queue of wakes a pause kept from running; retry is the routing read that failed.
+	// queue of wakes a database failure kept from running; retry is the routing read that failed.
 	hops  int
 	held  []wake
 	retry *retry
@@ -388,6 +388,25 @@ func (s *server) gate(ctx context.Context, id int64, l *live, ws []wake) ([]wake
 	return open, nil
 }
 
+// hold stores ws as the holds of a pause on channel id. When one cannot be stored it returns
+// the wakes not stored so far, and the error.
+func (s *server) hold(ctx context.Context, id int64, ws []wake) ([]wake, error) {
+	for i, w := range ws {
+		_, err := s.st.CreateApproval(ctx, store.Approval{
+			ChannelID: id, From: w.from, To: w.role, MessageID: w.messageID, Text: w.text,
+			Parent: w.parent, Kind: store.ApprovalHold,
+		})
+		if err != nil {
+			return ws[i:], fmt.Errorf("hold wake for %s: %w", w.role, err)
+		}
+	}
+	return nil, nil
+}
+
+func wakeOf(a store.Approval) wake {
+	return wake{from: a.From, messageID: a.MessageID, role: a.To, text: a.Text, parent: a.Parent}
+}
+
 // capLocked pauses the channel because the hop cap held a wake, and returns the error of
 // the refused turn.
 func (s *server) capLocked(ctx context.Context, id int64, l *live) error {
@@ -421,6 +440,13 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 	l.hops = 0
 	l.mu.Unlock()
 	held, err := s.retryHeld(r.Context(), id, l)
+	var holds []store.Approval
+	if err == nil {
+		holds, err = s.st.ClaimHolds(r.Context(), id)
+	}
+	for _, a := range holds {
+		held = append(held, wakeOf(a))
+	}
 	if err != nil {
 		err = c.release(err)
 	} else if len(held) == 0 {
@@ -438,6 +464,11 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 		err = c.resume(r.Context(), ch, held)
 	}
 	if err != nil {
+		for _, a := range holds {
+			if rerr := s.st.ReopenApproval(context.WithoutCancel(r.Context()), a.ID); rerr != nil {
+				err = errors.Join(err, rerr)
+			}
+		}
 		writeError(w, err)
 		return
 	}
@@ -523,10 +554,9 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	if *in.Approve {
 		ctx := context.WithoutCancel(r.Context())
-		held := wake{from: a.From, messageID: a.MessageID, role: a.To, text: a.Text, parent: a.Parent}
 		c, ch, err := s.claim(ctx, id)
 		if err == nil {
-			err = c.resume(ctx, ch, []wake{held})
+			err = c.resume(ctx, ch, []wake{wakeOf(a)})
 		}
 		if err != nil {
 			if rerr := s.st.ReopenApproval(ctx, aid); rerr != nil {
@@ -848,6 +878,12 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) 
 			if c.ctx.Err() == nil {
 				log.Printf("wake %s in channel %d: %v", queue[0].role, c.id, err)
 				l.held = queue
+				if errors.Is(err, store.ErrConflict) {
+					var herr error
+					if l.held, herr = s.hold(c.ctx, c.id, queue); herr != nil {
+						log.Printf("channel %d: %v", c.id, herr)
+					}
+				}
 			}
 			finishLocked()
 			l.mu.Unlock()

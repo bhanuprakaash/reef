@@ -153,6 +153,7 @@ type liveEnv struct {
 	dir    string
 	st     *store.Store
 	url    string
+	ts     *httptest.Server
 	h      *Handler
 	fake   *fakeSession
 	opened atomic.Int32
@@ -169,21 +170,43 @@ func newLiveEnv(t *testing.T) *liveEnv {
 	t.Cleanup(func() { _ = st.Close() })
 	env := &liveEnv{dir: dir, fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{})}}
 	env.st, env.fake.st = st, st
-	env.h = newHandler(st, func(ctx context.Context, id int64) (session, error) {
-		env.opened.Add(1)
-		env.fake.channelID.Store(id)
-		if env.open != nil {
-			return env.open(ctx)
-		}
-		return env.fake, nil
-	})
-	ts := httptest.NewServer(env.h)
-	env.url = ts.URL
-	t.Cleanup(env.h.Close)
-	t.Cleanup(ts.Close)
-	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"`+t.TempDir()+`"}`)
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"scratch","backend":"claude"}`)
+	env.serve(t)
+	do(t, http.MethodPost, env.url+"/projects", `{"name":"reef","path":"`+t.TempDir()+`"}`)
+	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"name":"scratch","backend":"claude"}`)
 	return env
+}
+
+func (e *liveEnv) serve(t *testing.T) {
+	t.Helper()
+	e.h = newHandler(e.st, func(ctx context.Context, id int64) (session, error) {
+		e.opened.Add(1)
+		e.fake.channelID.Store(id)
+		if e.open != nil {
+			return e.open(ctx)
+		}
+		return e.fake, nil
+	})
+	e.ts = httptest.NewServer(e.h)
+	e.url = e.ts.URL
+	t.Cleanup(e.h.Close)
+	t.Cleanup(e.ts.Close)
+}
+
+// restart stops the server and starts a new one on the same data folder.
+func (e *liveEnv) restart(t *testing.T) {
+	t.Helper()
+	e.h.Close()
+	e.ts.Close()
+	if err := e.st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(e.dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	e.st, e.fake.st = st, st
+	e.serve(t)
 }
 
 // exec runs stmt on a second connection to the database file, to break and mend the store.
@@ -783,6 +806,128 @@ func TestContinue_StartFailureKeepsHeldWakes(t *testing.T) {
 	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
 	if got := len(env.ranTexts()); got != 9 {
 		t.Errorf("turns run = %d, want 9: the wakes held before the failed continue ran", got)
+	}
+}
+
+func TestContinue_RunsHopHeldWakeAfterRestart(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.pingPong(t)
+
+	env.restart(t)
+	sub := subscribeTo(t, env.url, id)
+	sub.want(t, _idleFrame, `pause {"reason":"`+_hopPause+`"}`)
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "architect", "lead", "architect", "lead")
+	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
+	got := env.ranTexts()
+	if len(got) != 9 || got[5] != "[channel 2, message 6]\nlead wrote: @architect again" {
+		t.Errorf("ran = %q, want 9 turns, the sixth the wake held before the restart", got)
+	}
+}
+
+func TestContinue_RunsBudgetHeldWakeAfterRestart(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role != "lead" {
+			return
+		}
+		post("lead", "@architect plan", nil)
+		turn, err := env.st.CreateTurn(ctx, store.Turn{ChannelID: int64(id), Role: "lead", Backend: "claude"})
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		turn.Status = "done"
+		turn.Usage = agent.Usage{InputTokens: 1000000}
+		if _, err := env.st.EndTurn(ctx, turn); err != nil {
+			t.Error(err)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	const reason = "token budget of 1000000 used: 1000000 tokens"
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead")
+	sub.want(t, `pause {"reason":"`+reason+`"}`)
+
+	env.restart(t)
+	sub = subscribeTo(t, env.url, id)
+	sub.want(t, _idleFrame, `pause {"reason":"`+reason+`"}`)
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "architect")
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan",
+	}) {
+		t.Errorf("ran = %q, want the architect to run the wake held before the restart", got)
+	}
+	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != "" || ch.TokenBudget != 2000000 {
+		t.Errorf("channel = %+v, %v, want not paused with budget 2000000", ch, err)
+	}
+}
+
+func TestContinue_TwoAtOnceRunHeldWakeOnce(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.pingPong(t)
+	env.restart(t)
+	opening, proceed := make(chan struct{}), make(chan struct{})
+	env.open = func(context.Context) (session, error) {
+		opening <- struct{}{}
+		<-proceed
+		return env.fake, nil
+	}
+	sub := subscribeTo(t, env.url, id)
+	sub.want(t, _idleFrame, `pause {"reason":"`+_hopPause+`"}`)
+	continueURL := fmt.Sprintf("%s/channels/%d/continue", env.url, id)
+
+	first := make(chan int)
+	go func() {
+		status, _ := do(t, http.MethodPost, continueURL, "")
+		first <- status
+	}()
+	select {
+	case <-opening:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the first continue opened no agent after 5s")
+	}
+	if status, body := do(t, http.MethodPost, continueURL, ""); status != 409 ||
+		body != `{"error":"channel 2 has a turn running: conflict"}` {
+		t.Errorf("second continue = %d %s, want 409 turn running", status, body)
+	}
+	close(proceed)
+	if status := <-first; status != 204 {
+		t.Fatalf("first continue = %d, want 204", status)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "architect", "lead", "architect", "lead")
+	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
+	if got := len(env.ranTexts()); got != 9 {
+		t.Errorf("turns run = %d, want 9: the held wake ran once", got)
+	}
+}
+
+func TestApproval_HoldsAreNotApprovals(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.pingPong(t)
+	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+
+	if status, body := do(t, http.MethodGet, approvals, ""); status != 200 || body != "[]" {
+		t.Errorf("approvals = %d %s, want none: a held wake is not an approval", status, body)
+	}
+	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
+	if status != 404 || body != `{"error":"approval 1 of channel 2: not found"}` {
+		t.Errorf("approve a hold = %d %s, want 404", status, body)
+	}
+	if got := len(env.ranTexts()); got != 5 {
+		t.Errorf("turns run = %d, want 5: the hold did not run", got)
 	}
 }
 
@@ -1808,51 +1953,6 @@ func TestDelete_DropsHeldWakes(t *testing.T) {
 	}
 	if got := env.fake.closed.Load(); got != 1 {
 		t.Errorf("session closes = %d, want 1", got)
-	}
-}
-
-func TestContinue_StartFailureKeepsHeldWakesWithoutSubscriber(t *testing.T) {
-	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
-	env.fake.onRun = func(role, _ string, _ *int64) {
-		if role == "lead" {
-			post("lead", "@architect again", nil)
-		} else {
-			post("architect", "@lead again", nil)
-		}
-	}
-	env.sendTo(t, id, "go")
-	deadline := time.Now().Add(5 * time.Second)
-	for held := false; !held; time.Sleep(5 * time.Millisecond) {
-		if time.Now().After(deadline) {
-			t.Fatal("no held wakes after 5s")
-		}
-		if l := env.h.s.lookup(int64(id)); l != nil {
-			l.mu.Lock()
-			held = l.state == _idle && len(l.held) > 0
-			l.mu.Unlock()
-		}
-	}
-	continueURL := fmt.Sprintf("%s/channels/%d/continue", env.url, id)
-	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
-	env.open = func(context.Context) (session, error) { return nil, errors.New("boom") }
-
-	if status, body := do(t, http.MethodPost, continueURL, ""); status != 500 {
-		t.Fatalf("continue = %d %s, want 500: the agent did not open", status, body)
-	}
-	if l := env.h.s.lookup(int64(id)); l == nil || len(l.held) == 0 {
-		t.Fatalf("entry = %+v, want it kept with the held wakes", l)
-	}
-
-	env.open = nil
-	if status, _ := do(t, http.MethodPost, continueURL, ""); status != 204 {
-		t.Fatalf("second continue = %d, want 204", status)
-	}
-	for len(env.ranTexts()) < 9 {
-		if time.Now().After(deadline.Add(5 * time.Second)) {
-			t.Fatalf("turns run = %d, want 9: the held wake and 3 more hops", len(env.ranTexts()))
-		}
-		time.Sleep(5 * time.Millisecond)
 	}
 }
 
