@@ -87,6 +87,15 @@ func TestAccess(t *testing.T) {
 			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit"},
 		},
 		{
+			"claude without write drops unrestricted Bash, even from a team saved before the check",
+			store.Role{
+				Backend: "claude",
+				Tools:   []string{"Read", "Bash", "Bash(*)", "Bash(:*)", "Bash(go test:*)"},
+			},
+			"default", []string{"Read", "Bash(go test:*)"},
+			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit"},
+		},
+		{
 			"claude with write keeps its mode and gains Task",
 			store.Role{
 				Backend: "claude", Write: true, PermissionMode: "acceptEdits",

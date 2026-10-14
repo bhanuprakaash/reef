@@ -44,8 +44,8 @@ type Role struct {
 
 var _roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
-// _unrestrictedBash reports whether a claude tool entry allows every shell command.
-func _unrestrictedBash(tool string) bool {
+// UnrestrictedBash reports whether a claude tool entry allows every shell command.
+func UnrestrictedBash(tool string) bool {
 	return slices.Contains([]string{"Bash", "Bash(*)", "Bash(:*)"}, strings.TrimSpace(tool))
 }
 
@@ -202,7 +202,7 @@ func (t Team) validate() error {
 		if err := ValidateAgent(r.Backend, r.PermissionMode); err != nil {
 			return fmt.Errorf("role %s: %w", r.Name, err)
 		}
-		if r.Backend == "claude" && !r.Write && slices.ContainsFunc(r.Tools, _unrestrictedBash) {
+		if r.Backend == "claude" && !r.Write && slices.ContainsFunc(r.Tools, UnrestrictedBash) {
 			return fmt.Errorf("%w: role %s has no write, so it cannot have unrestricted Bash; "+
 				"list command patterns such as Bash(go test:*)", ErrInvalid, r.Name)
 		}

@@ -437,7 +437,7 @@ func access(r store.Role) (mode string, tools, denied []string) {
 		denied = _editTools
 		tools = slices.DeleteFunc(tools, func(t string) bool {
 			name, _, _ := strings.Cut(t, "(")
-			return slices.Contains(_editTools, name)
+			return slices.Contains(_editTools, name) || store.UnrestrictedBash(t)
 		})
 	}
 	return mode, tools, denied
