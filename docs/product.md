@@ -199,6 +199,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 38 | Default hop cap is 6 (amends 10) | The spec's full flow lead→architect→developer→tester→lead uses 4 hops; one clarifying question must fit without a pause |
 | 39 | Retry runs the failed turn's wake as if the user sent it, so it resets the hop count (amends 26) | A retry is the user asking for the same work again, not a continuation of the chain that failed |
 | 40 | Verification runs on a scripted `claude` that replays recorded real output and does its side effects; real `claude` runs only for Claude's own behaviour, at slice verification and when `agent/claude` changes | Real runs took 40+ minutes, cost tokens and failed at random; Reef's own code is what the lines check |
+| 41 | The app always starts and stops its own `reef serve` | One process owns the data folder; the user never runs `reef serve` by hand on a Mac |
 
 ## Open questions
 
