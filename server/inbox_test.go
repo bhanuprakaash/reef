@@ -218,8 +218,12 @@ func TestInboxEvents_AcrossChannels(t *testing.T) {
 	id := env.gatedTeam(t, "@architect block")
 	inbox := subscribePath(t, env.url+"/inbox/events")
 	inbox.wantInbox(t)
+	lead := subscribe(t, env.url)
 
 	env.send(t, "cap")
+	lead.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
+		`turn {"role":"lead","status":"failed","error":"`+_capReason+`"}`,
+		`pause {"reason":"`+_capReason+`"}`)
 	inbox.wantInbox(t, "paused 1 "+_capReason)
 	env.sendTo(t, id, "go")
 	inbox.wantInbox(t, "approval 2 lead wants to wake architect", "paused 1 "+_capReason)
@@ -232,7 +236,9 @@ func TestInboxEvents_AcrossChannels(t *testing.T) {
 
 	env.sendTo(t, id, "thanks")
 	inbox.wantInbox(t, "paused 1 "+_capReason)
-	do(t, http.MethodPost, env.url+"/channels/1/continue", "")
+	if status, _ := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
 	inbox.wantInbox(t)
 }
 
