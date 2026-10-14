@@ -149,6 +149,32 @@ func TestEnsure_RecreatesRemovedWorktree(t *testing.T) {
 	}
 }
 
+func TestEnsure_RepairsHalfTree(t *testing.T) {
+	repo := newRepo(t)
+	dir := Path(t.TempDir(), 1, "login")
+	if err := Ensure(context.Background(), repo, dir, "feature/login"); err != nil {
+		t.Fatal(err)
+	}
+	index := run(t, dir, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	if err := os.Remove(index); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "a.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Ensure(context.Background(), repo, dir, "feature/login"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := run(t, dir, "status", "--porcelain"); got != "" {
+		t.Errorf("status after repair = %q, want clean", got)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a.txt")); err != nil {
+		t.Errorf("a.txt after repair: %v, want it restored", err)
+	}
+}
+
 func TestDirty(t *testing.T) {
 	repo := newRepo(t)
 	if got, err := Dirty(context.Background(), repo); err != nil || got {

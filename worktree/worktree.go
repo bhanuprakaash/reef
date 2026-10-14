@@ -27,13 +27,16 @@ func Path(dataDir string, projectID int64, slug string) string {
 // Branch is the branch a feature works on.
 func Branch(slug string) string { return "feature/" + slug }
 
-// Ensure makes dir a worktree of repo on branch. It does nothing when dir already is one.
-// The branch is made from the HEAD of repo, or reused when it exists. A worktree whose folder
-// is gone is made again. A repo with no commit has no HEAD to make a branch from, and fails,
-// as does a branch that another worktree has checked out.
+// Ensure makes dir a worktree of repo on branch. It does nothing when dir already is one,
+// after finishing an add that was cut short: its folder was made and registered but the
+// checkout into it never ran. The branch is made from the HEAD of repo, or reused when it
+// exists. A worktree whose folder is gone is made again. A repo with no commit has no HEAD to
+// make a branch from, and fails, as does a branch that another worktree has checked out. The
+// add itself runs under context.WithoutCancel, so a ctx cancelled while it is in flight does
+// not leave another half-made tree.
 func Ensure(ctx context.Context, repo, dir, branch string) error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
-		return nil
+		return finishHalfAdd(ctx, dir)
 	}
 	if _, err := git(ctx, repo, "rev-parse", "--verify", "HEAD"); err != nil {
 		return fmt.Errorf("features need the project folder to be a git repo with a commit: %s: %w", repo, err)
@@ -57,7 +60,21 @@ func Ensure(ctx context.Context, repo, dir, branch string) error {
 	case !errors.As(err, &exit) || exit.ExitCode() != 1:
 		return err
 	}
-	_, err = git(ctx, repo, args...)
+	_, err = git(context.WithoutCancel(ctx), repo, args...)
+	return err
+}
+
+// finishHalfAdd repairs dir when a worktree add was cut short before the checkout ran: dir's
+// .git file exists but dir has no index yet.
+func finishHalfAdd(ctx context.Context, dir string) error {
+	index, err := git(ctx, dir, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	if err != nil {
+		return err
+	}
+	if _, err := os.Stat(index); err == nil {
+		return nil
+	}
+	_, err = git(ctx, dir, "reset", "--hard")
 	return err
 }
 
