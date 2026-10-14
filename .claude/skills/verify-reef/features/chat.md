@@ -5,7 +5,8 @@ carries the context prompt. Each line is a stored message and a stored turn, and
 agent's reply is stored as a message. `/wrap` makes the agent propose a new brief, notes
 and decisions through `reef mcp`; the user approves (all saved in one transaction) or
 rejects (nothing saved). `reef chat --channel ID` resumes the session. Ctrl-C stops the
-turn. Contract: `docs/memory.md`.
+turn. The chat's channel is in team `solo` with its `--role` as the lead, and `reef chat`
+routes nothing. Contract: `docs/memory.md`.
 
 ## Sub-features
 
@@ -75,6 +76,7 @@ Claude, channel 1:
   - `$H sql "select id, role, backend, status, session_id != '' as has_session, input_tokens + cache_read_tokens > 0 as has_usage from turn"`: two rows `developer|claude|done|1|1`.
   - `$H sql "select id, role, status, decided_at is not null from proposal"`: `1|developer|approved|1`.
   - `$H sql "select count(*) from token"`: `0`, the chat deleted its token when it ended.
+  - `$H sql "select c.role, t.name from channel c join team t on t.id = c.team_id"`: `developer|solo`: the channel is in team `solo` with the `--role` as its lead.
   - `$H sql "select author, substr(body, 1, 40) from brief"`, `$H sql "select role, substr(body, 1, 40) from role_notes"`, `$H sql "select id, author, body from decision"`: a brief and notes by `developer`, and the 5-failed-logins decision by `developer`, either recorded live with `record_decision` or proposed at wrap-up (then `N` above is 1).
   - Tool calls: `grep -o '"type":"tool_use","id":"[^"]*","name":"mcp__reef__[a-z_]*"' ~/.claude/projects/<key>/<session id>.jsonl` lists `mcp__reef__get_brief`, `mcp__reef__propose_wrap` and usually `mcp__reef__record_decision`. The session id is the turn's `session_id`. Grep before `cleanup`, which removes that folder.
 - **Resume and reject.** `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/resume-in.txt --answer n --timeout 300 -- chat --channel 1`. The reply names the 5 failed logins (the session remembers). stdout has `proposal 2 from developer` and `rejected: nothing changed`; result `feed: sent "n" after approve? [y/N]`. `$H sql "select id, session_id, status from turn"`: four `done` turns, one session id. `$H sql "select id, status from proposal"`: `1|approved`, `2|rejected`. `$H sql "select count(*) from brief"` is still 1.
@@ -117,6 +119,7 @@ Claude, a second folder (`chat-extra`). Setup: `$H reef --data-name chat-extra -
 - The model may record the decision live with `record_decision` in the first turn. Then the wrap-up proposes no decisions and prints `0 decisions saved`. Both are correct; the `decision` row is the proof either way.
 - If the model does not call `propose_wrap`, stdout says `no proposal made` and the result says `feed: no proposal made, answer not sent`. Re-run with a new data folder rather than reading on.
 - The stored user message is `/wrap`; only the agent gets the wrap-up prompt.
+- The `--debug` prompt starting with `You are the developer on feature` holds only while the `solo` lead has no persona or skills.
 - An interrupted turn's partial reply is not stored, so it adds one message (the user line) to the channel's count.
 - Claude stores sessions per cwd, and the chat runs in the project folder (the scratch cwd). Resume only works inside the same run. Codex threads are global, in `~/.codex/sessions`; cleanup leaves them.
 - Never run two `$H reef` at once in one run: they share the run's output files. `$H sql`, `$H api` and `$H serve-*` can run beside one background `$H reef`; a second chat for the lock check runs the binary directly.
