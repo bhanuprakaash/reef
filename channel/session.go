@@ -16,6 +16,7 @@ import (
 	"github.com/bhanuprakaash/reef/agent/claude"
 	"github.com/bhanuprakaash/reef/agent/codex"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 // Session is a channel with one agent session per teammate in use. Each is opened for its
@@ -163,6 +164,8 @@ func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Pr
 
 // Promote runs a promote turn and returns the proposal the agent made, or ErrNoProposal.
 // The channel must already have its feature. Like Run, a cancelled ctx still stores the turn.
+// Every agent is stopped afterwards, so the next turn of each role runs in the feature's
+// worktree.
 func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
 	rctx := context.WithoutCancel(ctx)
 	ch, err := s.st.Channel(rctx, s.ch.ID)
@@ -182,16 +185,44 @@ func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, err
 	}
-	return s.propose(ctx, fmt.Sprintf(prompt, f.Name, f.Slug), onEvent)
+	if err := s.noteWorktree(rctx, f); err != nil {
+		return store.Proposal{}, err
+	}
+	p, err := s.propose(ctx, fmt.Sprintf(prompt, f.Name, f.Slug), onEvent)
+	return p, errors.Join(err, s.closeMembers())
+}
+
+// noteWorktree tells the channel where its work goes from now on, when the main checkout has
+// changes the feature's worktree will not have.
+func (s *Session) noteWorktree(ctx context.Context, f store.Feature) error {
+	dirty, err := worktree.Dirty(ctx, s.project.Path)
+	if err != nil {
+		log.Printf("check %s for changes: %v", s.project.Path, err)
+	}
+	if !dirty {
+		return nil
+	}
+	_, err = s.st.CreateMessage(ctx, store.Message{
+		ChannelID: s.ch.ID, Author: _reefAuthor,
+		Body: fmt.Sprintf("Uncommitted changes stay on the main checkout. This feature works in %s on %s.",
+			worktree.Path(s.dataDir, s.project.ID, f.Slug), worktree.Branch(f.Slug)),
+	})
+	return err
 }
 
 // Close ends the Session.
 func (s *Session) Close() error {
+	return errors.Join(s.closeMembers(), s.lock.Close())
+}
+
+// closeMembers ends every open agent, so the next turn of each role starts one again.
+func (s *Session) closeMembers() error {
 	var errs []error
-	for _, m := range s.members {
+	for role, m := range s.members {
 		errs = append(errs, m.close(s.st))
+		delete(s.members, role)
 	}
-	return errors.Join(append(errs, s.lock.Close())...)
+	return errors.Join(errs...)
 }
 
 // member returns the agent session of role, starting or resuming it from the role's own
@@ -240,15 +271,23 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 	for i, srv := range r.MCPServers {
 		servers["mcp"+strconv.Itoa(i+1)] = srv
 	}
+	cwd, slug, err := s.workDir(wctx)
+	if err != nil {
+		return nil, err
+	}
 	mode, tools := access(r)
 	cfg := agent.Config{
-		Cwd:            s.project.Path,
+		Cwd:            cwd,
 		PermissionMode: mode,
 		Tools:          append(tools, "mcp__reef__*"),
 		MCPServers:     servers,
 	}
 	var preamble string
+	if ctx.Err() == nil && slug != "" {
+		err = worktree.Ensure(ctx, s.project.Path, cwd, worktree.Branch(slug))
+	}
 	switch {
+	case err != nil:
 	case ctx.Err() != nil:
 		err = ctx.Err()
 	case last.SessionID != "":
@@ -277,6 +316,24 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 	m.run.OnPrompt = s.onPrompt
 	s.members[role] = m
 	return m, nil
+}
+
+// workDir is where an agent of the channel runs: the worktree of its feature, or the project
+// for a quick session. The feature is read now, as a promote may have given it one since the
+// channel opened. slug is the feature's, empty for a quick session.
+func (s *Session) workDir(ctx context.Context) (dir, slug string, err error) {
+	ch, err := s.st.Channel(ctx, s.ch.ID)
+	if err != nil {
+		return "", "", err
+	}
+	if ch.FeatureID == nil {
+		return s.project.Path, "", nil
+	}
+	f, err := s.st.Feature(ctx, *ch.FeatureID)
+	if err != nil {
+		return "", "", err
+	}
+	return worktree.Path(s.dataDir, s.project.ID, f.Slug), f.Slug, nil
 }
 
 // roleSetup is the team's role called name. The lead is the channel's role; it takes the

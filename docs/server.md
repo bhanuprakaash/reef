@@ -404,6 +404,14 @@ a message wakes them.
   newest session id (see [memory.md](memory.md#reef-chat)). An agent that fails to start shows
   as a `failed` turn of its role, with the start error, or `interrupted` when a stop cut the
   start short. The server logs every failed turn.
+- An agent of a channel under a feature runs in the feature's worktree,
+  `<data folder>/worktrees/<project id>/<slug>`, on branch `feature/<slug>`. It is made at
+  the first start of any agent of the feature, from the project's HEAD, with `git worktree
+  add`; a worktree or branch that exists is reused, so every channel of the feature shares
+  one tree. A quick session runs in the project path. The feature is read at each agent
+  start, so a promoted channel moves to the worktree at its next wake. A project that is not
+  a git repo has no worktree: the start fails, with git's error as a `failed` turn, and the
+  server goes on.
 - The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session.
@@ -549,7 +557,11 @@ the channel's `featureId`. It answers 202 with the
 channel and starts a turn: the stored user message is `/promote`, and the agent gets a
 prompt that names the feature and asks it to call `propose_wrap` once with the first brief,
 written from the session, its notes and the decisions so far. The user approves that
-proposal like a wrap-up, and approval makes brief version 1. When the feature already has
+proposal like a wrap-up, and approval makes brief version 1. The promote turn runs in the
+agent the quick session already has. When it ends, every agent of the channel is stopped, so
+the next wake of each role resumes its session in the feature's worktree. If the main
+checkout has uncommitted changes, the promote first posts a message from `reef`: they stay
+there, and the feature works in the worktree on `feature/<slug>`. When the feature already has
 a brief, the prompt tells the agent to call `get_brief` and propose that brief merged with
 the session, and approval makes the next version. A promote that fails (a taken
 slug, a feature of another project) changes nothing, and so does one that is stopped
