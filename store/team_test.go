@@ -36,6 +36,19 @@ func TestTeam_Gated(t *testing.T) {
 	}
 }
 
+func TestTeam_GatedLeadDefaults(t *testing.T) {
+	if !(Team{}).Gated("lead", "developer") {
+		t.Error("a team with no gates should default lead to developer on")
+	}
+	if (Team{}).Gated("lead", "architect") {
+		t.Error("a team with no gates should default lead to architect off")
+	}
+	off := Team{Gates: []Gate{{From: "lead", To: "developer", On: false}}}
+	if off.Gated("lead", "developer") {
+		t.Error("a team that lists lead to developer off should not gate it")
+	}
+}
+
 func TestApplyTeam_Gates(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
