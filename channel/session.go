@@ -17,6 +17,26 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
+// Session is a channel with one agent session per teammate in use. Each is opened for its
+// first turn. The lead's stays open until Close; a specialist's is closed after its turn.
+type Session struct {
+	st       *store.Store
+	dataDir  string
+	exe      string
+	ch       store.Channel
+	project  store.Project
+	mk       func(backend string) (agent.Agent, error)
+	lock     *os.File
+	onPrompt func(prompt string)
+	members  map[string]*member
+}
+
+type member struct {
+	run   *Runner
+	ag    agent.Agent
+	token string
+}
+
 // TokenEnv carries the token to the channel's reef mcp. WrapCommand is the text that asks
 // for a wrap-up; PromoteCommand is the stored message of a promote turn.
 const (
@@ -41,26 +61,6 @@ const (
 
 // ErrNoProposal is returned by Wrap when the agent made no proposal.
 var ErrNoProposal = errors.New("no proposal made")
-
-// Session is a channel with one agent session per teammate in use. Each is opened for its
-// first turn. The lead's stays open until Close; a specialist's is closed after its turn.
-type Session struct {
-	st       *store.Store
-	dataDir  string
-	exe      string
-	ch       store.Channel
-	project  store.Project
-	mk       func(backend string) (agent.Agent, error)
-	lock     *os.File
-	onPrompt func(prompt string)
-	members  map[string]*member
-}
-
-type member struct {
-	run   *Runner
-	ag    agent.Agent
-	token string
-}
 
 // Open opens the channel; no agent starts until a turn needs it. The caller must Close
 // the Session.
@@ -106,6 +106,91 @@ func open(
 func (s *Session) Start(ctx context.Context) error {
 	_, err := s.member(ctx, s.ch.Role)
 	return err
+}
+
+// SetOnPrompt sets a hook that sees every prompt before it is sent to an agent.
+func (s *Session) SetOnPrompt(f func(prompt string)) {
+	s.onPrompt = f
+	for _, m := range s.members {
+		m.run.OnPrompt = f
+	}
+}
+
+// Say stores body as the user message, a reply in the thread of parent when it is set, and
+// returns it.
+func (s *Session) Say(ctx context.Context, body string, parent *int64) (store.Message, error) {
+	return s.st.CreateMessage(ctx, store.Message{
+		ChannelID: s.ch.ID, ParentID: parent, Author: _userAuthor, Body: body,
+	})
+}
+
+// Run runs one turn of the lead with text. A cancelled ctx wraps ctx.Err(); a turn over
+// the tool call cap pauses the channel and wraps ErrCapped. The reply is a reply in the
+// thread of parent when it is set.
+func (s *Session) Run(
+	ctx context.Context, text string, parent *int64, onEvent func(agent.Event),
+) error {
+	return s.RunAs(ctx, s.ch.Role, text, parent, onEvent)
+}
+
+// RunAs is Run for any role of the channel's team. A specialist's agent is closed when
+// its turn ends; its next turn resumes the session. A failure to close it is logged, and
+// does not fail the turn.
+func (s *Session) RunAs(
+	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
+) error {
+	m, err := s.member(ctx, role)
+	if err != nil {
+		return err
+	}
+	err = m.run.Run(ctx, text, parent, onEvent)
+	if role == s.ch.Role {
+		return err
+	}
+	delete(s.members, role)
+	if cerr := m.close(s.st); cerr != nil {
+		log.Printf("close %s of channel %d: %v", role, s.ch.ID, cerr)
+	}
+	return err
+}
+
+// Wrap runs a wrap-up turn and returns the proposal the agent made, or ErrNoProposal. Like
+// Run, a cancelled ctx still stores the turn.
+func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
+	return s.propose(ctx, _wrapPrompt, onEvent)
+}
+
+// Promote runs a promote turn and returns the proposal the agent made, or ErrNoProposal.
+// The channel must already have its feature. Like Run, a cancelled ctx still stores the turn.
+func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
+	rctx := context.WithoutCancel(ctx)
+	ch, err := s.st.Channel(rctx, s.ch.ID)
+	if err != nil {
+		return store.Proposal{}, err
+	}
+	if ch.FeatureID == nil {
+		return store.Proposal{}, fmt.Errorf("%w: channel %d has no feature", store.ErrInvalid, ch.ID)
+	}
+	f, err := s.st.Feature(rctx, *ch.FeatureID)
+	if err != nil {
+		return store.Proposal{}, err
+	}
+	prompt := _promotePrompt
+	if _, err := s.st.Brief(rctx, f.ID); err == nil {
+		prompt = _promoteIntoBriefPrompt
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return store.Proposal{}, err
+	}
+	return s.propose(ctx, fmt.Sprintf(prompt, f.Name, f.Slug), onEvent)
+}
+
+// Close ends the Session.
+func (s *Session) Close() error {
+	var errs []error
+	for _, m := range s.members {
+		errs = append(errs, m.close(s.st))
+	}
+	return errors.Join(append(errs, s.lock.Close())...)
 }
 
 // member returns the agent session of role, starting or resuming it from the role's own
@@ -208,90 +293,6 @@ func (s *Session) roleSetup(team store.Team, name string) (store.Role, error) {
 	return store.Role{}, fmt.Errorf("%w: team %s has no role %s", store.ErrInvalid, team.Name, name)
 }
 
-func (m *member) close(st *store.Store) error {
-	errs := []error{m.ag.Interrupt()}
-	if m.token != "" {
-		errs = append(errs, st.DeleteToken(context.Background(), m.token))
-	}
-	return errors.Join(errs...)
-}
-
-// SetOnPrompt sets a hook that sees every prompt before it is sent to an agent.
-func (s *Session) SetOnPrompt(f func(prompt string)) {
-	s.onPrompt = f
-	for _, m := range s.members {
-		m.run.OnPrompt = f
-	}
-}
-
-// Say stores body as the user message, a reply in the thread of parent when it is set, and
-// returns it.
-func (s *Session) Say(ctx context.Context, body string, parent *int64) (store.Message, error) {
-	return s.st.CreateMessage(ctx, store.Message{
-		ChannelID: s.ch.ID, ParentID: parent, Author: _userAuthor, Body: body,
-	})
-}
-
-// Run runs one turn of the lead with text. A cancelled ctx wraps ctx.Err(); a turn over
-// the tool call cap pauses the channel and wraps ErrCapped. The reply is a reply in the
-// thread of parent when it is set.
-func (s *Session) Run(
-	ctx context.Context, text string, parent *int64, onEvent func(agent.Event),
-) error {
-	return s.RunAs(ctx, s.ch.Role, text, parent, onEvent)
-}
-
-// RunAs is Run for any role of the channel's team. A specialist's agent is closed when
-// its turn ends; its next turn resumes the session. A failure to close it is logged, and
-// does not fail the turn.
-func (s *Session) RunAs(
-	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
-) error {
-	m, err := s.member(ctx, role)
-	if err != nil {
-		return err
-	}
-	err = m.run.Run(ctx, text, parent, onEvent)
-	if role == s.ch.Role {
-		return err
-	}
-	delete(s.members, role)
-	if cerr := m.close(s.st); cerr != nil {
-		log.Printf("close %s of channel %d: %v", role, s.ch.ID, cerr)
-	}
-	return err
-}
-
-// Wrap runs a wrap-up turn and returns the proposal the agent made, or ErrNoProposal. Like
-// Run, a cancelled ctx still stores the turn.
-func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
-	return s.propose(ctx, _wrapPrompt, onEvent)
-}
-
-// Promote runs a promote turn and returns the proposal the agent made, or ErrNoProposal.
-// The channel must already have its feature. Like Run, a cancelled ctx still stores the turn.
-func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
-	rctx := context.WithoutCancel(ctx)
-	ch, err := s.st.Channel(rctx, s.ch.ID)
-	if err != nil {
-		return store.Proposal{}, err
-	}
-	if ch.FeatureID == nil {
-		return store.Proposal{}, fmt.Errorf("%w: channel %d has no feature", store.ErrInvalid, ch.ID)
-	}
-	f, err := s.st.Feature(rctx, *ch.FeatureID)
-	if err != nil {
-		return store.Proposal{}, err
-	}
-	prompt := _promotePrompt
-	if _, err := s.st.Brief(rctx, f.ID); err == nil {
-		prompt = _promoteIntoBriefPrompt
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return store.Proposal{}, err
-	}
-	return s.propose(ctx, fmt.Sprintf(prompt, f.Name, f.Slug), onEvent)
-}
-
 func (s *Session) propose(
 	ctx context.Context, prompt string, onEvent func(agent.Event),
 ) (store.Proposal, error) {
@@ -309,13 +310,12 @@ func (s *Session) propose(
 	return p, err
 }
 
-// Close ends the Session.
-func (s *Session) Close() error {
-	var errs []error
-	for _, m := range s.members {
-		errs = append(errs, m.close(s.st))
+func (m *member) close(st *store.Store) error {
+	errs := []error{m.ag.Interrupt()}
+	if m.token != "" {
+		errs = append(errs, st.DeleteToken(context.Background(), m.token))
 	}
-	return errors.Join(append(errs, s.lock.Close())...)
+	return errors.Join(errs...)
 }
 
 // InUse reports whether a Session holds the channel's chat lock.
