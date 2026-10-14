@@ -748,7 +748,7 @@ idle
 
 tester_turn_g=$("$H" sql "select id from turn where channel_id = 1 and role = 'tester' order by id desc limit 1" | tail -1)
 [ "$(turn_col "$tester_turn_g" status)" = done ] || { google_ok=0; google_bad+=" $LINENO"; }
-[ -z "$(turn_col "$tester_turn_g" checkpoint)" ] || { google_ok=0; google_bad+=" $LINENO"; }
+[ "$(turn_col "$tester_turn_g" "checkpoint is null")" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
 lead_turn_g=$("$H" sql "select id from turn where channel_id = 1 and role = 'lead' order by id desc limit 1" | tail -1)
 [ "$(turn_col "$lead_turn_g" status)" = done ] || { google_ok=0; google_bad+=" $LINENO"; }
 [ -z "$(echo "$("$H" sql "select paused from channel")" | tail -n +2 | tr -d '[:space:]')" ] || { google_ok=0; google_bad+=" $LINENO"; }
