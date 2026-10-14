@@ -1,7 +1,8 @@
-// Drives the Reef window in the system Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
+// Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
 // usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
-// folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof).
+// folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
+// REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -34,7 +35,10 @@ function check(ok, label, detail) {
   if (!ok) failed = true;
 }
 
-const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const chrome = process.env.REEF_VERIFY_CHROME;
+const browser = await chromium.launch(
+  chrome ? { executablePath: chrome, args: ['--no-sandbox'], headless: true } : { channel: 'chrome', headless: true },
+);
 const page = await browser.newPage({ viewport: { width: 1200, height: 1000 } });
 const main = page.getByRole('main');
 const aside = page.locator('aside');
