@@ -90,6 +90,56 @@ func (f *fakeSession) Close() error {
 	return nil
 }
 
+// countingAgent counts the prompts it gets and ends every turn at once.
+type countingAgent struct {
+	sends  atomic.Int32
+	events chan agent.Event
+}
+
+func (a *countingAgent) Start(context.Context, agent.Config) error          { return nil }
+func (a *countingAgent) Resume(context.Context, agent.Config, string) error { return nil }
+func (a *countingAgent) Events() <-chan agent.Event                         { return a.events }
+func (a *countingAgent) Interrupt() error                                   { return nil }
+
+func (a *countingAgent) Send(context.Context, string) error {
+	a.sends.Add(1)
+	a.events <- agent.Event{Kind: agent.KindTurnEnd}
+	return nil
+}
+
+// runnerSession stores its turns with a real channel.Runner; the rest is fakeSession.
+type runnerSession struct {
+	*fakeSession
+	run *channel.Runner
+}
+
+func (r runnerSession) Say(ctx context.Context, body string) error {
+	if r.say != nil {
+		r.say()
+	}
+	return r.run.Say(ctx, body)
+}
+
+func (r runnerSession) Run(ctx context.Context, text string, onEvent func(agent.Event)) error {
+	return r.run.Run(ctx, text, onEvent)
+}
+
+func (r runnerSession) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
+	return store.Proposal{}, r.run.Run(ctx, channel.PromoteCommand, onEvent)
+}
+
+// gateCtx calls hook on its first Done call, which the store makes as a query starts.
+type gateCtx struct {
+	context.Context
+	once sync.Once
+	hook func()
+}
+
+func (c *gateCtx) Done() <-chan struct{} {
+	c.once.Do(c.hook)
+	return c.Context.Done()
+}
+
 type liveEnv struct {
 	st     *store.Store
 	url    string
@@ -751,66 +801,173 @@ func TestDelete_StopsLiveChannel(t *testing.T) {
 	if lives != 0 {
 		t.Errorf("live channels = %d, want 0 after delete", lives)
 	}
+	env.h.s.mu.Lock()
+	marks := len(env.h.s.deleting)
+	env.h.s.mu.Unlock()
+	if marks != 0 {
+		t.Errorf("deleting marks = %d, want 0 after delete", marks)
+	}
 }
 
-func TestStop_DuringPrepareOrSay(t *testing.T) {
+// stopAfterOpen makes the agent open on a runner session over a counting agent. The returned
+// stopWhile, meant for a hook, stops the channel and waits until the turn's context is
+// cancelled; stopped closes when the stop has finished, which is when the turn has ended.
+func stopAfterOpen(env *liveEnv) (stopWhile func(), stopped chan struct{}, ag *countingAgent) {
+	ag = &countingAgent{events: make(chan agent.Event, 8)}
+	opened := make(chan context.Context, 1)
+	env.open = func(ctx context.Context) (session, error) {
+		opened <- ctx
+		run := channel.NewRunner(env.st, ag, 1, "lead", "claude", "")
+		return runnerSession{env.fake, run}, nil
+	}
+	stopped = make(chan struct{})
+	var once sync.Once
+	stopWhile = func() {
+		once.Do(func() {
+			ctx := <-opened
+			go func() {
+				defer close(stopped)
+				env.h.s.stopLive(env.h.s.lookup(1))
+			}()
+			<-ctx.Done()
+		})
+	}
+	return stopWhile, stopped, ag
+}
+
+func (e *liveEnv) wantInterruptedPromote(t *testing.T, ag *countingAgent) {
+	t.Helper()
+	ch, err := e.st.Channel(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ch.FeatureID == nil {
+		t.Error("channel has no feature, want the promote to stand")
+	}
+	turns, err := e.st.Turns(context.Background(), store.TurnFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Error != "interrupted" {
+		t.Errorf("turns = %+v, want one failed interrupted turn", turns)
+	}
+	if got := ag.sends.Load(); got != 0 {
+		t.Errorf("agent prompts = %d, want 0", got)
+	}
+	_, body := do(t, http.MethodGet, e.url+"/messages?channel=1", "")
+	if !strings.Contains(body, `"author":"user","body":"/promote"`) {
+		t.Errorf("messages = %s, want the user message /promote", body)
+	}
+	if got := e.fake.closed.Load(); got != 1 {
+		t.Errorf("session closes = %d, want 1", got)
+	}
+}
+
+func TestStop_AfterPrepareTheTurnStillRuns(t *testing.T) {
 	tests := []struct {
-		name          string
-		inPrepare     bool
-		wantMessageIn string
+		name      string
+		inPrepare bool
 	}{
-		{name: "prepare", inPrepare: true, wantMessageIn: "[]"},
-		{name: "say", inPrepare: false, wantMessageIn: `"body":"hello"`},
+		{name: "in prepare", inPrepare: true},
+		{name: "in say", inPrepare: false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newLiveEnv(t)
-			opened := make(chan context.Context, 1)
-			env.open = func(ctx context.Context) (session, error) {
-				opened <- ctx
-				return env.fake, nil
-			}
-			stopped := make(chan struct{})
-			var once sync.Once
-			stopWhile := func() {
-				once.Do(func() {
-					ctx := <-opened
-					go func() {
-						defer close(stopped)
-						env.h.s.stopLive(env.h.s.lookup(1))
-					}()
-					<-ctx.Done()
-				})
-			}
-			var prepare func() error
-			if tt.inPrepare {
-				prepare = func() error { stopWhile(); return nil }
-			} else {
+			stopWhile, stopped, ag := stopAfterOpen(env)
+			if !tt.inPrepare {
 				env.fake.say = stopWhile
 			}
+			prepare := func() error {
+				_, err := env.st.PromoteChannel(
+					context.Background(), 1, store.Feature{Slug: "login", Name: "Login"})
+				if tt.inPrepare {
+					stopWhile()
+				}
+				return err
+			}
 
-			err := env.h.s.startTurn(context.Background(), 1, _message, "hello", prepare)
-			if !errors.Is(err, store.ErrConflict) || !strings.Contains(err.Error(), "was stopped") {
-				t.Fatalf("startTurn = %v, want stopped conflict", err)
+			err := env.h.s.startTurn(context.Background(), 1, _promote, channel.PromoteCommand, prepare)
+			if err != nil {
+				t.Fatalf("startTurn = %v, want nil", err)
 			}
 			<-stopped
-			env.fake.mu.Lock()
-			ran := env.fake.ran
-			env.fake.mu.Unlock()
-			if len(ran) != 0 {
-				t.Errorf("ran = %q, want no turn", ran)
-			}
-			_, body := do(t, http.MethodGet, env.url+"/messages?channel=1", "")
-			if !strings.Contains(body, tt.wantMessageIn) {
-				t.Errorf("messages = %s, want %s", body, tt.wantMessageIn)
-			}
-			if got := env.fake.closed.Load(); got != 1 {
-				t.Errorf("session closes = %d, want 1", got)
-			}
+			env.wantInterruptedPromote(t, ag)
 			if status, _ := env.send(t, "again"); status != 202 {
 				t.Errorf("send after the stop = %d, want 202", status)
 			}
 		})
+	}
+}
+
+func TestPromote_StopDuringSayAnswers202(t *testing.T) {
+	env := newLiveEnv(t)
+	stopWhile, stopped, ag := stopAfterOpen(env)
+	env.fake.say = stopWhile
+
+	status, body := do(t, http.MethodPost, env.url+"/channels/1/promote", `{"slug":"login","name":"Login"}`)
+	if status != 202 || !strings.Contains(body, `"featureId":1`) {
+		t.Fatalf("promote = %d %s, want 202 and the promoted channel", status, body)
+	}
+	<-stopped
+	env.wantInterruptedPromote(t, ag)
+}
+
+func TestStop_DuringTurnCheck(t *testing.T) {
+	env := newLiveEnv(t)
+	ctx := &gateCtx{Context: context.Background()}
+	ctx.hook = func() {
+		l := env.h.s.lookup(1)
+		if l == nil {
+			t.Error("no live entry while the turn is checked, so a stop finds nothing")
+			return
+		}
+		l.mu.Lock()
+		cancel := l.cancel
+		l.mu.Unlock()
+		cancel()
+	}
+
+	err := env.h.s.startTurn(ctx, 1, _message, "hello", nil)
+	if !errors.Is(err, store.ErrConflict) || !strings.Contains(err.Error(), "was stopped") {
+		t.Fatalf("startTurn = %v, want stopped conflict", err)
+	}
+	if got := env.opened.Load(); got != 0 {
+		t.Errorf("sessions opened = %d, want 0", got)
+	}
+	_, body := do(t, http.MethodGet, env.url+"/messages?channel=1", "")
+	if body != "[]" {
+		t.Errorf("messages = %s, want none", body)
+	}
+	env.h.s.mu.Lock()
+	entries := len(env.h.s.lives)
+	env.h.s.mu.Unlock()
+	if entries != 0 {
+		t.Errorf("entries = %d, want 0 after a send that never ran", entries)
+	}
+}
+
+func TestSend_RefusedWhileChannelIsBeingDeleted(t *testing.T) {
+	env := newLiveEnv(t)
+	lift := env.h.s.stopForDelete(1)
+
+	const want = `{"error":"channel 1 is being deleted: not found"}`
+	if status, body := env.send(t, "hello"); status != 404 || body != want {
+		t.Errorf("send = %d %s, want 404 %s", status, body, want)
+	}
+	if got := env.opened.Load(); got != 0 {
+		t.Errorf("sessions opened = %d, want 0", got)
+	}
+	env.h.s.mu.Lock()
+	entries := len(env.h.s.lives)
+	env.h.s.mu.Unlock()
+	if entries != 0 {
+		t.Errorf("entries = %d, want 0", entries)
+	}
+
+	lift()
+	if status, _ := env.send(t, "hello"); status != 202 {
+		t.Errorf("send after the marks are lifted = %d, want 202", status)
 	}
 }
 

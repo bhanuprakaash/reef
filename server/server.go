@@ -28,9 +28,10 @@ type server struct {
 	wg     sync.WaitGroup
 	quit   chan struct{}
 
-	mu     sync.Mutex
-	closed bool
-	lives  map[int64]*live
+	mu       sync.Mutex
+	closed   bool
+	lives    map[int64]*live
+	deleting map[int64]int
 }
 
 // Handler serves the API. Close it when done.
@@ -61,7 +62,7 @@ func newHandler(
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
 		st: st, open: open, ctx: ctx, cancel: cancel, quit: make(chan struct{}),
-		lives: map[int64]*live{},
+		lives: map[int64]*live{}, deleting: map[int64]int{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {

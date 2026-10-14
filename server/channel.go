@@ -148,34 +148,52 @@ func (s *server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if l := s.lookup(id); l != nil {
-		s.stopLive(l)
-	}
+	defer s.stopForDelete(id)()
 	if err := s.st.DeleteChannel(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}
-	s.mu.Lock()
-	delete(s.lives, id)
-	s.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// stopChannels stops the live agent of every channel f selects and drops its entry.
-func (s *server) stopChannels(ctx context.Context, f store.ChannelFilter) error {
+// stopChannels stops the agent of every channel f selects, as stopForDelete does. The
+// caller calls the returned func once the store delete is done.
+func (s *server) stopChannels(ctx context.Context, f store.ChannelFilter) (func(), error) {
 	cs, err := s.st.Channels(ctx, f)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	for _, c := range cs {
-		if l := s.lookup(c.ID); l != nil {
+	ids := make([]int64, len(cs))
+	for i, c := range cs {
+		ids[i] = c.ID
+	}
+	return s.stopForDelete(ids...), nil
+}
+
+// stopForDelete marks the channels as being deleted, so a send to them is refused with
+// 404, stops their agents and drops their idle entries. The caller calls the returned
+// func once the store delete is done, which lifts the marks.
+func (s *server) stopForDelete(ids ...int64) (lift func()) {
+	s.mu.Lock()
+	for _, id := range ids {
+		s.deleting[id]++
+	}
+	s.mu.Unlock()
+	for _, id := range ids {
+		if l := s.lookup(id); l != nil {
 			s.stopLive(l)
+			s.dropIdle(id, l, true)
 		}
-		s.mu.Lock()
-		delete(s.lives, c.ID)
-		s.mu.Unlock()
 	}
-	return nil
+	return func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, id := range ids {
+			if s.deleting[id]--; s.deleting[id] == 0 {
+				delete(s.deleting, id)
+			}
+		}
+	}
 }
 
 func (s *server) listMessages(w http.ResponseWriter, r *http.Request) {
