@@ -60,7 +60,7 @@ type (
 
 	mcpServer struct {
 		agent.MCPServer
-		ApprovalMode string `json:"default_tools_approval_mode"`
+		ApprovalMode string `json:"default_tools_approval_mode,omitempty"`
 	}
 
 	message struct {
@@ -555,7 +555,11 @@ func threadParams(cfg agent.Config) map[string]any {
 	if len(cfg.MCPServers) > 0 {
 		servers := make(map[string]mcpServer, len(cfg.MCPServers))
 		for name, s := range cfg.MCPServers {
-			servers[name] = mcpServer{MCPServer: s, ApprovalMode: "approve"}
+			server := mcpServer{MCPServer: s}
+			if name == "reef" {
+				server.ApprovalMode = "approve"
+			}
+			servers[name] = server
 		}
 		params["config"] = map[string]any{"mcp_servers": servers}
 	}
