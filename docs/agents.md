@@ -227,11 +227,22 @@ Permissions
   `danger-full-access`. `approvalPolicy` is always `never`. A bad value fails `thread/start`.
   Unset means the user's `config.toml` decides.
 - Codex server requests (approval, elicitation) get a `-32601` reply. That path is untested.
+- A role's `write` flag in a Reef team (see [server.md](server.md#role)) picks these per
+  role. Claude without `write`: `--permission-mode default`, and `Edit`, `Write`, `MultiEdit`
+  and `NotebookEdit` are dropped from `--allowedTools`, so `-p` refuses them; with `write`: the
+  role's own mode and tools, plus `Task`. Codex without `write`: sandbox `read-only`; with
+  `write`: `workspace-write`, or the role's `permissionMode` when it sets one.
+- Claude: an explicit `--permission-mode` wins over `permissions.defaultMode` in the user's
+  settings. With `bypassPermissions` there, a role run with `--permission-mode default` still
+  had `Write` and an unlisted `Bash` refused (claude 2.1.299).
 
 cwd
 - The process and, for Codex, `thread/start` get `cfg.Cwd`. Codex needs no git repo.
-- Claude reports the real path (`/private/tmp` for `/tmp`). It stores sessions per cwd, so
-  `Resume` needs the same `Cwd`.
+- Claude reports the real path (`/private/tmp` for `/tmp`). It files sessions per cwd
+  (`~/.claude/projects/<cwd with each non-alphanumeric character as ->/`), but `Resume` from
+  another `Cwd` still continues the session: on claude 2.1.299 a session started in a project
+  folder resumed in a feature's worktree with the same id, and the turns it added carry the new
+  `cwd` in the first folder's file.
 
 Env
 - Both: `os.Environ()` plus `cfg.Env`. Claude also loads the user's hooks, plugins and
