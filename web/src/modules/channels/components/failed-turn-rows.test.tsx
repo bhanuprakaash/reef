@@ -18,7 +18,7 @@ const turn = {
 };
 
 vi.mock('@/modules/channels/api/get-failed-turns', () => ({ useFailedTurns }));
-vi.mock('@/modules/channels/api/retry-turn', () => ({ useRetryTurn }));
+vi.mock('@/lib/api/retry-turn', () => ({ useRetryTurn }));
 
 describe('FailedTurnRows', () => {
   beforeEach(() => {

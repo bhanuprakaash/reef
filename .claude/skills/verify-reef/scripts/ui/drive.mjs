@@ -401,6 +401,26 @@ async function inbox() {
     };
   });
   const notes = () => page.evaluate(() => window.__notes.map(({ title, body }) => ({ title, body })));
+  // True when the element is fully on screen and marked with the ring class (it stays 2 s).
+  const landedOn = async (id) => {
+    await page.waitForFunction((id) => document.getElementById(id)?.classList.contains('ring-2'), id, { timeout: 5000 }).catch(() => {});
+    return page.evaluate((id) => {
+      const el = document.getElementById(id);
+      const r = el?.getBoundingClientRect();
+      return { ringed: !!el?.classList.contains('ring-2'), inView: !!r && r.top >= 0 && r.bottom <= window.innerHeight };
+    }, id);
+  };
+  const waitWaiting = async (cid, since) => {
+    const end = Date.now() + 120000;
+    while (Date.now() < end) {
+      const item = (await getJson('/inbox')).find((i) => i.kind === 'waiting' && String(i.channelId) === String(cid));
+      if (item && item.at !== since) return item;
+      await page.waitForTimeout(1000);
+    }
+    throw new Error('no new waiting item');
+  };
+  const sendApi = (cid, text) =>
+    fetch(`${base}/channels/${cid}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
   const { id: cid } = await newTeamChannel('gated', 'inbox room');
@@ -428,13 +448,16 @@ async function inbox() {
   check(fired.length === 1 && /^Approval: inbox room$/.test(fired[0].title) && fired[0].body === 'lead wants to wake architect', 'one notification fired for the approval', JSON.stringify(fired));
   check(sql(`select count(*) from turn where channel_id=${cid} and role='architect'`) === '0', 'no architect turn ran before Approve');
 
+  const aid = sql(`select id from approval where channel_id=${cid}`);
   await page.evaluate(() => window.__notes[0].note.onclick());
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
-  check(page.url().endsWith(`/channels/${cid}`), 'clicking the notification opens the channel', page.url());
+  let landed = await landedOn(`approval-${aid}`);
+  check(page.url().endsWith(`/channels/${cid}#approval-${aid}`) && landed.inView && landed.ringed, 'clicking the notification opens the channel at the approval row, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
   await aside.getByRole('link', { name: /^Inbox/ }).click();
   await row.getByRole('link', { name: /Approval: inbox room/ }).click();
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
-  check(page.url().endsWith(`/channels/${cid}`), 'clicking an inbox item opens its channel', page.url());
+  landed = await landedOn(`approval-${aid}`);
+  check(page.url().endsWith(`/channels/${cid}#approval-${aid}`) && landed.inView && landed.ringed, 'clicking an inbox item opens its channel at the approval row, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
   await shot('item-opened-channel');
 
   await aside.getByRole('link', { name: /^Inbox/ }).click();
@@ -456,7 +479,27 @@ async function inbox() {
   check((await waiting.getByRole('link', { name: 'Open' }).count()) === 1, 'the architect answer then shows as a waiting item with Open', await waiting.textContent());
   const all = await notes();
   check(all.length === 2 && /^Waiting: inbox room$/.test(all[1].title), 'the new item fired its own notification, none for the old ones', JSON.stringify(all.map((n) => n.title)));
-  await page.reload();
+  const before = (await getJson('/inbox')).find((i) => i.kind === 'waiting').at;
+  await waiting.getByRole('link', { name: 'Open' }).click();
+  await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
+  landed = await landedOn('latest-message');
+  check(page.url().endsWith(`/channels/${cid}#latest-message`) && landed.inView && landed.ringed, 'Open on a waiting item opens the channel at the newest message, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
+  await shot('waiting-opened-channel');
+
+  await sendApi(cid, 'Say ok in one word. Use no tools.');
+  const visible = await waitWaiting(cid, before);
+  await page.waitForTimeout(3000);
+  const whileOpen = await notes();
+  check(whileOpen.length === 2, 'a new item of the open, visible channel fires no notification', JSON.stringify({ item: visible.text, notes: whileOpen.map((n) => n.title) }));
+
+  await page.evaluate(() => Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' }));
+  await sendApi(cid, 'Say fine in one word. Use no tools.');
+  await waitWaiting(cid, visible.at);
+  await page.waitForTimeout(3000);
+  const whileHidden = await notes();
+  check(whileHidden.length === 3 && /^Waiting: inbox room$/.test(whileHidden[2].title), 'the same channel hidden from view fires one notification', JSON.stringify(whileHidden.map((n) => n.title)));
+
+  await page.goto(base + '/inbox');
   await waiting.waitFor();
   await page.waitForTimeout(3000);
   const afterReload = await notes();

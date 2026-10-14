@@ -6,6 +6,10 @@ export function useContinueChannel() {
   return useMutation({
     mutationFn: (channelId: number) =>
       api<void>(`/channels/${channelId}/continue`, { method: 'POST', body: JSON.stringify({}) }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['inbox'] }),
+    onSuccess: (_, channelId) =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['channels', channelId] }),
+        queryClient.invalidateQueries({ queryKey: ['inbox'] }),
+      ]),
   });
 }

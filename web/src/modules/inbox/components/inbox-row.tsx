@@ -1,9 +1,10 @@
 import { Link } from 'react-router';
-import { useContinueChannel } from '@/modules/inbox/api/continue-channel';
-import { useDecideApproval } from '@/modules/inbox/api/decide-approval';
-import { useRetryTurn } from '@/modules/inbox/api/retry-turn';
+import { useContinueChannel } from '@/lib/api/continue-channel';
+import { useDecideApproval } from '@/lib/api/decide-approval';
+import { useRetryTurn } from '@/lib/api/retry-turn';
 import { kindLabels } from '@/modules/inbox/utils/new-items';
 import type { InboxItem } from '@/types/api';
+import { itemPath } from '@/utils/anchors';
 import { buttonClass, errorClass, mutedClass } from '@/utils/classes';
 
 export function InboxRow({ item, channelName }: { item: InboxItem; channelName: string }) {
@@ -17,7 +18,7 @@ export function InboxRow({ item, channelName }: { item: InboxItem; channelName: 
   return (
     <li className="rounded border border-neutral-300 p-3 text-sm dark:border-neutral-700">
       <div className="flex items-center justify-between gap-3">
-        <Link to={`/channels/${channelId}`} className="min-w-0 flex-1 hover:underline">
+        <Link to={itemPath(item)} className="min-w-0 flex-1 hover:underline">
           <span className="font-medium">
             {kindLabels[item.kind]}: {channelName}
           </span>{' '}
@@ -66,7 +67,7 @@ export function InboxRow({ item, channelName }: { item: InboxItem; channelName: 
             </button>
           )}
           {item.kind === 'waiting' && (
-            <Link to={`/channels/${channelId}`} className={buttonClass}>
+            <Link to={itemPath(item)} className={buttonClass}>
               Open
             </Link>
           )}

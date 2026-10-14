@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { useChannels } from '@/modules/channels/api/get-channels';
+import { useChannels } from '@/lib/api/get-channels';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
