@@ -20,8 +20,10 @@ import (
 )
 
 type server struct {
-	st   *store.Store
-	open func(ctx context.Context, channelID int64) (session, error)
+	st      *store.Store
+	dataDir string
+	trees   *channel.Trees
+	open    func(ctx context.Context, channelID int64) (session, error)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -46,7 +48,7 @@ type Handler struct {
 // New returns the API over st.
 func New(st *store.Store, dataDir, exe string) *Handler {
 	trees := channel.NewTrees()
-	return newHandler(st, func(ctx context.Context, channelID int64) (session, error) {
+	return newHandler(st, dataDir, trees, func(ctx context.Context, channelID int64) (session, error) {
 		sess, err := channel.Open(ctx, st, dataDir, exe, channelID, trees)
 		if err != nil {
 			return nil, err
@@ -61,12 +63,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.h.ServeH
 func (h *Handler) Close() { h.s.close() }
 
 func newHandler(
-	st *store.Store, open func(ctx context.Context, channelID int64) (session, error),
+	st *store.Store, dataDir string, trees *channel.Trees,
+	open func(ctx context.Context, channelID int64) (session, error),
 ) *Handler {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
-		st: st, open: open, ctx: ctx, cancel: cancel, quit: make(chan struct{}),
-		lives: map[int64]*live{}, deleting: map[int64]int{}, inboxWake: make(chan struct{}),
+		st: st, dataDir: dataDir, trees: trees, open: open, ctx: ctx, cancel: cancel,
+		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{},
+		inboxWake: make(chan struct{}),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {

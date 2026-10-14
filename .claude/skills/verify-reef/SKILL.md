@@ -244,6 +244,7 @@ REEF_VERIFY_RUN=<id> $H ui stop      # Stop mid-turn shows Failed: interrupted, 
 REEF_VERIFY_RUN=<id> $H ui wrap      # Wrap up, Reject, /wrap, Approve, brief version 1
 REEF_VERIFY_RUN=<id> $H ui teams     # team picker, lead then architect, Thread pane reply, gate Approve
 REEF_VERIFY_RUN=<id> $H ui retry     # Stop mid-turn, Retry on the failed turn row, new turn ends done
+REEF_VERIFY_RUN=<id> $H ui rollback  # a turn writes a file, a commit is made, Rollback restores the tree
 ```
 
 `teams` needs the teams `duo` and `gated` applied to the `ui` folder first: run
@@ -334,5 +335,5 @@ in `~/.codex/sessions`; cleanup leaves them.
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |

@@ -17,20 +17,36 @@ func NewTrees() *Trees {
 	return &Trees{busy: map[string]chan struct{}{}}
 }
 
+// TryLock is Lock without the wait: it reports false when key is held.
+func (t *Trees) TryLock(key string) (func(), bool) {
+	slot := t.slot(key)
+	select {
+	case slot <- struct{}{}:
+		return func() { <-slot }, true
+	default:
+		return nil, false
+	}
+}
+
 // Lock waits for key and returns the func that frees it. A cancelled ctx ends the wait with
 // ctx.Err().
 func (t *Trees) Lock(ctx context.Context, key string) (func(), error) {
-	t.mu.Lock()
-	slot, ok := t.busy[key]
-	if !ok {
-		slot = make(chan struct{}, 1)
-		t.busy[key] = slot
-	}
-	t.mu.Unlock()
+	slot := t.slot(key)
 	select {
 	case slot <- struct{}{}:
 		return func() { <-slot }, nil
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+}
+
+func (t *Trees) slot(key string) chan struct{} {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	slot, ok := t.busy[key]
+	if !ok {
+		slot = make(chan struct{}, 1)
+		t.busy[key] = slot
+	}
+	return slot
 }

@@ -17,6 +17,7 @@ import (
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 const _keepAlive = 15 * time.Second
@@ -134,6 +135,8 @@ func (s *server) liveRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/channels/{id}/continue", methodNotAllowed)
 	mux.HandleFunc("POST /turns/{id}/retry", s.retryTurn)
 	mux.HandleFunc("/turns/{id}/retry", methodNotAllowed)
+	mux.HandleFunc("POST /turns/{id}/rollback", s.rollbackTurn)
+	mux.HandleFunc("/turns/{id}/rollback", methodNotAllowed)
 	mux.HandleFunc("GET /channels/{id}/approvals", s.listApprovals)
 	mux.HandleFunc("/channels/{id}/approvals", methodNotAllowed)
 	mux.HandleFunc("POST /channels/{id}/approvals/{aid}", s.decideApproval)
@@ -615,6 +618,59 @@ func (s *server) retryTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
+}
+
+// rollbackTurn puts the channel's worktree back as it was before the turn ran, and posts a
+// note from reef in the channel. A turn with no checkpoint is 400; a channel that has a turn
+// running is 409. The agent's session is not rewound.
+func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ctx := context.WithoutCancel(r.Context())
+	t, err := s.st.Turn(ctx, id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if t.Checkpoint == nil {
+		writeError(w, fmt.Errorf("%w: turn %d has no checkpoint", store.ErrInvalid, id))
+		return
+	}
+	c, _, err := s.claim(ctx, t.ChannelID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	err = s.restoreTree(ctx, t)
+	if err == nil {
+		_, err = s.st.CreateMessage(ctx, store.Message{
+			ChannelID: t.ChannelID, Author: _reefAuthor,
+			Body: fmt.Sprintf("Rolled back to before turn %d.", id),
+		})
+	}
+	if err = c.release(err); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// restoreTree puts the channel's tree back to the checkpoint of t. A tree that a write turn
+// of any channel holds is a conflict, not a wait.
+func (s *server) restoreTree(ctx context.Context, t store.Turn) error {
+	dir, _, err := channel.WorkDir(ctx, s.st, s.dataDir, t.ChannelID)
+	if err != nil {
+		return err
+	}
+	unlock, ok := s.trees.TryLock(dir)
+	if !ok {
+		return fmt.Errorf("%s has a write turn running: %w", dir, store.ErrConflict)
+	}
+	defer unlock()
+	return worktree.Restore(ctx, dir, *t.Checkpoint)
 }
 
 func (s *server) stop(w http.ResponseWriter, r *http.Request) {

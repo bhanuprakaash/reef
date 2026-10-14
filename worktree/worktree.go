@@ -52,8 +52,9 @@ func IsRepo(ctx context.Context, dir string) bool {
 }
 
 // Checkpoint stores HEAD and the whole working tree of the checkout at dir, untracked files
-// included and ignored ones left out, as a commit at ref. The index, HEAD and the files are
-// not touched: the tree is built in a temporary index.
+// included and ignored ones left out, as a commit at ref. Its first parent is HEAD; its second
+// is a commit of the index as it was, so Restore can bring back what was staged. The index,
+// HEAD and the files are not touched: the tree is built in a temporary index.
 func Checkpoint(ctx context.Context, dir, ref string) error {
 	head, err := git(ctx, dir, "rev-parse", "--verify", "HEAD")
 	if err != nil {
@@ -75,13 +76,46 @@ func Checkpoint(ctx context.Context, dir, ref string) error {
 	if err != nil {
 		return err
 	}
-	commit, err := git(ctx, dir, "-c", "user.name=Reef", "-c", "user.email=reef@localhost",
-		"commit-tree", tree, "-p", head, "-m", "reef checkpoint")
+	staged, err := git(ctx, dir, "write-tree")
+	if err != nil {
+		return err
+	}
+	stagedCommit, err := commitTree(ctx, dir, staged, head)
+	if err != nil {
+		return err
+	}
+	commit, err := commitTree(ctx, dir, tree, head, stagedCommit)
 	if err != nil {
 		return err
 	}
 	_, err = git(ctx, dir, "update-ref", ref, commit)
 	return err
+}
+
+// Restore puts the checkout at dir back as Checkpoint saw it at ref: the branch at the HEAD
+// it had, the files as they were, untracked ones included, and the same changes staged. Files
+// made since are removed. Ignored files are left alone.
+func Restore(ctx context.Context, dir, ref string) error {
+	steps := [][]string{
+		{"reset", "--hard", ref + "^1"},
+		{"clean", "-fd"},
+		{"read-tree", "--reset", "-u", ref},
+		{"read-tree", ref + "^2"},
+	}
+	for _, args := range steps {
+		if _, err := git(ctx, dir, args...); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func commitTree(ctx context.Context, dir, tree string, parents ...string) (string, error) {
+	args := []string{"-c", "user.name=Reef", "-c", "user.email=reef@localhost", "commit-tree", tree}
+	for _, p := range parents {
+		args = append(args, "-p", p)
+	}
+	return git(ctx, dir, append(args, "-m", "reef checkpoint")...)
 }
 
 func git(ctx context.Context, repo string, args ...string) (string, error) {

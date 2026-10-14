@@ -82,6 +82,31 @@ func (s *Store) Messages(ctx context.Context, channelID, after int64) ([]Message
 	return scanAll(rows, scanMessage)
 }
 
+// MessagesBy lists the messages of author in the channel that were stored after since,
+// oldest first.
+func (s *Store) MessagesBy(
+	ctx context.Context, channelID int64, author string, since time.Time,
+) ([]Message, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT id, channel_id, parent_id, author, body, created_at FROM message "+
+			"WHERE channel_id = ? AND author = ? ORDER BY id",
+		channelID, author)
+	if err != nil {
+		return nil, fmt.Errorf("list messages by %s: %w", author, err)
+	}
+	all, err := scanAll(rows, scanMessage)
+	if err != nil {
+		return nil, err
+	}
+	var msgs []Message
+	for _, m := range all {
+		if m.CreatedAt.After(since) {
+			msgs = append(msgs, m)
+		}
+	}
+	return msgs, nil
+}
+
 // LastMessageID returns the id of the channel's newest message, 0 when it has none.
 func (s *Store) LastMessageID(ctx context.Context, channelID int64) (int64, error) {
 	var id int64

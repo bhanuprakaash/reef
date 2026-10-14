@@ -316,7 +316,7 @@ func (s *Session) member(
 	for i, srv := range r.MCPServers {
 		servers["mcp"+strconv.Itoa(i+1)] = srv
 	}
-	cwd, slug, err := s.workDir(wctx)
+	cwd, slug, err := WorkDir(wctx, s.st, s.dataDir, s.ch.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -372,22 +372,28 @@ func (s *Session) ensureWorktree(ctx context.Context, dir, slug string) error {
 	return worktree.Ensure(ctx, s.project.Path, dir, worktree.Branch(slug))
 }
 
-// workDir is where an agent of the channel runs: the worktree of its feature, or the project
-// for a quick session. The feature is read now, as a promote may have given it one since the
-// channel opened. slug is the feature's, empty for a quick session.
-func (s *Session) workDir(ctx context.Context) (dir, slug string, err error) {
-	ch, err := s.st.Channel(ctx, s.ch.ID)
+// WorkDir is where an agent of channel channelID runs: the worktree of its feature, or the
+// project for a quick session. The feature is read now, as a promote may have given it one
+// since the channel opened. slug is the feature's, empty for a quick session.
+func WorkDir(
+	ctx context.Context, st *store.Store, dataDir string, channelID int64,
+) (dir, slug string, err error) {
+	ch, err := st.Channel(ctx, channelID)
+	if err != nil {
+		return "", "", err
+	}
+	p, err := st.Project(ctx, ch.ProjectID)
 	if err != nil {
 		return "", "", err
 	}
 	if ch.FeatureID == nil {
-		return s.project.Path, "", nil
+		return p.Path, "", nil
 	}
-	f, err := s.st.Feature(ctx, *ch.FeatureID)
+	f, err := st.Feature(ctx, *ch.FeatureID)
 	if err != nil {
 		return "", "", err
 	}
-	return worktree.Path(s.dataDir, s.project.ID, f.Slug), f.Slug, nil
+	return worktree.Path(dataDir, p.ID, f.Slug), f.Slug, nil
 }
 
 // roleSetup is the team's role called name. The lead is the channel's role; it takes the
