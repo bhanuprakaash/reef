@@ -151,6 +151,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 		wantErr     string
 		wantTurnErr string
 		wantSession string
+		wantReply   string
 		wantStopped int
 	}{
 		{
@@ -159,6 +160,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			cancelOn:    agent.KindText,
 			wantErr:     "context canceled",
 			wantTurnErr: "interrupted",
+			wantReply:   "par",
 			wantStopped: 1,
 		},
 		{
@@ -177,6 +179,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			},
 			wantErr:     "agent: boom",
 			wantTurnErr: "boom",
+			wantReply:   "par",
 		},
 		{
 			name:        "events closed",
@@ -184,6 +187,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			closeAfter:  true,
 			wantErr:     "agent exited",
 			wantTurnErr: "agent exited",
+			wantReply:   "par",
 		},
 	}
 	for _, tt := range tests {
@@ -227,8 +231,16 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(msgs) != 1 || msgs[0].Author != "user" {
-				t.Errorf("messages = %+v, want only the user message", msgs)
+			var got []string
+			for _, m := range msgs {
+				got = append(got, m.Author+": "+m.Body)
+			}
+			want := []string{"user: hi"}
+			if tt.wantReply != "" {
+				want = append(want, "architect: "+tt.wantReply)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("messages = %q, want %q", got, want)
 			}
 		})
 	}
@@ -344,7 +356,10 @@ func TestRunner_SendCapsToolCalls(t *testing.T) {
 	call := agent.Event{Kind: agent.KindToolCall, ToolName: "Read"}
 	sa := &scriptAgent{
 		events: make(chan agent.Event, 8),
-		script: []agent.Event{call, call, call, {Kind: agent.KindTurnEnd}},
+		script: []agent.Event{
+			{Kind: agent.KindText, Text: "par"}, call, call, {Kind: agent.KindText, Text: "tial"},
+			call, {Kind: agent.KindTurnEnd},
+		},
 	}
 	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
 	r.toolCap = 2
@@ -367,6 +382,13 @@ func TestRunner_SendCapsToolCalls(t *testing.T) {
 	got, err := st.Channel(bg, ch.ID)
 	if err != nil || got.Paused != "capped: more than 2 tool calls" {
 		t.Errorf("channel = %+v, %v, want paused with the reason", got, err)
+	}
+	msgs, err := st.Messages(bg, ch.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 || msgs[1].Author != "architect" || msgs[1].Body != "partial" {
+		t.Errorf("messages = %+v, want the user message and the architect's partial reply", msgs)
 	}
 }
 
