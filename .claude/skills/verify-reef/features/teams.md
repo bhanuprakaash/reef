@@ -32,7 +32,7 @@ live, Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 - `gate-default` the default team has no gate on lead to architect: the wake runs and `GET /channels/{id}/approvals` is `[]`.
 - `gate-approve-reject` with the lead to architect gate on, the mention stores a pending approval and no architect turn; Approve runs the wake, Reject drops it, a decided approval is 409, and Approve during a turn is 409 and stays pending. The event stream carries `approval` frames.
 - `wrap-wakes-nobody` a `/wrap` turn whose reply says `@architect` starts no architect turn.
-- `restart-held` after a restart a pending approval is still pending and can be approved; a hop-cap pause stays, and `continue` clears it and runs nothing.
+- `restart-held` after a restart a pending approval is still pending and can be approved; a hop-cap pause stays, and `continue` runs the held wake.
 - `codex-teammate` a role on `codex` is woken and its reply is stored (driven with the codex test fixture, not a real codex).
 - `window-teams` the window picks a team, names the running teammate, opens a Thread pane from a root's Reply button, shows `N replies` on the root in the main list, and shows Approve and Reject (`$H ui teams`, see Window below).
 
@@ -162,7 +162,7 @@ Re-apply while the lead is live, channel 6:
 
 Restart (still gate room, pending approval 3, and the paused channel 4):
 
-- **Held state.** `$H serve-stop`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name teams`, then set `A` again. `$H api GET /channels/5/approvals` still has approval 3 `pending`. `$H sql "select paused from channel where id = 4"` is still the hop cap reason. `$H api POST /channels/4/continue` is 204, `$H sql "select paused from channel where id = 4"` is empty and `$H sql "select count(*) from turn where channel_id = 4"` is still `14`: the held wake was in memory and is gone. `$H api POST /channels/5/approvals/3 '{"approve":true}'` is 204; `wait_done 5 6` and the new turn is `architect`.
+- **Held state.** `$H serve-stop`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name teams`, then set `A` again. `$H api GET /channels/5/approvals` still has approval 3 `pending`. `$H sql "select paused from channel where id = 4"` is still the hop cap reason. `$H sql "select kind, status from approval where channel_id = 4 and kind = 'hold' and status = 'pending'"` has one row, the wake held by the hop cap. `$H api POST /channels/4/continue` is 204, and `wait_done 4 18`: the held wake and 3 more hops ran (the count started from 0 again) and `$H sql "select paused from channel where id = 4"` is the hop cap reason again. `$H api POST /channels/5/approvals/3 '{"approve":true}'` is 204; `wait_done 5 6` and the new turn is `architect`.
 
 Codex teammate on the test fixture (`mixed`: the architect is on `codex`). The fixture `agent/codex/testdata/codex` plays a codex that answers `hi`. This does not prove real codex; with a logged-in `codex`, leave the `PATH` and `FAKE_CODEX` part out and the architect answers for real.
 
@@ -197,5 +197,5 @@ When done: `$H cleanup`.
 - `ps` check: a claude agent is a direct child of `reef serve`, so `pgrep -P $(cat $S/serve.pid) -x claude` counts them. `reef mcp` children belong to the claude process.
 - `curl -sN --max-time N` on the event stream exits 28 when the time is up; that is expected.
 - The hop cap counts turns woken by an agent, not the turn that answers the user, so a pause happens after `1 + 4` turns.
-- The held wake and the hop count live in the server's memory; only the pause and the approvals are stored.
+- The hop count lives in the server's memory; the pause, the approvals and the wakes a pause holds (`approval` rows of kind `hold`) are stored.
 - `reef chat` is always the lead of a `solo` channel and routes nothing; its recipes are in `chat.md`.
