@@ -10,21 +10,9 @@ import (
 
 func TestCallBrowser_ReplyError(t *testing.T) {
 	dir := t.TempDir()
-	l, err := net.Listen("unix", dir+"/"+_browserSocketFile)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = l.Close() }()
-	go func() {
-		conn, err := l.Accept()
-		if err != nil {
-			return
-		}
-		defer func() { _ = conn.Close() }()
-		_, _ = conn.Write([]byte(`{"error":"boom"}` + "\n"))
-	}()
+	fakeBrowserSocket(t, dir, `{"error":"boom"}`+"\n")
 
-	_, err = callBrowser(context.Background(), dir, "console", nil)
+	_, err := callBrowser(context.Background(), dir, "console", nil)
 	if err == nil {
 		t.Fatal("want error, got nil")
 	}

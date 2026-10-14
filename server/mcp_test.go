@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/base64"
@@ -108,8 +109,9 @@ func callToolResult(
 	}
 }
 
-// fakeBrowserSocket listens on dataDir/browser.sock and answers every
-// connection with reply, so a browser tool test does not need the Reef app.
+// fakeBrowserSocket listens on dataDir/browser.sock and answers every request
+// line with reply, as the Reef app does. It reads the request first: closing
+// before the client wrote it fails the client with a broken pipe.
 func fakeBrowserSocket(t *testing.T, dataDir, reply string) {
 	t.Helper()
 	l, err := net.Listen("unix", filepath.Join(dataDir, _browserSocketFile))
@@ -123,6 +125,7 @@ func fakeBrowserSocket(t *testing.T, dataDir, reply string) {
 			if err != nil {
 				return
 			}
+			_, _ = bufio.NewReader(conn).ReadString('\n')
 			_, _ = conn.Write([]byte(reply))
 			_ = conn.Close()
 		}
