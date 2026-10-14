@@ -173,6 +173,10 @@ func (t Team) validate() error {
 	if t.Name == "" {
 		return fmt.Errorf("%w: team name is required", ErrInvalid)
 	}
+	if t.Name == SoloTeam && (len(t.Roles) != 1 || t.Roles[0].Name != "lead" || !t.Roles[0].Lead) {
+		return fmt.Errorf("%w: team %s must have exactly one lead role named lead",
+			ErrInvalid, SoloTeam)
+	}
 	leads, seen := 0, make(map[string]bool, len(t.Roles))
 	for _, r := range t.Roles {
 		if r.Name == "" {
