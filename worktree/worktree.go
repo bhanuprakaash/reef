@@ -12,8 +12,8 @@ import (
 	"strings"
 )
 
-// ErrNoCommit is returned by Checkpoint for a repo whose HEAD has no commit yet: there is
-// nothing to snapshot.
+// ErrNoCommit is returned by Checkpoint when there is nothing it can cleanly snapshot: a repo
+// whose HEAD has no commit yet, or one with an unmerged index mid-merge.
 var ErrNoCommit = errors.New("no commit to snapshot")
 
 // ErrDirty is returned by Remove for a worktree with uncommitted changes.
@@ -124,9 +124,24 @@ func Dirty(ctx context.Context, repo string) (bool, error) {
 	return out != "", err
 }
 
-// IsRepo reports whether dir is inside a git work tree.
+// IsRepo reports whether dir is itself the top level of a git work tree, not merely a folder
+// inside one: a checkpoint or restore of dir must not reach outside it.
 func IsRepo(ctx context.Context, dir string) bool {
-	_, err := git(ctx, dir, "rev-parse", "--is-inside-work-tree")
+	top, err := git(ctx, dir, "rev-parse", "--show-toplevel")
+	if err != nil {
+		return false
+	}
+	want, err := filepath.EvalSymlinks(dir)
+	if err != nil {
+		return false
+	}
+	got, err := filepath.EvalSymlinks(top)
+	return err == nil && got == want
+}
+
+// HasCommit reports whether dir is a git repo whose HEAD points at a commit.
+func HasCommit(ctx context.Context, dir string) bool {
+	_, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", "HEAD")
 	return err == nil
 }
 
@@ -134,8 +149,8 @@ func IsRepo(ctx context.Context, dir string) bool {
 // included and ignored ones left out, as a commit at ref. Its first parent is HEAD; its second
 // is a commit of the index as it was, so Restore can bring back what was staged. The index,
 // HEAD and the files are not touched: the tree is built in a temporary index that starts as a
-// copy of the real one, so files git already knows are not read again. A repo with no commit
-// returns ErrNoCommit.
+// copy of the real one, so files git already knows are not read again. A repo with no commit,
+// or an index with unmerged entries mid-merge, returns ErrNoCommit.
 func Checkpoint(ctx context.Context, dir, ref string) error {
 	head, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", "HEAD")
 	var exit *exec.ExitError
@@ -144,6 +159,11 @@ func Checkpoint(ctx context.Context, dir, ref string) error {
 	}
 	if err != nil {
 		return err
+	}
+	if unmerged, err := git(ctx, dir, "ls-files", "-u"); err != nil {
+		return err
+	} else if unmerged != "" {
+		return fmt.Errorf("checkpoint %s: unmerged index: %w", dir, ErrNoCommit)
 	}
 	tmp, err := os.MkdirTemp("", "reef-checkpoint-")
 	if err != nil {
