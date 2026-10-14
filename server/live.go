@@ -304,25 +304,7 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	ch, err := s.st.Channel(r.Context(), id)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	if ch.Paused == "" {
-		writeError(w, fmt.Errorf("channel %d is not paused: %w", id, store.ErrConflict))
-		return
-	}
-	used, err := s.st.ChannelTokens(r.Context(), id)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	var extra int64
-	if used >= ch.TokenBudget {
-		extra = used - ch.TokenBudget + store.TokenBudget
-	}
-	if err := s.st.ContinueChannel(r.Context(), id, extra); err != nil {
+	if err := channel.Continue(r.Context(), s.st, id); err != nil {
 		writeError(w, err)
 		return
 	}

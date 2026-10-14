@@ -31,7 +31,7 @@ func CheckCaps(
 }
 
 // Continue clears the pause of a paused channel. A channel at or over its token budget
-// also gets another budget. A channel that is not paused is an error wrapping
+// gets a budget of the tokens it used plus store.TokenBudget. A channel that is not paused is an error wrapping
 // store.ErrConflict.
 func Continue(ctx context.Context, st *store.Store, id int64) error {
 	ch, err := st.Channel(ctx, id)
@@ -47,7 +47,7 @@ func Continue(ctx context.Context, st *store.Store, id int64) error {
 	}
 	var extra int64
 	if used >= ch.TokenBudget {
-		extra = store.TokenBudget
+		extra = used - ch.TokenBudget + store.TokenBudget
 	}
 	return st.ContinueChannel(ctx, id, extra)
 }
