@@ -224,6 +224,18 @@ func TestMCPTools(t *testing.T) {
 			want:    "browser unavailable: the Reef app is not open",
 			wantErr: true,
 		},
+		{
+			name:    "console with the app closed",
+			tool:    "browser_console",
+			want:    "browser unavailable: the Reef app is not open",
+			wantErr: true,
+		},
+		{
+			name:    "network with the app closed",
+			tool:    "browser_network",
+			want:    "browser unavailable: the Reef app is not open",
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

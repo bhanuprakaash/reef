@@ -50,5 +50,8 @@ func callBrowser(dataDir, tool string, args any) (browserReply, error) {
 	if err := json.Unmarshal([]byte(line), &reply); err != nil {
 		return browserReply{}, fmt.Errorf("parse browser reply: %w", err)
 	}
+	if reply.Error != "" {
+		return browserReply{}, errors.New(reply.Error)
+	}
 	return reply, nil
 }

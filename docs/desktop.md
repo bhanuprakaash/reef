@@ -50,6 +50,13 @@ a ref from that map: `click` scrolls the node into view, finds its box's centre 
 mouse press and release there; `type` focuses the node and inserts the text. A ref not in the
 map, or a node CDP no longer finds, fails with `ref e12 is not on the page; take a new snapshot`.
 
+`console` and `network` report what happened since the last navigation of the page itself: CDP
+`Runtime.consoleAPICalled` and `Runtime.exceptionThrown` fill the console list, one entry per
+call with its level (`log`, `error`, ...); `Network.requestWillBeSent`,
+`Network.responseReceived` and `Network.loadingFailed` fill the network list with each request's
+method, URL and status. Both lists are cleared on `Page.frameStartedLoading` for the page's main
+frame, so a new navigation starts them empty.
+
 ## Quit
 
 Quitting the app (the window, the menu, or a signal) stops its `reef serve` first: the server

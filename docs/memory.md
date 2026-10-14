@@ -208,12 +208,14 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `browser_snapshot` | none | the page's accessibility tree as text, one line per element: `- role "name" [ref=e12]`. A ref is only valid until the next snapshot or a navigation | `browser unavailable: the Reef app is not open` |
 | `browser_click` | `ref` (required, from `browser_snapshot`) | `{"text": "clicked <ref>"}` | `browser unavailable: the Reef app is not open`, `ref e12 is not on the page; take a new snapshot` |
 | `browser_type` | `ref` (required, from `browser_snapshot`), `text` (required) | `{"text": "typed into <ref>"}` | `browser unavailable: the Reef app is not open`, `ref e12 is not on the page; take a new snapshot` |
+| `browser_console` | none | `{"text": "..."}`: the console messages and errors since the last navigation, one per line with their level, e.g. `error: boom` | `browser unavailable: the Reef app is not open` |
+| `browser_network` | none | `{"text": "..."}`: the network requests since the last navigation, one per line with method, URL and status, e.g. `GET http://localhost/ 404` | `browser unavailable: the Reef app is not open` |
 
 `propose_wrap` saves a pending proposal and changes nothing else. See Wrap-up.
 
 The browser tools go straight from `reef mcp` to the Reef app, over `browser.sock` in the data
 folder, not through `reef serve` (see [desktop.md](desktop.md#browser-pane)). With no socket, or
-a stale one left by a crash, all five tools fail with `browser unavailable: the Reef app is not
+a stale one left by a crash, all seven tools fail with `browser unavailable: the Reef app is not
 open`.
 
 `post_to_channel` is how a teammate speaks in the channel besides its reply. `reef serve`

@@ -24,6 +24,68 @@ export function createBrowser(win) {
   view.webContents.debugger.sendCommand('Page.enable');
   view.webContents.debugger.sendCommand('DOM.enable');
   view.webContents.debugger.sendCommand('Accessibility.enable');
+  view.webContents.debugger.sendCommand('Runtime.enable');
+  view.webContents.debugger.sendCommand('Network.enable');
+
+  // mainFrameId identifies the top frame, so console/network logging only
+  // resets on a navigation of the page itself, not an iframe inside it.
+  let mainFrameId = null;
+  view.webContents.debugger.sendCommand('Page.getFrameTree')
+    .then(({ frameTree }) => { mainFrameId = frameTree.frame.id; });
+
+  // consoleEntries and networkRequests hold what happened since the last
+  // main-frame navigation; a new one clears both before its own requests
+  // and logs arrive.
+  let consoleEntries = [];
+  let networkRequests = [];
+
+  function argText(arg) {
+    return arg.value !== undefined ? String(arg.value) : (arg.description ?? '');
+  }
+
+  function findRequest(requestId) {
+    return networkRequests.find((r) => r.requestId === requestId);
+  }
+
+  view.webContents.debugger.on('message', (_event, method, params) => {
+    switch (method) {
+      case 'Page.frameStartedLoading':
+        if (params.frameId === mainFrameId) {
+          consoleEntries = [];
+          networkRequests = [];
+        }
+        break;
+      case 'Runtime.consoleAPICalled':
+        consoleEntries.push({ level: params.type, text: params.args.map(argText).join(' ') });
+        break;
+      case 'Runtime.exceptionThrown':
+        consoleEntries.push({
+          level: 'error',
+          text: params.exceptionDetails.exception?.description ?? params.exceptionDetails.text,
+        });
+        break;
+      case 'Network.requestWillBeSent':
+        networkRequests.push({
+          requestId: params.requestId,
+          method: params.request.method,
+          url: params.request.url,
+          status: null,
+        });
+        break;
+      case 'Network.responseReceived': {
+        const req = findRequest(params.requestId);
+        if (req) req.status = params.response.status;
+        break;
+      }
+      case 'Network.loadingFailed': {
+        const req = findRequest(params.requestId);
+        if (req) req.status = 'failed';
+        break;
+      }
+      default:
+        break;
+    }
+  });
 
   // refs maps a snapshot ref (e1, e2, ...) to the backendDOMNodeId it named.
   // It is only valid for the snapshot that made it: cleared on each new
@@ -134,12 +196,26 @@ export function createBrowser(win) {
     return { text: `typed into ${ref}` };
   }
 
+  function consoleLog() {
+    return { text: consoleEntries.map((e) => `${e.level}: ${e.text}`).join('\n') };
+  }
+
+  function network() {
+    return {
+      text: networkRequests
+        .map((r) => `${r.method} ${r.url}${r.status != null ? ` ${r.status}` : ''}`)
+        .join('\n'),
+    };
+  }
+
   const handlers = {
     navigate: (args) => navigate(args.url),
     screenshot,
     snapshot,
     click: (args) => click(args.ref),
     type: (args) => type(args.ref, args.text),
+    console: consoleLog,
+    network,
   };
 
   let server = null;

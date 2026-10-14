@@ -148,6 +148,16 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 		Description: "Type text into an element in the browser pane, by its ref from " +
 			"browser_snapshot.",
 	}, m.browserType)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "browser_console",
+		Description: "Read the browser pane's console messages since the last navigation, " +
+			"one per line with its level.",
+	}, m.browserConsole)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "browser_network",
+		Description: "List the browser pane's network requests since the last navigation, " +
+			"one per line with method, URL and status.",
+	}, m.browserNetwork)
 	return srv
 }
 
@@ -297,9 +307,6 @@ func (m *mcpServer) browserNavigate(
 	if err != nil {
 		return nil, browserTextOut{}, err
 	}
-	if reply.Error != "" {
-		return nil, browserTextOut{}, errors.New(reply.Error)
-	}
 	return nil, browserTextOut{Text: reply.Text}, nil
 }
 
@@ -309,9 +316,6 @@ func (m *mcpServer) browserScreenshot(
 	reply, err := callBrowser(m.dataDir, "screenshot", nil)
 	if err != nil {
 		return nil, nil, err
-	}
-	if reply.Error != "" {
-		return nil, nil, errors.New(reply.Error)
 	}
 	data, err := base64.StdEncoding.DecodeString(reply.Image)
 	if err != nil {
@@ -329,9 +333,6 @@ func (m *mcpServer) browserSnapshot(
 	if err != nil {
 		return nil, browserTextOut{}, err
 	}
-	if reply.Error != "" {
-		return nil, browserTextOut{}, errors.New(reply.Error)
-	}
 	return nil, browserTextOut{Text: reply.Text}, nil
 }
 
@@ -341,9 +342,6 @@ func (m *mcpServer) browserClick(
 	reply, err := callBrowser(m.dataDir, "click", map[string]string{"ref": in.Ref})
 	if err != nil {
 		return nil, browserTextOut{}, err
-	}
-	if reply.Error != "" {
-		return nil, browserTextOut{}, errors.New(reply.Error)
 	}
 	return nil, browserTextOut{Text: reply.Text}, nil
 }
@@ -355,8 +353,25 @@ func (m *mcpServer) browserType(
 	if err != nil {
 		return nil, browserTextOut{}, err
 	}
-	if reply.Error != "" {
-		return nil, browserTextOut{}, errors.New(reply.Error)
+	return nil, browserTextOut{Text: reply.Text}, nil
+}
+
+func (m *mcpServer) browserConsole(
+	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
+) (*mcp.CallToolResult, browserTextOut, error) {
+	reply, err := callBrowser(m.dataDir, "console", nil)
+	if err != nil {
+		return nil, browserTextOut{}, err
+	}
+	return nil, browserTextOut{Text: reply.Text}, nil
+}
+
+func (m *mcpServer) browserNetwork(
+	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
+) (*mcp.CallToolResult, browserTextOut, error) {
+	reply, err := callBrowser(m.dataDir, "network", nil)
+	if err != nil {
+		return nil, browserTextOut{}, err
 	}
 	return nil, browserTextOut{Text: reply.Text}, nil
 }

@@ -5,6 +5,31 @@ import (
 	"testing"
 )
 
+func TestCallBrowser_ReplyError(t *testing.T) {
+	dir := t.TempDir()
+	l, err := net.Listen("unix", dir+"/"+_browserSocketFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = l.Close() }()
+	go func() {
+		conn, err := l.Accept()
+		if err != nil {
+			return
+		}
+		defer func() { _ = conn.Close() }()
+		_, _ = conn.Write([]byte(`{"error":"boom"}` + "\n"))
+	}()
+
+	_, err = callBrowser(dir, "console", nil)
+	if err == nil {
+		t.Fatal("want error, got nil")
+	}
+	if err.Error() != "boom" {
+		t.Fatalf("got %q, want %q", err.Error(), "boom")
+	}
+}
+
 func TestCallBrowser_Unavailable(t *testing.T) {
 	tests := []struct {
 		name string
