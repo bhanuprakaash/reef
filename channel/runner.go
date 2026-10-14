@@ -89,7 +89,7 @@ func (r *Runner) Run(
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
 	if r.preamble != "" {
-		prompt = r.preamble + "\n\n" + text
+		prompt = r.preamble + "\n\n" + prompt
 	}
 	if r.OnPrompt != nil {
 		r.OnPrompt(prompt)
