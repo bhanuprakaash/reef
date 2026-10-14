@@ -5,6 +5,7 @@ import { FeaturePage } from '@/app/routes/feature';
 import { HomePage } from '@/app/routes/home';
 import { InboxPage } from '@/app/routes/inbox';
 import { TasksPage } from '@/app/routes/tasks';
+import { TeamsPage } from '@/app/routes/teams';
 
 export const router = createBrowserRouter([
   {
@@ -15,6 +16,7 @@ export const router = createBrowserRouter([
       { path: '/channels/:id', element: <ChannelPage /> },
       { path: '/inbox', element: <InboxPage /> },
       { path: '/tasks', element: <TasksPage /> },
+      { path: '/teams', element: <TeamsPage /> },
     ],
   },
 ]);

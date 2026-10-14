@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useCreateChannel } from '@/modules/channels/api/create-channel';
-import { useTeams } from '@/modules/channels/api/get-teams';
+import { useTeams } from '@/lib/api/get-teams';
 import { BACKENDS, PERMISSION_MODES } from '@/modules/channels/utils/backends';
 import { buttonClass, errorClass, inputClass, mutedClass } from '@/utils/classes';
 

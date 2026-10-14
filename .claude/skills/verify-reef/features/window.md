@@ -24,6 +24,7 @@ feature, and a channel that hits a cap pauses and says why. A channel on a team 
 - `window-inspector` a channel's Inspector panel shows `GET /channels/{id}/inspector`: one block per role that ran with its turn count, tokens and cost from the API; a role block expands to its turns, newest first; a developer turn expands to its prompt and a tool call with its name, input and result.
 - `window-review` clicking a Diff panel line opens a comment box; comments collect below the files; Send to developer posts them as one message, `path:line` per comment, to the developer's latest thread and clears the list.
 - `window-board` `/tasks?view=board` shows the Todo, Doing and Done columns from a task's `status`; the project and feature filters apply to it too; dragging a card to another column, or picking a column from its move select, sends `PUT /tasks/{id}` and the new column survives a reload.
+- `window-workshop` the `/teams` page edits a role's persona and saves it to the role row, its `mcpServers` unchanged; an invalid team (two leads, an unknown backend) shows the same error as `reef team apply`; "Copy as new team" makes a new team; the next developer wake's prompt carries the new persona.
 
 Acceptance lines of the slice: "start a channel, chat, see streamed tool calls and text live" is
 `window-live`; "a new channel of the same feature starts from the brief" is `window-brief`;
@@ -47,6 +48,7 @@ Preconditions:
 - `ui inbox` needs `gated` too, and reads the badge as `1`, so it fails on a server that already lists other items: run it first, or on its own folder (`$H reef --data-name inbox -- team apply $E/gated.json`, then `serve-start --data-name inbox`).
 - `ui inspector` needs the team `full` applied to the `ui` folder: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.
 - `ui review` needs the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.
+- `ui workshop` needs the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.
 
 Each scenario adds its own project through the form (`ui-<scenario>-<suffix>`, folder = the run's scratch cwd), so they run in any order on one server.
 
@@ -67,6 +69,7 @@ REEF_VERIFY_RUN=<id> $H ui memory
 REEF_VERIFY_RUN=<id> $H ui inspector
 REEF_VERIFY_RUN=<id> $H ui review
 REEF_VERIFY_RUN=<id> $H ui board
+REEF_VERIFY_RUN=<id> $H ui workshop
 ```
 
 - **live.** Prints a `PASS live:` line for the tool rows seen mid-turn (the first row's tool name and input), the one stored `lead` message (with the message rows) and the cleared live view. Screenshots `live-midturn.png` (tool rows under `LEAD is working...`; the label is the running role in capitals, `ARCHITECT is working...` in a team) and `live-final.png`.
@@ -84,6 +87,7 @@ REEF_VERIFY_RUN=<id> $H ui board
 
 - **inspector.** Needs the team `full` (see above). Adds a project and feature, starts a `full` channel, sends `Say ok in one word.` to the lead, then `@developer Use the Write tool to create the file d.txt containing the word yes. Then reply done.` to wake the developer directly. Opens the Inspector panel and reads `GET /channels/{id}/inspector`: checks the lead and developer blocks show the turn count and input tokens the API reports, expands the developer block and its one turn, and reads its prompt and its Write tool call's name and result in the panel. Screenshots `inspector-panel.png`, `inspector-turn-open.png`.
 - **review.** Needs the team `full` (see above). Adds a project and feature and a `full` channel, sends `@developer ...` twice (each wakes the developer directly and writes a file, `new.txt` then `d.txt`), so the developer owns two top-level messages, the second its latest thread. Opens the feature page, clicks the Diff panel's `new.txt:1` and `d.txt:1` lines, types a comment in each and clicks Add comment, then Send to developer. Checks the comment list (`new.txt:1 — ...`, `d.txt:1 — ...`) before sending, then: the channel has one new `user` message with both `path:line` lines, its `parentId` is the developer's latest top-level message, a `turn` row for `developer` appears after the send (the message matches no recorded scenario, so it is found by polling `turn`, not by `workingAs`), and the comment list and Send button are gone. Screenshots `review-diff.png`, `review-comments.png`, `review-sent.png`.
+- **workshop.** Needs the team `full` (see above). Sets the developer role's `mcpServers` directly in SQLite (the window never writes them), opens `/teams`, picks `full` and edits the developer's persona, adding a marker word, then Save: checks the role row's `persona` updated and its `mcpServers` stayed the same. Checks architect's Lead box to make two leads and Save: the same `invalid: ... needs exactly one lead role, has 2` text `reef team apply` gives. Unchecks it, sets the architect's backend to `gemini` and Save: the same `backend must be claude or codex` text. Puts the backend back and saves, types a name in "New team name" and clicks Copy as new team: the new team's button appears and the `team` table has a row for it. Starts a fresh `full` channel, sends `@developer Say ok in one word.` to wake it for the first time, and reads the stored `turn.prompt`: it carries the marker, so the developer's next wake used the new persona. Screenshots `workshop-persona-edited.png`, `workshop-persona-saved.png`, `workshop-two-leads-error.png`, `workshop-bad-backend-error.png`, `workshop-copied.png`.
 
 - **board.** Adds two projects, each with a feature, and a task on the tasks page for each. Clicks Board, reads both tasks under Todo and the `view=board` URL, then filters by the first task's project and feature and checks the other task is gone from the board. Dispatches a native drag of the first task's card into the Doing column (`dragstart`/`dragover`/`drop` with a `DataTransfer`, since a simulated mouse gesture does not trigger the draggable attribute headless) and reads the task's `doing` status back from SQLite, then reloads and checks the card is still under Doing. Picks `done` from the card's move select and reads `done` back from SQLite. Screenshots `board-columns.png`, `board-dragged.png`, `board-moved-with-select.png`.
 

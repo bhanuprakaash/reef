@@ -307,13 +307,14 @@ REEF_VERIFY_RUN=<id> $H ui memory    # home page editor saves a project's memory
 REEF_VERIFY_RUN=<id> $H ui inspector # full team: lead then developer turns, Inspector panel role blocks match the API, a developer turn expands to its prompt and a tool call
 REEF_VERIFY_RUN=<id> $H ui review    # Diff panel comments send as one message to the developer's latest thread
 REEF_VERIFY_RUN=<id> $H ui board      # tasks page board view, drag a card between columns, project and feature filters apply
+REEF_VERIFY_RUN=<id> $H ui workshop  # /teams page edits a role's persona, keeps its mcpServers, shows reef team apply's errors, copies a team, next developer wake uses the new persona
 ```
 
 `teams` needs the teams `duo` and `gated` (and `inbox` needs `gated`) applied to the `ui` folder first: run
 `$H reef --data-name ui -- team apply FILE.json` for each before `serve-start --data-name ui` (the
 files are in `features/teams.md`). `inbox` counts every item of the server, so run it first, or
-on a folder of its own (`--data-name inbox`, with `gated` applied). `inspector` and `review` need the team
-`full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"`.
+on a folder of its own (`--data-name inbox`, with `gated` applied). `inspector`, `review` and `workshop`
+need the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"`.
 
 Each scenario adds a project on the scratch cwd and makes it a git repo with one commit when it
 is not one, because a channel on a feature runs in a git worktree. Its feature slug gets a
@@ -499,7 +500,7 @@ claude, above).
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |
