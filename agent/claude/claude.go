@@ -226,6 +226,9 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 	if len(cfg.Tools) > 0 {
 		args = append(args, "--allowedTools", strings.Join(cfg.Tools, ","))
 	}
+	if len(cfg.DisallowedTools) > 0 {
+		args = append(args, "--disallowedTools", strings.Join(cfg.DisallowedTools, ","))
+	}
 	args = append(args, extra...)
 
 	cmd := exec.Command("claude", args...)

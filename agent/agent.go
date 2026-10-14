@@ -31,11 +31,12 @@ type Agent interface {
 
 // Config is how a session starts.
 type Config struct {
-	Cwd            string
-	PermissionMode string               // backend-specific value, passed through
-	Tools          []string             // tools allowed without asking; codex ignores it
-	MCPServers     map[string]MCPServer // extra MCP servers, by name
-	Env            []string             // extra "KEY=value" on top of os.Environ
+	Cwd             string
+	PermissionMode  string               // backend-specific value, passed through
+	Tools           []string             // tools allowed without asking; codex ignores it
+	DisallowedTools []string             // tools denied whatever settings allow; codex ignores it
+	MCPServers      map[string]MCPServer // extra MCP servers, by name
+	Env             []string             // extra "KEY=value" on top of os.Environ
 }
 
 // MCPServer is a stdio server (Command) or an HTTP server (URL).

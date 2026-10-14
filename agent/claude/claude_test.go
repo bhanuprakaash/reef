@@ -427,6 +427,18 @@ func TestToolsAllowed(t *testing.T) {
 	}
 }
 
+func TestToolsDisallowed(t *testing.T) {
+	a := fakeClaude(t, "argv")
+	cfg := agent.Config{Cwd: t.TempDir(), DisallowedTools: []string{"Edit", "Write"}}
+	if err := a.Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	got := collect(t, drain(a))
+	if len(got) != 1 || !strings.Contains(got[0].Output, " --disallowedTools Edit,Write") {
+		t.Errorf("events = %+v", got)
+	}
+}
+
 func TestMCPServerNameRejected(t *testing.T) {
 	a := fakeClaude(t, "argv")
 	cfg := agent.Config{
