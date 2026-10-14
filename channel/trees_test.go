@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"errors"
 	"slices"
 	"testing"
 	"time"
@@ -57,7 +58,7 @@ func newTreeRig(t *testing.T, st *store.Store) *treeRig {
 		t.Fatal(err)
 	}
 	return &treeRig{
-		st: st, dir: t.TempDir(), trees: NewTrees(), errs: make(chan error, 8),
+		st: st, dir: t.TempDir(), trees: NewTrees(t.TempDir()), errs: make(chan error, 8),
 		started: make(chan string, 8),
 		gates: map[string]chan struct{}{
 			"a/developer": make(chan struct{}), "a/tester": make(chan struct{}),
@@ -224,4 +225,71 @@ func TestSession_StopEndsTheWaitForATree(t *testing.T) {
 		t.Errorf("failed turns = %q, want %q", got, want)
 	}
 	r.finish(t, "a/developer")
+}
+
+func TestTrees_ShareLocksAcrossInstancesOfOneDataFolder(t *testing.T) {
+	dataDir := t.TempDir()
+	a, b := NewTrees(dataDir), NewTrees(dataDir)
+	unlock, err := a.Lock(context.Background(), "/tree")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("a writer in the other instance waits until ctx ends", func(t *testing.T) {
+		ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+		defer cancel()
+		if _, err := b.Lock(ctx, "/tree"); !errors.Is(err, context.DeadlineExceeded) {
+			t.Errorf("Lock error = %v, want %v", err, context.DeadlineExceeded)
+		}
+	})
+	t.Run("another tree is free", func(t *testing.T) {
+		unlock, ok := b.TryLock("/other")
+		if !ok {
+			t.Fatal("TryLock(/other) = false, want true")
+		}
+		unlock()
+	})
+	t.Run("the writer goes on when the lock is freed", func(t *testing.T) {
+		got := make(chan error, 1)
+		go func() {
+			unlock, err := b.Lock(context.Background(), "/tree")
+			if err == nil {
+				unlock()
+			}
+			got <- err
+		}()
+		unlock()
+		select {
+		case err := <-got:
+			if err != nil {
+				t.Errorf("Lock error = %v, want nil", err)
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("Lock still waits after the holder let go")
+		}
+	})
+}
+
+func TestTrees_ReadersDoNotBlockWritersButStopTryLock(t *testing.T) {
+	dataDir := t.TempDir()
+	a, b := NewTrees(dataDir), NewTrees(dataDir)
+	endRead := a.Read("/tree")
+
+	unlock, err := b.Lock(context.Background(), "/tree")
+	if err != nil {
+		t.Fatalf("Lock with a reader in the other instance: %v", err)
+	}
+	unlock()
+	if _, ok := b.TryLock("/tree"); ok {
+		t.Error("TryLock with a reader in the other instance = true, want false")
+	}
+	endRead()
+	unlock, ok := b.TryLock("/tree")
+	if !ok {
+		t.Fatal("TryLock after the reader ended = false, want true")
+	}
+	if _, ok := a.TryLock("/tree"); ok {
+		t.Error("TryLock while the other instance holds the tree = true, want false")
+	}
+	unlock()
 }

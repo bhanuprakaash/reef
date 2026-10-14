@@ -298,8 +298,8 @@ the role's own `mcpServers`. Claude runs the reef tools without approval; the ro
 servers need their tools in `tools` (see [agents.md](agents.md#gotchas)).
 So a `reef chat` on a feature needs the project to be a git repo with a commit. Like `reef
 serve`, it takes a checkpoint before each turn of a role with `write` (the `solo` lead has
-it). The one-writer lock of a tree lives in one process, so a `reef chat` and `reef serve` on
-the same tree do not wait for each other.
+it). The one-writer lock of a tree is a file lock in the data folder, so a `reef chat` and
+`reef serve` on the same tree wait for each other.
 `reef chat` starts the lead at once (`Session.Start`), before the first line is read, so an
 agent that does not start fails the command at the start. In `reef serve` the lead starts at
 its first turn: a first message that goes to a specialist starts no lead.
