@@ -99,6 +99,10 @@ file. `reef team apply FILE.json` stores it, and a channel picks it by name (`te
 `reef chat` is in `solo`. When resuming, `reef chat` allows teams with one role and refuses
 teams with multiple roles; use the Reef window (`reef serve`) for those teams.
 
+`teams/full.json` in the repo is a four-role team: `lead`, `architect`, `developer` (the only
+role with `write`) and `tester`, all on `claude`, with the default gates. Apply it with
+`reef team apply teams/full.json`.
+
 ```json
 {
   "name": "duo",
