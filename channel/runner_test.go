@@ -306,6 +306,38 @@ func TestRunner_SendCancelledAfterMessageStoresTurn(t *testing.T) {
 	}
 }
 
+func TestRunner_RunCancelledBeforeSend(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8), script: []agent.Event{{Kind: agent.KindTurnEnd}},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	ctx, cancel := context.WithCancel(bg)
+	cancel()
+
+	if err := r.Run(ctx, "hi", func(agent.Event) {}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context canceled", err)
+	}
+	if len(sa.events) != 0 || sa.interrupted != 0 {
+		t.Errorf("events left = %d, interrupts = %d, want the agent untouched",
+			len(sa.events), sa.interrupted)
+	}
+	turns, err := st.Turns(bg, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Error != "interrupted" {
+		t.Errorf("turns = %+v, want one failed interrupted turn", turns)
+	}
+}
+
 func TestRunner_SendToolCapIs25(t *testing.T) {
 	tests := []struct {
 		name    string
