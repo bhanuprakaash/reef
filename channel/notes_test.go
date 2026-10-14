@@ -62,20 +62,24 @@ func TestRunner_NotesReachARetry(t *testing.T) {
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
 	r := NewRunner(st, ag, ch.ID, "developer", "claude", "")
-	const wake = "[channel 1, message 1]\nlead wrote: @developer go"
+
+	if err := r.Run(ctx, "[channel 1, message 1]\nlead wrote: @developer go", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	reefNote(t, st, ch.ID, "Rolled back to before turn 1.")
+	const retryWake = "[channel 1, message 2]\nlead wrote: @developer again"
 	failed, err := st.CreateTurn(ctx, store.Turn{
-		ChannelID: ch.ID, Role: "developer", Backend: "claude", WakeText: wake,
+		ChannelID: ch.ID, Role: "developer", Backend: "claude", WakeText: retryWake,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	failed.Status, failed.Error = "failed", "server restarted"
+	failed.Status, failed.Error = "failed", "stopped waiting for the tree"
 	if _, err := st.EndTurn(ctx, failed); err != nil {
 		t.Fatal(err)
 	}
-	reefNote(t, st, ch.ID, "Rolled back to before turn 1.")
 
-	if err := r.Run(ctx, wake, nil, discard); err != nil {
+	if err := r.Run(ctx, retryWake, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.Run(ctx, "[channel 1, message 3]\nnext", nil, discard); err != nil {
@@ -83,11 +87,37 @@ func TestRunner_NotesReachARetry(t *testing.T) {
 	}
 
 	want := []string{
-		"[channel 1, message 1]\nreef wrote: Rolled back to before turn 1.\n\nlead wrote: @developer go",
+		"[channel 1, message 1]\nlead wrote: @developer go",
+		"[channel 1, message 2]\nreef wrote: Rolled back to before turn 1.\n\n" +
+			"lead wrote: @developer again",
 		"[channel 1, message 3]\nnext",
 	}
 	if !slices.Equal(ag.prompts, want) {
-		t.Errorf("prompts = %q, want %q", ag.prompts, want)
+		t.Errorf("prompts = %q, want %q: the turn that failed before it sent does not move since", ag.prompts, want)
+	}
+}
+
+func TestRunner_PreambleKeepsNotes(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionChannel(t, st, f, false)
+	ag := newRecordingAgent()
+	// An earlier session of the role already sent a turn.
+	prior := NewRunner(st, ag, ch.ID, "developer", "claude", "")
+	if err := prior.Run(ctx, "[channel 1, message 1]\nlead wrote: @developer go", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	reefNote(t, st, ch.ID, "Rolled back to before turn 1.")
+
+	r := NewRunner(st, ag, ch.ID, "developer", "claude", "CONTEXT")
+	if err := r.Run(ctx, "[channel 1, message 2]\nlead wrote: @developer again", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "CONTEXT\n\n[channel 1, message 2]\nreef wrote: Rolled back to before turn 1.\n\n" +
+		"lead wrote: @developer again"
+	if got := ag.prompts[len(ag.prompts)-1]; got != want {
+		t.Errorf("prompt = %q, want %q: the preamble must not drop the notes", got, want)
 	}
 }
 
