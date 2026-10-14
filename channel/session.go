@@ -172,7 +172,11 @@ func (s *Session) run(
 	}
 	unlock, err := s.trees.Lock(ctx, m.dir)
 	if err != nil {
-		ferr := s.failTurn(ctx, m.run.role, m.run.backend, "interrupted", m.run.wake(text), parent)
+		reason := err.Error()
+		if ctx.Err() != nil {
+			reason = "interrupted"
+		}
+		ferr := s.failTurn(ctx, m.run.role, m.run.backend, reason, m.run.wake(text), parent)
 		return errors.Join(err, ferr)
 	}
 	defer unlock()
