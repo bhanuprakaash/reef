@@ -7,6 +7,7 @@ import { ApprovalRows } from '@/modules/channels/components/approval-rows';
 import { CheckpointRows } from '@/modules/channels/components/checkpoint-rows';
 import { Composer } from '@/modules/channels/components/composer';
 import { FailedTurnRows } from '@/modules/channels/components/failed-turn-rows';
+import { InspectorPanel } from '@/modules/channels/components/inspector-panel';
 import { LiveTurn } from '@/modules/channels/components/live-turn';
 import { MessageList } from '@/modules/channels/components/message-list';
 import { PausedBanner } from '@/modules/channels/components/paused-banner';
@@ -31,6 +32,7 @@ export function ChannelView({ channel, scope, features }: Props) {
   const end = useRef<HTMLDivElement>(null);
   const running = turn.status === 'running';
   const [threadId, setThreadId] = useState<number | null>(null);
+  const [showInspector, setShowInspector] = useState(false);
   const threads = groupThreads(messages.data ?? []);
   const thread = threads.find((t) => t.root.id === threadId);
 
@@ -53,16 +55,21 @@ export function ChannelView({ channel, scope, features }: Props) {
               {channel.permissionMode && ` (${channel.permissionMode})`} · {scope}
             </p>
           </div>
-          {channel.featureId !== null && (
-            <button
-              type="button"
-              className={buttonClass}
-              disabled={running || wrap.isPending || blocksUser(channel.paused)}
-              onClick={() => wrap.mutate()}
-            >
-              Wrap up
+          <div className="flex gap-2">
+            <button type="button" className={buttonClass} onClick={() => setShowInspector(true)}>
+              Inspector
             </button>
-          )}
+            {channel.featureId !== null && (
+              <button
+                type="button"
+                className={buttonClass}
+                disabled={running || wrap.isPending || blocksUser(channel.paused)}
+                onClick={() => wrap.mutate()}
+              >
+                Wrap up
+              </button>
+            )}
+          </div>
         </header>
         {channel.featureId === null && (
           <PromoteForm channel={channel} features={features} disabled={running} />
@@ -92,6 +99,9 @@ export function ChannelView({ channel, scope, features }: Props) {
           paused={blocksUser(channel.paused)}
           onClose={() => setThreadId(null)}
         />
+      )}
+      {showInspector && (
+        <InspectorPanel channelId={channel.id} onClose={() => setShowInspector(false)} />
       )}
     </div>
   );

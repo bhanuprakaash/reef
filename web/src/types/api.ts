@@ -133,6 +133,43 @@ export type FileDiff = {
   hunks: DiffHunk[];
 };
 
+export type Usage = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+};
+
+export type InspectorToolCall = {
+  name: string;
+  input: string;
+  result: string;
+};
+
+export type InspectorTurn = {
+  id: number;
+  role: string;
+  startedAt: string;
+  status: string;
+  model: string;
+  usage: Usage;
+  costUsd: number | null;
+  prompt: string;
+  toolCalls: InspectorToolCall[];
+};
+
+export type InspectorRole = {
+  role: string;
+  turns: number;
+  usage: Usage;
+  costUsd: number | null;
+};
+
+export type Inspector = {
+  roles: InspectorRole[];
+  turns: InspectorTurn[];
+};
+
 export type TaskStatus = 'todo' | 'doing' | 'done';
 
 export type Task = {
