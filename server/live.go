@@ -446,35 +446,6 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func writeFrames(w io.Writer, frames []frame) error {
-	for _, f := range frames {
-		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", f.event, f.data); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func newFrame(event string, v any) (frame, bool) {
-	data, err := json.Marshal(v)
-	if err != nil {
-		log.Printf("encode %s event: %v", event, err)
-		return frame{}, false
-	}
-	return frame{event: event, data: data}, true
-}
-
-// publishLocked never waits for a subscriber.
-func (l *live) publishLocked(event string, v any) {
-	f, ok := newFrame(event, v)
-	if !ok {
-		return
-	}
-	l.frames = append(l.frames, f)
-	close(l.wake)
-	l.wake = make(chan struct{})
-}
-
 func (s *server) close() {
 	s.mu.Lock()
 	if s.closed {
@@ -506,4 +477,33 @@ func (s *server) close() {
 		})
 	}
 	wg.Wait()
+}
+
+// publishLocked never waits for a subscriber.
+func (l *live) publishLocked(event string, v any) {
+	f, ok := newFrame(event, v)
+	if !ok {
+		return
+	}
+	l.frames = append(l.frames, f)
+	close(l.wake)
+	l.wake = make(chan struct{})
+}
+
+func writeFrames(w io.Writer, frames []frame) error {
+	for _, f := range frames {
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", f.event, f.data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func newFrame(event string, v any) (frame, bool) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("encode %s event: %v", event, err)
+		return frame{}, false
+	}
+	return frame{event: event, data: data}, true
 }
