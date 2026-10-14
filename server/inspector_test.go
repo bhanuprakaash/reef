@@ -63,3 +63,38 @@ func TestGetInspector(t *testing.T) {
 		t.Errorf("unknown channel: status = %d, body = %s", status, body)
 	}
 }
+
+func TestGetInspectorNullCostForCodex(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	h := New(st, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"c","backend":"codex"}`)
+	if _, err := st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "developer", Backend: "codex"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EndTurn(ctx, store.Turn{
+		ID: 1, Status: "done", Model: "gpt-6-codex", Prompt: "do it",
+		Usage: agent.Usage{InputTokens: 10, OutputTokens: 20},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodGet, ts.URL+"/channels/1/inspector", "")
+	if status != 200 {
+		t.Fatalf("status = %d, body = %s", status, body)
+	}
+	wantRole := `"roles":[{"role":"developer","turns":1,"usage":{"inputTokens":10,"outputTokens":20,` +
+		`"cacheReadTokens":0,"cacheWriteTokens":0},"costUsd":null}]`
+	if !strings.Contains(body, wantRole) {
+		t.Errorf("body = %s, want it to contain %s", body, wantRole)
+	}
+}
