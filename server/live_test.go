@@ -256,9 +256,14 @@ func subscribe(t *testing.T, url string) *stream {
 
 func subscribeTo(t *testing.T, url string, id int) *stream {
 	t.Helper()
+	return subscribePath(t, fmt.Sprintf("%s/channels/%d/events", url, id))
+}
+
+func subscribePath(t *testing.T, url string) *stream {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/channels/%d/events", url, id), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -375,6 +375,8 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `GET /turns/{id}` | | 200 | 404 |
 | `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId`. With no `status`, only `sessionId` is set and the turn stays `running` | 200 | 400 bad status, negative usage, empty `sessionId` without a status, `error` or `usage` without a status, or already ended; 404 |
 | `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not failed, retried already, no `wakeText`, or as send for a channel with a turn running or paused, 503 |
+| `GET /inbox` | | 200 the items waiting on the user, newest first; `[]` when none. See [Inbox](#inbox) | |
+| `GET /inbox/events` | | 200 `text/event-stream` | |
 | `GET /decisions` | `?feature=ID` (required) | 200 | 400 no feature, 404 unknown feature |
 | `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field, unknown feature, or a message of another feature |
 | `GET /decisions/{id}` | | 200 | 404 |
@@ -562,6 +564,39 @@ data: {"id":1,"channelId":5,"from":"lead","to":"architect","messageId":28,"text"
 
 event: turn
 data: {"role":"lead","status":"done"}
+```
+
+### Inbox
+
+`GET /inbox` lists what waits on the user in every channel. It is read from the rows of
+approvals, channels, turns and messages, so it has no table and a restart keeps it. Each
+item has `kind`, `channelId`, `featureId` (null for a quick session), `text` and `at`, and the
+id to act with:
+
+| `kind` | Listed while | `text` | Also has | Cleared by |
+| --- | --- | --- | --- | --- |
+| `approval` | a gate holds a wake: a pending [approval](#approval) | `lead wants to wake architect` | `approvalId` | approve or reject |
+| `paused` | the channel's `paused` is not empty | the reason: hop cap, tool cap, token budget or a routing or store failure | | `continue`, or a user message after a hop cap pause |
+| `failed` | a `failed` turn kept a wake, is not `retried` and no later turn of its role ran in the channel | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
+| `waiting` | the channel's newest message is from an agent (not `user` or `reef`) and woke nobody: no wake held at a gate for it, no turn running, no other item for the channel | the first 200 characters of that message | | any new message, such as a send |
+
+`at` is the time of the approval, of the failed turn's end, of the message, and for `paused`
+the end of the channel's newest turn. A channel that has a chain running lists no `waiting`
+item, since the chain is not over. Rejecting a gate is a decision, so the message it held is
+not `waiting`. A hold of a pause is not an item of its own: its channel is `paused`.
+
+`GET /inbox/events` is one Server-Sent Events stream for all channels, with a
+`: keepalive` every 15 seconds. Its only event is `inbox`, whose data is the whole list as
+`GET /inbox` returns it. The first one comes when the stream connects; after that one comes each
+time the list differs from the last one sent. The list is read again after every event of every
+channel (turn, agent, pause, approval), when a chain ends, and after every request that is not a
+`GET`, since a reject, a delete or a `POST /messages` can change it with no channel event. A change
+a `reef` process makes straight in the database shows at the next keepalive tick at the latest.
+When the server stops, a stream sends the last list and ends.
+
+```
+event: inbox
+data: [{"kind":"approval","channelId":5,"featureId":2,"text":"lead wants to wake architect","at":"2026-10-14T09:00:10.123456Z","approvalId":1}]
 ```
 
 ## Wrap-up and promotion
