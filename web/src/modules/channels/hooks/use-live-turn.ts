@@ -36,6 +36,7 @@ export function useLiveTurn(channelId: number): LiveTurn {
       if (data.status === 'done') {
         void refresh().then(() => dispatch('clear'));
         void queryClient.invalidateQueries({ queryKey: ['proposal', channelId] });
+        void queryClient.invalidateQueries({ queryKey: ['turns', channelId] });
       } else if (data.status === 'failed') {
         void refresh();
         void queryClient.invalidateQueries({ queryKey: ['turns', channelId] });

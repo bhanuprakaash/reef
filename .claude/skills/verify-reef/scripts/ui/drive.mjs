@@ -1,18 +1,18 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -317,6 +317,65 @@ async function retry() {
   await shot('retried');
   const turns = sql(`select id||' '||role||' '||status||' retried='||retried from turn where channel_id=${cid} order by id`);
   check(/^\d+ lead failed retried=1\n\d+ lead done retried=0$/.test(turns), 'Retry runs the failed wake as a new turn that ends done', turns);
+}
+
+async function rollback() {
+  const git = (dir, ...args) =>
+    execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+  try {
+    git(projectDir, 'rev-parse', 'HEAD');
+  } catch {
+    git(projectDir, 'init', '-q', '-b', 'main');
+    writeFileSync(path.join(projectDir, 'README.md'), 'hello\n');
+    git(projectDir, 'add', '.');
+    git(projectDir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'first');
+  }
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const cid = await newChannel(main, 'New channel', 'rollback chat');
+  const tree = path.join(data, 'worktrees', sql(`select project_id from channel where id=${cid}`), 'login');
+  const state = () => [git(tree, 'rev-parse', 'HEAD'), git(tree, 'status', '--porcelain'), git(tree, 'log', '--oneline'), git(tree, 'ls-files')].join('\n--\n');
+
+  await exchange('Say hello.');
+  writeFileSync(path.join(tree, 'mine.txt'), 'my notes\n');
+  const before = state();
+  await send('Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.');
+  await working();
+  await idle();
+  git(tree, 'add', '-A');
+  git(tree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'by the turn');
+  const turnId = sql(`select id from turn where channel_id=${cid} order by id desc limit 1`);
+  const list = main.getByRole('region', { name: 'Checkpoints' });
+  await list.getByText(`Before turn ${turnId} by lead`).waitFor({ timeout: 15000 });
+  await shot('checkpoints');
+  check(
+    git(tree, 'log', '--oneline').includes('by the turn') && (await list.getByRole('button', { name: 'Rollback' }).count()) === 2,
+    'two turns have a Rollback button and the turn left a commit and new.txt',
+    `files: ${git(tree, 'ls-files')}; log:\n${git(tree, 'log', '--oneline')}`,
+  );
+  let asked = '';
+  page.once('dialog', (d) => {
+    asked = d.message();
+    d.accept();
+  });
+  await list.getByRole('listitem').filter({ hasText: `Before turn ${turnId} by` }).getByRole('button', { name: 'Rollback' }).click();
+  await page.getByText(`Rolled back to before turn ${turnId}.`).waitFor({ timeout: 15000 });
+  await shot('rolled-back');
+  check(asked.includes(`Roll back to before turn ${turnId}?`), 'Rollback asks to confirm', asked);
+  const after = state();
+  check(after === before, 'HEAD, status, log and files are as before the turn', `before:\n${before}\nafter:\n${after}`);
+  check(
+    !existsSync(path.join(tree, 'new.txt')) && existsSync(path.join(tree, 'mine.txt')),
+    'new.txt is gone and mine.txt is back',
+    `ls: ${readdirSync(tree).filter((f) => f !== '.git').join(' ')}`,
+  );
+  check(
+    sql(`select count(*) from message where channel_id=${cid} and author='reef' and body='Rolled back to before turn ${turnId}.'`) === '1',
+    'the channel has the note from reef',
+  );
+  await exchange('Did anything change in the files since your last answer? Answer in one sentence.');
+  const wake = sql(`select wake_text from turn where channel_id=${cid} order by id desc limit 1`);
+  check(wake.includes(`reef wrote: Rolled back to before turn ${turnId}.`), 'the next turn was told of the rollback', wake);
 }
 
 async function wrap() {

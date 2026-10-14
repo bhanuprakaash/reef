@@ -59,7 +59,9 @@ folder), then a feature, then a channel. A channel's agent is the `claude` or `c
 logged in and on `PATH`. The new channel form picks a team from `GET /teams`. Each message
 shows its author, replies are folded under their thread root with a count, and a thread
 opens in a pane where you can reply. The running turn names its teammate. A wake held at a gate
-shows Approve and Reject, and a pause from the hop cap shows in the cap banner.
+shows Approve and Reject, and a pause from the hop cap shows in the cap banner. A channel
+with checkpointed turns has a Checkpoints list; Rollback on a row asks to confirm, then does
+`POST /turns/{id}/rollback`.
 
 Client routes such as `/features/3` and `/tasks` have the same paths as the REST API. In the Go server, `GET /` and `HEAD /` always get the app's `index.html`; other `GET` or `HEAD` requests get it when the `Accept` header includes `text/html`. Every other request goes to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`) are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
 
@@ -76,7 +78,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
-| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; `retry` of a turn that is not failed or was retried, or on a channel with a turn running or paused; an approval that is not pending, or one approved while a turn runs or the channel is paused |
+| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; `retry` of a turn that is not failed or was retried, or on a channel with a turn running or paused; `rollback` on a channel with a turn running or a tree a write turn holds; an approval that is not pending, or one approved while a turn runs or the channel is paused |
 | 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
 | 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
@@ -377,6 +379,7 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not failed, retried already, no `wakeText`, or as send for a channel with a turn running or paused, 503 |
 | `GET /inbox` | | 200 the items waiting on the user, newest first; `[]` when none. See [Inbox](#inbox) | |
 | `GET /inbox/events` | | 200 `text/event-stream` | |
+| `POST /turns/{id}/rollback` | no body needed | 204, no body; the channel's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the channel has a turn running or a write turn runs on the tree, 503 |
 | `GET /decisions` | `?feature=ID` (required) | 200 | 400 no feature, 404 unknown feature |
 | `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field, unknown feature, or a message of another feature |
 | `GET /decisions/{id}` | | 200 | 404 |
@@ -426,7 +429,8 @@ a message wakes them.
   `refs/reef/checkpoints/<turn id>`. It is built in a temporary index, so the index, HEAD and
   the files do not change. The ref is on the turn's `checkpoint`. If the checkpoint fails (for
   example a repo with no commit), the turn is stored `failed` with git's error and the agent
-  gets no prompt. A role without `write` gets none.
+  gets no prompt. A role without `write` gets none. The checkpoint commit has two parents:
+  HEAD, then a commit of the index as it was, so a rollback can bring back what was staged.
 - One write turn at a time runs on a tree, across all channels of the server: the feature's
   worktree, or the project path for quick sessions. A wake of a role with `write` waits for
   the write turn that runs on its tree, then runs. Its turn row is created when it starts, so
@@ -434,6 +438,17 @@ a message wakes them.
   stored `failed` as `interrupted`. A role without `write` is not held, and the first start
   of a feature's worktree takes a lock of its own, so two channels waking at once add it once.
   The lock lives in the server's process: `reef chat` in another process is not held by it.
+- `POST /turns/{id}/rollback` puts the channel's tree (the feature's worktree, or the project
+  path of a quick session) back as the turn's checkpoint saw it: the branch is reset to the
+  HEAD it had, so commits made since are dropped from it; tracked and untracked files get the
+  content they had, the same changes are staged, and files made since are removed. Ignored
+  files are left alone. It claims the channel like a send, and takes the tree's write lock
+  without waiting, so it is 409 while the channel has a turn running or a write turn of any
+  channel runs on the tree. A turn with no `checkpoint` is 400. Then `reef` posts `Rolled back
+  to before turn N.` in the channel. The agent's session is not rewound. The next wake of
+  each role that has run before in the channel starts with the lines `reef wrote: ...` that
+  `reef` posted since that role's last turn began, so the role learns of the rollback (and of
+  a restart failure note); a role that never ran gets none.
 - The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session.

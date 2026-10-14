@@ -180,7 +180,7 @@ func newLiveEnv(t *testing.T) *liveEnv {
 
 func (e *liveEnv) serve(t *testing.T) {
 	t.Helper()
-	e.h = newHandler(e.st, func(ctx context.Context, id int64) (session, error) {
+	e.h = newHandler(e.st, e.dir, channel.NewTrees(), func(ctx context.Context, id int64) (session, error) {
 		e.opened.Add(1)
 		e.fake.channelID.Store(id)
 		if e.open != nil {
@@ -842,7 +842,7 @@ func TestSend_OpenErrors(t *testing.T) {
 			if _, err := st.CreateChannel(context.Background(), store.Channel{ProjectID: 1, Name: "chat"}); err != nil {
 				t.Fatal(err)
 			}
-			h := newHandler(st, func(context.Context, int64) (session, error) { return nil, tt.giveErr })
+			h := newHandler(st, "", channel.NewTrees(), func(context.Context, int64) (session, error) { return nil, tt.giveErr })
 			t.Cleanup(h.Close)
 			ts := httptest.NewServer(h)
 			t.Cleanup(ts.Close)

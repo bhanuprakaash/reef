@@ -79,6 +79,7 @@ export type Turn = {
   error: string;
   wakeText: string;
   retried: boolean;
+  checkpoint: string | null;
 };
 
 export type Team = {
