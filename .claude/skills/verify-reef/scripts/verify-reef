@@ -17,6 +17,8 @@ usage: verify-reef build
        REEF_VERIFY_RUN=ID verify-reef reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A | --sigint-at-prompt]] [--timeout S] -- REEF_ARGS...
        REEF_TOKEN=T REEF_VERIFY_RUN=ID verify-reef mcp-call TOOL [JSON]
        REEF_VERIFY_RUN=ID verify-reef ui live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox
+       REEF_VERIFY_RUN=ID verify-reef feature NAME
+       REEF_VERIFY_RUN=ID verify-reef real
        REEF_VERIFY_RUN=ID verify-reef cleanup
 EOF
 	exit 2
@@ -39,8 +41,22 @@ load_run() {
 	EV="$EVIDENCE_ROOT/$REEF_VERIFY_RUN"
 	BIN="$SCR/bin/reef-agent"
 	REEF_BIN="$SCR/bin/reef"
+	FAKE_BIN="$SCR/fake/claude"
 	CWD="$SCR/cwd"
 	[ -d "$EV" ] || fail "no evidence dir $EV; run build first"
+}
+
+# fake_claude_setup: in fake or record mode (REEF_VERIFY_CLAUDE, default fake), put the
+# fake claude first on PATH and point it at its recordings and log, for a command that may
+# start claude. Real mode leaves PATH alone.
+fake_claude_setup() {
+	case "${REEF_VERIFY_CLAUDE:-fake}" in
+	fake | record)
+		export PATH="$SCR/fake:$PATH"
+		export REEF_FAKE_RECORDINGS="$REPO/.claude/skills/verify-reef/fake/recordings"
+		export REEF_FAKE_LOG="$EV/fake-claude.log"
+		;;
+	esac
 }
 
 # lim CMD...: run CMD with a 20 s limit, so a hung CLI is a failed check, not a hang.
@@ -74,14 +90,16 @@ cmd_build() {
 	id="${REEF_VERIFY_RUN:-$(date +%Y%m%d-%H%M%S)-$$}"
 	scr="$SCRATCH_ROOT/$id"
 	ev="$EVIDENCE_ROOT/$id"
-	mkdir -p "$scr/bin" "$scr/cwd" "$ev" || exit 1
-	(cd "$REPO" && go build -o "$scr/bin/reef-agent" ./cmd/reef-agent && go build -o "$scr/bin/reef" ./cmd/reef) || fail "go build failed"
+	mkdir -p "$scr/bin" "$scr/cwd" "$scr/fake" "$ev" || exit 1
+	(cd "$REPO" && go build -o "$scr/bin/reef-agent" ./cmd/reef-agent && go build -o "$scr/bin/reef" ./cmd/reef &&
+		go build -o "$scr/fake/claude" ./.claude/skills/verify-reef/fake) || fail "go build failed"
 	{
 		echo "repo=$REPO"
 		echo "head=$(git -C "$REPO" rev-parse HEAD)"
 		echo "dirty=$(git -C "$REPO" status --porcelain | wc -l | tr -d ' ') files"
 		echo "binary=$scr/bin/reef-agent"
 		echo "reef_binary=$scr/bin/reef"
+		echo "fake_binary=$scr/fake/claude"
 		echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 	} >"$ev/build.txt"
 	echo "$id"
@@ -95,20 +113,25 @@ cmd_doctor() {
 	}
 	{
 		v=$(lim go version 2>&1); check go "$([ $? = 0 ] && echo 1)" "$v"
-		v=$(lim claude --version 2>&1); check claude "$([ $? = 0 ] && echo 1)" "$v"
-		v=$(lim codex --version 2>&1); check codex "$([ $? = 0 ] && echo 1)" "$v"
-		v=$(lim claude auth status 2>/dev/null | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print(d.get("loggedIn"), d.get("authMethod"))' 2>&1)
-		check claude-auth "$([ "${v%% *}" = True ] && echo 1)" "$v"
-		v=$(lim codex login status 2>&1); check codex-auth "$([ $? = 0 ] && echo 1)" "$v"
-		v=$(command -v sqlite3); check sqlite3 "$([ -n "$v" ] && echo 1)" "${v:-not found}"
-		v=$(command -v curl); check curl "$([ -n "$v" ] && echo 1)" "${v:-not found}"
 		head=$(git -C "$REPO" rev-parse HEAD)
 		# Go stamps the outer repo's commit when built in a worktree nested in the checkout,
 		# so trust the HEAD that build recorded instead of vcs.revision.
 		rev=$(sed -n 's/^head=//p' "$EV/build.txt" 2>/dev/null)
+		if [ "${REEF_VERIFY_CLAUDE:-fake}" = fake ]; then
+			check claude-fake "$([ -x "$FAKE_BIN" ] && [ "$rev" = "$head" ] && echo 1)" "$FAKE_BIN built from ${rev:-unknown}, HEAD $head"
+		else
+			v=$(lim claude --version 2>&1); check claude "$([ $? = 0 ] && echo 1)" "$v"
+			v=$(lim claude auth status 2>/dev/null | python3 -I -c 'import json,sys; d=json.load(sys.stdin); print(d.get("loggedIn"), d.get("authMethod"))' 2>&1)
+			check claude-auth "$([ "${v%% *}" = True ] && echo 1)" "$v"
+		fi
+		v=$(lim codex --version 2>&1); check codex "$([ $? = 0 ] && echo 1)" "$v"
+		v=$(lim codex login status 2>&1); check codex-auth "$([ $? = 0 ] && echo 1)" "$v"
+		v=$(command -v sqlite3); check sqlite3 "$([ -n "$v" ] && echo 1)" "${v:-not found}"
+		v=$(command -v curl); check curl "$([ -n "$v" ] && echo 1)" "${v:-not found}"
 		check binary "$([ -x "$BIN" ] && [ "$rev" = "$head" ] && echo 1)" "$BIN built from ${rev:-unknown}, HEAD $head"
 		check reef "$([ -x "$REEF_BIN" ] && [ "$rev" = "$head" ] && echo 1)" "$REEF_BIN built from ${rev:-unknown}, HEAD $head"
 		check cwd "$([ -d "$CWD" ] && echo 1)" "$CWD"
+		echo "mode: REEF_VERIFY_CLAUDE=${REEF_VERIFY_CLAUDE:-fake}"
 		echo "model: ANTHROPIC_MODEL=${ANTHROPIC_MODEL:-<unset: claude picks its default>}"
 	} | tee "$out"
 	agent_pids >"$EV/pre-pids.txt"
@@ -182,6 +205,7 @@ print(" ".join(f"{k}={v}" for k, v in c.items()))' "$out")"
 
 cmd_run() {
 	load_run
+	fake_claude_setup
 	name="" stdin=/dev/null timeout=240
 	while [ $# -gt 0 ]; do
 		case $1 in
@@ -198,6 +222,7 @@ cmd_run() {
 
 cmd_interrupt() {
 	load_run
+	fake_claude_setup
 	name="" after=""
 	while [ $# -gt 0 ]; do
 		case $1 in
@@ -268,6 +293,7 @@ serve_alive() {
 
 cmd_serve_start() {
 	load_run
+	fake_claude_setup
 	name=data
 	while [ $# -gt 0 ]; do
 		case $1 in
@@ -288,6 +314,7 @@ cmd_serve_start() {
 	echo "$data" >"$SCR/serve.data"
 	log="$EV/serve.log"
 	echo "--- serve-start $(date -u +%Y-%m-%dT%H:%M:%SZ) addr=$addr data=$data" >>"$log"
+	echo "mode=${REEF_VERIFY_CLAUDE:-fake} claude=$(command -v claude)" >>"$log"
 	mark=$(wc -c <"$log" | tr -d ' ')
 	t0=$(now)
 	# The wrapper subshell outlives this call and records reef's exit code in serve.exit.
@@ -497,6 +524,7 @@ feed() {
 
 cmd_reef() {
 	load_run
+	fake_claude_setup
 	name="" stdin=/dev/null timeout=240 answer="" sigint=0 dir=$CWD
 	while [ $# -gt 0 ]; do
 		case $1 in
@@ -590,6 +618,7 @@ cmd_reef() {
 # REEF_TOKEN, list its tools and call one, as an MCP client would.
 cmd_mcp_call() {
 	load_run
+	fake_claude_setup
 	[ $# -ge 1 ] && [ $# -le 2 ] || usage
 	[ -x "$REEF_BIN" ] || fail "no binary $REEF_BIN; run build first"
 	[ -f "$SCR/serve.data" ] || fail "no data folder for this run; run reef or serve-start first"
@@ -651,6 +680,36 @@ cmd_ui() {
 	exit "${PIPESTATUS[0]}"
 }
 
+# feature NAME: run features/NAME.sh with H, REEF_VERIFY_RUN, E, S exported, tee its
+# output to feature-NAME.log, exit 1 if any line is FAIL.
+cmd_feature() {
+	load_run
+	[ $# -eq 1 ] || usage
+	name=$1
+	script="$REPO/.claude/skills/verify-reef/features/$name.sh"
+	[ -x "$script" ] || fail "no script $script"
+	[ -f "$EV/pre-pids.txt" ] || fail "run doctor first: it records the pre-run pids"
+	log="$EV/feature-$name.log"
+	(cd "$REPO" && H="$REPO/.claude/skills/verify-reef/scripts/verify-reef" REEF_VERIFY_RUN="$REEF_VERIFY_RUN" E="$EV" S="$SCR" "$script") 2>&1 | tee "$log"
+	rc=${PIPESTATUS[0]}
+	grep -q '^FAIL' "$log" && exit 1
+	exit "$rc"
+}
+
+# real: the real-claude set (write-claude-refused, write-settings, turn-permission,
+# subagent-parent, subagent-top-level), forced onto real claude.
+cmd_real() {
+	load_run
+	script="$REPO/.claude/skills/verify-reef/scripts/real.sh"
+	[ -x "$script" ] || fail "no script $script"
+	[ -f "$EV/pre-pids.txt" ] || fail "run doctor first: it records the pre-run pids"
+	log="$EV/real.log"
+	(cd "$REPO" && H="$REPO/.claude/skills/verify-reef/scripts/verify-reef" REEF_VERIFY_RUN="$REEF_VERIFY_RUN" E="$EV" S="$SCR" REEF_VERIFY_CLAUDE=real ANTHROPIC_MODEL=sonnet "$script") 2>&1 | tee "$log"
+	rc=${PIPESTATUS[0]}
+	grep -q '^FAIL' "$log" && exit 1
+	exit "$rc"
+}
+
 cmd_cleanup() {
 	load_run
 	if [ -f "$SCR/serve.pid" ] && serve_alive "$(cat "$SCR/serve.pid")"; then
@@ -700,6 +759,8 @@ sql) cmd_sql "$@" ;;
 reef) cmd_reef "$@" ;;
 mcp-call) cmd_mcp_call "$@" ;;
 ui) cmd_ui "$@" ;;
+feature) cmd_feature "$@" ;;
+real) cmd_real "$@" ;;
 cleanup) cmd_cleanup "$@" ;;
 *) usage ;;
 esac

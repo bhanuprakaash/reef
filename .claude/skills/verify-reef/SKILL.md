@@ -34,15 +34,63 @@ scratch cwd; the server is started separately (see Server).
 # prints the run id, e.g. 20261013-134053-78591
 ```
 
-`build` runs `go build` for `./cmd/reef-agent` and `./cmd/reef` into `<scratch>/bin/`, makes
+`build` runs `go build` for `./cmd/reef-agent`, `./cmd/reef` and the fake `claude`
+(`fake/`, below) into `<scratch>/bin/` and `<scratch>/fake/`, makes
 the scratch cwd `<scratch>/cwd/`, and writes
-`~/.reef-verify/<id>/build.txt` (HEAD sha, dirty file count, both binary paths). Ready = it
+`~/.reef-verify/<id>/build.txt` (HEAD sha, dirty file count, all three binary paths). Ready = it
 printed an id and exited 0.
 
 `<scratch>` is `/tmp/reef-verify/<id>` on Linux and `/private/tmp/reef-verify/<id>` on macOS: the
 helper resolves `/tmp` with `pwd -P`. This skill and its feature files write `<scratch>` for it.
 `<key>` is `<scratch>/cwd` with every character outside A-Z a-z 0-9 turned into `-`: claude keeps
 the scratch cwd's sessions in `~/.claude/projects/<key>/`.
+
+## Fake claude
+
+Every recipe runs on a scripted `claude` by default: no model call, no cost, no flake. It is a
+Go program, `fake/` (`package main`, stdlib only), built by `build` to `<scratch>/fake/claude` so
+`pgrep -x claude` and `ps` see it as `claude`.
+
+Mode is `REEF_VERIFY_CLAUDE=fake` (default), `record` or `real`. In `fake` and `record` the
+helper puts `<scratch>/fake` first on `PATH` for `run`, `interrupt`, `serve-start`, `reef` and
+`mcp-call` (everything that can start claude), and sets `REEF_FAKE_RECORDINGS` to this skill's
+`fake/recordings/` and `REEF_FAKE_LOG` to `<id>/fake-claude.log`. `real` leaves `PATH` alone, so
+the system `claude` runs for real; use it (or `record`) only for claude's own behaviour, on
+`ANTHROPIC_MODEL=sonnet`: a read-only role's edit refused, `--disallowedTools` holds, parallel
+tool-call event order (see `features/full-team.md`'s `write-claude-refused`, `write-settings` and
+`agent/claude`'s own fixtures), and when `agent/claude` changes.
+
+```sh
+REEF_VERIFY_RUN=<id> $H run -- --backend claude "Say hi, reply with one word."       # fake, default
+REEF_VERIFY_CLAUDE=record ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run -- --backend claude "..."
+REEF_VERIFY_CLAUDE=real ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run -- --backend claude "..."
+```
+
+In `fake` mode the binary reads one stdin line (one turn) at a time: it picks a scenario from
+the role (read off the first prompt, `You are the <role> on feature` / `in project`) and the
+prompt's text (after its last `[channel N, message N]` header), by a table of name/role/regexp in
+`fake/scenario.go`, matched in order, and replays `fake/recordings/<name>.jsonl`: a header line
+(`cwd`, `session`, `role`, `prompt`, `args`), then `{"t":seconds,"out":"<raw claude stdout
+line>"}` lines, cwd and session swapped to the run's, sleeping the recorded gaps (capped at 1s).
+It runs the side effects itself: a `Write`, `Edit`, `MultiEdit` or `Bash` tool call whose recorded
+`tool_result` was not an error, writes or runs for real in the turn's cwd; an `mcp__<server>__<tool>`
+call starts that server from the current `--mcp-config` file and makes one real `tools/call`. A
+prompt with no scenario, or a scenario with no recording, answers `is_error:true` naming the role
+and prompt (or the scenario and the missing file) on stderr and in the result, and the turn keeps
+going. `--resume` of a missing session answers `No conversation found` and exits 1, the way real
+claude does. The session file goes to `~/.claude/projects/<key>/<sid>.jsonl` like real claude's,
+so existing `grep` checks still work.
+
+Add a scenario: a line in `fake/scenario.go`'s table (`{name, role, pattern}`, `role: ""` for
+any). Record or refresh its recording: run the same prompt once in `record` mode (a short one,
+`ANTHROPIC_MODEL=sonnet`), which runs the real claude, forwards its stream unchanged and, if the
+prompt matched a scenario, saves `fake/recordings/<name>.jsonl`; then run the same prompt again in
+(default) `fake` mode and check it replays. `fake-claude.log` shows `record: recorded <name>` or
+`replay ... scenario=<name>`.
+
+`doctor` in fake mode shows `ok claude-fake <path>` (built from this run's HEAD) and skips the
+real claude version and `auth status` checks; in `record` or `real` mode it keeps them.
+`serve-start` writes the mode and the `claude` it resolved to `serve.log`.
 
 ## Doctor
 
@@ -52,10 +100,12 @@ Read-only. Run it after `build` and whenever anything looks off. Every line must
 REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef doctor
 ```
 
-It checks `go`, `claude` and `codex` versions, `claude auth status` (`loggedIn`),
-`codex login status` (each limited to 20 s, so a hung CLI is a `FAIL` line), that `sqlite3`
+It checks `go` and `codex` versions and `codex login status` (each limited to 20 s, so a hung
+CLI is a `FAIL` line); in `fake` mode (the default) it checks the fake `claude` binary instead of
+`claude --version`/`claude auth status` (see Fake claude, above), in `record` or `real` mode it
+checks those too. It also checks that `sqlite3`
 and `curl` exist, and that the HEAD `build` recorded in `build.txt` equals `git rev-parse HEAD`
-for both `reef-agent` and `reef` (rebuild after a commit). It also saves the pre-run snapshot
+for `reef-agent` and `reef` (rebuild after a commit). It also saves the pre-run snapshot
 of `claude`, `codex` and `reef-agent` pids to `pre-pids.txt`. `run`, `interrupt`,
 `serve-start` and `reef` refuse to start without it. Exit 1 if any line is `FAIL`.
 
@@ -271,9 +321,40 @@ Proof: `PASS <scenario>: ...` and `FAIL ...` lines (exit 1 on any `FAIL`), scree
 `proposal`, `channel`).
 
 Rules:
-- Real `claude` on sonnet only; every scenario costs a few turns. Run each once.
+- Runs on the fake `claude` by default (see Fake claude, above); real claude only with
+  `REEF_VERIFY_CLAUDE=real` or `record`, on sonnet. Run each once.
 - Never drive a server this run did not start.
 - A `FAIL` is a finding only after you have opened its screenshot.
+
+## Feature scripts
+
+`REEF_VERIFY_RUN=<id> $H feature NAME` runs `features/NAME.sh` (needs `build` and `doctor`
+done) with `H`, `REEF_VERIFY_RUN`, `E` and `S` exported, tees its output to
+`~/.reef-verify/<id>/feature-NAME.log`, and exits 1 if any line is `FAIL`. So far there is
+`features/full-team.sh`, which drives every line of `full-team.md` and prints one
+`PASS <id>: ...` or `FAIL <id>: ...` per sub-feature id. It works the same whichever `claude`
+is on `PATH` (fake, record or real).
+
+```sh
+ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H feature full-team
+```
+
+## Real-claude set
+
+`REEF_VERIFY_RUN=<id> $H real` forces real `claude` (`REEF_VERIFY_CLAUDE=real`,
+`ANTHROPIC_MODEL=sonnet`), drives its own data folders and server, prints one
+`PASS <id>: ...` or `FAIL <id>: ...` per id, tees to `~/.reef-verify/<id>/real.log`, and exits
+1 on any `FAIL`. It is the set of lines that test claude's own behavior, not Reef's: a tester
+without `write` is refused Write then Bash, with `--permission-mode default` and
+`--disallowedTools Edit,Write,MultiEdit,NotebookEdit` (`write-claude-refused`), the same with a
+project `.claude/settings.json` that allows Edit (`write-settings`), `--permission-mode` holds
+for an allowed and a denied tool (`turn-permission`), and a subagent's tool calls carry
+`parentToolId` while the `Agent` call and other top-level events do not (`subagent-parent`,
+`subagent-top-level`). Run it at slice verification and whenever `agent/claude` changes.
+
+```sh
+REEF_VERIFY_RUN=<id> $H real
+```
 
 ## Evidence
 
@@ -281,9 +362,10 @@ Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches 
 
 | File | What |
 | --- | --- |
-| `build.txt` | repo, HEAD sha, dirty file count, binary path |
+| `build.txt` | repo, HEAD sha, dirty file count, binary paths (`reef-agent`, `reef`, the fake `claude`) |
 | `doctor.txt` | the doctor lines |
 | `pre-pids.txt` | `claude`/`codex`/`reef-agent` pids before any drive |
+| `fake-claude.log` | fake mode: one line per turn (role, scenario, cwd, session); record mode: `recorded <name>` or `not recorded` per prompt |
 | `<name>.jsonl` | `reef-agent` stdout, one Event per line |
 | `<name>.stderr` | `reef-agent` stderr (`reef-agent: agent error: ...`, usage text) |
 | `<name>.meta` | args, cwd, `ANTHROPIC_MODEL`, exit, elapsed, SIGINT time, event kind counts, last line, child count, orphans, new pids since doctor |
@@ -298,8 +380,9 @@ Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches 
 | `ui-<scenario>.log`, `ui/<scenario>-<step>.png` | the `PASS`/`FAIL` lines of each `ui` run, and its screenshots |
 
 Proof standards:
-- Drive the real binary against the real `claude` and `codex`. The fake binaries in
-  `agent/*/testdata` are for `go test`, not for proof.
+- Drive the real `reef-agent`/`reef` binary; `claude` is the fake by default (see Fake claude,
+  above), real only for the claude-behaviour lines. The fixtures in `agent/*/testdata` are for
+  `go test`, not for proof.
 - Quote the event lines that prove the line (`grep` the jsonl), plus `exit:` from the meta.
 - Check side effects, not only output: files the agent wrote in the scratch cwd (list them
   before cleanup and copy the listing into evidence), `mcp-calls.log`, `orphans_alive`.
@@ -329,10 +412,12 @@ in `~/.codex/sessions`; cleanup leaves them.
 ## Helper
 
 `.claude/skills/verify-reef/scripts/verify-reef` (bash; uses go, python3, perl, curl, sqlite3, pgrep, ps, awk).
+`REEF_VERIFY_CLAUDE=fake|record|real` (default `fake`) picks the `claude` a run gets (see Fake
+claude, above).
 
 | Subcommand | Does |
 | --- | --- |
-| `build` | new run id (or `$REEF_VERIFY_RUN`), builds the binary, writes `build.txt`, prints the id |
+| `build` | new run id (or `$REEF_VERIFY_RUN`), builds the binaries (`reef-agent`, `reef`, the fake `claude`), writes `build.txt`, prints the id |
 | `doctor` | read-only health check, saves `pre-pids.txt` |
 | `run [--name N] [--stdin FILE] [--timeout S] -- ARGS` | one `reef-agent` drive, records evidence |
 | `interrupt --after S [--name N] -- ARGS` | drive with stdin held open, SIGINT after S seconds |
@@ -345,4 +430,6 @@ in `~/.codex/sessions`; cleanup leaves them.
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
 | `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
+| `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |
