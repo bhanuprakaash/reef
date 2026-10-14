@@ -31,7 +31,7 @@ in the browser).
 
 Preconditions:
 
-- Baseline from the README, plus Chrome at `/Applications/Google Chrome.app` and `node`.
+- Baseline from the README, plus `node` and a Chrome: `/Applications/Google Chrome.app` on macOS; on Linux Playwright's Chromium with `REEF_VERIFY_CHROME` set (see `SKILL.md`, Window). Check it like `doctor` would: `"$REEF_VERIFY_CHROME" --version` prints a version. `error while loading shared libraries` means the system libraries are missing: `npx playwright@1.64.0 install-deps chromium`.
 - The web app is built before `$H build`: `(cd web && npm ci && npm run build)`. The binary embeds `web/dist`; without it every page is 503 `UI not built`.
 - The server starts with the model set, because it starts the `claude` agents: `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H serve-start --data-name ui`.
 

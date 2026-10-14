@@ -203,9 +203,24 @@ Rules:
 
 ## Window
 
-The window is driven in the system Chrome (`/Applications/Google Chrome.app`) with
-`playwright-core` (no browser download), by `scripts/ui/drive.mjs`. It needs a running
+The window is driven in Chrome with `playwright-core`, by `scripts/ui/drive.mjs`. On macOS that
+is the system Chrome (`/Applications/Google Chrome.app`), no browser download. It needs a running
 server, so launch as in Server. Read `features/window.md` first.
+
+On Linux there is no system Chrome (the launch fails with `Chromium distribution 'chrome' is not
+found`). Install Playwright's Chromium once, with its system libraries, and set
+`REEF_VERIFY_CHROME` to its binary on every `ui` call (each Bash call is a new shell). `ui` then
+launches that binary with `--no-sandbox`:
+
+```sh
+PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev npx playwright@1.64.0 install chromium
+npx playwright@1.64.0 install-deps chromium   # or the same libraries with apt
+export REEF_VERIFY_CHROME=$HOME/.cache/ms-playwright/chromium-<rev>/chrome-linux/chrome
+```
+
+`1.64.0` is the `playwright-core` version in `scripts/ui/package.json`. The default download host
+may be blocked, hence `PLAYWRIGHT_DOWNLOAD_HOST`. `<rev>` is the folder `install` made; `ls` it
+for the binary's exact path.
 
 Launch: build the web app first, because `build` embeds `web/dist` in `reef` (a missing build
 shows 503 `UI not built`). Start the server with the model set: it starts the `claude` agents.
