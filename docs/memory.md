@@ -229,14 +229,15 @@ Each turn:
 - The reply is stored before the turn is marked `done`. If a store write fails during a
   turn, `reef chat` interrupts the agent and marks the turn `failed` with that error.
 - An agent error ends the turn `failed` with the error text. `reef chat` then exits 1 with
-  `reef: agent: <text>`.
+  `reef: agent: <text>`. A turn that ends `failed` for any reason (an error, a stop, the
+  tool call cap) still stores the reply streamed so far, if it has text.
 
 Leaving:
 
 - At the end of stdin (Ctrl-D, or the end of a piped file) it prints `channel 1: resume
   with reef chat --channel 1` and exits 0.
 - Ctrl-C during a turn interrupts the agent and stores the turn `failed` with error
-  `interrupted`. The part of the reply already printed is not stored. Then it prints the
+  `interrupted`. The part of the reply already printed is stored. Then it prints the
   same resume line and exits 0. Closing the terminal (SIGHUP) and SIGTERM do the same.
   A turn is stored even when the signal comes right after the line is sent.
 
