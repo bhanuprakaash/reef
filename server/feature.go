@@ -1,9 +1,13 @@
 package server
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 func (s *server) featureRoutes(mux *http.ServeMux) {
@@ -90,6 +94,11 @@ func (s *server) updateFeature(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, f)
 }
 
+// deleteFeature deletes the feature, its worktree and the checkpoint refs of its turns. The
+// branch is kept. A running turn of its channels is stopped first, as for a channel delete.
+// A worktree with uncommitted changes is 409 and nothing is removed. The worktree goes
+// first: it is the step that can refuse or fail, and the next wake makes it again. The refs go
+// last, after the rows that name them.
 func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -102,11 +111,57 @@ func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer lift()
+	repo, refs, err := s.removeFeatureTree(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	if err := s.st.DeleteFeature(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}
+	if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), repo, refs); err != nil {
+		writeError(w, err)
+		return
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// removeFeatureTree removes the worktree of feature id. It returns the project's repo and the
+// checkpoint refs of the feature's turns, for the caller to delete once the feature is.
+func (s *server) removeFeatureTree(
+	ctx context.Context, id int64,
+) (repo string, refs []string, err error) {
+	f, err := s.st.Feature(ctx, id)
+	if err != nil {
+		return "", nil, err
+	}
+	p, err := s.st.Project(ctx, f.ProjectID)
+	if err != nil {
+		return "", nil, err
+	}
+	cs, err := s.st.Channels(ctx, store.ChannelFilter{FeatureID: &id})
+	if err != nil {
+		return "", nil, err
+	}
+	for _, c := range cs {
+		ts, err := s.st.Turns(ctx, store.TurnFilter{ChannelID: &c.ID})
+		if err != nil {
+			return "", nil, err
+		}
+		for _, t := range ts {
+			if t.Checkpoint != nil {
+				refs = append(refs, *t.Checkpoint)
+			}
+		}
+	}
+	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+	err = worktree.Remove(ctx, p.Path, dir)
+	if errors.Is(err, worktree.ErrDirty) {
+		err = fmt.Errorf("%w: feature %s has uncommitted changes in %s; commit or discard them first",
+			store.ErrConflict, f.Slug, dir)
+	}
+	return p.Path, refs, err
 }
 
 func (s *server) getBrief(w http.ResponseWriter, r *http.Request) {
