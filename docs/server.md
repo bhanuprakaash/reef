@@ -76,7 +76,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
-| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; an approval that is not pending, or one approved while a turn runs or the channel is paused |
+| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; `retry` of a turn that is not failed or was retried, or on a channel with a turn running or paused; an approval that is not pending, or one approved while a turn runs or the channel is paused |
 | 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
 | 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
@@ -190,6 +190,9 @@ One agent run in a channel.
 | `usage` | object | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens` (numbers, all four always present). The SQL columns are `input_tokens` and so on |
 | `startedAt` | string | |
 | `endedAt` | string? | `null` while running |
+| `wakeText` | string | default `""`; the text the turn ran: the wake, without the context prompt. Empty for a turn from before this field existed |
+| `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
+| `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
 
 ### decision
 
@@ -366,9 +369,10 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `PUT /tasks/{id}` | `title`, `body`, `status`, `featureId` | 200 | 400, 404 |
 | `DELETE /tasks/{id}` | | 204 | 404 |
 | `GET /turns` | `?channel=ID`, `?status=running\|done\|failed` | 200 | 400 bad id or status |
-| `POST /turns` | `channelId`, `role`, `backend`, `sessionId` | 201 | 400 bad backend or unknown channel |
+| `POST /turns` | `channelId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent` | 201 | 400 bad backend or unknown channel or message |
 | `GET /turns/{id}` | | 200 | 404 |
 | `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId`. With no `status`, only `sessionId` is set and the turn stays `running` | 200 | 400 bad status, negative usage, empty `sessionId` without a status, `error` or `usage` without a status, or already ended; 404 |
+| `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not failed, retried already, no `wakeText`, or as send for a channel with a turn running or paused, 503 |
 | `GET /decisions` | `?feature=ID` (required) | 200 | 400 no feature, 404 unknown feature |
 | `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field, unknown feature, or a message of another feature |
 | `GET /decisions/{id}` | | 200 | 404 |
@@ -431,6 +435,14 @@ a message wakes them.
   From the start of that stop until the delete is done, a send to the channel is 404
   `channel 1 is being deleted`, so no agent starts for a channel that is going away.
 - Server shutdown does the same for every channel before it stops listening.
+- A turn keeps the wake it ran as `wakeText` and `wakeParent`. `POST /turns/{id}/retry` on a
+  `failed` turn runs that wake again for the same role as a new turn in a new chain, the way an
+  approve does, with no new user message: the new turn answers in the same thread, and what its
+  reply wakes is routed as usual. The failed turn is marked `retried` before the turn starts, so a
+  second retry is 409; if the turn cannot start, the mark is taken back. Nothing retries a
+  turn by itself. A wrap-up or promote turn keeps its prompt as its wake, so a retry runs that
+  prompt as a plain turn of the lead: the agent may propose a wrap, and no `no proposal` note is
+  sent. The retry counts as a message of the user for the hop cap.
 
 ### Routing
 
@@ -628,7 +640,8 @@ The API has no way to change or remove these rows.
   stay in `/brief/versions`. Role notes are not versioned; `PUT` replaces them.
 - Turns: created `running`, may get a `sessionId` while running, ended once with `PATCH`
   to `done` or `failed`. After that every `PATCH` returns 400. A turn has no delete route
-  and no other edit. Restart recovery keeps a session id set this way.
+  and no other edit, except that a `failed` turn is marked `retried` once, by `retry`. Restart
+  recovery keeps a session id set this way.
 
 ## Restart recovery
 
@@ -653,7 +666,8 @@ this far on a folder in use, so it cannot fail the turns of the server that owns
   its turn is failed like any other.
 
 An agent may have left half-done edits in the worktree, so the message tells the user to
-check before retrying.
+check before retrying. A turn failed this way keeps its `wakeText`, so `POST /turns/{id}/retry`
+can run it again (see [Channels live](#channels-live)).
 
 A chain of wakes does not survive a restart: the wakes still waiting are lost, with the hop
 count and the wakes held because the database failed, which are in memory. A pause is stored,

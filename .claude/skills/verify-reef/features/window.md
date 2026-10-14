@@ -16,6 +16,7 @@ feature, and a channel that hits a cap pauses and says why. A channel on a team 
 - `window-stop` Stop mid-turn shows `Failed: interrupted`; the next message resumes the session.
 - `window-wrap` Wrap up shows the proposal panel, Reject leaves the brief unchanged; `/wrap` then Approve makes brief version 1.
 - `window-teams` the team picker makes a `duo` channel; the live turn names the lead, then the architect; a reply in the Thread pane is answered by the architect and the root shows `2 replies`; in a `gated` channel Approve runs the architect and the row goes (the recipe is in `teams.md`).
+- `window-retry` a failed turn shows a row with Retry; Retry runs the same wake as a new turn that ends `done`, and the row goes.
 
 Acceptance lines of the slice: "start a channel, chat, see streamed tool calls and text live" is
 `window-live`; "a new channel of the same feature starts from the brief" is `window-brief`;
@@ -48,6 +49,7 @@ REEF_VERIFY_RUN=<id> $H ui pages
 REEF_VERIFY_RUN=<id> $H ui stop
 REEF_VERIFY_RUN=<id> $H ui wrap
 REEF_VERIFY_RUN=<id> $H ui teams
+REEF_VERIFY_RUN=<id> $H ui retry
 ```
 
 - **live.** Prints a `PASS live:` line for the tool rows seen mid-turn (the first row's tool name and input), the one stored `lead` message (with the message rows) and the cleared live view. Screenshots `live-midturn.png` (tool rows under `LEAD is working...`; the label is the running role in capitals, `ARCHITECT is working...` in a team) and `live-final.png`.
@@ -58,6 +60,7 @@ REEF_VERIFY_RUN=<id> $H ui teams
 - **stop.** Asks for a long story with a secret word, clicks Stop after a few seconds, waits for `Failed: interrupted`, then asks for the word and checks the answer. Screenshots `stop-stopped`, `stop-resumed`.
 - **wrap.** One exchange with a decision, Wrap up, Reject (`rejected`, no brief row), then `/wrap` in the composer, Approve, and `Version 1 by` on the feature page. Screenshots `wrap-proposal`, `wrap-approved`.
 - **teams.** Adds a project and feature, starts a channel on `duo` from the form (Team select, Start), checks `GET /channels/N` has team `duo`, sends `DESIGN a short plan for a login form.`, and sees `LEAD is working...` then `ARCHITECT is working...` and the architect's root with a Reply button. Opens the Thread pane, replies `Which field would you validate first? Answer in this thread.`, sees the architect answer in the pane (root, user, architect), closes it and reads `2 replies` on the root. Then a `gated` channel: the `lead → architect` row with Approve and Reject, no architect turn yet, Approve, `ARCHITECT is working...`, the row gone and the `approval` row `approved`. Screenshots `teams-team-picked`, `teams-lead-working`, `teams-architect-working`, `teams-architect-posted`, `teams-thread-open`, `teams-thread-architect-working`, `teams-thread-answered`, `teams-main-list`, `teams-gate-approval`, `teams-gate-approved`, `teams-gate-architect-posted`.
+- **retry.** Sends a long prompt, clicks Stop, waits for the row `Turn N by lead failed: interrupted` and its Retry button, clicks Retry, sees `LEAD is working...`, waits for it to end and the row to go, then reads the `turn` rows: the first `failed` with `retried` 1, the second `done`. Screenshots `retry-failed-row`, `retry-retrying`, `retry-retried`.
 
 Each line is `PASS <scenario>: <what> | <what it saw>` or `FAIL ...`. The command exits 1 on any `FAIL`; an error inside a scenario is a `FAIL scenario aborted` line and an `error.png`.
 

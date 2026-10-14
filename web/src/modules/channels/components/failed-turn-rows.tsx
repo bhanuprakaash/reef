@@ -1,0 +1,37 @@
+import { useFailedTurns } from '@/modules/channels/api/get-failed-turns';
+import { useRetryTurn } from '@/modules/channels/api/retry-turn';
+import { buttonClass, errorClass } from '@/utils/classes';
+
+export function FailedTurnRows({ channelId, running }: { channelId: number; running: boolean }) {
+  const turns = useFailedTurns(channelId);
+  const retry = useRetryTurn(channelId);
+  const retryable = turns.data?.filter((t) => !t.retried && t.wakeText !== '') ?? [];
+
+  if (retryable.length === 0) return null;
+
+  return (
+    <div className="space-y-2">
+      <ul className="space-y-2">
+        {retryable.map((t) => (
+          <li
+            key={t.id}
+            className="flex items-center justify-between gap-3 rounded border border-red-300 p-3 text-sm dark:border-red-800"
+          >
+            <p className={errorClass}>
+              Turn {t.id} by {t.role} failed: {t.error}
+            </p>
+            <button
+              type="button"
+              className={buttonClass}
+              disabled={running || retry.isPending}
+              onClick={() => retry.mutate(t.id)}
+            >
+              Retry
+            </button>
+          </li>
+        ))}
+      </ul>
+      {retry.isError && <p className={errorClass}>{retry.error.message}</p>}
+    </div>
+  );
+}

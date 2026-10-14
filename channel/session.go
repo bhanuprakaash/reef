@@ -106,7 +106,7 @@ func open(
 
 // Start starts or resumes the lead now instead of at its first turn.
 func (s *Session) Start(ctx context.Context) error {
-	_, err := s.member(ctx, s.ch.Role)
+	_, err := s.member(ctx, s.ch.Role, "", nil)
 	return err
 }
 
@@ -141,7 +141,7 @@ func (s *Session) Run(
 func (s *Session) RunAs(
 	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
 ) error {
-	m, err := s.member(ctx, role)
+	m, err := s.member(ctx, role, text, parent)
 	if err != nil {
 		return err
 	}
@@ -228,9 +228,12 @@ func (s *Session) closeMembers() error {
 // member returns the agent session of role, starting or resuming it from the role's own
 // newest turn with a session id on the role's backend. A new session reads the team from the
 // store, so a team applied since the channel opened is the one it gets. An agent that fails
-// to start leaves a failed turn for the role, and so does a ctx cancelled before it starts:
-// the turn is interrupted. The store is read even then, as Run stores its turn.
-func (s *Session) member(ctx context.Context, role string) (_ *member, err error) {
+// to start leaves a failed turn for the role that keeps text and parent, the wake it was
+// starting for, and so does a ctx cancelled before it starts: the turn is interrupted. The
+// store is read even then, as Run stores its turn.
+func (s *Session) member(
+	ctx context.Context, role, text string, parent *int64,
+) (_ *member, err error) {
 	if m, ok := s.members[role]; ok {
 		return m, nil
 	}
@@ -304,7 +307,7 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 			reason = "interrupted"
 		}
 		t, terr := s.st.CreateTurn(wctx, store.Turn{
-			ChannelID: s.ch.ID, Role: role, Backend: r.Backend,
+			ChannelID: s.ch.ID, Role: role, Backend: r.Backend, WakeText: text, WakeParent: parent,
 		})
 		if terr == nil {
 			t.Status, t.Error = "failed", reason

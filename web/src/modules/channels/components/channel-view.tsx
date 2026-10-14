@@ -3,6 +3,7 @@ import { useMessages } from '@/modules/channels/api/get-messages';
 import { useWrapChannel } from '@/modules/channels/api/wrap-channel';
 import { ApprovalRows } from '@/modules/channels/components/approval-rows';
 import { Composer } from '@/modules/channels/components/composer';
+import { FailedTurnRows } from '@/modules/channels/components/failed-turn-rows';
 import { LiveTurn } from '@/modules/channels/components/live-turn';
 import { MessageList } from '@/modules/channels/components/message-list';
 import { PausedBanner } from '@/modules/channels/components/paused-banner';
@@ -63,6 +64,7 @@ export function ChannelView({ channel, scope, features }: Props) {
         {messages.data && <MessageList threads={threads} onOpen={setThreadId} />}
         <LiveTurn turn={turn} role={turn.role || channel.role || 'agent'} />
         {turn.note && <p className={mutedClass}>{turn.note}</p>}
+        <FailedTurnRows channelId={channel.id} running={running} />
         <ApprovalRows channelId={channel.id} />
         <ProposalPanel channelId={channel.id} featureId={channel.featureId} />
         <div className="sticky bottom-0 bg-white pb-1 pt-2 dark:bg-neutral-900">
