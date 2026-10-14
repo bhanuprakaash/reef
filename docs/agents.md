@@ -291,6 +291,9 @@ Interrupt and orphans
   (SIGTERM only) codex sent nothing, so the stopped turn counted 0. A turn stopped while a
   model call streams its text gets no usage even from `turn/interrupt` (12 s into a
   2000-word essay: 557 text events, then only the zero total): that call's tokens are lost.
+- Claude sends a message's usage only with its `message_delta`, at the message's end. A turn
+  stopped before that line (for example mid-text) stores no usage for that message: its
+  tokens are lost, the same limit as Codex's above.
 - A `codex app-server --listen unix://` daemon may already run. The adapter spawns its own
   stdio server and ignores it.
 
