@@ -734,6 +734,33 @@ func TestSession_WrapOrPromoteCancelledStoresTurn(t *testing.T) {
 	}
 }
 
+func TestSession_LockErrorStoresItsOwnReason(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionChannel(t, st, f, false)
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, "locks"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ag := newRecordingAgent()
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(dataDir), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if err := s.Run(ctx, "hi", nil, discard); err == nil {
+		t.Fatal("want a lock error")
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Error == "interrupted" {
+		t.Errorf("turns = %+v, want one failed turn with the lock's own reason", turns)
+	}
+}
+
 func TestSession_PromoteIntoFeatureWithBrief(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
