@@ -53,7 +53,7 @@ func TestGetInspector(t *testing.T) {
 		`"usage":{"inputTokens":10,"outputTokens":20,"cacheReadTokens":0,"cacheWriteTokens":0},` +
 		`"costUsd":0.05,"prompt":"do it","toolCalls":[{"name":"Bash","input":"{\"command\":\"ls\"}",` +
 		`"result":"a.txt\n"}]`
-	if !strings.Contains(body, wantRole) || !strings.Contains(body, `"turns":[{"id":1,"startedAt":"`) ||
+	if !strings.Contains(body, wantRole) || !strings.Contains(body, `"turns":[{"id":1,"role":"architect","startedAt":"`) ||
 		!strings.Contains(body, wantTurn) {
 		t.Errorf("body = %s, want it to contain %s and %s", body, wantRole, wantTurn)
 	}
