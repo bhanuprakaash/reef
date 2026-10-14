@@ -54,6 +54,7 @@ var _defaultGates = []Gate{
 	{From: "lead", To: "developer", On: true},
 	{From: "architect", To: "developer", On: true},
 	{From: "developer", To: "tester", On: true},
+	{From: "tester", To: "developer", On: true},
 }
 
 // ApplyTeam creates team t, or replaces the roles of the team with that name.

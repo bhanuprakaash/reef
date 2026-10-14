@@ -195,7 +195,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 34 | Write turns on one tree run one at a time across channels | Decision 17's single writer holds with two channels on one feature |
 | 35 | Rollback resets the files and the branch to the checkpoint, not the agent's session, and leaves a note in the channel | Sessions cannot be rewound; the note tells the agent |
 | 36 | The needs-you inbox is a view over approvals, pauses, failed turns and who spoke last; no ask-user tool | No new state to keep in sync, and Reef cannot tell a question from an answer |
-| 37 | Default gates also hold a lead's wake of the developer (amends 14) | Decision 14 gates the steps that touch code; an ungated lead→developer edge let the lead skip the architect→developer gate |
+| 37 | Default gates also hold a lead's wake of the developer, and a tester's wake of the developer (amends 14) | Decision 14 gates the steps that touch code; an ungated lead→developer or tester→developer edge let either skip the architect→developer gate |
 | 38 | Default hop cap is 6 (amends 10) | The spec's full flow lead→architect→developer→tester→lead uses 4 hops; one clarifying question must fit without a pause |
 
 ## Open questions
