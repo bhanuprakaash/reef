@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// TokenBudget is the default channel budget and what continuing over budget adds.
+// TokenBudget is the default channel budget and what continuing over budget leaves free.
 const TokenBudget = 1_000_000
 
 const _channelCols = "id, project_id, feature_id, name, role, backend, permission_mode, " +
