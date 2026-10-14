@@ -39,7 +39,7 @@ func TestEnsureFeatureWorktree_MakesItAndReusesIt(t *testing.T) {
 		t.Errorf("branch = %q, want feature/demo", got)
 	}
 
-	// A second call, as a later wake would make, reuses the same tree.
+	// A second call reuses the same tree.
 	status, body = do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
 	if wantBody := fmt.Sprintf(`{"path":%q}`, want); status != 200 || body != wantBody {
 		t.Fatalf("ensure worktree again = %d %s, want 200 %s", status, body, wantBody)
