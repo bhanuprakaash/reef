@@ -167,6 +167,37 @@ func TestCLI_SymlinkedCWDFindsProject(t *testing.T) {
 	}
 }
 
+func TestCLI_ProjectStoredWithSymlinkedPathIsFound(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	link := filepath.Join(t.TempDir(), "project")
+	if err := os.Symlink(t.TempDir(), link); err != nil {
+		t.Fatal(err)
+	}
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateProject(ctx, store.Project{Name: "shop", Path: link}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Chdir(link)
+	if got := mustReef(t, dir, "feature", "add", "login", "Login"); got != "1  login  Login\n" {
+		t.Errorf("feature add = %q, want the feature of project shop", got)
+	}
+	if err := os.Mkdir(filepath.Join(link, "api"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(filepath.Join(link, "api"))
+	if got := mustReef(t, dir, "feature", "add", "billing", "Billing"); got != "2  billing  Billing\n" {
+		t.Errorf("feature add from a subfolder = %q, want the feature of project shop", got)
+	}
+}
+
 func TestCLI_DoubleDashEndsFlags(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(t.TempDir())

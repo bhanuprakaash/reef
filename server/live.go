@@ -73,6 +73,7 @@ type live struct {
 	// dropped counts the frames of earlier turns, cut from the front of frames.
 	dropped int
 	wake    chan struct{}
+	subs    int
 }
 
 func (s *server) liveRoutes(mux *http.ServeMux) {
@@ -86,15 +87,38 @@ func (s *server) liveRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/channels/{id}/continue", methodNotAllowed)
 }
 
-func (s *server) live(id int64) *live {
+// subscribe returns the channel's entry, creating it, and counts a subscriber on it. The
+// caller calls unsubscribe when done. Only a turn or a subscriber creates an entry; a
+// lookup that must not create one uses lookup.
+func (s *server) subscribe(id int64) *live {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	l := s.entryLocked(id)
+	l.mu.Lock()
+	l.subs++
+	l.mu.Unlock()
+	return l
+}
+
+func (s *server) unsubscribe(l *live) {
+	l.mu.Lock()
+	l.subs--
+	l.mu.Unlock()
+}
+
+func (s *server) entryLocked(id int64) *live {
 	l, ok := s.lives[id]
 	if !ok {
 		l = &live{state: _idle, wake: make(chan struct{})}
 		s.lives[id] = l
 	}
 	return l
+}
+
+func (s *server) lookup(id int64) *live {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lives[id]
 }
 
 func (s *server) begin() bool {
@@ -136,27 +160,25 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 }
 
 // startTurn stores text as the user message, then starts the turn in the background. It
-// runs prepare, when set, once the agent is open; if it fails no turn starts. A stop that
-// arrives before the turn runs cancels it.
+// claims the channel's entry first, so a stop that arrives at any point finds it. It runs
+// prepare, when set, once the agent is open; if it fails no turn starts. A stop before
+// prepare cancels the send with a conflict. Once prepare has run and the message is stored
+// the send stands: the turn runs with the cancelled context and is stored failed. A
+// channel that is being deleted refuses the send.
 func (s *server) startTurn(
 	ctx context.Context, id int64, kind turnKind, text string, prepare func() error,
 ) error {
 	if !s.begin() {
 		return errStopping
 	}
-	l := s.live(id)
 	turnCtx, cancel := context.WithCancel(s.ctx)
 	done := make(chan struct{})
-	l.mu.Lock()
-	if l.state != _idle {
-		l.mu.Unlock()
+	l, sess, err := s.claim(id, cancel, done)
+	if err != nil {
 		cancel()
 		s.wg.Done()
-		return fmt.Errorf("channel %d has a turn running: %w", id, store.ErrConflict)
+		return err
 	}
-	l.state, l.cancel, l.done = _starting, cancel, done
-	sess := l.sess
-	l.mu.Unlock()
 
 	giveUp := func(err error) error {
 		cancel()
@@ -164,17 +186,22 @@ func (s *server) startTurn(
 		l.state, l.cancel = _idle, nil
 		close(done)
 		l.mu.Unlock()
+		s.dropIdle(id, l, false)
 		s.wg.Done()
 		return err
 	}
-	if err := s.checkTurn(ctx, id, l, kind); err != nil {
+	if err := s.checkTurn(ctx, id, kind); err != nil {
 		return giveUp(err)
+	}
+	stopped := fmt.Errorf("channel %d was stopped: %w", id, store.ErrConflict)
+	if turnCtx.Err() != nil {
+		return giveUp(stopped)
 	}
 	if sess == nil {
 		var err error
 		if sess, err = s.open(turnCtx, id); err != nil {
 			if turnCtx.Err() != nil {
-				err = fmt.Errorf("channel %d was stopped: %w", id, store.ErrConflict)
+				err = stopped
 			}
 			return giveUp(err)
 		}
@@ -183,7 +210,7 @@ func (s *server) startTurn(
 		l.mu.Unlock()
 	}
 	if turnCtx.Err() != nil {
-		return giveUp(fmt.Errorf("channel %d was stopped: %w", id, store.ErrConflict))
+		return giveUp(stopped)
 	}
 	if prepare != nil {
 		if err := prepare(); err != nil {
@@ -201,6 +228,38 @@ func (s *server) startTurn(
 	l.mu.Unlock()
 	go s.runTurn(turnCtx, id, l, sess, kind, text, done)
 	return nil
+}
+
+// claim marks the channel's entry as starting a turn, creating the entry, and returns it
+// with its agent, if any. It refuses a channel that is being deleted.
+func (s *server) claim(
+	id int64, cancel context.CancelFunc, done chan struct{},
+) (*live, session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.deleting[id] > 0 {
+		return nil, nil, fmt.Errorf("channel %d is being deleted: %w", id, store.ErrNotFound)
+	}
+	l := s.entryLocked(id)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.state != _idle {
+		return nil, nil, fmt.Errorf("channel %d has a turn running: %w", id, store.ErrConflict)
+	}
+	l.state, l.cancel, l.done = _starting, cancel, done
+	return l, l.sess, nil
+}
+
+// dropIdle removes l, the entry of channel id, when it is idle and has no agent. A
+// subscribed entry stays unless the channel is deleted.
+func (s *server) dropIdle(id int64, l *live, deleted bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if s.lives[id] == l && l.state == _idle && l.sess == nil && (deleted || l.subs == 0) {
+		delete(s.lives, id)
+	}
 }
 
 func (s *server) runTurn(
@@ -263,7 +322,7 @@ func (s *server) runTurn(
 
 // checkTurn refuses a turn the channel may not run: a wrap on a quick session, and any
 // turn while the channel is paused or over its token budget.
-func (s *server) checkTurn(ctx context.Context, id int64, l *live, kind turnKind) error {
+func (s *server) checkTurn(ctx context.Context, id int64, kind turnKind) error {
 	ch, err := s.st.Channel(ctx, id)
 	if err != nil {
 		return err
@@ -273,7 +332,7 @@ func (s *server) checkTurn(ctx context.Context, id int64, l *live, kind turnKind
 			store.ErrInvalid, id)
 	}
 	pausedNow, err := channel.CheckCaps(ctx, s.st, &ch)
-	if pausedNow {
+	if l := s.lookup(id); pausedNow && l != nil {
 		l.mu.Lock()
 		l.publishLocked("pause", pauseState{Reason: ch.Paused})
 		l.mu.Unlock()
@@ -287,32 +346,15 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	ch, err := s.st.Channel(r.Context(), id)
-	if err != nil {
+	if err := channel.Continue(r.Context(), s.st, id); err != nil {
 		writeError(w, err)
 		return
 	}
-	if ch.Paused == "" {
-		writeError(w, fmt.Errorf("channel %d is not paused: %w", id, store.ErrConflict))
-		return
+	if l := s.lookup(id); l != nil {
+		l.mu.Lock()
+		l.publishLocked("pause", pauseState{})
+		l.mu.Unlock()
 	}
-	used, err := s.st.ChannelTokens(r.Context(), id)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	var extra int64
-	if used >= ch.TokenBudget {
-		extra = store.TokenBudget
-	}
-	if err := s.st.ContinueChannel(r.Context(), id, extra); err != nil {
-		writeError(w, err)
-		return
-	}
-	l := s.live(id)
-	l.mu.Lock()
-	l.publishLocked("pause", pauseState{})
-	l.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -322,7 +364,9 @@ func (s *server) stop(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	s.stopLive(s.live(id))
+	if l := s.lookup(id); l != nil {
+		s.stopLive(l)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -371,7 +415,8 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 			first = append(first, f)
 		}
 	}
-	l := s.live(id)
+	l := s.subscribe(id)
+	defer s.unsubscribe(l)
 	l.mu.Lock()
 	next := l.dropped + len(l.frames)
 	if l.state == _running {
@@ -426,35 +471,6 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func writeFrames(w io.Writer, frames []frame) error {
-	for _, f := range frames {
-		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", f.event, f.data); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
-func newFrame(event string, v any) (frame, bool) {
-	data, err := json.Marshal(v)
-	if err != nil {
-		log.Printf("encode %s event: %v", event, err)
-		return frame{}, false
-	}
-	return frame{event: event, data: data}, true
-}
-
-// publishLocked never waits for a subscriber.
-func (l *live) publishLocked(event string, v any) {
-	f, ok := newFrame(event, v)
-	if !ok {
-		return
-	}
-	l.frames = append(l.frames, f)
-	close(l.wake)
-	l.wake = make(chan struct{})
-}
-
 func (s *server) close() {
 	s.mu.Lock()
 	if s.closed {
@@ -486,4 +502,33 @@ func (s *server) close() {
 		})
 	}
 	wg.Wait()
+}
+
+// publishLocked never waits for a subscriber.
+func (l *live) publishLocked(event string, v any) {
+	f, ok := newFrame(event, v)
+	if !ok {
+		return
+	}
+	l.frames = append(l.frames, f)
+	close(l.wake)
+	l.wake = make(chan struct{})
+}
+
+func writeFrames(w io.Writer, frames []frame) error {
+	for _, f := range frames {
+		if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", f.event, f.data); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func newFrame(event string, v any) (frame, bool) {
+	data, err := json.Marshal(v)
+	if err != nil {
+		log.Printf("encode %s event: %v", event, err)
+		return frame{}, false
+	}
+	return frame{event: event, data: data}, true
 }

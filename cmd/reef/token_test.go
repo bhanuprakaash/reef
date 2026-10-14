@@ -53,8 +53,9 @@ func TestCLI_Token(t *testing.T) {
 				t.Errorf("token = %+v, %v, want role architect on channel 1", tok, err)
 			}
 			ch, err := st.Channel(context.Background(), 1)
-			if err != nil || ch.Name != "architect (claude code)" {
-				t.Errorf("channel = %+v, %v, want name %q", ch, err, "architect (claude code)")
+			if err != nil || ch.Name != "architect (claude code)" || ch.Role != "lead" ||
+				ch.Backend != "claude" {
+				t.Errorf("channel = %+v, %v, want lead role and claude backend", ch, err)
 			}
 		})
 	}
