@@ -11,6 +11,7 @@
     "email": "bhanuprakashsai7@gmail.com"
   },
   "scripts": {
+    "postinstall": "node postinstall.js",
     "start": "go build -o bin/reef ../cmd/reef && electron .",
     "build:web": "npm --prefix ../web ci && npm --prefix ../web run build",
     "dist:mac": "npm run build:web && GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o resources/mac/reef ../cmd/reef && electron-builder --mac --arm64",
