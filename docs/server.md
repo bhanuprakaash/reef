@@ -586,6 +586,12 @@ chain can reach the hop cap again, and then pauses again. Sending a user message
 hop count to 0 too. Approving a gate does not. A held wake lives in
 memory only: after a restart `continue` just clears the pause and runs nothing.
 
+The same pause holds work when the server cannot store an approval for a gated wake, or cannot
+read the messages a turn stored to route them. The channel pauses with the error as the reason, and
+nothing runs ungated. `continue` stores the approval again, or does the routing read again from
+the message before the turn's reply, and runs what that wakes. If it fails again the channel
+stays paused.
+
 The tool cap is counted in `channel.Runner`, so `reef chat` is capped too: it pauses the
 channel, prints the reason and exits, because the interrupt ends the agent. Before each
 line, `reef chat` runs the same pause and token budget check as send (`channel.CheckCaps`)

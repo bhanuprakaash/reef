@@ -3,10 +3,12 @@ package server
 import (
 	"bufio"
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -148,6 +150,7 @@ func (c *gateCtx) Done() <-chan struct{} {
 }
 
 type liveEnv struct {
+	dir    string
 	st     *store.Store
 	url    string
 	h      *Handler
@@ -158,12 +161,13 @@ type liveEnv struct {
 
 func newLiveEnv(t *testing.T) *liveEnv {
 	t.Helper()
-	st, err := store.Open(t.TempDir())
+	dir := t.TempDir()
+	st, err := store.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	env := &liveEnv{fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{})}}
+	env := &liveEnv{dir: dir, fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{})}}
 	env.st, env.fake.st = st, st
 	env.h = newHandler(st, func(ctx context.Context, id int64) (session, error) {
 		env.opened.Add(1)
@@ -180,6 +184,20 @@ func newLiveEnv(t *testing.T) *liveEnv {
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"`+t.TempDir()+`"}`)
 	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"scratch","backend":"claude"}`)
 	return env
+}
+
+// exec runs stmt on a second connection to the database file, to break and mend the store.
+func (e *liveEnv) exec(t *testing.T, stmt string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(e.dir, "reef.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Error(err)
+		return
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(stmt); err != nil {
+		t.Error(err)
+	}
 }
 
 func (e *liveEnv) send(t *testing.T, text string) (int, string) {
@@ -1835,5 +1853,89 @@ func TestContinue_StartFailureKeepsHeldWakesWithoutSubscriber(t *testing.T) {
 			t.Fatalf("turns run = %d, want 9: the held wake and 3 more hops", len(env.ranTexts()))
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func TestApproval_StoreFailurePausesAndContinueRetries(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	roles := []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
+	}
+	_, err := env.st.ApplyTeam(ctx, store.Team{Name: "core", Roles: roles,
+		Gates: []store.Gate{{From: "lead", To: "architect", On: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect plan it", nil)
+		}
+	}
+	env.exec(t, "CREATE TRIGGER no_approval BEFORE INSERT ON approval "+
+		"BEGIN SELECT RAISE(ABORT, 'disk full'); END")
+	sub := subscribeTo(t, env.url, id)
+	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+
+	env.sendTo(t, id, "go")
+	const reason = "hold wake for architect: insert approval: constraint failed: disk full (1811)"
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
+	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != reason {
+		t.Errorf("channel = %+v, %v, want paused with %q", ch, err, reason)
+	}
+	if status, body := do(t, http.MethodGet, approvals, ""); status != 200 || body != "[]" {
+		t.Errorf("approvals = %d %s, want none", status, body)
+	}
+
+	env.exec(t, "DROP TRIGGER no_approval")
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	if got := sub.next(t); !strings.HasPrefix(got, `approval {"id":1,"channelId":2,"from":"lead","to":"architect",`) {
+		t.Errorf("frame = %s, want the pending approval", got)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	status, body := do(t, http.MethodGet, approvals, "")
+	if status != 200 || !strings.Contains(body, `"text":"[channel 2, message 2]\nlead wrote: @architect plan it","status":"pending"`) {
+		t.Errorf("approvals = %d %s, want the pending approval", status, body)
+	}
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 1]\ngo"}) {
+		t.Errorf("ran = %q, want only go: the wake waits for approval", got)
+	}
+}
+
+func TestSend_RoutingFailurePausesAndContinueRoutes(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect plan it", nil)
+			env.exec(t, "ALTER TABLE gate RENAME TO gate_gone")
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+
+	env.sendTo(t, id, "go")
+	const reason = "route messages: read gates of team core: SQL logic error: no such table: gate (1)"
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
+	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != reason {
+		t.Errorf("channel = %+v, %v, want paused with %q", ch, err, reason)
+	}
+
+	env.exec(t, "ALTER TABLE gate_gone RENAME TO gate")
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "architect")
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
+	}) {
+		t.Errorf("ran = %q, want the architect to run the message the failed read left", got)
 	}
 }
