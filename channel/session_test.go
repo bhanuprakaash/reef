@@ -3,6 +3,8 @@ package channel
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -101,7 +103,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 	}
 	tok := ag.cfg.MCPServers["reef"].Env["REEF_TOKEN"]
 	want := agent.Config{
-		Cwd: "/tmp/shop", PermissionMode: "acceptEdits", Tools: []string{"Task", "mcp__reef__*"},
+		Cwd: dir + "/worktrees/1/login", PermissionMode: "acceptEdits", Tools: []string{"Task", "mcp__reef__*"},
 		MCPServers: map[string]agent.MCPServer{"reef": {
 			Command: "/bin/reef", Args: []string{"mcp", "--data", dir},
 			Env: map[string]string{"REEF_TOKEN": tok},
@@ -152,7 +154,14 @@ func TestOpen_QuickSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "You are the architect in project \"shop\" (/tmp/shop).\n" +
+	p, err := st.Project(ctx, f.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ag.cfg.Cwd != p.Path {
+		t.Errorf("Cwd = %q, want the project path %q", ag.cfg.Cwd, p.Path)
+	}
+	want := "You are the architect in project \"shop\" (" + p.Path + ").\n" +
 		"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n" +
 		"\n\nhi"
 	if len(ag.prompts) != 1 || ag.prompts[0] != want {
@@ -539,6 +548,94 @@ func TestSession_Promote(t *testing.T) {
 	want := `This quick session is now feature "Big idea" (idea). Call the propose_wrap tool once`
 	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], want) {
 		t.Errorf("prompts = %q, want one with %q", ag.prompts, want)
+	}
+}
+
+func TestSession_PromoteMovesNextWakeToWorktree(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	p, err := st.Project(ctx, f.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := sessionChannel(t, st, f, true)
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ag.st, ag.channelID, ag.propose = st, ch.ID, true
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	dir := t.TempDir()
+	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Run(ctx, "hi", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.Path, "wip.txt"), []byte("wip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PromoteChannel(ctx, ch.ID, store.Feature{Slug: "idea", Name: "Big idea"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Promote(ctx, discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Run(ctx, "go on", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+
+	worktree := dir + "/worktrees/1/idea"
+	if len(ags) != 2 || ags[0].cfg.Cwd != p.Path || !ags[0].closed ||
+		ags[1].cfg.Cwd != worktree || ags[1].resumed != "s1" {
+		t.Errorf("agents = %+v, want the first in %s and closed by the promote, the second resumed in %s",
+			ags, p.Path, worktree)
+	}
+	msgs, err := st.Messages(ctx, ch.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Uncommitted changes stay on the main checkout. This feature works in " + worktree +
+		" on feature/idea."
+	if len(msgs) < 2 || msgs[1].Author != "reef" || msgs[1].Body != want {
+		t.Errorf("messages = %+v, want the second from reef saying %q", msgs, want)
+	}
+}
+
+func TestSession_NoWorktreeFailsTurn(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	p, err := st.CreateProject(ctx, store.Project{Name: "notes", Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err = st.CreateFeature(ctx, store.Feature{ProjectID: p.ID, Slug: "docs", Name: "Docs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := sessionChannel(t, st, f, false)
+	ag := newRecordingAgent()
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	err = s.Run(ctx, "hi", nil, discard)
+	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Fatalf("Run error = %v, want one saying not a git repository", err)
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || turns[0].Status != "failed" ||
+		!strings.Contains(turns[0].Error, "not a git repository") || ag.started {
+		t.Errorf("turns = %+v, started = %v, want one failed turn and no agent started", turns, ag.started)
 	}
 }
 
