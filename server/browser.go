@@ -2,6 +2,7 @@ package server
 
 import (
 	"bufio"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -28,23 +29,30 @@ type browserReply struct {
 }
 
 // callBrowser sends one tool call to the Reef app's browser socket in dataDir
-// and returns its one-line reply. No socket, or nobody listening, is reported
-// as the app not being open.
-func callBrowser(dataDir, tool string, args any) (browserReply, error) {
-	conn, err := net.DialTimeout("unix", filepath.Join(dataDir, _browserSocketFile), _browserTimeout)
+// and returns its one-line reply. Only a failed dial is reported as the app
+// not being open; once connected, a write, read or deadline failure means the
+// app is there but did not answer.
+func callBrowser(ctx context.Context, dataDir, tool string, args any) (browserReply, error) {
+	var dialer net.Dialer
+	conn, err := dialer.DialContext(ctx, "unix", filepath.Join(dataDir, _browserSocketFile))
 	if err != nil {
 		return browserReply{}, errors.New(_browserUnavailable)
 	}
 	defer func() { _ = conn.Close() }()
-	if err := conn.SetDeadline(time.Now().Add(_browserTimeout)); err != nil {
-		return browserReply{}, fmt.Errorf("set browser socket deadline: %w", err)
+
+	deadline := time.Now().Add(_browserTimeout)
+	if dl, ok := ctx.Deadline(); ok {
+		deadline = dl
+	}
+	if err := conn.SetDeadline(deadline); err != nil {
+		return browserReply{}, fmt.Errorf("browser did not answer: %w", err)
 	}
 	if err := json.NewEncoder(conn).Encode(browserRequest{Tool: tool, Args: args}); err != nil {
-		return browserReply{}, errors.New(_browserUnavailable)
+		return browserReply{}, fmt.Errorf("browser did not answer: %w", err)
 	}
 	line, err := bufio.NewReader(conn).ReadString('\n')
 	if err != nil {
-		return browserReply{}, errors.New(_browserUnavailable)
+		return browserReply{}, fmt.Errorf("browser did not answer: %w", err)
 	}
 	var reply browserReply
 	if err := json.Unmarshal([]byte(line), &reply); err != nil {

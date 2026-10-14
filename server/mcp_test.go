@@ -1,7 +1,11 @@
 package server
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
+	"net"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"testing"
@@ -70,9 +74,18 @@ func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 
 func callTool(t *testing.T, st *store.Store, tok store.Token) func(string, map[string]any) (string, bool) {
 	t.Helper()
+	return callToolResult(t, st, tok, t.TempDir())
+}
+
+// callToolResult is callTool with control over dataDir, so a test can put a
+// fake browser.sock there before the client connects.
+func callToolResult(
+	t *testing.T, st *store.Store, tok store.Token, dataDir string,
+) func(string, map[string]any) (string, bool) {
+	t.Helper()
 	ctx := context.Background()
 	ct, st2 := mcp.NewInMemoryTransports()
-	ss, err := NewMCP(st, tok, t.TempDir()).Connect(ctx, st2, nil)
+	ss, err := NewMCP(st, tok, dataDir).Connect(ctx, st2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,6 +106,27 @@ func callTool(t *testing.T, st *store.Store, tok store.Token) func(string, map[s
 		}
 		return _timestamp.ReplaceAllString(text.Text, `"$1":"T"`), res.IsError
 	}
+}
+
+// fakeBrowserSocket listens on dataDir/browser.sock and answers every
+// connection with reply, so a browser tool test does not need the Reef app.
+func fakeBrowserSocket(t *testing.T, dataDir, reply string) {
+	t.Helper()
+	l, err := net.Listen("unix", filepath.Join(dataDir, _browserSocketFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = l.Close() })
+	go func() {
+		for {
+			conn, err := l.Accept()
+			if err != nil {
+				return
+			}
+			_, _ = conn.Write([]byte(reply))
+			_ = conn.Close()
+		}
+	}()
 }
 
 func TestMCPTools(t *testing.T) {
@@ -225,6 +259,26 @@ func TestMCPTools(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name:    "snapshot with the app closed",
+			tool:    "browser_snapshot",
+			want:    "browser unavailable: the Reef app is not open",
+			wantErr: true,
+		},
+		{
+			name:    "click with the app closed",
+			tool:    "browser_click",
+			give:    map[string]any{"ref": "e1"},
+			want:    "browser unavailable: the Reef app is not open",
+			wantErr: true,
+		},
+		{
+			name:    "type with the app closed",
+			tool:    "browser_type",
+			give:    map[string]any{"ref": "e1", "text": "hi"},
+			want:    "browser unavailable: the Reef app is not open",
+			wantErr: true,
+		},
+		{
 			name:    "console with the app closed",
 			tool:    "browser_console",
 			want:    "browser unavailable: the Reef app is not open",
@@ -330,5 +384,66 @@ func TestMCPQuickSessionReadsItsOwnThread(t *testing.T) {
 		`"parentId":5}]}`
 	if got != want || isErr {
 		t.Errorf("read_thread = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
+func TestMCPBrowserNavigate(t *testing.T) {
+	st, tok := mcpFixture(t)
+	dataDir := t.TempDir()
+	fakeBrowserSocket(t, dataDir, `{"text":"navigated to x"}`+"\n")
+
+	got, isErr := callToolResult(t, st, tok, dataDir)("browser_navigate", map[string]any{"url": "x"})
+	if want := `{"text":"navigated to x"}`; got != want || isErr {
+		t.Errorf("browser_navigate = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
+func TestMCPBrowserTakenOver(t *testing.T) {
+	st, tok := mcpFixture(t)
+	dataDir := t.TempDir()
+	fakeBrowserSocket(t, dataDir, `{"error":"the user has the browser"}`+"\n")
+
+	got, isErr := callToolResult(t, st, tok, dataDir)("browser_navigate", map[string]any{"url": "x"})
+	if want := "the user has the browser"; got != want || !isErr {
+		t.Errorf("browser_navigate = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
+func TestMCPBrowserScreenshot(t *testing.T) {
+	// A 1x1 transparent PNG.
+	const tinyPNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+	st, tok := mcpFixture(t)
+	dataDir := t.TempDir()
+	fakeBrowserSocket(t, dataDir, `{"image":"`+tinyPNG+`"}`+"\n")
+
+	ctx := context.Background()
+	ct, st2 := mcp.NewInMemoryTransports()
+	ss, err := NewMCP(st, tok, dataDir).Connect(ctx, st2, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cs, err := mcp.NewClient(&mcp.Implementation{Name: "test", Version: "v0"}, nil).Connect(ctx, ct, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = cs.Close(); _ = ss.Wait() })
+
+	res, err := cs.CallTool(ctx, &mcp.CallToolParams{Name: "browser_screenshot"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, ok := res.Content[0].(*mcp.ImageContent)
+	if !ok {
+		t.Fatalf("content is %T, want an image", res.Content[0])
+	}
+	want, err := base64.StdEncoding.DecodeString(tinyPNG)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Equal(img.Data, want) {
+		t.Errorf("image bytes = %x, want %x", img.Data, want)
+	}
+	if img.MIMEType != "image/png" {
+		t.Errorf("mime type = %q, want image/png", img.MIMEType)
 	}
 }

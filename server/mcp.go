@@ -300,20 +300,28 @@ func (m *mcpServer) proposeWrap(
 	return nil, wrapOut{ID: p.ID, Message: "proposal saved; the user will approve it"}, nil
 }
 
-func (m *mcpServer) browserNavigate(
-	ctx context.Context, _ *mcp.CallToolRequest, in browserNavigateIn,
+// browserText runs a browser tool that replies with plain text; browser_screenshot
+// is the only one that does not, since its reply is an image.
+func (m *mcpServer) browserText(
+	ctx context.Context, tool string, args any,
 ) (*mcp.CallToolResult, browserTextOut, error) {
-	reply, err := callBrowser(m.dataDir, "navigate", map[string]string{"url": in.URL})
+	reply, err := callBrowser(ctx, m.dataDir, tool, args)
 	if err != nil {
 		return nil, browserTextOut{}, err
 	}
 	return nil, browserTextOut{Text: reply.Text}, nil
 }
 
+func (m *mcpServer) browserNavigate(
+	ctx context.Context, _ *mcp.CallToolRequest, in browserNavigateIn,
+) (*mcp.CallToolResult, browserTextOut, error) {
+	return m.browserText(ctx, "navigate", map[string]string{"url": in.URL})
+}
+
 func (m *mcpServer) browserScreenshot(
 	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
 ) (*mcp.CallToolResult, any, error) {
-	reply, err := callBrowser(m.dataDir, "screenshot", nil)
+	reply, err := callBrowser(ctx, m.dataDir, "screenshot", nil)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -329,49 +337,29 @@ func (m *mcpServer) browserScreenshot(
 func (m *mcpServer) browserSnapshot(
 	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
 ) (*mcp.CallToolResult, browserTextOut, error) {
-	reply, err := callBrowser(m.dataDir, "snapshot", nil)
-	if err != nil {
-		return nil, browserTextOut{}, err
-	}
-	return nil, browserTextOut{Text: reply.Text}, nil
+	return m.browserText(ctx, "snapshot", nil)
 }
 
 func (m *mcpServer) browserClick(
 	ctx context.Context, _ *mcp.CallToolRequest, in browserClickIn,
 ) (*mcp.CallToolResult, browserTextOut, error) {
-	reply, err := callBrowser(m.dataDir, "click", map[string]string{"ref": in.Ref})
-	if err != nil {
-		return nil, browserTextOut{}, err
-	}
-	return nil, browserTextOut{Text: reply.Text}, nil
+	return m.browserText(ctx, "click", map[string]string{"ref": in.Ref})
 }
 
 func (m *mcpServer) browserType(
 	ctx context.Context, _ *mcp.CallToolRequest, in browserTypeIn,
 ) (*mcp.CallToolResult, browserTextOut, error) {
-	reply, err := callBrowser(m.dataDir, "type", map[string]string{"ref": in.Ref, "text": in.Text})
-	if err != nil {
-		return nil, browserTextOut{}, err
-	}
-	return nil, browserTextOut{Text: reply.Text}, nil
+	return m.browserText(ctx, "type", map[string]string{"ref": in.Ref, "text": in.Text})
 }
 
 func (m *mcpServer) browserConsole(
 	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
 ) (*mcp.CallToolResult, browserTextOut, error) {
-	reply, err := callBrowser(m.dataDir, "console", nil)
-	if err != nil {
-		return nil, browserTextOut{}, err
-	}
-	return nil, browserTextOut{Text: reply.Text}, nil
+	return m.browserText(ctx, "console", nil)
 }
 
 func (m *mcpServer) browserNetwork(
 	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
 ) (*mcp.CallToolResult, browserTextOut, error) {
-	reply, err := callBrowser(m.dataDir, "network", nil)
-	if err != nil {
-		return nil, browserTextOut{}, err
-	}
-	return nil, browserTextOut{Text: reply.Text}, nil
+	return m.browserText(ctx, "network", nil)
 }
