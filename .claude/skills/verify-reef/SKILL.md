@@ -194,7 +194,10 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/
   prints `tools: ...`, `< isError=false|true <text>` (or `< rpc error ...`), `reef mcp exit:
   N` and stderr. It exits 0 when a tool result came back.
 - The project folder is the scratch cwd, so `reef chat` runs its agent there and `cleanup`
-  removes claude's session state for it.
+  removes claude's session state for it. A channel on a feature runs in the feature's worktree,
+  `<data folder>/worktrees/<project id>/<slug>`, so the scratch cwd must be a git repo with a
+  commit first (`features/full-team.md`, Preconditions). `cleanup` does not remove claude's
+  state for those folders (the command to remove it is in `features/full-team.md`, Gotchas).
 
 Rules:
 - Every `--backend claude` `reef chat` drive sets `ANTHROPIC_MODEL=sonnet`. Keep chats to the
@@ -250,7 +253,12 @@ REEF_VERIFY_RUN=<id> $H ui inbox     # gated approval shows in the inbox, one no
 
 `teams` needs the teams `duo` and `gated` (and `inbox` needs `gated`) applied to the `ui` folder first: run
 `$H reef --data-name ui -- team apply FILE.json` for each before `serve-start --data-name ui` (the
-files are in `features/teams.md`).
+files are in `features/teams.md`). `inbox` counts every item of the server, so run it first, or
+on a folder of its own (`--data-name inbox`, with `gated` applied).
+
+Each scenario adds a project on the scratch cwd and makes it a git repo with one commit when it
+is not one, because a channel on a feature runs in a git worktree. Its feature slug gets a
+suffix, since one branch cannot be checked out in two worktrees.
 
 `ui` runs `node scripts/ui/drive.mjs SCENARIO http://<serve.addr>` with the run's data folder, the
 scratch cwd as the project folder and `~/.reef-verify/<id>/ui` for screenshots. Each scenario adds
@@ -336,6 +344,5 @@ in `~/.codex/sessions`; cleanup leaves them.
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
-| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|inbox` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |

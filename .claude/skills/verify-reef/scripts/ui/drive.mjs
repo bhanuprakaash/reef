@@ -85,13 +85,17 @@ async function addProject() {
   await section.waitFor();
   return section;
 }
-async function addFeature(section, slug, name) {
+// Adds a feature and returns its slug. The slug gets a suffix: every scenario's project is the
+// same git repo, and a feature's branch can be checked out in one worktree only.
+async function addFeature(section, prefix, name) {
+  const slug = `${prefix}-${Date.now().toString(36)}`;
   await section.getByRole('button', { name: 'Add feature' }).click();
   await section.getByLabel('Feature slug').fill(slug);
   await section.getByLabel('Feature name').fill(name);
   await section.getByRole('button', { name: 'Add', exact: true }).click();
   await section.getByRole('link', { name, exact: true }).click();
   await page.getByRole('heading', { name, level: 1 }).waitFor();
+  return slug;
 }
 // Starts a claude channel from the form in `box` and returns its id.
 async function newChannel(box, openName, name, mode = 'acceptEdits') {
@@ -339,9 +343,9 @@ async function rollback() {
     git(projectDir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'first');
   }
   const section = await addProject();
-  await addFeature(section, 'login', 'Login');
+  const slug = await addFeature(section, 'login', 'Login');
   const cid = await newChannel(main, 'New channel', 'rollback chat');
-  const tree = path.join(data, 'worktrees', sql(`select project_id from channel where id=${cid}`), 'login');
+  const tree = path.join(data, 'worktrees', sql(`select project_id from channel where id=${cid}`), slug);
   const state = () => [git(tree, 'rev-parse', 'HEAD'), git(tree, 'status', '--porcelain'), git(tree, 'log', '--oneline'), git(tree, 'ls-files')].join('\n--\n');
 
   await exchange('Say hello.');
