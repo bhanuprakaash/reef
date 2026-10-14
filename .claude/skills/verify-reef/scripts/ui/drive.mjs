@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|inspector BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
@@ -10,9 +10,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, inspector };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|inspector BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -444,6 +444,54 @@ async function diff() {
     json.length === 1 && json[0].path === 'new.txt' && json[0].status === 'added' && json[0].hunks[0].lines[0].text === 'hi',
     'GET /features/{id}/diff returns the file with its added line',
     JSON.stringify(json),
+  );
+}
+
+async function inspector() {
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const { id: cid } = await newTeamChannel('full', 'inspector room');
+  await send('Say ok in one word.');
+  await workingAs('lead');
+  await idle();
+  await send('@developer Use the Write tool to create the file d.txt containing the word yes. Then reply done.');
+  await workingAs('developer');
+  await idle();
+
+  await main.getByRole('button', { name: 'Inspector' }).click();
+  const panel = page.getByRole('complementary', { name: 'Inspector' });
+  const devSummary = panel.locator('summary', { hasText: 'developer' });
+  await devSummary.waitFor({ timeout: 15000 });
+  await shot('panel');
+
+  const json = await getJson(`/channels/${cid}/inspector`);
+  const leadRole = json.roles.find((r) => r.role === 'lead');
+  const devRole = json.roles.find((r) => r.role === 'developer');
+  check(!!leadRole && !!devRole, 'the API lists a lead role and a developer role', JSON.stringify(json.roles));
+
+  const leadText = await panel.locator('summary', { hasText: 'lead' }).innerText();
+  const devText = await devSummary.innerText();
+  check(
+    leadText.includes(`${leadRole.turns} turns`) && leadText.includes(`${leadRole.usage.inputTokens} in`),
+    'the lead block shows turn count and tokens from the API',
+    leadText,
+  );
+  check(
+    devText.includes(`${devRole.turns} turns`) && devText.includes(`${devRole.usage.inputTokens} in`),
+    'the developer block shows turn count and tokens from the API',
+    devText,
+  );
+
+  await devSummary.click();
+  const devTurn = json.turns.find((t) => t.role === 'developer');
+  await panel.locator('details summary').last().click();
+  await shot('turn-open');
+  const body = await panel.innerText();
+  check(body.includes(devTurn.prompt), 'expanding the developer turn shows its prompt', body);
+  check(
+    devTurn.toolCalls.length > 0 && body.includes(devTurn.toolCalls[0].name) && body.includes(devTurn.toolCalls[0].result),
+    'the developer turn shows a tool call with its input and result',
+    body,
   );
 }
 
