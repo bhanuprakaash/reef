@@ -275,6 +275,36 @@ Rules:
 - Never drive a server this run did not start.
 - A `FAIL` is a finding only after you have opened its screenshot.
 
+## Feature scripts
+
+`REEF_VERIFY_RUN=<id> $H feature NAME` runs `features/NAME.sh` (needs `build` and `doctor`
+done) with `H`, `REEF_VERIFY_RUN`, `E` and `S` exported, tees its output to
+`~/.reef-verify/<id>/feature-NAME.log`, and exits 1 if any line is `FAIL`. So far there is
+`features/full-team.sh`, which drives every line of `full-team.md` and prints one
+`PASS <id>: ...` or `FAIL <id>: ...` per sub-feature id. It works the same whichever `claude`
+is on `PATH` (fake, record or real).
+
+```sh
+ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H feature full-team
+```
+
+## Real-claude set
+
+`REEF_VERIFY_RUN=<id> $H real` forces real `claude` (`REEF_VERIFY_CLAUDE=real`,
+`ANTHROPIC_MODEL=sonnet`), drives its own data folders and server, prints one
+`PASS <id>: ...` or `FAIL <id>: ...` per id, tees to `~/.reef-verify/<id>/real.log`, and exits
+1 on any `FAIL`. It is the set of lines that test claude's own behavior, not Reef's: a tester
+without `write` is refused Write then Bash, with `--permission-mode default` and
+`--disallowedTools Edit,Write,MultiEdit,NotebookEdit` (`write-claude-refused`), the same with a
+project `.claude/settings.json` that allows Edit (`write-settings`), `--permission-mode` holds
+for an allowed and a denied tool (`turn-permission`), and a subagent's tool calls carry
+`parentToolId` while the `Agent` call and other top-level events do not (`subagent-parent`,
+`subagent-top-level`). Run it at slice verification and whenever `agent/claude` changes.
+
+```sh
+REEF_VERIFY_RUN=<id> $H real
+```
+
 ## Evidence
 
 Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches it.
@@ -345,4 +375,6 @@ in `~/.codex/sessions`; cleanup leaves them.
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
 | `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
+| `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |
