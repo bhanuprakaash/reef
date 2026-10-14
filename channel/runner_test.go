@@ -567,3 +567,78 @@ func TestRunner_SendCancelledKeepsStoppedUsage(t *testing.T) {
 		t.Errorf("turns = %+v, want one failed turn with usage %+v", turns, want)
 	}
 }
+
+func TestRunner_RecordsModelCostPromptAndToolCalls(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cost := 0.0123
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8),
+		script: []agent.Event{
+			{Kind: agent.KindSession, SessionID: "s1", Model: "claude-opus-5-5"},
+			{Kind: agent.KindToolCall, ToolID: "t1", ToolName: "Bash", Input: []byte(`{"command":"ls"}`)},
+			{Kind: agent.KindToolResult, ToolID: "t1", Output: "a.txt\n"},
+			{Kind: agent.KindTurnEnd, CostUSD: &cost},
+		},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	if err := sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+
+	turn, err := st.Turn(bg, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if turn.Model != "claude-opus-5-5" || turn.CostUSD == nil || *turn.CostUSD != cost ||
+		!strings.Contains(turn.Prompt, "do it") {
+		t.Errorf("turn = %+v, want model claude-opus-5-5, cost %v, prompt containing %q",
+			turn, cost, "do it")
+	}
+	calls, err := st.ToolCalls(bg, turn.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []store.ToolCall{{ID: 1, TurnID: 1, Name: "Bash", Input: `{"command":"ls"}`, Result: "a.txt\n"}}
+	if !reflect.DeepEqual(calls, want) {
+		t.Errorf("tool calls = %+v, want %+v", calls, want)
+	}
+}
+
+func TestRunner_CodexTurnHasModelNoCost(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8),
+		script: []agent.Event{
+			{Kind: agent.KindSession, SessionID: "t1", Model: "gpt-6-codex"},
+			{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 10, OutputTokens: 3}},
+			{Kind: agent.KindTurnEnd},
+		},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "codex", "")
+	if err := sendAs(bg, st, ch.ID, r.Run, "go", func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+
+	turn, err := st.Turn(bg, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if turn.Model != "gpt-6-codex" || turn.CostUSD != nil ||
+		turn.Usage != (agent.Usage{InputTokens: 10, OutputTokens: 3}) {
+		t.Errorf("turn = %+v, want model gpt-6-codex, no cost, usage 10/3", turn)
+	}
+}

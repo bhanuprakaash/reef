@@ -91,6 +91,7 @@ func (r *Runner) Run(
 	if r.preamble != "" {
 		prompt = r.preamble + "\n\n" + prompt
 	}
+	turn.Prompt = prompt
 	if r.OnPrompt != nil {
 		r.OnPrompt(prompt)
 	}
@@ -104,6 +105,7 @@ func (r *Runner) Run(
 
 	var reply strings.Builder
 	calls := 0
+	toolRows := map[string]int64{}
 	for {
 		select {
 		case <-ctx.Done():
@@ -117,6 +119,9 @@ func (r *Runner) Run(
 			switch ev.Kind {
 			case agent.KindSession:
 				r.sessionID, turn.SessionID = ev.SessionID, ev.SessionID
+				if ev.Model != "" {
+					turn.Model = ev.Model
+				}
 				if _, err := r.st.SetTurnSession(wctx, turn.ID, ev.SessionID); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
@@ -129,6 +134,17 @@ func (r *Runner) Run(
 						r.abort(wctx, turn, capped, capped.Error(), reply.String(), parent),
 						r.st.PauseChannel(wctx, r.channelID, capped.Error()))
 				}
+				tc, err := r.st.CreateToolCall(wctx, turn.ID, ev.ToolName, string(ev.Input))
+				if err != nil {
+					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
+				}
+				toolRows[ev.ToolID] = tc.ID
+			case agent.KindToolResult:
+				if id, ok := toolRows[ev.ToolID]; ok {
+					if err := r.st.SetToolCallResult(wctx, id, ev.Output); err != nil {
+						return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
+					}
+				}
 			case agent.KindUsage:
 				if ev.Usage != nil {
 					turn.Usage.Add(*ev.Usage)
@@ -137,6 +153,9 @@ func (r *Runner) Run(
 				return errors.Join(fmt.Errorf("agent: %s", ev.Text),
 					r.fail(wctx, turn, ev.Text, reply.String(), parent))
 			case agent.KindTurnEnd:
+				if ev.CostUSD != nil {
+					turn.CostUSD = ev.CostUSD
+				}
 				if err := r.keepReply(wctx, reply.String(), parent); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), "", parent)
 				}

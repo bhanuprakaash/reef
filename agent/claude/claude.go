@@ -83,6 +83,7 @@ type (
 		Type      string `json:"type"`
 		Subtype   string `json:"subtype"`
 		SessionID string `json:"session_id"`
+		Model     string `json:"model"` // system/init
 		Event     struct {
 			Type  string `json:"type"`
 			Delta struct {
@@ -100,6 +101,7 @@ type (
 		Result          string      `json:"result"`
 		Errors          []string    `json:"errors"`
 		Usage           usageCounts `json:"usage"`
+		TotalCostUSD    *float64    `json:"total_cost_usd"` // result; nil when the backend did not send one
 		Origin          struct {
 			Kind string `json:"kind"`
 		} `json:"origin"`
@@ -381,7 +383,7 @@ func parseLine(line []byte, st *state) []agent.Event {
 	case "system":
 		if l.Subtype == "init" {
 			st.unprompted = true
-			return []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID}}
+			return []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID, Model: l.Model}}
 		}
 	case "stream_event":
 		if l.Event.Type == "message_start" {
@@ -459,7 +461,7 @@ func parseLine(line []byte, st *state) []agent.Event {
 			text := strings.Join(append([]string{l.Result}, l.Errors...), "\n")
 			return append(evs, agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text)})
 		}
-		return append(evs, agent.Event{Kind: agent.KindTurnEnd})
+		return append(evs, agent.Event{Kind: agent.KindTurnEnd, CostUSD: l.TotalCostUSD})
 	}
 	return nil
 }

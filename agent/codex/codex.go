@@ -40,6 +40,7 @@ type (
 		stdout   *bufio.Reader
 		stderr   tail
 		threadID string
+		model    string
 		nextID   int
 		events   chan agent.Event
 		done     chan struct{} // closed by Interrupt
@@ -300,11 +301,12 @@ func (a *Agent) handshake(method string, params map[string]any) error {
 		Thread struct {
 			ID string `json:"id"`
 		} `json:"thread"`
+		Model string `json:"model"`
 	}
 	if err := json.Unmarshal(res, &thread); err != nil {
 		return fmt.Errorf("%s result: %w", method, err)
 	}
-	a.threadID = thread.Thread.ID
+	a.threadID, a.model = thread.Thread.ID, thread.Model
 	return nil
 }
 
@@ -346,7 +348,7 @@ func (a *Agent) write(v any) error {
 }
 
 func (a *Agent) read() {
-	if !a.emit(agent.Event{Kind: agent.KindSession, SessionID: a.threadID}) {
+	if !a.emit(agent.Event{Kind: agent.KindSession, SessionID: a.threadID, Model: a.model}) {
 		return
 	}
 	for {
