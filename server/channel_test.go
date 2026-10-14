@@ -135,13 +135,23 @@ func TestChannelRoundTrip(t *testing.T) {
 		t.Fatalf("by feature = %d %s", status, body)
 	}
 
-	status, body = do(t, http.MethodPut, ts.URL+"/channels/1", `{"projectId":9,"featureId":1,"name":"renamed"}`)
-	if status != 200 || !strings.Contains(body, `"projectId":1,"featureId":null,"name":"renamed"`) {
+	status, body = do(t, http.MethodPut, ts.URL+"/channels/1",
+		`{"name":"renamed","permissionMode":"default"}`)
+	if status != 200 || !strings.Contains(body,
+		`"projectId":1,"featureId":null,"name":"renamed"`) ||
+		!strings.Contains(body, `"permissionMode":"default"`) {
 		t.Fatalf("rename quick session = %d %s", status, body)
+	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/channels/1",
+		`{"name":"renamed","permissionMode":"workspace-write"}`); status != 400 {
+		t.Fatalf("bad permission mode = %d %s, want 400", status, body)
 	}
 	status, body = do(t, http.MethodPut, ts.URL+"/channels/2", `{"name":"renamed"}`)
 	if status != 200 || !strings.Contains(body, `"projectId":1,"featureId":1,"name":"renamed"`) {
 		t.Fatalf("rename feature channel = %d %s", status, body)
+	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/channels/2", `{"projectId":9,"name":"x"}`); status != 400 {
+		t.Fatalf("ignored field update = %d %s, want 400", status, body)
 	}
 	if status, body = do(t, http.MethodPut, ts.URL+"/channels/9", `{"name":"x"}`); status != 404 {
 		t.Fatalf("rename unknown = %d %s, want 404", status, body)

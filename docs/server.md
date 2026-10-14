@@ -267,7 +267,7 @@ a channel takes its messages, turns, tokens and proposals.
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
 | `POST /channels` | `projectId`, `featureId`, `name`, `backend` (required: `claude` or `codex`), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`), `role` (empty or `lead`; empty becomes `lead`) | 201 | 400 unknown project or feature, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
-| `PUT /channels/{id}` | `name` only; project, feature, role, backend and permission mode stay as created | 200 | 400, 404 |
+| `PUT /channels/{id}` | `name`, `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the channel's backend and applies the next time its agent starts | 200 | 400 bad JSON or permission mode, 404 |
 | `DELETE /channels/{id}` | stops the channel first if it is live | 204 | 404 |
 | `POST /channels/{id}/send` | `text` | 202, no body | 400 empty text, or `/wrap` on a quick session, 404, 409 turn running, channel paused, open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
@@ -298,8 +298,9 @@ A `POST` with no body (`stop`, `continue`, `wrap`, `approve`, `reject`) still ne
 so an empty one or `{}` both work. `send` and `promote` read a JSON body, and an empty one
 is 400.
 
-Create and update take the whole object from the table above. A field you leave out
-takes its default. `PUT` replaces; there is no partial update except `PATCH /turns/{id}`.
+Create requests take the whole object from the table above. A field you leave out takes
+its default. Update behavior is route-specific: `PUT /channels/{id}` keeps an omitted
+`permissionMode`, while `PATCH /turns/{id}` is the only partial update for other resources.
 
 ## Channels live
 

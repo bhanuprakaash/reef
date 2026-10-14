@@ -112,13 +112,28 @@ func (s *server) updateChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	var in store.Channel
+	var in struct {
+		Name           string  `json:"name"`
+		PermissionMode *string `json:"permissionMode"`
+	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
-	in.ID = id
-	c, err := s.st.UpdateChannel(r.Context(), in)
+	current, err := s.st.Channel(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if in.PermissionMode != nil {
+		current.PermissionMode = *in.PermissionMode
+		if err := validateAgent(current); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	current.Name = in.Name
+	c, err := s.st.UpdateChannel(r.Context(), current)
 	if err != nil {
 		writeError(w, err)
 		return

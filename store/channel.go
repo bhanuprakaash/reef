@@ -86,13 +86,15 @@ func (s *Store) Channels(ctx context.Context, f ChannelFilter) ([]Channel, error
 	return scanAll(rows, scanChannel)
 }
 
-// UpdateChannel sets the name of c.ID. A channel never changes project, and its feature
-// changes only from nil, through PromoteChannel.
+// UpdateChannel sets the name and permission mode of c.ID. A channel never changes
+// project, and its feature changes only from nil, through PromoteChannel.
 func (s *Store) UpdateChannel(ctx context.Context, c Channel) (Channel, error) {
 	if err := c.validate(); err != nil {
 		return Channel{}, err
 	}
-	res, err := s.db.ExecContext(ctx, "UPDATE channel SET name = ? WHERE id = ?", c.Name, c.ID)
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE channel SET name = ?, permission_mode = ? WHERE id = ?",
+		c.Name, c.PermissionMode, c.ID)
 	if err != nil {
 		return Channel{}, fmt.Errorf("update channel: %w", err)
 	}
