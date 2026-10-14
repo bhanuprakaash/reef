@@ -108,6 +108,26 @@ export type InboxItem = {
   turnId?: number;
 };
 
+export type DiffLineKind = 'add' | 'del' | 'ctx';
+
+export type DiffLine = {
+  kind: DiffLineKind;
+  old?: number;
+  new?: number;
+  text: string;
+};
+
+export type DiffHunk = {
+  header: string;
+  lines: DiffLine[];
+};
+
+export type FileDiff = {
+  path: string;
+  status: 'added' | 'modified' | 'deleted';
+  hunks: DiffHunk[];
+};
+
 export type TaskStatus = 'todo' | 'doing' | 'done';
 
 export type Task = {

@@ -5,10 +5,12 @@ import { useChannels } from '@/lib/api/get-channels';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDecisions } from '@/modules/features/api/get-decisions';
+import { useDiff } from '@/modules/features/api/get-diff';
 import { useEnsureWorktree } from '@/modules/features/api/ensure-worktree';
 import { useFeature } from '@/modules/features/api/get-feature';
 import { BriefPanel } from '@/modules/features/components/brief-panel';
 import { DecisionList } from '@/modules/features/components/decision-list';
+import { DiffPanel } from '@/modules/features/components/diff-panel';
 import { FeatureForm } from '@/modules/features/components/feature-form';
 import { useTasks } from '@/modules/tasks/api/get-tasks';
 import { TaskList } from '@/modules/tasks/components/task-list';
@@ -28,6 +30,7 @@ export function FeaturePage() {
   const feature = useFeature(id);
   const briefs = useBriefVersions(id);
   const decisions = useDecisions(id);
+  const diff = useDiff(id);
   const tasks = useTasks({ feature: id });
   const channels = useChannels();
   const hasTerminal = typeof window !== 'undefined' && window.reef != null;
@@ -52,6 +55,13 @@ export function FeaturePage() {
           <p className={errorClass}>{decisions.error.message}</p>
         ) : (
           <DecisionList decisions={decisions.data ?? []} />
+        )}
+      </Section>
+      <Section title="Diff">
+        {diff.isError ? (
+          <p className={errorClass}>{diff.error.message}</p>
+        ) : (
+          <DiffPanel files={diff.data ?? []} />
         )}
       </Section>
       <Section title="Tasks">

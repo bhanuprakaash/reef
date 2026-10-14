@@ -353,6 +353,7 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
 | `POST /features/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the feature's worktree the same way the first wake of one of its channels would, reusing it when it already exists | 404 |
+| `GET /features/{id}/diff` | | 200 the worktree's changes against the commit its branch and the project's HEAD last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has no `mcpServers`, whose `args` and `url` may hold API keys | |
 | `GET /teams/{name}` | | 200, without `mcpServers` as above; each role shows `write` | 404 |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
