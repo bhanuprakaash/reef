@@ -1,11 +1,18 @@
-import { app, BrowserWindow, dialog } from 'electron';
+import { app, BrowserWindow, dialog, ipcMain } from 'electron';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createBrowser } from './browser.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ADDR = '127.0.0.1:7700';
 const SERVER_STOP_TIMEOUT = 5000;
+
+// The same default data folder reef serve uses: os.UserConfigDir()/Reef in
+// Go is app.getPath('appData') + '/Reef' in Electron on both Mac and Linux.
+function dataDir() {
+  return path.join(app.getPath('appData'), 'Reef');
+}
 
 function reefPath() {
   return app.isPackaged
@@ -87,10 +94,20 @@ function stopServer() {
   });
 }
 
+let browser = null;
+
 app.whenReady().then(async () => {
   const ok = await startServer();
   if (!ok) return;
-  const win = new BrowserWindow({ width: 1200, height: 800 });
+  const win = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
+  });
+  browser = createBrowser(win);
+  browser.listen(dataDir());
+  ipcMain.on('browser:bounds', (_event, rect) => browser.setBounds(rect));
+  ipcMain.handle('browser:navigate', (_event, url) => browser.navigate(url));
   win.loadURL(`http://${ADDR}`);
 });
 
@@ -104,5 +121,6 @@ app.on('before-quit', (event) => {
   if (quitting) return;
   quitting = true;
   event.preventDefault();
+  if (browser) browser.close();
   stopServer().then(() => app.quit());
 });

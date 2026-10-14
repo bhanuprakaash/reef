@@ -72,7 +72,7 @@ func callTool(t *testing.T, st *store.Store, tok store.Token) func(string, map[s
 	t.Helper()
 	ctx := context.Background()
 	ct, st2 := mcp.NewInMemoryTransports()
-	ss, err := NewMCP(st, tok).Connect(ctx, st2, nil)
+	ss, err := NewMCP(st, tok, t.TempDir()).Connect(ctx, st2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,6 +209,19 @@ func TestMCPTools(t *testing.T) {
 			tool:    "read_thread",
 			give:    map[string]any{"channelId": 3},
 			want:    "channel 3: not found",
+			wantErr: true,
+		},
+		{
+			name:    "navigate with the app closed",
+			tool:    "browser_navigate",
+			give:    map[string]any{"url": "http://localhost:8080"},
+			want:    "browser unavailable: the Reef app is not open",
+			wantErr: true,
+		},
+		{
+			name:    "screenshot with the app closed",
+			tool:    "browser_screenshot",
+			want:    "browser unavailable: the Reef app is not open",
 			wantErr: true,
 		},
 	}

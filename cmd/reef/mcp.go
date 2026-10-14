@@ -34,6 +34,10 @@ func mcpCmd(ctx context.Context, args []string) error {
 	}
 	defer func() { _ = st.Close() }()
 
+	dir, err := dataDir(*c.data)
+	if err != nil {
+		return err
+	}
 	tok, err := st.Token(ctx, value)
 	if errors.Is(err, store.ErrNotFound) {
 		return errors.New("unknown " + channel.TokenEnv)
@@ -41,7 +45,7 @@ func mcpCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	err = server.NewMCP(st, tok).Run(ctx, &mcp.StdioTransport{})
+	err = server.NewMCP(st, tok, dir).Run(ctx, &mcp.StdioTransport{})
 	if errors.Is(err, context.Canceled) {
 		return nil
 	}

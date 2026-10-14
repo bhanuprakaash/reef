@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 
@@ -13,8 +14,9 @@ import (
 const _defaultSearchLimit = 20
 
 type mcpServer struct {
-	st  *store.Store
-	tok store.Token
+	st      *store.Store
+	tok     store.Token
+	dataDir string
 }
 
 type (
@@ -62,12 +64,19 @@ type (
 		ID      int64  `json:"id" jsonschema:"proposal id"`
 		Message string `json:"message"`
 	}
+	browserNavigateIn struct {
+		URL string `json:"url" jsonschema:"the URL to open in the browser pane"`
+	}
+	browserTextOut struct {
+		Text string `json:"text"`
+	}
 )
 
 // NewMCP returns the MCP server for one teammate: tok names the channel it
 // works in, the role it speaks as and, through the channel, the feature.
-func NewMCP(st *store.Store, tok store.Token) *mcp.Server {
-	m := &mcpServer{st: st, tok: tok}
+// dataDir is the Reef data folder, where the Reef app's browser socket is.
+func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
+	m := &mcpServer{st: st, tok: tok, dataDir: dataDir}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "reef", Version: "v0.1.0"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "get_brief",
@@ -109,6 +118,14 @@ func NewMCP(st *store.Store, tok store.Token) *mcp.Server {
 			"decisions, open questions), notes are your own notes for this feature, " +
 			"decisions are ones made in this channel that are not recorded yet.",
 	}, m.proposeWrap)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "browser_navigate",
+		Description: "Open a URL in the shared browser pane. The user watches it live.",
+	}, m.browserNavigate)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "browser_screenshot",
+		Description: "Take a screenshot of the browser pane's current page.",
+	}, m.browserScreenshot)
 	return srv
 }
 
@@ -249,4 +266,36 @@ func (m *mcpServer) proposeWrap(
 		return nil, wrapOut{}, err
 	}
 	return nil, wrapOut{ID: p.ID, Message: "proposal saved; the user will approve it"}, nil
+}
+
+func (m *mcpServer) browserNavigate(
+	ctx context.Context, _ *mcp.CallToolRequest, in browserNavigateIn,
+) (*mcp.CallToolResult, browserTextOut, error) {
+	reply, err := callBrowser(m.dataDir, "navigate", map[string]string{"url": in.URL})
+	if err != nil {
+		return nil, browserTextOut{}, err
+	}
+	if reply.Error != "" {
+		return nil, browserTextOut{}, errors.New(reply.Error)
+	}
+	return nil, browserTextOut{Text: reply.Text}, nil
+}
+
+func (m *mcpServer) browserScreenshot(
+	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
+) (*mcp.CallToolResult, any, error) {
+	reply, err := callBrowser(m.dataDir, "screenshot", nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	if reply.Error != "" {
+		return nil, nil, errors.New(reply.Error)
+	}
+	data, err := base64.StdEncoding.DecodeString(reply.Image)
+	if err != nil {
+		return nil, nil, fmt.Errorf("decode screenshot: %w", err)
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.ImageContent{Data: data, MIMEType: "image/png"}},
+	}, nil, nil
 }

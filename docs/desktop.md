@@ -29,8 +29,22 @@ packaged app the `reef` binary ships inside the app's resources instead.
   `data folder ... is in use by another reef` on stderr. The app shows that error in a dialog,
   then quits.
 
+## Browser pane
+
+One `WebContentsView` ([`desktop/browser.js`](../desktop/browser.js)), for the whole window,
+shared by every channel. It sits to the right of the main area with an address bar; a preload
+script reports the pane's size to the main process so the native view stays lined up with it.
+The main process drives the view over the Chrome DevTools Protocol
+(`webContents.debugger`), and listens on `browser.sock` in the data folder (mode 0600) for
+calls from `reef mcp` (see [memory.md](memory.md#reef-mcp)): one JSON line request
+(`{"tool":"navigate","args":{"url":"..."}}`), one JSON line reply (`{"text":"..."}`,
+`{"image":"<base64 png>"}` or `{"error":"..."}`), per connection. `reef mcp` dials the socket
+directly, not through `reef serve`. A stale socket from a crash is unlinked before the app
+listens again.
+
 ## Quit
 
 Quitting the app (the window, the menu, or a signal) stops its `reef serve` first: the server
 gets SIGTERM and the app waits for it to exit, about a second, before it finishes quitting. No
-`reef serve` is left running after the app closes.
+`reef serve` is left running after the app closes. It also closes the browser socket and
+removes `browser.sock`.
