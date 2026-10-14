@@ -397,7 +397,7 @@ done) with `H`, `REEF_VERIFY_RUN`, `E` and `S` exported, tees its output to
 It works the same whichever `claude` is on `PATH` (fake, record or real). Its six sections
 (`full`, `cx`, `inbox`, `ui2`, `google`, `fu`) run at the same time, each as its own run
 `<id>/<section>` (`build`, `doctor`, its own scratch folder and server), so the run takes about
-as long as `full`, the longest section. Each section's full output is in
+as long as its longest section (`google`, about 3.5 minutes on the fake). Each section's full output is in
 `~/.reef-verify/<id>/<section>/full-team.log`, next to that section's `serve.log`, `api.log` and
 `sql.log`. `cleanup` of `<id>` cleans up each `<id>/<section>` first.
 
