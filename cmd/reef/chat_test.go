@@ -465,6 +465,55 @@ func TestRun_ChatResumesPausedChannel(t *testing.T) {
 	}
 }
 
+func TestChat_ResumeMultiRoleTeamUsesWindow(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.CreateProject(ctx, store.Project{Name: "shop", Path: "/tmp/shop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "duo", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "architect", Backend: "claude"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: p.ID, Name: "chat", Team: "duo", Role: "lead", Backend: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := reef(t, dir, "chat", "--channel", fmt.Sprint(ch.ID))
+	if err == nil || !strings.Contains(err.Error(), "use the Reef window") {
+		t.Fatalf("reef chat --channel %d error = %v, output %q", ch.ID, err, out)
+	}
+	if !strings.Contains(err.Error(), `team "duo"`) {
+		t.Fatalf("reef chat error = %v, want team name", err)
+	}
+
+	st, err = store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 0 {
+		t.Fatalf("turns = %v, want none", turns)
+	}
+}
+
 func useTokens(t *testing.T, st *store.Store, channelID, tokens int64) {
 	t.Helper()
 	ctx := context.Background()

@@ -96,7 +96,8 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 [`003_proposal.sql`](../store/migrations/003_proposal.sql) (`proposal`), migration 6
 [`006_team.sql`](../store/migrations/006_team.sql) (`team`, `role`, `channel.team_id`),
 migration 7 [`007_thread.sql`](../store/migrations/007_thread.sql) (`message.parent_id`) and
-migration 8 [`008_approval.sql`](../store/migrations/008_approval.sql) (`gate`, `approval`).
+migration 8 [`008_approval.sql`](../store/migrations/008_approval.sql) (`gate`, `approval`) and
+migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql) (`approval.kind`).
 Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 
 ### project
@@ -274,7 +275,8 @@ A wake that waits at a gate. The SQL table is `approval`.
 | `status` | string | `pending`, `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 
-Deleting the channel deletes its approvals.
+The table also keeps the wakes a pause holds, see [Caps](#caps): a row of kind `hold` is never
+listed, approved or rejected through the API. Deleting the channel deletes its approvals.
 
 ### token
 
@@ -347,7 +349,7 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
-| `GET /channels/{id}/approvals` | | 200 the channel's pending approvals, oldest first; `[]` when none | 404 |
+| `GET /channels/{id}/approvals` | | 200 the channel's pending gate approvals, oldest first; `[]` when none | 404 |
 | `POST /channels/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body | 400 no `approve`, 404 no such approval in this channel, 409 not pending, or approve while a turn runs, the channel is paused or 4 hops ran (it stays pending), 503 |
 | `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
 | `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
@@ -569,7 +571,7 @@ Three caps pause a channel. All are constants in the code, not settings.
   message is not a hop. The server counts hops per channel since the last user message. The
   5th hop does not run: the channel is paused with `hop cap: 4 agent hops without a user
   message`, and the `turn` event of the turn before it is followed by a `pause` event. The wake
-  that did not run, and the wakes behind it, are held in memory.
+  that did not run, and the wakes behind it, are stored as holds.
 
 A send to a paused channel is 409 with the reason in the error, except after the hop cap: that
 pause is for agents, so a user message clears it, resets the hop count to 0, drops the held
@@ -579,12 +581,19 @@ turn simply gets a fresh 25. `continue` on a channel that is not paused, or has 
 is 409.
 
 Held wakes: when a wake cannot run because of a pause (the hop cap, or a token budget that ran
-out in the middle of a chain), the server keeps it and the wakes behind it. `continue` then
-resets the hop count to 0 and runs them as a new chain, with `pause` `{"reason":""}` as the
-chain starts. If the chain cannot start, the channel stays paused and keeps the wakes. That
+out in the middle of a chain), the server stores it and the wakes behind it as `hold`
+rows of the `approval` table. `continue` claims the channel's pending holds once, resets the
+hop count to 0 and runs them in order as a new chain, with `pause` `{"reason":""}` as the
+chain starts. If the chain cannot start, the channel stays paused and keeps the holds. That
 chain can reach the hop cap again, and then pauses again. Sending a user message resets the
-hop count to 0 too. Approving a gate does not. A held wake lives in
-memory only: after a restart `continue` just clears the pause and runs nothing.
+hop count to 0 too, and drops the holds. Approving a gate does not. The holds are stored, so
+they survive a restart; the hop count is not, so a chain that runs after a restart counts from 0.
+
+The same pause holds work when the server cannot store an approval for a gated wake, or cannot
+read the messages a turn stored to route them. The channel pauses with the error as the reason, and
+nothing runs ungated. These wakes are held in memory only, since the database failed. `continue` stores the approval again, or does the routing read again from
+the message before the turn's reply, and runs what that wakes. If it fails again the channel
+stays paused.
 
 The tool cap is counted in `channel.Runner`, so `reef chat` is capped too: it pauses the
 channel, prints the reason and exits, because the interrupt ends the agent. Before each
@@ -632,10 +641,10 @@ this far on a folder in use, so it cannot fail the turns of the server that owns
 An agent may have left half-done edits in the worktree, so the message tells the user to
 check before retrying.
 
-A chain of wakes does not survive a restart: the wakes still waiting are lost, with the held
-wakes of a pause and the hop count, which are in memory. A pause is stored, so the channel
-stays paused; `continue` clears it and runs nothing. A pending approval is stored, so it
-is still pending after the restart and can be approved then.
+A chain of wakes does not survive a restart: the wakes still waiting are lost, with the hop
+count and the wakes held because the database failed, which are in memory. A pause is stored,
+and so are the wakes it held, so the channel stays paused and `continue` runs them. A pending
+approval is stored, so it is still pending after the restart and can be approved then.
 
 ## Try it
 

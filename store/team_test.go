@@ -60,6 +60,55 @@ func TestApplyTeam_Gates(t *testing.T) {
 	}
 }
 
+func TestApplyTeam_Solo(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	tests := []struct {
+		name string
+		give []Role
+		want error
+	}{
+		{
+			name: "extra role",
+			give: []Role{
+				{Name: "lead", Lead: true, Backend: "claude"},
+				{Name: "architect", Backend: "claude"},
+			},
+			want: ErrInvalid,
+		},
+		{
+			name: "renamed lead",
+			give: []Role{{Name: "boss", Lead: true, Backend: "claude"}},
+			want: ErrInvalid,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := s.ApplyTeam(ctx, Team{Name: SoloTeam, Roles: tt.give})
+			if !errors.Is(err, tt.want) {
+				t.Errorf("ApplyTeam solo error = %v, want %v", err, tt.want)
+			}
+		})
+	}
+
+	seeded, err := s.Team(ctx, SoloTeam)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ApplyTeam(ctx, seeded)
+	if err != nil {
+		t.Fatalf("ApplyTeam seeded solo = %v, want nil", err)
+	}
+	if len(got.Roles) != 1 || got.Roles[0].Name != "lead" || !got.Roles[0].Lead {
+		t.Errorf("ApplyTeam seeded solo = %+v, want its lead role unchanged", got.Roles)
+	}
+}
+
 func TestApplyTeam_RoleName(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())

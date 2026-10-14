@@ -252,8 +252,7 @@ MCP config injection
   matches), so `Start` rejects them.
 - Codex: `thread/start` `config.mcp_servers`, same fields. With approval `never`, MCP calls
   fail with "requires approval" unless the server has
-  `default_tools_approval_mode: "approve"`. The adapter sets it. So on codex every Config MCP server is
-  pre-approved.
+  `default_tools_approval_mode: "approve"`. The adapter sets it for the `reef` server only.
 
 Session and thread ids
 - Claude `session_id` is on every line. `--resume ID` keeps the same id (no new id without
