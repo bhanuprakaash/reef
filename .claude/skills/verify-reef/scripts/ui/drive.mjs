@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|inspector BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|inspector|board BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
@@ -10,9 +10,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, board };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|board BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -742,6 +742,101 @@ async function teams() {
     sql(`select from_role||'>'||to_role||' '||status from approval where channel_id=${gid}`) === 'lead>architect approved',
     'the approval is stored as approved',
     `approvals: ${sql(`select id,from_role,to_role,status from approval where channel_id=${gid}`)}; turns: ${sql(`select group_concat(role) from (select role from turn where channel_id=${gid} order by id)`)}`,
+  );
+}
+
+// Dispatches a native HTML5 drag sequence (dragstart on `card`, dragover and drop on
+// `target`) through the DOM, since the window uses the draggable attribute, not mouse
+// gestures a synthetic drag can trigger headless.
+async function dragCard(card, target) {
+  const cardEl = await card.elementHandle();
+  const targetEl = await target.elementHandle();
+  await page.evaluate(
+    ([c, t]) => {
+      const data = new DataTransfer();
+      c.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
+      t.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data }));
+      t.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: data }));
+    },
+    [cardEl, targetEl],
+  );
+}
+
+async function board() {
+  const section = await addProject();
+  await addFeature(section, 'board', 'Board feature');
+  const fid = page.url().split('/').pop();
+  const pid = sql(`select project_id from feature where id=${fid}`);
+
+  const otherSection = await addProject();
+  await addFeature(otherSection, 'other', 'Other feature');
+  const otherFid = page.url().split('/').pop();
+  const otherPid = sql(`select project_id from feature where id=${otherFid}`);
+
+  await page.goto(base + '/tasks');
+  const title = `board task ${Date.now().toString(36)}`;
+  await page.getByLabel('Task title').fill(title);
+  await page.getByLabel('Task project').selectOption(pid);
+  await page.getByLabel('Task feature').selectOption(fid);
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await page.getByText(title).waitFor();
+
+  const otherTitle = `board other ${Date.now().toString(36)}`;
+  await page.getByLabel('Task title').fill(otherTitle);
+  await page.getByLabel('Task project').selectOption(otherPid);
+  await page.getByLabel('Task feature').selectOption(otherFid);
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await page.getByText(otherTitle).waitFor();
+
+  await page.getByRole('button', { name: 'Board' }).click();
+  const todo = page.getByRole('group', { name: 'Todo' });
+  const doing = page.getByRole('group', { name: 'Doing' });
+  const done = page.getByRole('group', { name: 'Done' });
+  await todo.getByText(title).waitFor();
+  await shot('columns');
+  check(
+    page.url().includes('view=board') &&
+      (await todo.getByText(title).count()) === 1 &&
+      (await todo.getByText(otherTitle).count()) === 1 &&
+      (await doing.count()) === 1 &&
+      (await done.count()) === 1,
+    '/tasks?view=board shows three columns with both tasks under Todo',
+    page.url().replace(base, ''),
+  );
+
+  await page.getByLabel('Filter by project').selectOption(pid);
+  await todo.getByText(otherTitle).waitFor({ state: 'hidden' });
+  check(
+    (await todo.getByText(title).count()) === 1 && (await todo.getByText(otherTitle).count()) === 0,
+    'the project filter also filters the board',
+    page.url().replace(base, ''),
+  );
+  await page.getByLabel('Filter by feature').selectOption(fid);
+  await todo.getByText(title).waitFor();
+  check((await todo.getByText(title).count()) === 1, 'the feature filter also filters the board', page.url().replace(base, ''));
+
+  const card = todo.locator('div.space-y-1', { hasText: title });
+  await dragCard(card, doing);
+  await doing.getByText(title).waitFor();
+  await shot('dragged');
+  check(
+    sql(`select status from task where title='${title}'`) === 'doing',
+    'dragging the card to Doing changes its row in SQLite',
+    sql(`select id,status from task where title='${title}'`),
+  );
+  await page.reload();
+  await page.getByLabel('Filter by project').selectOption(pid);
+  await page.getByLabel('Filter by feature').selectOption(fid);
+  await doing.getByText(title).waitFor();
+  check((await doing.getByText(title).count()) === 1, 'a reload keeps the card in Doing', page.url().replace(base, ''));
+
+  await doing.getByLabel(`Move ${title}`).selectOption('done');
+  await done.getByText(title).waitFor();
+  await shot('moved-with-select');
+  check(
+    sql(`select status from task where title='${title}'`) === 'done',
+    'the per-card select moves a card for keyboard use',
+    sql(`select id,status from task where title='${title}'`),
   );
 }
 
