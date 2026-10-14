@@ -37,6 +37,10 @@ type server struct {
 
 	inboxMu   sync.Mutex
 	inboxWake chan struct{}
+
+	// ghNoGhLogged is set once the github poll has logged that gh is not on PATH, so it
+	// logs that once, not every poll.
+	ghNoGhLogged bool
 }
 
 // Handler serves the API. Close it when done.
@@ -89,6 +93,7 @@ func newHandler(
 	s.decisionRoutes(mux)
 	s.turnRoutes(mux)
 	s.inboxRoutes(mux)
+	s.startGitHubPoll()
 	return &Handler{h: guard(s.notifyInbox(mux)), s: s}
 }
 

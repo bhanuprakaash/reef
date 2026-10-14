@@ -87,6 +87,26 @@ func (s *Store) Channel(ctx context.Context, id int64) (Channel, error) {
 	return c, err
 }
 
+// FeatureLatestChannel returns the feature's channel with the newest message, or, when it
+// has none, its most recently created channel. ErrNotFound when the feature has no channel.
+func (s *Store) FeatureLatestChannel(ctx context.Context, featureID int64) (Channel, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT c.id, c.project_id, c.feature_id, c.name, c.role, c.backend, c.permission_mode,
+		  c.paused, c.token_budget, c.created_at,
+		  COALESCE((SELECT name FROM team WHERE id = c.team_id), '`+SoloTeam+`')
+		 FROM channel c LEFT JOIN message m ON m.channel_id = c.id
+		 WHERE c.feature_id = ?
+		 GROUP BY c.id
+		 ORDER BY MAX(m.id) IS NULL, MAX(m.id) DESC, c.created_at DESC
+		 LIMIT 1`,
+		featureID)
+	c, err := scanChannel(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Channel{}, fmt.Errorf("feature %d has no channel: %w", featureID, ErrNotFound)
+	}
+	return c, err
+}
+
 // Channels lists channels by id, narrowed by the set fields of f.
 func (s *Store) Channels(ctx context.Context, f ChannelFilter) ([]Channel, error) {
 	q, args := "SELECT "+_channelCols+" FROM channel WHERE 1 = 1", []any{}
