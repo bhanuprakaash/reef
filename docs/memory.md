@@ -95,8 +95,9 @@ Rules for every command:
 A team is a set of roles, one of them the lead, and the gates between them. It is a JSON
 file. `reef team apply FILE.json` stores it, and a channel picks it by name (`team` in `POST
 /channels`, see [server.md](server.md#team)). Migration 6 seeds a team `solo`, with one role,
-`lead` on `claude`, and every channel without a team is in it. A `reef chat` channel is
-always in `solo`.
+`lead` on `claude`, and every channel without a team is in it. A new channel created by
+`reef chat` is in `solo`. When resuming, `reef chat` allows teams with one role and refuses
+teams with multiple roles; use the Reef window (`reef serve`) for those teams.
 
 ```json
 {
@@ -267,9 +268,10 @@ reef chat --channel ID [--debug]
 ```
 
 `reef chat` runs one role in one channel, in the terminal. It uses the agent adapters
-from [agents.md](agents.md). The channel is in the `solo` team and `--role` is the name of
+from [agents.md](agents.md). A new channel is in the `solo` team, and `--role` is the name of
 its lead, so only the lead takes part: `reef chat` routes nothing, and an `@mention` in a
-reply wakes no one. For a team, use `reef serve`. The code that opens a channel is in
+reply wakes no one. A resumed channel with multiple roles is refused; use the Reef window
+(`reef serve`) for those teams. The code that opens a channel is in
 package `channel` (`channel.Open`) and has no terminal code. `reef serve` is a second runner
 of it: the window sends messages, wraps up and promotes through the same code, and it also
 routes messages between teammates (see [server.md](server.md#channels-live)).
