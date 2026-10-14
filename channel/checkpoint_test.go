@@ -80,10 +80,36 @@ func TestRunner_FailsTurnWhenCheckpointFails(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Checkpoint != nil ||
-		!strings.Contains(turns[0].Error, "no commit to snapshot") {
+		!strings.Contains(turns[0].Error, "not a git repository") {
 		t.Errorf("turns = %+v, want one failed turn with no checkpoint", turns)
 	}
 	if len(ag.prompts) != 0 {
 		t.Errorf("prompts = %q, want none", ag.prompts)
+	}
+}
+
+func TestRunner_RunsWithoutCheckpointInRepoWithNoCommit(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionChannel(t, st, f, true)
+	ag := newRecordingAgent()
+	r := NewRunner(st, ag, ch.ID, "architect", "claude", "")
+	r.CheckpointDir = t.TempDir()
+	if out, err := exec.Command("git", "-C", r.CheckpointDir, "init", "-b", "main").CombinedOutput(); err != nil {
+		t.Fatalf("git init: %v: %s", err, out)
+	}
+
+	if err := r.Run(ctx, "go", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || turns[0].Status != "done" || turns[0].Checkpoint != nil {
+		t.Errorf("turns = %+v, want one done turn with no checkpoint", turns)
+	}
+	if len(ag.prompts) != 1 {
+		t.Errorf("prompts = %q, want one", ag.prompts)
 	}
 }

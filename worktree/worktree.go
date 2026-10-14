@@ -12,6 +12,10 @@ import (
 	"strings"
 )
 
+// ErrNoCommit is returned by Checkpoint for a repo whose HEAD has no commit yet: there is
+// nothing to snapshot.
+var ErrNoCommit = errors.New("no commit to snapshot")
+
 // Path is where the worktree of the feature with slug in project projectID lives.
 func Path(dataDir string, projectID int64, slug string) string {
 	return filepath.Join(dataDir, "worktrees", strconv.FormatInt(projectID, 10), slug)
@@ -21,10 +25,14 @@ func Path(dataDir string, projectID int64, slug string) string {
 func Branch(slug string) string { return "feature/" + slug }
 
 // Ensure makes dir a worktree of repo on branch. It does nothing when dir already is one.
-// The branch is made from the HEAD of repo, or reused when it exists.
+// The branch is made from the HEAD of repo, or reused when it exists. A worktree whose folder
+// is gone is made again. A repo with no commit has no HEAD to make a branch from, and fails.
 func Ensure(ctx context.Context, repo, dir, branch string) error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
 		return nil
+	}
+	if _, err := git(ctx, repo, "worktree", "prune"); err != nil {
+		return err
 	}
 	args := []string{"worktree", "add", "-b", branch, dir, "HEAD"}
 	_, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
@@ -34,6 +42,10 @@ func Ensure(ctx context.Context, repo, dir, branch string) error {
 		args = []string{"worktree", "add", dir, branch}
 	case !errors.As(err, &exit) || exit.ExitCode() != 1:
 		return err
+	default:
+		if _, err := git(ctx, repo, "rev-parse", "--verify", "HEAD"); err != nil {
+			return fmt.Errorf("worktree %s: the project has no commit yet, make one first: %w", dir, err)
+		}
 	}
 	_, err = git(ctx, repo, args...)
 	return err
@@ -54,11 +66,17 @@ func IsRepo(ctx context.Context, dir string) bool {
 // Checkpoint stores HEAD and the whole working tree of the checkout at dir, untracked files
 // included and ignored ones left out, as a commit at ref. Its first parent is HEAD; its second
 // is a commit of the index as it was, so Restore can bring back what was staged. The index,
-// HEAD and the files are not touched: the tree is built in a temporary index.
+// HEAD and the files are not touched: the tree is built in a temporary index that starts as a
+// copy of the real one, so files git already knows are not read again. A repo with no commit
+// returns ErrNoCommit.
 func Checkpoint(ctx context.Context, dir, ref string) error {
-	head, err := git(ctx, dir, "rev-parse", "--verify", "HEAD")
+	head, err := git(ctx, dir, "rev-parse", "--verify", "--quiet", "HEAD")
+	var exit *exec.ExitError
+	if errors.As(err, &exit) && exit.ExitCode() == 1 {
+		return fmt.Errorf("checkpoint %s: %w", dir, ErrNoCommit)
+	}
 	if err != nil {
-		return fmt.Errorf("checkpoint %s: no commit to snapshot: %w", dir, err)
+		return err
 	}
 	tmp, err := os.MkdirTemp("", "reef-checkpoint-")
 	if err != nil {
@@ -66,7 +84,7 @@ func Checkpoint(ctx context.Context, dir, ref string) error {
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 	index := []string{"GIT_INDEX_FILE=" + filepath.Join(tmp, "index")}
-	if _, err := gitEnv(ctx, dir, index, "read-tree", "HEAD"); err != nil {
+	if err := seedIndex(ctx, dir, filepath.Join(tmp, "index")); err != nil {
 		return err
 	}
 	if _, err := gitEnv(ctx, dir, index, "add", "-A"); err != nil {
@@ -139,6 +157,23 @@ func Restore(ctx context.Context, dir, ref string) error {
 		}
 	}
 	return nil
+}
+
+// seedIndex copies the real index of the checkout at dir to to. A checkout without an index
+// file starts with an empty one.
+func seedIndex(ctx context.Context, dir, to string) error {
+	from, err := git(ctx, dir, "rev-parse", "--path-format=absolute", "--git-path", "index")
+	if err != nil {
+		return err
+	}
+	data, err := os.ReadFile(from)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(to, data, 0o600)
 }
 
 func commitTree(ctx context.Context, dir, tree, message string, parents ...string) (string, error) {

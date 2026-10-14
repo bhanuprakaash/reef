@@ -278,7 +278,13 @@ func (s *Session) member(
 	ctx context.Context, role, text string, parent *int64,
 ) (_ *member, err error) {
 	if m, ok := s.members[role]; ok {
-		return m, nil
+		if _, err := os.Stat(m.dir); !errors.Is(err, os.ErrNotExist) {
+			return m, nil
+		}
+		delete(s.members, role)
+		if err := m.close(s.st); err != nil {
+			log.Printf("close %s of channel %d: %v", role, s.ch.ID, err)
+		}
 	}
 	wctx := context.WithoutCancel(ctx)
 	team, err := s.st.Team(wctx, s.ch.Team)
