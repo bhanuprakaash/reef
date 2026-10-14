@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"slices"
@@ -161,6 +162,24 @@ func (s *server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 	delete(s.lives, id)
 	s.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// stopChannels stops the live agent of every channel f selects and drops its entry.
+func (s *server) stopChannels(ctx context.Context, f store.ChannelFilter) error {
+	cs, err := s.st.Channels(ctx, f)
+	if err != nil {
+		return err
+	}
+	for _, c := range cs {
+		s.mu.Lock()
+		l := s.lives[c.ID]
+		delete(s.lives, c.ID)
+		s.mu.Unlock()
+		if l != nil {
+			s.stopLive(l)
+		}
+	}
+	return nil
 }
 
 func (s *server) listMessages(w http.ResponseWriter, r *http.Request) {
