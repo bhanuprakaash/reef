@@ -76,7 +76,9 @@ Proof: the output is saved in `~/.reef-verify/<id>/ui-<scenario>.log`, screensho
 
 ## Gotchas
 
-- Not run by `go test` or `npm test`; every scenario starts a real `claude` and takes minutes. Run each once.
+- Not run by `go test` or `npm test`. Runs on the fake `claude` by default (`SKILL.md`, Fake
+  claude); real claude only with `REEF_VERIFY_CLAUDE=real` or `record`, and then every scenario
+  takes minutes. Run each once.
 - Scenarios assume the model answers short, tool-free prompts as asked. A `FAIL` on wording (`brief`) needs the screenshot before it is called a bug.
 - `cap` writes to `reef.db` while the server runs; it is the one write the API cannot do (`tokenBudget` is set by the server only).
 - Quote the PASS lines and say which screenshots you opened. A screenshot you did not open is not proof.
