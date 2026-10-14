@@ -13,7 +13,7 @@ type inspectorRole struct {
 	Role    string      `json:"role"`
 	Turns   int         `json:"turns"`
 	Usage   agent.Usage `json:"usage"`
-	CostUSD float64     `json:"costUsd"`
+	CostUSD *float64    `json:"costUsd"`
 }
 
 // inspectorTurn is one turn with what the inspector shows of it.
@@ -68,7 +68,10 @@ func (s *server) getInspector(w http.ResponseWriter, r *http.Request) {
 		role.Turns++
 		role.Usage.Add(t.Usage)
 		if t.CostUSD != nil {
-			role.CostUSD += *t.CostUSD
+			if role.CostUSD == nil {
+				role.CostUSD = new(float64)
+			}
+			*role.CostUSD += *t.CostUSD
 		}
 
 		calls, err := s.st.ToolCalls(r.Context(), t.ID)
