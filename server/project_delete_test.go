@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/bhanuprakaash/reef/store"
@@ -71,6 +72,70 @@ func TestDeleteProject_RemovesWorktreesAndCheckpointRefs(t *testing.T) {
 	}
 	if status, _ := do(t, http.MethodGet, env.url+"/projects/2", ""); status != 404 {
 		t.Errorf("GET project after delete = %d, want 404", status)
+	}
+}
+
+func TestDeleteProject_FolderGoneRemovesRowsAndWorktrees(t *testing.T) {
+	env, login := rollbackEnv(t)
+	_, signup := projectTrees(t, env, login)
+	p, err := env.st.Project(context.Background(), 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(p.Path); err != nil {
+		t.Fatal(err)
+	}
+
+	if status, body := do(t, http.MethodDelete, env.url+"/projects/2", ""); status != 204 || body != "" {
+		t.Fatalf("delete = %d %q, want 204", status, body)
+	}
+
+	for _, dir := range []string{login, signup} {
+		if _, err := os.Stat(dir); !os.IsNotExist(err) {
+			t.Errorf("worktree %s after delete: err = %v, want not exist", dir, err)
+		}
+	}
+	if status, _ := do(t, http.MethodGet, env.url+"/projects/2", ""); status != 404 {
+		t.Errorf("GET project after delete = %d, want 404", status)
+	}
+}
+
+func TestDeleteProject_RefusedWhileATreeIsLocked(t *testing.T) {
+	env, login := rollbackEnv(t)
+	projectTrees(t, env, login)
+	unlock, err := env.h.s.trees.Lock(context.Background(), login)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+
+	status, body := do(t, http.MethodDelete, env.url+"/projects/2", "")
+	if want := `{"error":"` + login + ` has a turn running: conflict"}`; status != 409 || body != want {
+		t.Errorf("delete while a tree is locked = %d %s, want 409 %s", status, body, want)
+	}
+	if status, _ := do(t, http.MethodGet, env.url+"/projects/2", ""); status != 200 {
+		t.Errorf("GET project after refused delete = %d, want 200", status)
+	}
+}
+
+func TestDeleteProject_RefusedWhileReefChatHasAChannel(t *testing.T) {
+	env, login := rollbackEnv(t)
+	projectTrees(t, env, login)
+	lock, err := os.Create(filepath.Join(env.dir, "chat-2.lock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = lock.Close() }()
+	if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodDelete, env.url+"/projects/2", "")
+	if want := `{"error":"channel 2 is open elsewhere: conflict"}`; status != 409 || body != want {
+		t.Errorf("delete while reef chat has a channel = %d %s, want 409 %s", status, body, want)
+	}
+	if status, _ := do(t, http.MethodGet, env.url+"/projects/2", ""); status != 200 {
+		t.Errorf("GET project after refused delete = %d, want 200", status)
 	}
 }
 

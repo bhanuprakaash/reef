@@ -5,7 +5,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"os"
 
+	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -96,9 +98,11 @@ func (s *server) updateFeature(w http.ResponseWriter, r *http.Request) {
 
 // deleteFeature deletes the feature, its worktree and the checkpoint refs of its turns. The
 // branch is kept. A running turn of its channels is stopped first, as for a channel delete.
-// A worktree with uncommitted changes is 409 and nothing is removed. The worktree goes
-// first: it is the step that can refuse or fail, and the next wake makes it again. The refs go
-// last, after the rows that name them.
+// A worktree with uncommitted changes is 409 and nothing is removed; so is a channel with a
+// turn running elsewhere, or open in reef chat. The worktree goes first: it is the step that
+// can refuse or fail, and the next wake makes it again. The refs go last, after the rows that
+// name them. A project folder that is gone is not git cleaned up: its worktree folder, if
+// any, is just removed.
 func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -121,12 +125,23 @@ func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if err := s.channelsInUse(r.Context(), store.ChannelFilter{FeatureID: &id}); err != nil {
+		writeError(w, err)
+		return
+	}
 	refs, err := s.checkpointRefs(r.Context(), store.ChannelFilter{FeatureID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if err := s.removeFeatureTree(r.Context(), p, f); err != nil {
+	gone := projectGone(p.Path)
+	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+	if gone {
+		err = os.RemoveAll(dir)
+	} else {
+		err = s.removeFeatureTree(r.Context(), p, f)
+	}
+	if err != nil {
 		writeError(w, err)
 		return
 	}
@@ -134,11 +149,44 @@ func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), p.Path, refs); err != nil {
-		writeError(w, err)
-		return
+	if !gone {
+		if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), p.Path, refs); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// channelsInUse is 409 for the first channel matching f that a `reef chat` has open, or whose
+// tree a turn is running on, in this process or another.
+func (s *server) channelsInUse(ctx context.Context, f store.ChannelFilter) error {
+	cs, err := s.st.Channels(ctx, f)
+	if err != nil {
+		return err
+	}
+	for _, c := range cs {
+		if channel.InUse(s.dataDir, c.ID) {
+			return fmt.Errorf("channel %d is open elsewhere: %w", c.ID, store.ErrConflict)
+		}
+		dir, _, err := channel.WorkDir(ctx, s.st, s.dataDir, c.ID)
+		if err != nil {
+			return err
+		}
+		unlock, ok := s.trees.TryLock(dir)
+		if !ok {
+			return fmt.Errorf("%s has a turn running: %w", dir, store.ErrConflict)
+		}
+		unlock()
+	}
+	return nil
+}
+
+// projectGone reports whether a project's folder no longer exists: git cannot clean up its
+// worktrees or checkpoint refs, only their folders can be removed.
+func projectGone(path string) bool {
+	_, err := os.Stat(path)
+	return errors.Is(err, os.ErrNotExist)
 }
 
 // checkpointRefs lists the checkpoint refs of the turns of the channels that match f.
