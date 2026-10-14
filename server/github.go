@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -26,16 +27,24 @@ type ghPR struct {
 	StatusCheckRollup []ghCheck `json:"statusCheckRollup"`
 }
 
-// ghCheck is one item of statusCheckRollup: a CheckRun (name, status, conclusion) or a
-// StatusContext (context, state).
+// ghCheck is one item of statusCheckRollup: a CheckRun (name, status, conclusion, detailsUrl,
+// completedAt) or a StatusContext (context, state, targetUrl).
 type ghCheck struct {
-	Typename   string `json:"__typename"`
-	Name       string `json:"name"`
-	Status     string `json:"status"`
-	Conclusion string `json:"conclusion"`
-	Context    string `json:"context"`
-	State      string `json:"state"`
+	Typename    string `json:"__typename"`
+	Name        string `json:"name"`
+	Status      string `json:"status"`
+	Conclusion  string `json:"conclusion"`
+	Context     string `json:"context"`
+	State       string `json:"state"`
+	DetailsURL  string `json:"detailsUrl"`
+	TargetURL   string `json:"targetUrl"`
+	StartedAt   string `json:"startedAt"`
+	CompletedAt string `json:"completedAt"`
 }
+
+// _runID finds the run id in a CheckRun's detailsUrl, such as
+// https://github.com/x/y/actions/runs/123/job/456.
+var _runID = regexp.MustCompile(`/actions/runs/(\d+)/`)
 
 // checkName is the name a note calls the check by.
 func (c ghCheck) checkName() string {
@@ -43,6 +52,36 @@ func (c ghCheck) checkName() string {
 		return c.Context
 	}
 	return c.Name
+}
+
+// runKey identifies the check's run, so the same check name on a later run is noted and
+// woken again. It is the smallest value gh gives that distinguishes one run of a check.
+func (c ghCheck) runKey() string {
+	if c.Typename == "StatusContext" {
+		if c.TargetURL != "" {
+			return c.TargetURL
+		}
+		return c.StartedAt
+	}
+	if c.DetailsURL != "" {
+		return c.DetailsURL
+	}
+	if c.CompletedAt != "" {
+		return c.CompletedAt
+	}
+	return c.StartedAt
+}
+
+// runID is the run id in a CheckRun's detailsUrl, or "" when there is none to find.
+func (c ghCheck) runID() string {
+	if c.Typename != "CheckRun" {
+		return ""
+	}
+	m := _runID.FindStringSubmatch(c.DetailsURL)
+	if m == nil {
+		return ""
+	}
+	return m[1]
 }
 
 // outcome reports whether the check has finished, and the word a note uses for it.
@@ -137,13 +176,24 @@ func (s *server) pollFeatureGitHub(ctx context.Context, ghPath string, f store.F
 	}
 	pr, err := runGh(ctx, ghPath, p.Path, f.Slug)
 	if err != nil {
-		log.Printf("github poll: feature %d: %v", f.ID, err)
+		s.logGhErrOnce(f.ID, err)
 		return nil
 	}
 	if err := s.notePRState(ctx, f, pr); err != nil {
 		return err
 	}
 	return s.noteFinishedChecks(ctx, f, pr)
+}
+
+// logGhErrOnce logs a gh error for the feature once, and again only once its text changes,
+// so a cause such as "no PR for the branch" does not fill the log on every poll.
+func (s *server) logGhErrOnce(featureID int64, err error) {
+	text := err.Error()
+	if s.ghFeatureErrLogged[featureID] == text {
+		return
+	}
+	log.Printf("github poll: feature %d: %v", featureID, err)
+	s.ghFeatureErrLogged[featureID] = text
 }
 
 func runGh(ctx context.Context, ghPath, dir, slug string) (ghPR, error) {
@@ -154,6 +204,10 @@ func runGh(ctx context.Context, ghPath, dir, slug string) (ghPR, error) {
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+			return ghPR{}, fmt.Errorf("gh pr view: %s", strings.TrimSpace(string(ee.Stderr)))
+		}
 		return ghPR{}, fmt.Errorf("gh pr view: %w", err)
 	}
 	var pr ghPR
@@ -181,16 +235,17 @@ func (s *server) notePRState(ctx context.Context, f store.Feature, pr ghPR) erro
 	})
 }
 
-// noteFinishedChecks posts a reef note for each check that finished since it was last
-// notified, once per check.
+// noteFinishedChecks posts a reef note for each check run that finished since it was last
+// notified, once per run: the same check name run again, such as a rerun on a later push,
+// is noted again.
 func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghPR) error {
 	for _, c := range pr.StatusCheckRollup {
 		finished, word := c.outcome()
 		if !finished {
 			continue
 		}
-		name := c.checkName()
-		notified, err := s.st.NotifiedGitHubCheck(ctx, f.ID, name)
+		name, key := c.checkName(), c.runKey()
+		notified, err := s.st.NotifiedGitHubCheck(ctx, f.ID, name, key)
 		if err != nil {
 			return err
 		}
@@ -200,7 +255,7 @@ func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghP
 		if err := s.noteFeature(ctx, f.ID, fmt.Sprintf("%s %s", name, word)); err != nil {
 			return err
 		}
-		if err := s.st.MarkGitHubCheckNotified(ctx, f.ID, name); err != nil {
+		if err := s.st.MarkGitHubCheckNotified(ctx, f.ID, name, key); err != nil {
 			return err
 		}
 	}
