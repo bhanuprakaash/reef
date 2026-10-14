@@ -24,6 +24,7 @@ var _scenarios = []scenario{
 	{"post-to-channel-ask", "lead", pat(`post_to_channel tool once to ask the architect`)},
 	{"thread-reply", "architect", pat(`Which field would you validate first`)},
 	{"design-mention", "lead", pat(`(?i)\bDESIGN\b`)},
+	{"architect-woken", "architect", pat(`lead wrote: @architect `)},
 	{"run-checks", "tester", pat(`run the checks`)},
 	{"write-refused", "", pat(`file t\.txt containing the word nope`)},
 	{"write-d", "", pat(`file d\.txt containing the word yes`)},
@@ -42,6 +43,10 @@ var _scenarios = []scenario{
 	{"one-word", "", pat(`(?i)reply with (exactly )?one(\s+other)? word`)},
 	{"list-read-summarize", "", pat(`List the files in this directory with a tool`)},
 	{"brief-goal", "", pat(`(?i)what is the goal of this feature`)},
+	{"say-ok-one-word", "", pat(`Say ok in one word`)},
+	{"say-fine-one-word", "", pat(`Say fine in one word`)},
+	{"rollback-hello", "", pat(`^Say hello\. Answer in one or two sentences, use no tools\.\s*$`)},
+	{"rollback-files-changed", "", pat(`Did anything change in the files since your last answer`)},
 	{"short-answer", "", pat(`Answer in one or two sentences, use no tools\.\s*$`)},
 }
 
