@@ -34,7 +34,7 @@ live, Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 - `wrap-wakes-nobody` a `/wrap` turn whose reply says `@architect` starts no architect turn.
 - `restart-held` after a restart a pending approval is still pending and can be approved; a hop-cap pause stays, and `continue` clears it and runs nothing.
 - `codex-teammate` a role on `codex` is woken and its reply is stored (driven with the codex test fixture, not a real codex).
-- `window-teams` the window picks a team, folds replies under their root, opens a thread pane, names the running teammate and shows Approve and Reject (by hand, see below).
+- `window-teams` the window picks a team, names the running teammate, opens a Thread pane from a root's Reply button, shows `N replies` on the root in the main list, and shows Approve and Reject (`$H ui teams`, see Window below).
 
 ## How to get to it (user POV)
 
@@ -179,12 +179,12 @@ Channel role as lead, a new folder `role` (`route-channel-role`). `reef chat` ma
 - **Setup.** `$H serve-stop`. `$H reef --data-name role -- project add`, `$H reef -- feature add login Login`. `ANTHROPIC_MODEL=sonnet $H reef -- chat login --role developer --backend claude` prints `channel 1: resume with reef chat --channel 1`, `exit: 0` (stdin is empty, so no turn runs). `$H sql "select channel.id, channel.role, team.name from channel join team on team.id = team_id"` is `1|developer|solo`. `ANTHROPIC_MODEL=sonnet $H serve-start --data-name role`, set `A`.
 - **`@lead` wakes the channel role.** `$H api POST /channels/1/send '{"text":"@lead hi"}'` is 202, `wait_done 1 1`. `$H sql "select id, role, status from turn"` is one row, `1|developer|done`. `$H sql "select role from token"` is `developer` only: no `lead` token. `pgrep -P $(cat $S/serve.pid) -x claude | wc -l` is `1`, the developer's process, which stays like a lead's. The developer's reply may name `@lead` too; it wakes no one.
 
-Window (by hand, in a browser; no `ui` scenario drives this yet). With a server on the `teams` data folder:
+Window (`$H ui teams` drives New channel, Thread and Gate; the hop cap is by hand). Setup: the scenario needs `duo` and `gated` applied to the server's data folder, so write `duo.json` and `gated.json` as above and, before the server starts: `$H reef --data-name ui -- team apply $E/duo.json`, `$H reef -- team apply $E/gated.json`, then `ANTHROPIC_MODEL=sonnet $H serve-start --data-name ui` (`reef team apply` may also run while the server is up). Without the teams it prints `FAIL teams: scenario aborted | apply the teams first`. Then `$H ui teams`, with `REEF_VERIFY_CHROME` on Linux (see `window.md`). The steps, in the scenario or by hand in a browser:
 
-- **New channel.** The New channel form has a team picker with `duo`, `gated`, `keys`, `pingpong`, `solo`. Pick `duo`, create the channel: the sidebar shows it, `GET /channels/<id>` has `"team":"duo"`.
-- **Thread.** Send `DESIGN a login form.`. While the architect runs, the live turn names it. When it ends, the architect's message has a reply count and a Thread pane opens on click; reply there. The architect (not the lead) answers in the pane, and the main list folds the replies under their root with the count.
-- **Gate.** In a `gated` channel, after the lead mentions the architect, a row `lead → architect: <body of the waking message>` shows Approve and Reject. Approve runs the architect; Reject removes the row.
-- **Hop cap.** In a `pingpong` channel, after five turns the cap banner shows `hop cap: 4 agent hops without a user message` and the composer stays enabled (other pauses disable it); sending a message clears the banner; Continue runs the held wake.
+- **New channel.** The New channel form has a team picker listing `duo`, `gated`, `solo` (and any other applied team). Pick `duo`, create the channel: the sidebar shows it, `GET /channels/<id>` has `"team":"duo"`.
+- **Thread.** Send `DESIGN a short plan for a login form.`. While each teammate runs, the live turn names it: `LEAD is working...`, then `ARCHITECT is working...`. When it ends, the architect's message has a Reply button; a Thread pane opens on click; reply there. The architect (not the lead) answers in the pane, and the main list shows the root with an `N replies` button; the replies appear only in the Thread pane.
+- **Gate.** In a `gated` channel, after the lead mentions the architect, a row `lead → architect: <body of the waking message>` shows Approve and Reject. Approve runs the architect and the row goes; Reject removes the row.
+- **Hop cap.** In a `pingpong` channel, after five turns the cap banner shows `Paused: hop cap: 4 agent hops without a user message` and the composer stays enabled (other pauses disable it); sending a message clears the banner; Continue runs the held wake.
 
 When done: `$H cleanup`.
 
