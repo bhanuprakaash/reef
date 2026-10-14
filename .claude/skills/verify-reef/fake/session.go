@@ -60,6 +60,21 @@ func sessionFileExists(dir, sid string) bool {
 	return err == nil
 }
 
+// findSessionDir is the projects dir that already holds sid's session file, searching every
+// cwd's folder: a resumed session may have been started under a different cwd (reef moves a
+// role's session into its feature's worktree on promote).
+func findSessionDir(sid string) (string, bool) {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return "", false
+	}
+	matches, err := filepath.Glob(filepath.Join(home, ".claude", "projects", "*", sid+".jsonl"))
+	if err != nil || len(matches) == 0 {
+		return "", false
+	}
+	return filepath.Dir(matches[0]), true
+}
+
 // openFakeLog opens REEF_FAKE_LOG for append, or a discarded sink when it is unset.
 func openFakeLog() *os.File {
 	path := os.Getenv("REEF_FAKE_LOG")

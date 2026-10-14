@@ -325,9 +325,9 @@ msgcount=$("$H" sql "select count(*) from message where channel_id = 1 and autho
 check rollback-busy "$busy_ok" "busy1=$busy1_status busy2=$busy2_status; tree unchanged across the busy window; $msgcount reef message(s) on channel 1"
 
 last_turn=$("$H" sql "select id from turn where channel_id = 1 order by id desc limit 1" | tail -1)
-wake_row=$("$H" sql "select wake_text, session_id from turn where id = $last_turn" | tail -1)
-echo "$wake_row" | grep -q '^\[channel 1, message [0-9]*\]' || rb_note_ok=0
-echo "$wake_row" | grep -q 'reef wrote:' && rb_note_ok=0
+last_wake=$("$H" sql "select wake_text from turn where id = $last_turn" | tail -n +2)
+echo "$last_wake" | grep -q '^\[channel 1, message [0-9]*\]' || rb_note_ok=0
+echo "$last_wake" | grep -q 'reef wrote:' && rb_note_ok=0
 last_sess=$(turn_col "$last_turn" session_id)
 last_file=$(session_file "$last_sess")
 grep -q "reef wrote: Rolled back to before turn $N\\." "$last_file" 2>/dev/null || rb_note_ok=0
@@ -487,9 +487,12 @@ s4=$STATUS
 clear_ok=1
 [ "$s1" = 204 ] && [ "$s2" = 204 ] && [ "$s3" = 202 ] && [ "$s4" = 202 ] || clear_ok=0
 api_call GET /inbox
-for ch in 4 7 8 9; do
+# 4, 7 and 9 each started a new turn, so they have no item at all while it runs; 8's
+# continue starts none, so its cleared paused item is at once a waiting item instead.
+for ch in 4 7 9; do
 	echo "$BODY" | grep -q "\"channelId\":$ch" && clear_ok=0
 done
+echo "$BODY" | grep -q '"kind":"paused","channelId":8' && clear_ok=0
 
 wait_done 7 2
 wait_done 9 1
@@ -709,49 +712,49 @@ idle() {
 	return 1
 }
 
-google_ok=1
-[ "$google_app_test_rc" = 0 ] || google_ok=0
+google_ok=1 google_bad=
+[ "$google_app_test_rc" = 0 ] || { google_ok=0; google_bad+=" $LINENO"; }
 
 api_call POST /channels/1/send '{"text":"Add Google login to this app: a Sign in with Google link on the login page that goes to /auth/google, which redirects to the Google OAuth URL with the client id from the GOOGLE_CLIENT_ID env var. Keep it small and covered by a test."}'
 idle
 
 rows_g=$("$H" sql "select role, status, checkpoint from turn where channel_id = 1 order by id")
-echo "$rows_g" | sed -n '2p' | grep -qF 'lead|done|' || google_ok=0
-echo "$rows_g" | sed -n '3p' | grep -qF 'architect|done|' || google_ok=0
+echo "$rows_g" | sed -n '2p' | grep -qF 'lead|done|' || { google_ok=0; google_bad+=" $LINENO"; }
+echo "$rows_g" | sed -n '3p' | grep -qF 'architect|done|' || { google_ok=0; google_bad+=" $LINENO"; }
 appr=$("$H" sql "select id, from_role, to_role, kind, status from approval")
-echo "$appr" | grep -qF '1|architect|developer|gate|pending' || google_ok=0
+echo "$appr" | grep -qF '1|architect|developer|gate|pending' || { google_ok=0; google_bad+=" $LINENO"; }
 api_call GET /inbox
-echo "$BODY" | grep -q '"kind":"approval".*"channelId":1' || google_ok=0
-echo "$BODY" | grep -q 'architect wants to wake developer' || google_ok=0
+echo "$BODY" | grep -q '"kind":"approval".*"channelId":1' || { google_ok=0; google_bad+=" $LINENO"; }
+echo "$BODY" | grep -q 'architect wants to wake developer' || { google_ok=0; google_bad+=" $LINENO"; }
 
 api_call POST /channels/1/approvals/1 '{"approve":true}'
 idle
 
 dev_turn_g=$("$H" sql "select id from turn where channel_id = 1 and role = 'developer' order by id desc limit 1" | tail -1)
-[ "$(turn_col "$dev_turn_g" status)" = done ] || google_ok=0
-[ "$(turn_col "$dev_turn_g" checkpoint)" = "refs/reef/checkpoints/$dev_turn_g" ] || google_ok=0
-[ "$(git -C "$S/google-app" log --oneline main..feature/google-login | wc -l)" = 1 ] || google_ok=0
-git -C "$S/google-app" worktree list | grep -q "^$S/google/worktrees/1/google-login .*\[feature/google-login\]" || google_ok=0
-[ -z "$(git -C "$S/google-app" status --porcelain)" ] || google_ok=0
-[ "$(git -C "$S/google-app" log --oneline main | wc -l)" = 1 ] || google_ok=0
+[ "$(turn_col "$dev_turn_g" status)" = done ] || { google_ok=0; google_bad+=" $LINENO"; }
+[ "$(turn_col "$dev_turn_g" checkpoint)" = "refs/reef/checkpoints/$dev_turn_g" ] || { google_ok=0; google_bad+=" $LINENO"; }
+[ "$(git -C "$S/google-app" log --oneline main..feature/google-login | wc -l)" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
+git -C "$S/google-app" worktree list | grep -q "^$S/google/worktrees/1/google-login .*\[feature/google-login\]" || { google_ok=0; google_bad+=" $LINENO"; }
+[ -z "$(git -C "$S/google-app" status --porcelain)" ] || { google_ok=0; google_bad+=" $LINENO"; }
+[ "$(git -C "$S/google-app" log --oneline main | wc -l)" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
 appr2=$("$H" sql "select id, from_role, to_role, kind, status from approval where id = 2")
-echo "$appr2" | grep -qF '2|developer|tester|gate|pending' || google_ok=0
+echo "$appr2" | grep -qF '2|developer|tester|gate|pending' || { google_ok=0; google_bad+=" $LINENO"; }
 api_call GET /inbox
-[ "$(echo "$BODY" | grep -o '"kind"' | wc -l)" = 1 ] || google_ok=0
-echo "$BODY" | grep -q '"kind":"approval".*"channelId":1' || google_ok=0
+[ "$(echo "$BODY" | grep -o '"kind"' | wc -l)" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
+echo "$BODY" | grep -q '"kind":"approval".*"channelId":1' || { google_ok=0; google_bad+=" $LINENO"; }
 
 api_call POST /channels/1/approvals/2 '{"approve":true}'
 idle
 
 tester_turn_g=$("$H" sql "select id from turn where channel_id = 1 and role = 'tester' order by id desc limit 1" | tail -1)
-[ "$(turn_col "$tester_turn_g" status)" = done ] || google_ok=0
-[ -z "$(turn_col "$tester_turn_g" checkpoint)" ] || google_ok=0
+[ "$(turn_col "$tester_turn_g" status)" = done ] || { google_ok=0; google_bad+=" $LINENO"; }
+[ -z "$(turn_col "$tester_turn_g" checkpoint)" ] || { google_ok=0; google_bad+=" $LINENO"; }
 lead_turn_g=$("$H" sql "select id from turn where channel_id = 1 and role = 'lead' order by id desc limit 1" | tail -1)
-[ "$(turn_col "$lead_turn_g" status)" = done ] || google_ok=0
-[ -z "$(echo "$("$H" sql "select paused from channel")" | tail -n +2 | tr -d '[:space:]')" ] || google_ok=0
+[ "$(turn_col "$lead_turn_g" status)" = done ] || { google_ok=0; google_bad+=" $LINENO"; }
+[ -z "$(echo "$("$H" sql "select paused from channel")" | tail -n +2 | tr -d '[:space:]')" ] || { google_ok=0; google_bad+=" $LINENO"; }
 api_call GET /inbox
-[ "$(echo "$BODY" | grep -o '"kind"' | wc -l)" = 1 ] || google_ok=0
-echo "$BODY" | grep -q '"kind":"waiting"' || google_ok=0
+[ "$(echo "$BODY" | grep -o '"kind"' | wc -l)" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
+echo "$BODY" | grep -q '"kind":"waiting"' || { google_ok=0; google_bad+=" $LINENO"; }
 
 api_call GET '/messages?channel=1'
 api_call GET '/turns?channel=1'
@@ -761,10 +764,10 @@ kill "$google_inbox_pid" 2>/dev/null
 wait "$google_inbox_pid" 2>/dev/null
 kill "$google_events_pid" 2>/dev/null
 wait "$google_events_pid" 2>/dev/null
-grep -A1 '^event: approval' "$E/google-events.txt" | grep -q pending || google_ok=0
-grep -A1 '^event: approval' "$E/google-events.txt" | grep -q approved || google_ok=0
+grep -A1 '^event: approval' "$E/google-events.txt" | grep -q pending || { google_ok=0; google_bad+=" $LINENO"; }
+grep -A1 '^event: approval' "$E/google-events.txt" | grep -q approved || { google_ok=0; google_bad+=" $LINENO"; }
 
-check google-login "$google_ok" "lead, architect, gate, developer, gate, tester, lead ran end to end; checkpoints, worktree, clean main checkout, inbox and event streams all match"
+check google-login "$google_ok" "${google_bad:+failed at full-team.sh lines$google_bad; }lead, architect, gate, developer, gate, tester, lead ran end to end; checkpoints, worktree, clean main checkout, inbox and event streams all match"
 
 ### Gates, notes, retry and rollback rules, folder fu, on the same scratch cwd
 

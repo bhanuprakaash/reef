@@ -87,41 +87,45 @@ func recordTurn(
 ) {
 	var lines []recLine
 	t0 := time.Now()
+	// finish saves the recording and logs before forwarding final (the line that ends the
+	// turn, or nil at EOF with none): reef-agent kills the fake's whole process group right
+	// after it reads that line off our stdout, so bookkeeping after the forward races losing.
+	finish := func(final []byte) {
+		if role != "" {
+			if sid := sessionIDFromLines(lines); sid != "" {
+				writeRole(projDir, sid, role)
+			}
+		}
+		if name == "" || prompt == "" {
+			fakeLog.WriteString(time.Now().Format(time.RFC3339) + " record: not recorded (role=" + orNone(role) + ")\n")
+		} else if err := writeRecording(name, role, prompt, args, lines); err != nil {
+			fakeLog.WriteString(time.Now().Format(time.RFC3339) + " record: " + name + " failed: " + err.Error() + "\n")
+		} else {
+			fakeLog.WriteString(time.Now().Format(time.RFC3339) + " record: recorded " + name + "\n")
+		}
+		if final != nil {
+			os.Stdout.Write(final)
+		}
+	}
 	for {
 		out, oerr := stdoutR.ReadBytes('\n')
 		if len(out) > 0 {
-			// Record this line, and whether it ends the turn, before forwarding it:
-			// reef-agent kills the fake's whole process group right after it reads the
-			// turn's last line off our stdout, so bookkeeping after the forward races losing.
 			lines = append(lines, recLine{T: time.Since(t0).Seconds(), Out: strings.TrimRight(string(out), "\n")})
 			var kind struct {
 				Type string `json:"type"`
 			}
 			_ = json.Unmarshal(out, &kind)
-			isResult := kind.Type == "result"
-			os.Stdout.Write(out)
-			if isResult {
-				break
+			if kind.Type == "result" {
+				finish(out)
+				return
 			}
+			os.Stdout.Write(out)
 		}
 		if oerr != nil {
 			break
 		}
 	}
-	if role != "" {
-		if sid := sessionIDFromLines(lines); sid != "" {
-			writeRole(projDir, sid, role)
-		}
-	}
-	if name == "" || prompt == "" {
-		fakeLog.WriteString(time.Now().Format(time.RFC3339) + " record: not recorded (role=" + orNone(role) + ")\n")
-		return
-	}
-	if err := writeRecording(name, role, prompt, args, lines); err != nil {
-		fakeLog.WriteString(time.Now().Format(time.RFC3339) + " record: " + name + " failed: " + err.Error() + "\n")
-		return
-	}
-	fakeLog.WriteString(time.Now().Format(time.RFC3339) + " record: recorded " + name + "\n")
+	finish(nil)
 }
 
 var _sessionIDRe = regexp.MustCompile(`"session_id":"([^"]+)"`)
