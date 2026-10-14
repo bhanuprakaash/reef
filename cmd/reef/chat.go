@@ -18,6 +18,8 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
+const _continueCommand = "/continue"
+
 const _chatUsage = `usage: reef chat <feature> --role R --backend claude|codex [--name N]
   [--permission-mode M] [--debug] [--data DIR]
        reef chat --channel ID [--debug] [--data DIR]`
@@ -75,14 +77,8 @@ func chatCmd(
 			return err
 		}
 		*channelID = ch.ID
-	} else {
-		ch, err := st.Channel(ctx, *channelID)
-		if err != nil {
-			return err
-		}
-		if _, err := channel.CheckCaps(ctx, st, &ch); err != nil {
-			return err
-		}
+	} else if _, err := st.Channel(ctx, *channelID); err != nil {
+		return err
 	}
 	sess, err := channel.Open(ctx, st, dir, exe, *channelID)
 	if err != nil {
@@ -98,7 +94,7 @@ func chatCmd(
 			_, _ = fmt.Fprintf(stderr, "--- prompt ---\n%s\n---\n", prompt)
 		})
 	}
-	if err := converse(ctx, st, sess, readLines(stdin), stdout); err != nil {
+	if err := converse(ctx, st, *channelID, sess, readLines(stdin), stdout); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(stdout, "\nchannel %d: resume with reef chat --channel %d\n",
@@ -113,7 +109,8 @@ type chatSession interface {
 }
 
 func converse(
-	ctx context.Context, st *store.Store, sess chatSession, in *lineReader, stdout io.Writer,
+	ctx context.Context, st *store.Store, channelID int64, sess chatSession,
+	in *lineReader, stdout io.Writer,
 ) error {
 	show := func(ev agent.Event) {
 		if ev.Kind == agent.KindText {
@@ -131,9 +128,37 @@ func converse(
 		if line == "" {
 			continue
 		}
+		if line == _continueCommand {
+			msg := "continued"
+			if err := channel.Continue(ctx, st, channelID); errors.Is(err, store.ErrConflict) {
+				msg = "the channel is not paused"
+			} else if err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintf(stdout, "%s\n\n> ", msg); err != nil {
+				return err
+			}
+			continue
+		}
+		ch, err := st.Channel(ctx, channelID)
+		if err != nil {
+			return err
+		}
+		if _, err := channel.CheckCaps(ctx, st, &ch); errors.Is(err, store.ErrConflict) {
+			if _, err := fmt.Fprintf(stdout, "channel %d is paused: %s\n%s to go on\n\n> ",
+				ch.ID, ch.Paused, _continueCommand); err != nil {
+				return err
+			}
+			continue
+		} else if err != nil {
+			if ctx.Err() != nil {
+				return nil
+			}
+			return err
+		}
 		var p store.Proposal
 		wrap := line == channel.WrapCommand
-		err := sess.Say(ctx, line)
+		err = sess.Say(ctx, line)
 		if err == nil && wrap {
 			p, err = sess.Wrap(ctx, show)
 		} else if err == nil {

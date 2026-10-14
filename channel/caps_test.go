@@ -9,6 +9,55 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
+func TestContinue(t *testing.T) {
+	tests := []struct {
+		name       string
+		givePause  string
+		giveTokens int64
+		wantErr    string
+		wantBudget int64
+	}{
+		{name: "tool cap", givePause: "tool cap", giveTokens: 20, wantBudget: 1000000},
+		{name: "over budget", givePause: "budget", giveTokens: 1000000, wantBudget: 2000000},
+		{
+			name: "not paused", giveTokens: 20, wantBudget: 1000000,
+			wantErr: "channel 1 is not paused: conflict",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			st, f := openStore(t)
+			ch := sessionChannel(t, st, f, false)
+			if tt.givePause != "" {
+				if err := st.PauseChannel(ctx, ch.ID, tt.givePause); err != nil {
+					t.Fatal(err)
+				}
+			}
+			turn, err := st.CreateTurn(ctx, store.Turn{
+				ChannelID: ch.ID, Role: "architect", Backend: "claude",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			turn.Status, turn.Usage = "done", agent.Usage{InputTokens: tt.giveTokens}
+			if _, err := st.EndTurn(ctx, turn); err != nil {
+				t.Fatal(err)
+			}
+
+			err = Continue(ctx, st, ch.ID)
+			if tt.wantErr == "" && err != nil ||
+				tt.wantErr != "" && (err == nil || err.Error() != tt.wantErr || !errors.Is(err, store.ErrConflict)) {
+				t.Fatalf("Continue = %v, want %q", err, tt.wantErr)
+			}
+			if got, err := st.Channel(ctx, ch.ID); err != nil || got.Paused != "" || got.TokenBudget != tt.wantBudget {
+				t.Errorf("channel = paused %q budget %d, %v, want not paused, budget %d",
+					got.Paused, got.TokenBudget, err, tt.wantBudget)
+			}
+		})
+	}
+}
+
 func TestCheckCaps(t *testing.T) {
 	tests := []struct {
 		name       string
