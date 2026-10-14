@@ -111,8 +111,22 @@ func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer lift()
-	repo, refs, err := s.removeFeatureTree(r.Context(), id)
+	f, err := s.st.Feature(r.Context(), id)
 	if err != nil {
+		writeError(w, err)
+		return
+	}
+	p, err := s.st.Project(r.Context(), f.ProjectID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	refs, err := s.checkpointRefs(r.Context(), store.ChannelFilter{FeatureID: &id})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.removeFeatureTree(r.Context(), p, f); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -120,34 +134,24 @@ func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), repo, refs); err != nil {
+	if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), p.Path, refs); err != nil {
 		writeError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// removeFeatureTree removes the worktree of feature id. It returns the project's repo and the
-// checkpoint refs of the feature's turns, for the caller to delete once the feature is.
-func (s *server) removeFeatureTree(
-	ctx context.Context, id int64,
-) (repo string, refs []string, err error) {
-	f, err := s.st.Feature(ctx, id)
+// checkpointRefs lists the checkpoint refs of the turns of the channels that match f.
+func (s *server) checkpointRefs(ctx context.Context, f store.ChannelFilter) ([]string, error) {
+	cs, err := s.st.Channels(ctx, f)
 	if err != nil {
-		return "", nil, err
+		return nil, err
 	}
-	p, err := s.st.Project(ctx, f.ProjectID)
-	if err != nil {
-		return "", nil, err
-	}
-	cs, err := s.st.Channels(ctx, store.ChannelFilter{FeatureID: &id})
-	if err != nil {
-		return "", nil, err
-	}
+	var refs []string
 	for _, c := range cs {
 		ts, err := s.st.Turns(ctx, store.TurnFilter{ChannelID: &c.ID})
 		if err != nil {
-			return "", nil, err
+			return nil, err
 		}
 		for _, t := range ts {
 			if t.Checkpoint != nil {
@@ -155,13 +159,28 @@ func (s *server) removeFeatureTree(
 			}
 		}
 	}
+	return refs, nil
+}
+
+// checkFeatureTree is 409 when the worktree of feature f of project p has uncommitted changes.
+func (s *server) checkFeatureTree(ctx context.Context, p store.Project, f store.Feature) error {
 	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
-	err = worktree.Remove(ctx, p.Path, dir)
+	return treeConflict(f, dir, worktree.Clean(ctx, dir))
+}
+
+// removeFeatureTree removes the worktree of feature f of project p; 409 when it has
+// uncommitted changes.
+func (s *server) removeFeatureTree(ctx context.Context, p store.Project, f store.Feature) error {
+	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+	return treeConflict(f, dir, worktree.Remove(ctx, p.Path, dir))
+}
+
+func treeConflict(f store.Feature, dir string, err error) error {
 	if errors.Is(err, worktree.ErrDirty) {
-		err = fmt.Errorf("%w: feature %s has uncommitted changes in %s; commit or discard them first",
+		return fmt.Errorf("%w: feature %s has uncommitted changes in %s; commit or discard them first",
 			store.ErrConflict, f.Slug, dir)
 	}
-	return p.Path, refs, err
+	return err
 }
 
 func (s *server) getBrief(w http.ResponseWriter, r *http.Request) {

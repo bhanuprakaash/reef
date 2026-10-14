@@ -340,7 +340,7 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `POST /projects` | `name`, `path` | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |
 | `PUT /projects/{id}` | `name`, `path` | 200 | 400 (same `path` rule), 404 |
-| `DELETE /projects/{id}` | | 204 | 404 |
+| `DELETE /projects/{id}` | | 204; the worktrees of its features and the checkpoint refs of the turns of all its channels are removed, its branches are kept | 404, 409 a feature's worktree has uncommitted changes (nothing is removed) |
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |
@@ -484,8 +484,13 @@ a message wakes them.
   later wake of a feature makes it again; the refs go after the rows that name them, so a
   failure there leaves refs that no turn points to, and the delete is 500. The branch
   `feature/<slug>` is kept: it is the user's work. A feature with no worktree folder (no agent
-  ever started) only has its rows deleted. Deleting a channel or a project keeps worktrees
-  and refs.
+  ever started) only has its rows deleted. Deleting a channel keeps worktrees and refs.
+- `DELETE /projects/{id}` does the same for every feature of the project, and deletes the
+  checkpoint refs of the turns of every channel of the project, quick sessions included (their
+  refs are taken in the project folder). It checks every worktree first: one with uncommitted
+  changes is 409 for that feature, and nothing is removed. Then it removes all worktrees,
+  deletes the project rows, and last deletes the refs, in the same order and with the same
+  failure rule as a feature delete. Branches are kept.
 - The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session.
