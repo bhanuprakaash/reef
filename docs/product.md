@@ -193,6 +193,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 32 | Roles write only when the team file sets `write`; it maps to each backend's own limit (amends 9 and 30) | Checkpoints and the single-writer rule need one flag that does not depend on the backend |
 | 33 | A feature's worktree lives in the data folder and is made at its first wake, from the project's HEAD | Follows decision 4, and a feature nobody woke costs nothing |
 | 34 | Write turns on one tree run one at a time across channels | Decision 17's single writer holds with two channels on one feature |
+| 36 | The needs-you inbox is a view over approvals, pauses, failed turns and who spoke last; no ask-user tool | No new state to keep in sync, and Reef cannot tell a question from an answer |
 
 ## Open questions
 

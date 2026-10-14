@@ -86,6 +86,8 @@ type live struct {
 	dropped int
 	wake    chan struct{}
 	subs    int
+	// changed tells the inbox streams that a frame was published.
+	changed func()
 }
 
 // retry is a routing read to do again: the messages role wrote after the message with id
@@ -160,7 +162,7 @@ func (s *server) unsubscribe(l *live) {
 func (s *server) entryLocked(id int64) *live {
 	l, ok := s.lives[id]
 	if !ok {
-		l = &live{state: _idle, wake: make(chan struct{})}
+		l = &live{state: _idle, wake: make(chan struct{}), changed: s.inboxChanged}
 		s.lives[id] = l
 	}
 	return l
@@ -859,6 +861,7 @@ func (c *chain) resume(ctx context.Context, ch store.Channel, queue []wake) erro
 func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) {
 	s, l := c.s, c.l
 	defer s.wg.Done()
+	defer s.inboxChanged()
 	finishLocked := func() {
 		l.cancel()
 		l.state, l.cancel = _idle, nil
@@ -958,6 +961,9 @@ func (l *live) publishLocked(event string, v any) {
 	l.frames = append(l.frames, f)
 	close(l.wake)
 	l.wake = make(chan struct{})
+	if event != "agent" {
+		l.changed()
+	}
 }
 
 func writeFrames(w io.Writer, frames []frame) error {
