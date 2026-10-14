@@ -9,6 +9,8 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.REEF_PORT || '7700';
 const ADDR = `127.0.0.1:${PORT}`;
 const SERVER_STOP_TIMEOUT = 5000;
+const LOGIN_SHELL_TIMEOUT = 5000;
+const STDERR_TAIL = 64 * 1024;
 
 // The same default data folder reef serve uses: os.UserConfigDir()/Reef in
 // Go is app.getPath('appData') + '/Reef' in Electron on both Mac and Linux.
@@ -28,31 +30,38 @@ function reefPath() {
 function loginShellPath() {
   return new Promise((resolve) => {
     const marker = '__REEF_PATH__';
-    const shell = spawn(process.env.SHELL || '/bin/bash', ['-ilc', `echo ${marker}\${PATH}${marker}`]);
+    const shell = spawn(process.env.SHELL || '/bin/bash', ['-ilc', `echo ${marker}\${PATH}${marker}`], {
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
     let out = '';
+    let settled = false;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      resolve(value);
+    };
+    // An rc file that reads from stdin (e.g. a prompt left in .bash_profile) would hang
+    // this forever without a way out but a timeout.
+    const timer = setTimeout(() => {
+      shell.kill();
+      finish(process.env.PATH);
+    }, LOGIN_SHELL_TIMEOUT);
     shell.stdout.on('data', (chunk) => { out += chunk; });
-    shell.on('error', () => resolve(process.env.PATH));
+    shell.on('error', () => finish(process.env.PATH));
     shell.on('close', (code) => {
       const match = out.match(new RegExp(`${marker}(.*)${marker}`, 's'));
-      resolve(code === 0 && match ? match[1].trim() : process.env.PATH);
+      finish(code === 0 && match ? match[1].trim() : process.env.PATH);
     });
   });
 }
 
-function waitForHealth(url, child) {
-  return new Promise((resolve, reject) => {
-    let settled = false;
-    child.once('exit', (code) => {
-      if (settled) return;
-      settled = true;
-      reject(new Error(`reef serve exited before it was healthy (code ${code})`));
-    });
+function waitForHealth(url) {
+  return new Promise((resolve) => {
     const poll = async () => {
-      if (settled) return;
       try {
         const res = await fetch(url);
         if (res.ok) {
-          settled = true;
           resolve();
           return;
         }
@@ -66,21 +75,33 @@ function waitForHealth(url, child) {
 }
 
 let server = null;
+let quitting = false;
 
 async function startServer(PATH) {
-  server = spawn(reefPath(), ['serve', '--addr', ADDR], { env: { ...process.env, PATH } });
+  server = spawn(reefPath(), ['serve', '--addr', ADDR], {
+    env: { ...process.env, PATH },
+    stdio: ['ignore', 'ignore', 'pipe'],
+  });
   let stderr = '';
-  server.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
-  try {
-    await waitForHealth(`http://${ADDR}/health`, server);
-  } catch (err) {
-    const message = stderr.trim() || err.message;
+  server.stderr.on('data', (chunk) => {
+    const text = chunk.toString();
+    process.stderr.write(text);
+    stderr = (stderr + text).slice(-STDERR_TAIL);
+  });
+  // The window must only ever show this process's own reef serve, never whatever else
+  // answers on the port: an exit here, before the window opens or after, while the app
+  // isn't quitting on purpose, means the app can no longer trust what's on ADDR.
+  server.on('exit', (code) => {
+    if (quitting) return;
+    const message = stderr.trim() || `reef serve exited (code ${code})`;
     console.error(message);
-    dialog.showErrorBox('Reef could not start', message);
+    dialog.showErrorBox('Reef stopped unexpectedly', message);
     app.exit(1);
-    return false;
-  }
-  return true;
+  });
+  return Promise.race([
+    waitForHealth(`http://${ADDR}/health`).then(() => true),
+    new Promise((resolve) => server.once('exit', () => resolve(false))),
+  ]);
 }
 
 function stopServer() {
@@ -128,7 +149,6 @@ app.on('window-all-closed', () => app.quit());
 // Electron turns a quit request (menu, Cmd+Q, window close, SIGTERM) into
 // 'before-quit' without running Node's own signal handlers, so this is the
 // one place that must stop the server before the app exits.
-let quitting = false;
 app.on('before-quit', (event) => {
   if (quitting) return;
   quitting = true;
