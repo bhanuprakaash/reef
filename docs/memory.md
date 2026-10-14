@@ -100,8 +100,11 @@ file. `reef team apply FILE.json` stores it, and a channel picks it by name (`te
 teams with multiple roles; use the Reef window (`reef serve`) for those teams.
 
 `teams/full.json` in the repo is a four-role team: `lead`, `architect`, `developer` (the only
-role with `write`) and `tester`, all on `claude`, with the default gates. Apply it with
-`reef team apply teams/full.json`.
+role with `write`) and `tester`, all on `claude`, with the default gates. Each persona names
+the one teammate it hands work to (lead to architect, architect to developer, developer to
+tester, tester to developer on a failure or else to lead) and says to @mention no one else,
+because every `@name` wakes that teammate. The tester runs only `go test`, `npm test` and
+read-only `git` commands. Apply it with `reef team apply teams/full.json`.
 
 ```json
 {
@@ -230,6 +233,9 @@ holds a message body. Its shape:
    N]` or `[channel N, message N, thread N]`; your plain reply goes where the header says (a
    top-level reply starts your own thread), and `post_to_channel` takes the header's `thread` as
    its `parent` when there is one.
+   After the header, a wake may carry `reef wrote: ...` lines: what `reef` posted in the
+   channel since the role's last turn began, such as a rollback note (see
+   [server.md](server.md#channels-live)). The prompt does not explain them.
    The lead gets one more line: do not summarize or repeat a
    specialist's post back to the user, because they see it. `reef context` does not print it.
 
@@ -290,6 +296,10 @@ its first turn, in the project's folder (a channel on a feature: the feature's w
 binary, `mcp --data <data folder>`, with that teammate's own new token in `REEF_TOKEN`), plus
 the role's own `mcpServers`. Claude runs the reef tools without approval; the role's own
 servers need their tools in `tools` (see [agents.md](agents.md#gotchas)).
+So a `reef chat` on a feature needs the project to be a git repo with a commit. Like `reef
+serve`, it takes a checkpoint before each turn of a role with `write` (the `solo` lead has
+it). The one-writer lock of a tree lives in one process, so a `reef chat` and `reef serve` on
+the same tree do not wait for each other.
 `reef chat` starts the lead at once (`Session.Start`), before the first line is read, so an
 agent that does not start fails the command at the start. In `reef serve` the lead starts at
 its first turn: a first message that goes to a specialist starts no lead.
