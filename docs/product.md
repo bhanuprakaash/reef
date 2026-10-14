@@ -67,9 +67,9 @@ A channel is what the user opens as a session; inside, each teammate is its own 
 
 **Routing rules** (plain code, not an LLM):
 
-1. A reply inside a thread goes to whoever owns that thread
+1. A user reply inside a thread goes to whoever owns that thread
 2. An @mention goes to that teammate
-3. Anything else goes to the lead
+3. Anything else from the user goes to the lead
 
 **How teammates talk.** Through the channel only, never directly. Each teammate gets an MCP tool from Reef, such as post\_to\_channel, to post results and @mention others. The router wakes the mentioned teammate; idle teammates cost nothing.
 
@@ -180,7 +180,16 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 19 | Claude Code and Codex both in the baseline | Prove the Agent interface with two real backends |
 | 20 | One stdio MCP process per teammate on one shared database, each with its own token (amends 12) | Works with the server down, adapters already launch stdio MCP servers, no ports |
 | 21 | Live agent output streams to the UI over Server-Sent Events, one GET stream per channel; users send messages with POST | Standard library only, data flows one way, and EventSource reconnects |
-| 22 | Continue on a channel over its token budget sets the budget to the tokens used plus 1M (amends 10) | A flat +1M left a channel that used far more than its budget paused again at once |
+| 22 | Routing runs when a turn ends, over the messages that turn stored. Wakes run one at a time per channel | No agent is interrupted, and the message log fixes the order |
+| 23 | A message from an agent wakes only the roles it @mentions, also a reply in a thread; the thread owner rule is for the user | Ends a chain, and the lead does not answer every specialist post |
+| 24 | Every agent starts when first woken. A specialist's agent stops after each wake and resumes its session next time; the lead stays live | Idle teammates cost nothing, and the lead is who the user talks to |
+| 25 | A wake across a gate that is on is held as a pending approval: approve runs it, reject drops it, and a restart keeps it | The user decides before tokens are spent, and a crash must not lose the question |
+| 26 | The hop count resets when the user sends a message or continues, not when the user approves a gate. A wake over the cap is held, and continue runs it | A user message is new intent; an approval only lets the same chain go on. Held, not dropped, so no work is lost |
+| 27 | Threads have one level: a reply points at a root message, never at another reply. A teammate woken from a thread replies in it; one woken from a top-level message replies top-level and owns that thread | "Who owns the thread" stays one lookup, and the window stays simple |
+| 28 | Wrap-up and promote turns wake nobody | They are the lead talking to the user about the feature, not a handoff |
+| 29 | A team is a JSON file applied with `reef team apply`; a team `solo` (lead only) always exists; a channel keeps the team it was created with | Smallest way to configurable teams now; the team workshop can edit them later |
+| 30 | A role's `tools` become Claude's allowed tools; Codex ignores them and is limited by its permission mode | Only Claude has a per-tool allow list |
+| 31 | Continue on a channel over its token budget sets the budget to the tokens used plus 1M (amends 10) | A flat +1M left a channel that used far more than its budget paused again at once |
 
 ## Open questions
 

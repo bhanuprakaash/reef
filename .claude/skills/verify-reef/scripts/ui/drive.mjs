@@ -1,7 +1,8 @@
-// Drives the Reef window in the system Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap BASE_URL
+// Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
-// folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof).
+// folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
+// REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
@@ -9,9 +10,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -34,10 +35,13 @@ function check(ok, label, detail) {
   if (!ok) failed = true;
 }
 
-const browser = await chromium.launch({ channel: 'chrome', headless: true });
+const chrome = process.env.REEF_VERIFY_CHROME;
+const browser = await chromium.launch(
+  chrome ? { executablePath: chrome, args: ['--no-sandbox'], headless: true } : { channel: 'chrome', headless: true },
+);
 const page = await browser.newPage({ viewport: { width: 1200, height: 1000 } });
 const main = page.getByRole('main');
-const aside = page.locator('aside');
+const aside = page.locator('aside:not([aria-label])');
 const shot = async (step) => {
   const file = path.join(proof, `${scenario}-${step}.png`);
   await page.screenshot({ path: file });
@@ -91,6 +95,37 @@ async function newChannel(box, openName, name, mode = 'acceptEdits') {
   await page.getByRole('heading', { name, level: 1 }).waitFor();
   return sql(`select id from channel where name='${name}' order by id desc limit 1`);
 }
+
+// The label of the running turn names its role: `<role> is working...`.
+const liveLabel = main.locator('div.text-xs', { hasText: 'is working...' });
+async function workingAs(role, timeout = 240000) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) {
+    if ((await liveLabel.count()) > 0) {
+      const text = (await liveLabel.first().textContent().catch(() => '')) ?? '';
+      if (text.replace('is working...', '').trim() === role) return true;
+    }
+    await page.waitForTimeout(250);
+  }
+  return false;
+}
+// The top-level message rows of the main list that `author` wrote (they have the Reply button).
+const rootRow = (author) =>
+  main.locator('ul > li:has(> button)').filter({ has: page.locator('div.text-xs', { hasText: new RegExp(`^${author}$`) }) });
+// Starts a channel on `team` from the form (backend and permission mode stay the team's).
+async function newTeamChannel(team, name, step) {
+  await main.getByRole('button', { name: 'New channel' }).click();
+  const picker = main.getByLabel('Team', { exact: true });
+  await picker.locator('option', { hasText: team }).waitFor({ state: 'attached' });
+  const options = await picker.locator('option').allTextContents();
+  await picker.selectOption(team);
+  await main.getByLabel('Channel name').fill(name);
+  if (step) await shot(step);
+  await main.getByRole('button', { name: 'Start' }).click();
+  await page.getByRole('heading', { name, level: 1 }).waitFor();
+  return { id: page.url().split('/').pop(), options };
+}
+const getJson = async (route) => (await fetch(base + route)).json();
 
 async function live() {
   writeFileSync(path.join(projectDir, 'notes.txt'), 'Reef window check: notes file.\n');
@@ -291,6 +326,84 @@ async function wrap() {
   await section.getByRole('link', { name: 'Login', exact: true }).click();
   await page.getByText('Version 1 by').waitFor();
   check(sql(`select count(*) from brief where feature_id=${fid}`) === '1', '/wrap then Approve makes brief version 1', `brief rows ${sql(`select id,author from brief where feature_id=${fid}`)}`);
+}
+
+async function teams() {
+  const missing = [];
+  for (const name of ['duo', 'gated']) if ((await fetch(`${base}/teams/${name}`)).status !== 200) missing.push(name);
+  if (missing.length) throw new Error(`apply the teams first: missing ${missing.join(', ')} (see features/teams.md)`);
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+
+  const { id: cid, options } = await newTeamChannel('duo', 'duo room', 'team-picked');
+  check(options.includes('duo') && options.includes('gated') && options.includes('solo'), 'the New channel form lists the teams', options.join(', '));
+  const channel = await getJson(`/channels/${cid}`);
+  check(channel.team === 'duo' && channel.role === 'lead', 'the channel is created on team duo', JSON.stringify(channel));
+
+  await send('DESIGN a short plan for a login form.');
+  const leadSeen = await workingAs('lead', 60000);
+  await shot('lead-working');
+  check(leadSeen, 'the live turn names the lead while it runs');
+  const architectSeen = await workingAs('architect');
+  await shot('architect-working');
+  check(architectSeen, 'then the live turn names the architect');
+  await rootRow('architect').first().waitFor({ timeout: 240000 });
+  await idle();
+  const root = (await getJson(`/messages?channel=${cid}`)).find((m) => m.author === 'architect' && m.parentId === null);
+  check(!!root, 'the architect posted a top-level message', root && `message ${root.id}: ${root.body}`);
+  const replyButton = rootRow('architect').last().getByRole('button');
+  check((await replyButton.textContent()) === 'Reply', 'the architect root shows a Reply button');
+  await shot('architect-posted');
+
+  await replyButton.click();
+  const pane = page.getByRole('complementary', { name: 'Thread' });
+  await pane.waitFor();
+  await shot('thread-open');
+  await pane.getByLabel('Reply').fill('Which field would you validate first? Answer in this thread.');
+  await pane.getByLabel('Reply').press('Enter');
+  const threadSeen = await workingAs('architect', 120000);
+  await shot('thread-architect-working');
+  check(threadSeen, 'a reply in the thread runs the architect, not the lead');
+  await pane.locator('li').nth(2).waitFor({ timeout: 240000 });
+  await idle();
+  await shot('thread-answered');
+  const authors = await pane.locator('li > div.text-xs').allTextContents();
+  check(authors.join(',') === 'architect,user,architect', 'the Thread pane shows the root, the user reply and the architect answer', authors.join(','));
+  const inThread = (await getJson(`/messages?channel=${cid}`)).filter((m) => m.parentId === root.id).map((m) => m.author);
+  check(inThread.join(',') === 'user,architect', 'both replies are stored under the root', inThread.join(','));
+  await pane.getByRole('button', { name: 'Close' }).click();
+  const count = await rootRow('architect').last().getByRole('button').textContent();
+  check(count === '2 replies', 'the main list shows the root with a replies button', count);
+  await shot('main-list');
+
+  await section.getByRole('link', { name: 'Login', exact: true }).click();
+  await page.getByRole('heading', { name: 'Login', level: 1 }).waitFor();
+  const { id: gid } = await newTeamChannel('gated', 'gate room');
+  await send('DESIGN a password reset form.');
+  const approve = main.getByRole('button', { name: 'Approve' });
+  await approve.waitFor({ timeout: 240000 });
+  await idle();
+  const row = (await approve.locator('xpath=ancestor::li[1]').textContent()) ?? '';
+  check(
+    /lead → architect:/.test(row) && (await main.getByRole('button', { name: 'Reject' }).count()) === 1,
+    'the gated channel shows a lead → architect row with Approve and Reject',
+    row,
+  );
+  check(sql(`select count(*) from turn where channel_id=${gid} and role='architect'`) === '0', 'no architect turn ran before Approve');
+  await shot('gate-approval');
+  await approve.click();
+  const approvedSeen = await workingAs('architect', 120000);
+  await shot('gate-approved');
+  check(approvedSeen, 'Approve runs the architect');
+  await rootRow('architect').first().waitFor({ timeout: 240000 });
+  await idle();
+  check((await main.getByRole('button', { name: 'Approve' }).count()) === 0, 'the approval row is gone');
+  await shot('gate-architect-posted');
+  check(
+    sql(`select from_role||'>'||to_role||' '||status from approval where channel_id=${gid}`) === 'lead>architect approved',
+    'the approval is stored as approved',
+    `approvals: ${sql(`select id,from_role,to_role,status from approval where channel_id=${gid}`)}; turns: ${sql(`select group_concat(role) from (select role from turn where channel_id=${gid} order by id)`)}`,
+  );
 }
 
 try {

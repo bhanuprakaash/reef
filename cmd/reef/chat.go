@@ -81,6 +81,11 @@ func chatCmd(
 		return err
 	}
 	sess, err := channel.Open(ctx, st, dir, exe, *channelID)
+	if err == nil {
+		if err = sess.Start(ctx); err != nil {
+			_ = sess.Close()
+		}
+	}
 	if err != nil {
 		if !resuming {
 			err = errors.Join(err, st.DeleteChannel(context.WithoutCancel(ctx), *channelID))
@@ -103,8 +108,8 @@ func chatCmd(
 }
 
 type chatSession interface {
-	Say(ctx context.Context, body string) error
-	Run(ctx context.Context, text string, onEvent func(agent.Event)) error
+	Say(ctx context.Context, body string, parent *int64) error
+	Run(ctx context.Context, text string, parent *int64, onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 }
 
@@ -160,11 +165,11 @@ func converse(
 		}
 		var p store.Proposal
 		wrap := line == channel.WrapCommand
-		err = sess.Say(ctx, line)
+		err = sess.Say(ctx, line, nil)
 		if err == nil && wrap {
 			p, err = sess.Wrap(ctx, show)
 		} else if err == nil {
-			err = sess.Run(ctx, line, show)
+			err = sess.Run(ctx, line, nil, show)
 		}
 		noProposal := errors.Is(err, channel.ErrNoProposal)
 		if err != nil && !noProposal {

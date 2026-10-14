@@ -3,11 +3,11 @@ import { useSendMessage } from '@/modules/channels/api/send-message';
 import { useStopChannel } from '@/modules/channels/api/stop-channel';
 import { buttonClass, errorClass, inputClass } from '@/utils/classes';
 
-type Props = { channelId: number; running: boolean; paused: boolean };
+type Props = { channelId: number; running: boolean; paused: boolean; parent?: number };
 
-export function Composer({ channelId, running, paused }: Props) {
+export function Composer({ channelId, running, paused, parent }: Props) {
   const [text, setText] = useState('');
-  const send = useSendMessage(channelId);
+  const send = useSendMessage(channelId, parent);
   const stop = useStopChannel(channelId);
 
   function submit() {
@@ -29,7 +29,7 @@ export function Composer({ channelId, running, paused }: Props) {
         className={`${inputClass} w-full`}
         rows={3}
         placeholder="Message (Enter sends, Shift+Enter adds a line)"
-        aria-label="Message"
+        aria-label={parent === undefined ? 'Message' : 'Reply'}
         disabled={paused}
         value={text}
         onChange={(e) => setText(e.target.value)}

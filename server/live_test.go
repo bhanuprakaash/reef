@@ -28,35 +28,44 @@ type fakeSession struct {
 	promoted   atomic.Int32
 	noProposal atomic.Bool
 
+	// onRun, when set, runs inside every message turn: it stands in for the messages an
+	// agent stores while it works.
+	onRun func(role, text string, parent *int64)
+
 	mu  sync.Mutex
 	ran []string
 	say func()
 }
 
-func (f *fakeSession) Say(ctx context.Context, body string) error {
+func (f *fakeSession) Say(ctx context.Context, body string, parent *int64) error {
 	if f.say != nil {
 		f.say()
 	}
 	_, err := f.st.CreateMessage(ctx, store.Message{
-		ChannelID: f.channelID.Load(), Author: "user", Body: body,
+		ChannelID: f.channelID.Load(), ParentID: parent, Author: "user", Body: body,
 	})
 	return err
 }
 
-func (f *fakeSession) Run(ctx context.Context, text string, onEvent func(agent.Event)) error {
+func (f *fakeSession) RunAs(
+	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
+) error {
 	f.mu.Lock()
 	f.ran = append(f.ran, text)
 	f.mu.Unlock()
-	switch text {
-	case "cap":
+	if f.onRun != nil {
+		f.onRun(role, text, parent)
+	}
+	switch {
+	case strings.HasSuffix(text, "\ncap"):
 		const reason = "capped: more than 25 tool calls"
 		err := fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
 		return errors.Join(err, f.st.PauseChannel(ctx, f.channelID.Load(), reason))
-	case "cap-lost":
+	case strings.HasSuffix(text, "\ncap-lost"):
 		err := fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
 		return errors.Join(err, f.st.DeleteChannel(ctx, f.channelID.Load()))
 	}
-	if text != "block" {
+	if !strings.HasSuffix(text, "block") {
 		onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
 		return nil
 	}
@@ -72,6 +81,9 @@ func (f *fakeSession) Run(ctx context.Context, text string, onEvent func(agent.E
 }
 
 func (f *fakeSession) Wrap(_ context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
+	if f.onRun != nil {
+		f.onRun("lead", channel.WrapCommand, nil)
+	}
 	onEvent(agent.Event{Kind: agent.KindText, Text: "wrapped"})
 	if f.noProposal.Load() {
 		return store.Proposal{}, channel.ErrNoProposal
@@ -113,19 +125,14 @@ type runnerSession struct {
 	run *channel.Runner
 }
 
-func (r runnerSession) Say(ctx context.Context, body string) error {
-	if r.say != nil {
-		r.say()
-	}
-	return r.run.Say(ctx, body)
-}
-
-func (r runnerSession) Run(ctx context.Context, text string, onEvent func(agent.Event)) error {
-	return r.run.Run(ctx, text, onEvent)
+func (r runnerSession) RunAs(
+	ctx context.Context, _, text string, parent *int64, onEvent func(agent.Event),
+) error {
+	return r.run.Run(ctx, text, parent, onEvent)
 }
 
 func (r runnerSession) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
-	return store.Proposal{}, r.run.Run(ctx, channel.PromoteCommand, onEvent)
+	return store.Proposal{}, r.run.Run(ctx, channel.PromoteCommand, nil, onEvent)
 }
 
 // gateCtx calls hook on its first Done call, which the store makes as a query starts.
@@ -271,9 +278,9 @@ func TestSend_Streams(t *testing.T) {
 	}
 	sub.want(t,
 		_idleFrame,
-		`turn {"status":"running"}`,
+		`turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"hi"}`,
-		`turn {"status":"done"}`,
+		`turn {"role":"lead","status":"done"}`,
 	)
 
 	late := subscribe(t, env.url)
@@ -282,13 +289,279 @@ func TestSend_Streams(t *testing.T) {
 	}
 	late.want(t,
 		_idleFrame,
-		`turn {"status":"running"}`,
+		`turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"hi"}`,
-		`turn {"status":"done"}`,
+		`turn {"role":"lead","status":"done"}`,
 	)
 	if got := env.opened.Load(); got != 1 {
 		t.Errorf("sessions opened = %d, want 1: the agent stays alive between turns", got)
 	}
+}
+
+func TestSend_Parent(t *testing.T) {
+	env := newLiveEnv(t)
+	sub := subscribe(t, env.url)
+	sub.want(t, _idleFrame)
+	send := func(body string) int {
+		status, _ := do(t, http.MethodPost, env.url+"/channels/1/send", body)
+		if status == 202 {
+			sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+				`turn {"role":"lead","status":"done"}`)
+		}
+		return status
+	}
+	if status := send(`{"text":"root"}`); status != 202 {
+		t.Fatalf("send = %d, want 202", status)
+	}
+	if status := send(`{"text":"reply","parent":1}`); status != 202 {
+		t.Fatalf("send with parent = %d, want 202", status)
+	}
+	if status := send(`{"text":"deeper","parent":2}`); status != 400 {
+		t.Errorf("send to a reply = %d, want 400", status)
+	}
+	_, body := do(t, http.MethodGet, env.url+"/messages?channel=1", "")
+	if !strings.Contains(body, `"parentId":null`) || !strings.Contains(body, `"parentId":1`) ||
+		strings.Contains(body, "deeper") {
+		t.Errorf("messages = %s, want root with null parentId and one reply with 1", body)
+	}
+}
+
+// teamChannel adds the team core, a lead and an architect, and a channel of it. It returns
+// the channel's id and a function that stores a message as author.
+func (e *liveEnv) teamChannel(t *testing.T) (int, func(author, body string, parent *int64)) {
+	t.Helper()
+	_, err := e.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "architect", Backend: "claude"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	do(t, http.MethodPost, e.url+"/channels", `{"projectId":1,"name":"t","team":"core"}`)
+	return 2, func(author, body string, parent *int64) {
+		t.Helper()
+		_, err := e.st.CreateMessage(context.Background(),
+			store.Message{ChannelID: 2, ParentID: parent, Author: author, Body: body})
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+}
+
+func (e *liveEnv) ranTexts() []string {
+	e.fake.mu.Lock()
+	defer e.fake.mu.Unlock()
+	return slices.Clone(e.fake.ran)
+}
+
+func TestSend_RoutesAndWakes(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, text string, parent *int64) {
+		switch {
+		case role == "lead":
+			post("lead", "@architect plan it", parent)
+		case role == "architect" && parent == nil:
+			post("architect", "the plan", nil)
+		case role == "architect":
+			post("architect", "because", parent)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+
+	if status, _ := env.sendTo(t, id, "login please"); status != 202 {
+		t.Fatalf("send = %d, want 202", status)
+	}
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`)
+
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/send", env.url, id),
+		`{"text":"why?","parent":3}`); status != 202 {
+		t.Fatalf("reply in the thread = %d, want 202", status)
+	}
+	sub.want(t, `turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`)
+
+	want := []string{
+		"[channel 2, message 1]\nlogin please",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
+		"[channel 2, message 4, thread 3]\nThread so far:\narchitect: the plan\n\nwhy?",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
+	}
+	msgs, err := env.st.Messages(context.Background(), int64(id), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range msgs {
+		parent := "-"
+		if m.ParentID != nil {
+			parent = fmt.Sprint(*m.ParentID)
+		}
+		got = append(got, fmt.Sprintf("%d %s %s %q", m.ID, m.Author, parent, m.Body))
+	}
+	wantMsgs := []string{
+		`1 user - "login please"`, `2 lead - "@architect plan it"`, `3 architect - "the plan"`,
+		`4 user 3 "why?"`, `5 architect 3 "because"`,
+	}
+	if !slices.Equal(got, wantMsgs) {
+		t.Errorf("messages = %q, want %q", got, wantMsgs)
+	}
+}
+
+func TestSend_ChannelRoleStandsInForLead(t *testing.T) {
+	env := newLiveEnv(t)
+	_, err := env.st.CreateChannel(context.Background(), store.Channel{
+		ProjectID: 1, Name: "dev", Role: "developer", Backend: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub := subscribeTo(t, env.url, 2)
+
+	if status, _ := env.sendTo(t, 2, "@lead hi"); status != 202 {
+		t.Fatalf("send = %d, want 202", status)
+	}
+	sub.want(t, _idleFrame,
+		`turn {"role":"developer","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"developer","status":"done"}`)
+	if got, want := env.ranTexts(), []string{"[channel 2, message 1]\n@lead hi"}; !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
+	}
+}
+
+func TestSend_WakesByPost(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, parent *int64) {
+		if role == "lead" {
+			post("lead", "@architect look at this", parent)
+			post("lead", "done, nothing to add", parent)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`)
+	want := []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect look at this",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q: the post that mentions nobody wakes no one", got, want)
+	}
+}
+
+func TestSend_OneWakePerRole(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, parent *int64) {
+		if role == "lead" {
+			post("lead", "@architect look at this", parent)
+			post("lead", "I asked @architect", parent)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`)
+	want := []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect look at this\n\n" +
+			"[channel 2, message 3]\nlead wrote: I asked @architect",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q: one architect turn for both posts", got, want)
+	}
+}
+
+func TestSend_TopLevelWakeHasNoThread(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	var parent atomic.Pointer[int64]
+	parent.Store(new(int64))
+	env.fake.onRun = func(_, _ string, p *int64) { parent.Store(p) }
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "@architect plan it")
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "architect")
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 1]\n@architect plan it"}) {
+		t.Errorf("ran = %q, want a header with no thread", got)
+	}
+	if got := parent.Load(); got != nil {
+		t.Errorf("architect reply parent = %d, want nil: the reply is top-level", *got)
+	}
+}
+
+func TestSend_OneWakePerRoleAndThread(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			one := int64(1)
+			post("lead", "@architect one", nil)
+			post("lead", "@architect two", &one)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead", "architect", "architect")
+	want := []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect one",
+		"[channel 2, message 3, thread 1]\nThread so far:\nuser: go\n\nlead wrote: @architect two",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q: a top-level post and a thread reply wake the architect twice", got, want)
+	}
+}
+
+func TestSend_MentionsWakeEachRole(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "@architect @lead hi")
+	sub.want(t, _idleFrame,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`)
+}
+
+func TestSend_WhileWakeChainRuns(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect block", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	<-env.fake.started
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+
+	status, body := env.sendTo(t, id, "again")
+	if status != 409 || body != `{"error":"channel 2 has a turn running: conflict"}` {
+		t.Errorf("send during the wake = %d %s, want 409 turn running", status, body)
+	}
+	env.fake.release <- struct{}{}
+	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"architect","status":"done"}`)
 }
 
 func TestSend_Wrap(t *testing.T) {
@@ -300,9 +573,9 @@ func TestSend_Wrap(t *testing.T) {
 	}
 	sub.want(t,
 		_idleFrame,
-		`turn {"status":"running"}`,
+		`turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"wrapped"}`,
-		`turn {"status":"done"}`,
+		`turn {"role":"lead","status":"done"}`,
 	)
 }
 
@@ -311,14 +584,14 @@ func TestSubscribe_ReplaysRunningTurn(t *testing.T) {
 	first := subscribe(t, env.url)
 	env.send(t, "block")
 	<-env.fake.started
-	first.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	first.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	second := subscribe(t, env.url)
-	second.want(t, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	second.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	env.fake.release <- struct{}{}
 	for _, s := range []*stream{first, second} {
-		s.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"status":"done"}`)
+		s.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
 	}
 }
 
@@ -339,12 +612,12 @@ func TestStop_FailsTurnAndClosesSession(t *testing.T) {
 	sub := subscribe(t, env.url)
 	env.send(t, "block")
 	<-env.fake.started
-	sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	if status, body := do(t, http.MethodPost, env.url+"/channels/1/stop", ""); status != 204 || body != "" {
 		t.Fatalf("stop = %d %q, want 204", status, body)
 	}
-	sub.want(t, `turn {"status":"failed","error":"interrupted"}`)
+	sub.want(t, `turn {"role":"lead","status":"failed","error":"interrupted"}`)
 	if got := env.fake.closed.Load(); got != 1 {
 		t.Errorf("session closes = %d, want 1", got)
 	}
@@ -352,9 +625,468 @@ func TestStop_FailsTurnAndClosesSession(t *testing.T) {
 	if status, _ := env.send(t, "hello"); status != 202 {
 		t.Fatalf("send after stop = %d, want 202", status)
 	}
-	sub.want(t, `turn {"status":"running"}`, `agent {"kind":"text","text":"hi"}`, `turn {"status":"done"}`)
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 	if got := env.opened.Load(); got != 2 {
 		t.Errorf("sessions opened = %d, want 2: a send after stop opens the agent again", got)
+	}
+}
+
+func TestSend_WrapWakesNobody(t *testing.T) {
+	env := newLiveEnv(t)
+	env.teamChannel(t)
+	do(t, http.MethodPost, env.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
+	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"featureId":1,"name":"w","team":"core"}`)
+	env.fake.onRun = func(string, string, *int64) {
+		_, err := env.st.CreateMessage(context.Background(),
+			store.Message{ChannelID: 3, Author: "lead", Body: "@architect look at this"})
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	sub := subscribeTo(t, env.url, 3)
+	env.sendTo(t, 3, "/wrap")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"wrapped"}`,
+		`turn {"role":"lead","status":"done"}`)
+
+	env.fake.onRun = nil
+	env.sendTo(t, 3, "ping")
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`)
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 3, message 3]\nping"}) {
+		t.Errorf("ran = %q, want only ping: the wrap reply wakes no architect", got)
+	}
+}
+
+const _hopPause = "hop cap: 4 agent hops without a user message"
+
+// pingPong makes the lead and the architect answer each other until the hop cap pauses the
+// channel, and returns the channel's id and a stream of it, after the pause.
+func (e *liveEnv) pingPong(t *testing.T) (int, *stream) {
+	t.Helper()
+	id, post := e.teamChannel(t)
+	e.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect again", nil)
+		} else {
+			post("architect", "@lead again", nil)
+		}
+	}
+	sub := subscribeTo(t, e.url, id)
+	e.sendTo(t, id, "go")
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead")
+	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
+	return id, sub
+}
+
+func (s *stream) wantTurns(t *testing.T, roles ...string) {
+	t.Helper()
+	for _, role := range roles {
+		s.want(t, `turn {"role":"`+role+`","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+			`turn {"role":"`+role+`","status":"done"}`)
+	}
+}
+
+func TestSend_HopCapPausesChannel(t *testing.T) {
+	env := newLiveEnv(t)
+	id, sub := env.pingPong(t)
+	if got := len(env.ranTexts()); got != 5 {
+		t.Errorf("turns run = %d, want 5: the user's turn and 4 hops", got)
+	}
+	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
+		t.Errorf("channel = %+v, %v, want paused with the hop cap reason", ch, err)
+	}
+
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "architect", "lead", "architect", "lead")
+	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
+	if got := len(env.ranTexts()); got != 9 {
+		t.Errorf("turns run after continue = %d, want 9: the held wake and 3 more hops", got)
+	}
+}
+
+func TestSend_UserMessageClearsHopPause(t *testing.T) {
+	env := newLiveEnv(t)
+	id, sub := env.pingPong(t)
+
+	if status, body := env.sendTo(t, id, "more"); status != 202 || body != "" {
+		t.Fatalf("send while hop paused = %d %q, want 202", status, body)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead")
+	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
+	if got := env.ranTexts(); len(got) != 10 || got[5] != "[channel 2, message 7]\nmore" {
+		t.Errorf("ran = %q, want 10 turns, the sixth the user's: the held wake is dropped and the count starts at 0", got)
+	}
+}
+
+func TestContinue_WhileRunning(t *testing.T) {
+	env := newLiveEnv(t)
+	env.send(t, "block")
+	<-env.fake.started
+	if err := env.st.PauseChannel(context.Background(), 1, "capped"); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodPost, env.url+"/channels/1/continue", "")
+	if status != 409 || body != `{"error":"channel 1 has a turn running: conflict"}` {
+		t.Errorf("continue while running = %d %s, want 409 turn running", status, body)
+	}
+	if ch, err := env.st.Channel(context.Background(), 1); err != nil || ch.Paused != "capped" {
+		t.Errorf("channel = %+v, %v, want still paused", ch, err)
+	}
+	env.fake.release <- struct{}{}
+}
+
+func TestContinue_StartFailureKeepsHeldWakes(t *testing.T) {
+	env := newLiveEnv(t)
+	id, sub := env.pingPong(t)
+	continueURL := fmt.Sprintf("%s/channels/%d/continue", env.url, id)
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	env.open = func(context.Context) (session, error) { return nil, errors.New("boom") }
+
+	if status, body := do(t, http.MethodPost, continueURL, ""); status != 500 {
+		t.Fatalf("continue = %d %s, want 500: the agent did not open", status, body)
+	}
+	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
+		t.Fatalf("channel = %+v, %v, want still paused with the hop cap reason", ch, err)
+	}
+
+	env.open = nil
+	if status, _ := do(t, http.MethodPost, continueURL, ""); status != 204 {
+		t.Fatalf("second continue = %d, want 204", status)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "architect", "lead", "architect", "lead")
+	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
+	if got := len(env.ranTexts()); got != 9 {
+		t.Errorf("turns run = %d, want 9: the wakes held before the failed continue ran", got)
+	}
+}
+
+func TestSend_UserMessageResetsHops(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	var runs atomic.Int32
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if runs.Add(1)%4 == 0 {
+			return
+		}
+		if role == "lead" {
+			post("lead", "@architect again", nil)
+		} else {
+			post("architect", "@lead again", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	sub.want(t, _idleFrame)
+	for range 2 {
+		env.sendTo(t, id, "go")
+		for _, role := range []string{"lead", "architect", "lead", "architect"} {
+			sub.want(t, `turn {"role":"`+role+`","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+				`turn {"role":"`+role+`","status":"done"}`)
+		}
+	}
+	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != "" {
+		t.Errorf("channel = %+v, %v, want not paused after 6 hops in 2 chains", ch, err)
+	}
+}
+
+func TestCountHop(t *testing.T) {
+	tests := []struct {
+		name     string
+		giveHops int
+		giveFrom string
+		want     bool
+		wantHops int
+	}{
+		{"user wake resets", 3, "user", true, 0},
+		{"user wake resets at the cap", 4, "user", true, 0},
+		{"first agent wake", 0, "lead", true, 1},
+		{"fourth agent wake", 3, "architect", true, 4},
+		{"fifth agent wake is over", 4, "lead", false, 4},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			l := &live{hops: tt.giveHops}
+			if got := l.countHop(wake{from: tt.giveFrom}); got != tt.want || l.hops != tt.wantHops {
+				t.Errorf("countHop = %v with hops %d, want %v with hops %d",
+					got, l.hops, tt.want, tt.wantHops)
+			}
+		})
+	}
+}
+
+func TestSend_UserPostMidChainIsNotRouted(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	var runs atomic.Int32
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if runs.Add(1) == 3 {
+			status, body := do(t, http.MethodPost, env.url+"/messages",
+				`{"channelId":2,"author":"user","body":"@architect hey"}`)
+			if status != 201 {
+				t.Errorf("post = %d %s, want 201", status, body)
+			}
+		}
+		if role == "lead" {
+			post("lead", "@architect again", nil)
+		} else {
+			post("architect", "@lead again", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead")
+	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
+	if got := len(env.ranTexts()); got != 5 {
+		t.Errorf("turns run = %d, want 5: the user's post starts no turn and does not reset the hops", got)
+	}
+}
+
+func TestApproval_GateHoldsWake(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	roles := []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
+	}
+	_, err := env.st.ApplyTeam(ctx, store.Team{Name: "core", Roles: roles,
+		Gates: []store.Gate{{From: "lead", To: "architect", On: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect plan it", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	const pending = `{"id":1,"channelId":2,"from":"lead","to":"architect","messageId":2,` +
+		`"text":"[channel 2, message 2]\nlead wrote: @architect plan it","status":`
+
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
+	if got := sub.next(t); !strings.HasPrefix(got, "approval "+pending+`"pending","createdAt":`) {
+		t.Errorf("frame = %s, want the pending approval", got)
+	}
+	sub.want(t, `turn {"role":"lead","status":"done"}`)
+	status, body := do(t, http.MethodGet, approvals, "")
+	if status != 200 || !strings.HasPrefix(body, "["+pending+`"pending","createdAt":`) {
+		t.Errorf("approvals = %d %s, want the pending approval", status, body)
+	}
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 1]\ngo"}) {
+		t.Errorf("ran = %q, want only go: no architect turn before approval", got)
+	}
+
+	if status, _ := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`); status != 204 {
+		t.Fatalf("approve = %d, want 204", status)
+	}
+	var turn []string
+	approved := false
+	for range 4 {
+		f := sub.next(t)
+		if strings.HasPrefix(f, "approval "+pending+`"approved","createdAt":`) {
+			approved = true
+			continue
+		}
+		turn = append(turn, f)
+	}
+	wantTurn := []string{
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`,
+	}
+	if !approved || !slices.Equal(turn, wantTurn) {
+		t.Errorf("frames after approve = %q (approved %v), want the architect turn and the approved approval", turn, approved)
+	}
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
+	}) {
+		t.Errorf("ran = %q, want the architect to run the held wake", got)
+	}
+
+	env.sendTo(t, id, "again")
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
+	sub.next(t)
+	sub.want(t, `turn {"role":"lead","status":"done"}`)
+	if status, _ := do(t, http.MethodPost, approvals+"/2", `{"approve":false}`); status != 204 {
+		t.Fatalf("reject = %d, want 204", status)
+	}
+	if got := sub.next(t); !strings.Contains(got, `"id":2,`) || !strings.Contains(got, `"status":"rejected"`) {
+		t.Errorf("frame = %s, want the rejected approval 2", got)
+	}
+	if got := len(env.ranTexts()); got != 3 {
+		t.Errorf("turns run = %d, want 3: a rejected wake does not run", got)
+	}
+	if status, body := do(t, http.MethodGet, approvals, ""); status != 200 || body != "[]" {
+		t.Errorf("approvals = %d %s, want none pending", status, body)
+	}
+	status, body = do(t, http.MethodPost, approvals+"/2", `{"approve":true}`)
+	if status != 409 || body != `{"error":"approval 2 is rejected: conflict"}` {
+		t.Errorf("approve a rejected approval = %d %s, want 409", status, body)
+	}
+}
+
+// gatedChannel gates lead to architect and makes the lead hold a wake for the architect
+// when it runs "go". It returns the channel id, a stream of it and its approvals URL.
+func (e *liveEnv) gatedChannel(t *testing.T) (int, *stream, string) {
+	t.Helper()
+	id, post := e.teamChannel(t)
+	roles := []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
+	}
+	_, err := e.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: roles,
+		Gates: []store.Gate{{From: "lead", To: "architect", On: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.fake.onRun = func(role, text string, _ *int64) {
+		if role == "lead" && strings.HasSuffix(text, "\ngo") {
+			post("lead", "@architect plan it", nil)
+		}
+	}
+	sub := subscribeTo(t, e.url, id)
+	e.sendTo(t, id, "go")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
+	sub.next(t)
+	sub.want(t, `turn {"role":"lead","status":"done"}`)
+	return id, sub, fmt.Sprintf("%s/channels/%d/approvals", e.url, id)
+}
+
+func TestApproval_TwoApprovesRunOneTurn(t *testing.T) {
+	env := newLiveEnv(t)
+	_, sub, approvals := env.gatedChannel(t)
+
+	statuses := make(chan int, 2)
+	for range 2 {
+		go func() {
+			res, err := http.Post(approvals+"/1", "application/json", strings.NewReader(`{"approve":true}`))
+			if err != nil {
+				statuses <- 0
+				return
+			}
+			_ = res.Body.Close()
+			statuses <- res.StatusCode
+		}()
+	}
+	got := []int{<-statuses, <-statuses}
+	slices.Sort(got)
+	if !slices.Equal(got, []int{204, 409}) {
+		t.Errorf("statuses = %v, want one 204 and one 409", got)
+	}
+	for range 4 {
+		sub.next(t)
+	}
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
+	}) {
+		t.Errorf("ran = %q, want one architect turn", got)
+	}
+	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
+	if status != 409 || body != `{"error":"approval 1 is approved: conflict"}` {
+		t.Errorf("approve again = %d %s, want 409", status, body)
+	}
+}
+
+func TestApproval_ApproveSurvivesClientAbort(t *testing.T) {
+	env := newLiveEnv(t)
+	id, sub, approvals := env.gatedChannel(t)
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	ctx, abort := context.WithCancel(context.Background())
+	env.open = func(context.Context) (session, error) {
+		abort()
+		return env.fake, nil
+	}
+	req := httptest.NewRequest(http.MethodPost, env.url+"/channels/2/approvals/1",
+		strings.NewReader(`{"approve":true}`)).WithContext(ctx)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	env.h.ServeHTTP(rec, req)
+	if rec.Code != 204 {
+		t.Fatalf("approve = %d %s, want 204", rec.Code, rec.Body)
+	}
+	for range 4 {
+		sub.next(t)
+	}
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
+	}) {
+		t.Errorf("ran = %q, want the architect to run the held wake", got)
+	}
+	status, body := do(t, http.MethodGet, approvals, "")
+	if status != 200 || body != "[]" {
+		t.Errorf("approvals = %d %s, want none pending", status, body)
+	}
+}
+
+func TestApproval_ApproveAtHopCapPausesAndStaysPending(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _, approvals := env.gatedChannel(t)
+	l := env.h.s.lookup(int64(id))
+	l.mu.Lock()
+	l.hops = 4
+	l.mu.Unlock()
+
+	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
+	if status != 409 || body != `{"error":"channel 2 is paused: `+_hopPause+`: conflict"}` {
+		t.Errorf("approve at 4 hops = %d %s, want 409 paused", status, body)
+	}
+	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
+		t.Errorf("channel = %+v, %v, want paused with the hop cap reason", ch, err)
+	}
+	status, body = do(t, http.MethodGet, approvals, "")
+	if status != 200 || !strings.Contains(body, `"id":1,`) || !strings.Contains(body, `"status":"pending"`) {
+		t.Errorf("approvals = %d %s, want approval 1 pending again", status, body)
+	}
+}
+
+func TestApproval_ApproveWhileBusyStaysPending(t *testing.T) {
+	env := newLiveEnv(t)
+	id, sub, approvals := env.gatedChannel(t)
+	env.sendTo(t, id, "block")
+	<-env.fake.started
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+
+	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
+	if status != 409 || body != `{"error":"channel 2 has a turn running: conflict"}` {
+		t.Errorf("approve while busy = %d %s, want 409 turn running", status, body)
+	}
+	status, body = do(t, http.MethodGet, approvals, "")
+	if status != 200 || !strings.Contains(body, `"id":1,`) || !strings.Contains(body, `"status":"pending"`) {
+		t.Errorf("approvals = %d %s, want approval 1 pending", status, body)
+	}
+	env.fake.release <- struct{}{}
+	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
+}
+
+func TestApproval_DefaultTeamHasNoGateToArchitect(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect plan it", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done"}`)
+	if status, body := do(t, http.MethodGet, fmt.Sprintf("%s/channels/%d/approvals", env.url, id), ""); status != 200 || body != "[]" {
+		t.Errorf("approvals = %d %s, want none", status, body)
 	}
 }
 
@@ -364,8 +1096,8 @@ func TestSend_ToolCapPausesChannel(t *testing.T) {
 	env.send(t, "cap")
 	sub.want(t,
 		_idleFrame,
-		`turn {"status":"running"}`,
-		`turn {"status":"failed","error":"capped: more than 25 tool calls"}`,
+		`turn {"role":"lead","status":"running"}`,
+		`turn {"role":"lead","status":"failed","error":"capped: more than 25 tool calls"}`,
 		`pause {"reason":"capped: more than 25 tool calls"}`,
 	)
 
@@ -386,7 +1118,7 @@ func TestSend_ToolCapPausesChannel(t *testing.T) {
 	if status, _ := env.send(t, "hello"); status != 202 {
 		t.Errorf("send after continue = %d, want 202", status)
 	}
-	sub.want(t, `turn {"status":"running"}`, `agent {"kind":"text","text":"hi"}`, `turn {"status":"done"}`)
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 
 	status, body = do(t, http.MethodPost, env.url+"/channels/1/continue", "")
 	if status != 409 || body != `{"error":"channel 1 is not paused: conflict"}` {
@@ -471,10 +1203,10 @@ func TestClose_FailsRunningTurn(t *testing.T) {
 	sub := subscribe(t, env.url)
 	env.send(t, "block")
 	<-env.fake.started
-	sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	env.h.Close()
-	sub.want(t, `turn {"status":"failed","error":"interrupted"}`)
+	sub.want(t, `turn {"role":"lead","status":"failed","error":"interrupted"}`)
 	if got := env.fake.closed.Load(); got != 1 {
 		t.Errorf("session closes = %d, want 1", got)
 	}
@@ -513,8 +1245,8 @@ func TestClose_ClosesSessionsInParallel(t *testing.T) {
 		if status, body := env.sendTo(t, id, "hi"); status != 202 {
 			t.Fatalf("send to %d = %d %s, want 202", id, status, body)
 		}
-		sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"hi"}`,
-			`turn {"status":"done"}`)
+		sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+			`turn {"role":"lead","status":"done"}`)
 	}
 
 	done := make(chan struct{})
@@ -590,7 +1322,7 @@ func TestLiveRoutes_Errors(t *testing.T) {
 		{"send by GET", http.MethodGet, "/channels/1/send", "", 405, `{"error":"method not allowed"}`},
 		{"events by POST", http.MethodPost, "/channels/1/events", "", 405, `{"error":"method not allowed"}`},
 		{"stop by GET", http.MethodGet, "/channels/1/stop", "", 405, `{"error":"method not allowed"}`},
-		{"channel without backend", http.MethodPost, "/channels", `{"projectId":1,"name":"c"}`, 400,
+		{"unknown backend", http.MethodPost, "/channels", `{"projectId":1,"name":"c","backend":"gpt"}`, 400,
 			`{"error":"invalid: backend must be claude or codex"}`},
 		{"bad permission mode", http.MethodPost, "/channels",
 			`{"projectId":1,"name":"c","backend":"codex","permissionMode":"acceptEdits"}`, 400,
@@ -629,14 +1361,14 @@ func TestSend_PromoteTextIsAMessage(t *testing.T) {
 	}
 	sub.want(t,
 		_idleFrame,
-		`turn {"status":"running"}`,
+		`turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"hi"}`,
-		`turn {"status":"done"}`,
+		`turn {"role":"lead","status":"done"}`,
 	)
 	env.fake.mu.Lock()
 	ran := env.fake.ran
 	env.fake.mu.Unlock()
-	if !slices.Equal(ran, []string{"/promote"}) || env.fake.promoted.Load() != 0 {
+	if !slices.Equal(ran, []string{"[channel 2, message 1]\n/promote"}) || env.fake.promoted.Load() != 0 {
 		t.Errorf("ran = %q, promotes = %d, want the text run as a message, no promote",
 			ran, env.fake.promoted.Load())
 	}
@@ -733,8 +1465,8 @@ func TestSubscribe_StateOnConnect(t *testing.T) {
 	env := newLiveEnv(t)
 	sub := subscribe(t, env.url)
 	env.send(t, "cap")
-	sub.want(t, _idleFrame, `turn {"status":"running"}`,
-		`turn {"status":"failed","error":"capped: more than 25 tool calls"}`,
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
+		`turn {"role":"lead","status":"failed","error":"capped: more than 25 tool calls"}`,
 		`pause {"reason":"capped: more than 25 tool calls"}`)
 
 	late := subscribe(t, env.url)
@@ -746,15 +1478,15 @@ func TestSubscribe_StateOnConnect(t *testing.T) {
 	if status, _ := env.send(t, "hello"); status != 202 {
 		t.Fatalf("send after continue = %d, want 202", status)
 	}
-	again.want(t, `turn {"status":"running"}`)
+	again.want(t, `turn {"role":"lead","status":"running"}`)
 }
 
 func TestSend_CapKeepsReasonWhenChannelReadFails(t *testing.T) {
 	env := newLiveEnv(t)
 	sub := subscribe(t, env.url)
 	env.send(t, "cap-lost")
-	sub.want(t, _idleFrame, `turn {"status":"running"}`,
-		`turn {"status":"failed","error":"capped: more than 25 tool calls"}`,
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
+		`turn {"role":"lead","status":"failed","error":"capped: more than 25 tool calls"}`,
 		`pause {"reason":"capped: more than 25 tool calls"}`)
 }
 
@@ -778,8 +1510,8 @@ func TestWrap_NoProposalNote(t *testing.T) {
 	id := env.featureChannel(t)
 	sub := subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "/wrap")
-	sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"wrapped"}`,
-		`turn {"status":"done","note":"no proposal made"}`)
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"wrapped"}`,
+		`turn {"role":"lead","status":"done","note":"no proposal made"}`)
 }
 
 func TestDelete_StopsLiveChannel(t *testing.T) {
@@ -787,7 +1519,7 @@ func TestDelete_StopsLiveChannel(t *testing.T) {
 	sub := subscribe(t, env.url)
 	env.send(t, "block")
 	<-env.fake.started
-	sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	if status, _ := do(t, http.MethodDelete, env.url+"/channels/1", ""); status != 204 {
 		t.Fatalf("delete = %d, want 204", status)
@@ -887,9 +1619,10 @@ func TestStop_AfterPrepareTheTurnStillRuns(t *testing.T) {
 				return err
 			}
 
-			err := env.h.s.startTurn(context.Background(), 1, _promote, channel.PromoteCommand, prepare)
+			err := env.h.s.startUserTurn(context.Background(), 1,
+				userTurn{kind: _promote, text: channel.PromoteCommand, prepare: prepare})
 			if err != nil {
-				t.Fatalf("startTurn = %v, want nil", err)
+				t.Fatalf("startUserTurn = %v, want nil", err)
 			}
 			<-stopped
 			env.wantInterruptedPromote(t, ag)
@@ -928,9 +1661,9 @@ func TestStop_DuringTurnCheck(t *testing.T) {
 		cancel()
 	}
 
-	err := env.h.s.startTurn(ctx, 1, _message, "hello", nil)
+	err := env.h.s.startUserTurn(ctx, 1, userTurn{kind: _message, text: "hello"})
 	if !errors.Is(err, store.ErrConflict) || !strings.Contains(err.Error(), "was stopped") {
-		t.Fatalf("startTurn = %v, want stopped conflict", err)
+		t.Fatalf("startUserTurn = %v, want stopped conflict", err)
 	}
 	if got := env.opened.Load(); got != 0 {
 		t.Errorf("sessions opened = %d, want 0", got)
@@ -1026,12 +1759,12 @@ func TestDelete_FeatureOrProjectStopsLiveChannel(t *testing.T) {
 			sub := subscribeTo(t, env.url, id)
 			env.sendTo(t, id, "block")
 			<-env.fake.started
-			sub.want(t, _idleFrame, `turn {"status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+			sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 			if status, _ := do(t, http.MethodDelete, env.url+tt.give, ""); status != 204 {
 				t.Fatalf("delete = %d, want 204", status)
 			}
-			sub.want(t, `turn {"status":"failed","error":"interrupted"}`)
+			sub.want(t, `turn {"role":"lead","status":"failed","error":"interrupted"}`)
 			if got := env.fake.closed.Load(); got != 1 {
 				t.Errorf("session closes = %d, want 1", got)
 			}
@@ -1042,5 +1775,65 @@ func TestDelete_FeatureOrProjectStopsLiveChannel(t *testing.T) {
 				t.Error("live entry kept after delete")
 			}
 		})
+	}
+}
+
+func TestDelete_DropsHeldWakes(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.pingPong(t)
+
+	if status, _ := do(t, http.MethodDelete, fmt.Sprintf("%s/channels/%d", env.url, id), ""); status != 204 {
+		t.Fatalf("delete = %d, want 204", status)
+	}
+	if l := env.h.s.lookup(int64(id)); l != nil {
+		t.Errorf("live entry kept after delete, with %d held wakes", len(l.held))
+	}
+	if got := env.fake.closed.Load(); got != 1 {
+		t.Errorf("session closes = %d, want 1", got)
+	}
+}
+
+func TestContinue_StartFailureKeepsHeldWakesWithoutSubscriber(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect again", nil)
+		} else {
+			post("architect", "@lead again", nil)
+		}
+	}
+	env.sendTo(t, id, "go")
+	deadline := time.Now().Add(5 * time.Second)
+	for held := false; !held; time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("no held wakes after 5s")
+		}
+		if l := env.h.s.lookup(int64(id)); l != nil {
+			l.mu.Lock()
+			held = l.state == _idle && len(l.held) > 0
+			l.mu.Unlock()
+		}
+	}
+	continueURL := fmt.Sprintf("%s/channels/%d/continue", env.url, id)
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	env.open = func(context.Context) (session, error) { return nil, errors.New("boom") }
+
+	if status, body := do(t, http.MethodPost, continueURL, ""); status != 500 {
+		t.Fatalf("continue = %d %s, want 500: the agent did not open", status, body)
+	}
+	if l := env.h.s.lookup(int64(id)); l == nil || len(l.held) == 0 {
+		t.Fatalf("entry = %+v, want it kept with the held wakes", l)
+	}
+
+	env.open = nil
+	if status, _ := do(t, http.MethodPost, continueURL, ""); status != 204 {
+		t.Fatalf("second continue = %d, want 204", status)
+	}
+	for len(env.ranTexts()) < 9 {
+		if time.Now().After(deadline.Add(5 * time.Second)) {
+			t.Fatalf("turns run = %d, want 9: the held wake and 3 more hops", len(env.ranTexts()))
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }

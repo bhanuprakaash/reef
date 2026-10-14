@@ -41,13 +41,22 @@ func Continue(ctx context.Context, st *store.Store, id int64) error {
 	if ch.Paused == "" {
 		return fmt.Errorf("channel %d is not paused: %w", id, store.ErrConflict)
 	}
-	used, err := st.ChannelTokens(ctx, id)
+	budget, err := ContinueBudget(ctx, st, ch)
 	if err != nil {
 		return err
 	}
-	budget := ch.TokenBudget
-	if used >= ch.TokenBudget {
-		budget = used + store.TokenBudget
-	}
 	return st.ContinueChannel(ctx, id, budget)
+}
+
+// ContinueBudget is the token budget ch has once it continues: its own, or the tokens it
+// used plus store.TokenBudget when it has used its own.
+func ContinueBudget(ctx context.Context, st *store.Store, ch store.Channel) (int64, error) {
+	used, err := st.ChannelTokens(ctx, ch.ID)
+	if err != nil {
+		return 0, err
+	}
+	if used >= ch.TokenBudget {
+		return used + store.TokenBudget, nil
+	}
+	return ch.TokenBudget, nil
 }

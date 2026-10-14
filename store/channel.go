@@ -11,8 +11,11 @@ import (
 // TokenBudget is the default channel budget and what continuing over budget leaves free.
 const TokenBudget = 1_000_000
 
+// HopCap is how many turns woken by agent messages a channel runs between user messages.
+const HopCap = 4
+
 const _channelCols = "id, project_id, feature_id, name, role, backend, permission_mode, " +
-	"paused, token_budget, created_at"
+	"paused, token_budget, created_at, (SELECT name FROM team WHERE id = channel.team_id)"
 
 // Channel with a nil FeatureID is a quick session.
 type Channel struct {
@@ -25,6 +28,7 @@ type Channel struct {
 	PermissionMode string    `json:"permissionMode"`
 	Paused         string    `json:"paused"`
 	TokenBudget    int64     `json:"tokenBudget"`
+	Team           string    `json:"team"`
 	CreatedAt      time.Time `json:"createdAt"`
 }
 
@@ -34,7 +38,8 @@ type ChannelFilter struct {
 	FeatureID *int64
 }
 
-// CreateChannel adds c. A set FeatureID must be a feature of c.ProjectID.
+// CreateChannel adds c in team c.Team (solo when empty), which must exist. A set
+// FeatureID must be a feature of c.ProjectID.
 func (s *Store) CreateChannel(ctx context.Context, c Channel) (Channel, error) {
 	if err := c.validate(); err != nil {
 		return Channel{}, err
@@ -42,12 +47,23 @@ func (s *Store) CreateChannel(ctx context.Context, c Channel) (Channel, error) {
 	if err := s.checkFeatureInProject(ctx, c.FeatureID, c.ProjectID); err != nil {
 		return Channel{}, err
 	}
+	if c.Team == "" {
+		c.Team = SoloTeam
+	}
+	var teamID int64
+	err := s.db.QueryRowContext(ctx, "SELECT id FROM team WHERE name = ?", c.Team).Scan(&teamID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Channel{}, fmt.Errorf("%w: unknown team %s", ErrInvalid, c.Team)
+	}
+	if err != nil {
+		return Channel{}, fmt.Errorf("read team: %w", err)
+	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO channel (project_id, feature_id, name, role, backend, permission_mode, "+
-			"token_budget, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+			"token_budget, created_at, team_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		c.ProjectID, c.FeatureID, c.Name, c.Role, c.Backend, c.PermissionMode, TokenBudget,
-		now.Format(time.RFC3339Nano))
+		now.Format(time.RFC3339Nano), teamID)
 	if err != nil {
 		return Channel{}, s.writeErr(ctx, "insert channel", err, ErrInvalid,
 			parent{table: "project", id: &c.ProjectID}, parent{table: "feature", id: c.FeatureID})
@@ -265,7 +281,7 @@ func scanChannel(r interface{ Scan(...any) error }) (Channel, error) {
 	var c Channel
 	var created string
 	if err := r.Scan(&c.ID, &c.ProjectID, &c.FeatureID, &c.Name, &c.Role, &c.Backend,
-		&c.PermissionMode, &c.Paused, &c.TokenBudget, &created); err != nil {
+		&c.PermissionMode, &c.Paused, &c.TokenBudget, &created, &c.Team); err != nil {
 		return Channel{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)
