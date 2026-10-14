@@ -2,11 +2,12 @@ import { useCallback } from 'react';
 import { Link, useNavigate } from 'react-router';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { useInboxEvents } from '@/modules/inbox/hooks/use-inbox-events';
+import { itemPath } from '@/utils/anchors';
 
 export function InboxLink() {
   const navigate = useNavigate();
   const inbox = useInbox();
-  useInboxEvents(useCallback((channelId) => void navigate(`/channels/${channelId}`), [navigate]));
+  useInboxEvents(useCallback((item) => void navigate(itemPath(item)), [navigate]));
 
   const count = inbox.data?.length ?? 0;
   return (

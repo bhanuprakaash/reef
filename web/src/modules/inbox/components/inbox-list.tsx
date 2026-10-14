@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useChannels } from '@/modules/inbox/api/get-channels';
+import { useChannels } from '@/lib/api/get-channels';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { InboxRow } from '@/modules/inbox/components/inbox-row';
 import { itemKey } from '@/modules/inbox/utils/new-items';

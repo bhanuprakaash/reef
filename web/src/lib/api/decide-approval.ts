@@ -9,6 +9,10 @@ export function useDecideApproval() {
         method: 'POST',
         body: JSON.stringify({ approve }),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['inbox'] }),
+    onSuccess: (_, { channelId }) =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['approvals', channelId] }),
+        queryClient.invalidateQueries({ queryKey: ['inbox'] }),
+      ]),
   });
 }

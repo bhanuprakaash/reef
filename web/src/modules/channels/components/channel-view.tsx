@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import { useApprovals } from '@/modules/channels/api/get-approvals';
+import { useFailedTurns } from '@/modules/channels/api/get-failed-turns';
 import { useMessages } from '@/modules/channels/api/get-messages';
 import { useWrapChannel } from '@/modules/channels/api/wrap-channel';
 import { ApprovalRows } from '@/modules/channels/components/approval-rows';
@@ -12,6 +14,7 @@ import { PromoteForm } from '@/modules/channels/components/promote-form';
 import { ProposalPanel } from '@/modules/channels/components/proposal-panel';
 import { ThreadPane } from '@/modules/channels/components/thread-pane';
 import { useLiveTurn } from '@/modules/channels/hooks/use-live-turn';
+import { useScrollToHash } from '@/modules/channels/hooks/use-scroll-to-hash';
 import { blocksUser } from '@/modules/channels/utils/blocks-user';
 import { groupThreads } from '@/modules/channels/utils/group-threads';
 import type { Channel, Feature } from '@/types/api';
@@ -21,6 +24,8 @@ type Props = { channel: Channel; scope: string; features: Feature[] };
 
 export function ChannelView({ channel, scope, features }: Props) {
   const messages = useMessages(channel.id);
+  const approvals = useApprovals(channel.id);
+  const failedTurns = useFailedTurns(channel.id);
   const turn = useLiveTurn(channel.id);
   const wrap = useWrapChannel(channel.id);
   const end = useRef<HTMLDivElement>(null);
@@ -32,6 +37,10 @@ export function ChannelView({ channel, scope, features }: Props) {
   useEffect(() => {
     end.current?.scrollIntoView({ block: 'end' });
   }, [messages.data, turn]);
+
+  useScrollToHash(
+    messages.isSuccess && ![messages, approvals, failedTurns].some((q) => q.isFetching),
+  );
 
   return (
     <div className="flex items-start gap-6">
