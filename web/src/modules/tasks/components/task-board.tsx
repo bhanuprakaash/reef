@@ -31,6 +31,8 @@ export function TaskBoard({ tasks, context }: Props) {
         {COLUMNS.map((col) => (
           <div
             key={col.status}
+            role="group"
+            aria-label={col.label}
             className="space-y-2 rounded border border-neutral-200 p-2 dark:border-neutral-800"
             onDragOver={(e) => e.preventDefault()}
             onDrop={(e) => onDrop(e, col.status)}
