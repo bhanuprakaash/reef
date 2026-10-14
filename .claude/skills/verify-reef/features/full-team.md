@@ -68,6 +68,8 @@ One line per acceptance line of the full-team slice and its sub-issues.
 
 ## Driving it with verify-reef
 
+`$H feature full-team` runs all of this and prints one PASS/FAIL line per sub-feature.
+
 Preconditions:
 
 - Baseline from the README. `ANTHROPIC_MODEL=sonnet` on every `serve-start`. Codex is not needed: the codex line uses the repo's test fixture, so `doctor` showing `FAIL codex-auth` does not matter here. Start a server that uses the fixture with `BASH_ENV=` set: a `BASH_ENV` that resets `PATH` hides the shim and the real codex runs.
