@@ -523,7 +523,8 @@ func TestSession_Promote(t *testing.T) {
 	ch := sessionChannel(t, st, f, true)
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(), ag.factory)
+	dir := t.TempDir()
+	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -546,8 +547,9 @@ func TestSession_Promote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(msgs) != 1 || msgs[0].Author != "architect" {
-		t.Errorf("messages = %+v, want only the agent's reply, no user message", msgs)
+	note := "This feature works in " + dir + "/worktrees/1/idea on feature/idea."
+	if len(msgs) != 2 || msgs[0].Author != "reef" || msgs[0].Body != note || msgs[1].Author != "architect" {
+		t.Errorf("messages = %+v, want the note %q from a clean checkout, then the agent's reply", msgs, note)
 	}
 	want := `This quick session is now feature "Big idea" (idea). Call the propose_wrap tool once`
 	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], want) {
@@ -603,8 +605,8 @@ func TestSession_PromoteMovesNextWakeToWorktree(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "Uncommitted changes stay on the main checkout. This feature works in " + worktree +
-		" on feature/idea."
+	want := "This feature works in " + worktree +
+		" on feature/idea. Uncommitted changes stay on the main checkout."
 	if len(msgs) < 2 || msgs[1].Author != "reef" || msgs[1].Body != want {
 		t.Errorf("messages = %+v, want the second from reef saying %q", msgs, want)
 	}
@@ -638,6 +640,7 @@ func TestSession_NoWorktreeFailsTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(turns) != 1 || turns[0].Status != "failed" ||
+		!strings.HasPrefix(turns[0].Error, "features need the project folder to be a git repo with a commit: ") ||
 		!strings.Contains(turns[0].Error, "not a git repository") || ag.started {
 		t.Errorf("turns = %+v, started = %v, want one failed turn and no agent started", turns, ag.started)
 	}

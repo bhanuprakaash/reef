@@ -26,10 +26,14 @@ func Branch(slug string) string { return "feature/" + slug }
 
 // Ensure makes dir a worktree of repo on branch. It does nothing when dir already is one.
 // The branch is made from the HEAD of repo, or reused when it exists. A worktree whose folder
-// is gone is made again. A repo with no commit has no HEAD to make a branch from, and fails.
+// is gone is made again. A repo with no commit has no HEAD to make a branch from, and fails,
+// as does a branch that another worktree has checked out.
 func Ensure(ctx context.Context, repo, dir, branch string) error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
 		return nil
+	}
+	if _, err := git(ctx, repo, "rev-parse", "--verify", "HEAD"); err != nil {
+		return fmt.Errorf("features need the project folder to be a git repo with a commit: %s: %w", repo, err)
 	}
 	if _, err := git(ctx, repo, "worktree", "prune"); err != nil {
 		return err
@@ -39,16 +43,37 @@ func Ensure(ctx context.Context, repo, dir, branch string) error {
 	var exit *exec.ExitError
 	switch {
 	case err == nil:
+		at, err := checkedOutAt(ctx, repo, branch)
+		if err != nil {
+			return err
+		}
+		if at != "" {
+			return fmt.Errorf("branch %s is checked out at %s; switch that checkout to another branch", branch, at)
+		}
 		args = []string{"worktree", "add", dir, branch}
 	case !errors.As(err, &exit) || exit.ExitCode() != 1:
 		return err
-	default:
-		if _, err := git(ctx, repo, "rev-parse", "--verify", "HEAD"); err != nil {
-			return fmt.Errorf("worktree %s: the project has no commit yet, make one first: %w", dir, err)
-		}
 	}
 	_, err = git(ctx, repo, args...)
 	return err
+}
+
+// checkedOutAt is the path of the worktree of repo that has branch checked out, or "" when
+// none has.
+func checkedOutAt(ctx context.Context, repo, branch string) (string, error) {
+	out, err := git(ctx, repo, "worktree", "list", "--porcelain")
+	if err != nil {
+		return "", err
+	}
+	var path string
+	for _, line := range strings.Split(out, "\n") {
+		if v, ok := strings.CutPrefix(line, "worktree "); ok {
+			path = v
+		} else if line == "branch refs/heads/"+branch {
+			return path, nil
+		}
+	}
+	return "", nil
 }
 
 // Dirty reports whether the checkout at repo has uncommitted changes.

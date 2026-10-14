@@ -79,9 +79,11 @@ func TestEnsure_ReusesBranch(t *testing.T) {
 }
 
 func TestEnsure_NotARepo(t *testing.T) {
-	err := Ensure(context.Background(), t.TempDir(), filepath.Join(t.TempDir(), "w"), "feature/login")
-	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
-		t.Errorf("Ensure error = %v, want one saying not a git repository", err)
+	repo := t.TempDir()
+	err := Ensure(context.Background(), repo, filepath.Join(t.TempDir(), "w"), "feature/login")
+	want := "features need the project folder to be a git repo with a commit: " + repo + ": "
+	if err == nil || !strings.HasPrefix(err.Error(), want) || !strings.Contains(err.Error(), "not a git repository") {
+		t.Errorf("Ensure error = %v, want %q then git's error", err, want)
 	}
 }
 
@@ -89,8 +91,34 @@ func TestEnsure_NoCommit(t *testing.T) {
 	repo := t.TempDir()
 	run(t, repo, "init", "-b", "main")
 	err := Ensure(context.Background(), repo, filepath.Join(t.TempDir(), "w"), "feature/login")
-	if err == nil || !strings.Contains(err.Error(), "no commit yet") {
-		t.Errorf("Ensure error = %v, want one saying the project has no commit yet", err)
+	want := "features need the project folder to be a git repo with a commit: " + repo + ": "
+	if err == nil || !strings.HasPrefix(err.Error(), want) {
+		t.Errorf("Ensure error = %v, want one starting %q", err, want)
+	}
+}
+
+func TestEnsure_BranchCheckedOutInMainCheckout(t *testing.T) {
+	repo := newRepo(t)
+	run(t, repo, "checkout", "-b", "feature/login")
+	dir := filepath.Join(t.TempDir(), "w")
+
+	err := Ensure(context.Background(), repo, dir, "feature/login")
+	want := "branch feature/login is checked out at " + repo + "; switch that checkout to another branch"
+	if err == nil || err.Error() != want {
+		t.Errorf("Ensure error = %v, want %q", err, want)
+	}
+}
+
+func TestEnsure_BranchCheckedOutInOtherWorktree(t *testing.T) {
+	repo := newRepo(t)
+	other := filepath.Join(t.TempDir(), "other")
+	run(t, repo, "worktree", "add", "-b", "feature/login", other)
+	dir := filepath.Join(t.TempDir(), "w")
+
+	err := Ensure(context.Background(), repo, dir, "feature/login")
+	want := "branch feature/login is checked out at " + other + "; switch that checkout to another branch"
+	if err == nil || err.Error() != want {
+		t.Errorf("Ensure error = %v, want %q", err, want)
 	}
 }
 
