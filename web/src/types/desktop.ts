@@ -3,7 +3,7 @@
 // there.
 export type ReefBridge = {
   setBrowserBounds: (rect: { x: number; y: number; width: number; height: number }) => void;
-  navigateBrowser: (url: string) => void;
+  navigateBrowser: (url: string) => Promise<void>;
   setTakeOver: (value: boolean) => Promise<boolean>;
   onBrowserNavigated: (callback: (url: string) => void) => () => void;
   openTerminal: (cwd: string) => Promise<string>;
