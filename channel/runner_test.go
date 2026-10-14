@@ -174,6 +174,43 @@ func TestRunner_ReplyStaysInThread(t *testing.T) {
 	}
 }
 
+func TestRunner_StoppedTurnKeepsReplyInThread(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := st.CreateMessage(bg, store.Message{ChannelID: ch.ID, Author: "user", Body: "root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8), script: []agent.Event{{Kind: agent.KindText, Text: "par"}},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	ctx, cancel := context.WithCancel(bg)
+	defer cancel()
+
+	err = r.Run(ctx, "one", &root.ID, func(agent.Event) { cancel() })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context canceled", err)
+	}
+	msgs, err := st.Thread(bg, ch.ID, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range msgs {
+		got = append(got, m.Author+": "+m.Body)
+	}
+	if want := []string{"user: root", "architect: par"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("thread = %q, want %q", got, want)
+	}
+}
+
 func TestRunner_SendFailedTurn(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -183,6 +220,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 		wantErr     string
 		wantTurnErr string
 		wantSession string
+		wantReply   string
 		wantStopped int
 	}{
 		{
@@ -191,6 +229,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			cancelOn:    agent.KindText,
 			wantErr:     "context canceled",
 			wantTurnErr: "interrupted",
+			wantReply:   "par",
 			wantStopped: 1,
 		},
 		{
@@ -209,6 +248,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			},
 			wantErr:     "agent: boom",
 			wantTurnErr: "boom",
+			wantReply:   "par",
 		},
 		{
 			name:        "events closed",
@@ -216,6 +256,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			closeAfter:  true,
 			wantErr:     "agent exited",
 			wantTurnErr: "agent exited",
+			wantReply:   "par",
 		},
 	}
 	for _, tt := range tests {
@@ -259,8 +300,16 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(msgs) != 1 || msgs[0].Author != "user" {
-				t.Errorf("messages = %+v, want only the user message", msgs)
+			var got []string
+			for _, m := range msgs {
+				got = append(got, m.Author+": "+m.Body)
+			}
+			want := []string{"user: hi"}
+			if tt.wantReply != "" {
+				want = append(want, "architect: "+tt.wantReply)
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("messages = %q, want %q", got, want)
 			}
 		})
 	}
@@ -326,6 +375,38 @@ func TestRunner_SendCancelledAfterMessageStoresTurn(t *testing.T) {
 	}
 }
 
+func TestRunner_RunCancelledBeforeSend(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8), script: []agent.Event{{Kind: agent.KindTurnEnd}},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	ctx, cancel := context.WithCancel(bg)
+	cancel()
+
+	if err := r.Run(ctx, "hi", nil, func(agent.Event) {}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context canceled", err)
+	}
+	if len(sa.events) != 0 || sa.interrupted != 0 {
+		t.Errorf("events left = %d, interrupts = %d, want the agent untouched",
+			len(sa.events), sa.interrupted)
+	}
+	turns, err := st.Turns(bg, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Error != "interrupted" {
+		t.Errorf("turns = %+v, want one failed interrupted turn", turns)
+	}
+}
+
 func TestRunner_SendToolCapIs25(t *testing.T) {
 	tests := []struct {
 		name    string
@@ -376,7 +457,10 @@ func TestRunner_SendCapsToolCalls(t *testing.T) {
 	call := agent.Event{Kind: agent.KindToolCall, ToolName: "Read"}
 	sa := &scriptAgent{
 		events: make(chan agent.Event, 8),
-		script: []agent.Event{call, call, call, {Kind: agent.KindTurnEnd}},
+		script: []agent.Event{
+			{Kind: agent.KindText, Text: "par"}, call, call, {Kind: agent.KindText, Text: "tial"},
+			call, {Kind: agent.KindTurnEnd},
+		},
 	}
 	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
 	r.toolCap = 2
@@ -399,6 +483,13 @@ func TestRunner_SendCapsToolCalls(t *testing.T) {
 	got, err := st.Channel(bg, ch.ID)
 	if err != nil || got.Paused != "capped: more than 2 tool calls" {
 		t.Errorf("channel = %+v, %v, want paused with the reason", got, err)
+	}
+	msgs, err := st.Messages(bg, ch.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 || msgs[1].Author != "architect" || msgs[1].Body != "partial" {
+		t.Errorf("messages = %+v, want the user message and the architect's partial reply", msgs)
 	}
 }
 

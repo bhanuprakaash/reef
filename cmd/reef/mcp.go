@@ -68,6 +68,7 @@ func tokenCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	ch, err := st.CreateChannel(ctx, store.Channel{
 		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: *role + " (claude code)",
+		Role: "lead", Backend: "claude",
 	})
 	if err != nil {
 		return err

@@ -32,6 +32,11 @@ const (
 		"once with the first brief (goal, status, key decisions, open questions) written from " +
 		"this session, your own notes on the feature, and the decisions made so far. " +
 		"Then reply with one line saying it is proposed."
+	_promoteIntoBriefPrompt = "This quick session is now part of feature %q (%s), which " +
+		"already has a brief. Call the get_brief tool first. Then call the propose_wrap tool " +
+		"once with the full brief rewritten to merge this session into the existing brief: " +
+		"keep its content and add this session's, your notes on the feature merged the same " +
+		"way, and the decisions made so far. Then reply with one line saying it is proposed."
 )
 
 // ErrNoProposal is returned by Wrap when the agent made no proposal.
@@ -106,12 +111,14 @@ func (s *Session) Start(ctx context.Context) error {
 // member returns the agent session of role, starting or resuming it from the role's own
 // newest turn with a session id on the role's backend. A new session reads the team from the
 // store, so a team applied since the channel opened is the one it gets. An agent that fails
-// to start leaves a failed turn for the role.
+// to start leaves a failed turn for the role, and so does a ctx cancelled before it starts:
+// the turn is interrupted. The store is read even then, as Run stores its turn.
 func (s *Session) member(ctx context.Context, role string) (_ *member, err error) {
 	if m, ok := s.members[role]; ok {
 		return m, nil
 	}
-	team, err := s.st.Team(ctx, s.ch.Team)
+	wctx := context.WithoutCancel(ctx)
+	team, err := s.st.Team(wctx, s.ch.Team)
 	if err != nil {
 		return nil, err
 	}
@@ -130,11 +137,11 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 		}
 	}()
 
-	last, err := newestSessionTurn(ctx, s.st, s.ch.ID, role, r.Backend)
+	last, err := newestSessionTurn(wctx, s.st, s.ch.ID, role, r.Backend)
 	if err != nil {
 		return nil, err
 	}
-	tok, err := s.st.CreateToken(ctx, s.ch.ID, role)
+	tok, err := s.st.CreateToken(wctx, s.ch.ID, role)
 	if err != nil {
 		return nil, err
 	}
@@ -154,21 +161,27 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 		MCPServers:     servers,
 	}
 	var preamble string
-	if last.SessionID != "" {
+	switch {
+	case ctx.Err() != nil:
+		err = ctx.Err()
+	case last.SessionID != "":
 		err = ag.Resume(ctx, cfg, last.SessionID)
-	} else {
-		if preamble, err = startPrompt(ctx, s.st, s.ch.ID, s.project, team, r); err != nil {
+	default:
+		if preamble, err = startPrompt(wctx, s.st, s.ch.ID, s.project, team, r); err != nil {
 			return nil, err
 		}
 		err = ag.Start(ctx, cfg)
 	}
 	if err != nil {
-		wctx := context.WithoutCancel(ctx)
+		reason := err.Error()
+		if ctx.Err() != nil {
+			reason = "interrupted"
+		}
 		t, terr := s.st.CreateTurn(wctx, store.Turn{
 			ChannelID: s.ch.ID, Role: role, Backend: r.Backend,
 		})
 		if terr == nil {
-			t.Status, t.Error = "failed", err.Error()
+			t.Status, t.Error = "failed", reason
 			_, terr = s.st.EndTurn(wctx, t)
 		}
 		return nil, errors.Join(err, terr)
@@ -249,32 +262,40 @@ func (s *Session) RunAs(
 	return err
 }
 
-// Wrap runs a wrap-up turn and returns the proposal the agent made, or ErrNoProposal.
+// Wrap runs a wrap-up turn and returns the proposal the agent made, or ErrNoProposal. Like
+// Run, a cancelled ctx still stores the turn.
 func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
 	return s.propose(ctx, _wrapPrompt, onEvent)
 }
 
 // Promote runs a promote turn and returns the proposal the agent made, or ErrNoProposal.
-// The channel must already have its feature.
+// The channel must already have its feature. Like Run, a cancelled ctx still stores the turn.
 func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
-	ch, err := s.st.Channel(ctx, s.ch.ID)
+	rctx := context.WithoutCancel(ctx)
+	ch, err := s.st.Channel(rctx, s.ch.ID)
 	if err != nil {
 		return store.Proposal{}, err
 	}
 	if ch.FeatureID == nil {
 		return store.Proposal{}, fmt.Errorf("%w: channel %d has no feature", store.ErrInvalid, ch.ID)
 	}
-	f, err := s.st.Feature(ctx, *ch.FeatureID)
+	f, err := s.st.Feature(rctx, *ch.FeatureID)
 	if err != nil {
 		return store.Proposal{}, err
 	}
-	return s.propose(ctx, fmt.Sprintf(_promotePrompt, f.Name, f.Slug), onEvent)
+	prompt := _promotePrompt
+	if _, err := s.st.Brief(rctx, f.ID); err == nil {
+		prompt = _promoteIntoBriefPrompt
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return store.Proposal{}, err
+	}
+	return s.propose(ctx, fmt.Sprintf(prompt, f.Name, f.Slug), onEvent)
 }
 
 func (s *Session) propose(
 	ctx context.Context, prompt string, onEvent func(agent.Event),
 ) (store.Proposal, error) {
-	before, err := s.st.PendingProposal(ctx, s.ch.ID)
+	before, err := s.st.PendingProposal(context.WithoutCancel(ctx), s.ch.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, err
 	}

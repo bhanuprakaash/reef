@@ -20,8 +20,6 @@ import (
 
 const _keepAlive = 15 * time.Second
 
-const _noTokens = 0
-
 var errStopping = errors.New("server is stopping")
 
 var _hopReason = fmt.Sprintf("hop cap: %d agent hops without a user message", store.HopCap)
@@ -83,6 +81,7 @@ type live struct {
 	// dropped counts the frames of earlier chains of turns, cut from the front of frames.
 	dropped int
 	wake    chan struct{}
+	subs    int
 }
 
 // userTurn is a turn that starts with a user message: text, a reply in the thread of parent
@@ -106,9 +105,9 @@ type chain struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{}
-	// unpause is set when start clears the channel's pause and adds tokens to its budget.
+	// unpause is set when start clears the channel's pause and sets its budget to budget.
 	unpause bool
-	tokens  int64
+	budget  int64
 }
 
 func (s *server) liveRoutes(mux *http.ServeMux) {
@@ -126,15 +125,38 @@ func (s *server) liveRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/channels/{id}/approvals/{aid}", methodNotAllowed)
 }
 
-func (s *server) live(id int64) *live {
+// subscribe returns the channel's entry, creating it, and counts a subscriber on it. The
+// caller calls unsubscribe when done. Only a turn or a subscriber creates an entry; a
+// lookup that must not create one uses lookup.
+func (s *server) subscribe(id int64) *live {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	l := s.entryLocked(id)
+	l.mu.Lock()
+	l.subs++
+	l.mu.Unlock()
+	return l
+}
+
+func (s *server) unsubscribe(l *live) {
+	l.mu.Lock()
+	l.subs--
+	l.mu.Unlock()
+}
+
+func (s *server) entryLocked(id int64) *live {
 	l, ok := s.lives[id]
 	if !ok {
 		l = &live{state: _idle, wake: make(chan struct{})}
 		s.lives[id] = l
 	}
 	return l
+}
+
+func (s *server) lookup(id int64) *live {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lives[id]
 }
 
 func (s *server) begin() bool {
@@ -177,28 +199,57 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 }
 
 // claim moves the channel from idle to starting and returns the claim and the channel as
-// stored.
+// stored. It creates the channel's entry, so a stop that arrives at any point finds it, and
+// refuses a channel that is being deleted.
 func (s *server) claim(ctx context.Context, id int64) (*chain, store.Channel, error) {
 	if !s.begin() {
 		return nil, store.Channel{}, errStopping
 	}
-	l := s.live(id)
 	turnCtx, cancel := context.WithCancel(s.ctx)
-	c := &chain{s: s, id: id, l: l, ctx: turnCtx, cancel: cancel, done: make(chan struct{})}
-	l.mu.Lock()
-	if l.state != _idle {
-		l.mu.Unlock()
+	c := &chain{s: s, id: id, ctx: turnCtx, cancel: cancel, done: make(chan struct{})}
+	if err := s.markStarting(c); err != nil {
 		cancel()
 		s.wg.Done()
-		return nil, store.Channel{}, fmt.Errorf("channel %d has a turn running: %w", id, store.ErrConflict)
+		return nil, store.Channel{}, err
 	}
-	l.state, l.cancel, l.done = _starting, cancel, c.done
-	l.mu.Unlock()
 	ch, err := s.st.Channel(ctx, id)
 	if err != nil {
 		return nil, store.Channel{}, c.release(err)
 	}
 	return c, ch, nil
+}
+
+// markStarting sets c.l to the channel's entry, creating it, and marks it as starting c.
+func (s *server) markStarting(c *chain) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.deleting[c.id] > 0 {
+		return fmt.Errorf("channel %d is being deleted: %w", c.id, store.ErrNotFound)
+	}
+	l := s.entryLocked(c.id)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.state != _idle {
+		return fmt.Errorf("channel %d has a turn running: %w", c.id, store.ErrConflict)
+	}
+	l.state, l.cancel, l.done = _starting, c.cancel, c.done
+	c.l = l
+	return nil
+}
+
+// dropIdle removes l, the entry of channel id, when it is idle, has no agent and keeps no
+// state a later chain needs. A subscribed entry stays unless the channel is deleted.
+func (s *server) dropIdle(id int64, l *live, deleted bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if s.lives[id] != l || l.state != _idle || l.sess != nil {
+		return
+	}
+	if deleted || (l.subs == 0 && l.hops == 0 && len(l.held) == 0) {
+		delete(s.lives, id)
+	}
 }
 
 // startUserTurn stores the user message of t, then starts the turn in the background. A
@@ -210,7 +261,7 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 		return err
 	}
 	if ch.Paused == _hopReason {
-		c.lift(&ch, _noTokens)
+		c.lift(&ch, ch.TokenBudget)
 	}
 	role, err := s.checkChannel(ctx, c.l, t.kind, ch)
 	if err != nil {
@@ -357,31 +408,24 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, c.release(fmt.Errorf("channel %d is not paused: %w", id, store.ErrConflict)))
 		return
 	}
-	used, err := s.st.ChannelTokens(r.Context(), id)
-	if err != nil {
-		writeError(w, c.release(err))
-		return
-	}
-	var extra int64
-	if used >= ch.TokenBudget {
-		extra = store.TokenBudget
-	}
 	l := c.l
 	l.mu.Lock()
 	l.hops = 0
 	held := l.held
 	l.mu.Unlock()
-	if len(held) > 0 {
-		c.lift(&ch, extra)
-		err = c.resume(r.Context(), ch, held)
-	} else {
-		err = s.st.ContinueChannel(r.Context(), id, extra)
+	if len(held) == 0 {
+		err = channel.Continue(r.Context(), s.st, id)
 		if err == nil {
 			l.mu.Lock()
 			l.publishLocked("pause", pauseState{})
 			l.mu.Unlock()
 		}
 		err = c.release(err)
+	} else if budget, berr := channel.ContinueBudget(r.Context(), s.st, ch); berr != nil {
+		err = c.release(berr)
+	} else {
+		c.lift(&ch, budget)
+		err = c.resume(r.Context(), ch, held)
 	}
 	if err != nil {
 		writeError(w, err)
@@ -462,10 +506,11 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	l := s.live(id)
-	l.mu.Lock()
-	l.publishLocked("approval", a)
-	l.mu.Unlock()
+	if l := s.lookup(id); l != nil {
+		l.mu.Lock()
+		l.publishLocked("approval", a)
+		l.mu.Unlock()
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -475,7 +520,9 @@ func (s *server) stop(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	s.stopLive(s.live(id))
+	if l := s.lookup(id); l != nil {
+		s.stopLive(l)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -524,7 +571,8 @@ func (s *server) events(w http.ResponseWriter, r *http.Request) {
 			first = append(first, f)
 		}
 	}
-	l := s.live(id)
+	l := s.subscribe(id)
+	defer s.unsubscribe(l)
 	l.mu.Lock()
 	next := l.dropped + len(l.frames)
 	if l.state == _running {
@@ -618,34 +666,43 @@ func (c *chain) release(err error) error {
 	c.l.state, c.l.cancel = _idle, nil
 	close(c.done)
 	c.l.mu.Unlock()
+	c.s.dropIdle(c.id, c.l, false)
 	c.s.wg.Done()
 	return err
 }
 
-// lift clears the pause in ch and adds tokens to its budget, and has start do the same in
-// the store.
-func (c *chain) lift(ch *store.Channel, tokens int64) {
-	ch.Paused, ch.TokenBudget = "", ch.TokenBudget+tokens
-	c.unpause, c.tokens = true, tokens
+// lift clears the pause in ch and sets its budget, and has start do the same in the store.
+func (c *chain) lift(ch *store.Channel, budget int64) {
+	ch.Paused, ch.TokenBudget = "", budget
+	c.unpause, c.budget = true, budget
 }
 
-// session returns the channel's agent session, opening it when it has none.
+// session returns the channel's agent session, opening it when it has none. A chain that
+// was stopped gets a conflict, and no agent is opened for it.
 func (c *chain) session() (session, error) {
+	stopped := fmt.Errorf("channel %d was stopped: %w", c.id, store.ErrConflict)
+	if c.ctx.Err() != nil {
+		return nil, stopped
+	}
 	c.l.mu.Lock()
 	sess := c.l.sess
 	c.l.mu.Unlock()
-	var err error
 	if sess == nil {
-		if sess, err = c.s.open(c.ctx, c.id); err == nil {
-			c.l.mu.Lock()
-			c.l.sess = sess
-			c.l.mu.Unlock()
+		var err error
+		if sess, err = c.s.open(c.ctx, c.id); err != nil {
+			if c.ctx.Err() != nil {
+				err = stopped
+			}
+			return nil, err
 		}
+		c.l.mu.Lock()
+		c.l.sess = sess
+		c.l.mu.Unlock()
 	}
 	if c.ctx.Err() != nil {
-		return nil, fmt.Errorf("channel %d was stopped: %w", c.id, store.ErrConflict)
+		return nil, stopped
 	}
-	return sess, err
+	return sess, nil
 }
 
 // start moves the channel to running and runs queue in the background. A first wake that
@@ -657,7 +714,7 @@ func (c *chain) start(
 	l.mu.Lock()
 	var err error
 	if c.unpause {
-		err = c.s.st.ContinueChannel(ctx, c.id, c.tokens)
+		err = c.s.st.ContinueChannel(ctx, c.id, c.budget)
 	}
 	if err == nil && !l.countHop(queue[0]) {
 		err = c.s.capLocked(ctx, c.id, l)

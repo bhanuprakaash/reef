@@ -15,7 +15,7 @@ live, Wrap-up and promotion, Caps).
 - `live-wrap` `POST /channels/{id}/wrap` on a feature channel ends with a pending proposal (`GET /channels/{id}/proposal`); on a quick session it is 400 before any agent starts.
 - `live-promote` `POST /channels/{id}/promote {"slug","name"}` on a quick session sets the channel's feature and ends with a pending proposal holding the first brief; a taken slug is 409 and starts no agent; a channel with a feature is 400.
 - `live-decide` `POST /proposals/{id}/approve` adds a brief version and returns `decisionsAdded`; `reject` changes nothing; deciding twice is 400.
-- `live-caps` a paused channel refuses a send with 409 and the reason; `POST /channels/{id}/continue` clears it (409 when not paused) and raises a used-up token budget by 1000000.
+- `live-caps` a paused channel refuses a send with 409 and the reason; `POST /channels/{id}/continue` clears it (409 when not paused) and sets a used-up token budget to the tokens used plus 1000000.
 - `live-delete` `DELETE /channels/{id}` on a live channel stops its agent first.
 
 ## How to get to it (user POV)
@@ -35,7 +35,7 @@ Preconditions: baseline from the README, and a server started with the model set
 - **Text commands.** `$H api POST /channels/1/send '{"text":"/promote"}'` gives 202; after the turn the user message is `/promote`, `$H api GET /channels/1/proposal` is 404 and `$H api GET /features/1/brief/versions` is `[]`.
 - **Wrap.** `$H api POST /channels/2/wrap` gives 400 `quick session`. `$H api POST /channels/1/wrap` gives 202; after the turn `$H api GET /channels/1/proposal` is 200 `pending`. `$H api POST /proposals/1/reject` gives 200 `rejected` and brief versions stay `[]`; a second reject gives 400 `already rejected`.
 - **Promote.** `$H api POST /channels/2/send '{"text":"I want a search bar that filters products as you type. Reply in one sentence."}'` and wait for `done`. `$H api POST /channels/2/promote '{"slug":"login","name":"Again"}'` gives 409 `is taken` and `pgrep -f "reef-verify/<id>"` shows no new agent. `$H api POST /channels/2/promote '{"slug":"search","name":"Search"}'` gives 202 with `"featureId":2`; after the turn `GET /channels/2/proposal` is `pending`; `$H api POST /proposals/2/approve` gives 200 with `decisionsAdded`, and `GET /features/2/brief/versions` has one version by `lead`. A second promote on channel 2 gives 400 `already has feature`.
-- **Caps.** `$H sql --write "update channel set token_budget=1 where id=1"`, then a send gives 409 `paused: token budget of 1 used: N tokens` and the row is paused. `$H api POST /channels/1/continue` gives 204, then `$H sql "select token_budget, paused from channel where id=1"` is `1000001|`; a second continue gives 409 `is not paused`.
+- **Caps.** `$H sql --write "update channel set token_budget=1 where id=1"`, then a send gives 409 `paused: token budget of 1 used: N tokens` and the row is paused. `$H api POST /channels/1/continue` gives 204, then `$H sql "select token_budget, paused from channel where id=1"` is `<N + 1000000>|` (N from the 409 message); a second continue gives 409 `is not paused`.
 - **Delete live.** `$H api POST /channels/1/send '{"text":"Reply ok."}'`, wait for `done` (the agent stays live), note `pgrep -f "reef-verify/<id>/bin/reef mcp"`, then `$H api DELETE /channels/1` gives 204 and that `reef mcp` process and its agent are gone.
 - `$H serve-stop`.
 
