@@ -1,0 +1,61 @@
+{
+  "name": "reef-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "main.js",
+  "description": "Reef: a personal app where every feature keeps its own memory, built by a team of AI agents.",
+  "homepage": "https://github.com/bhanuprakaash/reef",
+  "author": {
+    "name": "Bhanu Prakash Sai Potteri",
+    "email": "bhanuprakashsai7@gmail.com"
+  },
+  "scripts": {
+    "postinstall": "node postinstall.js",
+    "start": "go build -o bin/reef ../cmd/reef && electron .",
+    "build:web": "npm --prefix ../web ci && npm --prefix ../web run build",
+    "dist:mac": "npm run build:web && GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o resources/mac/reef ../cmd/reef && electron-builder --mac --arm64",
+    "dist:linux": "npm run build:web && CGO_ENABLED=0 go build -o resources/linux/reef ../cmd/reef && electron-builder --linux deb"
+  },
+  "devDependencies": {
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "dev.reef.desktop",
+    "productName": "Reef",
+    "npmRebuild": false,
+    "publish": null,
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "*.js",
+      "*.cjs",
+      "package.json"
+    ],
+    "mac": {
+      "identity": "-",
+      "category": "public.app-category.developer-tools",
+      "target": [
+        {
+          "target": "zip",
+          "arch": ["arm64"]
+        }
+      ],
+      "extraResources": [
+        { "from": "resources/mac/reef", "to": "reef" }
+      ]
+    },
+    "linux": {
+      "target": "deb",
+      "category": "Development",
+      "extraResources": [
+        { "from": "resources/linux/reef", "to": "reef" }
+      ]
+    }
+  },
+  "dependencies": {
+    "node-pty": "^1.1.0"
+  }
+}

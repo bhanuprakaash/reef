@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 
@@ -13,8 +14,9 @@ import (
 const _defaultSearchLimit = 20
 
 type mcpServer struct {
-	st  *store.Store
-	tok store.Token
+	st      *store.Store
+	tok     store.Token
+	dataDir string
 }
 
 type (
@@ -62,12 +64,26 @@ type (
 		ID      int64  `json:"id" jsonschema:"proposal id"`
 		Message string `json:"message"`
 	}
+	browserNavigateIn struct {
+		URL string `json:"url" jsonschema:"the URL to open in the browser pane"`
+	}
+	browserClickIn struct {
+		Ref string `json:"ref" jsonschema:"a ref from browser_snapshot, such as e12"`
+	}
+	browserTypeIn struct {
+		Ref  string `json:"ref" jsonschema:"a ref from browser_snapshot, such as e12"`
+		Text string `json:"text" jsonschema:"the text to type"`
+	}
+	browserTextOut struct {
+		Text string `json:"text"`
+	}
 )
 
 // NewMCP returns the MCP server for one teammate: tok names the channel it
 // works in, the role it speaks as and, through the channel, the feature.
-func NewMCP(st *store.Store, tok store.Token) *mcp.Server {
-	m := &mcpServer{st: st, tok: tok}
+// dataDir is the Reef data folder, where the Reef app's browser socket is.
+func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
+	m := &mcpServer{st: st, tok: tok, dataDir: dataDir}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "reef", Version: "v0.1.0"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "get_brief",
@@ -109,6 +125,39 @@ func NewMCP(st *store.Store, tok store.Token) *mcp.Server {
 			"decisions, open questions), notes are your own notes for this feature, " +
 			"decisions are ones made in this channel that are not recorded yet.",
 	}, m.proposeWrap)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "browser_navigate",
+		Description: "Open a URL in the shared browser pane. The user watches it live.",
+	}, m.browserNavigate)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "browser_screenshot",
+		Description: "Take a screenshot of the browser pane's current page.",
+	}, m.browserScreenshot)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "browser_snapshot",
+		Description: "Read the browser pane's current page as text, one line per element with " +
+			"a ref such as e12. Use the ref with browser_click and browser_type. Refs are only " +
+			"valid until the next snapshot or a navigation.",
+	}, m.browserSnapshot)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "browser_click",
+		Description: "Click an element in the browser pane, by its ref from browser_snapshot.",
+	}, m.browserClick)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "browser_type",
+		Description: "Type text into an element in the browser pane, by its ref from " +
+			"browser_snapshot.",
+	}, m.browserType)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "browser_console",
+		Description: "Read the browser pane's console messages since the last navigation, " +
+			"one per line with its level.",
+	}, m.browserConsole)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "browser_network",
+		Description: "List the browser pane's network requests since the last navigation, " +
+			"one per line with method, URL and status.",
+	}, m.browserNetwork)
 	return srv
 }
 
@@ -249,4 +298,68 @@ func (m *mcpServer) proposeWrap(
 		return nil, wrapOut{}, err
 	}
 	return nil, wrapOut{ID: p.ID, Message: "proposal saved; the user will approve it"}, nil
+}
+
+// browserText runs a browser tool that replies with plain text; browser_screenshot
+// is the only one that does not, since its reply is an image.
+func (m *mcpServer) browserText(
+	ctx context.Context, tool string, args any,
+) (*mcp.CallToolResult, browserTextOut, error) {
+	reply, err := callBrowser(ctx, m.dataDir, tool, args)
+	if err != nil {
+		return nil, browserTextOut{}, err
+	}
+	return nil, browserTextOut{Text: reply.Text}, nil
+}
+
+func (m *mcpServer) browserNavigate(
+	ctx context.Context, _ *mcp.CallToolRequest, in browserNavigateIn,
+) (*mcp.CallToolResult, browserTextOut, error) {
+	return m.browserText(ctx, "navigate", map[string]string{"url": in.URL})
+}
+
+func (m *mcpServer) browserScreenshot(
+	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
+) (*mcp.CallToolResult, any, error) {
+	reply, err := callBrowser(ctx, m.dataDir, "screenshot", nil)
+	if err != nil {
+		return nil, nil, err
+	}
+	data, err := base64.StdEncoding.DecodeString(reply.Image)
+	if err != nil {
+		return nil, nil, fmt.Errorf("decode screenshot: %w", err)
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.ImageContent{Data: data, MIMEType: "image/png"}},
+	}, nil, nil
+}
+
+func (m *mcpServer) browserSnapshot(
+	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
+) (*mcp.CallToolResult, browserTextOut, error) {
+	return m.browserText(ctx, "snapshot", nil)
+}
+
+func (m *mcpServer) browserClick(
+	ctx context.Context, _ *mcp.CallToolRequest, in browserClickIn,
+) (*mcp.CallToolResult, browserTextOut, error) {
+	return m.browserText(ctx, "click", map[string]string{"ref": in.Ref})
+}
+
+func (m *mcpServer) browserType(
+	ctx context.Context, _ *mcp.CallToolRequest, in browserTypeIn,
+) (*mcp.CallToolResult, browserTextOut, error) {
+	return m.browserText(ctx, "type", map[string]string{"ref": in.Ref, "text": in.Text})
+}
+
+func (m *mcpServer) browserConsole(
+	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
+) (*mcp.CallToolResult, browserTextOut, error) {
+	return m.browserText(ctx, "console", nil)
+}
+
+func (m *mcpServer) browserNetwork(
+	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
+) (*mcp.CallToolResult, browserTextOut, error) {
+	return m.browserText(ctx, "network", nil)
 }

@@ -337,7 +337,7 @@ func (s *Session) member(
 	}
 	var preamble string
 	if ctx.Err() == nil && slug != "" {
-		err = s.ensureWorktree(ctx, cwd, slug)
+		err = EnsureWorktree(ctx, s.trees, s.project.Path, cwd, slug)
 	}
 	switch {
 	case err != nil:
@@ -365,18 +365,6 @@ func (s *Session) member(
 	}
 	s.members[role] = m
 	return m, nil
-}
-
-// ensureWorktree makes the feature's worktree at dir, so that two channels of the feature do
-// not add it at once. It holds a lock of its own: a read-only role must not wait for the
-// write turn that holds the tree.
-func (s *Session) ensureWorktree(ctx context.Context, dir, slug string) error {
-	unlock, err := s.trees.Lock(ctx, "add "+dir)
-	if err != nil {
-		return err
-	}
-	defer unlock()
-	return worktree.Ensure(ctx, s.project.Path, dir, worktree.Branch(slug))
 }
 
 // WorkDir is where an agent of channel channelID runs: the worktree of its feature, or the

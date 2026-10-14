@@ -29,6 +29,8 @@ func (s *server) featureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /features/{id}/notes/{role}", s.putRoleNotes)
 	mux.HandleFunc("DELETE /features/{id}/notes/{role}", s.deleteRoleNotes)
 	mux.HandleFunc("/features/{id}/notes/{role}", methodNotAllowed)
+	mux.HandleFunc("POST /features/{id}/worktree", s.ensureFeatureWorktree)
+	mux.HandleFunc("/features/{id}/worktree", methodNotAllowed)
 }
 
 func (s *server) listFeatures(w http.ResponseWriter, r *http.Request) {
@@ -229,6 +231,33 @@ func treeConflict(f store.Feature, dir string, err error) error {
 			store.ErrConflict, f.Slug, dir)
 	}
 	return err
+}
+
+// ensureFeatureWorktree makes the feature's worktree, the same way the first wake of one of
+// its channels would, and returns its path. A worktree or branch that already exists is
+// reused.
+func (s *server) ensureFeatureWorktree(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	f, err := s.st.Feature(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	p, err := s.st.Project(r.Context(), f.ProjectID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+	if err := channel.EnsureWorktree(r.Context(), s.trees, p.Path, dir, f.Slug); err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"path": dir})
 }
 
 func (s *server) getBrief(w http.ResponseWriter, r *http.Request) {

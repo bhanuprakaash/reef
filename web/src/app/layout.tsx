@@ -1,4 +1,5 @@
 import { Link, Outlet } from 'react-router';
+import { BrowserPane } from '@/app/browser-pane';
 import { Sidebar } from '@/app/sidebar';
 
 export function Layout() {
@@ -13,6 +14,7 @@ export function Layout() {
       <main className="min-w-0 flex-1 overflow-y-auto p-6">
         <Outlet />
       </main>
+      <BrowserPane />
     </div>
   );
 }

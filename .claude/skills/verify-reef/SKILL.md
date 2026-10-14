@@ -1,11 +1,11 @@
 ---
 name: verify-reef
-description: Drive Reef's real surfaces and capture proof. reef-agent (the agent adapters over the claude and codex backends) gives event JSON lines, exit codes and process checks; reef serve (the data server) gives REST calls, SQLite rows, locks and crash recovery; the reef CLI, reef mcp and reef chat (the memory loop) give command output, MCP tool results, chat turns, wrap-up and SQLite rows. Use to verify a ticket or slice acceptance line, to re-check after a change in agent/, cmd/reef-agent, cmd/reef, channel/, server/ or store/, or when asked "does reef-agent / reef serve / reef chat still work". The window (the web UI) is driven in Chrome through `verify-reef ui`. Later slices add the Mac shell; this map grows with them.
+description: Drive Reef's real surfaces and capture proof. reef-agent (the agent adapters over the claude and codex backends) gives event JSON lines, exit codes and process checks; reef serve (the data server) gives REST calls, SQLite rows, locks and crash recovery; the reef CLI, reef mcp and reef chat (the memory loop) give command output, MCP tool results, chat turns, wrap-up and SQLite rows. Use to verify a ticket or slice acceptance line, to re-check after a change in agent/, cmd/reef-agent, cmd/reef, channel/, server/, store/ or desktop/, or when asked "does reef-agent / reef serve / reef chat / the Reef app still work". The window (the web UI) is driven in Chrome through `verify-reef ui`; the desktop app (Electron shell, browser pane, terminal pane) under xvfb-run through `verify-reef desktop`.
 ---
 
 # Verify Reef
 
-Four user surfaces exist so far:
+Five user surfaces exist so far:
 
 - `reef-agent` (`cmd/reef-agent`) runs one backend (`claude` or `codex`) and prints one JSON
   `Event` per line. Contract: `docs/agents.md`.
@@ -16,10 +16,11 @@ Four user surfaces exist so far:
   `task`, `team`, `context`, `token`), `reef mcp` (stdio MCP tools for one teammate) and `reef
   chat` (one role in one channel, in the terminal). Contract: `docs/memory.md`.
 - The window: the React app `reef serve` serves (`web/`). Contract: `docs/server.md` (Web UI).
+- The desktop app (`desktop/`): Electron around its own `reef serve` and the window, with a
+  browser pane agents drive through `reef mcp` and a terminal pane. Contract: `docs/desktop.md`.
 
-The Mac shell does not exist yet. When a later slice adds it, add its Launch, Drive and
-feature files here. The feature map is in
-[`features/README.md`](features/README.md). Read the matching feature file before a run.
+The feature map is in [`features/README.md`](features/README.md). Read the matching feature
+file before a run.
 
 All commands below run from the repo root. `H=.claude/skills/verify-reef/scripts/verify-reef`.
 Each Bash call starts a new shell, so pass `REEF_VERIFY_RUN=<id>` on every call.
@@ -242,7 +243,9 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/
 - `mcp-call TOOL [JSON]` starts `reef mcp` on the run's folder with the caller's `REEF_TOKEN`,
   does the MCP handshake, lists the tools and calls `TOOL` with `JSON` (default `{}`). It
   prints `tools: ...`, `< isError=false|true <text>` (or `< rpc error ...`), `reef mcp exit:
-  N` and stderr. It exits 0 when a tool result came back.
+  N` and stderr. An image in the result (`browser_screenshot`) is saved to
+  `~/.reef-verify/<id>/mcp-<tool>-<ns>.png` and shows as `image/png N bytes saved to PATH`. It
+  exits 0 when a tool result came back.
 - The project folder is the scratch cwd, so `reef chat` runs its agent there and `cleanup`
   removes claude's session state for it. A channel on a feature runs in the feature's worktree,
   `<data folder>/worktrees/<project id>/<slug>`, so the scratch cwd must be a git repo with a
@@ -326,6 +329,60 @@ Rules:
 - Never drive a server this run did not start.
 - A `FAIL` is a finding only after you have opened its screenshot.
 
+## Desktop
+
+`verify-reef desktop` launches the Reef app (`desktop/`) the way a user does and drives it end
+to end, one call. Read `features/desktop.md` first. Needs `build` and `doctor`; it then builds
+what the app runs itself: `web/` (`npm ci` if `node_modules` is missing, `npm run build`),
+`desktop/` deps (`npm ci` if missing) and `go build -o desktop/bin/reef`. It also needs
+`node` 22+ (global `WebSocket`), ImageMagick (`import`, `convert`), `lsof`, and on Linux
+`xvfb-run`.
+
+```sh
+id=$($H build)
+REEF_VERIFY_RUN=$id $H doctor
+REEF_VERIFY_RUN=$id $H desktop
+REEF_VERIFY_RUN=$id $H cleanup
+```
+
+What it does, in order:
+
+- Setup: HOME is `<scratch>/home`, so the app's data folder is `<scratch>/home/.config/Reef`
+  (Linux) or `<scratch>/home/Library/Application Support/Reef` (Mac). The scratch cwd becomes a
+  git repo with one commit, then `$H reef --data-name home/.config/Reef` adds it as a project
+  with the feature `term` and a `developer` token. In fake or record mode it writes
+  `<scratch>/home/.bash_profile` and `.zprofile` with `<scratch>/fake` first on `PATH`: the app
+  reads `PATH` from the login shell, so this is how its `reef serve`, and any channel turn,
+  gets the fake `claude`. A `python3 -m http.server` on a free port serves a test page: a form
+  (`Name` textbox, `Send` button), `console.log`/`console.error` lines and a fetch of
+  `/missing.json` (404).
+- Launch: on a free port (`REEF_PORT`) and, on Linux, its own X display (the first free one
+  from :140; `xvfb-run -a` races other sessions for :99, and a display taken over dies under the
+  app): `xvfb-run -n N electron desktop --no-sandbox --disable-gpu --remote-debugging-port=<free
+  port>` (no xvfb-run and no flags on a Mac),
+  and waits for `/health` and `browser.sock`.
+- Drive: the browser tools go through `$H mcp-call` with the token, so through `reef mcp` and
+  the socket, as an agent's would. The window is driven over the DevTools port with
+  `scripts/cdp.mjs PORT APP_PORT EXPRESSION`, which evaluates in the main window (the page on
+  `127.0.0.1:APP_PORT`, 10 s limit; `cdp` fails at once when the app is gone), where the preload's `window.reef` lives: `setTakeOver(true|false)` for the
+  Take over button, `history.pushState` plus a `popstate` event to open `/features/<id>`, and
+  `writeTerminal(cwd, 'pwd; git branch --show-current\r')` to type into the terminal pane.
+- Quit: SIGTERM to the Electron main process (a quit request, like Cmd+Q), then every process
+  the app had (sampled before quit) must be gone, and `browser.sock` too.
+
+Proof: one `PASS <id>: ...` or `FAIL <id>: ...` line per check, each naming its evidence file;
+it exits 1 on any `FAIL`. The ids, and what each proves, are in `features/desktop.md`. Open the
+screenshots (`desktop/window.png`, `window-page.png`, `terminal.png` and the `mcp-browser_screenshot-*.png`)
+before you call a line proven.
+
+Rules:
+- Runs once per run id (it refuses if `<scratch>/home` exists). Run `cleanup` after, also after a
+  `FAIL`: it kills only the pids `desktop` recorded (xvfb-run, the app, its `reef serve` and
+  shell, the page server), while each still runs the recorded command.
+- Never quit or drive a Reef app this run did not start. Its own port and display keep it apart
+  from any other app or run.
+- On a Mac it uses `screencapture` and `lsof`; the Linux path is the one proven so far.
+
 ## Feature scripts
 
 `REEF_VERIFY_RUN=<id> $H feature NAME` runs `features/NAME.sh` (needs `build` and `doctor`
@@ -378,6 +435,8 @@ Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches 
 | `reef.log` | every `reef` call: `--- reef` and the exact args with `--data DIR`, cwd and stdin, `out:` and `err:` lines, the `feed:` line with `--answer` or `--sigint-at-prompt`, then `exit:`, `elapsed_s`, `sigint_after_s`, `children`, `orphans_alive` |
 | `reef-mcp.log` | every `mcp-call`: `> TOOL JSON`, `tools:`, `< isError=...` result, `reef mcp exit:`, stderr |
 | `ui-<scenario>.log`, `ui/<scenario>-<step>.png` | the `PASS`/`FAIL` lines of each `ui` run, and its screenshots |
+| `mcp-<tool>-<ns>.png` | an image a tool returned through `mcp-call` (`browser_screenshot`) |
+| `desktop.log`, `desktop/` | the `PASS`/`FAIL` lines of `desktop`; `build.log`, `app.log` (Electron's output), `page.log`, `start.txt` (app, `reef serve` and port listener pids, socket mode, `reef serve`'s `PATH`), `window.png`, `window-page.png`, `snapshot-1.txt`, `snapshot-2.txt`, `console.txt`, `network.txt`, `terminal.txt` (the pane's rows), `terminal.png`, `procs-before-quit.txt`, `quit.txt` |
 
 Proof standards:
 - Drive the real `reef-agent`/`reef` binary; `claude` is the fake by default (see Fake claude,
@@ -432,4 +491,5 @@ claude, above).
 | `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
+| `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |
 | `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |

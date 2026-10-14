@@ -19,6 +19,7 @@ usage: verify-reef build
        REEF_VERIFY_RUN=ID verify-reef ui live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox
        REEF_VERIFY_RUN=ID verify-reef feature NAME
        REEF_VERIFY_RUN=ID verify-reef real
+       REEF_VERIFY_RUN=ID verify-reef desktop
        REEF_VERIFY_RUN=ID verify-reef cleanup
 EOF
 	exit 2
@@ -624,7 +625,7 @@ cmd_mcp_call() {
 	[ -f "$SCR/serve.data" ] || fail "no data folder for this run; run reef or serve-start first"
 	args=${2:-'{}'}
 	python3 -I - "$REEF_BIN" "$(cat "$SCR/serve.data")" "$1" "$args" "$EV/reef-mcp.log" <<'EOF'
-import json, signal, subprocess, sys
+import base64, json, os, signal, subprocess, sys, time
 reef, data, tool, args, log = sys.argv[1:6]
 signal.alarm(30)
 p = subprocess.Popen([reef, "mcp", "--data", data], stdin=subprocess.PIPE,
@@ -651,7 +652,16 @@ try:
         if "error" in r:
             lines.append("< rpc error " + json.dumps(r["error"]))
         else:
-            text = " ".join(c.get("text", "") for c in r["result"].get("content", []))
+            parts = []
+            for c in r["result"].get("content", []):
+                if c.get("type") == "image":
+                    path = os.path.join(os.path.dirname(log), "mcp-%s-%d.png" % (tool, time.time_ns()))
+                    with open(path, "wb") as f:
+                        f.write(base64.b64decode(c["data"]))
+                    parts.append("%s %d bytes saved to %s" % (c.get("mimeType"), os.path.getsize(path), path))
+                else:
+                    parts.append(c.get("text", ""))
+            text = " ".join(parts)
             lines.append("< isError=%s %s" % (str(bool(r["result"].get("isError"))).lower(), text))
             got = True
     p.stdin.close()
@@ -710,6 +720,21 @@ cmd_real() {
 	exit "$rc"
 }
 
+# desktop: launch the Reef app with a scratch HOME and drive its window, browser tools and
+# terminal pane, then quit it (scripts/desktop.sh).
+cmd_desktop() {
+	load_run
+	fake_claude_setup
+	script="$REPO/.claude/skills/verify-reef/scripts/desktop.sh"
+	[ -x "$script" ] || fail "no script $script"
+	[ -f "$EV/pre-pids.txt" ] || fail "run doctor first: it records the pre-run pids"
+	log="$EV/desktop.log"
+	(cd "$REPO" && H="$REPO/.claude/skills/verify-reef/scripts/verify-reef" REEF_VERIFY_RUN="$REEF_VERIFY_RUN" E="$EV" S="$SCR" "$script") 2>&1 | tee "$log"
+	rc=${PIPESTATUS[0]}
+	grep -q '^FAIL' "$log" && exit 1
+	exit "$rc"
+}
+
 cmd_cleanup() {
 	load_run
 	if [ -f "$SCR/serve.pid" ] && serve_alive "$(cat "$SCR/serve.pid")"; then
@@ -761,6 +786,7 @@ mcp-call) cmd_mcp_call "$@" ;;
 ui) cmd_ui "$@" ;;
 feature) cmd_feature "$@" ;;
 real) cmd_real "$@" ;;
+desktop) cmd_desktop "$@" ;;
 cleanup) cmd_cleanup "$@" ;;
 *) usage ;;
 esac
