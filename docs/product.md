@@ -203,6 +203,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 42 | `reef mcp`'s browser tools call the Reef app directly over a socket in the data folder, not through `reef serve` | The app owns the browser pane; `reef mcp` works even with the server down, like every other tool |
 | 43 | One browser pane for the whole window, shared by every channel | Matches the one-window product: agents and the user look at the same page |
 | 44 | A "Take over" button on the browser pane stops every browser tool with `the user has the browser` until "Hand back"; the user's own address bar still works | The user needs the page to itself sometimes, without an agent acting on it underneath |
+| 45 | Diff review comments go as one user message to the developer's latest thread, or a top-level message starting `@developer` when it has none | Routing wakes the developer by the thread-owner rule without a new routing path |
 
 ## Open questions
 

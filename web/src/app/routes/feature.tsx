@@ -61,7 +61,7 @@ export function FeaturePage() {
         {diff.isError ? (
           <p className={errorClass}>{diff.error.message}</p>
         ) : (
-          <DiffPanel files={diff.data ?? []} />
+          <DiffPanel files={diff.data ?? []} featureId={id} />
         )}
       </Section>
       <Section title="Tasks">

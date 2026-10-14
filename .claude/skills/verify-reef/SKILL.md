@@ -303,12 +303,14 @@ REEF_VERIFY_RUN=<id> $H ui retry     # Stop mid-turn, Retry on the failed turn r
 REEF_VERIFY_RUN=<id> $H ui rollback  # a turn writes a file, a commit is made, Rollback restores the tree
 REEF_VERIFY_RUN=<id> $H ui inbox     # gated approval shows in the inbox, one notification, Approve from the list, item opens its channel
 REEF_VERIFY_RUN=<id> $H ui diff      # a turn writes a file, the feature's Diff panel shows it added with its line
+REEF_VERIFY_RUN=<id> $H ui review    # Diff panel comments send as one message to the developer's latest thread
 ```
 
 `teams` needs the teams `duo` and `gated` (and `inbox` needs `gated`) applied to the `ui` folder first: run
 `$H reef --data-name ui -- team apply FILE.json` for each before `serve-start --data-name ui` (the
 files are in `features/teams.md`). `inbox` counts every item of the server, so run it first, or
-on a folder of its own (`--data-name inbox`, with `gated` applied).
+on a folder of its own (`--data-name inbox`, with `gated` applied). `review` needs the team
+`full` (`teams/full.json` at the repo root) applied the same way.
 
 Each scenario adds a project on the scratch cwd and makes it a git repo with one commit when it
 is not one, because a channel on a feature runs in a git worktree. Its feature slug gets a

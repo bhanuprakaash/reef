@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|review BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
@@ -10,9 +10,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, review };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|review BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -444,6 +444,63 @@ async function diff() {
     json.length === 1 && json[0].path === 'new.txt' && json[0].status === 'added' && json[0].hunks[0].lines[0].text === 'hi',
     'GET /features/{id}/diff returns the file with its added line',
     JSON.stringify(json),
+  );
+}
+
+async function review() {
+  if ((await fetch(`${base}/teams/full`)).status !== 200) {
+    throw new Error('apply the team full first (teams/full.json, see features/teams.md)');
+  }
+  ensureRepo();
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const featureId = page.url().split('/').pop();
+  const { id: cid } = await newTeamChannel('full', 'review room');
+  await send('@developer Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.');
+  await workingAs('developer', 60000);
+  await idle();
+  await send('@developer Use the Write tool to create the file d.txt containing the word yes.');
+  await workingAs('developer', 60000);
+  await idle();
+  const root = (await getJson(`/messages?channel=${cid}`))
+    .filter((m) => m.author === 'developer' && m.parentId === null)
+    .at(-1);
+  check(!!root, 'the developer posted a second top-level message, its latest thread root', root && `message ${root.id}`);
+
+  await page.goto(`${base}/features/${featureId}`);
+  const panel = main.locator('section', { has: page.getByRole('heading', { name: 'Diff', level: 2 }) });
+  await panel.getByText('d.txt').waitFor({ timeout: 15000 });
+  await shot('diff');
+  await panel.locator('[data-path="new.txt"][data-line="1"]').click();
+  await panel.getByLabel('Comment on new.txt:1').fill('nice start');
+  await panel.getByRole('button', { name: 'Add comment' }).click();
+  await panel.locator('[data-path="d.txt"][data-line="1"]').click();
+  await panel.getByLabel('Comment on d.txt:1').fill('rename this');
+  await panel.getByRole('button', { name: 'Add comment' }).click();
+  await shot('comments');
+  const before = Number(sql(`select count(*) from turn where channel_id=${cid} and role='developer'`));
+  await panel.getByRole('button', { name: 'Send to developer' }).click();
+  // The review message matches no recorded scenario, so the turn may error and end before
+  // the window ever shows "is working...": poll the turn row instead of workingAs/idle.
+  let after = before;
+  for (let i = 0; i < 60 && after === before; i++) {
+    await page.waitForTimeout(500);
+    after = Number(sql(`select count(*) from turn where channel_id=${cid} and role='developer'`));
+  }
+  await idle();
+  await shot('sent');
+
+  const sent = (await getJson(`/messages?channel=${cid}`)).at(-1);
+  check(
+    sent.author === 'user' && sent.body.includes('new.txt:1') && sent.body.includes('d.txt:1'),
+    'the two comments made one user message with both path:line lines',
+    JSON.stringify(sent),
+  );
+  check(sent.parentId === root.id, "the message's parent is the developer's latest thread root", `parentId ${sent.parentId}, root ${root.id}`);
+  check(after > before, 'a developer turn started for the review message', `turns before ${before}, after ${after}`);
+  check(
+    (await panel.getByRole('button', { name: 'Send to developer' }).count()) === 0,
+    'comments clear after a successful send',
   );
 }
 
