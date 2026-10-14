@@ -19,6 +19,9 @@ func (s *server) projectRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /projects/{id}", s.updateProject)
 	mux.HandleFunc("DELETE /projects/{id}", s.deleteProject)
 	mux.HandleFunc("/projects/{id}", methodNotAllowed)
+	mux.HandleFunc("GET /projects/{id}/memory", s.getProjectMemory)
+	mux.HandleFunc("PUT /projects/{id}/memory", s.putProjectMemory)
+	mux.HandleFunc("/projects/{id}/memory", methodNotAllowed)
 }
 
 // projectDir checks path is an absolute directory and returns it with symbolic
@@ -108,6 +111,40 @@ func (s *server) updateProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+func (s *server) getProjectMemory(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	m, err := s.st.ProjectMemory(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
+}
+
+func (s *server) putProjectMemory(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in store.ProjectMemory
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	in.ProjectID = id
+	m, err := s.st.PutProjectMemory(r.Context(), in)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, m)
 }
 
 // deleteProject deletes the project, the worktrees of its features and the checkpoint refs of

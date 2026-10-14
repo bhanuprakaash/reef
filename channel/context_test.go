@@ -172,6 +172,42 @@ Details are on demand through the reef MCP tools read_decision, read_thread and 
 	}
 }
 
+func TestContext_ProjectMemory(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	if _, err := st.PutProjectMemory(ctx,
+		store.ProjectMemory{ProjectID: f.ProjectID, Body: "Use Go, not Python."}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Context(ctx, st, f.ID, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(got, "\n## Project memory\nUse Go, not Python.\n") {
+		t.Errorf("Context =\n%s\nwant it to contain the project memory section", got)
+	}
+}
+
+func TestProjectContext_Memory(t *testing.T) {
+	p := store.Project{Name: "shop", Path: "/work/shop"}
+
+	if got := projectContext(p, "lead", ""); strings.Contains(got, "Project memory") {
+		t.Errorf("projectContext with no memory = %q, want no Project memory section", got)
+	}
+
+	got := projectContext(p, "lead", "Use Go, not Python.")
+	want := `You are the lead in project "shop" (/work/shop).
+This is a quick session: it has no feature yet, so there is no brief, notes or decisions.
+
+## Project memory
+Use Go, not Python.
+`
+	if got != want {
+		t.Errorf("projectContext with memory =\n%s\nwant\n%s", got, want)
+	}
+}
+
 func TestContext_DecisionFirstLine(t *testing.T) {
 	tests := []struct {
 		name string

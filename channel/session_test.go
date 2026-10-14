@@ -169,6 +169,30 @@ func TestOpen_QuickSession(t *testing.T) {
 	}
 }
 
+func TestOpen_QuickSession_ProjectMemory(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	if _, err := st.PutProjectMemory(ctx,
+		store.ProjectMemory{ProjectID: f.ProjectID, Body: "Use Go, not Python."}); err != nil {
+		t.Fatal(err)
+	}
+	ch := sessionChannel(t, st, f, true)
+	ag := newRecordingAgent()
+
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := sendAs(ctx, st, ch.ID, s.Run, "hi", discard); err != nil {
+		t.Fatal(err)
+	}
+
+	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], "\n## Project memory\nUse Go, not Python.\n") {
+		t.Errorf("prompts = %q, want it to contain the project memory section", ag.prompts)
+	}
+}
+
 func TestOpen_ResumesNewestSession(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)

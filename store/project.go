@@ -115,6 +115,41 @@ func (s *Store) DeleteProject(ctx context.Context, id int64) error {
 	return nil
 }
 
+// ProjectMemory is the conventions and architecture notes shared by every feature and
+// quick session of a project. The user writes it; there is one body per project.
+type ProjectMemory struct {
+	ProjectID int64  `json:"projectId"`
+	Body      string `json:"body"`
+}
+
+// ProjectMemory returns the project's memory, empty when none has been set.
+func (s *Store) ProjectMemory(ctx context.Context, projectID int64) (ProjectMemory, error) {
+	m := ProjectMemory{ProjectID: projectID}
+	err := s.db.QueryRowContext(ctx, "SELECT memory FROM project WHERE id = ?", projectID).
+		Scan(&m.Body)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ProjectMemory{}, fmt.Errorf("project %d: %w", projectID, ErrNotFound)
+	}
+	return m, err
+}
+
+// PutProjectMemory sets the project's memory, replacing any before.
+func (s *Store) PutProjectMemory(ctx context.Context, m ProjectMemory) (ProjectMemory, error) {
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE project SET memory = ? WHERE id = ?", m.Body, m.ProjectID)
+	if err != nil {
+		return ProjectMemory{}, fmt.Errorf("update project memory: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return ProjectMemory{}, fmt.Errorf("update project memory: %w", err)
+	}
+	if n == 0 {
+		return ProjectMemory{}, fmt.Errorf("project %d: %w", m.ProjectID, ErrNotFound)
+	}
+	return m, nil
+}
+
 func (p Project) validate() error {
 	if p.Name == "" {
 		return fmt.Errorf("%w: project name is required", ErrInvalid)
