@@ -104,6 +104,7 @@ migration 7 [`007_thread.sql`](../store/migrations/007_thread.sql) (`message.par
 migration 8 [`008_approval.sql`](../store/migrations/008_approval.sql) (`gate`, `approval`) and
 migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql) (`approval.kind`) and
 migration 10 [`010_role_write.sql`](../store/migrations/010_role_write.sql) (`role.write`) and
+migration 11 [`011_turn_wake.sql`](../store/migrations/011_turn_wake.sql) (`turn.wake_text`, `turn.wake_parent`, `turn.retried`) and
 migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`).
 Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 
@@ -247,7 +248,7 @@ channel that exists at it.
 | --- | --- | --- |
 | `name` | string | required; unique within the team; letters, digits, `_` and `-` only, and not `user`. It is the `author` of what the role posts, and the name an `@mention` uses |
 | `lead` | boolean | exactly one role of a team is the lead. The lead answers a message that nobody else owns |
-| `write` | boolean | default `false`. Only a role with `write` may change files. claude: without it the role never gets `Edit`, `Write`, `MultiEdit` or `NotebookEdit` (they are dropped from `tools` and passed as `--disallowedTools`, so an allow rule in the user's or project's `.claude/settings.json` cannot grant them) and runs in the `default` permission mode, so `Bash` runs only as `tools` lists it. `Bash` patterns in `tools` are trusted as given: `Bash(git diff:*)` also lets `git diff --output=file` write a file. With it the role keeps its `tools` and permission mode (it still needs `acceptEdits`, or `Edit` in `tools`, to edit unasked) and also gets `Task`. codex: without it the sandbox is `read-only`; with it `workspace-write` unless the role's `permissionMode` is set. The seeded `solo` lead has `write` |
+| `write` | boolean | default `false`. Only a role with `write` may change files; it gets a checkpoint and the tree's write lock. claude: without it the role never gets `Edit`, `Write`, `MultiEdit` or `NotebookEdit` (they are dropped from `tools` and passed as `--disallowedTools`, so an allow rule in the user's or project's `.claude/settings.json` cannot grant them) and runs in the `default` permission mode, so `Bash` runs only as `tools` lists it. A plain `Bash` in `tools` still lets the role change files through the shell; list patterns such as `Bash(go test:*)` instead. `Bash` patterns are trusted as given: `Bash(git diff:*)` also lets `git diff --output=file` write a file. With it the role keeps its `tools` and permission mode (it still needs `acceptEdits`, or `Edit` in `tools`, to edit unasked) and also gets `Task`. codex: without it the sandbox is `read-only`; with it `workspace-write` unless the role's `permissionMode` is set. The seeded `solo` lead has `write` |
 | `backend` | string | required; `claude` or `codex` |
 | `permissionMode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`. The same rule as a channel's `permissionMode` |
 | `persona` | string | goes at the start of the role's first prompt |
@@ -422,7 +423,9 @@ a message wakes them.
   `<data folder>/worktrees/<project id>/<slug>`, on branch `feature/<slug>`. It is made at
   the first start of any agent of the feature, from the project's HEAD, with `git worktree
   add`; a worktree or branch that exists is reused, so every channel of the feature shares
-  one tree. A quick session runs in the project path. The feature is read at each agent
+  one tree. A branch that is checked out elsewhere (in the main checkout, or in the worktree
+  of another project on the same repo) cannot be added: the start fails with git's error. A
+  quick session runs in the project path. The feature is read at each agent
   start, so a promoted channel moves to the worktree at its next wake. A project that is not
   a git repo, or a repo with no commit, has no worktree: the start fails, with git's error as
   a `failed` turn, and the server goes on. A worktree whose folder was deleted is pruned and
@@ -794,10 +797,10 @@ $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/tasks -d '{
 {"id":1,"projectId":1,"featureId":1,"title":"Build the login form","body":"","status":"todo","createdAt":"2026-10-13T09:00:06.123456Z","updatedAt":"2026-10-13T09:00:06.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/turns -d '{"channelId":1,"role":"developer","backend":"claude"}'
-{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":null,"checkpoint":null}
+{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":null,"wakeText":"","wakeParent":null,"retried":false,"checkpoint":null}
 
 $ curl -s -X PATCH -H 'Content-Type: application/json' localhost:7700/turns/1 -d '{"status":"done","sessionId":"3c1296cc","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0}}'
-{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"3c1296cc","status":"done","error":"","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":"2026-10-13T09:00:08.123456Z","checkpoint":null}
+{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"3c1296cc","status":"done","error":"","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":"2026-10-13T09:00:08.123456Z","wakeText":"","wakeParent":null,"retried":false,"checkpoint":null}
 
 $ curl -s -X PATCH -H 'Content-Type: application/json' localhost:7700/turns/1 -d '{"status":"failed"}'
 {"error":"invalid: turn 1 already ended"}
