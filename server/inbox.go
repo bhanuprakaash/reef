@@ -18,8 +18,9 @@ func (s *server) inboxRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/inbox/events", methodNotAllowed)
 }
 
-// inbox lists the store's inbox without the waiting items of a channel with a chain running:
-// between two turns its last message is an agent's, and the role it wakes has not started.
+// inbox lists the store's inbox without the waiting, paused and failed items of a channel with
+// a chain running: between two turns its last message is an agent's and the role it wakes has
+// not started, and Continue or Retry is refused until the chain has ended.
 // The running channels are read before and after the store, so a chain that starts or ends
 // during the read is not missed.
 func (s *server) inbox(ctx context.Context) ([]store.InboxItem, error) {
@@ -31,7 +32,7 @@ func (s *server) inbox(ctx context.Context) ([]store.InboxItem, error) {
 	}
 	s.markRunning(running)
 	items = slices.DeleteFunc(items, func(i store.InboxItem) bool {
-		return i.Kind == "waiting" && running[i.ChannelID]
+		return i.Kind != "approval" && running[i.ChannelID]
 	})
 	if items == nil {
 		items = []store.InboxItem{}
