@@ -270,7 +270,7 @@ func TestAgent_StartFails(t *testing.T) {
 }
 
 func TestAgent_SessionModel(t *testing.T) {
-	a := fake(t, "withmodel")
+	a := fake(t, "replay")
 	if err := a.Start(context.Background(), agent.Config{Cwd: t.TempDir()}); err != nil {
 		t.Fatal(err)
 	}
@@ -431,7 +431,7 @@ func TestAgent_ResumeDropsReplayedUsage(t *testing.T) {
 	}
 	got := collect(t, a, agent.KindTurnEnd)
 	want := []agent.Event{
-		{Kind: agent.KindSession, SessionID: "t1"},
+		{Kind: agent.KindSession, SessionID: "t1", Model: "gpt-6-codex"},
 		{Kind: agent.KindText, Text: "hi"},
 		{Kind: agent.KindUsage, Usage: &agent.Usage{
 			InputTokens: 4, OutputTokens: 3, CacheReadTokens: 4, CacheWriteTokens: 2,

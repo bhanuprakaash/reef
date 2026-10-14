@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fake `codex app-server`. FAKE_CODEX: hang (default), slowstart, deafstart, rejected, midcrash, failstart, crash, replay, twocalls, twomsgs, usagehang, stopusage, stopmerge, withmodel.
+# Fake `codex app-server`. FAKE_CODEX: hang (default), slowstart, deafstart, rejected, midcrash, failstart, crash, replay, twocalls, twomsgs, usagehang, stopusage, stopmerge.
 [ "$FAKE_CODEX" = slowstart ] && exec sleep 30
 [ "$FAKE_CODEX" = deafstart ] && { trap '' TERM; exec sleep 30; }
 read -r line
@@ -10,7 +10,7 @@ if [ "$FAKE_CODEX" = failstart ]; then
 	echo '{"id":2,"error":{"code":-32600,"message":"bad sandbox"}}'
 	exec sleep 30
 fi
-if [ "$FAKE_CODEX" = withmodel ]; then
+if [ "$FAKE_CODEX" = replay ]; then
 	echo '{"id":2,"result":{"thread":{"id":"t1"},"model":"gpt-6-codex"}}'
 else
 	echo '{"id":2,"result":{"thread":{"id":"t1"}}}'
