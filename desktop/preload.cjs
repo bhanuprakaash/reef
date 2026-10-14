@@ -14,7 +14,7 @@ contextBridge.exposeInMainWorld('reef', {
     ipcRenderer.on('browser:navigated', listener);
     return () => ipcRenderer.removeListener('browser:navigated', listener);
   },
-  openTerminal: (cwd) => ipcRenderer.invoke('terminal:open', cwd),
+  openTerminal: (cwd, cols, rows) => ipcRenderer.invoke('terminal:open', cwd, cols, rows),
   writeTerminal: (cwd, data) => ipcRenderer.send('terminal:write', cwd, data),
   resizeTerminal: (cwd, cols, rows) => ipcRenderer.send('terminal:resize', cwd, cols, rows),
   onTerminalData: (cwd, callback) => {

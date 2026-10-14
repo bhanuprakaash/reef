@@ -9,13 +9,13 @@ const SCROLLBACK = 200_000;
 export function createTerminals(win, path) {
   const shells = new Map();
 
-  function shell(cwd) {
+  function shell(cwd, cols, rows) {
     let s = shells.get(cwd);
     if (s) return s;
     const proc = pty.spawn(process.env.SHELL || '/bin/bash', ['-l'], {
       name: 'xterm-color',
-      cols: 80,
-      rows: 24,
+      cols,
+      rows,
       cwd,
       env: { ...process.env, PATH: path },
     });
@@ -24,12 +24,15 @@ export function createTerminals(win, path) {
       s.buffer = (s.buffer + data).slice(-SCROLLBACK);
       win.webContents.send('terminal:data', cwd, data);
     });
+    // Without this, exit (or a crash) leaves a dead shell in the map and the next open
+    // replays its last buffer instead of starting a new one.
+    proc.onExit(() => shells.delete(cwd));
     shells.set(cwd, s);
     return s;
   }
 
-  function open(cwd) {
-    return shell(cwd).buffer;
+  function open(cwd, cols, rows) {
+    return shell(cwd, cols, rows).buffer;
   }
 
   function write(cwd, data) {

@@ -117,7 +117,7 @@ app.whenReady().then(async () => {
   ipcMain.handle('browser:navigate', (_event, url) => browser.navigate(url));
   ipcMain.handle('browser:take-over', (_event, value) => browser.setTakenOver(value));
   terminals = createTerminals(win, PATH);
-  ipcMain.handle('terminal:open', (_event, cwd) => terminals.open(cwd));
+  ipcMain.handle('terminal:open', (_event, cwd, cols, rows) => terminals.open(cwd, cols, rows));
   ipcMain.on('terminal:write', (_event, cwd, data) => terminals.write(cwd, data));
   ipcMain.on('terminal:resize', (_event, cwd, cols, rows) => terminals.resize(cwd, cols, rows));
   win.loadURL(`http://${ADDR}`);

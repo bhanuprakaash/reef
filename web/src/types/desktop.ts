@@ -6,7 +6,7 @@ export type ReefBridge = {
   navigateBrowser: (url: string) => Promise<void>;
   setTakeOver: (value: boolean) => Promise<boolean>;
   onBrowserNavigated: (callback: (url: string) => void) => () => void;
-  openTerminal: (cwd: string) => Promise<string>;
+  openTerminal: (cwd: string, cols: number, rows: number) => Promise<string>;
   writeTerminal: (cwd: string, data: string) => void;
   resizeTerminal: (cwd: string, cols: number, rows: number) => void;
   onTerminalData: (cwd: string, callback: (data: string) => void) => () => void;

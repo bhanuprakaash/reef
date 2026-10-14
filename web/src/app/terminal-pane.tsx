@@ -15,21 +15,36 @@ export function TerminalPane({ cwd }: { cwd: string }) {
     const container = containerRef.current;
     if (!reef || !container) return;
 
+    let disposed = false;
+    let stopData = () => {};
     const term = new Terminal({ convertEol: true });
     const fit = new FitAddon();
     term.loadAddon(fit);
     term.open(container);
     fit.fit();
 
-    const stopData = reef.onTerminalData(cwd, (data) => term.write(data));
     term.onData((data) => reef.writeTerminal(cwd, data));
     term.onResize(({ cols, rows }) => reef.resizeTerminal(cwd, cols, rows));
-    reef.openTerminal(cwd).then((buffer) => term.write(buffer));
+
+    // The shell is sized from term's own cols/rows at open, not a default, so the pty
+    // matches xterm from its first output. The live subscription starts only after the
+    // replayed buffer is written, so a chunk sent while open is in flight isn't shown twice.
+    reef
+      .openTerminal(cwd, term.cols, term.rows)
+      .then((buffer) => {
+        if (disposed) return;
+        term.write(buffer);
+        stopData = reef.onTerminalData(cwd, (data) => term.write(data));
+      })
+      .catch((err: Error) => {
+        if (!disposed) term.write(`${err.message}\n`);
+      });
 
     const observer = new ResizeObserver(() => fit.fit());
     observer.observe(container);
 
     return () => {
+      disposed = true;
       observer.disconnect();
       stopData();
       term.dispose();
