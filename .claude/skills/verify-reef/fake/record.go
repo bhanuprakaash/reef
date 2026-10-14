@@ -22,6 +22,14 @@ func runRecord(args []string) error {
 	if real == "" {
 		return errors.New("no real claude found on PATH outside the fake's own directory")
 	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	dir, err := projectsDir(cwd)
+	if err != nil {
+		return err
+	}
 	cmd := exec.Command(real, args...)
 	cmd.Stderr = os.Stderr
 	stdin, err := cmd.StdinPipe()
@@ -40,7 +48,10 @@ func runRecord(args []string) error {
 	defer fakeLog.Close()
 	stdoutR := bufio.NewReader(stdoutPipe)
 	stdinR := bufio.NewReader(os.Stdin)
-	var role string
+	// A wake that resumes an earlier session sends no preamble, so the role cannot be read
+	// off this prompt; it was saved under the session id on that session's first turn.
+	cli := parseArgs(args)
+	role := readRole(dir, cli.resume)
 
 	for {
 		promptLine, rerr := stdinR.ReadBytes('\n')
@@ -58,7 +69,7 @@ func runRecord(args []string) error {
 			if prompt != "" {
 				name = matchScenario(role, textPart(prompt))
 			}
-			recordTurn(stdoutR, name, role, prompt, args, fakeLog)
+			recordTurn(stdoutR, name, role, prompt, args, fakeLog, dir)
 		}
 		if rerr != nil {
 			break
@@ -69,9 +80,10 @@ func runRecord(args []string) error {
 }
 
 // recordTurn copies claude's stdout for one turn to our own stdout, and, when name is set,
-// saves the recording.
+// saves the recording. projDir is where this session's role is saved, under its session id,
+// for a later turn that resumes it with no preamble to read role back.
 func recordTurn(
-	stdoutR *bufio.Reader, name, role, prompt string, args []string, fakeLog *os.File,
+	stdoutR *bufio.Reader, name, role, prompt string, args []string, fakeLog *os.File, projDir string,
 ) {
 	var lines []recLine
 	t0 := time.Now()
@@ -96,6 +108,11 @@ func recordTurn(
 			break
 		}
 	}
+	if role != "" {
+		if sid := sessionIDFromLines(lines); sid != "" {
+			writeRole(projDir, sid, role)
+		}
+	}
 	if name == "" || prompt == "" {
 		fakeLog.WriteString(time.Now().Format(time.RFC3339) + " record: not recorded (role=" + orNone(role) + ")\n")
 		return
@@ -109,6 +126,16 @@ func recordTurn(
 
 var _sessionIDRe = regexp.MustCompile(`"session_id":"([^"]+)"`)
 
+// sessionIDFromLines is the first session id found in lines, claude's stdout of one turn.
+func sessionIDFromLines(lines []recLine) string {
+	for _, l := range lines {
+		if m := _sessionIDRe.FindStringSubmatch(l.Out); m != nil {
+			return m[1]
+		}
+	}
+	return ""
+}
+
 // writeRecording saves name's recording: a header line (cwd, the session id found in
 // lines, role, prompt, args), then lines as recorded. The whole file is built in memory
 // and written with one os.WriteFile: reef-agent kills the fake's whole process group right
@@ -119,13 +146,7 @@ func writeRecording(name, role, prompt string, args []string, lines []recLine) e
 	if err != nil {
 		return err
 	}
-	session := ""
-	for _, l := range lines {
-		if m := _sessionIDRe.FindStringSubmatch(l.Out); m != nil {
-			session = m[1]
-			break
-		}
-	}
+	session := sessionIDFromLines(lines)
 	dir := recordingsDir()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
