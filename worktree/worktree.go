@@ -61,9 +61,9 @@ func Ensure(ctx context.Context, repo, dir, branch string) error {
 	return err
 }
 
-// Remove removes the worktree at dir of repo, and keeps its branch. A dir that is no worktree
-// is not an error. A worktree with uncommitted changes is left as it is and returns ErrDirty.
-func Remove(ctx context.Context, repo, dir string) error {
+// Clean returns ErrDirty when the worktree at dir has uncommitted changes. A dir that is no
+// worktree is clean.
+func Clean(ctx context.Context, dir string) error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		return nil
 	}
@@ -74,7 +74,19 @@ func Remove(ctx context.Context, repo, dir string) error {
 	if dirty {
 		return fmt.Errorf("%s: %w", dir, ErrDirty)
 	}
-	_, err = git(ctx, repo, "worktree", "remove", dir)
+	return nil
+}
+
+// Remove removes the worktree at dir of repo, and keeps its branch. A dir that is no worktree
+// is not an error. A worktree with uncommitted changes is left as it is and returns ErrDirty.
+func Remove(ctx context.Context, repo, dir string) error {
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		return nil
+	}
+	if err := Clean(ctx, dir); err != nil {
+		return err
+	}
+	_, err := git(ctx, repo, "worktree", "remove", dir)
 	return err
 }
 
