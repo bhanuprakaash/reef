@@ -20,6 +20,9 @@ func TestCLI_Wrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if cwd, err = store.ResolvePath(cwd); err != nil {
+		t.Fatal(err)
+	}
 	p, err := st.CreateProject(ctx, store.Project{Name: "shop", Path: cwd})
 	if err != nil {
 		t.Fatal(err)
