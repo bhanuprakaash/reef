@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
@@ -47,8 +46,6 @@ func (s *server) wakes(ctx context.Context, id, after int64, author string) ([]w
 // "<author> wrote: <body>". Each starts with a line naming the channel and the message, and
 // its thread root when it is a reply; a message in a thread comes with the thread before it.
 // A role woken by several messages in the same thread gets one wake, their texts in id order.
-// The first wake of a role starts, after its header, with what reef posted since the role's
-// last turn (see notes).
 func (s *server) route(ctx context.Context, id int64, msgs []store.Message, author string) ([]wake, error) {
 	ch, err := s.st.Channel(ctx, id)
 	if err != nil {
@@ -66,7 +63,6 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 		}
 	}
 	var ws []wake
-	told := map[string]bool{}
 	for _, m := range msgs {
 		if m.Author != author {
 			continue
@@ -111,52 +107,13 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 				ws[i].gated = ws[i].gated || gated
 				continue
 			}
-			var notes string
-			if !told[role] {
-				told[role] = true
-				if notes, err = s.notes(ctx, id, role); err != nil {
-					return nil, err
-				}
-			}
 			ws = append(ws, wake{
 				from: m.Author, messageID: m.ID, gated: gated,
-				role: role, text: header + "\n" + notes + text, parent: m.ParentID,
+				role: role, text: header + "\n" + text, parent: m.ParentID,
 			})
 		}
 	}
 	return ws, nil
-}
-
-// notes is what reef posted in channel id since role's last turn began, one "reef wrote:" line
-// each, to go before the wake. A rollback changes the files under a session that cannot be
-// rewound, so this is how the role learns of it. A role with no turn yet gets none: it starts
-// from the files as they are.
-func (s *server) notes(ctx context.Context, id int64, role string) (string, error) {
-	turns, err := s.st.Turns(ctx, store.TurnFilter{ChannelID: &id})
-	if err != nil {
-		return "", err
-	}
-	var since time.Time
-	for _, t := range turns {
-		if t.Role == role {
-			since = t.StartedAt
-		}
-	}
-	if since.IsZero() {
-		return "", nil
-	}
-	msgs, err := s.st.MessagesBy(ctx, id, _reefAuthor, since)
-	if err != nil {
-		return "", err
-	}
-	var b strings.Builder
-	for _, m := range msgs {
-		fmt.Fprintf(&b, "%s wrote: %s\n", m.Author, m.Body)
-	}
-	if b.Len() > 0 {
-		b.WriteString("\n")
-	}
-	return b.String(), nil
 }
 
 func sameParent(a, b *int64) bool {

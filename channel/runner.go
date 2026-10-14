@@ -83,7 +83,10 @@ func (r *Runner) Run(
 		}
 	}
 
-	prompt := text
+	prompt, err := r.withNotes(wctx, turn, text)
+	if err != nil {
+		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
+	}
 	if r.preamble != "" {
 		prompt = r.preamble + "\n\n" + text
 	}

@@ -107,9 +107,8 @@ func TestRollback_RestoresTheWorktree(t *testing.T) {
 	}
 	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
-	want := "[channel 2, message 2]\nreef wrote: Rolled back to before turn 1.\n\ngo on"
-	if got := env.ranTexts(); !slices.Equal(got, []string{want}) {
-		t.Errorf("ran = %q, want the rollback note before the message", got)
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 2]\ngo on"}) {
+		t.Errorf("ran = %q, want the wake without the note: the runner adds it when it sends", got)
 	}
 }
 
