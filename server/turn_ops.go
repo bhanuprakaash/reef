@@ -86,16 +86,34 @@ func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 	}
 	err = s.restoreTree(ctx, c, ch, t)
 	if err == nil {
-		_, err = s.st.CreateMessage(ctx, store.Message{
-			ChannelID: t.ChannelID, Author: store.ReefAuthor,
-			Body: fmt.Sprintf("Rolled back to before turn %d.", id),
-		})
+		err = s.noteRollback(ctx, ch, id)
 	}
 	if err = c.release(err); err != nil {
 		writeError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// noteRollback posts the rollback note of turn id in every channel of ch's feature, since
+// feature channels share a worktree; a quick session's channel has no feature to share with.
+func (s *server) noteRollback(ctx context.Context, ch store.Channel, id int64) error {
+	chs := []store.Channel{ch}
+	if ch.FeatureID != nil {
+		var err error
+		if chs, err = s.st.Channels(ctx, store.ChannelFilter{FeatureID: ch.FeatureID}); err != nil {
+			return err
+		}
+	}
+	body := fmt.Sprintf("Rolled back to before turn %d.", id)
+	for _, c := range chs {
+		if _, err := s.st.CreateMessage(ctx, store.Message{
+			ChannelID: c.ID, Author: store.ReefAuthor, Body: body,
+		}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // restoreTree puts the channel's tree back to the checkpoint of t. It is a conflict, not a
