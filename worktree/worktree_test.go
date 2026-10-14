@@ -85,6 +85,42 @@ func TestEnsure_NotARepo(t *testing.T) {
 	}
 }
 
+func TestEnsure_NoCommit(t *testing.T) {
+	repo := t.TempDir()
+	run(t, repo, "init", "-b", "main")
+	err := Ensure(context.Background(), repo, filepath.Join(t.TempDir(), "w"), "feature/login")
+	if err == nil || !strings.Contains(err.Error(), "no commit yet") {
+		t.Errorf("Ensure error = %v, want one saying the project has no commit yet", err)
+	}
+}
+
+func TestEnsure_RecreatesRemovedWorktree(t *testing.T) {
+	repo := newRepo(t)
+	dir := Path(t.TempDir(), 1, "login")
+	if err := Ensure(context.Background(), repo, dir, "feature/login"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, dir, "add", ".")
+	run(t, dir, "commit", "-m", "second")
+	work := run(t, dir, "rev-parse", "HEAD")
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Ensure(context.Background(), repo, dir, "feature/login"); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(t, dir, "rev-parse", "HEAD"); got != work {
+		t.Errorf("HEAD = %q, want the branch's %q", got, work)
+	}
+	if got := len(strings.Split(run(t, repo, "worktree", "list"), "\n")); got != 2 {
+		t.Errorf("worktree list has %d lines, want 2: the checkout and one worktree", got)
+	}
+}
+
 func TestDirty(t *testing.T) {
 	repo := newRepo(t)
 	if got, err := Dirty(context.Background(), repo); err != nil || got {

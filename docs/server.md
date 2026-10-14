@@ -199,7 +199,7 @@ One agent run in a channel.
 | `wakeText` | string | default `""`; the text the turn ran: the wake, without the context prompt. Empty for a turn from before this field existed |
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
-| `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<turn id>`. `null` for a turn of a role without `write`, for a turn in a folder that is not a git checkout, and for a turn from before checkpoints. Set by the server, never by a request |
+| `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<turn id>`. `null` for a turn of a role without `write`, for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
 
 ### decision
 
@@ -424,15 +424,18 @@ a message wakes them.
   add`; a worktree or branch that exists is reused, so every channel of the feature shares
   one tree. A quick session runs in the project path. The feature is read at each agent
   start, so a promoted channel moves to the worktree at its next wake. A project that is not
-  a git repo has no worktree: the start fails, with git's error as a `failed` turn, and the
-  server goes on.
+  a git repo, or a repo with no commit, has no worktree: the start fails, with git's error as
+  a `failed` turn, and the server goes on. A worktree whose folder was deleted is pruned and
+  made again at the next wake: an agent running in the missing folder is closed, and the
+  next one resumes the session in the new worktree.
 - Before each turn of a role with `write` in a git checkout (a feature's worktree, or the
   project path of a quick session that is a git repo), the server stores a checkpoint: a commit
   of HEAD plus the whole working tree, untracked files included and ignored ones left out, at
-  `refs/reef/checkpoints/<turn id>`. It is built in a temporary index, so the index, HEAD and
-  the files do not change. The ref is on the turn's `checkpoint`. If the checkpoint fails (for
-  example a repo with no commit), the turn is stored `failed` with git's error and the agent
-  gets no prompt. A role without `write` gets none. The checkpoint commit has two parents:
+  `refs/reef/checkpoints/<turn id>`. It is built in a temporary index that starts as a copy of
+  the real one, so the index, HEAD and the files do not change. The ref is on the turn's
+  `checkpoint`. If the checkpoint fails, the turn is stored `failed` with git's error and the
+  agent gets no prompt. A repo with no commit has nothing to snapshot: its turns run with
+  `checkpoint` null. A role without `write` gets none. The checkpoint commit has two parents:
   HEAD, then a commit of the index as it was, so a rollback can bring back what was staged.
   Its message records the directory and the branch it was taken in (`dir:` and `branch:`
   lines; no branch when HEAD was detached).

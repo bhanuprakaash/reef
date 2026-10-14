@@ -639,6 +639,49 @@ func TestSession_NoWorktreeFailsTurn(t *testing.T) {
 	}
 }
 
+func TestSession_RecreatesRemovedWorktree(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionChannel(t, st, f, false)
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	dir := t.TempDir()
+	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Run(ctx, "hi", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	tree := dir + "/worktrees/1/login"
+	if err := os.RemoveAll(tree); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Run(ctx, "again", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(tree + "/.git"); err != nil {
+		t.Errorf("worktree after the second wake: %v, want it made again", err)
+	}
+	if len(ags) != 2 || !ags[0].closed || ags[1].cfg.Cwd != tree || len(ags[1].prompts) != 1 {
+		t.Errorf("agents = %+v, want the first closed and a second in %s that got the wake", ags, tree)
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 2 || turns[0].Status != "done" || turns[1].Status != "done" {
+		t.Errorf("turns = %+v, want two done", turns)
+	}
+}
+
 func TestSession_WrapOrPromoteCancelledStoresTurn(t *testing.T) {
 	tests := []struct {
 		name string

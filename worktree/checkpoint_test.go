@@ -2,6 +2,7 @@ package worktree
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -63,8 +64,32 @@ func TestCheckpoint_NoCommits(t *testing.T) {
 	repo := t.TempDir()
 	run(t, repo, "init", "-b", "main")
 	err := Checkpoint(context.Background(), repo, "refs/reef/checkpoints/1")
-	if err == nil || !strings.Contains(err.Error(), "no commit to snapshot") {
-		t.Errorf("Checkpoint in a repo with no commits: err = %v, want no commit to snapshot", err)
+	if !errors.Is(err, ErrNoCommit) {
+		t.Errorf("Checkpoint in a repo with no commits: err = %v, want ErrNoCommit", err)
+	}
+}
+
+func TestCheckpoint_NotARepo(t *testing.T) {
+	err := Checkpoint(context.Background(), t.TempDir(), "refs/reef/checkpoints/1")
+	if err == nil || errors.Is(err, ErrNoCommit) || !strings.Contains(err.Error(), "not a git repository") {
+		t.Errorf("Checkpoint in a plain folder: err = %v, want a not a git repository error", err)
+	}
+}
+
+func TestCheckpoint_SeedsIndex(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	run(t, repo, "update-index", "--skip-worktree", "a.txt")
+	if err := os.Remove(filepath.Join(repo, "a.txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := Checkpoint(ctx, repo, "refs/reef/checkpoints/1"); err != nil {
+		t.Fatal(err)
+	}
+
+	if got := run(t, repo, "show", "refs/reef/checkpoints/1:a.txt"); got != "a" {
+		t.Errorf("checkpoint a.txt = %q, want a: the real index marks it skip-worktree, so a temporary index seeded from it keeps the entry", got)
 	}
 }
 

@@ -26,7 +26,8 @@ type Runner struct {
 	// OnPrompt, when set, sees every prompt before it is sent to the agent.
 	OnPrompt func(prompt string)
 	// CheckpointDir, when set, is a git checkout snapshotted before every turn. A turn whose
-	// snapshot fails is stored failed and never sent to the agent.
+	// snapshot fails is stored failed and never sent to the agent. A checkout with no commit
+	// has nothing to snapshot: its turns run with no checkpoint.
 	CheckpointDir string
 
 	st        *store.Store
@@ -77,7 +78,7 @@ func (r *Runner) Run(
 		if err == nil {
 			_, err = r.st.SetTurnCheckpoint(wctx, turn.ID, ref)
 		}
-		if err != nil {
+		if err != nil && !errors.Is(err, worktree.ErrNoCommit) {
 			return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 		}
 	}
