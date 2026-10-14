@@ -106,6 +106,10 @@ app.whenReady().then(async () => {
     height: 800,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
+  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.on('will-navigate', (event, url) => {
+    if (new URL(url).origin !== `http://${ADDR}`) event.preventDefault();
+  });
   browser = createBrowser(win);
   browser.listen(dataDir());
   ipcMain.on('browser:bounds', (_event, rect) => browser.setBounds(rect));

@@ -5,6 +5,9 @@ import path from 'node:path';
 
 const SOCKET_NAME = 'browser.sock';
 const LOAD_TIMEOUT = 5000;
+const MAX_ENTRIES = 500;
+const REEF_PORT = '7700';
+const REEF_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 // refError is returned for a ref that is not in the latest snapshot's map,
 // or a backendDOMNodeId that CDP no longer recognises (the node is gone).
@@ -12,10 +15,49 @@ function refError(ref) {
   return new Error(`ref ${ref} is not on the page; take a new snapshot`);
 }
 
+// isMissingNodeError matches CDP's error for a backendDOMNodeId it no longer
+// recognises, so only that case maps to refError; any other failure passes
+// through with its own message.
+function isMissingNodeError(err) {
+  return /no node (with given id )?found|could not find node/i.test(err.message);
+}
+
+// checkOrigin throws for anything the pane must not open: a non-http(s)
+// scheme, or Reef's own server, which would let an agent approve its own
+// proposals.
+function checkOrigin(raw) {
+  let url;
+  try {
+    url = new URL(raw);
+  } catch {
+    throw new Error(`refused: ${raw} is not a valid URL`);
+  }
+  if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+    throw new Error(`refused: ${url.protocol} is not allowed; only http and https`);
+  }
+  if (REEF_HOSTS.has(url.hostname) && url.port === REEF_PORT) {
+    throw new Error('refused: the browser pane cannot open Reef itself');
+  }
+}
+
+function isAllowed(url) {
+  try {
+    checkOrigin(url);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function pushCapped(list, item) {
+  list.push(item);
+  if (list.length > MAX_ENTRIES) list.shift();
+}
+
 // createBrowser makes the one browser pane for the window: a WebContentsView
 // driven over the Chrome DevTools Protocol, and a socket server that `reef
 // mcp` dials to run tools against it. handlers maps a tool name from the
-// socket wire to a function of its args; later tickets add entries here.
+// socket wire to a function of its args.
 export function createBrowser(win) {
   const view = new WebContentsView();
   win.contentView.addChildView(view);
@@ -26,6 +68,7 @@ export function createBrowser(win) {
   view.webContents.debugger.sendCommand('Accessibility.enable');
   view.webContents.debugger.sendCommand('Runtime.enable');
   view.webContents.debugger.sendCommand('Network.enable');
+  view.webContents.debugger.sendCommand('Log.enable');
 
   // mainFrameId identifies the top frame, so console/network logging only
   // resets on a navigation of the page itself, not an iframe inside it.
@@ -56,16 +99,19 @@ export function createBrowser(win) {
         }
         break;
       case 'Runtime.consoleAPICalled':
-        consoleEntries.push({ level: params.type, text: params.args.map(argText).join(' ') });
+        pushCapped(consoleEntries, { level: params.type, text: params.args.map(argText).join(' ') });
         break;
       case 'Runtime.exceptionThrown':
-        consoleEntries.push({
+        pushCapped(consoleEntries, {
           level: 'error',
           text: params.exceptionDetails.exception?.description ?? params.exceptionDetails.text,
         });
         break;
+      case 'Log.entryAdded':
+        pushCapped(consoleEntries, { level: params.entry.level, text: params.entry.text });
+        break;
       case 'Network.requestWillBeSent':
-        networkRequests.push({
+        pushCapped(networkRequests, {
           requestId: params.requestId,
           method: params.request.method,
           url: params.request.url,
@@ -96,11 +142,22 @@ export function createBrowser(win) {
     refs.clear();
     win.webContents.send('browser:navigated', url);
   });
+  // A page can carry an agent to Reef's own origin by a link or a redirect,
+  // not only a navigate call, so those paths need the same check.
+  view.webContents.on('will-navigate', (event, url) => {
+    if (!isAllowed(url)) event.preventDefault();
+  });
+  view.webContents.on('will-redirect', (event, url) => {
+    if (!isAllowed(url)) event.preventDefault();
+  });
+  view.webContents.setWindowOpenHandler(({ url }) => {
+    navigate(url).catch(() => {});
+    return { action: 'deny' };
+  });
 
   async function navigate(url) {
-    const { errorText } = await view.webContents.debugger.sendCommand('Page.navigate', { url });
-    if (errorText) throw new Error(errorText);
-    await new Promise((resolve) => {
+    checkOrigin(url);
+    const loaded = new Promise((resolve) => {
       const onMessage = (_event, method) => {
         if (method !== 'Page.loadEventFired') return;
         view.webContents.debugger.removeListener('message', onMessage);
@@ -113,6 +170,9 @@ export function createBrowser(win) {
       }, LOAD_TIMEOUT);
       view.webContents.debugger.on('message', onMessage);
     });
+    const { errorText } = await view.webContents.debugger.sendCommand('Page.navigate', { url });
+    if (errorText) throw new Error(errorText);
+    await loaded;
     return { text: `navigated to ${url}` };
   }
 
@@ -179,8 +239,9 @@ export function createBrowser(win) {
       await view.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {
         type: 'mouseReleased', x, y, button: 'left', clickCount: 1,
       });
-    } catch {
-      throw refError(ref);
+    } catch (err) {
+      if (isMissingNodeError(err)) throw refError(ref);
+      throw new Error(`cannot click ${ref}: ${err.message}`);
     }
     return { text: `clicked ${ref}` };
   }
@@ -190,8 +251,9 @@ export function createBrowser(win) {
     try {
       await view.webContents.debugger.sendCommand('DOM.focus', { backendNodeId });
       await view.webContents.debugger.sendCommand('Input.insertText', { text });
-    } catch {
-      throw refError(ref);
+    } catch (err) {
+      if (isMissingNodeError(err)) throw refError(ref);
+      throw new Error(`cannot type into ${ref}: ${err.message}`);
     }
     return { text: `typed into ${ref}` };
   }
@@ -227,6 +289,10 @@ export function createBrowser(win) {
     return takenOver;
   }
 
+  // The renderer's own take-over state resets on reload along with the rest
+  // of its state; this keeps the main process in step with it.
+  win.webContents.on('did-finish-load', () => setTakenOver(false));
+
   async function handleLine(line, conn) {
     let reply;
     try {
@@ -255,7 +321,14 @@ export function createBrowser(win) {
         handleLine(buf.slice(0, nl), conn);
       });
     });
-    server.listen(socketPath, () => fs.chmodSync(socketPath, 0o600));
+    // The umask narrows the window between the socket file's creation and
+    // the chmod below, so it is never briefly open to the rest of the group
+    // or other users.
+    const prevUmask = process.umask(0o077);
+    server.listen(socketPath, () => {
+      process.umask(prevUmask);
+      fs.chmodSync(socketPath, 0o600);
+    });
   }
 
   function close() {
