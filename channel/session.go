@@ -231,21 +231,20 @@ func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store
 	return p, errors.Join(err, s.closeMembers())
 }
 
-// noteWorktree tells the channel where its work goes from now on, when the main checkout has
-// changes the feature's worktree will not have.
+// noteWorktree tells the channel where its work goes from now on, and that uncommitted
+// changes of the main checkout stay there.
 func (s *Session) noteWorktree(ctx context.Context, f store.Feature) error {
 	dirty, err := worktree.Dirty(ctx, s.project.Path)
 	if err != nil {
 		log.Printf("check %s for changes: %v", s.project.Path, err)
 	}
-	if !dirty {
-		return nil
+	body := fmt.Sprintf("This feature works in %s on %s.",
+		worktree.Path(s.dataDir, s.project.ID, f.Slug), worktree.Branch(f.Slug))
+	if dirty {
+		body += " Uncommitted changes stay on the main checkout."
 	}
-	_, err = s.st.CreateMessage(ctx, store.Message{
-		ChannelID: s.ch.ID, Author: store.ReefAuthor,
-		Body: fmt.Sprintf("Uncommitted changes stay on the main checkout. This feature works in %s on %s.",
-			worktree.Path(s.dataDir, s.project.ID, f.Slug), worktree.Branch(f.Slug)),
-	})
+	_, err = s.st.CreateMessage(ctx,
+		store.Message{ChannelID: s.ch.ID, Author: store.ReefAuthor, Body: body})
 	return err
 }
 

@@ -425,11 +425,13 @@ a message wakes them.
   the first start of any agent of the feature, from the project's HEAD, with `git worktree
   add`; a worktree or branch that exists is reused, so every channel of the feature shares
   one tree. A branch that is checked out elsewhere (in the main checkout, or in the worktree
-  of another project on the same repo) cannot be added: the start fails with git's error. A
+  of another project on the same repo) cannot be added: the start fails with `branch
+  feature/<slug> is checked out at <path>; switch that checkout to another branch`. A
   quick session runs in the project path. The feature is read at each agent
   start, so a promoted channel moves to the worktree at its next wake. A project that is not
-  a git repo, or a repo with no commit, has no worktree: the start fails, with git's error as
-  a `failed` turn, and the server goes on. A worktree whose folder was deleted is pruned and
+  a git repo, or a repo with no commit, has no worktree: the start fails as a `failed` turn
+  whose error is `features need the project folder to be a git repo with a commit: <path>:`
+  and git's error, and the server goes on. A worktree whose folder was deleted is pruned and
   made again at the next wake: an agent running in the missing folder is closed, and the
   next one resumes the session in the new worktree.
 - Before each turn of a role with `write` in a git checkout (a feature's worktree, or the
@@ -660,9 +662,10 @@ prompt that names the feature and asks it to call `propose_wrap` once with the f
 written from the session, its notes and the decisions so far. The user approves that
 proposal like a wrap-up, and approval makes brief version 1. The promote turn runs in the
 agent the quick session already has. When it ends, every agent of the channel is stopped, so
-the next wake of each role resumes its session in the feature's worktree. If the main
-checkout has uncommitted changes, the promote first posts a message from `reef`: they stay
-there, and the feature works in the worktree on `feature/<slug>`. When the feature already has
+the next wake of each role resumes its session in the feature's worktree. The promote first
+posts a message from `reef`: `This feature works in <worktree path> on feature/<slug>.`, and
+` Uncommitted changes stay on the main checkout.` after it when the main checkout has
+uncommitted changes. When the feature already has
 a brief, the prompt tells the agent to call `get_brief` and propose that brief merged with
 the session, and approval makes the next version. A promote that fails (a taken
 slug, a feature of another project) changes nothing, and so does one that is stopped
