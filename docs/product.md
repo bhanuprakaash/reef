@@ -197,6 +197,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 36 | The needs-you inbox is a view over approvals, pauses, failed turns and who spoke last; no ask-user tool | No new state to keep in sync, and Reef cannot tell a question from an answer |
 | 37 | Default gates also hold a lead's wake of the developer, and a tester's wake of the developer (amends 14) | Decision 14 gates the steps that touch code; an ungated lead→developer or tester→developer edge let either skip the architect→developer gate |
 | 38 | Default hop cap is 6 (amends 10) | The spec's full flow lead→architect→developer→tester→lead uses 4 hops; one clarifying question must fit without a pause |
+| 39 | Retry runs the failed turn's wake as if the user sent it, so it resets the hop count (amends 26) | A retry is the user asking for the same work again, not a continuation of the chain that failed |
 
 ## Open questions
 
