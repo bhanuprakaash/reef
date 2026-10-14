@@ -13,9 +13,9 @@ live, Wrap-up and promotion, Caps).
 - `live-stop` `POST /channels/{id}/stop` during a turn stores it `failed`, `interrupted`, stops the agent and frees the chat lock; the next send resumes the session.
 - `live-text-commands` the text `/wrap` runs a wrap-up turn; `/promote` sent as text is a plain message.
 - `live-wrap` `POST /channels/{id}/wrap` on a feature channel ends with a pending proposal (`GET /channels/{id}/proposal`); on a quick session it is 400 before any agent starts.
-- `live-promote` `POST /channels/{id}/promote {"slug","name"}` on a quick session sets the channel's feature and ends with a pending proposal holding the first brief; a taken slug is 409 and starts no agent; a channel with a feature is 400.
+- `live-promote` `POST /channels/{id}/promote {"slug","name"}` (or `{"featureId":N}` for an existing feature) on a quick session sets the channel's feature and ends with a pending proposal holding the first brief; both forms together, or neither, is 400; a taken slug is 409 and starts no agent; a channel with a feature is 400.
 - `live-decide` `POST /proposals/{id}/approve` adds a brief version and returns `decisionsAdded`; `reject` changes nothing; deciding twice is 400.
-- `live-caps` a paused channel refuses a send with 409 and the reason; `POST /channels/{id}/continue` clears it (409 when not paused) and sets a used-up token budget to the tokens used plus 1000000.
+- `live-caps` a channel paused by the token budget or the tool cap refuses a send with 409 and the reason; a hop-cap pause (`hop cap: 4 agent hops without a user message`) does not: a user send clears it, answers 202 and runs the turn. `POST /channels/{id}/continue` clears a pause (409 when not paused or while a turn runs), also runs held wakes (see `teams.md`), and sets a used-up token budget to the tokens used plus 1000000.
 - `live-delete` `DELETE /channels/{id}` on a live channel stops its agent first.
 
 ## How to get to it (user POV)
@@ -46,3 +46,4 @@ Preconditions: baseline from the README, and a server started with the model set
 - A turn that fails for any reason other than Stop also stops the agent; the next send starts it again by resume.
 - `/promote` as text is a message on purpose: only the promote route promotes.
 - A paused channel's 409 text ends with `: conflict`; match on `paused:` and the reason.
+- Agents start lazily, on a channel's first turn, so a "starts no agent" `pgrep` check on a channel that has had no turn is true whatever the server does. Count agents before and after the call, on a channel that already ran.

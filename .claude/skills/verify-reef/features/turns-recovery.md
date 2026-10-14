@@ -1,8 +1,9 @@
 # Turns and restart recovery
 
 A turn is one agent run in a channel. It starts `running` and ends once, as `done` or
-`failed`, with its token usage. A turn can only run while a server owns it, so when the
-server stops, the turns it left running are marked failed at the next start, and each
+`failed`, with its token usage. A turn can only run while a server owns it. A normal stop
+(Ctrl-C) ends a live turn as `failed` with `interrupted`. When the server dies instead, or a
+turn has no live agent, the turns it left running are marked failed at the next start, and each
 affected channel gets one message from `reef` telling the user to check the worktree.
 
 ## Sub-features
@@ -13,7 +14,7 @@ affected channel gets one message from `reef` telling the user to check the work
 - `turn-filter` `GET /turns` filters by `?channel=ID` and `?status=running|done|failed`.
 - `turn-recovery-crash` after a crash (SIGKILL), the next start marks every running turn `failed` with `server restarted`, and adds one `reef` message per affected channel naming all its turns.
 - `turn-recovery-clean` with no running turn, a restart marks nothing and adds no message; a second server refused by the lock never touches the owner's turns.
-- `turn-recovery-stop` a turn left running over a normal stop (SIGINT) is failed the same way at the next start.
+- `turn-recovery-stop` a turn row with no live agent (made by `POST /turns`, or a dead chat) left running over a normal stop (SIGINT) is failed the same way at the next start; a real server-run turn stopped by SIGINT ends `failed` with `interrupted` at shutdown, and the next start logs no `marked` line and posts no `reef` message.
 - `turn-recovery-open-chat` a running turn of a live `reef chat` is left running, gets no `reef` message and is not counted; stale turns beside it are failed.
 
 ## How to get to it (user POV)
@@ -35,13 +36,13 @@ Preconditions:
 - **Second server does not recover.** `$H serve-second --same-addr` prints `ok: refused`. `$H api GET /turns/3` is still `running` and `$H api GET '/messages?channel=1'` is `[]`.
 - **Crash recovery.** Add two more running turns: `$H api POST /turns '{"channelId":1,"role":"developer","backend":"claude"}'` (id 4) and `$H api POST /turns '{"channelId":2,"role":"developer","backend":"codex"}'` (id 5). `$H serve-stop --kill` prints `exit=137`. `$H serve-start --data-name turns`. `serve.log` has `marked 3 running turns failed: server restarted`. `$H api GET '/turns?status=running'` is `[]`; `$H api GET /turns/3` is `failed`, `"error":"server restarted"`, `endedAt` set. `$H api GET '/messages?channel=1'` is exactly one message, author `reef`, `Turn 3 by tester, turn 4 by developer failed: server restarted. The worktree may be dirty; retry or roll back.`; `$H api GET '/messages?channel=2'` is one message, `Turn 5 by developer failed: server restarted. ...`. Turn 1 is still `done` with its usage and turn 2 still `failed` with `boom`: `$H api GET /turns/1`, `$H api GET /turns/2`. Before the kill, `$H api PATCH /turns/4 '{"sessionId":"abc"}'` gives 200 `running`; after the restart `$H api GET /turns/4` is `failed` with `"sessionId":"abc"`.
 - **Clean restart.** `$H serve-stop` prints `exit=0`. `$H serve-start --data-name turns`. `serve.log` has no new `marked` line after this start. `$H sql "select count(*) from message where author = 'reef'"` is still 2 and `$H sql "select id, status from turn"` is unchanged.
-- **Stop with a turn running.** `$H api POST /turns '{"channelId":2,"role":"tester","backend":"claude"}'` (id 6), `$H serve-stop`, `$H serve-start --data-name turns`. `serve.log` has `marked 1 running turns failed: server restarted`. `$H api GET /turns/6` is `failed`; `$H api GET '/messages?channel=2'` now has a second `reef` message, `Turn 6 by tester failed: server restarted. ...`.
+- **Stop with a turn running.** `$H api POST /turns '{"channelId":2,"role":"tester","backend":"claude"}'` (id 6), `$H serve-stop`, `$H serve-start --data-name turns`. `serve.log` has `marked 1 running turns failed: server restarted`. `$H api GET /turns/6` is `failed`; `$H api GET '/messages?channel=2'` now has a second `reef` message, `Turn 6 by tester failed: server restarted. ...`. A turn the server really runs (a live channel's `send`, then `serve-stop` mid-turn) is not this case: it ends `failed` with `"error":"interrupted"` at shutdown, so the next start has no `marked` line and adds no `reef` message.
 - **Open chat is skipped.** Needs a live `reef chat`, so it uses its own folder. `$H serve-stop`. `$H reef --data-name turns-chat -- project add`, `$H reef -- feature add login "Email login"`, `$H reef -- token login --role tester` (channel 1). Make a stale turn on channel 1, as if its chat had died: `$H sql --write "insert into turn (channel_id, role, backend, status, started_at) values (1, 'tester', 'claude', 'running', '2026-10-13T00:00:00Z')"` (turn 1). Write `Write a 3000-word essay on the history of lighthouses. Do not use any tools.` to `~/.reef-verify/<id>/long-in.txt`. Start a chat in the background (Bash `run_in_background`): `ANTHROPIC_MODEL=sonnet $H reef --stdin ~/.reef-verify/<id>/long-in.txt --timeout 60 -- chat login --role developer --backend claude` (channel 2, turn 2). Poll `$H sql "select id, channel_id, status, session_id != '' from turn where status = 'running'"` until it shows `2|2|running|1` beside `1|1|running|0`. Then `$H serve-start --data-name turns-chat`: `serve.log` has `marked 1 running turns failed: server restarted`. `$H api GET '/turns?status=running'` lists only turn 2; `$H api GET '/messages?channel=1'` is one `reef` message, `Turn 1 by tester failed: server restarted. ...`; `$H api GET '/messages?channel=2'` has no `reef` message. When the chat ends (`sigint_after_s: 60`, `exit: 0`, `orphans_alive: none`), `$H api GET /turns/2` is `failed`, `"error":"interrupted"`. `$H serve-stop`.
 
 ## Gotchas
 
 - Recovery happens at start, after the lock and the bind and before the first request, so a `GET` right after `serve-start` already shows `failed`.
-- Only SIGKILL is a crash. SIGINT stops the server cleanly, but a turn still running at that moment is failed too: its agent died with the server.
+- Only SIGKILL is a crash. SIGINT stops the server cleanly, and a real turn still running then ends `failed` with `interrupted` at shutdown (its agent stopped with the server). Only a row with no live agent stays `running` over the stop and gets `server restarted` at the next start.
 - Turns in the message are listed in id order. `serve.log` counts turns; the message is one per channel.
 - A turn's `usage` has all four numbers whatever you send; a field you leave out is 0.
 - A live `reef chat` holds `chat-<channel id>.lock` in the data folder; recovery skips that channel. The chat must still be in its turn when `serve-start` runs, so start the server as soon as the poll shows the session id.
