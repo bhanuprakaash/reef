@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/bhanuprakaash/reef/agent"
 )
@@ -42,6 +43,11 @@ type Role struct {
 }
 
 var _roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
+
+// _unrestrictedBash reports whether a claude tool entry allows every shell command.
+func _unrestrictedBash(tool string) bool {
+	return slices.Contains([]string{"Bash", "Bash(*)", "Bash(:*)"}, strings.TrimSpace(tool))
+}
 
 // _defaultGates apply to an edge the team does not list.
 var _defaultGates = []Gate{
@@ -195,6 +201,10 @@ func (t Team) validate() error {
 		seen[r.Name] = true
 		if err := ValidateAgent(r.Backend, r.PermissionMode); err != nil {
 			return fmt.Errorf("role %s: %w", r.Name, err)
+		}
+		if r.Backend == "claude" && !r.Write && slices.ContainsFunc(r.Tools, _unrestrictedBash) {
+			return fmt.Errorf("%w: role %s has no write, so it cannot have unrestricted Bash; "+
+				"list command patterns such as Bash(go test:*)", ErrInvalid, r.Name)
 		}
 		if r.Lead {
 			leads++

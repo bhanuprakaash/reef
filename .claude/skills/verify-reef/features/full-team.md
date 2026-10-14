@@ -219,6 +219,6 @@ When done: `$H cleanup`, then remove claude's state for the worktrees and for `g
 - The Google flow uses exactly 4 agent hops (architect, developer, tester, lead); approving a gate does not reset the hop count. One extra mention (an architect asking `@lead` to confirm) reaches the hop cap and the channel pauses with the holds in `approval` (kind `hold`).
 - The single-writer lock and the checkpoints are per process. `pgrep -P $(cat $S/serve.pid) -x claude` lists only this server's agents.
 - `serve-stop --kill` is a real crash: the running claude is a child in its own process group and is ended by `cleanup` if it outlives the server.
-- A plain `Bash` in a role's `tools` lets a role without `write` change files through the shell (`echo x > f` works). The `crew` tester lists only `Bash(ls:*)`.
+- A plain `Bash` in a role's `tools` lets a role change files through the shell (`echo x > f` works), so `reef team apply` rejects it for a claude role without `write`. The `crew` tester lists only `Bash(ls:*)`.
 - A background `curl` inside a command whose output is piped keeps the pipe open until `--max-time`; run the stream in its own call or redirect its stderr too.
 - Turn, message and approval ids are global to a data folder; the steps name them by query when other channels wrote before.

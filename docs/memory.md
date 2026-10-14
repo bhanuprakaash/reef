@@ -138,11 +138,15 @@ read-only `git` commands. Apply it with `reef team apply teams/full.json`.
 - Errors print `reef: <message>` and exit 1: `reef: invalid: team bad needs exactly one
   lead role, has 0` (or `has 2`), `reef: role a: invalid: backend must be claude or codex`,
   `reef: invalid: role name "two words" must be letters, digits, _ or -, and not user or reef`,
-  `reef: invalid: gate a to ghost names a role team bad does not have`, `reef: parse
+  `reef: invalid: gate a to ghost names a role team bad does not have`,
+  `reef: invalid: role tester has no write, so it cannot have unrestricted Bash; list command
+  patterns such as Bash(go test:*)`, `reef: parse
   team.json: json: unknown field "color"`.
 - `tools` are the backend's allowed tools: Claude runs them without asking (`--allowedTools`),
   and so it does the reef tools (`mcp__reef__*`), but not the tools of the role's own `mcpServers`
   unless `tools` lists them (`mcp__mcp1__*`).
+  A claude role without `write` cannot list plain `Bash` (or `Bash(*)`): `reef team apply`
+  rejects it, so list patterns such as `Bash(go test:*)`.
   Codex ignores `tools`. Its limit is `permissionMode`. `write` decides which limit applies
   (see [server.md](server.md#role)).
 

@@ -181,3 +181,39 @@ func TestApplyTeam_Write(t *testing.T) {
 		t.Errorf("write of lead, developer, tester = %v, want %v", writes, want)
 	}
 }
+
+func TestApplyTeam_ReadOnlyClaudeBash(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	const wantErr = "invalid: role tester has no write, so it cannot have unrestricted Bash; " +
+		"list command patterns such as Bash(go test:*)"
+	tests := []struct {
+		name    string
+		write   bool
+		backend string
+		tools   []string
+		want    string
+	}{
+		{"plain", false, "claude", []string{"Read", "Bash"}, wantErr},
+		{"star", false, "claude", []string{"Bash(*)"}, wantErr},
+		{"colon star", false, "claude", []string{"Bash(:*)"}, wantErr},
+		{"pattern", false, "claude", []string{"Bash(go test:*)"}, ""},
+		{"write", true, "claude", []string{"Bash"}, ""},
+		{"codex", false, "codex", []string{"Bash"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := s.ApplyTeam(ctx, Team{Name: "t", Roles: []Role{
+				{Name: "lead", Lead: true, Backend: "claude"},
+				{Name: "tester", Write: tt.write, Backend: tt.backend, Tools: tt.tools},
+			}})
+			if tt.want == "" && err != nil || tt.want != "" && (err == nil || err.Error() != tt.want) {
+				t.Errorf("ApplyTeam error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
