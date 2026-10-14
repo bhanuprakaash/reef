@@ -639,12 +639,12 @@ func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: turn %d has no checkpoint", store.ErrInvalid, id))
 		return
 	}
-	c, _, err := s.claim(ctx, t.ChannelID)
+	c, ch, err := s.claim(ctx, t.ChannelID)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	err = s.restoreTree(ctx, t)
+	err = s.restoreTree(ctx, c, ch, t)
 	if err == nil {
 		_, err = s.st.CreateMessage(ctx, store.Message{
 			ChannelID: t.ChannelID, Author: _reefAuthor,
@@ -658,16 +658,35 @@ func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// restoreTree puts the channel's tree back to the checkpoint of t. A tree that a write turn
-// of any channel holds is a conflict, not a wait.
-func (s *server) restoreTree(ctx context.Context, t store.Turn) error {
+// restoreTree puts the channel's tree back to the checkpoint of t. It is a conflict, not a
+// wait, when the channel's tree is not the one t was checkpointed in, when a `reef chat`
+// has the channel open, or when a turn of any channel runs on the tree.
+func (s *server) restoreTree(ctx context.Context, c *chain, ch store.Channel, t store.Turn) error {
 	dir, _, err := channel.WorkDir(ctx, s.st, s.dataDir, t.ChannelID)
 	if err != nil {
 		return err
 	}
+	p, err := s.st.Project(ctx, ch.ProjectID)
+	if err != nil {
+		return err
+	}
+	from, _, err := worktree.Origin(ctx, p.Path, *t.Checkpoint)
+	if err != nil {
+		return err
+	}
+	if from != dir {
+		return fmt.Errorf(
+			"turn %d was checkpointed in %s, not %s: %w", t.ID, from, dir, store.ErrConflict)
+	}
+	c.l.mu.Lock()
+	open := c.l.sess != nil
+	c.l.mu.Unlock()
+	if !open && channel.InUse(s.dataDir, t.ChannelID) {
+		return fmt.Errorf("channel %d is open elsewhere: %w", t.ChannelID, store.ErrConflict)
+	}
 	unlock, ok := s.trees.TryLock(dir)
 	if !ok {
-		return fmt.Errorf("%s has a write turn running: %w", dir, store.ErrConflict)
+		return fmt.Errorf("%s has a turn running: %w", dir, store.ErrConflict)
 	}
 	defer unlock()
 	return worktree.Restore(ctx, dir, *t.Checkpoint)
