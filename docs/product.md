@@ -198,6 +198,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 37 | Default gates also hold a lead's wake of the developer, and a tester's wake of the developer (amends 14) | Decision 14 gates the steps that touch code; an ungated lead→developer or tester→developer edge let either skip the architect→developer gate |
 | 38 | Default hop cap is 6 (amends 10) | The spec's full flow lead→architect→developer→tester→lead uses 4 hops; one clarifying question must fit without a pause |
 | 39 | Retry runs the failed turn's wake as if the user sent it, so it resets the hop count (amends 26) | A retry is the user asking for the same work again, not a continuation of the chain that failed |
+| 40 | Verification runs on a scripted `claude` that replays recorded real output and does its side effects; real `claude` runs only for Claude's own behaviour, at slice verification and when `agent/claude` changes | Real runs took 40+ minutes, cost tokens and failed at random; Reef's own code is what the lines check |
 
 ## Open questions
 
