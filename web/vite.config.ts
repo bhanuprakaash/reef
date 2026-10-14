@@ -20,6 +20,7 @@ const apiPaths = [
   'decisions',
   'tasks',
   'proposals',
+  'inbox',
   'health',
 ];
 

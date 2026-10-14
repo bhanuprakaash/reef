@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
@@ -10,9 +10,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -68,6 +68,14 @@ async function exchange(text) {
 // Adds a project through the form; returns its sidebar section.
 async function addProject() {
   const name = `ui-${scenario}-${Date.now().toString(36)}`;
+  // A channel of a feature runs in a git worktree of the project, so the folder needs a commit.
+  const git = (...args) => execFileSync('git', ['-C', projectDir, '-c', 'user.name=reef', '-c', 'user.email=reef@example.com', ...args], { encoding: 'utf8', stdio: 'pipe' });
+  try {
+    git('rev-parse', '--verify', 'HEAD');
+  } catch {
+    git('init', '-q');
+    git('commit', '-q', '--allow-empty', '-m', 'init');
+  }
   await page.goto(base + '/');
   await page.getByRole('button', { name: 'Add project' }).click();
   await page.getByLabel('Project name').fill(name);
@@ -376,6 +384,83 @@ async function rollback() {
   await exchange('Did anything change in the files since your last answer? Answer in one sentence.');
   const wake = sql(`select wake_text from turn where channel_id=${cid} order by id desc limit 1`);
   check(wake.includes(`reef wrote: Rolled back to before turn ${turnId}.`), 'the next turn was told of the rollback', wake);
+}
+
+async function inbox() {
+  if ((await fetch(`${base}/teams/gated`)).status !== 200) throw new Error('apply the team gated first (see features/teams.md)');
+  const context = page.context();
+  await context.grantPermissions(['notifications']);
+  await page.addInitScript(() => {
+    const Native = window.Notification;
+    window.__notes = [];
+    window.Notification = class extends Native {
+      constructor(title, options) {
+        super(title, options);
+        window.__notes.push({ title, body: options?.body, note: this });
+      }
+    };
+  });
+  const notes = () => page.evaluate(() => window.__notes.map(({ title, body }) => ({ title, body })));
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const { id: cid } = await newTeamChannel('gated', 'inbox room');
+  const permission = await page.evaluate(() => Notification.permission);
+  check(permission === 'granted', 'the window may show notifications', permission);
+
+  await send('DESIGN a short plan for a login form.');
+  await workingAs('lead', 60000);
+  await aside.getByRole('link', { name: /^Inbox/ }).click();
+  await page.getByRole('heading', { name: 'Inbox', level: 1 }).waitFor();
+  check(page.url().endsWith('/inbox'), 'the Inbox link opens /inbox', page.url());
+  const row = main.getByRole('listitem').filter({ hasText: 'lead wants to wake architect' });
+  await row.waitFor({ timeout: 240000 });
+  await shot('approval-row');
+  const rowText = (await row.textContent()) ?? '';
+  check(
+    /Approval: inbox room/.test(rowText) && (await row.getByRole('button', { name: 'Approve' }).count()) === 1 && (await row.getByRole('button', { name: 'Reject' }).count()) === 1,
+    'a new approval of a channel that is not open shows in the inbox with Approve and Reject',
+    rowText,
+  );
+  const badge = await aside.getByLabel(/waiting$/).textContent();
+  check(badge === '1', 'the Inbox link shows a count badge of 1', badge);
+  await page.waitForTimeout(3000);
+  const fired = await notes();
+  check(fired.length === 1 && /^Approval: inbox room$/.test(fired[0].title) && fired[0].body === 'lead wants to wake architect', 'one notification fired for the approval', JSON.stringify(fired));
+  check(sql(`select count(*) from turn where channel_id=${cid} and role='architect'`) === '0', 'no architect turn ran before Approve');
+
+  await page.evaluate(() => window.__notes[0].note.onclick());
+  await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
+  check(page.url().endsWith(`/channels/${cid}`), 'clicking the notification opens the channel', page.url());
+  await aside.getByRole('link', { name: /^Inbox/ }).click();
+  await row.getByRole('link', { name: /Approval: inbox room/ }).click();
+  await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
+  check(page.url().endsWith(`/channels/${cid}`), 'clicking an inbox item opens its channel', page.url());
+  await shot('item-opened-channel');
+
+  await aside.getByRole('link', { name: /^Inbox/ }).click();
+  await row.getByRole('button', { name: 'Approve' }).click();
+  await row.waitFor({ state: 'hidden', timeout: 30000 });
+  await shot('approved');
+  check(true, 'Approve from the inbox removes the approval item');
+  const end = Date.now() + 240000;
+  while (Date.now() < end && sql(`select count(*) from turn where channel_id=${cid} and role='architect' and status='done'`) === '0') await page.waitForTimeout(1000);
+  check(
+    sql(`select from_role||'>'||to_role||' '||status from approval where channel_id=${cid}`) === 'lead>architect approved' &&
+      sql(`select count(*) from turn where channel_id=${cid} and role='architect' and status='done'`) === '1',
+    'Approve ran the wake: the approval is approved and the architect turn is done',
+    `approvals: ${sql(`select id,status from approval where channel_id=${cid}`)}; turns: ${sql(`select group_concat(role||' '||status) from (select role,status from turn where channel_id=${cid} order by id)`)}`,
+  );
+  const waiting = main.getByRole('listitem').filter({ hasText: 'Waiting: inbox room' });
+  await waiting.waitFor({ timeout: 30000 });
+  await shot('after-wake');
+  check((await waiting.getByRole('link', { name: 'Open' }).count()) === 1, 'the architect answer then shows as a waiting item with Open', await waiting.textContent());
+  const all = await notes();
+  check(all.length === 2 && /^Waiting: inbox room$/.test(all[1].title), 'the new item fired its own notification, none for the old ones', JSON.stringify(all.map((n) => n.title)));
+  await page.reload();
+  await waiting.waitFor();
+  await page.waitForTimeout(3000);
+  const afterReload = await notes();
+  check(afterReload.length === 0, 'items present at load fire no notification', JSON.stringify(afterReload));
 }
 
 async function wrap() {
