@@ -75,7 +75,7 @@ A channel is what the user opens as a session; inside, each teammate is its own 
 
 **Example flow.** User asks lead for Google login → lead asks @architect for a plan → plan posted as a thread, user replies in the thread with questions → architect hands off to @developer → developer asks @architect a doubt → developer pings @tester → tester reports back.
 
-**Approval gates.** The user can require approval before work passes between roles. Defaults: lead → architect is free; architect → developer and developer → tester require approval. Each gate can be switched off per team.
+**Approval gates.** The user can require approval before work passes between roles. Defaults: lead → architect is free; lead → developer, architect → developer and developer → tester require approval. Each gate can be switched off per team.
 
 **Caps** (plain code): max agent-to-agent hops without a user message (default 4), max turns per teammate per wake (default 25), token budget per channel (default 1M). On any cap the channel pauses and an item goes to the needs-you inbox.
 
@@ -195,6 +195,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 34 | Write turns on one tree run one at a time across channels | Decision 17's single writer holds with two channels on one feature |
 | 35 | Rollback resets the files and the branch to the checkpoint, not the agent's session, and leaves a note in the channel | Sessions cannot be rewound; the note tells the agent |
 | 36 | The needs-you inbox is a view over approvals, pauses, failed turns and who spoke last; no ask-user tool | No new state to keep in sync, and Reef cannot tell a question from an answer |
+| 37 | Default gates also hold a lead's wake of the developer (amends 14) | Decision 14 gates the steps that touch code; an ungated lead→developer edge let the lead skip the architect→developer gate |
 
 ## Open questions
 

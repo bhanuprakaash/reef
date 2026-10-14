@@ -115,6 +115,56 @@ func TestApproval_GateHoldsWake(t *testing.T) {
 	}
 }
 
+func TestApproval_LeadWakeOfDeveloperIsHeld(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	roles := []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
+		{Name: "developer", Write: true, Backend: "claude"},
+	}
+	if _, err := env.st.ApplyTeam(ctx, store.Team{Name: "core", Roles: roles}); err != nil {
+		t.Fatal(err)
+	}
+	env.fake.onRun = func(role, text string, _ *int64) {
+		if role == "lead" && strings.HasSuffix(text, "\nask developer") {
+			post("lead", "@developer please add a README line", nil)
+		}
+		if role == "lead" && strings.HasSuffix(text, "\nask architect") {
+			post("lead", "@architect plan it", nil)
+		}
+	}
+	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	sub := subscribeTo(t, env.url, id)
+
+	env.sendTo(t, id, "ask developer")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
+	if got := sub.next(t); !strings.HasPrefix(got, `approval {"id":1,"channelId":2,"from":"lead","to":"developer",`) {
+		t.Errorf("frame = %s, want the pending approval", got)
+	}
+	sub.want(t, `turn {"role":"lead","status":"done"}`)
+	status, body := do(t, http.MethodGet, approvals, "")
+	if status != 200 || !strings.HasPrefix(body, `[{"id":1,"channelId":2,"from":"lead","to":"developer",`) ||
+		!strings.Contains(body, `"status":"pending"`) {
+		t.Errorf("approvals = %d %s, want lead to developer pending", status, body)
+	}
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 1]\nask developer"}) {
+		t.Errorf("ran = %q, want only the lead: no developer turn before approval", got)
+	}
+
+	env.sendTo(t, id, "ask architect")
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`, `turn {"role":"architect","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`, `turn {"role":"architect","status":"done"}`)
+	if got := env.ranTexts(); len(got) != 3 || !strings.HasSuffix(got[2], "lead wrote: @architect plan it") {
+		t.Errorf("ran = %q, want the architect to run at once", got)
+	}
+	if _, body := do(t, http.MethodGet, approvals, ""); strings.Count(body, `"status":"pending"`) != 1 {
+		t.Errorf("approvals = %s, want only the developer one pending", body)
+	}
+}
+
 // gatedChannel gates lead to architect and makes the lead hold a wake for the architect
 // when it runs "go". It returns the channel id, a stream of it and its approvals URL.
 func (e *liveEnv) gatedChannel(t *testing.T) (int, *stream, string) {

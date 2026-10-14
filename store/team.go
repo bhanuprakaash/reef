@@ -45,6 +45,7 @@ var _roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
 // _defaultGates apply to an edge the team does not list.
 var _defaultGates = []Gate{
+	{From: "lead", To: "developer", On: true},
 	{From: "architect", To: "developer", On: true},
 	{From: "developer", To: "tester", On: true},
 }

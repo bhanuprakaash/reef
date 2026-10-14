@@ -179,7 +179,7 @@ When done: `$H cleanup`, then remove claude's state for the worktrees and for `g
 ## Gotchas
 
 - The model decides the words, so check structure: `turn.role`, `turn.checkpoint`, `approval` rows, git state, files. The `crew` personas keep turns short and tool-free unless asked.
-- Every `@name` in an agent's message wakes that teammate, and a gate holds only its own edge. In the Google run a lead that wrote "I'll hand it to @developer" woke the developer at once, past the architect-to-developer gate. `teams/full.json` tells each role to mention only the teammate it hands work to; if a run still takes another path, start again on a fresh repo and folder.
+- Every `@name` in an agent's message wakes that teammate, and a gate holds only its own edge. A lead that writes "I'll hand it to @developer" holds a `lead|developer|gate|pending` approval (lead to developer is gated by default), so it can not skip the architect. `teams/full.json` tells each role to mention only the teammate it hands work to; if a run still takes another path, start again on a fresh repo and folder.
 - The Google flow uses exactly 4 agent hops (architect, developer, tester, lead); approving a gate does not reset the hop count. One extra mention (an architect asking `@lead` to confirm) reaches the hop cap and the channel pauses with the holds in `approval` (kind `hold`).
 - The single-writer lock and the checkpoints are per process. `pgrep -P $(cat $S/serve.pid) -x claude` lists only this server's agents.
 - `serve-stop --kill` is a real crash: the running claude is a child in its own process group and is ended by `cleanup` if it outlives the server.

@@ -270,8 +270,9 @@ A switch for the wakes one role sends another: a wake from role `from` to role `
 | `to` | string | required; a role of the team |
 | `on` | boolean | `true`: the wake waits for the user's approval. `false`: it runs at once |
 
-An edge the team does not list uses the default: `architect` to `developer` and `developer`
-to `tester` are on, every other edge is off.
+An edge the team does not list uses the default: `lead` to `developer`, `architect` to
+`developer` and `developer` to `tester` are on, every other edge is off. A team file can
+list an edge with `on: false` to switch a default off.
 
 ### approval
 
