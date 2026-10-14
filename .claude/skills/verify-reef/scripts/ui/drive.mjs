@@ -5,8 +5,8 @@
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
+import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
@@ -386,8 +386,14 @@ async function rollback() {
     'the channel has the note from reef',
   );
   await exchange('Did anything change in the files since your last answer? Answer in one sentence.');
-  const wake = sql(`select wake_text from turn where channel_id=${cid} order by id desc limit 1`);
-  check(wake.includes(`reef wrote: Rolled back to before turn ${turnId}.`), 'the next turn was told of the rollback', wake);
+  // The note is added to the prompt when it is sent, so it is in claude's session file, not in wake_text.
+  const sid = sql(`select session_id from turn where channel_id=${cid} order by id desc limit 1`);
+  const projects = path.join(homedir(), '.claude', 'projects');
+  const file = readdirSync(projects)
+    .map((d) => path.join(projects, d, `${sid}.jsonl`))
+    .find(existsSync);
+  const note = `reef wrote: Rolled back to before turn ${turnId}.`;
+  check(Boolean(file) && readFileSync(file, 'utf8').includes(note), 'the next turn was told of the rollback', `${note} in ${file}`);
 }
 
 async function inbox() {
