@@ -21,7 +21,7 @@ Later slices add the Mac shell; add a file here for each feature they bring.
 ## Driving conventions
 
 - Drive `reef-agent` only through `$H run` and `$H interrupt`. They run the binary in the scratch cwd
-  `/private/tmp/reef-verify/<id>/cwd` and record evidence.
+  `<scratch>/cwd` and record evidence. `<scratch>` and `<key>` are defined in `SKILL.md` (Launch).
 - Give each drive a new `--name` that says the feature and backend, e.g. `resume-claude`.
 - Treat commands as literal. Prompts that name a shell command must keep it exact, so the
   `tool_call` input can be matched.
