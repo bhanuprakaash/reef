@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,7 +23,9 @@ const _keepAlive = 15 * time.Second
 
 var errStopping = errors.New("server is stopping")
 
-var _hopReason = fmt.Sprintf("hop cap: %d agent hops without a user message", store.HopCap)
+const _hopReasonPrefix = "hop cap:"
+
+var _hopReason = fmt.Sprintf("%s %d agent hops without a user message", _hopReasonPrefix, store.HopCap)
 
 type session interface {
 	Say(ctx context.Context, body string, parent *int64) (store.Message, error)
@@ -268,7 +271,7 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 	if err != nil {
 		return err
 	}
-	if ch.Paused == _hopReason {
+	if strings.HasPrefix(ch.Paused, _hopReasonPrefix) {
 		c.lift(&ch, ch.TokenBudget)
 	}
 	role, err := s.checkChannel(ctx, c.l, t.kind, ch)
