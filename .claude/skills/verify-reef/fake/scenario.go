@@ -13,8 +13,7 @@ type scenario struct {
 func pat(s string) *regexp.Regexp { return regexp.MustCompile(s) }
 
 // _scenarios covers the prompts verify-reef's window scenarios (scripts/ui/drive.mjs) and
-// features/full-team.md send. A role-specific catch-all at the end gives every other prompt
-// of that role some reply; the plain catch-all is last of all.
+// features/full-team.md send.
 var _scenarios = []scenario{
 	{"promote-propose-merge", "", pat(`now part of feature .* already has a brief`)},
 	{"promote-propose", "", pat(`This quick session is now feature`)},
@@ -44,11 +43,6 @@ var _scenarios = []scenario{
 	{"list-read-summarize", "", pat(`List the files in this directory with a tool`)},
 	{"brief-goal", "", pat(`(?i)what is the goal of this feature`)},
 	{"short-answer", "", pat(`Answer in one or two sentences, use no tools\.\s*$`)},
-	{"generic-lead", "lead", pat(`.`)},
-	{"generic-architect", "architect", pat(`.`)},
-	{"generic-developer", "developer", pat(`.`)},
-	{"generic-tester", "tester", pat(`.`)},
-	{"generic", "", pat(`.`)},
 }
 
 // matchScenario returns the name of the first scenario whose role fits role and whose
