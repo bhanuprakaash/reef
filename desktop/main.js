@@ -3,6 +3,7 @@ import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createBrowser } from './browser.js';
+import { createTerminals } from './terminal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ADDR = '127.0.0.1:7700';
@@ -65,8 +66,7 @@ function waitForHealth(url, child) {
 
 let server = null;
 
-async function startServer() {
-  const PATH = await loginShellPath();
+async function startServer(PATH) {
   server = spawn(reefPath(), ['serve', '--addr', ADDR], { env: { ...process.env, PATH } });
   let stderr = '';
   server.stderr.on('data', (chunk) => { stderr += chunk.toString(); });
@@ -95,9 +95,11 @@ function stopServer() {
 }
 
 let browser = null;
+let terminals = null;
 
 app.whenReady().then(async () => {
-  const ok = await startServer();
+  const PATH = await loginShellPath();
+  const ok = await startServer(PATH);
   if (!ok) return;
   const win = new BrowserWindow({
     width: 1200,
@@ -108,6 +110,10 @@ app.whenReady().then(async () => {
   browser.listen(dataDir());
   ipcMain.on('browser:bounds', (_event, rect) => browser.setBounds(rect));
   ipcMain.handle('browser:navigate', (_event, url) => browser.navigate(url));
+  terminals = createTerminals(win, PATH);
+  ipcMain.handle('terminal:open', (_event, cwd) => terminals.open(cwd));
+  ipcMain.on('terminal:write', (_event, cwd, data) => terminals.write(cwd, data));
+  ipcMain.on('terminal:resize', (_event, cwd, cols, rows) => terminals.resize(cwd, cols, rows));
   win.loadURL(`http://${ADDR}`);
 });
 
@@ -122,5 +128,6 @@ app.on('before-quit', (event) => {
   quitting = true;
   event.preventDefault();
   if (browser) browser.close();
+  if (terminals) terminals.killAll();
   stopServer().then(() => app.quit());
 });

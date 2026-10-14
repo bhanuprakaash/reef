@@ -13,4 +13,14 @@ contextBridge.exposeInMainWorld('reef', {
     ipcRenderer.on('browser:navigated', listener);
     return () => ipcRenderer.removeListener('browser:navigated', listener);
   },
+  openTerminal: (cwd) => ipcRenderer.invoke('terminal:open', cwd),
+  writeTerminal: (cwd, data) => ipcRenderer.send('terminal:write', cwd, data),
+  resizeTerminal: (cwd, cols, rows) => ipcRenderer.send('terminal:resize', cwd, cols, rows),
+  onTerminalData: (cwd, callback) => {
+    const listener = (_event, key, data) => {
+      if (key === cwd) callback(data);
+    };
+    ipcRenderer.on('terminal:data', listener);
+    return () => ipcRenderer.removeListener('terminal:data', listener);
+  },
 });

@@ -1,10 +1,12 @@
 import { useParams } from 'react-router';
+import { TerminalPane } from '@/app/terminal-pane';
 import { ChannelList } from '@/modules/channels/components/channel-list';
 import { useChannels } from '@/lib/api/get-channels';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDecisions } from '@/modules/features/api/get-decisions';
 import { useFeature } from '@/modules/features/api/get-feature';
+import { useFeatureWorktree } from '@/modules/features/api/get-worktree';
 import { BriefPanel } from '@/modules/features/components/brief-panel';
 import { DecisionList } from '@/modules/features/components/decision-list';
 import { FeatureForm } from '@/modules/features/components/feature-form';
@@ -28,6 +30,7 @@ export function FeaturePage() {
   const decisions = useDecisions(id);
   const tasks = useTasks({ feature: id });
   const channels = useChannels();
+  const worktree = useFeatureWorktree(id, typeof window !== 'undefined' && window.reef != null);
 
   if (feature.isPending) return <p className={mutedClass}>Loading...</p>;
   if (feature.isError) return <p className={errorClass}>{feature.error.message}</p>;
@@ -67,6 +70,11 @@ export function FeaturePage() {
           <NewChannelForm projectId={feature.data.projectId} featureId={id} />
         </div>
       </Section>
+      {worktree.data && (
+        <Section title="Terminal">
+          <TerminalPane cwd={worktree.data.path} />
+        </Section>
+      )}
     </div>
   );
 }

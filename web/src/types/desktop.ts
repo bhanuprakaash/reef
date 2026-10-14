@@ -5,6 +5,10 @@ export type ReefBridge = {
   setBrowserBounds: (rect: { x: number; y: number; width: number; height: number }) => void;
   navigateBrowser: (url: string) => void;
   onBrowserNavigated: (callback: (url: string) => void) => () => void;
+  openTerminal: (cwd: string) => Promise<string>;
+  writeTerminal: (cwd: string, data: string) => void;
+  resizeTerminal: (cwd: string, cols: number, rows: number) => void;
+  onTerminalData: (cwd: string, callback: (data: string) => void) => () => void;
 };
 
 declare global {

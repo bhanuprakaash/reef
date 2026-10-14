@@ -57,12 +57,22 @@ call with its level (`log`, `error`, ...); `Network.requestWillBeSent`,
 method, URL and status. Both lists are cleared on `Page.frameStartedLoading` for the page's main
 frame, so a new navigation starts them empty.
 
+## Terminal pane
+
+One shell per working tree ([`desktop/terminal.js`](../desktop/terminal.js)): a feature's
+worktree, made the same way a first wake would (`POST /features/{id}/worktree`), or a project
+checkout for a quick session. The pane shows on a feature page and on a quick session's channel
+page; it renders nothing in a plain browser. `node-pty` spawns the login shell with the `PATH`
+the app already resolved at start, in the given directory. The shell's output is buffered in the
+main process per directory, so a pane that closes and reopens on the same directory sees what it
+missed, and keeps running until the app quits.
+
 ## Quit
 
 Quitting the app (the window, the menu, or a signal) stops its `reef serve` first: the server
 gets SIGTERM and the app waits for it to exit, about a second, before it finishes quitting. No
 `reef serve` is left running after the app closes. It also closes the browser socket and
-removes `browser.sock`.
+removes `browser.sock`, and kills every shell the terminal pane started.
 
 ## Package
 

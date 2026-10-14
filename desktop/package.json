@@ -55,5 +55,8 @@
         { "from": "resources/linux/reef", "to": "reef" }
       ]
     }
+  },
+  "dependencies": {
+    "node-pty": "^1.1.0"
   }
 }
