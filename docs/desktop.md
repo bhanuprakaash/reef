@@ -56,3 +56,43 @@ Quitting the app (the window, the menu, or a signal) stops its `reef serve` firs
 gets SIGTERM and the app waits for it to exit, about a second, before it finishes quitting. No
 `reef serve` is left running after the app closes. It also closes the browser socket and
 removes `browser.sock`.
+
+## Package
+
+`electron-builder` (a `desktop/` devDependency, config in `desktop/package.json`'s `build`
+field) makes an installable app. Each target cross-builds `reef` for the target's OS and arch
+with `go build`, puts it in `desktop/resources/<target>/reef`, and electron-builder copies it
+into the app as an extra resource.
+
+### Mac
+
+```
+cd desktop
+npm install
+npm run dist:mac
+```
+
+Makes `dist/mac-arm64/Reef.app` (and a zipped copy) for Apple Silicon. It is ad-hoc signed
+(`mac.identity: "-"`), not notarized, so first open needs a right-click, Open, Open to get past
+Gatekeeper; after that it opens normally. Data folder: `~/Library/Application Support/Reef`.
+
+### Ubuntu
+
+```
+cd desktop
+npm install
+npm run dist:linux
+```
+
+Makes `dist/reef-desktop_<version>_amd64.deb` and `..._arm64.deb`, each with the `reef`
+binary built for that arch and a desktop entry (`Reef`, category Development). Install and
+remove like any `.deb`:
+
+```
+sudo apt install ./dist/reef-desktop_<version>_<arch>.deb
+# launch from the app grid, or:
+reef-desktop
+sudo apt remove reef-desktop
+```
+
+`apt remove` leaves the data folder, `~/.config/Reef`, alone.
