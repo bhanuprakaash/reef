@@ -92,3 +92,9 @@ data folder with `$H reef --data-name NAME` and assumes ids start at 1.
 Drive this with `$H ui SCENARIO` against a server started with `ANTHROPIC_MODEL=sonnet $H serve-start`, after building the web app.
 
 - [Window](./window.md): live channel with tool rows, a new channel that answers from the brief, promote a quick session and approve its brief, a cap banner and Continue, teams (team picker, Thread pane, Approve and Reject: `$H ui teams`, setup in [Teams](./teams.md)).
+
+### Desktop app
+
+Drive this with `$H desktop` after `build` and `doctor`; it builds, launches and quits the app itself.
+
+- [Desktop app](./desktop.md): the app starts its own server, window screenshot, every browser tool through `reef mcp`, take over, stale refs, the terminal pane on a feature's worktree, quit with no process left, the browser unavailable after quit.
