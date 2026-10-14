@@ -1,6 +1,6 @@
 # Reef: working agreement for every agent
 
-Read this first. Then [`docs/product.md`](docs/product.md) (what we build and the 31
+Read this first. Then [`docs/product.md`](docs/product.md) (what we build and the 38
 decisions), [`docs/server.md`](docs/server.md) (the data server) and
 [`docs/memory.md`](docs/memory.md) (the CLI, MCP tools, `reef chat` and wrap-up).
 

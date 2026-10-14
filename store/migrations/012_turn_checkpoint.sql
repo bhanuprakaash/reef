@@ -1,0 +1,1 @@
+ALTER TABLE turn ADD COLUMN checkpoint TEXT;

@@ -36,8 +36,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 9 {
-		t.Errorf("user_version = %d, want 9", version)
+	if version != 13 {
+		t.Errorf("user_version = %d, want 13", version)
 	}
 
 	at := func(h, m, sec, ns int) time.Time {
@@ -65,14 +65,14 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 				Role: "architect", Backend: "claude", TokenBudget: 1000000, Team: "solo",
 				CreatedAt: at(3, 8, 0, 0)}},
 		{"solo team", func() (any, error) { return s.Team(ctx, "solo") },
-			Team{Name: "solo", Roles: []Role{{Name: "lead", Lead: true, Backend: "claude",
+			Team{Name: "solo", Roles: []Role{{Name: "lead", Lead: true, Write: true, Backend: "claude",
 				Tools: []string{}, MCPServers: []agent.MCPServer{}}}}},
 		{"messages", func() (any, error) { return s.Messages(ctx, 1, 0) },
 			[]Message{{ID: 1, ChannelID: 1, Author: "user", Body: "how do we sign in?",
 				CreatedAt: at(3, 9, 0, 0)}}},
 		{"turn", func() (any, error) { return s.Turn(ctx, 1) },
 			Turn{ID: 1, ChannelID: 1, Role: "architect", Backend: "claude",
-				SessionID: "sess-1", Status: "done",
+				SessionID: "sess-1", Status: "done", Sent: true,
 				Usage: agent.Usage{InputTokens: 11, OutputTokens: 22,
 					CacheReadTokens: 33, CacheWriteTokens: 44},
 				StartedAt: at(3, 10, 0, 0), EndedAt: &ended}},
@@ -144,8 +144,8 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 9 {
-		t.Errorf("user_version = %d, want 9", version)
+	if version != 13 {
+		t.Errorf("user_version = %d, want 13", version)
 	}
 	as, err := s.PendingApprovals(ctx, 1)
 	if err != nil {

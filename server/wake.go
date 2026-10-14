@@ -10,7 +10,9 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-const _userAuthor = "user"
+const (
+	_userAuthor = "user"
+)
 
 // wake is a turn to run: role answers text, and its reply goes in the thread of parent.
 // from is the author of the message messageID that woke it; gated is set when the team
@@ -95,19 +97,18 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 			}
 			text = b.String() + "\n" + text
 		}
-		text = header + "\n" + text
 		for _, role := range woken {
 			gated := team.Gated(m.Author, role)
 			if i := slices.IndexFunc(ws, func(w wake) bool {
 				return w.role == role && sameParent(w.parent, m.ParentID)
 			}); i >= 0 {
-				ws[i].text += "\n\n" + text
+				ws[i].text += "\n\n" + header + "\n" + text
 				ws[i].gated = ws[i].gated || gated
 				continue
 			}
 			ws = append(ws, wake{
 				from: m.Author, messageID: m.ID, gated: gated,
-				role: role, text: text, parent: m.ParentID,
+				role: role, text: header + "\n" + text, parent: m.ParentID,
 			})
 		}
 	}

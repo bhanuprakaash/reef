@@ -20,7 +20,7 @@ const approval = {
 };
 
 vi.mock('@/modules/channels/api/get-approvals', () => ({ useApprovals }));
-vi.mock('@/modules/channels/api/decide-approval', () => ({ useDecideApproval }));
+vi.mock('@/lib/api/decide-approval', () => ({ useDecideApproval }));
 
 describe('ApprovalRows', () => {
   beforeEach(() => {

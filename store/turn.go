@@ -17,39 +17,58 @@ const (
 	_turnFailed  = "failed"
 )
 
+const _interruptedError = "interrupted"
+
+// _retryable is true for a turn t that retry may run again: it failed, was not retried, kept
+// a wake, and no later turn of its role ran in the channel.
+const _retryable = `t.status = '` + _turnFailed + `' AND t.retried = 0 AND t.wake_text IS NOT NULL
+	AND NOT EXISTS (SELECT 1 FROM turn n WHERE n.channel_id = t.channel_id AND n.role = t.role AND n.id > t.id)`
+
 const (
 	_restartError  = "server restarted"
-	_restartAuthor = "reef"
 	_restartAdvice = "The worktree may be dirty; retry or roll back."
 )
 
 const (
 	_turnCols = "id, channel_id, role, backend, session_id, status, error, " +
-		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at"
+		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, " +
+		"wake_text, wake_parent, retried, checkpoint, sent"
 )
 
 // Turn is one agent run in a channel. It starts running and ends once, as
-// done or failed. There is no delete.
+// done or failed. There is no delete. WakeText and WakeParent are the prompt the turn ran
+// and the message its reply answers; WakeText is empty for a turn that kept none. Retried is
+// set once a failed turn has been run again. Sent is true once the turn's prompt reached the
+// agent; false for a turn that failed before then.
 type Turn struct {
-	ID        int64       `json:"id"`
-	ChannelID int64       `json:"channelId"`
-	Role      string      `json:"role"`
-	Backend   string      `json:"backend"`
-	SessionID string      `json:"sessionId"`
-	Status    string      `json:"status"`
-	Error     string      `json:"error"`
-	Usage     agent.Usage `json:"usage"`
-	StartedAt time.Time   `json:"startedAt"`
-	EndedAt   *time.Time  `json:"endedAt"`
+	ID         int64       `json:"id"`
+	ChannelID  int64       `json:"channelId"`
+	Role       string      `json:"role"`
+	Backend    string      `json:"backend"`
+	SessionID  string      `json:"sessionId"`
+	Status     string      `json:"status"`
+	Error      string      `json:"error"`
+	Usage      agent.Usage `json:"usage"`
+	StartedAt  time.Time   `json:"startedAt"`
+	EndedAt    *time.Time  `json:"endedAt"`
+	WakeText   string      `json:"wakeText"`
+	WakeParent *int64      `json:"wakeParent"`
+	Retried    bool        `json:"retried"`
+	Sent       bool        `json:"sent"`
+	// Checkpoint is the git ref of the snapshot taken before the turn ran, nil for a
+	// turn that has none.
+	Checkpoint *string `json:"checkpoint"`
 }
 
-// TurnFilter narrows Turns. A nil ChannelID or empty Status matches everything.
+// TurnFilter narrows Turns. A nil ChannelID or empty Status matches everything. Retryable
+// keeps the turns Retryable reports true for.
 type TurnFilter struct {
 	ChannelID *int64
 	Status    string
+	Retryable bool
 }
 
-// CreateTurn starts a running turn; any status in t is ignored.
+// CreateTurn starts a running turn; any status in t is ignored, and so are Retried and Sent.
 func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 	if t.Role == "" {
 		return Turn{}, fmt.Errorf("%w: turn role is required", ErrInvalid)
@@ -59,12 +78,13 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO turn (channel_id, role, backend, session_id, status, started_at) "+
-			"VALUES (?, ?, ?, ?, ?, ?)",
-		t.ChannelID, t.Role, t.Backend, t.SessionID, _turnRunning, now.Format(time.RFC3339Nano))
+		"INSERT INTO turn (channel_id, role, backend, session_id, status, started_at, "+
+			"wake_text, wake_parent) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?)",
+		t.ChannelID, t.Role, t.Backend, t.SessionID, _turnRunning, now.Format(time.RFC3339Nano),
+		t.WakeText, t.WakeParent)
 	if err != nil {
 		return Turn{}, s.writeErr(ctx, "insert turn", err, ErrInvalid,
-			parent{table: "channel", id: &t.ChannelID})
+			parent{table: "channel", id: &t.ChannelID}, parent{table: "message", id: t.WakeParent})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -73,6 +93,7 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 	return Turn{
 		ID: id, ChannelID: t.ChannelID, Role: t.Role, Backend: t.Backend,
 		SessionID: t.SessionID, Status: _turnRunning, StartedAt: now,
+		WakeText: t.WakeText, WakeParent: t.WakeParent,
 	}, nil
 }
 
@@ -91,18 +112,33 @@ func (s *Store) Turns(ctx context.Context, f TurnFilter) ([]Turn, error) {
 	if f.Status != "" && !isTurnStatus(f.Status) {
 		return nil, fmt.Errorf("%w: unknown status %q", ErrInvalid, f.Status)
 	}
-	q, args := "SELECT "+_turnCols+" FROM turn WHERE 1 = 1", []any{}
+	q, args := "SELECT "+_turnCols+" FROM turn t WHERE 1 = 1", []any{}
 	if f.ChannelID != nil {
 		q, args = q+" AND channel_id = ?", append(args, *f.ChannelID)
 	}
 	if f.Status != "" {
 		q, args = q+" AND status = ?", append(args, f.Status)
 	}
+	if f.Retryable {
+		q += " AND " + _retryable
+	}
 	rows, err := s.db.QueryContext(ctx, q+" ORDER BY id", args...)
 	if err != nil {
 		return nil, fmt.Errorf("list turns: %w", err)
 	}
 	return scanAll(rows, scanTurn)
+}
+
+// Retryable reports whether retry may run the turn id again: it failed, was not retried, kept
+// a wake, and no later turn of its role ran in the channel.
+func (s *Store) Retryable(ctx context.Context, id int64) (bool, error) {
+	var ok bool
+	err := s.db.QueryRowContext(ctx,
+		"SELECT EXISTS (SELECT 1 FROM turn t WHERE t.id = ? AND "+_retryable+")", id).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("check turn %d: %w", id, err)
+	}
+	return ok, nil
 }
 
 // EndTurn moves the running turn t.ID to t.Status (done or failed) and
@@ -150,6 +186,63 @@ func (s *Store) SetTurnSession(ctx context.Context, id int64, sessionID string) 
 	n, err := res.RowsAffected()
 	if err != nil {
 		return Turn{}, fmt.Errorf("set turn session: %w", err)
+	}
+	if n == 0 {
+		return Turn{}, s.notRunning(ctx, id)
+	}
+	return s.Turn(ctx, id)
+}
+
+// SetTurnRetried marks the failed turn id as retried, or, with retried false, as not retried
+// again. A turn that is not failed, or is already in that state, is ErrConflict.
+func (s *Store) SetTurnRetried(ctx context.Context, id int64, retried bool) error {
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE turn SET retried = ? WHERE id = ? AND status = ? AND retried = ?",
+		retried, id, _turnFailed, !retried)
+	if err != nil {
+		return fmt.Errorf("set turn retried: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set turn retried: %w", err)
+	}
+	if n == 0 {
+		if _, err := s.Turn(ctx, id); err != nil {
+			return err
+		}
+		return fmt.Errorf("turn %d is not failed, or retried is already %t: %w",
+			id, retried, ErrConflict)
+	}
+	return nil
+}
+
+// SetTurnSent marks the running turn id as having sent its prompt to the agent.
+func (s *Store) SetTurnSent(ctx context.Context, id int64) (Turn, error) {
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE turn SET sent = 1 WHERE id = ? AND status = ?", id, _turnRunning)
+	if err != nil {
+		return Turn{}, fmt.Errorf("set turn sent: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return Turn{}, fmt.Errorf("set turn sent: %w", err)
+	}
+	if n == 0 {
+		return Turn{}, s.notRunning(ctx, id)
+	}
+	return s.Turn(ctx, id)
+}
+
+// SetTurnCheckpoint records the checkpoint ref of the running turn id.
+func (s *Store) SetTurnCheckpoint(ctx context.Context, id int64, ref string) (Turn, error) {
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE turn SET checkpoint = ? WHERE id = ? AND status = ?", ref, id, _turnRunning)
+	if err != nil {
+		return Turn{}, fmt.Errorf("set turn checkpoint: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return Turn{}, fmt.Errorf("set turn checkpoint: %w", err)
 	}
 	if n == 0 {
 		return Turn{}, s.notRunning(ctx, id)
@@ -210,7 +303,7 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(channelID int64)
 		names = nil
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO message (channel_id, author, body, created_at) VALUES (?, ?, ?, ?)",
-			t.ChannelID, _restartAuthor, body, stamp); err != nil {
+			t.ChannelID, ReefAuthor, body, stamp); err != nil {
 			return nil, fmt.Errorf("insert restart message: %w", err)
 		}
 	}
@@ -246,12 +339,14 @@ func isBackend(s string) bool {
 func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 	var t Turn
 	var started string
-	var ended sql.NullString
+	var ended, wake, checkpoint sql.NullString
 	if err := r.Scan(&t.ID, &t.ChannelID, &t.Role, &t.Backend, &t.SessionID, &t.Status, &t.Error,
 		&t.Usage.InputTokens, &t.Usage.OutputTokens, &t.Usage.CacheReadTokens,
-		&t.Usage.CacheWriteTokens, &started, &ended); err != nil {
+		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried,
+		&checkpoint, &t.Sent); err != nil {
 		return Turn{}, err
 	}
+	t.WakeText = wake.String
 	var err error
 	if t.StartedAt, err = time.Parse(time.RFC3339Nano, started); err != nil {
 		return Turn{}, fmt.Errorf("turn %d: bad started_at: %w", t.ID, err)
@@ -262,6 +357,9 @@ func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 			return Turn{}, fmt.Errorf("turn %d: bad ended_at: %w", t.ID, err)
 		}
 		t.EndedAt = &e
+	}
+	if checkpoint.Valid {
+		t.Checkpoint = &checkpoint.String
 	}
 	return t, nil
 }

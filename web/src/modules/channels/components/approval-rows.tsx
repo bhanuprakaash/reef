@@ -1,10 +1,11 @@
-import { useDecideApproval } from '@/modules/channels/api/decide-approval';
+import { useDecideApproval } from '@/lib/api/decide-approval';
 import { useApprovals } from '@/modules/channels/api/get-approvals';
+import { approvalAnchor } from '@/utils/anchors';
 import { buttonClass, errorClass } from '@/utils/classes';
 
 export function ApprovalRows({ channelId }: { channelId: number }) {
   const approvals = useApprovals(channelId);
-  const decide = useDecideApproval(channelId);
+  const decide = useDecideApproval();
 
   if (!approvals.data?.length) return null;
 
@@ -14,6 +15,7 @@ export function ApprovalRows({ channelId }: { channelId: number }) {
         {approvals.data.map((a) => (
           <li
             key={a.id}
+            id={approvalAnchor(a.id)}
             className="flex items-center justify-between gap-3 rounded border border-neutral-300 p-3 text-sm dark:border-neutral-700"
           >
             <p className="whitespace-pre-wrap">
@@ -27,7 +29,7 @@ export function ApprovalRows({ channelId }: { channelId: number }) {
                 type="button"
                 className={buttonClass}
                 disabled={decide.isPending}
-                onClick={() => decide.mutate({ id: a.id, approve: true })}
+                onClick={() => decide.mutate({ channelId, id: a.id, approve: true })}
               >
                 Approve
               </button>
@@ -35,7 +37,7 @@ export function ApprovalRows({ channelId }: { channelId: number }) {
                 type="button"
                 className={buttonClass}
                 disabled={decide.isPending}
-                onClick={() => decide.mutate({ id: a.id, approve: false })}
+                onClick={() => decide.mutate({ channelId, id: a.id, approve: false })}
               >
                 Reject
               </button>

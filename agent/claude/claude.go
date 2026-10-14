@@ -226,6 +226,9 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 	if len(cfg.Tools) > 0 {
 		args = append(args, "--allowedTools", strings.Join(cfg.Tools, ","))
 	}
+	if len(cfg.DisallowedTools) > 0 {
+		args = append(args, "--disallowedTools", strings.Join(cfg.DisallowedTools, ","))
+	}
 	args = append(args, extra...)
 
 	cmd := exec.Command("claude", args...)
@@ -335,8 +338,8 @@ func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
 
 // state is what parse keeps between lines.
 type state struct {
-	seen  agent.Usage   // usage the turn has sent so far
-	calls []agent.Event // tool calls of the message in progress, held until its usage
+	seen agent.Usage   // usage the turn has sent so far
+	held []agent.Event // tool calls of the message in progress and the results after them, held until its usage
 
 	// wrote is set once the turn has sent text; breakNext is set at a message start that
 	// follows it, so the message's first text delta begins a new paragraph.
@@ -354,10 +357,11 @@ type state struct {
 // Usage is sent as each message ends: its message_delta has the final counts, while the
 // assistant line's output count is only the first few tokens. The tool calls of a message
 // follow its usage, so a turn stopped at a call has counted the model call that made it
-// (its assistant line comes before the message_delta). A tool_result sends the calls still
-// held first, so a call never follows its own result. A subagent's messages have no
-// message_delta, so its calls are sent at once. The result line sends only what is left
-// of its usage total. An unprompted turn gives only its usage.
+// (its assistant line comes before the message_delta). A tool_result that arrives before
+// the message_delta waits with the calls, so a call never follows its own result. A
+// subagent's messages have no message_delta, so its calls are sent at once. The result line
+// sends what is still held, then only what is left of its usage total. An unprompted turn
+// gives only its usage.
 func parse(line []byte, st *state) []agent.Event {
 	evs := parseLine(line, st)
 	if !st.unprompted {
@@ -394,8 +398,8 @@ func parseLine(line []byte, st *state) []agent.Event {
 		if l.Event.Type == "message_delta" {
 			u := l.Event.Usage.usage()
 			st.seen.Add(u)
-			evs := append([]agent.Event{{Kind: agent.KindUsage, Usage: &u}}, st.calls...)
-			st.calls = nil
+			evs := append([]agent.Event{{Kind: agent.KindUsage, Usage: &u}}, st.held...)
+			st.held = nil
 			return evs
 		}
 	case "assistant":
@@ -409,7 +413,7 @@ func parseLine(line []byte, st *state) []agent.Event {
 			}
 		}
 		if l.ParentToolUseID == "" {
-			st.calls = append(st.calls, evs...)
+			st.held = append(st.held, evs...)
 			return nil
 		}
 		return evs
@@ -420,9 +424,6 @@ func parseLine(line []byte, st *state) []agent.Event {
 		var evs []agent.Event
 		for _, b := range l.Message.Content {
 			if b.Type == "tool_result" {
-				if evs == nil {
-					evs, st.calls = st.calls, nil
-				}
 				evs = append(evs, agent.Event{
 					Kind:         agent.KindToolResult,
 					ToolID:       b.ToolUseID,
@@ -431,6 +432,10 @@ func parseLine(line []byte, st *state) []agent.Event {
 					ParentToolID: l.ParentToolUseID,
 				})
 			}
+		}
+		if len(st.held) > 0 {
+			st.held = append(st.held, evs...)
+			return nil
 		}
 		return evs
 	case "result":
@@ -441,8 +446,8 @@ func parseLine(line []byte, st *state) []agent.Event {
 			CacheReadTokens:  total.CacheReadTokens - st.seen.CacheReadTokens,
 			CacheWriteTokens: total.CacheWriteTokens - st.seen.CacheWriteTokens,
 		}
+		evs := st.held
 		*st = state{}
-		var evs []agent.Event
 		if rest != (agent.Usage{}) {
 			evs = append(evs, agent.Event{Kind: agent.KindUsage, Usage: &rest})
 		}

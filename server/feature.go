@@ -1,9 +1,15 @@
 package server
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"net/http"
+	"os"
 
+	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 func (s *server) featureRoutes(mux *http.ServeMux) {
@@ -90,6 +96,13 @@ func (s *server) updateFeature(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, f)
 }
 
+// deleteFeature deletes the feature, its worktree and the checkpoint refs of its turns. The
+// branch is kept. A running turn of its channels is stopped first, as for a channel delete.
+// A worktree with uncommitted changes is 409 and nothing is removed; so is a channel with a
+// turn running elsewhere, or open in reef chat. The worktree goes first: it is the step that
+// can refuse or fail, and the next wake makes it again. The refs go last, after the rows that
+// name them. A project folder that is gone is not git cleaned up: its worktree folder, if
+// any, is just removed.
 func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -102,11 +115,120 @@ func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer lift()
+	f, err := s.st.Feature(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	p, err := s.st.Project(r.Context(), f.ProjectID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.channelsInUse(r.Context(), store.ChannelFilter{FeatureID: &id}); err != nil {
+		writeError(w, err)
+		return
+	}
+	refs, err := s.checkpointRefs(r.Context(), store.ChannelFilter{FeatureID: &id})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	gone := projectGone(p.Path)
+	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+	if gone {
+		err = os.RemoveAll(dir)
+	} else {
+		err = s.removeFeatureTree(r.Context(), p, f)
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	if err := s.st.DeleteFeature(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}
+	if !gone {
+		if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), p.Path, refs); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// channelsInUse is 409 for the first channel matching f that a `reef chat` has open, or whose
+// tree a turn is running on, in this process or another.
+func (s *server) channelsInUse(ctx context.Context, f store.ChannelFilter) error {
+	cs, err := s.st.Channels(ctx, f)
+	if err != nil {
+		return err
+	}
+	for _, c := range cs {
+		if channel.InUse(s.dataDir, c.ID) {
+			return fmt.Errorf("channel %d is open elsewhere: %w", c.ID, store.ErrConflict)
+		}
+		dir, _, err := channel.WorkDir(ctx, s.st, s.dataDir, c.ID)
+		if err != nil {
+			return err
+		}
+		unlock, ok := s.trees.TryLock(dir)
+		if !ok {
+			return fmt.Errorf("%s has a turn running: %w", dir, store.ErrConflict)
+		}
+		unlock()
+	}
+	return nil
+}
+
+// projectGone reports whether a project's folder no longer exists: git cannot clean up its
+// worktrees or checkpoint refs, only their folders can be removed.
+func projectGone(path string) bool {
+	_, err := os.Stat(path)
+	return errors.Is(err, os.ErrNotExist)
+}
+
+// checkpointRefs lists the checkpoint refs of the turns of the channels that match f.
+func (s *server) checkpointRefs(ctx context.Context, f store.ChannelFilter) ([]string, error) {
+	cs, err := s.st.Channels(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	var refs []string
+	for _, c := range cs {
+		ts, err := s.st.Turns(ctx, store.TurnFilter{ChannelID: &c.ID})
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range ts {
+			if t.Checkpoint != nil {
+				refs = append(refs, *t.Checkpoint)
+			}
+		}
+	}
+	return refs, nil
+}
+
+// checkFeatureTree is 409 when the worktree of feature f of project p has uncommitted changes.
+func (s *server) checkFeatureTree(ctx context.Context, p store.Project, f store.Feature) error {
+	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+	return treeConflict(f, dir, worktree.Clean(ctx, dir))
+}
+
+// removeFeatureTree removes the worktree of feature f of project p; 409 when it has
+// uncommitted changes.
+func (s *server) removeFeatureTree(ctx context.Context, p store.Project, f store.Feature) error {
+	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+	return treeConflict(f, dir, worktree.Remove(ctx, p.Path, dir))
+}
+
+func treeConflict(f store.Feature, dir string, err error) error {
+	if errors.Is(err, worktree.ErrDirty) {
+		return fmt.Errorf("%w: feature %s has uncommitted changes in %s; commit or discard them first",
+			store.ErrConflict, f.Slug, dir)
+	}
+	return err
 }
 
 func (s *server) getBrief(w http.ResponseWriter, r *http.Request) {

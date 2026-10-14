@@ -30,7 +30,8 @@ Interrupt() error                     // stop the turn and the process
   closes to count it. A second call is a no-op. Tool processes in their own process group
   may outlive a forced kill. To go on, `Resume` on a new `Agent` with the id from the last `session` event.
 - `Config`: `Cwd`, `PermissionMode` (backend-specific, passed through), `Tools` (tools allowed
-  without asking; Codex ignores it), `MCPServers` (stdio `Command`/`Args`/`Env` or HTTP `URL`),
+  without asking; Codex ignores it), `DisallowedTools` (tools denied even when settings allow
+  them; Codex ignores it, its sandbox decides), `MCPServers` (stdio `Command`/`Args`/`Env` or HTTP `URL`),
   `Env` (`KEY=value`, added to `os.Environ`).
 
 An `Event` is one JSON line (the `reef-agent` wire format). Empty fields are left out.
@@ -63,7 +64,7 @@ Spawn, one long-lived process per session (in `cfg.Cwd`):
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
-  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--mcp-config PATH] [--allowedTools LIST] [--resume ID]
+  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--mcp-config PATH] [--allowedTools LIST] [--disallowedTools LIST] [--resume ID]
 ```
 
 Input: one JSON line on stdin per `Send`. Keep stdin open for the whole session. Output is
@@ -200,7 +201,7 @@ and `agentMessage`.
 | --- | --- | --- |
 | `session` | `system`/`init` line, `session_id`. Repeats every turn, same id. First one comes after the first `Send`. | Response to `thread/start` / `thread/resume`, `thread.id`. Once, as the first event, before any `Send`. |
 | `text` | `stream_event` with `content_block_delta` / `text_delta`, `delta.text`. The first delta of a later message (`message_start`) in the same turn is prefixed with `"\n\n"`, so messages around a tool call are separated. None in a turn claude ran by itself (no echoed prompt, see above); the same holds for `tool_call` and `tool_result`. | `item/agentMessage/delta`, `params.delta`. Each agent message is its own item (`params.itemId`); the first delta of a later item in the same turn is preceded by a `text` of `"\n\n"`, so messages around a tool call stay apart. |
-| `tool_call` | `assistant` line, each `tool_use` block: `id`, `name`, `input`. A top-level call is sent right after its message's `usage` (the `assistant` line comes before the `message_delta`), so a turn stopped at that call has counted the model call that made it. A `tool_result` that arrives first sends the calls still held before it, so a call never follows its own result. A subagent's call (`parentToolId` set) is sent at once: its messages have no `message_delta`. | `item/started` for `commandExecution` (name `commandExecution`, input `{"command":...}`), `fileChange` (name `fileChange`, input `changes`), `mcpToolCall` (name `mcp__<server>__<tool>`, input `arguments`) |
+| `tool_call` | `assistant` line, each `tool_use` block: `id`, `name`, `input`. A top-level call is sent right after its message's `usage` (the `assistant` line comes before the `message_delta`), so a turn stopped at that call has counted the model call that made it. A `tool_result` that arrives before that `message_delta` waits with them, so a call never follows its own result and the usage still comes first. A subagent's call (`parentToolId` set) is sent at once: its messages have no `message_delta`. | `item/started` for `commandExecution` (name `commandExecution`, input `{"command":...}`), `fileChange` (name `fileChange`, input `changes`), `mcpToolCall` (name `mcp__<server>__<tool>`, input `arguments`) |
 | `tool_result` | `user` line, each `tool_result` block: `tool_use_id`, text of `content`, `is_error` | `item/completed` for the same three item types. Output: `aggregatedOutput` / status (`fileChange`) / MCP error message or joined `result.content` text. `isError` if status is not `completed` or `exitCode` is not 0. |
 | `usage` | `message_delta` `stream_event` `usage`, one per model message, so a turn stopped midway keeps what it spent: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). The `result` line sends only its total minus what the messages already sent (nothing when equal), just before `turn_end` or `error`, so a finished turn adds up to the `result` total. | `thread/tokenUsage/updated` `last`, one `usage` per model call as it arrives, so a turn that is interrupted keeps what it used; the turn's usage is their sum. Codex sends a call's usage only after the call's tool finishes, so `Interrupt` sends `turn/interrupt` first; codex then reports the call the turn was in, unless it was still streaming text (that call is lost). Per call: `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. None for a turn that made no model call. |
 | `turn_end` | `result` line with `is_error` false and no `origin` of `task-notification` | `turn/completed` with any status but `failed` |
@@ -226,11 +227,22 @@ Permissions
   `danger-full-access`. `approvalPolicy` is always `never`. A bad value fails `thread/start`.
   Unset means the user's `config.toml` decides.
 - Codex server requests (approval, elicitation) get a `-32601` reply. That path is untested.
+- A role's `write` flag in a Reef team (see [server.md](server.md#role)) picks these per
+  role. Claude without `write`: `--permission-mode default`, and `Edit`, `Write`, `MultiEdit`
+  and `NotebookEdit` are dropped from `--allowedTools`, so `-p` refuses them; with `write`: the
+  role's own mode and tools, plus `Task`. Codex without `write`: sandbox `read-only`; with
+  `write`: `workspace-write`, or the role's `permissionMode` when it sets one.
+- Claude: an explicit `--permission-mode` wins over `permissions.defaultMode` in the user's
+  settings. With `bypassPermissions` there, a role run with `--permission-mode default` still
+  had `Write` and an unlisted `Bash` refused (claude 2.1.299).
 
 cwd
 - The process and, for Codex, `thread/start` get `cfg.Cwd`. Codex needs no git repo.
-- Claude reports the real path (`/private/tmp` for `/tmp`). It stores sessions per cwd, so
-  `Resume` needs the same `Cwd`.
+- Claude reports the real path (`/private/tmp` for `/tmp`). It files sessions per cwd
+  (`~/.claude/projects/<cwd with each non-alphanumeric character as ->/`), but `Resume` from
+  another `Cwd` still continues the session: on claude 2.1.299 a session started in a project
+  folder resumed in a feature's worktree with the same id, and the turns it added carry the new
+  `cwd` in the first folder's file.
 
 Env
 - Both: `os.Environ()` plus `cfg.Env`. Claude also loads the user's hooks, plugins and
@@ -249,7 +261,8 @@ MCP config injection
   `mcp__<name>__*` in `Tools` (`reef-agent --mcp` does so for every server in its file; a
   channel's teammate does so for `reef` only). Other tools keep the `PermissionMode` behaviour. Server names must match `^[A-Za-z0-9_-]+$`: a comma would
   inject extra patterns, and claude rewrites other characters in tool names (`reef.mem` never
-  matches), so `Start` rejects them.
+  matches), so `Start` rejects them. `DisallowedTools` goes the same way as `--disallowedTools`:
+  a deny beats an allow rule in the user's or the project's `.claude/settings.json`.
 - Codex: `thread/start` `config.mcp_servers`, same fields. With approval `never`, MCP calls
   fail with "requires approval" unless the server has
   `default_tools_approval_mode: "approve"`. The adapter sets it for the `reef` server only.

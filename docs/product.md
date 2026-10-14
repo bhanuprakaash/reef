@@ -75,9 +75,9 @@ A channel is what the user opens as a session; inside, each teammate is its own 
 
 **Example flow.** User asks lead for Google login → lead asks @architect for a plan → plan posted as a thread, user replies in the thread with questions → architect hands off to @developer → developer asks @architect a doubt → developer pings @tester → tester reports back.
 
-**Approval gates.** The user can require approval before work passes between roles. Defaults: lead → architect is free; architect → developer and developer → tester require approval. Each gate can be switched off per team.
+**Approval gates.** The user can require approval before work passes between roles. Defaults: lead → architect is free; lead → developer, architect → developer and developer → tester require approval. Each gate can be switched off per team.
 
-**Caps** (plain code): max agent-to-agent hops without a user message (default 4), max turns per teammate per wake (default 25), token budget per channel (default 1M). On any cap the channel pauses and an item goes to the needs-you inbox.
+**Caps** (plain code): max agent-to-agent hops without a user message (default 6), max turns per teammate per wake (default 25), token budget per channel (default 1M). On any cap the channel pauses and an item goes to the needs-you inbox.
 
 **Crash recovery.** Every turn is recorded as running, done or failed. On restart, running turns are marked failed and a note is posted to the channel; the worktree may be dirty. No automatic retry; the user retries or rolls back to a checkpoint.
 
@@ -190,6 +190,14 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 29 | A team is a JSON file applied with `reef team apply`; a team `solo` (lead only) always exists; a channel keeps the team it was created with | Smallest way to configurable teams now; the team workshop can edit them later |
 | 30 | A role's `tools` become Claude's allowed tools; Codex ignores them and is limited by its permission mode | Only Claude has a per-tool allow list |
 | 31 | Continue on a channel over its token budget sets the budget to the tokens used plus 1M (amends 10) | A flat +1M left a channel that used far more than its budget paused again at once |
+| 32 | Roles write only when the team file sets `write`; it maps to each backend's own limit (amends 9 and 30) | Checkpoints and the single-writer rule need one flag that does not depend on the backend |
+| 33 | A feature's worktree lives in the data folder and is made at its first wake, from the project's HEAD | Follows decision 4, and a feature nobody woke costs nothing |
+| 34 | Write turns on one tree run one at a time across channels | Decision 17's single writer holds with two channels on one feature |
+| 35 | Rollback resets the files and the branch to the checkpoint, not the agent's session, and leaves a note in the channel | Sessions cannot be rewound; the note tells the agent |
+| 36 | The needs-you inbox is a view over approvals, pauses, failed turns and who spoke last; no ask-user tool | No new state to keep in sync, and Reef cannot tell a question from an answer |
+| 37 | Default gates also hold a lead's wake of the developer, and a tester's wake of the developer (amends 14) | Decision 14 gates the steps that touch code; an ungated lead→developer or tester→developer edge let either skip the architect→developer gate |
+| 38 | Default hop cap is 6 (amends 10) | The spec's full flow lead→architect→developer→tester→lead uses 4 hops; one clarifying question must fit without a pause |
+| 39 | Retry runs the failed turn's wake as if the user sent it, so it resets the hop count (amends 26) | A retry is the user asking for the same work again, not a continuation of the chain that failed |
 
 ## Open questions
 

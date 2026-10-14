@@ -36,6 +36,29 @@ func TestTeam_Gated(t *testing.T) {
 	}
 }
 
+func TestTeam_GatedLeadDefaults(t *testing.T) {
+	if !(Team{}).Gated("lead", "developer") {
+		t.Error("a team with no gates should default lead to developer on")
+	}
+	if (Team{}).Gated("lead", "architect") {
+		t.Error("a team with no gates should default lead to architect off")
+	}
+	off := Team{Gates: []Gate{{From: "lead", To: "developer", On: false}}}
+	if off.Gated("lead", "developer") {
+		t.Error("a team that lists lead to developer off should not gate it")
+	}
+}
+
+func TestTeam_GatedTesterDefaults(t *testing.T) {
+	if !(Team{}).Gated("tester", "developer") {
+		t.Error("a team with no gates should default tester to developer on")
+	}
+	off := Team{Gates: []Gate{{From: "tester", To: "developer", On: false}}}
+	if off.Gated("tester", "developer") {
+		t.Error("a team that lists tester to developer off should not gate it")
+	}
+}
+
 func TestApplyTeam_Gates(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
@@ -121,9 +144,10 @@ func TestApplyTeam_RoleName(t *testing.T) {
 		give string
 		want string
 	}{
-		{"reserved", "user", `invalid: role name "user" must be letters, digits, _ or -, and not user`},
-		{"space", "two words", `invalid: role name "two words" must be letters, digits, _ or -, and not user`},
-		{"punctuation", "dev.1", `invalid: role name "dev.1" must be letters, digits, _ or -, and not user`},
+		{"reserved", "user", `invalid: role name "user" must be letters, digits, _ or -, and not user or reef`},
+		{"reef", "reef", `invalid: role name "reef" must be letters, digits, _ or -, and not user or reef`},
+		{"space", "two words", `invalid: role name "two words" must be letters, digits, _ or -, and not user or reef`},
+		{"punctuation", "dev.1", `invalid: role name "dev.1" must be letters, digits, _ or -, and not user or reef`},
 		{"empty", "", "invalid: role name is required"},
 	}
 	for _, tt := range tests {
@@ -140,5 +164,66 @@ func TestApplyTeam_RoleName(t *testing.T) {
 		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "Dev_2-b", Backend: "claude"},
 	}}); err != nil {
 		t.Errorf("ApplyTeam with role Dev_2-b error = %v, want nil", err)
+	}
+}
+
+func TestApplyTeam_Write(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	got, err := s.ApplyTeam(ctx, Team{Name: "crew", Roles: []Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Write: true, Backend: "claude"},
+		{Name: "tester", Backend: "codex"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var writes []bool
+	for _, r := range got.Roles {
+		writes = append(writes, r.Write)
+	}
+	if want := []bool{false, true, false}; !reflect.DeepEqual(writes, want) {
+		t.Errorf("write of lead, developer, tester = %v, want %v", writes, want)
+	}
+}
+
+func TestApplyTeam_ReadOnlyClaudeBash(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	const wantErr = "invalid: role tester has no write, so it cannot have unrestricted Bash; " +
+		"list command patterns such as Bash(go test:*)"
+	tests := []struct {
+		name    string
+		write   bool
+		backend string
+		tools   []string
+		want    string
+	}{
+		{"plain", false, "claude", []string{"Read", "Bash"}, wantErr},
+		{"star", false, "claude", []string{"Bash(*)"}, wantErr},
+		{"colon star", false, "claude", []string{"Bash(:*)"}, wantErr},
+		{"pattern", false, "claude", []string{"Bash(go test:*)"}, ""},
+		{"write", true, "claude", []string{"Bash"}, ""},
+		{"codex", false, "codex", []string{"Bash"}, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := s.ApplyTeam(ctx, Team{Name: "t", Roles: []Role{
+				{Name: "lead", Lead: true, Backend: "claude"},
+				{Name: "tester", Write: tt.write, Backend: tt.backend, Tools: tt.tools},
+			}})
+			if tt.want == "" && err != nil || tt.want != "" && (err == nil || err.Error() != tt.want) {
+				t.Errorf("ApplyTeam error = %v, want %q", err, tt.want)
+			}
+		})
 	}
 }

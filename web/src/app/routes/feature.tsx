@@ -1,6 +1,6 @@
 import { useParams } from 'react-router';
 import { ChannelList } from '@/modules/channels/components/channel-list';
-import { useChannels } from '@/modules/channels/api/get-channels';
+import { useChannels } from '@/lib/api/get-channels';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDecisions } from '@/modules/features/api/get-decisions';

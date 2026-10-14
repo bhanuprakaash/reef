@@ -1,8 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
+import { useApprovals } from '@/modules/channels/api/get-approvals';
+import { useFailedTurns } from '@/modules/channels/api/get-failed-turns';
 import { useMessages } from '@/modules/channels/api/get-messages';
 import { useWrapChannel } from '@/modules/channels/api/wrap-channel';
 import { ApprovalRows } from '@/modules/channels/components/approval-rows';
+import { CheckpointRows } from '@/modules/channels/components/checkpoint-rows';
 import { Composer } from '@/modules/channels/components/composer';
+import { FailedTurnRows } from '@/modules/channels/components/failed-turn-rows';
 import { LiveTurn } from '@/modules/channels/components/live-turn';
 import { MessageList } from '@/modules/channels/components/message-list';
 import { PausedBanner } from '@/modules/channels/components/paused-banner';
@@ -10,6 +14,7 @@ import { PromoteForm } from '@/modules/channels/components/promote-form';
 import { ProposalPanel } from '@/modules/channels/components/proposal-panel';
 import { ThreadPane } from '@/modules/channels/components/thread-pane';
 import { useLiveTurn } from '@/modules/channels/hooks/use-live-turn';
+import { useScrollToHash } from '@/modules/channels/hooks/use-scroll-to-hash';
 import { blocksUser } from '@/modules/channels/utils/blocks-user';
 import { groupThreads } from '@/modules/channels/utils/group-threads';
 import type { Channel, Feature } from '@/types/api';
@@ -19,6 +24,8 @@ type Props = { channel: Channel; scope: string; features: Feature[] };
 
 export function ChannelView({ channel, scope, features }: Props) {
   const messages = useMessages(channel.id);
+  const approvals = useApprovals(channel.id);
+  const failedTurns = useFailedTurns(channel.id);
   const turn = useLiveTurn(channel.id);
   const wrap = useWrapChannel(channel.id);
   const end = useRef<HTMLDivElement>(null);
@@ -30,6 +37,10 @@ export function ChannelView({ channel, scope, features }: Props) {
   useEffect(() => {
     end.current?.scrollIntoView({ block: 'end' });
   }, [messages.data, turn]);
+
+  useScrollToHash(
+    messages.isSuccess && ![messages, approvals, failedTurns].some((q) => q.isFetching),
+  );
 
   return (
     <div className="flex items-start gap-6">
@@ -63,6 +74,8 @@ export function ChannelView({ channel, scope, features }: Props) {
         {messages.data && <MessageList threads={threads} onOpen={setThreadId} />}
         <LiveTurn turn={turn} role={turn.role || channel.role || 'agent'} />
         {turn.note && <p className={mutedClass}>{turn.note}</p>}
+        <FailedTurnRows channelId={channel.id} running={running} paused={channel.paused !== ''} />
+        <CheckpointRows channelId={channel.id} running={running} />
         <ApprovalRows channelId={channel.id} />
         <ProposalPanel channelId={channel.id} featureId={channel.featureId} />
         <div className="sticky bottom-0 bg-white pb-1 pt-2 dark:bg-neutral-900">

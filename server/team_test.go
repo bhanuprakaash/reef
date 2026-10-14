@@ -51,7 +51,7 @@ func TestChannelTeam(t *testing.T) {
 	t.Cleanup(func() { _ = st.Close() })
 	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "codex", PermissionMode: "read-only"},
-		{Name: "architect", Backend: "claude"},
+		{Name: "architect", Write: true, Backend: "claude"},
 	}})
 	if err != nil {
 		t.Fatal(err)
@@ -96,9 +96,9 @@ func TestChannelTeam(t *testing.T) {
 	}
 
 	status, body := do(t, http.MethodGet, ts.URL+"/teams/core", "")
-	want := `{"name":"core","roles":[{"name":"lead","lead":true,"backend":"codex",` +
+	want := `{"name":"core","roles":[{"name":"lead","lead":true,"write":false,"backend":"codex",` +
 		`"permissionMode":"read-only","persona":"","skills":"","tools":[]},` +
-		`{"name":"architect","lead":false,"backend":"claude","permissionMode":"","persona":"",` +
+		`{"name":"architect","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"",` +
 		`"skills":"","tools":[]}]}`
 	if status != 200 || body != want {
 		t.Errorf("GET /teams/core = %d %s, want %s", status, body, want)

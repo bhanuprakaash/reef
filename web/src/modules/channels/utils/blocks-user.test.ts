@@ -7,7 +7,7 @@ describe('blocksUser', () => {
   });
 
   it('does not block on the hop cap pause', () => {
-    expect(blocksUser('hop cap: 4 agent hops without a user message')).toBe(false);
+    expect(blocksUser('hop cap: 6 agent hops without a user message')).toBe(false);
   });
 
   it('blocks on other pauses', () => {

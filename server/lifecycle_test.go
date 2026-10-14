@@ -78,10 +78,10 @@ func TestContinue_StartFailureKeepsHeldWakes(t *testing.T) {
 		t.Fatalf("second continue = %d, want 204", status)
 	}
 	sub.want(t, `pause {"reason":""}`)
-	sub.wantTurns(t, "architect", "lead", "architect", "lead")
+	sub.wantTurns(t, "architect", "lead", "architect", "lead", "architect", "lead")
 	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
-	if got := len(env.ranTexts()); got != 9 {
-		t.Errorf("turns run = %d, want 9: the wakes held before the failed continue ran", got)
+	if got := len(env.ranTexts()); got != 13 {
+		t.Errorf("turns run = %d, want 13: the wakes held before the failed continue ran", got)
 	}
 }
 
@@ -164,10 +164,10 @@ func TestContinue_TwoAtOnceRunHeldWakeOnce(t *testing.T) {
 		t.Fatalf("first continue = %d, want 204", status)
 	}
 	sub.want(t, `pause {"reason":""}`)
-	sub.wantTurns(t, "architect", "lead", "architect", "lead")
+	sub.wantTurns(t, "architect", "lead", "architect", "lead", "architect", "lead")
 	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
-	if got := len(env.ranTexts()); got != 9 {
-		t.Errorf("turns run = %d, want 9: the held wake ran once", got)
+	if got := len(env.ranTexts()); got != 13 {
+		t.Errorf("turns run = %d, want 13: the held wake ran once", got)
 	}
 }
 
