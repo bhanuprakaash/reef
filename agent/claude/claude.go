@@ -34,6 +34,8 @@ const (
 	// WaitDelay bounds Wait when a process that outlived claude holds its stderr pipe.
 	_waitDelay = 2 * time.Second
 	_stderrMax = 4 << 10
+	// _messageBreak goes before the text of a message that follows text in the same turn.
+	_messageBreak = "\n\n"
 )
 
 // Agent drives one claude process. Use one Agent per session.
@@ -344,6 +346,10 @@ type state struct {
 	seen  agent.Usage   // usage the turn has sent so far
 	calls []agent.Event // tool calls of the message in progress, held until its usage
 
+	// wrote is set once the turn has sent text; breakNext is set at a message start that
+	// follows it, so the message's first text delta begins a new paragraph.
+	wrote, breakNext bool
+
 	// unprompted is set from a turn's init line until the echo of a prompt
 	// (--replay-user-messages, a user line with isReplay). A turn with no such echo is one
 	// claude ran by itself for a background task: its text and tool events answer no prompt.
@@ -351,7 +357,8 @@ type state struct {
 }
 
 // parse maps one stdout line to Events. Text comes from the partial-message deltas, so
-// the complete assistant text blocks that follow are skipped. Unknown lines give none.
+// the complete assistant text blocks that follow are skipped. The first text of a message
+// after earlier text in the turn starts with a paragraph break. Unknown lines give none.
 // Usage is sent as each message ends: its message_delta has the final counts, while the
 // assistant line's output count is only the first few tokens. The tool calls of a message
 // follow its usage, so a turn stopped at a call has counted the model call that made it
@@ -381,8 +388,16 @@ func parseLine(line []byte, st *state) []agent.Event {
 			return []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID}}
 		}
 	case "stream_event":
+		if l.Event.Type == "message_start" {
+			st.breakNext = st.wrote
+		}
 		if l.Event.Type == "content_block_delta" && l.Event.Delta.Type == "text_delta" {
-			return []agent.Event{{Kind: agent.KindText, Text: l.Event.Delta.Text}}
+			text := l.Event.Delta.Text
+			if st.breakNext {
+				text, st.breakNext = _messageBreak+text, false
+			}
+			st.wrote = true
+			return []agent.Event{{Kind: agent.KindText, Text: text}}
 		}
 		if l.Event.Type == "message_delta" {
 			u := l.Event.Usage.usage()

@@ -172,6 +172,27 @@ func TestParse_toolCallBeforeItsResult(t *testing.T) {
 	}
 }
 
+func TestParse_breakBetweenMessages(t *testing.T) {
+	lines := []string{
+		`{"type":"stream_event","event":{"type":"message_start","message":{"role":"assistant"}},"parent_tool_use_id":null}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"About tides."}},"parent_tool_use_id":null}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" Looking."}},"parent_tool_use_id":null}`,
+		`{"type":"stream_event","event":{"type":"message_start","message":{"role":"assistant"}},"parent_tool_use_id":null}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"Files:"}},"parent_tool_use_id":null}`,
+		`{"type":"stream_event","event":{"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":" a, b"}},"parent_tool_use_id":null}`,
+	}
+	var st state
+	var got string
+	for _, line := range lines {
+		for _, ev := range parse([]byte(line), &st) {
+			got += ev.Text
+		}
+	}
+	if want := "About tides. Looking.\n\nFiles: a, b"; got != want {
+		t.Errorf("text = %q, want %q", got, want)
+	}
+}
+
 // background-task.jsonl is a real session, trimmed: a background Bash task starts in turn 1
 // and ends while turn 2 runs; claude then runs a turn of its own (init, no echoed prompt,
 // result with origin task-notification) before it answers turn 3.
