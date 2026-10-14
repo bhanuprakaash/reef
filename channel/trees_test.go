@@ -67,7 +67,6 @@ func newTreeRig(t *testing.T, st *store.Store) *treeRig {
 	}
 }
 
-// session opens a channel called name on f.
 func (r *treeRig) session(t *testing.T, name string, f store.Feature) *Session {
 	t.Helper()
 	ch, err := r.st.CreateChannel(context.Background(), store.Channel{
@@ -82,11 +81,10 @@ func (r *treeRig) session(t *testing.T, name string, f store.Feature) *Session {
 			recordingAgent: newRecordingAgent(), channel: name, gates: r.gates, started: r.started,
 		}, nil
 	}
-	s, err := open(context.Background(), r.st, r.dir, "/bin/reef", ch.ID, mk)
+	s, err := open(context.Background(), r.st, r.dir, "/bin/reef", ch.ID, r.trees, mk)
 	if err != nil {
 		t.Fatal(err)
 	}
-	s.trees = r.trees
 	t.Cleanup(func() { _ = s.Close() })
 	return s
 }

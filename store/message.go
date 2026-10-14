@@ -9,6 +9,9 @@ import (
 	"time"
 )
 
+// ReefAuthor is the author of the notes Reef itself writes into a channel.
+const ReefAuthor = "reef"
+
 // Message is append-only: there is no update or delete. A reply has the thread root as
 // ParentID; a top-level message has none.
 type Message struct {

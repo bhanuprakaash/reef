@@ -30,6 +30,9 @@ func (e *liveEnv) inbox(t *testing.T) []string {
 	if status != 200 || json.Unmarshal([]byte(body), &items) != nil {
 		t.Fatalf("GET /inbox = %d %s, want 200 and a list", status, body)
 	}
+	if len(items) == 0 && strings.TrimSpace(body) != "[]" {
+		t.Fatalf("GET /inbox = %s, want []", body)
+	}
 	return describe(items)
 }
 
@@ -49,13 +52,15 @@ func (e *liveEnv) wantInbox(t *testing.T, want ...string) {
 	t.Errorf("inbox = %q, want %q", got, want)
 }
 
-// wantInbox reads the next frame, which must be an inbox event with these items.
 func (s *stream) wantInbox(t *testing.T, want ...string) {
 	t.Helper()
 	data, ok := strings.CutPrefix(s.next(t), "inbox ")
 	var items []store.InboxItem
 	if !ok || json.Unmarshal([]byte(data), &items) != nil {
 		t.Fatalf("frame = %q, want an inbox event with a list", data)
+	}
+	if len(items) == 0 && data != "[]" {
+		t.Fatalf("inbox frame = %q, want []", data)
 	}
 	if want == nil {
 		want = []string{}

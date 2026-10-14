@@ -30,7 +30,7 @@ func TestSession_CheckpointsWriteTurnsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, func(string) (agent.Agent, error) {
+	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(), func(string) (agent.Agent, error) {
 		return newRecordingAgent(), nil
 	})
 	if err != nil {

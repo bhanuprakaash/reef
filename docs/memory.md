@@ -134,7 +134,7 @@ role with `write`) and `tester`, all on `claude`, with the default gates. Apply 
   A role applied with a new `backend` starts a new session; it does not resume the old one.
 - Errors print `reef: <message>` and exit 1: `reef: invalid: team bad needs exactly one
   lead role, has 0` (or `has 2`), `reef: role a: invalid: backend must be claude or codex`,
-  `reef: invalid: role name "two words" must be letters, digits, _ or -, and not user`,
+  `reef: invalid: role name "two words" must be letters, digits, _ or -, and not user or reef`,
   `reef: invalid: gate a to ghost names a role team bad does not have`, `reef: parse
   team.json: json: unknown field "color"`.
 - `tools` are the backend's allowed tools: Claude runs them without asking (`--allowedTools`),

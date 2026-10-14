@@ -27,7 +27,7 @@ func (r *Runner) withNotes(ctx context.Context, turn store.Turn, text string) (s
 	if since.IsZero() {
 		return text, nil
 	}
-	msgs, err := r.st.MessagesBy(ctx, r.channelID, _reefAuthor, since)
+	msgs, err := r.st.MessagesBy(ctx, r.channelID, store.ReefAuthor, since)
 	if err != nil || len(msgs) == 0 {
 		return text, err
 	}
