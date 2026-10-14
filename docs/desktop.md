@@ -42,6 +42,14 @@ calls from `reef mcp` (see [memory.md](memory.md#reef-mcp)): one JSON line reque
 directly, not through `reef serve`. A stale socket from a crash is unlinked before the app
 listens again.
 
+`snapshot` reads the page's accessibility tree (CDP `Accessibility.getFullAXTree`) and renders
+it as text, one line per element, indented to match the tree, each with a ref such as `e12`
+(`- button "Submit" [ref=e12]`). The ref maps to the element's `backendDOMNodeId`, in a map kept
+only for the latest snapshot: a new snapshot, or a navigation, clears it. `click` and `type` take
+a ref from that map: `click` scrolls the node into view, finds its box's centre and dispatches a
+mouse press and release there; `type` focuses the node and inserts the text. A ref not in the
+map, or a node CDP no longer finds, fails with `ref e12 is not on the page; take a new snapshot`.
+
 ## Quit
 
 Quitting the app (the window, the menu, or a signal) stops its `reef serve` first: the server

@@ -67,6 +67,13 @@ type (
 	browserNavigateIn struct {
 		URL string `json:"url" jsonschema:"the URL to open in the browser pane"`
 	}
+	browserClickIn struct {
+		Ref string `json:"ref" jsonschema:"a ref from browser_snapshot, such as e12"`
+	}
+	browserTypeIn struct {
+		Ref  string `json:"ref" jsonschema:"a ref from browser_snapshot, such as e12"`
+		Text string `json:"text" jsonschema:"the text to type"`
+	}
 	browserTextOut struct {
 		Text string `json:"text"`
 	}
@@ -126,6 +133,21 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 		Name:        "browser_screenshot",
 		Description: "Take a screenshot of the browser pane's current page.",
 	}, m.browserScreenshot)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "browser_snapshot",
+		Description: "Read the browser pane's current page as text, one line per element with " +
+			"a ref such as e12. Use the ref with browser_click and browser_type. Refs are only " +
+			"valid until the next snapshot or a navigation.",
+	}, m.browserSnapshot)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "browser_click",
+		Description: "Click an element in the browser pane, by its ref from browser_snapshot.",
+	}, m.browserClick)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "browser_type",
+		Description: "Type text into an element in the browser pane, by its ref from " +
+			"browser_snapshot.",
+	}, m.browserType)
 	return srv
 }
 
@@ -298,4 +320,43 @@ func (m *mcpServer) browserScreenshot(
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.ImageContent{Data: data, MIMEType: "image/png"}},
 	}, nil, nil
+}
+
+func (m *mcpServer) browserSnapshot(
+	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
+) (*mcp.CallToolResult, browserTextOut, error) {
+	reply, err := callBrowser(m.dataDir, "snapshot", nil)
+	if err != nil {
+		return nil, browserTextOut{}, err
+	}
+	if reply.Error != "" {
+		return nil, browserTextOut{}, errors.New(reply.Error)
+	}
+	return nil, browserTextOut{Text: reply.Text}, nil
+}
+
+func (m *mcpServer) browserClick(
+	ctx context.Context, _ *mcp.CallToolRequest, in browserClickIn,
+) (*mcp.CallToolResult, browserTextOut, error) {
+	reply, err := callBrowser(m.dataDir, "click", map[string]string{"ref": in.Ref})
+	if err != nil {
+		return nil, browserTextOut{}, err
+	}
+	if reply.Error != "" {
+		return nil, browserTextOut{}, errors.New(reply.Error)
+	}
+	return nil, browserTextOut{Text: reply.Text}, nil
+}
+
+func (m *mcpServer) browserType(
+	ctx context.Context, _ *mcp.CallToolRequest, in browserTypeIn,
+) (*mcp.CallToolResult, browserTextOut, error) {
+	reply, err := callBrowser(m.dataDir, "type", map[string]string{"ref": in.Ref, "text": in.Text})
+	if err != nil {
+		return nil, browserTextOut{}, err
+	}
+	if reply.Error != "" {
+		return nil, browserTextOut{}, errors.New(reply.Error)
+	}
+	return nil, browserTextOut{Text: reply.Text}, nil
 }

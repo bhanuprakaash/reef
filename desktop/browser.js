@@ -6,6 +6,12 @@ import path from 'node:path';
 const SOCKET_NAME = 'browser.sock';
 const LOAD_TIMEOUT = 5000;
 
+// refError is returned for a ref that is not in the latest snapshot's map,
+// or a backendDOMNodeId that CDP no longer recognises (the node is gone).
+function refError(ref) {
+  return new Error(`ref ${ref} is not on the page; take a new snapshot`);
+}
+
 // createBrowser makes the one browser pane for the window: a WebContentsView
 // driven over the Chrome DevTools Protocol, and a socket server that `reef
 // mcp` dials to run tools against it. handlers maps a tool name from the
@@ -16,12 +22,23 @@ export function createBrowser(win) {
   view.webContents.loadURL('about:blank');
   view.webContents.debugger.attach('1.3');
   view.webContents.debugger.sendCommand('Page.enable');
+  view.webContents.debugger.sendCommand('DOM.enable');
+  view.webContents.debugger.sendCommand('Accessibility.enable');
+
+  // refs maps a snapshot ref (e1, e2, ...) to the backendDOMNodeId it named.
+  // It is only valid for the snapshot that made it: cleared on each new
+  // snapshot and on navigation, so a stale ref errors instead of acting on
+  // the wrong node.
+  let refs = new Map();
   view.webContents.on('did-navigate', (_event, url) => {
+    refs.clear();
     win.webContents.send('browser:navigated', url);
   });
 
   async function navigate(url) {
-    const loaded = new Promise((resolve) => {
+    const { errorText } = await view.webContents.debugger.sendCommand('Page.navigate', { url });
+    if (errorText) throw new Error(errorText);
+    await new Promise((resolve) => {
       const onMessage = (_event, method) => {
         if (method !== 'Page.loadEventFired') return;
         view.webContents.debugger.removeListener('message', onMessage);
@@ -34,8 +51,6 @@ export function createBrowser(win) {
       }, LOAD_TIMEOUT);
       view.webContents.debugger.on('message', onMessage);
     });
-    await view.webContents.debugger.sendCommand('Page.navigate', { url });
-    await loaded;
     return { text: `navigated to ${url}` };
   }
 
@@ -46,7 +61,86 @@ export function createBrowser(win) {
     return { image: data };
   }
 
-  const handlers = { navigate: (args) => navigate(args.url), screenshot };
+  // snapshot reads the page's accessibility tree and renders it as one line
+  // per node, indented to match the tree, with a ref for every node that
+  // has a backendDOMNodeId: click and type use that ref to find the node.
+  // Ignored nodes, and empty generic nodes (plain layout wrappers), are left
+  // out of the text but their children are still visited, at the same depth.
+  async function snapshot() {
+    const { nodes } = await view.webContents.debugger.sendCommand('Accessibility.getFullAXTree');
+    const byID = new Map(nodes.map((n) => [n.nodeId, n]));
+    const hasParent = new Set(nodes.flatMap((n) => n.childIds ?? []));
+    const root = nodes.find((n) => !hasParent.has(n.nodeId)) ?? nodes[0];
+
+    refs = new Map();
+    let next = 1;
+    const lines = [];
+
+    function visit(node, depth) {
+      if (!node) return;
+      const role = node.role?.value ?? '';
+      const name = node.name?.value ?? '';
+      const skip = node.ignored || (role === 'generic' && name === '');
+      let childDepth = depth;
+      if (!skip && node.backendDOMNodeId != null) {
+        const ref = `e${next++}`;
+        refs.set(ref, node.backendDOMNodeId);
+        lines.push(`${'  '.repeat(depth)}- ${role} "${name}" [ref=${ref}]`);
+        childDepth = depth + 1;
+      }
+      for (const id of node.childIds ?? []) visit(byID.get(id), childDepth);
+    }
+    visit(root, 0);
+
+    return { text: lines.join('\n') };
+  }
+
+  function backendNodeFor(ref) {
+    const backendNodeId = refs.get(ref);
+    if (backendNodeId == null) throw refError(ref);
+    return backendNodeId;
+  }
+
+  async function click(ref) {
+    const backendNodeId = backendNodeFor(ref);
+    try {
+      await view.webContents.debugger.sendCommand('DOM.scrollIntoViewIfNeeded', { backendNodeId });
+      const { model } = await view.webContents.debugger.sendCommand('DOM.getBoxModel', {
+        backendNodeId,
+      });
+      const [x1, y1, x2, y2, x3, y3, x4, y4] = model.content;
+      const x = (x1 + x2 + x3 + x4) / 4;
+      const y = (y1 + y2 + y3 + y4) / 4;
+      await view.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mousePressed', x, y, button: 'left', clickCount: 1,
+      });
+      await view.webContents.debugger.sendCommand('Input.dispatchMouseEvent', {
+        type: 'mouseReleased', x, y, button: 'left', clickCount: 1,
+      });
+    } catch {
+      throw refError(ref);
+    }
+    return { text: `clicked ${ref}` };
+  }
+
+  async function type(ref, text) {
+    const backendNodeId = backendNodeFor(ref);
+    try {
+      await view.webContents.debugger.sendCommand('DOM.focus', { backendNodeId });
+      await view.webContents.debugger.sendCommand('Input.insertText', { text });
+    } catch {
+      throw refError(ref);
+    }
+    return { text: `typed into ${ref}` };
+  }
+
+  const handlers = {
+    navigate: (args) => navigate(args.url),
+    screenshot,
+    snapshot,
+    click: (args) => click(args.ref),
+    type: (args) => type(args.ref, args.text),
+  };
 
   let server = null;
   let socketPath = null;
