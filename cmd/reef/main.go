@@ -32,6 +32,7 @@ commands:
   decide <feature> "<body>" [--why W]
   task add [<feature>] "<title>"
   task list [<feature>] [--status S]
+  memory show [--project P] | memory set FILE|- [--project P]
   team apply FILE.json | team list
   context <feature> --role R
   wrap list [<feature>] | show <id> | approve <id> | reject <id>
@@ -73,6 +74,8 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return teamCmd(ctx, args[1:], stdout)
 	case "task":
 		return taskCmd(ctx, args[1:], stdout)
+	case "memory":
+		return memoryCmd(ctx, args[1:], stdin, stdout)
 	case "context":
 		return contextCmd(ctx, args[1:], stdout)
 	case "wrap":

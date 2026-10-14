@@ -20,6 +20,7 @@ feature, and a channel that hits a cap pauses and says why. A channel on a team 
 - `window-rollback` a channel with checkpointed turns lists them under Checkpoints, newest first, each with Rollback; Rollback asks to confirm, then the feature's worktree has the same HEAD, `git status`, `git log` and files as before the turn, `reef` posts `Rolled back to before turn N.`, and the next turn's prompt starts with that note.
 - `window-inbox` the Inbox link and `/inbox` list what waits on the user, live from `/inbox/events`: a new approval in a channel that is not open shows with Approve and Reject and fires one desktop notification; Approve from the list runs the wake and the item goes; clicking an item, or its notification, opens its channel scrolled to and marking the item (the approval row, the failed turn row, the pause banner or the newest message); an item of the channel open and visible fires no notification.
 - `window-diff` a feature's Diff section shows `GET /features/{id}/diff`: a turn that writes a file in the worktree, uncommitted, shows there as the file with its added line.
+- `window-memory` the home page shows a project memory editor, empty for a new project; saving it stores the body (`GET /projects/{id}/memory`), and it survives a reload.
 
 Acceptance lines of the slice: "start a channel, chat, see streamed tool calls and text live" is
 `window-live`; "a new channel of the same feature starts from the brief" is `window-brief`;
@@ -57,6 +58,7 @@ REEF_VERIFY_RUN=<id> $H ui retry
 REEF_VERIFY_RUN=<id> $H ui rollback
 REEF_VERIFY_RUN=<id> $H ui inbox
 REEF_VERIFY_RUN=<id> $H ui diff
+REEF_VERIFY_RUN=<id> $H ui memory
 ```
 
 - **live.** Prints a `PASS live:` line for the tool rows seen mid-turn (the first row's tool name and input), the one stored `lead` message (with the message rows) and the cleared live view. Screenshots `live-midturn.png` (tool rows under `LEAD is working...`; the label is the running role in capitals, `ARCHITECT is working...` in a team) and `live-final.png`.

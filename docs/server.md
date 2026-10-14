@@ -117,6 +117,17 @@ Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 | `path` | string | required; the repo folder, stored as an absolute path with symlinks resolved |
 | `createdAt` | string | |
 
+### project_memory
+
+One body per project, kept as a column on `project` (migration 14
+[`014_project_memory.sql`](../store/migrations/014_project_memory.sql)). The user writes it; it
+is loaded into every fresh session's context prompt (see [memory.md](memory.md#the-context-prompt)).
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `projectId` | number | from the path |
+| `body` | string | default `""` |
+
 ### feature
 
 | Field | JSON | Notes |
@@ -341,6 +352,8 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `GET /projects/{id}` | | 200 | 404 |
 | `PUT /projects/{id}` | `name`, `path` | 200 | 400 (same `path` rule), 404 |
 | `DELETE /projects/{id}` | | 204; the worktrees of its features and the checkpoint refs of the turns of all its channels are removed, its branches are kept | 404, 409 a feature's worktree has uncommitted changes (nothing is removed) |
+| `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set | 404 |
+| `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200 | 404 |
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |

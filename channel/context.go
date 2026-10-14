@@ -38,6 +38,14 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 	}
 	fmt.Fprintf(&b, "Stage: %s\n", f.Stage)
 
+	mem, err := st.ProjectMemory(ctx, f.ProjectID)
+	if err != nil {
+		return "", err
+	}
+	if mem.Body != "" {
+		section(&b, "Project memory", mem.Body, "")
+	}
+
 	brief, err := st.Brief(ctx, f.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return "", err
@@ -129,10 +137,17 @@ func teamIntro(team store.Team, r store.Role) string {
 	return s
 }
 
-func projectContext(p store.Project, role string) string {
-	return fmt.Sprintf("You are the %s in project %q (%s).\n"+
+func projectContext(p store.Project, role, memory string) string {
+	s := fmt.Sprintf("You are the %s in project %q (%s).\n"+
 		"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n",
 		role, p.Name, p.Path)
+	if memory != "" {
+		var b strings.Builder
+		b.WriteString(s)
+		section(&b, "Project memory", memory, "")
+		return b.String()
+	}
+	return s
 }
 
 // firstLine is the first line of body, cut to _maxIndexRunes characters.

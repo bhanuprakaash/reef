@@ -10,9 +10,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -445,6 +445,28 @@ async function diff() {
     'GET /features/{id}/diff returns the file with its added line',
     JSON.stringify(json),
   );
+}
+
+async function memory() {
+  const section = await addProject();
+  const name = (await section.getByRole('heading', { level: 3 }).textContent()) ?? '';
+  const pid = sql(`select id from project where name='${name}'`);
+  const home = main.locator('section', { has: page.getByRole('heading', { name, level: 2 }) });
+  await home.getByLabel('Project memory').waitFor();
+  await shot('empty');
+  check((await home.getByLabel('Project memory').inputValue()) === '', 'a new project has no memory yet');
+  await home.getByLabel('Project memory').fill('Use Go, not Python.');
+  await home.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+  await shot('saved');
+  check(
+    sql(`select memory from project where id=${pid}`) === 'Use Go, not Python.',
+    'saving the editor stores the memory',
+    sql(`select id,memory from project where id=${pid}`),
+  );
+  await page.reload();
+  const value = await home.getByLabel('Project memory').inputValue();
+  check(value === 'Use Go, not Python.', 'the saved memory survives a reload', value);
 }
 
 async function inbox() {

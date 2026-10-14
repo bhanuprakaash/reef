@@ -485,7 +485,11 @@ func startPrompt(
 		return "", err
 	}
 	if ch.FeatureID == nil {
-		return roleIntro(r) + projectContext(p, r.Name) + teamIntro(team, r), nil
+		mem, err := st.ProjectMemory(ctx, p.ID)
+		if err != nil {
+			return "", err
+		}
+		return roleIntro(r) + projectContext(p, r.Name, mem.Body) + teamIntro(team, r), nil
 	}
 	body, err := Context(ctx, st, *ch.FeatureID, r.Name)
 	return roleIntro(r) + body + teamIntro(team, r), err
