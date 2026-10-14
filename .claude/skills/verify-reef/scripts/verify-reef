@@ -737,6 +737,10 @@ cmd_desktop() {
 
 cmd_cleanup() {
 	load_run
+	# A run made inside this one (REEF_VERIFY_RUN=<id>/NAME, as feature full-team does) goes first.
+	for d in "$SCR"/*/bin; do
+		[ -d "$d" ] && REEF_VERIFY_RUN="$REEF_VERIFY_RUN/$(basename "$(dirname "$d")")" "$0" cleanup
+	done
 	if [ -f "$SCR/serve.pid" ] && serve_alive "$(cat "$SCR/serve.pid")"; then
 		echo "stopping server pid $(cat "$SCR/serve.pid")"
 		kill -INT "$(cat "$SCR/serve.pid")" 2>/dev/null
