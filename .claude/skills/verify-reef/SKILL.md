@@ -34,10 +34,15 @@ scratch cwd; the server is started separately (see Server).
 # prints the run id, e.g. 20261013-134053-78591
 ```
 
-`build` runs `go build` for `./cmd/reef-agent` and `./cmd/reef` into `/private/tmp/reef-verify/<id>/bin/`, makes
-the scratch cwd `/private/tmp/reef-verify/<id>/cwd/`, and writes
+`build` runs `go build` for `./cmd/reef-agent` and `./cmd/reef` into `<scratch>/bin/`, makes
+the scratch cwd `<scratch>/cwd/`, and writes
 `~/.reef-verify/<id>/build.txt` (HEAD sha, dirty file count, both binary paths). Ready = it
 printed an id and exited 0.
+
+`<scratch>` is `/tmp/reef-verify/<id>` on Linux and `/private/tmp/reef-verify/<id>` on macOS: the
+helper resolves `/tmp` with `pwd -P`. This skill and its feature files write `<scratch>` for it.
+`<key>` is `<scratch>/cwd` with every character outside A-Z a-z 0-9 turned into `-`: claude keeps
+the scratch cwd's sessions in `~/.claude/projects/<key>/`.
 
 ## Doctor
 
@@ -86,7 +91,7 @@ tool `sleep_60` runs `sleep 60`) and prints the path of its `--mcp` file. The se
 
 ```sh
 REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef mcp-server
-# /private/tmp/reef-verify/<id>/mcp/mcp.json
+# <scratch>/mcp/mcp.json
 ```
 
 Both `run` and `interrupt` print the meta and exit with `reef-agent`'s exit code.
@@ -111,7 +116,7 @@ Launch:
 
 ```sh
 REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef serve-start [--data-name NAME]
-# serve: ready pid=... addr=127.0.0.1:PORT data=/private/tmp/reef-verify/<id>/NAME in 0.4 s
+# serve: ready pid=... addr=127.0.0.1:PORT data=<scratch>/NAME in 0.4 s
 ```
 
 It picks a free 127.0.0.1 port, starts `reef serve --addr ... --data <scratch>/NAME` (default
@@ -283,9 +288,9 @@ If this run's server is still up it gets SIGINT first. Then it sends SIGTERM, th
 pids this run recorded (`reef-agent`, `reef serve`, `reef` commands and the children seen under them), and only
 while the pid still runs the recorded command. It never
 kills by name: other claude sessions and a managed `codex app-server --listen` daemon may
-run on this machine. It removes `/private/tmp/reef-verify/<id>/` and claude's state for
-the scratch cwd (`~/.claude/projects/-private-tmp-reef-verify-<id>-cwd` and its task
-folder under `/private/tmp/claude-<uid>/`), then
+run on this machine. It removes `<scratch>/` and claude's state for
+the scratch cwd (`~/.claude/projects/<key>` and its task
+folder under `claude-<uid>/` beside `reef-verify/`), then
 lists the evidence dir it kept. The server's data folder goes with the scratch dir; `sql.log`
 keeps what you read from it. Run it after every run, failed ones too. Codex threads stay
 in `~/.codex/sessions`; cleanup leaves them.
