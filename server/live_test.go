@@ -39,14 +39,13 @@ type fakeSession struct {
 	say func()
 }
 
-func (f *fakeSession) Say(ctx context.Context, body string, parent *int64) error {
+func (f *fakeSession) Say(ctx context.Context, body string, parent *int64) (store.Message, error) {
 	if f.say != nil {
 		f.say()
 	}
-	_, err := f.st.CreateMessage(ctx, store.Message{
+	return f.st.CreateMessage(ctx, store.Message{
 		ChannelID: f.channelID.Load(), ParentID: parent, Author: "user", Body: body,
 	})
-	return err
 }
 
 func (f *fakeSession) RunAs(
@@ -542,6 +541,19 @@ func TestSend_TopLevelWakeHasNoThread(t *testing.T) {
 	}
 	if got := parent.Load(); got != nil {
 		t.Errorf("architect reply parent = %d, want nil: the reply is top-level", *got)
+	}
+}
+
+func TestSend_RoutesOnlyItsOwnMessage(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.say = func() { post("user", "@architect plan it", nil) }
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead")
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 2]\ngo"}) {
+		t.Errorf("ran = %q, want only the send: a message stored beside it is not routed", got)
 	}
 }
 
