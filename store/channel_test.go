@@ -4,9 +4,42 @@ import (
 	"context"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
 )
+
+func TestChannel_NilTeamUsesSoloTeam(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	project, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.db.ExecContext(ctx,
+		"INSERT INTO channel (project_id, name, created_at, team_id) VALUES (?, ?, ?, NULL)",
+		project.ID, "chat", time.Now().UTC().Format(time.RFC3339Nano))
+	if err != nil {
+		t.Fatal(err)
+	}
+	id, err := res.LastInsertId()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	ch, err := s.Channel(ctx, id)
+	if err != nil || ch.Team != SoloTeam {
+		t.Errorf("Channel(%d) = %+v, %v, want team %q", id, ch, err, SoloTeam)
+	}
+	channels, err := s.Channels(ctx, ChannelFilter{ProjectID: &project.ID})
+	if err != nil || len(channels) != 1 || channels[0].Team != SoloTeam {
+		t.Errorf("Channels() = %+v, %v, want one channel with team %q", channels, err, SoloTeam)
+	}
+}
 
 func TestChannelTokens_ExcludesCacheReads(t *testing.T) {
 	ctx := context.Background()
