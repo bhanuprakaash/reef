@@ -461,8 +461,8 @@ func TestOpen_Errors(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(turns) != 1 || turns[0].Role != "architect" || turns[0].Status != "failed" ||
-			turns[0].Error != "no claude" {
-			t.Errorf("turns = %+v, want one failed architect turn with error no claude", turns)
+			turns[0].Error != "no claude" || turns[0].WakeText != "hi" {
+			t.Errorf("turns = %+v, want one failed architect turn with error no claude, waking on hi", turns)
 		}
 		if err := s.Close(); err != nil {
 			t.Fatal(err)

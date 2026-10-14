@@ -57,6 +57,7 @@ func (r *Runner) Run(
 	wctx := context.WithoutCancel(ctx)
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
 		ChannelID: r.channelID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,
+		WakeText: text, WakeParent: parent,
 	})
 	if err != nil {
 		return err

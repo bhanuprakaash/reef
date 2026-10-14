@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
@@ -10,9 +10,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -296,6 +296,27 @@ async function stop() {
   await shot('resumed');
   const answer = sql(`select body from message where channel_id=${cid} and author='lead' order by id desc limit 1`);
   check(/pineapple/i.test(answer), 'the next message resumes the session', `answer: ${answer}`);
+}
+
+async function retry() {
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const cid = await newChannel(main, 'New channel', 'retry chat');
+  await send('Write a 1500-word story about lighthouses. Use no tools.');
+  await working();
+  await page.waitForTimeout(4000);
+  await page.getByRole('button', { name: 'Stop' }).click();
+  const row = page.getByRole('listitem').filter({ hasText: /Turn \d+ by lead failed: interrupted/ });
+  await row.waitFor({ timeout: 30000 });
+  await shot('failed-row');
+  await row.getByRole('button', { name: 'Retry' }).click();
+  await working();
+  await shot('retrying');
+  await idle();
+  await row.waitFor({ state: 'hidden' });
+  await shot('retried');
+  const turns = sql(`select id||' '||role||' '||status||' retried='||retried from turn where channel_id=${cid} order by id`);
+  check(/^\d+ lead failed retried=1\n\d+ lead done retried=0$/.test(turns), 'Retry runs the failed wake as a new turn that ends done', turns);
 }
 
 async function wrap() {

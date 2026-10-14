@@ -158,3 +158,59 @@ func TestSetTurnSession(t *testing.T) {
 		t.Errorf("session on ended turn: err = %v, want ErrInvalid", err)
 	}
 }
+
+func TestSetTurnRetried(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	msg, err := s.CreateMessage(ctx, Message{ChannelID: 1, Author: "user", Body: "go"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTurn(ctx, Turn{
+		ChannelID: 1, Role: "developer", Backend: "claude", WakeText: "build it", WakeParent: &msg.ID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "tester", Backend: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.EndTurn(ctx, Turn{ID: 1, Status: "failed", Error: "boom"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.SetTurnRetried(ctx, 2, true); !errors.Is(err, ErrConflict) {
+		t.Errorf("retry a running turn = %v, want ErrConflict", err)
+	}
+	if err := s.SetTurnRetried(ctx, 9, true); !errors.Is(err, ErrNotFound) {
+		t.Errorf("retry an unknown turn = %v, want ErrNotFound", err)
+	}
+	if err := s.SetTurnRetried(ctx, 1, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetTurnRetried(ctx, 1, true); !errors.Is(err, ErrConflict) {
+		t.Errorf("retry twice = %v, want ErrConflict", err)
+	}
+	got, err := s.Turn(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Retried || got.WakeText != "build it" || got.WakeParent == nil || *got.WakeParent != 1 {
+		t.Errorf("turn = %+v, want retried with wake %q in thread 1", got, "build it")
+	}
+	if err := s.SetTurnRetried(ctx, 1, false); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.Turn(ctx, 1); got.Retried {
+		t.Errorf("turn = %+v, want not retried", got)
+	}
+}

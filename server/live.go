@@ -130,6 +130,8 @@ func (s *server) liveRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/channels/{id}/stop", methodNotAllowed)
 	mux.HandleFunc("POST /channels/{id}/continue", s.continueChannel)
 	mux.HandleFunc("/channels/{id}/continue", methodNotAllowed)
+	mux.HandleFunc("POST /turns/{id}/retry", s.retryTurn)
+	mux.HandleFunc("/turns/{id}/retry", methodNotAllowed)
 	mux.HandleFunc("GET /channels/{id}/approvals", s.listApprovals)
 	mux.HandleFunc("/channels/{id}/approvals", methodNotAllowed)
 	mux.HandleFunc("POST /channels/{id}/approvals/{aid}", s.decideApproval)
@@ -572,6 +574,45 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		l.mu.Unlock()
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// retryTurn runs the wake of a failed turn again, as a new turn of its role in a new chain,
+// and marks the failed turn retried. A turn that is not failed, is retried already or kept no
+// wake is 409, and so is a channel that has a turn running or is paused.
+func (s *server) retryTurn(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	ctx := context.WithoutCancel(r.Context())
+	t, err := s.st.Turn(ctx, id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if t.WakeText == "" {
+		writeError(w, fmt.Errorf("turn %d kept no wake to run again: %w", id, store.ErrConflict))
+		return
+	}
+	c, ch, err := s.claim(ctx, t.ChannelID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.st.SetTurnRetried(ctx, id, true); err != nil {
+		writeError(w, c.release(err))
+		return
+	}
+	rerun := wake{from: _userAuthor, role: t.Role, text: t.WakeText, parent: t.WakeParent}
+	if err := c.resume(ctx, ch, []wake{rerun}); err != nil {
+		if rerr := s.st.SetTurnRetried(ctx, id, false); rerr != nil {
+			err = errors.Join(err, rerr)
+		}
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusAccepted)
 }
 
 func (s *server) stop(w http.ResponseWriter, r *http.Request) {

@@ -71,6 +71,16 @@ export type Message = {
   createdAt: string;
 };
 
+export type Turn = {
+  id: number;
+  channelId: number;
+  role: string;
+  status: string;
+  error: string;
+  wakeText: string;
+  retried: boolean;
+};
+
 export type Team = {
   name: string;
   roles: { name: string; lead: boolean }[];
