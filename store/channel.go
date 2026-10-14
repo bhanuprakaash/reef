@@ -15,7 +15,8 @@ const TokenBudget = 1_000_000
 const HopCap = 4
 
 const _channelCols = "id, project_id, feature_id, name, role, backend, permission_mode, " +
-	"paused, token_budget, created_at, (SELECT name FROM team WHERE id = channel.team_id)"
+	"paused, token_budget, created_at, COALESCE((SELECT name FROM team WHERE id = channel.team_id), '" +
+	SoloTeam + "')"
 
 // Channel with a nil FeatureID is a quick session.
 type Channel struct {
