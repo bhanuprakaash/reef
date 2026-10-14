@@ -4,6 +4,7 @@ import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
 import { useProjects } from '@/modules/projects/api/get-projects';
+import { InboxLink } from '@/modules/inbox/components/inbox-link';
 import { AddProjectForm } from '@/modules/projects/components/add-project-form';
 import { errorClass, mutedClass } from '@/utils/classes';
 
@@ -16,6 +17,7 @@ export function Sidebar() {
 
   return (
     <nav className="space-y-4 text-sm">
+      <InboxLink />
       <Link to="/tasks" className="block hover:underline">
         Tasks
       </Link>

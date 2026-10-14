@@ -98,6 +98,16 @@ export type Approval = {
   createdAt: string;
 };
 
+export type InboxItem = {
+  kind: 'approval' | 'paused' | 'failed' | 'waiting';
+  channelId: number;
+  featureId: number | null;
+  text: string;
+  at: string;
+  approvalId?: number;
+  turnId?: number;
+};
+
 export type TaskStatus = 'todo' | 'doing' | 'done';
 
 export type Task = {
