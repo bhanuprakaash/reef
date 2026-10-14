@@ -31,12 +31,16 @@ type Session struct {
 	lock     *os.File
 	onPrompt func(prompt string)
 	members  map[string]*member
+	trees    *Trees
 }
 
 type member struct {
 	run   *Runner
 	ag    agent.Agent
 	token string
+	// write and dir say which tree the role's turns hold, one at a time.
+	write bool
+	dir   string
 }
 
 // TokenEnv carries the token to the channel's reef mcp. WrapCommand is the text that asks
@@ -65,11 +69,15 @@ const (
 var ErrNoProposal = errors.New("no proposal made")
 
 // Open opens the channel; no agent starts until a turn needs it. The caller must Close
-// the Session.
+// the Session. Sessions that share trees run one write turn at a time on a working tree.
 func Open(
-	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64,
+	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64, trees *Trees,
 ) (*Session, error) {
-	return open(ctx, st, dataDir, exe, channelID, newAgent)
+	s, err := open(ctx, st, dataDir, exe, channelID, newAgent)
+	if err == nil {
+		s.trees = trees
+	}
+	return s, err
 }
 
 func open(
@@ -90,7 +98,7 @@ func open(
 	}
 	s := &Session{
 		st: st, dataDir: dataDir, exe: exe, ch: ch, project: p, mk: mk, lock: lock,
-		members: map[string]*member{},
+		members: map[string]*member{}, trees: NewTrees(),
 	}
 	defer func() {
 		if err != nil {
@@ -137,7 +145,8 @@ func (s *Session) Run(
 
 // RunAs is Run for any role of the channel's team. A specialist's agent is closed when
 // its turn ends; its next turn resumes the session. A failure to close it is logged, and
-// does not fail the turn.
+// does not fail the turn. A role that writes waits for the turns of other writers on its
+// tree, and its turn starts when they end.
 func (s *Session) RunAs(
 	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
 ) error {
@@ -145,7 +154,7 @@ func (s *Session) RunAs(
 	if err != nil {
 		return err
 	}
-	err = m.run.Run(ctx, text, parent, onEvent)
+	err = s.run(ctx, m, text, parent, onEvent)
 	if role == s.ch.Role {
 		return err
 	}
@@ -153,6 +162,39 @@ func (s *Session) RunAs(
 	if cerr := m.close(s.st); cerr != nil {
 		log.Printf("close %s of channel %d: %v", role, s.ch.ID, cerr)
 	}
+	return err
+}
+
+// run runs a turn of m, holding m's tree when it writes. A ctx cancelled while it waits
+// leaves an interrupted turn.
+func (s *Session) run(
+	ctx context.Context, m *member, text string, parent *int64, onEvent func(agent.Event),
+) error {
+	if !m.write {
+		return m.run.Run(ctx, text, parent, onEvent)
+	}
+	unlock, err := s.trees.Lock(ctx, m.dir)
+	if err != nil {
+		ferr := s.failTurn(ctx, m.run.role, m.run.backend, "interrupted", text, parent)
+		return errors.Join(err, ferr)
+	}
+	defer unlock()
+	return m.run.Run(ctx, text, parent, onEvent)
+}
+
+// failTurn stores a failed turn of role for a turn that never started.
+func (s *Session) failTurn(
+	ctx context.Context, role, backend, reason, text string, parent *int64,
+) error {
+	ctx = context.WithoutCancel(ctx)
+	t, err := s.st.CreateTurn(ctx, store.Turn{
+		ChannelID: s.ch.ID, Role: role, Backend: backend, WakeText: text, WakeParent: parent,
+	})
+	if err != nil {
+		return err
+	}
+	t.Status, t.Error = "failed", reason
+	_, err = s.st.EndTurn(ctx, t)
 	return err
 }
 
@@ -250,7 +292,7 @@ func (s *Session) member(
 	if err != nil {
 		return nil, err
 	}
-	m := &member{ag: ag}
+	m := &member{ag: ag, write: r.Write}
 	defer func() {
 		if err != nil {
 			_ = m.close(s.st)
@@ -278,6 +320,7 @@ func (s *Session) member(
 	if err != nil {
 		return nil, err
 	}
+	m.dir = cwd
 	mode, tools := access(r)
 	cfg := agent.Config{
 		Cwd:            cwd,
@@ -287,7 +330,7 @@ func (s *Session) member(
 	}
 	var preamble string
 	if ctx.Err() == nil && slug != "" {
-		err = worktree.Ensure(ctx, s.project.Path, cwd, worktree.Branch(slug))
+		err = s.ensureWorktree(ctx, cwd, slug)
 	}
 	switch {
 	case err != nil:
@@ -306,14 +349,7 @@ func (s *Session) member(
 		if ctx.Err() != nil {
 			reason = "interrupted"
 		}
-		t, terr := s.st.CreateTurn(wctx, store.Turn{
-			ChannelID: s.ch.ID, Role: role, Backend: r.Backend, WakeText: text, WakeParent: parent,
-		})
-		if terr == nil {
-			t.Status, t.Error = "failed", reason
-			_, terr = s.st.EndTurn(wctx, t)
-		}
-		return nil, errors.Join(err, terr)
+		return nil, errors.Join(err, s.failTurn(wctx, role, r.Backend, reason, text, parent))
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.OnPrompt = s.onPrompt
@@ -322,6 +358,18 @@ func (s *Session) member(
 	}
 	s.members[role] = m
 	return m, nil
+}
+
+// ensureWorktree makes the feature's worktree at dir, so that two channels of the feature do
+// not add it at once. It holds a lock of its own: a read-only role must not wait for the
+// write turn that holds the tree.
+func (s *Session) ensureWorktree(ctx context.Context, dir, slug string) error {
+	unlock, err := s.trees.Lock(ctx, "add "+dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return worktree.Ensure(ctx, s.project.Path, dir, worktree.Branch(slug))
 }
 
 // workDir is where an agent of the channel runs: the worktree of its feature, or the project

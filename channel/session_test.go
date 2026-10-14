@@ -421,7 +421,7 @@ func TestOpen_Errors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", tt.give)
+			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", tt.give, NewTrees())
 			if err == nil {
 				err = s.Start(ctx)
 				_ = s.Close()

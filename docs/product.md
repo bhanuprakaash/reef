@@ -192,6 +192,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 31 | Continue on a channel over its token budget sets the budget to the tokens used plus 1M (amends 10) | A flat +1M left a channel that used far more than its budget paused again at once |
 | 32 | Roles write only when the team file sets `write`; it maps to each backend's own limit (amends 9 and 30) | Checkpoints and the single-writer rule need one flag that does not depend on the backend |
 | 33 | A feature's worktree lives in the data folder and is made at its first wake, from the project's HEAD | Follows decision 4, and a feature nobody woke costs nothing |
+| 34 | Write turns on one tree run one at a time across channels | Decision 17's single writer holds with two channels on one feature |
 
 ## Open questions
 
