@@ -11,7 +11,7 @@ stdin closed it exits 0 after the turn. A failed turn ends with one `error` line
 - `turn-tool` prints a `tool_call` and a `tool_result` with the same `toolId`.
 - `turn-permission` passes `--permission-mode` through: allowed tools run, denied tools give a `tool_result` with `isError`.
 - `turn-error` a failed backend ends with one `error` line (or gives only a stderr message) and exit 1.
-- `turn-usage-error` a bad command line prints the usage text on stderr and exits 1.
+- `turn-usage-error` a missing prompt or a bad flag prints the usage text on stderr and exits 1; an unknown or missing backend prints only `reef-agent: unknown backend "nope"` (no usage text) and exits 1.
 
 ## How to get to it (user POV)
 
@@ -30,7 +30,7 @@ Preconditions:
 - **Denied tool, claude.** Run `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run --name deny-claude -- --backend claude "Create the file deny.txt with the Write tool, content x"`. A `tool_result` with `"isError":true`, and the scratch cwd has no `deny.txt` (`ls <scratch>/cwd`).
 - **Read-only sandbox, codex.** Run `REEF_VERIFY_RUN=<id> $H run --name deny-codex -- --backend codex --permission-mode read-only "Run the shell command: touch deny.txt"`. Either a `tool_result` with `"isError":true` or the model refuses; in both cases no `deny.txt` in the scratch cwd.
 - **Bad permission value.** Run `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run --name badmode-claude -- --backend claude --permission-mode bogus "hi"`. `exit: 1`; the last line is `{"kind":"error","text":"claude exited: exit status 1: ..."}` listing the valid modes. If claude exits before the prompt is written, stdout is empty and stderr says `reef-agent: write prompt: ...` instead; both are a pass. Codex: `--permission-mode bogus` gives `exit: 1`, empty jsonl, and stderr `reef-agent: thread/start: ...`.
-- **Usage error.** Run `REEF_VERIFY_RUN=<id> $H run --name usage-noprompt -- --backend claude` and `REEF_VERIFY_RUN=<id> $H run --name usage-backend -- --backend nope "hi"`. Both `exit: 1`, empty jsonl. Stderr shows `reef-agent: usage: reef-agent --backend claude|codex ...` and `reef-agent: unknown backend "nope"`.
+- **Usage error.** Run `REEF_VERIFY_RUN=<id> $H run --name usage-noprompt -- --backend claude` and `REEF_VERIFY_RUN=<id> $H run --name usage-backend -- --backend nope "hi"`. Both `exit: 1`, empty jsonl. Stderr shows `reef-agent: usage: reef-agent --backend claude|codex ...` for the first and only `reef-agent: unknown backend "nope"` for the second.
 
 ## Gotchas
 
