@@ -389,8 +389,13 @@ Rules:
 done) with `H`, `REEF_VERIFY_RUN`, `E` and `S` exported, tees its output to
 `~/.reef-verify/<id>/feature-NAME.log`, and exits 1 if any line is `FAIL`. So far there is
 `features/full-team.sh`, which drives every line of `full-team.md` and prints one
-`PASS <id>: ...` or `FAIL <id>: ...` per sub-feature id. It works the same whichever `claude`
-is on `PATH` (fake, record or real).
+`PASS <id>: ...` or `FAIL <id>: ...` per sub-feature id, in the order of its Sub-features list.
+It works the same whichever `claude` is on `PATH` (fake, record or real). Its six sections
+(`full`, `cx`, `inbox`, `ui2`, `google`, `fu`) run at the same time, each as its own run
+`<id>/<section>` (`build`, `doctor`, its own scratch folder and server), so the run takes about
+as long as `full`, the longest section. Each section's full output is in
+`~/.reef-verify/<id>/<section>/full-team.log`, next to that section's `serve.log`, `api.log` and
+`sql.log`. `cleanup` of `<id>` cleans up each `<id>/<section>` first.
 
 ```sh
 ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H feature full-team
