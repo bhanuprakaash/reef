@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -93,6 +94,29 @@ func TestCheckpoint_SeedsIndex(t *testing.T) {
 	}
 }
 
+func TestCheckpoint_Unmerged(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	run(t, repo, "checkout", "-b", "other")
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("other"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, repo, "commit", "-am", "other change")
+	run(t, repo, "checkout", "main")
+	if err := os.WriteFile(filepath.Join(repo, "a.txt"), []byte("main"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, repo, "commit", "-am", "main change")
+	if err := exec.Command("git", "-C", repo, "merge", "other").Run(); err == nil {
+		t.Fatal("merge did not conflict")
+	}
+
+	err := Checkpoint(ctx, repo, "refs/reef/checkpoints/1")
+	if !errors.Is(err, ErrNoCommit) {
+		t.Errorf("Checkpoint with an unmerged index: err = %v, want ErrNoCommit", err)
+	}
+}
+
 func TestIsRepo(t *testing.T) {
 	ctx := context.Background()
 	if !IsRepo(ctx, newRepo(t)) {
@@ -100,5 +124,32 @@ func TestIsRepo(t *testing.T) {
 	}
 	if IsRepo(ctx, t.TempDir()) {
 		t.Error("IsRepo(plain folder) = true, want false")
+	}
+}
+
+func TestIsRepo_Subfolder(t *testing.T) {
+	ctx := context.Background()
+	repo := newRepo(t)
+	sub := filepath.Join(repo, "sub")
+	if err := os.Mkdir(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if IsRepo(ctx, sub) {
+		t.Error("IsRepo(subfolder) = true, want false")
+	}
+}
+
+func TestHasCommit(t *testing.T) {
+	ctx := context.Background()
+	if !HasCommit(ctx, newRepo(t)) {
+		t.Error("HasCommit(repo) = false, want true")
+	}
+	noCommit := t.TempDir()
+	run(t, noCommit, "init", "-b", "main")
+	if HasCommit(ctx, noCommit) {
+		t.Error("HasCommit(repo with no commit) = true, want false")
+	}
+	if HasCommit(ctx, t.TempDir()) {
+		t.Error("HasCommit(plain folder) = true, want false")
 	}
 }
