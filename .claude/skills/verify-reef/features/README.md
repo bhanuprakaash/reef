@@ -19,7 +19,7 @@ Later slices add the Mac shell; add a file here for each feature they bring.
   `git -C <scratch>/cwd init -q -b main && git -C <scratch>/cwd -c user.name=v -c user.email=v@example.com commit -q --allow-empty -m init`.
   A feature's branch `feature/<slug>` can be checked out in one worktree only, so two data
   folders of one run cannot both wake a feature with the same slug on the scratch cwd: the
-  second fails with `fatal: 'feature/<slug>' is already used by worktree at ...`.
+  second fails with `branch feature/<slug> is checked out at <first data folder>/worktrees/<project id>/<slug>; switch that checkout to another branch`.
 - Server features also need `$H serve-start`: one server per run, on a fresh data folder
   (`$H serve-stop`, then `$H serve-start --data-name NAME`). Each server feature file names
   its folder and assumes ids start at 1. Drive it with `$H api`, `$H sql` and `$H serve-*`.
