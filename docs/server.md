@@ -319,8 +319,8 @@ its default. Update behavior is route-specific: `PUT /channels/{id}` keeps an om
   `/promote` included, is a plain message: only `POST /channels/{id}/promote` promotes.
 - `stop` interrupts a running turn (stored `failed`, `interrupted`), then stops the
   agent, deletes its token and releases the lock. It also works while the agent is
-  still starting: the send that began that turn answers 409 `channel 1 was stopped`, and
-  no turn runs. A turn that fails for another reason also stops the agent; the next send
+  still starting, or before the turn runs (a promote's change, the user message): the send
+  that began that turn answers 409 `channel 1 was stopped`, and no turn runs. A turn that fails for another reason also stops the agent; the next send
   starts it again.
 - `DELETE /channels/{id}` does the same as `stop` before it deletes the channel.
   `DELETE /features/{id}` and `DELETE /projects/{id}` do it for each of their channels.

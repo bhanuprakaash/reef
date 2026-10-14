@@ -86,6 +86,8 @@ func (s *server) liveRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/channels/{id}/continue", methodNotAllowed)
 }
 
+// live returns the channel's entry, creating it. Only code that starts a turn or waits for
+// events may use it; a lookup that must not create one uses lookup.
 func (s *server) live(id int64) *live {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -95,6 +97,12 @@ func (s *server) live(id int64) *live {
 		s.lives[id] = l
 	}
 	return l
+}
+
+func (s *server) lookup(id int64) *live {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lives[id]
 }
 
 func (s *server) begin() bool {
@@ -137,12 +145,17 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 
 // startTurn stores text as the user message, then starts the turn in the background. It
 // runs prepare, when set, once the agent is open; if it fails no turn starts. A stop that
-// arrives before the turn runs cancels it.
+// arrives before the turn runs cancels it. It creates the channel's entry once the channel
+// may run a turn.
 func (s *server) startTurn(
 	ctx context.Context, id int64, kind turnKind, text string, prepare func() error,
 ) error {
 	if !s.begin() {
 		return errStopping
+	}
+	if err := s.checkTurn(ctx, id, kind); err != nil {
+		s.wg.Done()
+		return err
 	}
 	l := s.live(id)
 	turnCtx, cancel := context.WithCancel(s.ctx)
@@ -167,14 +180,12 @@ func (s *server) startTurn(
 		s.wg.Done()
 		return err
 	}
-	if err := s.checkTurn(ctx, id, l, kind); err != nil {
-		return giveUp(err)
-	}
+	stopped := fmt.Errorf("channel %d was stopped: %w", id, store.ErrConflict)
 	if sess == nil {
 		var err error
 		if sess, err = s.open(turnCtx, id); err != nil {
 			if turnCtx.Err() != nil {
-				err = fmt.Errorf("channel %d was stopped: %w", id, store.ErrConflict)
+				err = stopped
 			}
 			return giveUp(err)
 		}
@@ -183,15 +194,21 @@ func (s *server) startTurn(
 		l.mu.Unlock()
 	}
 	if turnCtx.Err() != nil {
-		return giveUp(fmt.Errorf("channel %d was stopped: %w", id, store.ErrConflict))
+		return giveUp(stopped)
 	}
 	if prepare != nil {
 		if err := prepare(); err != nil {
 			return giveUp(err)
 		}
+		if turnCtx.Err() != nil {
+			return giveUp(stopped)
+		}
 	}
 	if err := sess.Say(ctx, text); err != nil {
 		return giveUp(err)
+	}
+	if turnCtx.Err() != nil {
+		return giveUp(stopped)
 	}
 	l.mu.Lock()
 	l.state = _running
@@ -263,7 +280,7 @@ func (s *server) runTurn(
 
 // checkTurn refuses a turn the channel may not run: a wrap on a quick session, and any
 // turn while the channel is paused or over its token budget.
-func (s *server) checkTurn(ctx context.Context, id int64, l *live, kind turnKind) error {
+func (s *server) checkTurn(ctx context.Context, id int64, kind turnKind) error {
 	ch, err := s.st.Channel(ctx, id)
 	if err != nil {
 		return err
@@ -273,7 +290,7 @@ func (s *server) checkTurn(ctx context.Context, id int64, l *live, kind turnKind
 			store.ErrInvalid, id)
 	}
 	pausedNow, err := channel.CheckCaps(ctx, s.st, &ch)
-	if pausedNow {
+	if l := s.lookup(id); pausedNow && l != nil {
 		l.mu.Lock()
 		l.publishLocked("pause", pauseState{Reason: ch.Paused})
 		l.mu.Unlock()
@@ -309,10 +326,11 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	l := s.live(id)
-	l.mu.Lock()
-	l.publishLocked("pause", pauseState{})
-	l.mu.Unlock()
+	if l := s.lookup(id); l != nil {
+		l.mu.Lock()
+		l.publishLocked("pause", pauseState{})
+		l.mu.Unlock()
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -322,7 +340,9 @@ func (s *server) stop(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	s.stopLive(s.live(id))
+	if l := s.lookup(id); l != nil {
+		s.stopLive(l)
+	}
 	w.WriteHeader(http.StatusNoContent)
 }
 

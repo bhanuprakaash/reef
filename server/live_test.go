@@ -30,9 +30,13 @@ type fakeSession struct {
 
 	mu  sync.Mutex
 	ran []string
+	say func()
 }
 
 func (f *fakeSession) Say(ctx context.Context, body string) error {
+	if f.say != nil {
+		f.say()
+	}
 	_, err := f.st.CreateMessage(ctx, store.Message{
 		ChannelID: f.channelID.Load(), Author: "user", Body: body,
 	})
@@ -719,6 +723,107 @@ func TestDelete_StopsLiveChannel(t *testing.T) {
 	env.h.s.mu.Unlock()
 	if lives != 0 {
 		t.Errorf("live channels = %d, want 0 after delete", lives)
+	}
+}
+
+func TestStop_DuringPrepareOrSay(t *testing.T) {
+	tests := []struct {
+		name          string
+		inPrepare     bool
+		wantMessageIn string
+	}{
+		{name: "prepare", inPrepare: true, wantMessageIn: "[]"},
+		{name: "say", inPrepare: false, wantMessageIn: `"body":"hello"`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			env := newLiveEnv(t)
+			opened := make(chan context.Context, 1)
+			env.open = func(ctx context.Context) (session, error) {
+				opened <- ctx
+				return env.fake, nil
+			}
+			stopped := make(chan struct{})
+			var once sync.Once
+			stopWhile := func() {
+				once.Do(func() {
+					ctx := <-opened
+					go func() {
+						defer close(stopped)
+						env.h.s.stopLive(env.h.s.lookup(1))
+					}()
+					<-ctx.Done()
+				})
+			}
+			var prepare func() error
+			if tt.inPrepare {
+				prepare = func() error { stopWhile(); return nil }
+			} else {
+				env.fake.say = stopWhile
+			}
+
+			err := env.h.s.startTurn(context.Background(), 1, _message, "hello", prepare)
+			if !errors.Is(err, store.ErrConflict) || !strings.Contains(err.Error(), "was stopped") {
+				t.Fatalf("startTurn = %v, want stopped conflict", err)
+			}
+			<-stopped
+			env.fake.mu.Lock()
+			ran := env.fake.ran
+			env.fake.mu.Unlock()
+			if len(ran) != 0 {
+				t.Errorf("ran = %q, want no turn", ran)
+			}
+			_, body := do(t, http.MethodGet, env.url+"/messages?channel=1", "")
+			if !strings.Contains(body, tt.wantMessageIn) {
+				t.Errorf("messages = %s, want %s", body, tt.wantMessageIn)
+			}
+			if got := env.fake.closed.Load(); got != 1 {
+				t.Errorf("session closes = %d, want 1", got)
+			}
+			if status, _ := env.send(t, "again"); status != 202 {
+				t.Errorf("send after the stop = %d, want 202", status)
+			}
+		})
+	}
+}
+
+func TestLive_EntryOnlyForATurn(t *testing.T) {
+	env := newLiveEnv(t)
+	entries := func() int {
+		env.h.s.mu.Lock()
+		defer env.h.s.mu.Unlock()
+		return len(env.h.s.lives)
+	}
+	if status, _ := do(t, http.MethodPost, env.url+"/channels/1/stop", ""); status != 204 {
+		t.Fatalf("stop = %d, want 204", status)
+	}
+	if err := env.st.PauseChannel(context.Background(), 1, "capped"); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := env.send(t, "hello"); status != 409 {
+		t.Fatalf("send to a paused channel = %d, want 409", status)
+	}
+	if status, _ := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	if status, _ := env.send(t, "/wrap"); status != 400 {
+		t.Fatalf("wrap on a quick session = %d, want 400", status)
+	}
+	if got := entries(); got != 0 {
+		t.Fatalf("entries = %d, want 0 before any turn", got)
+	}
+
+	if status, _ := env.send(t, "hello"); status != 202 {
+		t.Fatalf("send = %d, want 202", status)
+	}
+	if got := entries(); got != 1 {
+		t.Errorf("entries = %d, want 1 after a turn", got)
+	}
+	if status, _ := do(t, http.MethodDelete, env.url+"/channels/1", ""); status != 204 {
+		t.Fatalf("delete = %d, want 204", status)
+	}
+	if got := entries(); got != 0 {
+		t.Errorf("entries = %d, want 0 after delete", got)
 	}
 }
 

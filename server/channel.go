@@ -148,10 +148,7 @@ func (s *server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	s.mu.Lock()
-	l := s.lives[id]
-	s.mu.Unlock()
-	if l != nil {
+	if l := s.lookup(id); l != nil {
 		s.stopLive(l)
 	}
 	if err := s.st.DeleteChannel(r.Context(), id); err != nil {
@@ -171,13 +168,12 @@ func (s *server) stopChannels(ctx context.Context, f store.ChannelFilter) error 
 		return err
 	}
 	for _, c := range cs {
-		s.mu.Lock()
-		l := s.lives[c.ID]
-		delete(s.lives, c.ID)
-		s.mu.Unlock()
-		if l != nil {
+		if l := s.lookup(c.ID); l != nil {
 			s.stopLive(l)
 		}
+		s.mu.Lock()
+		delete(s.lives, c.ID)
+		s.mu.Unlock()
 	}
 	return nil
 }

@@ -108,6 +108,8 @@ type chatSession interface {
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 }
 
+var _ chatSession = (*channel.Session)(nil)
+
 func converse(
 	ctx context.Context, st *store.Store, channelID int64, sess chatSession,
 	in *lineReader, stdout io.Writer,
