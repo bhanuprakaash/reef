@@ -180,7 +180,7 @@ func newLiveEnv(t *testing.T) *liveEnv {
 
 func (e *liveEnv) serve(t *testing.T) {
 	t.Helper()
-	e.h = newHandler(e.st, func(ctx context.Context, id int64) (session, error) {
+	e.h = newHandler(e.st, e.dir, channel.NewTrees(e.dir), func(ctx context.Context, id int64) (session, error) {
 		e.opened.Add(1)
 		e.fake.channelID.Store(id)
 		if e.open != nil {
@@ -256,9 +256,14 @@ func subscribe(t *testing.T, url string) *stream {
 
 func subscribeTo(t *testing.T, url string, id int) *stream {
 	t.Helper()
+	return subscribePath(t, fmt.Sprintf("%s/channels/%d/events", url, id))
+}
+
+func subscribePath(t *testing.T, url string) *stream {
+	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("%s/channels/%d/events", url, id), nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -719,10 +724,10 @@ func TestSend_UserPostMidChainIsNotRouted(t *testing.T) {
 	sub := subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "go")
 	sub.want(t, _idleFrame)
-	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead")
+	sub.wantTurns(t, "lead", "architect", "lead", "architect", "lead", "architect", "lead")
 	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
-	if got := len(env.ranTexts()); got != 5 {
-		t.Errorf("turns run = %d, want 5: the user's post starts no turn and does not reset the hops", got)
+	if got := len(env.ranTexts()); got != 7 {
+		t.Errorf("turns run = %d, want 7: the user's post starts no turn and does not reset the hops", got)
 	}
 }
 
@@ -837,7 +842,7 @@ func TestSend_OpenErrors(t *testing.T) {
 			if _, err := st.CreateChannel(context.Background(), store.Channel{ProjectID: 1, Name: "chat"}); err != nil {
 				t.Fatal(err)
 			}
-			h := newHandler(st, func(context.Context, int64) (session, error) { return nil, tt.giveErr })
+			h := newHandler(st, "", channel.NewTrees(t.TempDir()), func(context.Context, int64) (session, error) { return nil, tt.giveErr })
 			t.Cleanup(h.Close)
 			ts := httptest.NewServer(h)
 			t.Cleanup(ts.Close)
@@ -1047,6 +1052,7 @@ func (e *liveEnv) wantInterruptedPromote(t *testing.T, ag *countingAgent) {
 
 func TestPromote_StopDuringSayAnswers202(t *testing.T) {
 	env := newLiveEnv(t)
+	gitProject(t, env, 1)
 	stopWhile, stopped, ag := stopAfterOpen(env)
 	env.fake.say = stopWhile
 

@@ -20,8 +20,10 @@ import (
 )
 
 type server struct {
-	st   *store.Store
-	open func(ctx context.Context, channelID int64) (session, error)
+	st      *store.Store
+	dataDir string
+	trees   *channel.Trees
+	open    func(ctx context.Context, channelID int64) (session, error)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -32,6 +34,9 @@ type server struct {
 	closed   bool
 	lives    map[int64]*live
 	deleting map[int64]int
+
+	inboxMu   sync.Mutex
+	inboxWake chan struct{}
 }
 
 // Handler serves the API. Close it when done.
@@ -42,8 +47,9 @@ type Handler struct {
 
 // New returns the API over st.
 func New(st *store.Store, dataDir, exe string) *Handler {
-	return newHandler(st, func(ctx context.Context, channelID int64) (session, error) {
-		sess, err := channel.Open(ctx, st, dataDir, exe, channelID)
+	trees := channel.NewTrees(dataDir)
+	return newHandler(st, dataDir, trees, func(ctx context.Context, channelID int64) (session, error) {
+		sess, err := channel.Open(ctx, st, dataDir, exe, channelID, trees)
 		if err != nil {
 			return nil, err
 		}
@@ -57,12 +63,14 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.h.ServeH
 func (h *Handler) Close() { h.s.close() }
 
 func newHandler(
-	st *store.Store, open func(ctx context.Context, channelID int64) (session, error),
+	st *store.Store, dataDir string, trees *channel.Trees,
+	open func(ctx context.Context, channelID int64) (session, error),
 ) *Handler {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
-		st: st, open: open, ctx: ctx, cancel: cancel, quit: make(chan struct{}),
-		lives: map[int64]*live{}, deleting: map[int64]int{},
+		st: st, dataDir: dataDir, trees: trees, open: open, ctx: ctx, cancel: cancel,
+		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{},
+		inboxWake: make(chan struct{}),
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -75,11 +83,24 @@ func newHandler(
 	s.channelRoutes(mux)
 	s.teamRoutes(mux)
 	s.liveRoutes(mux)
+	s.turnOpRoutes(mux)
 	s.proposalRoutes(mux)
 	s.taskRoutes(mux)
 	s.decisionRoutes(mux)
 	s.turnRoutes(mux)
-	return &Handler{h: guard(mux), s: s}
+	s.inboxRoutes(mux)
+	return &Handler{h: guard(s.notifyInbox(mux)), s: s}
+}
+
+// notifyInbox tells the inbox streams after each request that may write: it can add, clear or
+// delete an item that no channel event reports, such as the rejection of an approval.
+func (s *server) notifyInbox(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		next.ServeHTTP(w, r)
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			s.inboxChanged()
+		}
+	})
 }
 
 // guard rejects requests a browser page on another origin could send to the

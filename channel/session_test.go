@@ -3,6 +3,8 @@ package channel
 import (
 	"context"
 	"errors"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -86,7 +88,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 	ag := newRecordingAgent()
 	dir := t.TempDir()
 
-	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, ag.factory)
+	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,7 +103,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 	}
 	tok := ag.cfg.MCPServers["reef"].Env["REEF_TOKEN"]
 	want := agent.Config{
-		Cwd: "/tmp/shop", PermissionMode: "acceptEdits", Tools: []string{"mcp__reef__*"},
+		Cwd: dir + "/worktrees/1/login", PermissionMode: "acceptEdits", Tools: []string{"Task", "mcp__reef__*"},
 		MCPServers: map[string]agent.MCPServer{"reef": {
 			Command: "/bin/reef", Args: []string{"mcp", "--data", dir},
 			Env: map[string]string{"REEF_TOKEN": tok},
@@ -143,7 +145,7 @@ func TestOpen_QuickSession(t *testing.T) {
 	ch := sessionChannel(t, st, f, true)
 	ag := newRecordingAgent()
 
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, ag.factory)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -152,7 +154,14 @@ func TestOpen_QuickSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	want := "You are the architect in project \"shop\" (/tmp/shop).\n" +
+	p, err := st.Project(ctx, f.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ag.cfg.Cwd != p.Path {
+		t.Errorf("Cwd = %q, want the project path %q", ag.cfg.Cwd, p.Path)
+	}
+	want := "You are the architect in project \"shop\" (" + p.Path + ").\n" +
 		"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n" +
 		"\n\nhi"
 	if len(ag.prompts) != 1 || ag.prompts[0] != want {
@@ -181,7 +190,7 @@ func TestOpen_ResumesNewestSession(t *testing.T) {
 	}
 	ag := newRecordingAgent()
 
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, ag.factory)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -242,7 +251,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, mk)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -324,7 +333,7 @@ func TestSession_RunAsRoleAppliedAfterOpen(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, mk)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,7 +377,7 @@ func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 		backends = append(backends, backend)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, mk)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -412,7 +421,7 @@ func TestOpen_Errors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", tt.give)
+			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", tt.give, NewTrees(t.TempDir()))
 			if err == nil {
 				err = s.Start(ctx)
 				_ = s.Close()
@@ -425,12 +434,12 @@ func TestOpen_Errors(t *testing.T) {
 
 	t.Run("open elsewhere", func(t *testing.T) {
 		dir := t.TempDir()
-		s, err := open(ctx, st, dir, "/bin/reef", ch.ID, newRecordingAgent().factory)
+		s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer func() { _ = s.Close() }()
-		_, err = open(ctx, st, dir, "/bin/reef", ch.ID, newRecordingAgent().factory)
+		_, err = open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
 		if err == nil || err.Error() != "channel 1 is open elsewhere: conflict" {
 			t.Errorf("second open error = %v, want the open-elsewhere error", err)
 		}
@@ -440,7 +449,7 @@ func TestOpen_Errors(t *testing.T) {
 		dir := t.TempDir()
 		ag := newRecordingAgent()
 		ag.startErr = errors.New("no claude")
-		s, err := open(ctx, st, dir, "/bin/reef", ch.ID, ag.factory)
+		s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -452,8 +461,8 @@ func TestOpen_Errors(t *testing.T) {
 			t.Fatal(err)
 		}
 		if len(turns) != 1 || turns[0].Role != "architect" || turns[0].Status != "failed" ||
-			turns[0].Error != "no claude" {
-			t.Errorf("turns = %+v, want one failed architect turn with error no claude", turns)
+			turns[0].Error != "no claude" || turns[0].WakeText != "hi" {
+			t.Errorf("turns = %+v, want one failed architect turn with error no claude, waking on hi", turns)
 		}
 		if err := s.Close(); err != nil {
 			t.Fatal(err)
@@ -474,7 +483,7 @@ func TestSession_Wrap(t *testing.T) {
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, ag.factory)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -498,6 +507,10 @@ func TestSession_Wrap(t *testing.T) {
 		t.Errorf("prompt = %q, want it to end with the wrap prompt", ag.prompts[0])
 	}
 
+	if turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID}); err != nil || len(turns) != 1 || turns[0].WakeText != "" {
+		t.Errorf("turns = %+v, %v, want one turn that kept no wake", turns, err)
+	}
+
 	ag.propose = false
 	if _, err := s.Wrap(ctx, discard); !errors.Is(err, ErrNoProposal) {
 		t.Errorf("Wrap with an older proposal pending error = %v, want ErrNoProposal", err)
@@ -510,7 +523,8 @@ func TestSession_Promote(t *testing.T) {
 	ch := sessionChannel(t, st, f, true)
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, ag.factory)
+	dir := t.TempDir()
+	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -533,12 +547,145 @@ func TestSession_Promote(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(msgs) != 1 || msgs[0].Author != "architect" {
-		t.Errorf("messages = %+v, want only the agent's reply, no user message", msgs)
+	note := "This feature works in " + dir + "/worktrees/1/idea on feature/idea."
+	if len(msgs) != 2 || msgs[0].Author != "reef" || msgs[0].Body != note || msgs[1].Author != "architect" {
+		t.Errorf("messages = %+v, want the note %q from a clean checkout, then the agent's reply", msgs, note)
 	}
 	want := `This quick session is now feature "Big idea" (idea). Call the propose_wrap tool once`
 	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], want) {
 		t.Errorf("prompts = %q, want one with %q", ag.prompts, want)
+	}
+}
+
+func TestSession_PromoteMovesNextWakeToWorktree(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	p, err := st.Project(ctx, f.ProjectID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := sessionChannel(t, st, f, true)
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ag.st, ag.channelID, ag.propose = st, ch.ID, true
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	dir := t.TempDir()
+	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Run(ctx, "hi", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(p.Path, "wip.txt"), []byte("wip"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PromoteChannel(ctx, ch.ID, store.Feature{Slug: "idea", Name: "Big idea"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Promote(ctx, discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Run(ctx, "go on", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+
+	worktree := dir + "/worktrees/1/idea"
+	if len(ags) != 2 || ags[0].cfg.Cwd != p.Path || !ags[0].closed ||
+		ags[1].cfg.Cwd != worktree || ags[1].resumed != "s1" {
+		t.Errorf("agents = %+v, want the first in %s and closed by the promote, the second resumed in %s",
+			ags, p.Path, worktree)
+	}
+	msgs, err := st.Messages(ctx, ch.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "This feature works in " + worktree +
+		" on feature/idea. Uncommitted changes stay on the main checkout."
+	if len(msgs) < 2 || msgs[1].Author != "reef" || msgs[1].Body != want {
+		t.Errorf("messages = %+v, want the second from reef saying %q", msgs, want)
+	}
+}
+
+func TestSession_NoWorktreeFailsTurn(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	p, err := st.CreateProject(ctx, store.Project{Name: "notes", Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err = st.CreateFeature(ctx, store.Feature{ProjectID: p.ID, Slug: "docs", Name: "Docs"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ch := sessionChannel(t, st, f, false)
+	ag := newRecordingAgent()
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	err = s.Run(ctx, "hi", nil, discard)
+	if err == nil || !strings.Contains(err.Error(), "not a git repository") {
+		t.Fatalf("Run error = %v, want one saying not a git repository", err)
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || turns[0].Status != "failed" ||
+		!strings.HasPrefix(turns[0].Error, "features need the project folder to be a git repo with a commit: ") ||
+		!strings.Contains(turns[0].Error, "not a git repository") || ag.started {
+		t.Errorf("turns = %+v, started = %v, want one failed turn and no agent started", turns, ag.started)
+	}
+}
+
+func TestSession_RecreatesRemovedWorktree(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionChannel(t, st, f, false)
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	dir := t.TempDir()
+	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Run(ctx, "hi", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	tree := dir + "/worktrees/1/login"
+	if err := os.RemoveAll(tree); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Run(ctx, "again", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := os.Stat(tree + "/.git"); err != nil {
+		t.Errorf("worktree after the second wake: %v, want it made again", err)
+	}
+	if len(ags) != 2 || !ags[0].closed || ags[1].cfg.Cwd != tree || len(ags[1].prompts) != 1 {
+		t.Errorf("agents = %+v, want the first closed and a second in %s that got the wake", ags, tree)
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 2 || turns[0].Status != "done" || turns[1].Status != "done" {
+		t.Errorf("turns = %+v, want two done", turns)
 	}
 }
 
@@ -562,7 +709,7 @@ func TestSession_WrapOrPromoteCancelledStoresTurn(t *testing.T) {
 			st, f := openStore(t)
 			ch := sessionChannel(t, st, f, false)
 			ag := newRecordingAgent()
-			s, err := open(bg, st, t.TempDir(), "/bin/reef", ch.ID, ag.factory)
+			s, err := open(bg, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -580,10 +727,37 @@ func TestSession_WrapOrPromoteCancelledStoresTurn(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Error != "interrupted" {
-				t.Errorf("turns = %+v, want one failed interrupted turn", turns)
+			if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Error != "interrupted" || turns[0].WakeText != "" {
+				t.Errorf("turns = %+v, want one failed interrupted turn that kept no wake", turns)
 			}
 		})
+	}
+}
+
+func TestSession_LockErrorStoresItsOwnReason(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionChannel(t, st, f, false)
+	dataDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dataDir, "locks"), []byte(""), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	ag := newRecordingAgent()
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(dataDir), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if err := s.Run(ctx, "hi", nil, discard); err == nil {
+		t.Fatal("want a lock error")
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Error == "interrupted" {
+		t.Errorf("turns = %+v, want one failed turn with the lock's own reason", turns)
 	}
 }
 
@@ -596,7 +770,7 @@ func TestSession_PromoteIntoFeatureWithBrief(t *testing.T) {
 	ch := sessionChannel(t, st, f, true)
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, ag.factory)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}

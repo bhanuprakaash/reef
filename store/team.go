@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/bhanuprakaash/reef/agent"
 )
@@ -27,10 +28,12 @@ type Gate struct {
 	On   bool   `json:"on"`
 }
 
-// Role is one teammate's setup. Tools are the backend's allowed tools.
+// Role is one teammate's setup. Tools are the backend's allowed tools. Write says whether the
+// role may change files: without it the backend's tools and sandbox are held to read-only.
 type Role struct {
 	Name           string            `json:"name"`
 	Lead           bool              `json:"lead"`
+	Write          bool              `json:"write"`
 	Backend        string            `json:"backend"`
 	PermissionMode string            `json:"permissionMode"`
 	Persona        string            `json:"persona"`
@@ -41,10 +44,17 @@ type Role struct {
 
 var _roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+// UnrestrictedBash reports whether a claude tool entry allows every shell command.
+func UnrestrictedBash(tool string) bool {
+	return slices.Contains([]string{"Bash", "Bash(*)", "Bash(:*)"}, strings.TrimSpace(tool))
+}
+
 // _defaultGates apply to an edge the team does not list.
 var _defaultGates = []Gate{
+	{From: "lead", To: "developer", On: true},
 	{From: "architect", To: "developer", On: true},
 	{From: "developer", To: "tester", On: true},
+	{From: "tester", To: "developer", On: true},
 }
 
 // ApplyTeam creates team t, or replaces the roles of the team with that name.
@@ -90,9 +100,9 @@ func (s *Store) ApplyTeam(ctx context.Context, t Team) (Team, error) {
 		}
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO role (team_id, name, persona, skills, tools, mcp_servers, backend, "+
-				"permission_mode, lead) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				"permission_mode, lead, write) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			id, r.Name, r.Persona, r.Skills, string(tools), string(servers), r.Backend,
-			r.PermissionMode, r.Lead); err != nil {
+			r.PermissionMode, r.Lead, r.Write); err != nil {
 			return Team{}, fmt.Errorf("insert role %s: %w", r.Name, err)
 		}
 	}
@@ -105,7 +115,7 @@ func (s *Store) ApplyTeam(ctx context.Context, t Team) (Team, error) {
 // Team returns the team with the name, lead first, or ErrNotFound.
 func (s *Store) Team(ctx context.Context, name string) (Team, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT role.name, lead, backend, permission_mode, persona, skills, tools, mcp_servers "+
+		"SELECT role.name, lead, write, backend, permission_mode, persona, skills, tools, mcp_servers "+
 			"FROM role JOIN team ON team.id = team_id WHERE team.name = ? ORDER BY lead DESC, role.id",
 		name)
 	if err != nil {
@@ -182,8 +192,8 @@ func (t Team) validate() error {
 		if r.Name == "" {
 			return fmt.Errorf("%w: role name is required", ErrInvalid)
 		}
-		if r.Name == "user" || !_roleName.MatchString(r.Name) {
-			return fmt.Errorf("%w: role name %q must be letters, digits, _ or -, and not user",
+		if r.Name == "user" || r.Name == ReefAuthor || !_roleName.MatchString(r.Name) {
+			return fmt.Errorf("%w: role name %q must be letters, digits, _ or -, and not user or reef",
 				ErrInvalid, r.Name)
 		}
 		if seen[r.Name] {
@@ -192,6 +202,10 @@ func (t Team) validate() error {
 		seen[r.Name] = true
 		if err := ValidateAgent(r.Backend, r.PermissionMode); err != nil {
 			return fmt.Errorf("role %s: %w", r.Name, err)
+		}
+		if r.Backend == "claude" && !r.Write && slices.ContainsFunc(r.Tools, UnrestrictedBash) {
+			return fmt.Errorf("%w: role %s has no write, so it cannot have unrestricted Bash; "+
+				"list command patterns such as Bash(go test:*)", ErrInvalid, r.Name)
 		}
 		if r.Lead {
 			leads++
@@ -231,7 +245,7 @@ func ValidateAgent(backend, permissionMode string) error {
 func scanRole(r interface{ Scan(...any) error }) (Role, error) {
 	var ro Role
 	var tools, servers string
-	if err := r.Scan(&ro.Name, &ro.Lead, &ro.Backend, &ro.PermissionMode, &ro.Persona,
+	if err := r.Scan(&ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Persona,
 		&ro.Skills, &tools, &servers); err != nil {
 		return Role{}, err
 	}

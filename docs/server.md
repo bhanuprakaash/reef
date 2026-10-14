@@ -59,9 +59,14 @@ folder), then a feature, then a channel. A channel's agent is the `claude` or `c
 logged in and on `PATH`. The new channel form picks a team from `GET /teams`. Each message
 shows its author, replies are folded under their thread root with a count, and a thread
 opens in a pane where you can reply. The running turn names its teammate. A wake held at a gate
-shows Approve and Reject, and a pause from the hop cap shows in the cap banner.
+shows Approve and Reject, and a pause from the hop cap shows in the cap banner. A channel
+with rollbackable turns (`GET /turns?channel=ID&rollbackable=1`) has a Checkpoints list; Rollback on a row asks to confirm, then does
+`POST /turns/{id}/rollback`. A checkpoint taken in another tree, such as a quick session's turn after a promote, is not listed. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial reply is the stored message, so the live block does not repeat it.
+The Inbox link lists what waits on you from [`/inbox/events`](#inbox), with a count and the
+action of each item (Approve or Reject, Continue, Retry, Open). The window asks once, on a click,
+to show desktop notifications and then shows one for each item that is new since the page loaded.
 
-Client routes such as `/features/3` and `/tasks` have the same paths as the REST API. In the Go server, `GET /` and `HEAD /` always get the app's `index.html`; other `GET` or `HEAD` requests get it when the `Accept` header includes `text/html`. Every other request goes to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`) are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
+Client routes such as `/features/3`, `/tasks` and `/inbox` have the same paths as the REST API. In the Go server, `GET /` and `HEAD /` always get the app's `index.html`; other `GET` or `HEAD` requests get it when the `Accept` header includes `text/html`. Every other request goes to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`) are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
 
 Dev mode: run `reef serve` on `:7700`, then `cd web && npm run dev` and open
 `http://localhost:5173`. Vite proxies the API paths to `127.0.0.1:7700`.
@@ -76,7 +81,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
-| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; an approval that is not pending, or one approved while a turn runs or the channel is paused |
+| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; `retry` of a turn that is not [retryable](#channels-live), or on a channel with a turn running or paused; `rollback` on a channel with a turn running or open in a `reef chat`, on a tree other than the checkpoint's, or on a tree a turn runs on; an approval that is not pending, or one approved while a turn runs or the channel is paused |
 | 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
 | 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
@@ -97,7 +102,10 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 [`006_team.sql`](../store/migrations/006_team.sql) (`team`, `role`, `channel.team_id`),
 migration 7 [`007_thread.sql`](../store/migrations/007_thread.sql) (`message.parent_id`) and
 migration 8 [`008_approval.sql`](../store/migrations/008_approval.sql) (`gate`, `approval`) and
-migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql) (`approval.kind`).
+migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql) (`approval.kind`) and
+migration 10 [`010_role_write.sql`](../store/migrations/010_role_write.sql) (`role.write`) and
+migration 11 [`011_turn_wake.sql`](../store/migrations/011_turn_wake.sql) (`turn.wake_text`, `turn.wake_parent`, `turn.retried`) and
+migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`).
 Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 
 ### project
@@ -189,6 +197,10 @@ One agent run in a channel.
 | `usage` | object | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens` (numbers, all four always present). The SQL columns are `input_tokens` and so on |
 | `startedAt` | string | |
 | `endedAt` | string? | `null` while running |
+| `wakeText` | string | default `""`; the text the turn ran: the wake, without the context prompt. Empty for a turn from before this field existed and for a wrap-up or promote turn |
+| `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
+| `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
+| `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<turn id>`. `null` for a turn of a role without `write`, for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
 
 ### decision
 
@@ -236,6 +248,7 @@ channel that exists at it.
 | --- | --- | --- |
 | `name` | string | required; unique within the team; letters, digits, `_` and `-` only, and not `user`. It is the `author` of what the role posts, and the name an `@mention` uses |
 | `lead` | boolean | exactly one role of a team is the lead. The lead answers a message that nobody else owns |
+| `write` | boolean | default `false`. Only a role with `write` may change files; it gets a checkpoint and the tree's write lock. claude: without it the role never gets `Edit`, `Write`, `MultiEdit` or `NotebookEdit` (they are dropped from `tools` and passed as `--disallowedTools`, so an allow rule in the user's or project's `.claude/settings.json` cannot grant them) and runs in the `default` permission mode, so `Bash` runs only as `tools` lists it. A claude role without `write` cannot list plain `Bash`, `Bash(*)` or `Bash(:*)` in `tools`: it would still change files through the shell, so applying the team is `invalid`; list patterns such as `Bash(go test:*)` instead. A role saved before this check existed has it dropped from `tools` at session start too, the same as the edit tools. `Bash` patterns are trusted as given: `Bash(git diff:*)` also lets `git diff --output=file` write a file. With it the role keeps its `tools` and permission mode (it still needs `acceptEdits`, or `Edit` in `tools`, to edit unasked) and also gets `Task`. codex: without it the sandbox is `read-only`; with it `workspace-write` unless the role's `permissionMode` is set. The seeded `solo` lead has `write` |
 | `backend` | string | required; `claude` or `codex` |
 | `permissionMode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`. The same rule as a channel's `permissionMode` |
 | `persona` | string | goes at the start of the role's first prompt |
@@ -257,8 +270,9 @@ A switch for the wakes one role sends another: a wake from role `from` to role `
 | `to` | string | required; a role of the team |
 | `on` | boolean | `true`: the wake waits for the user's approval. `false`: it runs at once |
 
-An edge the team does not list uses the default: `architect` to `developer` and `developer`
-to `tester` are on, every other edge is off.
+An edge the team does not list uses the default: `lead` to `developer`, `architect` to
+`developer`, `developer` to `tester` and `tester` to `developer` are on, every other edge is
+off. A team file can list an edge with `on: false` to switch a default off.
 
 ### approval
 
@@ -326,12 +340,12 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `POST /projects` | `name`, `path` | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |
 | `PUT /projects/{id}` | `name`, `path` | 200 | 400 (same `path` rule), 404 |
-| `DELETE /projects/{id}` | | 204 | 404 |
+| `DELETE /projects/{id}` | | 204; the worktrees of its features and the checkpoint refs of the turns of all its channels are removed, its branches are kept | 404, 409 a feature's worktree has uncommitted changes (nothing is removed) |
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |
 | `PUT /features/{id}` | `name`, `goal`, `stage` | 200 | 400, 404 |
-| `DELETE /features/{id}` | | 204 | 404 |
+| `DELETE /features/{id}` | | 204; the feature's worktree and the checkpoint refs of its turns are removed, its branch is kept | 404, 409 the worktree has uncommitted changes (nothing is removed) |
 | `GET /features/{id}/brief` | | 200 latest version | 404 no feature, or no brief yet |
 | `PUT /features/{id}/brief` | `body`, `author` | 201 new version | 400, 404 |
 | `GET /features/{id}/brief/versions` | | 200 oldest first | 404 |
@@ -339,7 +353,7 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has no `mcpServers`, whose `args` and `url` may hold API keys | |
-| `GET /teams/{name}` | | 200, without `mcpServers` as above | 404 |
+| `GET /teams/{name}` | | 200, without `mcpServers` as above; each role shows `write` | 404 |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
 | `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
@@ -350,7 +364,7 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
 | `GET /channels/{id}/approvals` | | 200 the channel's pending gate approvals, oldest first; `[]` when none | 404 |
-| `POST /channels/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body | 400 no `approve`, 404 no such approval in this channel, 409 not pending, or approve while a turn runs, the channel is paused or 4 hops ran (it stays pending), 503 |
+| `POST /channels/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body | 400 no `approve`, 404 no such approval in this channel, 409 not pending, or approve while a turn runs, the channel is paused or 6 hops ran (it stays pending), 503 |
 | `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
 | `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
 | `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
@@ -363,10 +377,14 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `GET /tasks/{id}` | | 200 | 404 |
 | `PUT /tasks/{id}` | `title`, `body`, `status`, `featureId` | 200 | 400, 404 |
 | `DELETE /tasks/{id}` | | 204 | 404 |
-| `GET /turns` | `?channel=ID`, `?status=running\|done\|failed` | 200 | 400 bad id or status |
-| `POST /turns` | `channelId`, `role`, `backend`, `sessionId` | 201 | 400 bad backend or unknown channel |
+| `GET /turns` | `?channel=ID`, `?status=running\|done\|failed`, `?retryable=1` (only the turns `retry` accepts), `?rollbackable=1` (needs `channel`; only the turns with a `checkpoint` taken in the tree the channel runs in now, so `rollback` is not a 409 for the tree) | 200 | 400 bad id or status, or `rollbackable` without a channel, 404 `rollbackable` on an unknown channel |
+| `POST /turns` | `channelId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent` | 201 | 400 bad backend or unknown channel or message |
 | `GET /turns/{id}` | | 200 | 404 |
 | `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId`. With no `status`, only `sessionId` is set and the turn stays `running` | 200 | 400 bad status, negative usage, empty `sessionId` without a status, `error` or `usage` without a status, or already ended; 404 |
+| `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not retryable (see [Channels live](#channels-live)), or as send for a channel with a turn running or paused, 503 |
+| `GET /inbox` | | 200 the items waiting on the user, newest first; `[]` when none. See [Inbox](#inbox) | |
+| `GET /inbox/events` | | 200 `text/event-stream` | |
+| `POST /turns/{id}/rollback` | no body needed | 204, no body; the channel's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the channel has a turn running, a `reef chat` has it open, its tree is not the one the checkpoint was taken in, or a turn of any role runs on the tree, 503 |
 | `GET /decisions` | `?feature=ID` (required) | 200 | 400 no feature, 404 unknown feature |
 | `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field, unknown feature, or a message of another feature |
 | `GET /decisions/{id}` | | 200 | 404 |
@@ -402,6 +420,77 @@ a message wakes them.
   newest session id (see [memory.md](memory.md#reef-chat)). An agent that fails to start shows
   as a `failed` turn of its role, with the start error, or `interrupted` when a stop cut the
   start short. The server logs every failed turn.
+- An agent of a channel under a feature runs in the feature's worktree,
+  `<data folder>/worktrees/<project id>/<slug>`, on branch `feature/<slug>`. It is made at
+  the first start of any agent of the feature, from the project's HEAD, with `git worktree
+  add`; a worktree or branch that exists is reused, so every channel of the feature shares
+  one tree. A branch that is checked out elsewhere (in the main checkout, or in the worktree
+  of another project on the same repo) cannot be added: the start fails with `branch
+  feature/<slug> is checked out at <path>; switch that checkout to another branch`. A
+  quick session runs in the project path. The feature is read at each agent
+  start, so a promoted channel moves to the worktree at its next wake. A project that is not
+  a git repo, or a repo with no commit, has no worktree: the start fails as a `failed` turn
+  whose error is `features need the project folder to be a git repo with a commit: <path>:`
+  and git's error, and the server goes on. A worktree whose folder was deleted is pruned and
+  made again at the next wake: an agent running in the missing folder is closed, and the
+  next one resumes the session in the new worktree.
+- Before each turn of a role with `write` in a git checkout (a feature's worktree, or the
+  project path of a quick session that is a git repo), the server stores a checkpoint: a commit
+  of HEAD plus the whole working tree, untracked files included and ignored ones left out, at
+  `refs/reef/checkpoints/<turn id>`. It is built in a temporary index that starts as a copy of
+  the real one, so the index, HEAD and the files do not change. The ref is on the turn's
+  `checkpoint`. If the checkpoint fails, the turn is stored `failed` with git's error and the
+  agent gets no prompt. A repo with no commit has nothing to snapshot: its turns run with
+  `checkpoint` null. A role without `write` gets none. The checkpoint commit has two parents:
+  HEAD, then a commit of the index as it was, so a rollback can bring back what was staged.
+  Its message records the directory and the branch it was taken in (`dir:` and `branch:`
+  lines; no branch when HEAD was detached).
+- One write turn at a time runs on a tree, across all channels and processes on the data
+  folder: the feature's worktree, or the project path for quick sessions. A wake of a role with `write` waits for
+  the write turn that runs on its tree, then runs. Its turn row is created when it starts, so
+  `startedAt` is after the other turn's `endedAt`. A stop ends the wait, and the turn is
+  stored `failed` as `interrupted`. A role without `write` is not held: it runs beside a
+  write turn, and counts as a reader of the tree for its turn, which only a rollback
+  respects. The first start
+  of a feature's worktree takes a lock of its own, so two channels waking at once add it once.
+  The locks are `flock` files in `<data folder>/locks/`, named from a hash of the tree path
+  (`.lock` for the writer, `.read` for readers), so `reef serve` and `reef chat` share them.
+  A waiting write turn polls its lock every 20 ms. A rollback takes the writer lock without
+  waiting and checks the reader file, so a read-only turn of any process refuses it.
+- `POST /turns/{id}/rollback` puts the channel's tree (the feature's worktree, or the project
+  path of a quick session) back as the turn's checkpoint saw it: the branch the checkpoint was
+  taken on is checked out at the HEAD it had, so commits made since, and a branch the turn
+  switched to, are left behind (a detached checkpoint resets whatever is checked out); tracked
+  and untracked files get the content they had, the same changes are staged, and files made
+  since are removed. Ignored files are left alone. It claims the channel like a send. It is
+  409, never a wait, when the channel's tree is not the directory the checkpoint was taken in
+  (a quick session's turn after a promote), when a `reef chat` holds the channel, or when a
+  turn of any role of any channel runs on the tree (the write lock is held, or a read-only
+  turn is a reader). A reader that starts during the restore is not held back. A turn with
+  no `checkpoint` is 400. Then `reef` posts `Rolled back
+  to before turn N.` in the channel. The agent's session is not rewound. When a turn of
+  a role that has run before in the channel is sent, its prompt gets the lines `reef wrote: ...`
+  that `reef` posted since that role's last turn began, after the header line, so the role
+  learns of the rollback (and of a restart failure note) even when its wake was held at a gate
+  or is a retry; a role that never ran gets none. The wake kept as `wakeText` and shown in an
+  approval does not have them.
+- `DELETE /features/{id}` cleans what Reef made for the feature. It stops the agents of the
+  feature's channels first (a running turn is stopped, as when a channel is deleted). A
+  worktree with uncommitted changes (untracked files count) is 409 with `feature <slug> has
+  uncommitted changes in <path>; commit or discard them first`, and nothing is removed.
+  Otherwise the worktree is removed with `git worktree remove`, the feature rows are
+  deleted, and last the `refs/reef/checkpoints/<turn id>` refs of every turn of its channels
+  are deleted. The worktree goes first because it is the step that can refuse or fail, and a
+  later wake of a feature makes it again; the refs go after the rows that name them, so a
+  failure there leaves refs that no turn points to, and the delete is 500. The branch
+  `feature/<slug>` is kept: it is the user's work. A feature with no worktree folder (no agent
+  ever started) only has its rows deleted. Deleting a channel keeps worktrees and refs.
+- `DELETE /projects/{id}` does the same for every feature of the project, and deletes the
+  checkpoint refs of the turns of every channel of the project, quick sessions included (their
+  refs are taken in the project folder). It checks every worktree first: one with uncommitted
+  changes is 409 for that feature, and nothing is removed. Then it removes all worktrees,
+  deletes the project rows, and last deletes the refs, in the same order and with the same
+  failure rule as a feature delete. Branches are kept.
 - The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session.
@@ -421,6 +510,17 @@ a message wakes them.
   From the start of that stop until the delete is done, a send to the channel is 404
   `channel 1 is being deleted`, so no agent starts for a channel that is going away.
 - Server shutdown does the same for every channel before it stops listening.
+- A turn keeps the wake it ran as `wakeText` and `wakeParent`. `POST /turns/{id}/retry` on a
+  `failed` turn runs that wake again for the same role as a new turn in a new chain, the way an
+  approve does, with no new user message: the new turn answers in the same thread, and what its
+  reply wakes is routed as usual. The failed turn is marked `retried` before the turn starts, so a
+  second retry is 409; if the turn cannot start, the mark is taken back. Nothing retries a
+  turn by itself. A turn is retryable when it is `failed`, not `retried`, has a `wakeText`, and
+  no later turn of its role ran in the channel: a turn that a later one supersedes is 409. A
+  turn the user stopped (`interrupted`) is retryable, since the user may want its wake run
+  again. A wrap-up or promote turn keeps no wake, so it is never retryable: the user wraps or
+  promotes again. `GET /turns?retryable=1` lists the same turns, which is what the window shows
+  as failed turns with a Retry button. The retry counts as a message of the user for the hop cap.
 
 ### Routing
 
@@ -476,7 +576,7 @@ wake across a gate that is on does not run. The server stores an [approval](#app
 the prompt it would have run and goes on with the rest of the chain. `GET
 /channels/{id}/approvals` lists the pending ones. `POST /channels/{id}/approvals/{aid}` with
 `{"approve":true}` runs the wake as a new chain (it needs an idle channel that is not
-paused, else 409 and the approval stays pending). An approve at 4 hops pauses the channel for
+paused, else 409 and the approval stays pending). An approve at 6 hops pauses the channel for
 the hop cap, answers 409 and reopens the approval. With `{"approve":false}` it only marks the
 approval `rejected`. A decided approval is 409. Pending approvals are stored, so they survive a
 restart.
@@ -526,6 +626,39 @@ event: turn
 data: {"role":"lead","status":"done"}
 ```
 
+### Inbox
+
+`GET /inbox` lists what waits on the user in every channel. It is read from the rows of
+approvals, channels, turns and messages, so it has no table and a restart keeps it. Each
+item has `kind`, `channelId`, `featureId` (null for a quick session), `text` and `at`, and the
+id to act with:
+
+| `kind` | Listed while | `text` | Also has | Cleared by |
+| --- | --- | --- | --- | --- |
+| `approval` | a gate holds a wake: a pending [approval](#approval) | `lead wants to wake architect` | `approvalId` | approve or reject |
+| `paused` | the channel's `paused` is not empty | the reason: hop cap, tool cap, token budget or a routing or store failure | | `continue`, or a user message after a hop cap pause |
+| `failed` | a turn is retryable (see [Channels live](#channels-live)) and its error is not `interrupted`: a turn the user stopped is a decision, not an item | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
+| `waiting` | the channel's newest message is from an agent (not `user` or `reef`) and woke nobody: no wake held at a gate for it, no turn running, no other item for the channel, and the channel's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | | any new message, such as a send |
+
+`at` is the time of the approval, of the failed turn's end, of the message, and for `paused`
+the end of the channel's newest turn. A channel that has a chain running lists no `waiting`,
+`paused` or `failed` item, since the chain is not over and `continue` or `retry` would be 409. Rejecting a gate is a decision, so the message it held is
+not `waiting`. A hold of a pause is not an item of its own: its channel is `paused`.
+
+`GET /inbox/events` is one Server-Sent Events stream for all channels, with a
+`: keepalive` every 15 seconds. Its only event is `inbox`, whose data is the whole list as
+`GET /inbox` returns it. The first one comes when the stream connects; after that one comes each
+time the list differs from the last one sent. The list is read again after every event of every
+channel (turn, agent, pause, approval), when a chain ends, and after every request that is not a
+`GET`, since a reject, a delete or a `POST /messages` can change it with no channel event. A change
+a `reef` process makes straight in the database shows at the next keepalive tick at the latest.
+When the server stops, a stream sends the last list and ends.
+
+```
+event: inbox
+data: [{"kind":"approval","channelId":5,"featureId":2,"text":"lead wants to wake architect","at":"2026-10-14T09:00:10.123456Z","approvalId":1}]
+```
+
 ## Wrap-up and promotion
 
 `POST /channels/{id}/wrap` does what a send of the text `/wrap` does: it runs the wrap-up
@@ -547,7 +680,12 @@ the channel's `featureId`. It answers 202 with the
 channel and starts a turn: the stored user message is `/promote`, and the agent gets a
 prompt that names the feature and asks it to call `propose_wrap` once with the first brief,
 written from the session, its notes and the decisions so far. The user approves that
-proposal like a wrap-up, and approval makes brief version 1. When the feature already has
+proposal like a wrap-up, and approval makes brief version 1. The promote turn runs in the
+agent the quick session already has. When it ends, every agent of the channel is stopped, so
+the next wake of each role resumes its session in the feature's worktree. The promote first
+posts a message from `reef`: `This feature works in <worktree path> on feature/<slug>.`, and
+` Uncommitted changes stay on the main checkout.` after it when the main checkout has
+uncommitted changes. When the feature already has
 a brief, the prompt tells the agent to call `get_brief` and propose that brief merged with
 the session, and approval makes the next version. A promote that fails (a taken
 slug, a feature of another project) changes nothing, and so does one that is stopped
@@ -569,7 +707,7 @@ Three caps pause a channel. All are constants in the code, not settings.
   budget pauses the channel with `token budget of 1000000 used: 1000312 tokens`.
 - Agent hops: a hop is a turn that an agent's message woke. The turn that answers the user's
   message is not a hop. The server counts hops per channel since the last user message. The
-  5th hop does not run: the channel is paused with `hop cap: 4 agent hops without a user
+  7th hop does not run: the channel is paused with `hop cap: 6 agent hops without a user
   message`, and the `turn` event of the turn before it is followed by a `pause` event. The wake
   that did not run, and the wakes behind it, are stored as holds.
 
@@ -614,7 +752,8 @@ The API has no way to change or remove these rows.
   stay in `/brief/versions`. Role notes are not versioned; `PUT` replaces them.
 - Turns: created `running`, may get a `sessionId` while running, ended once with `PATCH`
   to `done` or `failed`. After that every `PATCH` returns 400. A turn has no delete route
-  and no other edit. Restart recovery keeps a session id set this way.
+  and no other edit, except that a `failed` turn is marked `retried` once, by `retry`. Restart
+  recovery keeps a session id set this way.
 
 ## Restart recovery
 
@@ -639,7 +778,8 @@ this far on a folder in use, so it cannot fail the turns of the server that owns
   its turn is failed like any other.
 
 An agent may have left half-done edits in the worktree, so the message tells the user to
-check before retrying.
+check before retrying. A turn failed this way keeps its `wakeText`, so `POST /turns/{id}/retry`
+can run it again (see [Channels live](#channels-live)).
 
 A chain of wakes does not survive a restart: the wakes still waiting are lost, with the hop
 count and the wakes held because the database failed, which are in memory. A pause is stored,
@@ -681,10 +821,10 @@ $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/tasks -d '{
 {"id":1,"projectId":1,"featureId":1,"title":"Build the login form","body":"","status":"todo","createdAt":"2026-10-13T09:00:06.123456Z","updatedAt":"2026-10-13T09:00:06.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/turns -d '{"channelId":1,"role":"developer","backend":"claude"}'
-{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":null}
+{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":null,"wakeText":"","wakeParent":null,"retried":false,"checkpoint":null}
 
 $ curl -s -X PATCH -H 'Content-Type: application/json' localhost:7700/turns/1 -d '{"status":"done","sessionId":"3c1296cc","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0}}'
-{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"3c1296cc","status":"done","error":"","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":"2026-10-13T09:00:08.123456Z"}
+{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"3c1296cc","status":"done","error":"","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":"2026-10-13T09:00:08.123456Z","wakeText":"","wakeParent":null,"retried":false,"checkpoint":null}
 
 $ curl -s -X PATCH -H 'Content-Type: application/json' localhost:7700/turns/1 -d '{"status":"failed"}'
 {"error":"invalid: turn 1 already ended"}

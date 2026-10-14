@@ -14,6 +14,12 @@ Later slices add the Mac shell; add a file here for each feature they bring.
   from HEAD, pre-run pids saved.
 - Every `--backend claude` drive sets `ANTHROPIC_MODEL=sonnet`.
 - Never drive a `reef-agent`, `reef serve` or `reef chat` that this run did not start.
+- A channel on a feature runs in a git worktree of its project. Before any recipe
+  that wakes an agent on a feature, make the scratch cwd a git repo with one commit:
+  `git -C <scratch>/cwd init -q -b main && git -C <scratch>/cwd -c user.name=v -c user.email=v@example.com commit -q --allow-empty -m init`.
+  A feature's branch `feature/<slug>` can be checked out in one worktree only, so two data
+  folders of one run cannot both wake a feature with the same slug on the scratch cwd: the
+  second fails with `branch feature/<slug> is checked out at <first data folder>/worktrees/<project id>/<slug>; switch that checkout to another branch`.
 - Server features also need `$H serve-start`: one server per run, on a fresh data folder
   (`$H serve-stop`, then `$H serve-start --data-name NAME`). Each server feature file names
   its folder and assumes ids start at 1. Drive it with `$H api`, `$H sql` and `$H serve-*`.
@@ -70,6 +76,7 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 - [Decisions](./decisions.md): append-only, author and message rules, cascade.
 - [Live channels](./live-channels.md): send, the event stream, stop and resume, `/wrap` and `/promote` text, wrap-up, promote, approve and reject, caps and continue, delete a live channel. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [Teams](./teams.md): `reef team apply` and `list`, a channel on a team, threads, one agent session per teammate, routing by thread, `@mention` and `post_to_channel`, the hop cap, approval gates, wrap wakes nobody, restart, a codex teammate on the test fixture. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
+- [Full team](./full-team.md): `write` per role on claude and codex, `teams/full.json`, one worktree per feature, one writer per tree, checkpoints, rollback, retry, the inbox and its stream, the window's Retry, Rollback and Inbox, and the Google login run end to end with gates. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
 
 ### Memory loop
 

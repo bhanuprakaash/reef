@@ -104,7 +104,10 @@ func TestRunner_Send(t *testing.T) {
 	if len(turns) != 2 {
 		t.Fatalf("turns = %d, want 2", len(turns))
 	}
-	for _, tr := range turns {
+	for i, tr := range turns {
+		if want := []string{"one 1", "two 2"}[i]; tr.WakeText != want {
+			t.Errorf("turn %d wake = %q, want %q: the context is not part of it", tr.ID, tr.WakeText, want)
+		}
 		if tr.Status != "done" || tr.SessionID != "s1" || tr.Role != "architect" ||
 			tr.Usage != (agent.Usage{InputTokens: 3, OutputTokens: 5}) {
 			t.Errorf("turn = %+v, want done s1 architect with usage 3/5", tr)
@@ -171,6 +174,13 @@ func TestRunner_ReplyStaysInThread(t *testing.T) {
 	}
 	if want := []string{"user: root", "architect: reply 1"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("thread = %q, want %q", got, want)
+	}
+	turn, err := st.Turn(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if turn.WakeText != "one 1" || turn.WakeParent == nil || *turn.WakeParent != root.ID {
+		t.Errorf("turn wake = %q in %v, want %q in %d", turn.WakeText, turn.WakeParent, "one 1", root.ID)
 	}
 }
 

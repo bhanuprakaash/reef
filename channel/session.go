@@ -9,12 +9,14 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/agent/claude"
 	"github.com/bhanuprakaash/reef/agent/codex"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 // Session is a channel with one agent session per teammate in use. Each is opened for its
@@ -29,12 +31,16 @@ type Session struct {
 	lock     *os.File
 	onPrompt func(prompt string)
 	members  map[string]*member
+	trees    *Trees
 }
 
 type member struct {
 	run   *Runner
 	ag    agent.Agent
 	token string
+	// write and dir say which tree the role's turns hold, one at a time.
+	write bool
+	dir   string
 }
 
 // TokenEnv carries the token to the channel's reef mcp. WrapCommand is the text that asks
@@ -63,15 +69,15 @@ const (
 var ErrNoProposal = errors.New("no proposal made")
 
 // Open opens the channel; no agent starts until a turn needs it. The caller must Close
-// the Session.
+// the Session. Sessions that share trees run one write turn at a time on a working tree.
 func Open(
-	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64,
+	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64, trees *Trees,
 ) (*Session, error) {
-	return open(ctx, st, dataDir, exe, channelID, newAgent)
+	return open(ctx, st, dataDir, exe, channelID, trees, newAgent)
 }
 
 func open(
-	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64,
+	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64, trees *Trees,
 	mk func(backend string) (agent.Agent, error),
 ) (_ *Session, err error) {
 	ch, err := st.Channel(ctx, channelID)
@@ -88,7 +94,7 @@ func open(
 	}
 	s := &Session{
 		st: st, dataDir: dataDir, exe: exe, ch: ch, project: p, mk: mk, lock: lock,
-		members: map[string]*member{},
+		members: map[string]*member{}, trees: trees,
 	}
 	defer func() {
 		if err != nil {
@@ -104,7 +110,7 @@ func open(
 
 // Start starts or resumes the lead now instead of at its first turn.
 func (s *Session) Start(ctx context.Context) error {
-	_, err := s.member(ctx, s.ch.Role)
+	_, err := s.member(ctx, s.ch.Role, "", nil)
 	return err
 }
 
@@ -135,15 +141,16 @@ func (s *Session) Run(
 
 // RunAs is Run for any role of the channel's team. A specialist's agent is closed when
 // its turn ends; its next turn resumes the session. A failure to close it is logged, and
-// does not fail the turn.
+// does not fail the turn. A role that writes waits for the turns of other writers on its
+// tree, and its turn starts when they end.
 func (s *Session) RunAs(
 	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
 ) error {
-	m, err := s.member(ctx, role)
+	m, err := s.member(ctx, role, text, parent)
 	if err != nil {
 		return err
 	}
-	err = m.run.Run(ctx, text, parent, onEvent)
+	err = s.run(ctx, m, text, parent, onEvent)
 	if role == s.ch.Role {
 		return err
 	}
@@ -151,6 +158,44 @@ func (s *Session) RunAs(
 	if cerr := m.close(s.st); cerr != nil {
 		log.Printf("close %s of channel %d: %v", role, s.ch.ID, cerr)
 	}
+	return err
+}
+
+// run runs a turn of m, holding m's tree when it writes and counting as a reader of it when
+// it does not. A ctx cancelled while it waits leaves an interrupted turn.
+func (s *Session) run(
+	ctx context.Context, m *member, text string, parent *int64, onEvent func(agent.Event),
+) error {
+	if !m.write {
+		defer s.trees.Read(m.dir)()
+		return m.run.Run(ctx, text, parent, onEvent)
+	}
+	unlock, err := s.trees.Lock(ctx, m.dir)
+	if err != nil {
+		reason := err.Error()
+		if ctx.Err() != nil {
+			reason = "interrupted"
+		}
+		ferr := s.failTurn(ctx, m.run.role, m.run.backend, reason, m.run.wake(text), parent)
+		return errors.Join(err, ferr)
+	}
+	defer unlock()
+	return m.run.Run(ctx, text, parent, onEvent)
+}
+
+// failTurn stores a failed turn of role for a turn that never started.
+func (s *Session) failTurn(
+	ctx context.Context, role, backend, reason, text string, parent *int64,
+) error {
+	ctx = context.WithoutCancel(ctx)
+	t, err := s.st.CreateTurn(ctx, store.Turn{
+		ChannelID: s.ch.ID, Role: role, Backend: backend, WakeText: text, WakeParent: parent,
+	})
+	if err != nil {
+		return err
+	}
+	t.Status, t.Error = "failed", reason
+	_, err = s.st.EndTurn(ctx, t)
 	return err
 }
 
@@ -162,6 +207,8 @@ func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Pr
 
 // Promote runs a promote turn and returns the proposal the agent made, or ErrNoProposal.
 // The channel must already have its feature. Like Run, a cancelled ctx still stores the turn.
+// Every agent is stopped afterwards, so the next turn of each role runs in the feature's
+// worktree.
 func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
 	rctx := context.WithoutCancel(ctx)
 	ch, err := s.st.Channel(rctx, s.ch.ID)
@@ -181,26 +228,62 @@ func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, err
 	}
-	return s.propose(ctx, fmt.Sprintf(prompt, f.Name, f.Slug), onEvent)
+	if err := s.noteWorktree(rctx, f); err != nil {
+		return store.Proposal{}, err
+	}
+	p, err := s.propose(ctx, fmt.Sprintf(prompt, f.Name, f.Slug), onEvent)
+	return p, errors.Join(err, s.closeMembers())
+}
+
+// noteWorktree tells the channel where its work goes from now on, and that uncommitted
+// changes of the main checkout stay there.
+func (s *Session) noteWorktree(ctx context.Context, f store.Feature) error {
+	dirty, err := worktree.Dirty(ctx, s.project.Path)
+	if err != nil {
+		log.Printf("check %s for changes: %v", s.project.Path, err)
+	}
+	body := fmt.Sprintf("This feature works in %s on %s.",
+		worktree.Path(s.dataDir, s.project.ID, f.Slug), worktree.Branch(f.Slug))
+	if dirty {
+		body += " Uncommitted changes stay on the main checkout."
+	}
+	_, err = s.st.CreateMessage(ctx,
+		store.Message{ChannelID: s.ch.ID, Author: store.ReefAuthor, Body: body})
+	return err
 }
 
 // Close ends the Session.
 func (s *Session) Close() error {
+	return errors.Join(s.closeMembers(), s.lock.Close())
+}
+
+// closeMembers ends every open agent, so the next turn of each role starts one again.
+func (s *Session) closeMembers() error {
 	var errs []error
-	for _, m := range s.members {
+	for role, m := range s.members {
 		errs = append(errs, m.close(s.st))
+		delete(s.members, role)
 	}
-	return errors.Join(append(errs, s.lock.Close())...)
+	return errors.Join(errs...)
 }
 
 // member returns the agent session of role, starting or resuming it from the role's own
 // newest turn with a session id on the role's backend. A new session reads the team from the
 // store, so a team applied since the channel opened is the one it gets. An agent that fails
-// to start leaves a failed turn for the role, and so does a ctx cancelled before it starts:
-// the turn is interrupted. The store is read even then, as Run stores its turn.
-func (s *Session) member(ctx context.Context, role string) (_ *member, err error) {
+// to start leaves a failed turn for the role that keeps text and parent, the wake it was
+// starting for, and so does a ctx cancelled before it starts: the turn is interrupted. The
+// store is read even then, as Run stores its turn.
+func (s *Session) member(
+	ctx context.Context, role, text string, parent *int64,
+) (_ *member, err error) {
 	if m, ok := s.members[role]; ok {
-		return m, nil
+		if _, err := os.Stat(m.dir); !errors.Is(err, os.ErrNotExist) {
+			return m, nil
+		}
+		delete(s.members, role)
+		if err := m.close(s.st); err != nil {
+			log.Printf("close %s of channel %d: %v", role, s.ch.ID, err)
+		}
 	}
 	wctx := context.WithoutCancel(ctx)
 	team, err := s.st.Team(wctx, s.ch.Team)
@@ -215,7 +298,7 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 	if err != nil {
 		return nil, err
 	}
-	m := &member{ag: ag}
+	m := &member{ag: ag, write: r.Write}
 	defer func() {
 		if err != nil {
 			_ = m.close(s.st)
@@ -239,14 +322,25 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 	for i, srv := range r.MCPServers {
 		servers["mcp"+strconv.Itoa(i+1)] = srv
 	}
+	cwd, slug, err := WorkDir(wctx, s.st, s.dataDir, s.ch.ID)
+	if err != nil {
+		return nil, err
+	}
+	m.dir = cwd
+	mode, tools, denied := access(r)
 	cfg := agent.Config{
-		Cwd:            s.project.Path,
-		PermissionMode: r.PermissionMode,
-		Tools:          append(slices.Clone(r.Tools), "mcp__reef__*"),
-		MCPServers:     servers,
+		Cwd:             cwd,
+		PermissionMode:  mode,
+		Tools:           append(tools, "mcp__reef__*"),
+		DisallowedTools: denied,
+		MCPServers:      servers,
 	}
 	var preamble string
+	if ctx.Err() == nil && slug != "" {
+		err = s.ensureWorktree(ctx, cwd, slug)
+	}
 	switch {
+	case err != nil:
 	case ctx.Err() != nil:
 		err = ctx.Err()
 	case last.SessionID != "":
@@ -262,19 +356,51 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 		if ctx.Err() != nil {
 			reason = "interrupted"
 		}
-		t, terr := s.st.CreateTurn(wctx, store.Turn{
-			ChannelID: s.ch.ID, Role: role, Backend: r.Backend,
-		})
-		if terr == nil {
-			t.Status, t.Error = "failed", reason
-			_, terr = s.st.EndTurn(wctx, t)
-		}
-		return nil, errors.Join(err, terr)
+		return nil, errors.Join(err, s.failTurn(wctx, role, r.Backend, reason, text, parent))
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.OnPrompt = s.onPrompt
+	if r.Write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
+		m.run.CheckpointDir = cwd
+	}
 	s.members[role] = m
 	return m, nil
+}
+
+// ensureWorktree makes the feature's worktree at dir, so that two channels of the feature do
+// not add it at once. It holds a lock of its own: a read-only role must not wait for the
+// write turn that holds the tree.
+func (s *Session) ensureWorktree(ctx context.Context, dir, slug string) error {
+	unlock, err := s.trees.Lock(ctx, "add "+dir)
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	return worktree.Ensure(ctx, s.project.Path, dir, worktree.Branch(slug))
+}
+
+// WorkDir is where an agent of channel channelID runs: the worktree of its feature, or the
+// project for a quick session. The feature is read now, as a promote may have given it one
+// since the channel opened. slug is the feature's, empty for a quick session.
+func WorkDir(
+	ctx context.Context, st *store.Store, dataDir string, channelID int64,
+) (dir, slug string, err error) {
+	ch, err := st.Channel(ctx, channelID)
+	if err != nil {
+		return "", "", err
+	}
+	p, err := st.Project(ctx, ch.ProjectID)
+	if err != nil {
+		return "", "", err
+	}
+	if ch.FeatureID == nil {
+		return p.Path, "", nil
+	}
+	f, err := st.Feature(ctx, *ch.FeatureID)
+	if err != nil {
+		return "", "", err
+	}
+	return worktree.Path(dataDir, p.ID, f.Slug), f.Slug, nil
 }
 
 // roleSetup is the team's role called name. The lead is the channel's role; it takes the
@@ -293,6 +419,34 @@ func (s *Session) roleSetup(team store.Team, name string) (store.Role, error) {
 	return store.Role{}, fmt.Errorf("%w: team %s has no role %s", store.ErrInvalid, team.Name, name)
 }
 
+// _editTools change files on claude. A role without write never gets them, is denied them
+// (a deny beats an allow in the user's or project's settings), and runs in the default
+// permission mode: acceptEdits would let it edit and run file commands unasked.
+var _editTools = []string{"Edit", "Write", "MultiEdit", "NotebookEdit"}
+
+// access maps a role's write flag to the permission mode, allowed tools and denied tools of its backend.
+// A write role on claude also gets Task to run parallel subagents. On codex a permission
+// mode the role sets stays when the role writes, so it may narrow it.
+func access(r store.Role) (mode string, tools, denied []string) {
+	mode, tools = r.PermissionMode, slices.Clone(r.Tools)
+	switch {
+	case r.Backend == "codex" && !r.Write:
+		mode = "read-only"
+	case r.Backend == "codex" && mode == "":
+		mode = "workspace-write"
+	case r.Backend == "claude" && r.Write:
+		tools = append(tools, "Task")
+	case r.Backend == "claude":
+		mode = "default"
+		denied = _editTools
+		tools = slices.DeleteFunc(tools, func(t string) bool {
+			name, _, _ := strings.Cut(t, "(")
+			return slices.Contains(_editTools, name) || store.UnrestrictedBash(t)
+		})
+	}
+	return mode, tools, denied
+}
+
 func (s *Session) propose(
 	ctx context.Context, prompt string, onEvent func(agent.Event),
 ) (store.Proposal, error) {
@@ -300,7 +454,13 @@ func (s *Session) propose(
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, err
 	}
-	if err := s.Run(ctx, prompt, nil, onEvent); err != nil {
+	m, err := s.member(ctx, s.ch.Role, "", nil)
+	if err != nil {
+		return store.Proposal{}, err
+	}
+	m.run.NoWake = true
+	defer func() { m.run.NoWake = false }()
+	if err := s.run(ctx, m, prompt, nil, onEvent); err != nil {
 		return store.Proposal{}, err
 	}
 	p, err := s.st.PendingProposal(ctx, s.ch.ID)

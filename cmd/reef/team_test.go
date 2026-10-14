@@ -51,6 +51,10 @@ func TestTeam_ApplyErrors(t *testing.T) {
 		{"gate on unknown role", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude"}],` +
 			`"gates":[{"from":"x","to":"y","on":true}]}`,
 			"gate x to y names a role team a does not have"},
+		{"read-only claude role with Bash", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude"},` +
+			`{"name":"tester","backend":"claude","tools":["Bash"]}]}`,
+			"role tester has no write, so it cannot have unrestricted Bash; " +
+				"list command patterns such as Bash(go test:*)"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

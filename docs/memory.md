@@ -99,6 +99,13 @@ file. `reef team apply FILE.json` stores it, and a channel picks it by name (`te
 `reef chat` is in `solo`. When resuming, `reef chat` allows teams with one role and refuses
 teams with multiple roles; use the Reef window (`reef serve`) for those teams.
 
+`teams/full.json` in the repo is a four-role team: `lead`, `architect`, `developer` (the only
+role with `write`) and `tester`, all on `claude`, with the default gates. Each persona names
+the one teammate it hands work to (lead to architect, architect to developer, developer to
+tester, tester to developer on a failure or else to lead) and says to @mention no one else,
+because every `@name` wakes that teammate. The tester runs only `go test`, `npm test` and
+read-only `git` commands. Apply it with `reef team apply teams/full.json`.
+
 ```json
 {
   "name": "duo",
@@ -116,7 +123,7 @@ teams with multiple roles; use the Reef window (`reef serve`) for those teams.
 ```
 
 - `name` and `roles` are required. A role needs `name` and `backend` (`claude` or `codex`). The
-  other role fields are optional: `lead` (default `false`), `permissionMode`, `persona`,
+  other role fields are optional: `lead` (default `false`), `write` (default `false`), `permissionMode`, `persona`,
   `skills`, `tools` and `mcpServers`. What each does is in [server.md](server.md#role).
   Exactly one role has `"lead": true`. A role name can appear once, uses only letters, digits,
   `_` and `-` (so an `@mention` can name it), and is not `user`.
@@ -130,13 +137,18 @@ teams with multiple roles; use the Reef window (`reef serve`) for those teams.
   A role applied with a new `backend` starts a new session; it does not resume the old one.
 - Errors print `reef: <message>` and exit 1: `reef: invalid: team bad needs exactly one
   lead role, has 0` (or `has 2`), `reef: role a: invalid: backend must be claude or codex`,
-  `reef: invalid: role name "two words" must be letters, digits, _ or -, and not user`,
-  `reef: invalid: gate a to ghost names a role team bad does not have`, `reef: parse
+  `reef: invalid: role name "two words" must be letters, digits, _ or -, and not user or reef`,
+  `reef: invalid: gate a to ghost names a role team bad does not have`,
+  `reef: invalid: role tester has no write, so it cannot have unrestricted Bash; list command
+  patterns such as Bash(go test:*)`, `reef: parse
   team.json: json: unknown field "color"`.
 - `tools` are the backend's allowed tools: Claude runs them without asking (`--allowedTools`),
   and so it does the reef tools (`mcp__reef__*`), but not the tools of the role's own `mcpServers`
   unless `tools` lists them (`mcp__mcp1__*`).
-  Codex ignores `tools`. Its limit is `permissionMode`.
+  A claude role without `write` cannot list plain `Bash` (or `Bash(*)`): `reef team apply`
+  rejects it, so list patterns such as `Bash(go test:*)`.
+  Codex ignores `tools`. Its limit is `permissionMode`. `write` decides which limit applies
+  (see [server.md](server.md#role)).
 
 ## Tokens
 
@@ -225,6 +237,9 @@ holds a message body. Its shape:
    N]` or `[channel N, message N, thread N]`; your plain reply goes where the header says (a
    top-level reply starts your own thread), and `post_to_channel` takes the header's `thread` as
    its `parent` when there is one.
+   After the header, a wake may carry `reef wrote: ...` lines: what `reef` posted in the
+   channel since the role's last turn began, such as a rollback note (see
+   [server.md](server.md#channels-live)). The prompt does not explain them.
    The lead gets one more line: do not summarize or repeat a
    specialist's post back to the user, because they see it. `reef context` does not print it.
 
@@ -280,10 +295,15 @@ A channel stores its role, its backend and its permission mode (see
 [server.md](server.md#channel)). `channel.Open` locks the channel and fails any turn it left
 running (error `chat exited`). That turn belonged to a `reef chat` that died, because this
 one now holds the chat lock. It starts no agent: a teammate's agent starts when that role has
-its first turn, in the project's folder, with one MCP server named `reef` (this `reef`
+its first turn, in the project's folder (a channel on a feature: the feature's worktree, see
+[server.md](server.md#channels-live)), with one MCP server named `reef` (this `reef`
 binary, `mcp --data <data folder>`, with that teammate's own new token in `REEF_TOKEN`), plus
 the role's own `mcpServers`. Claude runs the reef tools without approval; the role's own
 servers need their tools in `tools` (see [agents.md](agents.md#gotchas)).
+So a `reef chat` on a feature needs the project to be a git repo with a commit. Like `reef
+serve`, it takes a checkpoint before each turn of a role with `write` (the `solo` lead has
+it). The one-writer lock of a tree is a file lock in the data folder, so a `reef chat` and
+`reef serve` on the same tree wait for each other.
 `reef chat` starts the lead at once (`Session.Start`), before the first line is read, so an
 agent that does not start fails the command at the start. In `reef serve` the lead starts at
 its first turn: a first message that goes to a specialist starts no lead.

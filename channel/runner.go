@@ -8,6 +8,7 @@ import (
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 const (
@@ -23,6 +24,12 @@ var ErrCapped = errors.New("capped")
 type Runner struct {
 	// OnPrompt, when set, sees every prompt before it is sent to the agent.
 	OnPrompt func(prompt string)
+	// CheckpointDir, when set, is a git checkout snapshotted before every turn. A turn whose
+	// snapshot fails is stored failed and never sent to the agent. A checkout with no commit
+	// has nothing to snapshot: its turns run with no checkpoint.
+	CheckpointDir string
+	// NoWake, when set, keeps no wake on the turns it stores, so they cannot be retried.
+	NoWake bool
 
 	st        *store.Store
 	ag        agent.Agent
@@ -56,6 +63,7 @@ func (r *Runner) Run(
 	wctx := context.WithoutCancel(ctx)
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
 		ChannelID: r.channelID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,
+		WakeText: r.wake(text), WakeParent: parent,
 	})
 	if err != nil {
 		return err
@@ -65,9 +73,23 @@ func (r *Runner) Run(
 		return errors.Join(err, r.fail(wctx, turn, "interrupted", "", parent))
 	}
 
-	prompt := text
+	if r.CheckpointDir != "" {
+		ref := fmt.Sprintf("refs/reef/checkpoints/%d", turn.ID)
+		err := worktree.Checkpoint(wctx, r.CheckpointDir, ref)
+		if err == nil {
+			_, err = r.st.SetTurnCheckpoint(wctx, turn.ID, ref)
+		}
+		if err != nil && !errors.Is(err, worktree.ErrNoCommit) {
+			return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
+		}
+	}
+
+	prompt, err := r.withNotes(wctx, turn, text)
+	if err != nil {
+		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
+	}
 	if r.preamble != "" {
-		prompt = r.preamble + "\n\n" + text
+		prompt = r.preamble + "\n\n" + prompt
 	}
 	if r.OnPrompt != nil {
 		r.OnPrompt(prompt)
@@ -76,6 +98,9 @@ func (r *Runner) Run(
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
 	r.preamble = ""
+	if _, err := r.st.SetTurnSent(wctx, turn.ID); err != nil {
+		return r.abort(wctx, turn, err, err.Error(), "", parent)
+	}
 
 	var reply strings.Builder
 	calls := 0
@@ -123,6 +148,13 @@ func (r *Runner) Run(
 			}
 		}
 	}
+}
+
+func (r *Runner) wake(text string) string {
+	if r.NoWake {
+		return ""
+	}
+	return text
 }
 
 // abort interrupts the agent and stores turn as failed with reason, keeping the reply

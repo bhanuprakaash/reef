@@ -2,6 +2,7 @@ package channel
 
 import (
 	"context"
+	"os/exec"
 	"strings"
 	"testing"
 
@@ -16,7 +17,17 @@ func openStore(t *testing.T) (*store.Store, store.Feature) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	p, err := st.CreateProject(ctx, store.Project{Name: "shop", Path: "/tmp/shop"})
+	repo := t.TempDir()
+	for _, args := range [][]string{
+		{"init", "-b", "main"},
+		{"-c", "user.name=t", "-c", "user.email=t@t", "commit", "--allow-empty", "-m", "first"},
+	} {
+		out, err := exec.Command("git", append([]string{"-C", repo}, args...)...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("git %v: %v: %s", args, err, out)
+		}
+	}
+	p, err := st.CreateProject(ctx, store.Project{Name: "shop", Path: repo})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -6,6 +6,7 @@ import (
 
 	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 func (s *server) proposalRoutes(mux *http.ServeMux) {
@@ -68,7 +69,17 @@ func (s *server) promote(w http.ResponseWriter, r *http.Request) {
 	err = s.startUserTurn(r.Context(), id, userTurn{
 		kind: _promote, text: channel.PromoteCommand,
 		prepare: func() error {
-			var err error
+			before, err := s.st.Channel(r.Context(), id)
+			if err != nil {
+				return err
+			}
+			p, err := s.st.Project(r.Context(), before.ProjectID)
+			if err != nil {
+				return err
+			}
+			if !worktree.HasCommit(r.Context(), p.Path) {
+				return fmt.Errorf("%w: project %s is not a git repo with a commit", store.ErrInvalid, p.Path)
+			}
 			ch, err = s.st.PromoteChannel(r.Context(), id, f)
 			return err
 		},

@@ -1,12 +1,14 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"os"
 	"path/filepath"
 
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 func (s *server) projectRoutes(mux *http.ServeMux) {
@@ -108,8 +110,19 @@ func (s *server) updateProject(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, p)
 }
 
+// deleteProject deletes the project, the worktrees of its features and the checkpoint refs of
+// the turns of all its channels, quick sessions included. A worktree with uncommitted changes
+// is 409 and nothing is removed; so is a channel with a turn running elsewhere, or open in
+// reef chat. Branches are kept. A running turn is stopped first, as for a feature delete. A
+// project folder that is gone is not git cleaned up: worktree folders, if any, are just
+// removed.
 func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	p, err := s.st.Project(r.Context(), id)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -120,9 +133,49 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer lift()
+	if err := s.channelsInUse(r.Context(), store.ChannelFilter{ProjectID: &id}); err != nil {
+		writeError(w, err)
+		return
+	}
+	fs, err := s.st.Features(r.Context(), &id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	refs, err := s.checkpointRefs(r.Context(), store.ChannelFilter{ProjectID: &id})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	gone := projectGone(p.Path)
+	if !gone {
+		for _, f := range fs {
+			if err := s.checkFeatureTree(r.Context(), p, f); err != nil {
+				writeError(w, err)
+				return
+			}
+		}
+	}
+	for _, f := range fs {
+		if gone {
+			err = os.RemoveAll(worktree.Path(s.dataDir, p.ID, f.Slug))
+		} else {
+			err = s.removeFeatureTree(r.Context(), p, f)
+		}
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+	}
 	if err := s.st.DeleteProject(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
+	}
+	if !gone {
+		if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), p.Path, refs); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	w.WriteHeader(http.StatusNoContent)
 }

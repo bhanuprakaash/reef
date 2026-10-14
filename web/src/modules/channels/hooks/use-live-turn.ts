@@ -28,6 +28,7 @@ export function useLiveTurn(channelId: number): LiveTurn {
       void queryClient.invalidateQueries({ queryKey: ['channels', channelId] });
       void queryClient.invalidateQueries({ queryKey: ['proposal', channelId] });
       void queryClient.invalidateQueries({ queryKey: ['approvals', channelId] });
+      void queryClient.invalidateQueries({ queryKey: ['turns', channelId] });
     };
     source.addEventListener('turn', (e) => {
       const data: TurnData = JSON.parse(e.data);
@@ -35,7 +36,11 @@ export function useLiveTurn(channelId: number): LiveTurn {
       if (data.status === 'done') {
         void refresh().then(() => dispatch('clear'));
         void queryClient.invalidateQueries({ queryKey: ['proposal', channelId] });
-      } else if (data.status === 'failed') void refresh();
+        void queryClient.invalidateQueries({ queryKey: ['turns', channelId] });
+      } else if (data.status === 'failed') {
+        void refresh();
+        void queryClient.invalidateQueries({ queryKey: ['turns', channelId] });
+      }
     });
     source.addEventListener('pause', () => {
       void queryClient.invalidateQueries({ queryKey: ['channels', channelId] });
