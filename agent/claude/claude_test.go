@@ -151,6 +151,27 @@ func TestParse_toolCallsFollowUsage(t *testing.T) {
 	}
 }
 
+func TestParse_toolCallBeforeItsResult(t *testing.T) {
+	lines := []string{
+		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Read","input":{"file_path":"/tmp/note.txt"}}]},"parent_tool_use_id":null}`,
+		`{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01","type":"tool_result","content":"note","is_error":false}]},"parent_tool_use_id":null}`,
+		`{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":2,"cache_creation_input_tokens":8139,"cache_read_input_tokens":7817,"output_tokens":63}},"parent_tool_use_id":null}`,
+	}
+	want := []agent.Event{
+		{Kind: agent.KindToolCall, ToolID: "toolu_01", ToolName: "Read", Input: json.RawMessage(`{"file_path":"/tmp/note.txt"}`)},
+		{Kind: agent.KindToolResult, ToolID: "toolu_01", Output: "note"},
+		{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 63, CacheReadTokens: 7817, CacheWriteTokens: 8139}},
+	}
+	var st state
+	var got []agent.Event
+	for _, line := range lines {
+		got = append(got, parse([]byte(line), &st)...)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %+v, want %+v", got, want)
+	}
+}
+
 // background-task.jsonl is a real session, trimmed: a background Bash task starts in turn 1
 // and ends while turn 2 runs; claude then runs a turn of its own (init, no echoed prompt,
 // result with origin task-notification) before it answers turn 3.
