@@ -3,16 +3,18 @@ import { useFeatures } from '@/modules/features/api/get-features';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { useTasks } from '@/modules/tasks/api/get-tasks';
 import { AddTaskForm } from '@/modules/tasks/components/add-task-form';
+import { TaskBoard } from '@/modules/tasks/components/task-board';
 import { TaskFilters } from '@/modules/tasks/components/task-filters';
 import { TaskList } from '@/modules/tasks/components/task-list';
 import type { Task } from '@/types/api';
-import { errorClass } from '@/utils/classes';
+import { buttonClass, errorClass } from '@/utils/classes';
 
 export function TasksPage() {
   const [params, setParams] = useSearchParams();
   const project = params.get('project') ?? '';
   const feature = params.get('feature') ?? '';
   const status = params.get('status') ?? '';
+  const view = params.get('view') === 'board' ? 'board' : 'list';
 
   const projects = useProjects();
   const features = useFeatures();
@@ -33,6 +35,13 @@ export function TasksPage() {
     setParams(next);
   }
 
+  function onView(next: 'list' | 'board') {
+    const nextParams = new URLSearchParams(params);
+    if (next === 'list') nextParams.delete('view');
+    else nextParams.set('view', next);
+    setParams(nextParams);
+  }
+
   function context(t: Task) {
     const p = projects.data?.find((x) => x.id === t.projectId);
     const f = features.data?.find((x) => x.id === t.featureId);
@@ -43,16 +52,40 @@ export function TasksPage() {
     <div className="max-w-3xl space-y-6">
       <h1 className="text-xl font-semibold">Tasks</h1>
       <AddTaskForm projects={projects.data ?? []} features={features.data ?? []} />
-      <TaskFilters
-        projects={projects.data ?? []}
-        features={features.data ?? []}
-        project={project}
-        feature={feature}
-        status={status}
-        onChange={onFilter}
-      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <TaskFilters
+          projects={projects.data ?? []}
+          features={features.data ?? []}
+          project={project}
+          feature={feature}
+          status={status}
+          onChange={onFilter}
+        />
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className={buttonClass}
+            aria-pressed={view === 'list'}
+            onClick={() => onView('list')}
+          >
+            List
+          </button>
+          <button
+            type="button"
+            className={buttonClass}
+            aria-pressed={view === 'board'}
+            onClick={() => onView('board')}
+          >
+            Board
+          </button>
+        </div>
+      </div>
       {tasks.isError && <p className={errorClass}>{tasks.error.message}</p>}
-      <TaskList tasks={shown ?? []} context={context} />
+      {view === 'board' ? (
+        <TaskBoard tasks={shown ?? []} context={context} />
+      ) : (
+        <TaskList tasks={shown ?? []} context={context} />
+      )}
     </div>
   );
 }
