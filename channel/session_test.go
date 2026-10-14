@@ -331,3 +331,31 @@ func TestSession_Promote(t *testing.T) {
 		t.Errorf("prompts = %q, want one with %q", ag.prompts, want)
 	}
 }
+
+func TestSession_PromoteIntoFeatureWithBrief(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	if _, err := st.PutBrief(ctx, store.Brief{FeatureID: f.ID, Body: "old brief", Author: "user"}); err != nil {
+		t.Fatal(err)
+	}
+	ch := sessionChannel(t, st, f, true)
+	ag := newRecordingAgent()
+	ag.st, ag.channelID, ag.propose = st, ch.ID, true
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := st.PromoteChannel(ctx, ch.ID, store.Feature{ID: f.ID}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.Promote(ctx, discard); err != nil {
+		t.Fatal(err)
+	}
+	want := `This quick session is now part of feature "Login" (login), which already has a brief. ` +
+		`Call the get_brief tool first.`
+	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], want) {
+		t.Errorf("prompts = %q, want one with %q", ag.prompts, want)
+	}
+}

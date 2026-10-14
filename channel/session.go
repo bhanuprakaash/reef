@@ -29,6 +29,11 @@ const (
 		"once with the first brief (goal, status, key decisions, open questions) written from " +
 		"this session, your own notes on the feature, and the decisions made so far. " +
 		"Then reply with one line saying it is proposed."
+	_promoteIntoBriefPrompt = "This quick session is now part of feature %q (%s), which " +
+		"already has a brief. Call the get_brief tool first. Then call the propose_wrap tool " +
+		"once with the full brief rewritten to merge this session into the existing brief: " +
+		"keep its content and add this session's, your notes on the feature merged the same " +
+		"way, and the decisions made so far. Then reply with one line saying it is proposed."
 )
 
 // ErrNoProposal is returned by Wrap when the agent made no proposal.
@@ -145,7 +150,13 @@ func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store
 	if err != nil {
 		return store.Proposal{}, err
 	}
-	return s.propose(ctx, fmt.Sprintf(_promotePrompt, f.Name, f.Slug), onEvent)
+	prompt := _promotePrompt
+	if _, err := s.st.Brief(ctx, f.ID); err == nil {
+		prompt = _promoteIntoBriefPrompt
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return store.Proposal{}, err
+	}
+	return s.propose(ctx, fmt.Sprintf(prompt, f.Name, f.Slug), onEvent)
 }
 
 func (s *Session) propose(

@@ -380,7 +380,9 @@ the channel's `featureId`. It answers 202 with the
 channel and starts a turn: the stored user message is `/promote`, and the agent gets a
 prompt that names the feature and asks it to call `propose_wrap` once with the first brief,
 written from the session, its notes and the decisions so far. The user approves that
-proposal like a wrap-up, and approval makes brief version 1. A promote that fails (a taken
+proposal like a wrap-up, and approval makes brief version 1. When the feature already has
+a brief, the prompt tells the agent to call `get_brief` and propose that brief merged with
+the session, and approval makes the next version. A promote that fails (a taken
 slug, a feature of another project) changes nothing.
 
 ## Caps
