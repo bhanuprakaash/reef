@@ -151,16 +151,16 @@ func TestParse_toolCallsFollowUsage(t *testing.T) {
 	}
 }
 
-func TestParse_toolCallBeforeItsResult(t *testing.T) {
+func TestParse_resultHeldWithItsCall(t *testing.T) {
 	lines := []string{
 		`{"type":"assistant","message":{"role":"assistant","content":[{"type":"tool_use","id":"toolu_01","name":"Read","input":{"file_path":"/tmp/note.txt"}}]},"parent_tool_use_id":null}`,
 		`{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01","type":"tool_result","content":"note","is_error":false}]},"parent_tool_use_id":null}`,
 		`{"type":"stream_event","event":{"type":"message_delta","delta":{"stop_reason":"tool_use"},"usage":{"input_tokens":2,"cache_creation_input_tokens":8139,"cache_read_input_tokens":7817,"output_tokens":63}},"parent_tool_use_id":null}`,
 	}
 	want := []agent.Event{
+		{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 63, CacheReadTokens: 7817, CacheWriteTokens: 8139}},
 		{Kind: agent.KindToolCall, ToolID: "toolu_01", ToolName: "Read", Input: json.RawMessage(`{"file_path":"/tmp/note.txt"}`)},
 		{Kind: agent.KindToolResult, ToolID: "toolu_01", Output: "note"},
-		{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 2, OutputTokens: 63, CacheReadTokens: 7817, CacheWriteTokens: 8139}},
 	}
 	var st state
 	var got []agent.Event
@@ -169,6 +169,37 @@ func TestParse_toolCallBeforeItsResult(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("events = %+v, want %+v", got, want)
+	}
+}
+
+// parallel-tools.jsonl is a real turn, trimmed: three Reads in one message. The result of
+// the first arrives before the message_delta that ends the message.
+func TestParse_resultsBeforeMessageUsage(t *testing.T) {
+	raw, err := os.ReadFile("testdata/parallel-tools.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var st state
+	var got []string
+	for _, line := range strings.Split(strings.TrimSpace(string(raw)), "\n") {
+		for _, ev := range parse([]byte(line), &st) {
+			s := string(ev.Kind)
+			switch ev.Kind {
+			case agent.KindToolCall, agent.KindToolResult:
+				s += " " + ev.ToolID[len(ev.ToolID)-4:]
+			case agent.KindUsage:
+				s += fmt.Sprintf(" out=%d", ev.Usage.OutputTokens)
+			}
+			got = append(got, s)
+		}
+	}
+	want := []string{
+		"session", "usage out=186", "tool_call MH73", "tool_result MH73",
+		"tool_call d7DQ", "tool_call gnMD", "tool_result gnMD", "tool_result d7DQ",
+		"usage out=5", "turn_end",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events = %q, want %q", got, want)
 	}
 }
 
