@@ -29,3 +29,25 @@ func CheckCaps(
 	}
 	return pausedNow, fmt.Errorf("channel %d is paused: %s: %w", ch.ID, ch.Paused, store.ErrConflict)
 }
+
+// Continue clears the pause of a paused channel. A channel at or over its token budget
+// gets a budget of the tokens it used plus store.TokenBudget. A channel that is not paused is an error wrapping
+// store.ErrConflict.
+func Continue(ctx context.Context, st *store.Store, id int64) error {
+	ch, err := st.Channel(ctx, id)
+	if err != nil {
+		return err
+	}
+	if ch.Paused == "" {
+		return fmt.Errorf("channel %d is not paused: %w", id, store.ErrConflict)
+	}
+	used, err := st.ChannelTokens(ctx, id)
+	if err != nil {
+		return err
+	}
+	budget := ch.TokenBudget
+	if used >= ch.TokenBudget {
+		budget = used + store.TokenBudget
+	}
+	return st.ContinueChannel(ctx, id, budget)
+}

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"slices"
@@ -112,13 +113,28 @@ func (s *server) updateChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	var in store.Channel
+	var in struct {
+		Name           string  `json:"name"`
+		PermissionMode *string `json:"permissionMode"`
+	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
-	in.ID = id
-	c, err := s.st.UpdateChannel(r.Context(), in)
+	current, err := s.st.Channel(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if in.PermissionMode != nil {
+		current.PermissionMode = *in.PermissionMode
+		if err := validateAgent(current); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	current.Name = in.Name
+	c, err := s.st.UpdateChannel(r.Context(), current)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -132,20 +148,52 @@ func (s *server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	s.mu.Lock()
-	l := s.lives[id]
-	s.mu.Unlock()
-	if l != nil {
-		s.stopLive(l)
-	}
+	defer s.stopForDelete(id)()
 	if err := s.st.DeleteChannel(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}
-	s.mu.Lock()
-	delete(s.lives, id)
-	s.mu.Unlock()
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// stopChannels stops the agent of every channel f selects, as stopForDelete does. The
+// caller calls the returned func once the store delete is done.
+func (s *server) stopChannels(ctx context.Context, f store.ChannelFilter) (func(), error) {
+	cs, err := s.st.Channels(ctx, f)
+	if err != nil {
+		return nil, err
+	}
+	ids := make([]int64, len(cs))
+	for i, c := range cs {
+		ids[i] = c.ID
+	}
+	return s.stopForDelete(ids...), nil
+}
+
+// stopForDelete marks the channels as being deleted, so a send to them is refused with
+// 404, stops their agents and drops their idle entries. The caller calls the returned
+// func once the store delete is done, which lifts the marks.
+func (s *server) stopForDelete(ids ...int64) (lift func()) {
+	s.mu.Lock()
+	for _, id := range ids {
+		s.deleting[id]++
+	}
+	s.mu.Unlock()
+	for _, id := range ids {
+		if l := s.lookup(id); l != nil {
+			s.stopLive(l)
+			s.dropIdle(id, l, true)
+		}
+	}
+	return func() {
+		s.mu.Lock()
+		defer s.mu.Unlock()
+		for _, id := range ids {
+			if s.deleting[id]--; s.deleting[id] == 0 {
+				delete(s.deleting, id)
+			}
+		}
+	}
 }
 
 func (s *server) listMessages(w http.ResponseWriter, r *http.Request) {

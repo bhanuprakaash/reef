@@ -285,15 +285,18 @@ func contextCmd(ctx context.Context, args []string, stdout io.Writer) error {
 
 // cwdProject is the project of the current folder or its nearest parent.
 func cwdProject(ctx context.Context, st *store.Store) (store.Project, error) {
-	cwd, err := os.Getwd()
+	raw, err := os.Getwd()
 	if err != nil {
 		return store.Project{}, fmt.Errorf("find current folder: %w", err)
 	}
-	cwd, err = store.ResolvePath(cwd)
+	cwd, err := store.ResolvePath(raw)
 	if err != nil {
 		return store.Project{}, fmt.Errorf("resolve current folder: %w", err)
 	}
 	p, err := st.ProjectByPath(ctx, cwd)
+	if errors.Is(err, store.ErrNotFound) && raw != cwd {
+		p, err = st.ProjectByPath(ctx, raw)
+	}
 	if errors.Is(err, store.ErrNotFound) {
 		return store.Project{}, fmt.Errorf("no reef project for %s; run reef project add", cwd)
 	}

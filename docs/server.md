@@ -267,9 +267,9 @@ a channel takes its messages, turns, tokens and proposals.
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
 | `POST /channels` | `projectId`, `featureId`, `name`, `backend` (required: `claude` or `codex`), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`), `role` (empty or `lead`; empty becomes `lead`) | 201 | 400 unknown project or feature, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
-| `PUT /channels/{id}` | `name` only; project, feature, role, backend and permission mode stay as created | 200 | 400, 404 |
-| `DELETE /channels/{id}` | stops the channel first if it is live | 204 | 404 |
-| `POST /channels/{id}/send` | `text` | 202, no body | 400 empty text, or `/wrap` on a quick session, 404, 409 turn running, channel paused, open elsewhere or stopped before its turn began, 503 |
+| `PUT /channels/{id}` | `name` (required), `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the channel's backend and applies the next time its agent starts | 200 | 400 bad JSON or permission mode, 404 |
+| `DELETE /channels/{id}` | stops the channel first if it is live; a send during the delete is 404 | 204 | 404 |
+| `POST /channels/{id}/send` | `text` | 202, no body | 400 empty text, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 turn running, channel paused, open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused |
@@ -298,8 +298,10 @@ A `POST` with no body (`stop`, `continue`, `wrap`, `approve`, `reject`) still ne
 so an empty one or `{}` both work. `send` and `promote` read a JSON body, and an empty one
 is 400.
 
-Create and update take the whole object from the table above. A field you leave out
-takes its default. `PUT` replaces; there is no partial update except `PATCH /turns/{id}`.
+Create requests take the whole object from the table above. A field you leave out takes
+its default. Other `PUT` requests replace the whole object. Update behavior is
+route-specific: `PUT /channels/{id}` keeps an omitted `permissionMode`, while
+`PATCH /turns/{id}` is the only partial update for other resources.
 
 ## Channels live
 
@@ -317,11 +319,17 @@ takes its default. `PUT` replaces; there is no partial update except `PATCH /tur
   the wrap-up turn (400 on a quick session, before any agent turn). Every other text,
   `/promote` included, is a plain message: only `POST /channels/{id}/promote` promotes.
 - `stop` interrupts a running turn (stored `failed`, `interrupted`), then stops the
-  agent, deletes its token and releases the lock. It also works while the agent is
-  still starting: the send that began that turn answers 409 `channel 1 was stopped`, and
-  no turn runs. A turn that fails for another reason also stops the agent; the next send
+  agent, deletes its token and releases the lock. It also works while the send is still
+  checking the caps or starting the agent: the send then answers 409 `channel 1 was
+  stopped`, and no turn runs. Once the send has changed something (a promote's change) or
+  stored the user message, it does not give up: it answers 202 as usual, and its turn runs
+  with the stop already in effect, so it is stored `failed`, `interrupted` and the agent
+  gets no prompt. A turn that fails for another reason also stops the agent; the next send
   starts it again.
 - `DELETE /channels/{id}` does the same as `stop` before it deletes the channel.
+  `DELETE /features/{id}` and `DELETE /projects/{id}` do it for each of their channels.
+  From the start of that stop until the delete is done, a send to the channel is 404
+  `channel 1 is being deleted`, so no agent starts for a channel that is going away.
 - Server shutdown does the same for every channel before it stops listening.
 
 `GET /channels/{id}/events` is a Server-Sent Events stream. It works for a channel that
@@ -380,8 +388,12 @@ the channel's `featureId`. It answers 202 with the
 channel and starts a turn: the stored user message is `/promote`, and the agent gets a
 prompt that names the feature and asks it to call `propose_wrap` once with the first brief,
 written from the session, its notes and the decisions so far. The user approves that
-proposal like a wrap-up, and approval makes brief version 1. A promote that fails (a taken
-slug, a feature of another project) changes nothing.
+proposal like a wrap-up, and approval makes brief version 1. When the feature already has
+a brief, the prompt tells the agent to call `get_brief` and propose that brief merged with
+the session, and approval makes the next version. A promote that fails (a taken
+slug, a feature of another project) changes nothing, and so does one that is stopped
+before its change. A stop after the change does not undo it: the promote answers 202 and
+its turn is stored `failed`, `interrupted`.
 
 ## Caps
 
@@ -398,13 +410,14 @@ Two caps pause a channel. Both are constants in the code, not settings.
 
 A send to a paused channel is 409 with the reason in the error. `POST
 /channels/{id}/continue` clears the pause. When the token sum is at or over the budget it
-also adds 1,000,000 to `tokenBudget`; after a tool cap the next turn simply gets a fresh
+also sets `tokenBudget` to the sum plus 1,000,000; after a tool cap the next turn simply gets a fresh
 25. `continue` on a channel that is not paused is 409.
 
 The tool cap is counted in `channel.Runner`, so `reef chat` is capped too: it pauses the
-channel, prints the reason and exits, because the interrupt ends the agent. `reef chat
---channel ID` runs the same pause and token budget check as send (`channel.CheckCaps`): it
-refuses a paused channel and pauses one over budget, exit 1 with the reason.
+channel, prints the reason and exits, because the interrupt ends the agent. Before each
+line, `reef chat` runs the same pause and token budget check as send (`channel.CheckCaps`)
+and prints the reason instead of running the line. The line `/continue` does what
+`continue` does (`channel.Continue`). See [memory.md](memory.md#reef-chat).
 
 ## Append-only
 

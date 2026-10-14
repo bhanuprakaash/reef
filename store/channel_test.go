@@ -71,7 +71,7 @@ func TestPauseAndContinueChannel(t *testing.T) {
 	if got, _ := s.Channel(ctx, ch.ID); got.Paused != "capped" {
 		t.Errorf("Paused = %q, want capped", got.Paused)
 	}
-	if err := s.ContinueChannel(ctx, ch.ID, 500); err != nil {
+	if err := s.ContinueChannel(ctx, ch.ID, 1000500); err != nil {
 		t.Fatal(err)
 	}
 	if got, _ := s.Channel(ctx, ch.ID); got.Paused != "" || got.TokenBudget != 1000500 {
