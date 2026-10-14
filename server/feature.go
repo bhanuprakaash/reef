@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"path/filepath"
 
 	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
@@ -31,6 +32,8 @@ func (s *server) featureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/features/{id}/notes/{role}", methodNotAllowed)
 	mux.HandleFunc("POST /features/{id}/worktree", s.ensureFeatureWorktree)
 	mux.HandleFunc("/features/{id}/worktree", methodNotAllowed)
+	mux.HandleFunc("GET /features/{id}/diff", s.getFeatureDiff)
+	mux.HandleFunc("/features/{id}/diff", methodNotAllowed)
 }
 
 func (s *server) listFeatures(w http.ResponseWriter, r *http.Request) {
@@ -258,6 +261,46 @@ func (s *server) ensureFeatureWorktree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"path": dir})
+}
+
+// getFeatureDiff returns the feature worktree's changes, uncommitted and untracked files
+// included, against the commit its branch and the project's HEAD last shared. A feature with
+// no worktree yet has no changes.
+func (s *server) getFeatureDiff(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	f, err := s.st.Feature(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	p, err := s.st.Project(r.Context(), f.ProjectID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		writeJSON(w, http.StatusOK, []worktree.FileDiff{})
+		return
+	}
+	base, err := worktree.Base(r.Context(), p.Path, dir)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	diffs, err := worktree.Diff(r.Context(), dir, base)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if diffs == nil {
+		diffs = []worktree.FileDiff{}
+	}
+	writeJSON(w, http.StatusOK, diffs)
 }
 
 func (s *server) getBrief(w http.ResponseWriter, r *http.Request) {

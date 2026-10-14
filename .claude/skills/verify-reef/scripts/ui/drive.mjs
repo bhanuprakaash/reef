@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
@@ -10,9 +10,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -419,6 +419,32 @@ async function rollback() {
     .find(existsSync);
   const note = `reef wrote: Rolled back to before turn ${turnId}.`;
   check(Boolean(file) && readFileSync(file, 'utf8').includes(note), 'the next turn was told of the rollback', `${note} in ${file}`);
+}
+
+async function diff() {
+  ensureRepo();
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const featureId = page.url().split('/').pop();
+  await newChannel(main, 'New channel', 'diff chat');
+  await send('Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.');
+  await working();
+  await idle();
+  await page.goto(`${base}/features/${featureId}`);
+  const panel = main.locator('section', { has: page.getByRole('heading', { name: 'Diff', level: 2 }) });
+  await panel.getByText('new.txt').waitFor({ timeout: 15000 });
+  await shot('diff');
+  check(
+    (await panel.getByText('added').count()) === 1 && (await panel.getByText('hi').count()) === 1,
+    'the diff panel shows new.txt as added with its line',
+    await panel.innerText(),
+  );
+  const json = await getJson(`/features/${featureId}/diff`);
+  check(
+    json.length === 1 && json[0].path === 'new.txt' && json[0].status === 'added' && json[0].hunks[0].lines[0].text === 'hi',
+    'GET /features/{id}/diff returns the file with its added line',
+    JSON.stringify(json),
+  );
 }
 
 async function inbox() {
