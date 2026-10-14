@@ -193,9 +193,22 @@ func (s *Store) PauseChannel(ctx context.Context, id int64, reason string) error
 	return s.setChannel(ctx, id, "paused = ?", reason)
 }
 
-// ContinueChannel clears the pause and adds extra tokens to the budget.
-func (s *Store) ContinueChannel(ctx context.Context, id, extra int64) error {
-	return s.setChannel(ctx, id, "paused = '', token_budget = token_budget + ?", extra)
+// ContinueChannel clears the pause and raises the budget to at least budget.
+func (s *Store) ContinueChannel(ctx context.Context, id, budget int64) error {
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE channel SET paused = '', token_budget = MAX(token_budget, ?) WHERE id = ? AND paused <> ''",
+		budget, id)
+	if err != nil {
+		return fmt.Errorf("update channel: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update channel: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("channel %d is not paused: %w", id, ErrConflict)
+	}
+	return nil
 }
 
 // ChannelTokens sums input, output and cache write tokens; cache reads are not counted.

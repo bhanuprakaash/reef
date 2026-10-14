@@ -45,9 +45,9 @@ func Continue(ctx context.Context, st *store.Store, id int64) error {
 	if err != nil {
 		return err
 	}
-	var extra int64
+	budget := ch.TokenBudget
 	if used >= ch.TokenBudget {
-		extra = used - ch.TokenBudget + store.TokenBudget
+		budget = used + store.TokenBudget
 	}
-	return st.ContinueChannel(ctx, id, extra)
+	return st.ContinueChannel(ctx, id, budget)
 }

@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 
 	"github.com/bhanuprakaash/reef/agent"
@@ -56,6 +57,59 @@ func TestContinue(t *testing.T) {
 					got.Paused, got.TokenBudget, err, tt.wantBudget)
 			}
 		})
+	}
+}
+
+func TestContinue_ConcurrentCallsDoNotGrowBudgetTwice(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionChannel(t, st, f, false)
+	if err := st.PauseChannel(ctx, ch.ID, "budget"); err != nil {
+		t.Fatal(err)
+	}
+	const used = 3000000
+	turn, err := st.CreateTurn(ctx, store.Turn{
+		ChannelID: ch.ID, Role: "architect", Backend: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Status, turn.Usage = "done", agent.Usage{InputTokens: used}
+	if _, err := st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+
+	start := make(chan struct{})
+	results := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			results <- Continue(ctx, st, ch.ID)
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	successes := 0
+	for err := range results {
+		if err == nil {
+			successes++
+			continue
+		}
+		if !errors.Is(err, store.ErrConflict) {
+			t.Errorf("Continue = %v, want nil or conflict", err)
+		}
+	}
+	if successes != 1 {
+		t.Fatalf("successful Continue calls = %d, want 1", successes)
+	}
+	got, err := st.Channel(ctx, ch.ID)
+	if err != nil || got.TokenBudget != used+store.TokenBudget || got.Paused != "" {
+		t.Errorf("channel after concurrent continues = paused %q budget %d, %v, want unpaused budget %d",
+			got.Paused, got.TokenBudget, err, used+store.TokenBudget)
 	}
 }
 
