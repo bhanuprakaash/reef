@@ -75,13 +75,21 @@ type live struct {
 	done   chan struct{}
 	frames []frame
 	// hops counts the turns agent messages woke since the last user message; held is the
-	// queue of wakes a pause kept from running.
-	hops int
-	held []wake
+	// queue of wakes a pause kept from running; retry is the routing read that failed.
+	hops  int
+	held  []wake
+	retry *retry
 	// dropped counts the frames of earlier chains of turns, cut from the front of frames.
 	dropped int
 	wake    chan struct{}
 	subs    int
+}
+
+// retry is a routing read to do again: the messages role wrote after the message with id
+// after.
+type retry struct {
+	role  string
+	after int64
 }
 
 // userTurn is a turn that starts with a user message: text, a reply in the thread of parent
@@ -247,7 +255,7 @@ func (s *server) dropIdle(id int64, l *live, deleted bool) {
 	if s.lives[id] != l || l.state != _idle || l.sess != nil {
 		return
 	}
-	if deleted || (l.subs == 0 && l.hops == 0 && len(l.held) == 0) {
+	if deleted || (l.subs == 0 && l.hops == 0 && len(l.held) == 0 && l.retry == nil) {
 		delete(s.lives, id)
 	}
 }
@@ -357,10 +365,11 @@ func (s *server) checkChannel(
 	return ch.Role, err
 }
 
-// gate returns the wakes of ws that may run, and holds the others as pending approvals.
-func (s *server) gate(ctx context.Context, id int64, l *live, ws []wake) []wake {
+// gate returns the wakes of ws that may run, and holds the others as pending approvals. When
+// an approval cannot be stored it returns the wakes not held so far, and the error.
+func (s *server) gate(ctx context.Context, id int64, l *live, ws []wake) ([]wake, error) {
 	var open []wake
-	for _, w := range ws {
+	for i, w := range ws {
 		if !w.gated {
 			open = append(open, w)
 			continue
@@ -370,14 +379,13 @@ func (s *server) gate(ctx context.Context, id int64, l *live, ws []wake) []wake 
 			Parent: w.parent,
 		})
 		if err != nil {
-			log.Printf("hold wake %s in channel %d: %v", w.role, id, err)
-			continue
+			return append(open, ws[i:]...), fmt.Errorf("hold wake for %s: %w", w.role, err)
 		}
 		l.mu.Lock()
 		l.publishLocked("approval", a)
 		l.mu.Unlock()
 	}
-	return open
+	return open, nil
 }
 
 // capLocked pauses the channel because the hop cap held a wake, and returns the error of
@@ -411,9 +419,11 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 	l := c.l
 	l.mu.Lock()
 	l.hops = 0
-	held := l.held
 	l.mu.Unlock()
-	if len(held) == 0 {
+	held, err := s.retryHeld(r.Context(), id, l)
+	if err != nil {
+		err = c.release(err)
+	} else if len(held) == 0 {
 		err = channel.Continue(r.Context(), s.st, id)
 		if err == nil {
 			l.mu.Lock()
@@ -432,6 +442,26 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// retryHeld does the routing read that failed, if any, and gates the held wakes again. It
+// returns the wakes to run. After an error the channel keeps what it could not do.
+func (s *server) retryHeld(ctx context.Context, id int64, l *live) ([]wake, error) {
+	l.mu.Lock()
+	held, again := slices.Clone(l.held), l.retry
+	l.mu.Unlock()
+	if again != nil {
+		ws, _, err := s.wakes(ctx, id, again.after, again.role)
+		if err != nil {
+			return nil, fmt.Errorf("route messages: %w", err)
+		}
+		held = append(held, ws...)
+	}
+	held, err := s.gate(ctx, id, l, held)
+	l.mu.Lock()
+	l.held, l.retry = held, nil
+	l.mu.Unlock()
+	return held, err
 }
 
 func (s *server) listApprovals(w http.ResponseWriter, r *http.Request) {
@@ -723,7 +753,7 @@ func (c *chain) start(
 		l.mu.Unlock()
 		return c.release(err)
 	}
-	l.state, l.held = _running, nil
+	l.state, l.held, l.retry = _running, nil, nil
 	l.dropped += len(l.frames)
 	l.frames = nil
 	if c.unpause {
@@ -767,12 +797,17 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) 
 		var w wake
 		w, queue = queue[0], queue[1:]
 		end, pause, ok := s.runOne(c.ctx, c.id, l, sess, kind, w)
+		var stall error
+		var again *retry
 		if ok && kind == _message && c.ctx.Err() == nil {
 			ws, last, err := s.wakes(c.ctx, c.id, after, w.role)
 			if err != nil {
-				log.Printf("route channel %d: %v", c.id, err)
+				stall, again = fmt.Errorf("route messages: %w", err), &retry{role: w.role, after: after}
+			} else {
+				var open []wake
+				open, stall = s.gate(c.ctx, c.id, l, ws)
+				queue, after = append(queue, open...), last
 			}
-			queue, after = append(queue, s.gate(c.ctx, c.id, l, ws)...), last
 		}
 		l.mu.Lock()
 		if !ok {
@@ -781,6 +816,18 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) 
 		l.publishLocked("turn", end)
 		if pause != nil {
 			l.publishLocked("pause", *pause)
+		}
+		if stall != nil && c.ctx.Err() == nil {
+			l.held, l.retry = queue, again
+			reason := stall.Error()
+			if err := s.st.PauseChannel(c.ctx, c.id, reason); err != nil {
+				log.Printf("pause channel %d: %v", c.id, err)
+			} else {
+				l.publishLocked("pause", pauseState{Reason: reason})
+			}
+			finishLocked()
+			l.mu.Unlock()
+			return
 		}
 		if !ok || len(queue) == 0 {
 			finishLocked()
