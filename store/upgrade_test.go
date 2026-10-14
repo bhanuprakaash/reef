@@ -72,7 +72,7 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 				CreatedAt: at(3, 9, 0, 0)}}},
 		{"turn", func() (any, error) { return s.Turn(ctx, 1) },
 			Turn{ID: 1, ChannelID: 1, Role: "architect", Backend: "claude",
-				SessionID: "sess-1", Status: "done",
+				SessionID: "sess-1", Status: "done", Sent: true,
 				Usage: agent.Usage{InputTokens: 11, OutputTokens: 22,
 					CacheReadTokens: 33, CacheWriteTokens: 44},
 				StartedAt: at(3, 10, 0, 0), EndedAt: &ended}},
