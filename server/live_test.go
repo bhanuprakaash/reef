@@ -1052,6 +1052,7 @@ func (e *liveEnv) wantInterruptedPromote(t *testing.T, ag *countingAgent) {
 
 func TestPromote_StopDuringSayAnswers202(t *testing.T) {
 	env := newLiveEnv(t)
+	gitProject(t, env, 1)
 	stopWhile, stopped, ag := stopAfterOpen(env)
 	env.fake.say = stopWhile
 
