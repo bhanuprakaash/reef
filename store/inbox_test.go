@@ -160,6 +160,27 @@ func TestInbox_Failed(t *testing.T) {
 	e.want()
 }
 
+func TestInbox_StoppedTurnIsNotAnItem(t *testing.T) {
+	e := newInboxEnv(t)
+	stopped := e.turn(1, "lead", "build it", "running")
+	if _, err := e.s.EndTurn(e.ctx, Turn{ID: stopped.ID, Status: "failed", Error: "interrupted"}); err != nil {
+		t.Fatal(err)
+	}
+	e.say(1, "lead", "half a reply")
+	e.want()
+	restarted := e.turn(2, "lead", "build it", "running")
+	if _, err := e.s.FailRunningTurns(e.ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	e.want("failed 2 lead failed: server restarted")
+	if ok, err := e.s.Retryable(e.ctx, stopped.ID); err != nil || !ok {
+		t.Errorf("Retryable(stopped) = %t, %v, want true", ok, err)
+	}
+	if ok, err := e.s.Retryable(e.ctx, restarted.ID); err != nil || !ok {
+		t.Errorf("Retryable(restarted) = %t, %v, want true", ok, err)
+	}
+}
+
 func TestInbox_Waiting(t *testing.T) {
 	e := newInboxEnv(t)
 	e.say(1, "user", "go")

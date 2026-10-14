@@ -34,13 +34,8 @@ describe('FailedTurnRows', () => {
     expect(markup).toContain('Retry');
   });
 
-  it('hides a turn that was retried or kept no wake', () => {
-    useFailedTurns.mockReturnValue({
-      data: [
-        { ...turn, id: 8, retried: true },
-        { ...turn, id: 9, wakeText: '' },
-      ],
-    });
+  it('shows nothing when no turn can be retried', () => {
+    useFailedTurns.mockReturnValue({ data: [] });
 
     const markup = renderToStaticMarkup(<FailedTurnRows channelId={2} running={false} />);
 

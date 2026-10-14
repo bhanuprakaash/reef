@@ -81,7 +81,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
-| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; `retry` of a turn that is not failed or was retried, or on a channel with a turn running or paused; `rollback` on a channel with a turn running or open in a `reef chat`, on a tree other than the checkpoint's, or on a tree a turn runs on; an approval that is not pending, or one approved while a turn runs or the channel is paused |
+| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; `retry` of a turn that is not [retryable](#channels-live), or on a channel with a turn running or paused; `rollback` on a channel with a turn running or open in a `reef chat`, on a tree other than the checkpoint's, or on a tree a turn runs on; an approval that is not pending, or one approved while a turn runs or the channel is paused |
 | 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
 | 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
@@ -196,7 +196,7 @@ One agent run in a channel.
 | `usage` | object | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens` (numbers, all four always present). The SQL columns are `input_tokens` and so on |
 | `startedAt` | string | |
 | `endedAt` | string? | `null` while running |
-| `wakeText` | string | default `""`; the text the turn ran: the wake, without the context prompt. Empty for a turn from before this field existed |
+| `wakeText` | string | default `""`; the text the turn ran: the wake, without the context prompt. Empty for a turn from before this field existed and for a wrap-up or promote turn |
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
 | `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<turn id>`. `null` for a turn of a role without `write`, for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
@@ -375,11 +375,11 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `GET /tasks/{id}` | | 200 | 404 |
 | `PUT /tasks/{id}` | `title`, `body`, `status`, `featureId` | 200 | 400, 404 |
 | `DELETE /tasks/{id}` | | 204 | 404 |
-| `GET /turns` | `?channel=ID`, `?status=running\|done\|failed` | 200 | 400 bad id or status |
+| `GET /turns` | `?channel=ID`, `?status=running\|done\|failed`, `?retryable=1` (only the turns `retry` accepts) | 200 | 400 bad id or status |
 | `POST /turns` | `channelId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent` | 201 | 400 bad backend or unknown channel or message |
 | `GET /turns/{id}` | | 200 | 404 |
 | `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId`. With no `status`, only `sessionId` is set and the turn stays `running` | 200 | 400 bad status, negative usage, empty `sessionId` without a status, `error` or `usage` without a status, or already ended; 404 |
-| `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not failed, retried already, no `wakeText`, or as send for a channel with a turn running or paused, 503 |
+| `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not retryable (see [Channels live](#channels-live)), or as send for a channel with a turn running or paused, 503 |
 | `GET /inbox` | | 200 the items waiting on the user, newest first; `[]` when none. See [Inbox](#inbox) | |
 | `GET /inbox/events` | | 200 `text/event-stream` | |
 | `POST /turns/{id}/rollback` | no body needed | 204, no body; the channel's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the channel has a turn running, a `reef chat` has it open, its tree is not the one the checkpoint was taken in, or a turn of any role runs on the tree, 503 |
@@ -489,9 +489,12 @@ a message wakes them.
   approve does, with no new user message: the new turn answers in the same thread, and what its
   reply wakes is routed as usual. The failed turn is marked `retried` before the turn starts, so a
   second retry is 409; if the turn cannot start, the mark is taken back. Nothing retries a
-  turn by itself. A wrap-up or promote turn keeps its prompt as its wake, so a retry runs that
-  prompt as a plain turn of the lead: the agent may propose a wrap, and no `no proposal` note is
-  sent. The retry counts as a message of the user for the hop cap.
+  turn by itself. A turn is retryable when it is `failed`, not `retried`, has a `wakeText`, and
+  no later turn of its role ran in the channel: a turn that a later one supersedes is 409. A
+  turn the user stopped (`interrupted`) is retryable, since the user may want its wake run
+  again. A wrap-up or promote turn keeps no wake, so it is never retryable: the user wraps or
+  promotes again. `GET /turns?retryable=1` lists the same turns, which is what the window shows
+  as failed turns with a Retry button. The retry counts as a message of the user for the hop cap.
 
 ### Routing
 
@@ -608,8 +611,8 @@ id to act with:
 | --- | --- | --- | --- | --- |
 | `approval` | a gate holds a wake: a pending [approval](#approval) | `lead wants to wake architect` | `approvalId` | approve or reject |
 | `paused` | the channel's `paused` is not empty | the reason: hop cap, tool cap, token budget or a routing or store failure | | `continue`, or a user message after a hop cap pause |
-| `failed` | a `failed` turn kept a wake, is not `retried` and no later turn of its role ran in the channel | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
-| `waiting` | the channel's newest message is from an agent (not `user` or `reef`) and woke nobody: no wake held at a gate for it, no turn running, no other item for the channel | the first 200 characters of that message | | any new message, such as a send |
+| `failed` | a turn is retryable (see [Channels live](#channels-live)) and its error is not `interrupted`: a turn the user stopped is a decision, not an item | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
+| `waiting` | the channel's newest message is from an agent (not `user` or `reef`) and woke nobody: no wake held at a gate for it, no turn running, no other item for the channel, and the channel's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | | any new message, such as a send |
 
 `at` is the time of the approval, of the failed turn's end, of the message, and for `paused`
 the end of the channel's newest turn. A channel that has a chain running lists no `waiting`

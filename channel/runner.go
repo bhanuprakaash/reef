@@ -29,6 +29,8 @@ type Runner struct {
 	// snapshot fails is stored failed and never sent to the agent. A checkout with no commit
 	// has nothing to snapshot: its turns run with no checkpoint.
 	CheckpointDir string
+	// NoWake, when set, keeps no wake on the turns it stores, so they cannot be retried.
+	NoWake bool
 
 	st        *store.Store
 	ag        agent.Agent
@@ -62,7 +64,7 @@ func (r *Runner) Run(
 	wctx := context.WithoutCancel(ctx)
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
 		ChannelID: r.channelID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,
-		WakeText: text, WakeParent: parent,
+		WakeText: r.wake(text), WakeParent: parent,
 	})
 	if err != nil {
 		return err
@@ -144,6 +146,13 @@ func (r *Runner) Run(
 			}
 		}
 	}
+}
+
+func (r *Runner) wake(text string) string {
+	if r.NoWake {
+		return ""
+	}
+	return text
 }
 
 // abort interrupts the agent and stores turn as failed with reason, keeping the reply

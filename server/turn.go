@@ -25,6 +25,7 @@ func (s *server) listTurns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	f.Status = r.URL.Query().Get("status")
+	f.Retryable = r.URL.Query().Get("retryable") == "1"
 	ts, err := s.st.Turns(r.Context(), f)
 	if err != nil {
 		writeError(w, err)

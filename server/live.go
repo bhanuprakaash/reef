@@ -582,8 +582,8 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 }
 
 // retryTurn runs the wake of a failed turn again, as a new turn of its role in a new chain,
-// and marks the failed turn retried. A turn that is not failed, is retried already or kept no
-// wake is 409, and so is a channel that has a turn running or is paused.
+// and marks the failed turn retried. A turn the store reports not retryable is 409, and so is a
+// channel that has a turn running or is paused.
 func (s *server) retryTurn(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -596,8 +596,11 @@ func (s *server) retryTurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if t.WakeText == "" {
-		writeError(w, fmt.Errorf("turn %d kept no wake to run again: %w", id, store.ErrConflict))
+	if ok, err := s.st.Retryable(ctx, id); err != nil || !ok {
+		if err == nil {
+			err = fmt.Errorf("turn %d cannot be retried: %w", id, store.ErrConflict)
+		}
+		writeError(w, err)
 		return
 	}
 	c, ch, err := s.claim(ctx, t.ChannelID)
