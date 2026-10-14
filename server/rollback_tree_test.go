@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"testing"
 
@@ -31,6 +32,9 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 	if _, err := env.st.SetTurnCheckpoint(ctx, turn.ID, ref); err != nil {
 		t.Fatal(err)
 	}
+	if _, body := do(t, http.MethodGet, env.url+"/turns?channel=3&rollbackable=1", ""); !strings.Contains(body, `"id":2,`) {
+		t.Errorf("rollbackable turns of the quick session = %s, want turn 2", body)
+	}
 	if _, err := env.st.PromoteChannel(ctx, 3, store.Feature{Slug: "search", Name: "Search"}); err != nil {
 		t.Fatal(err)
 	}
@@ -40,6 +44,12 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 	}
 	writeIn(t, other, "work.txt", "w")
 
+	if status, body := do(t, http.MethodGet, env.url+"/turns?channel=3&rollbackable=1", ""); status != 200 || body != "[]" {
+		t.Errorf("rollbackable turns after promote = %d %s, want 200 []", status, body)
+	}
+	if status, body := do(t, http.MethodGet, env.url+"/turns?rollbackable=1", ""); status != 400 {
+		t.Errorf("rollbackable without a channel = %d %s, want 400", status, body)
+	}
 	status, body := do(t, http.MethodPost, env.url+"/turns/2/rollback", "")
 	want := `{"error":"turn 2 was checkpointed in ` + p.Path + `, not ` + other + `: conflict"}`
 	if status != 409 || body != want {

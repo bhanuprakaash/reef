@@ -102,15 +102,7 @@ func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 // wait, when the channel's tree is not the one t was checkpointed in, when a `reef chat`
 // has the channel open, or when a turn of any channel runs on the tree.
 func (s *server) restoreTree(ctx context.Context, c *chain, ch store.Channel, t store.Turn) error {
-	dir, _, err := channel.WorkDir(ctx, s.st, s.dataDir, t.ChannelID)
-	if err != nil {
-		return err
-	}
-	p, err := s.st.Project(ctx, ch.ProjectID)
-	if err != nil {
-		return err
-	}
-	from, _, err := worktree.Origin(ctx, p.Path, *t.Checkpoint)
+	from, dir, err := s.checkpointTrees(ctx, ch, t)
 	if err != nil {
 		return err
 	}
@@ -130,4 +122,21 @@ func (s *server) restoreTree(ctx context.Context, c *chain, ch store.Channel, t 
 	}
 	defer unlock()
 	return worktree.Restore(ctx, dir, *t.Checkpoint)
+}
+
+// checkpointTrees is the directory the checkpoint of t was taken in, and the directory its
+// channel ch runs in now. They differ for a quick session's turn after a promote.
+func (s *server) checkpointTrees(
+	ctx context.Context, ch store.Channel, t store.Turn,
+) (from, dir string, err error) {
+	dir, _, err = channel.WorkDir(ctx, s.st, s.dataDir, ch.ID)
+	if err != nil {
+		return "", "", err
+	}
+	p, err := s.st.Project(ctx, ch.ProjectID)
+	if err != nil {
+		return "", "", err
+	}
+	from, _, err = worktree.Origin(ctx, p.Path, *t.Checkpoint)
+	return from, dir, err
 }

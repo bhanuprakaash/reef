@@ -5,7 +5,7 @@ import { buttonClass, errorClass } from '@/utils/classes';
 export function CheckpointRows({ channelId, running }: { channelId: number; running: boolean }) {
   const turns = useTurns(channelId);
   const rollback = useRollbackTurn(channelId);
-  const checkpoints = turns.data?.filter((t) => t.checkpoint !== null).reverse() ?? [];
+  const checkpoints = [...(turns.data ?? [])].reverse();
 
   if (checkpoints.length === 0) return null;
 
