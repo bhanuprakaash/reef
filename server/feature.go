@@ -96,10 +96,12 @@ func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if err := s.stopChannels(r.Context(), store.ChannelFilter{FeatureID: &id}); err != nil {
+	lift, err := s.stopChannels(r.Context(), store.ChannelFilter{FeatureID: &id})
+	if err != nil {
 		writeError(w, err)
 		return
 	}
+	defer lift()
 	if err := s.st.DeleteFeature(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
