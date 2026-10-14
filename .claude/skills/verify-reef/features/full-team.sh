@@ -1000,7 +1000,7 @@ recreate_ok=1
 newest3=$("$H" sql "select id from turn where channel_id = 3 order by id desc limit 1" | tail -1)
 [ "$(turn_col "$newest3" role)" = developer ] || recreate_ok=0
 [ "$(turn_col "$newest3" status)" = done ] || recreate_ok=0
-[ -n "$(turn_col "$newest3" checkpoint)" ] || recreate_ok=0
+[ "$(turn_col "$newest3" "checkpoint is not null")" = 1 ] || recreate_ok=0
 ls "$S/fu/worktrees/1/fb" 2>/dev/null | grep -qx a.txt || recreate_ok=0
 git -C "$S/cwd" worktree list | grep -q "^$S/fu/worktrees/1/fb .*\[feature/fb\]" || recreate_ok=0
 check tree-recreate "$recreate_ok" "worktree fb was deleted by hand; the next wake remade it with no error"
