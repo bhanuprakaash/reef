@@ -213,10 +213,8 @@ it. A backend typo, or an agent that
 does not start, deletes the channel again.
 
 Resume (`--channel ID`): role, backend and permission mode come from the channel. The
-flags `--role`, `--backend`, `--name` and `--permission-mode` are refused. It checks the
-caps first (`channel.CheckCaps`, the same check as the server): a paused channel exits 1
-with the reason, and a channel at or over its token budget is paused, then exits 1 with the
-reason. Continue it from the window, or with `POST /channels/{id}/continue`.
+flags `--role`, `--backend`, `--name` and `--permission-mode` are refused. A paused
+channel still opens; see "Caps in chat" below.
 
 Each turn:
 
@@ -231,6 +229,15 @@ Each turn:
 - An agent error ends the turn `failed` with the error text. `reef chat` then exits 1 with
   `reef: agent: <text>`. A turn that ends `failed` for any reason (an error, a stop, the
   tool call cap) still stores the reply streamed so far, if it has text.
+
+Caps in chat: before each line it sends, `reef chat` runs the same check as the server
+(`channel.CheckCaps`). A paused channel, or one at or over its token budget (paused first),
+does not run the line and does not store it. It prints `channel 1 is paused: <reason>` and
+`/continue to go on`, then `> ` again. The line `/continue` clears the pause the way
+`POST /channels/{id}/continue` does (`channel.Continue`): a channel over its token budget
+gets another 1,000,000 tokens, and it prints `continued`. On a channel that is not paused
+it prints `the channel is not paused`. The next line then runs. A tool call cap still
+ends the chat, as below; resume the channel and type `/continue`.
 
 Leaving:
 

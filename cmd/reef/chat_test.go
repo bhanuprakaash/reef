@@ -78,7 +78,7 @@ func startChat(t *testing.T, st *store.Store, ch store.Channel, w *fakeSession) 
 	c := &chatRun{
 		in: pw, lines: lines, out: &syncBuffer{}, done: make(chan error, 1), cancel: cancel,
 	}
-	go func() { c.done <- converse(ctx, st, w, lines, c.out) }()
+	go func() { c.done <- converse(ctx, st, ch.ID, w, lines, c.out) }()
 	return c
 }
 
@@ -418,70 +418,86 @@ func TestRun_ChatBackendTypoLeavesNoChannel(t *testing.T) {
 	}
 }
 
-func TestRun_ChatResumeRefusesPausedChannel(t *testing.T) {
-	tests := []struct {
-		name       string
-		givePause  string
-		giveTokens int64
-		wantErr    string
-		wantPaused string
-	}{
-		{
-			name: "paused", givePause: "test pause",
-			wantErr: "channel 1 is paused: test pause: conflict", wantPaused: "test pause",
-		},
-		{
-			name: "over budget", giveTokens: 1000000,
-			wantErr:    "channel 1 is paused: token budget of 1000000 used: 1000000 tokens: conflict",
-			wantPaused: "token budget of 1000000 used: 1000000 tokens",
-		},
+func useTokens(t *testing.T, st *store.Store, channelID, tokens int64) {
+	t.Helper()
+	ctx := context.Background()
+	turn, err := st.CreateTurn(ctx, store.Turn{ChannelID: channelID, Role: "developer", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
 	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			ctx := context.Background()
-			dir := t.TempDir()
-			t.Chdir(t.TempDir())
-			mustReef(t, dir, "project", "add")
-			mustReef(t, dir, "feature", "add", "login", "Login")
-			st, err := store.Open(dir)
-			if err != nil {
-				t.Fatal(err)
-			}
-			defer func() { _ = st.Close() }()
-			f, err := st.FeatureByRef(ctx, "login")
-			if err != nil {
-				t.Fatal(err)
-			}
-			ch, err := st.CreateChannel(ctx, store.Channel{
-				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "developer",
-				Backend: "claude",
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			if tt.givePause != "" {
-				if err := st.PauseChannel(ctx, ch.ID, tt.givePause); err != nil {
-					t.Fatal(err)
-				}
-			}
-			turn, err := st.CreateTurn(ctx, store.Turn{
-				ChannelID: ch.ID, Role: "developer", Backend: "claude",
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
-			turn.Status, turn.Usage = "done", agent.Usage{InputTokens: tt.giveTokens}
-			if _, err := st.EndTurn(ctx, turn); err != nil {
-				t.Fatal(err)
-			}
+	turn.Status, turn.Usage = "done", agent.Usage{InputTokens: tokens}
+	if _, err := st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+}
 
-			_, err = reef(t, dir, "chat", "--channel", "1")
-			if err == nil || err.Error() != tt.wantErr {
-				t.Errorf("chat error = %v, want %q", err, tt.wantErr)
-			}
-			if got, err := st.Channel(ctx, ch.ID); err != nil || got.Paused != tt.wantPaused {
-				t.Errorf("paused = %q, %v, want %q", got.Paused, err, tt.wantPaused)
-			}
-		})
+func TestConverse_PausedChannelRefusesMessageUntilContinue(t *testing.T) {
+	ctx := context.Background()
+	st, ch := chatFixture(t)
+	if err := st.PauseChannel(ctx, ch.ID, "capped: more than 25 tool calls"); err != nil {
+		t.Fatal(err)
+	}
+	w := &fakeSession{}
+	c := startChat(t, st, ch, w)
+
+	c.say(t, "hi")
+	c.waitFor(t, "/continue to go on")
+	c.say(t, "/continue")
+	c.waitFor(t, "continued")
+	c.say(t, "hello")
+	c.waitFor(t, "ok")
+	out := c.end(t)
+
+	want := "> channel 1 is paused: capped: more than 25 tool calls\n/continue to go on\n\n> " +
+		"continued\n\n> ok\n\n> "
+	if out != want {
+		t.Errorf("output = %q, want %q", out, want)
+	}
+	if !slices.Equal(w.said, []string{"hello"}) || !slices.Equal(w.stored, []string{"hello"}) {
+		t.Errorf("said = %q, stored = %q, want only [hello]", w.said, w.stored)
+	}
+	if got, err := st.Channel(ctx, ch.ID); err != nil || got.Paused != "" || got.TokenBudget != store.TokenBudget {
+		t.Errorf("channel = paused %q budget %d, %v, want not paused, budget %d",
+			got.Paused, got.TokenBudget, err, store.TokenBudget)
+	}
+}
+
+func TestConverse_TokenBudgetReachedMidChatPausesNextMessage(t *testing.T) {
+	ctx := context.Background()
+	st, ch := chatFixture(t)
+	w := &fakeSession{}
+	c := startChat(t, st, ch, w)
+
+	c.say(t, "one")
+	c.waitFor(t, "ok")
+	useTokens(t, st, ch.ID, store.TokenBudget)
+	c.say(t, "two")
+	c.waitFor(t, "/continue to go on")
+	c.say(t, "/continue")
+	c.waitFor(t, "continued")
+	c.say(t, "three")
+	c.waitFor(t, "continued\n\n> ok\n\n> ")
+	out := c.end(t)
+
+	if want := "channel 1 is paused: token budget of 1000000 used: 1000000 tokens\n"; !strings.Contains(out, want) {
+		t.Errorf("output = %q, want it to contain %q", out, want)
+	}
+	if !slices.Equal(w.said, []string{"one", "three"}) {
+		t.Errorf("said = %q, want [one three]", w.said)
+	}
+	if got, err := st.Channel(ctx, ch.ID); err != nil || got.Paused != "" || got.TokenBudget != 2*store.TokenBudget {
+		t.Errorf("channel = paused %q budget %d, %v, want not paused, budget %d",
+			got.Paused, got.TokenBudget, err, 2*store.TokenBudget)
+	}
+}
+
+func TestConverse_ContinueWhenNotPaused(t *testing.T) {
+	st, ch := chatFixture(t)
+	c := startChat(t, st, ch, &fakeSession{})
+
+	c.say(t, "/continue")
+	c.waitFor(t, "the channel is not paused")
+	if out := c.end(t); out != "> the channel is not paused\n\n> " {
+		t.Errorf("output = %q, want the channel is not paused", out)
 	}
 }
