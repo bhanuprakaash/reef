@@ -355,7 +355,8 @@ type state struct {
 // Usage is sent as each message ends: its message_delta has the final counts, while the
 // assistant line's output count is only the first few tokens. The tool calls of a message
 // follow its usage, so a turn stopped at a call has counted the model call that made it
-// (its assistant line comes before the message_delta). A subagent's messages have no
+// (its assistant line comes before the message_delta). A tool_result sends the calls still
+// held first, so a call never follows its own result. A subagent's messages have no
 // message_delta, so its calls are sent at once. The result line sends only what is left
 // of its usage total. An unprompted turn gives only its usage.
 func parse(line []byte, st *state) []agent.Event {
@@ -412,6 +413,9 @@ func parseLine(line []byte, st *state) []agent.Event {
 		var evs []agent.Event
 		for _, b := range l.Message.Content {
 			if b.Type == "tool_result" {
+				if evs == nil {
+					evs, st.calls = st.calls, nil
+				}
 				evs = append(evs, agent.Event{
 					Kind:         agent.KindToolResult,
 					ToolID:       b.ToolUseID,
