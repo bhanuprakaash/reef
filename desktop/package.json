@@ -14,9 +14,7 @@
     "start": "go build -o bin/reef ../cmd/reef && electron .",
     "build:web": "npm --prefix ../web ci && npm --prefix ../web run build",
     "dist:mac": "npm run build:web && GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o resources/mac/reef ../cmd/reef && electron-builder --mac --arm64",
-    "dist:linux": "npm run build:web && npm run dist:linux:amd64 && npm run dist:linux:arm64",
-    "dist:linux:amd64": "GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -o resources/linux/reef ../cmd/reef && electron-builder --linux deb --x64",
-    "dist:linux:arm64": "GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go build -o resources/linux/reef ../cmd/reef && electron-builder --linux deb --arm64"
+    "dist:linux": "npm run build:web && CGO_ENABLED=0 go build -o resources/linux/reef ../cmd/reef && electron-builder --linux deb"
   },
   "devDependencies": {
     "electron": "^44.0.0",

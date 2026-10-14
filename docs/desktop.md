@@ -101,9 +101,10 @@ npm install
 npm run dist:linux
 ```
 
-Makes `dist/reef-desktop_<version>_amd64.deb` and `..._arm64.deb`, each with the `reef`
-binary built for that arch and a desktop entry (`Reef`, category Development). Install and
-remove like any `.deb`:
+Makes `dist/reef-desktop_<version>_<arch>.deb` for the machine's own arch (amd64 or arm64), with
+the `reef` binary built for it. It has a desktop entry (`Reef`, category Development). Build on the
+arch you install on: `node-pty` is a native module, built for the machine that runs `npm install`.
+Install and remove like any `.deb`:
 
 ```
 sudo apt install ./dist/reef-desktop_<version>_<arch>.deb
