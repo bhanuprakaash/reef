@@ -445,15 +445,18 @@ a message wakes them.
   HEAD, then a commit of the index as it was, so a rollback can bring back what was staged.
   Its message records the directory and the branch it was taken in (`dir:` and `branch:`
   lines; no branch when HEAD was detached).
-- One write turn at a time runs on a tree, across all channels of the server: the feature's
-  worktree, or the project path for quick sessions. A wake of a role with `write` waits for
+- One write turn at a time runs on a tree, across all channels and processes on the data
+  folder: the feature's worktree, or the project path for quick sessions. A wake of a role with `write` waits for
   the write turn that runs on its tree, then runs. Its turn row is created when it starts, so
   `startedAt` is after the other turn's `endedAt`. A stop ends the wait, and the turn is
   stored `failed` as `interrupted`. A role without `write` is not held: it runs beside a
   write turn, and counts as a reader of the tree for its turn, which only a rollback
   respects. The first start
   of a feature's worktree takes a lock of its own, so two channels waking at once add it once.
-  The lock lives in the server's process: `reef chat` in another process is not held by it.
+  The locks are `flock` files in `<data folder>/locks/`, named from a hash of the tree path
+  (`.lock` for the writer, `.read` for readers), so `reef serve` and `reef chat` share them.
+  A waiting write turn polls its lock every 20 ms. A rollback takes the writer lock without
+  waiting and checks the reader file, so a read-only turn of any process refuses it.
 - `POST /turns/{id}/rollback` puts the channel's tree (the feature's worktree, or the project
   path of a quick session) back as the turn's checkpoint saw it: the branch the checkpoint was
   taken on is checked out at the HEAD it had, so commits made since, and a branch the turn

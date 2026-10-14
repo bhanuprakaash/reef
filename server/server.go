@@ -47,7 +47,7 @@ type Handler struct {
 
 // New returns the API over st.
 func New(st *store.Store, dataDir, exe string) *Handler {
-	trees := channel.NewTrees()
+	trees := channel.NewTrees(dataDir)
 	return newHandler(st, dataDir, trees, func(ctx context.Context, channelID int64) (session, error) {
 		sess, err := channel.Open(ctx, st, dataDir, exe, channelID, trees)
 		if err != nil {

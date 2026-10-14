@@ -91,7 +91,7 @@ func chatCmd(
 				ch.ID, team.Name)
 		}
 	}
-	sess, err := channel.Open(ctx, st, dir, exe, *channelID, channel.NewTrees())
+	sess, err := channel.Open(ctx, st, dir, exe, *channelID, channel.NewTrees(dir))
 	if err == nil {
 		if err = sess.Start(ctx); err != nil {
 			_ = sess.Close()

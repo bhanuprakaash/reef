@@ -88,7 +88,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 	ag := newRecordingAgent()
 	dir := t.TempDir()
 
-	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(), ag.factory)
+	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,7 +145,7 @@ func TestOpen_QuickSession(t *testing.T) {
 	ch := sessionChannel(t, st, f, true)
 	ag := newRecordingAgent()
 
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(), ag.factory)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +190,7 @@ func TestOpen_ResumesNewestSession(t *testing.T) {
 	}
 	ag := newRecordingAgent()
 
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(), ag.factory)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -251,7 +251,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(), mk)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -333,7 +333,7 @@ func TestSession_RunAsRoleAppliedAfterOpen(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(), mk)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -377,7 +377,7 @@ func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 		backends = append(backends, backend)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(), mk)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -421,7 +421,7 @@ func TestOpen_Errors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", tt.give, NewTrees())
+			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", tt.give, NewTrees(t.TempDir()))
 			if err == nil {
 				err = s.Start(ctx)
 				_ = s.Close()
@@ -434,12 +434,12 @@ func TestOpen_Errors(t *testing.T) {
 
 	t.Run("open elsewhere", func(t *testing.T) {
 		dir := t.TempDir()
-		s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(), newRecordingAgent().factory)
+		s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer func() { _ = s.Close() }()
-		_, err = open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(), newRecordingAgent().factory)
+		_, err = open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
 		if err == nil || err.Error() != "channel 1 is open elsewhere: conflict" {
 			t.Errorf("second open error = %v, want the open-elsewhere error", err)
 		}
@@ -449,7 +449,7 @@ func TestOpen_Errors(t *testing.T) {
 		dir := t.TempDir()
 		ag := newRecordingAgent()
 		ag.startErr = errors.New("no claude")
-		s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(), ag.factory)
+		s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -483,7 +483,7 @@ func TestSession_Wrap(t *testing.T) {
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(), ag.factory)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -524,7 +524,7 @@ func TestSession_Promote(t *testing.T) {
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
 	dir := t.TempDir()
-	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(), ag.factory)
+	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -573,7 +573,7 @@ func TestSession_PromoteMovesNextWakeToWorktree(t *testing.T) {
 		return ag, nil
 	}
 	dir := t.TempDir()
-	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(), mk)
+	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -625,7 +625,7 @@ func TestSession_NoWorktreeFailsTurn(t *testing.T) {
 	}
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(), ag.factory)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -657,7 +657,7 @@ func TestSession_RecreatesRemovedWorktree(t *testing.T) {
 		return ag, nil
 	}
 	dir := t.TempDir()
-	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(), mk)
+	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -709,7 +709,7 @@ func TestSession_WrapOrPromoteCancelledStoresTurn(t *testing.T) {
 			st, f := openStore(t)
 			ch := sessionChannel(t, st, f, false)
 			ag := newRecordingAgent()
-			s, err := open(bg, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(), ag.factory)
+			s, err := open(bg, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -743,7 +743,7 @@ func TestSession_PromoteIntoFeatureWithBrief(t *testing.T) {
 	ch := sessionChannel(t, st, f, true)
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(), ag.factory)
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
