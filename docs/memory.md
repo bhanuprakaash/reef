@@ -100,7 +100,7 @@ Roles are free text for now.
 - `reef token` makes one, in a new channel named `<role> (claude code)`. Every start of
   `reef chat`, new or resumed, makes one for its channel, and deletes it when the chat
   ends. The tokens of `reef token` stay.
-- In slice 4, `reef token` stores the channel role as `lead`, even when `--role` names another role.
+- `reef token` stores the channel role as `lead` for now, even when `--role` names another role.
 - A token never expires. It goes away when its channel is deleted, or, for a `reef chat`
   token, when the chat ends.
 - `reef mcp` reads the token from the `REEF_TOKEN` environment variable, not from a flag,
