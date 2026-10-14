@@ -28,16 +28,31 @@ describe('FailedTurnRows', () => {
   it('shows a failed turn with a Retry button', () => {
     useFailedTurns.mockReturnValue({ data: [turn] });
 
-    const markup = renderToStaticMarkup(<FailedTurnRows channelId={2} running={false} />);
+    const markup = renderToStaticMarkup(
+      <FailedTurnRows channelId={2} running={false} paused={false} />,
+    );
 
     expect(markup).toContain('Turn 7 by developer failed: server restarted');
     expect(markup).toContain('Retry');
   });
 
+  it('hides Retry while the channel is paused', () => {
+    useFailedTurns.mockReturnValue({ data: [turn] });
+
+    const markup = renderToStaticMarkup(
+      <FailedTurnRows channelId={2} running={false} paused={true} />,
+    );
+
+    expect(markup).toContain('Turn 7 by developer failed: server restarted');
+    expect(markup).not.toContain('Retry');
+  });
+
   it('shows nothing when no turn can be retried', () => {
     useFailedTurns.mockReturnValue({ data: [] });
 
-    const markup = renderToStaticMarkup(<FailedTurnRows channelId={2} running={false} />);
+    const markup = renderToStaticMarkup(
+      <FailedTurnRows channelId={2} running={false} paused={false} />,
+    );
 
     expect(markup).toBe('');
   });

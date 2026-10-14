@@ -3,7 +3,15 @@ import { useRetryTurn } from '@/lib/api/retry-turn';
 import { failedTurnAnchor } from '@/utils/anchors';
 import { buttonClass, errorClass } from '@/utils/classes';
 
-export function FailedTurnRows({ channelId, running }: { channelId: number; running: boolean }) {
+export function FailedTurnRows({
+  channelId,
+  running,
+  paused,
+}: {
+  channelId: number;
+  running: boolean;
+  paused: boolean;
+}) {
   const turns = useFailedTurns(channelId);
   const retry = useRetryTurn();
   const retryable = turns.data ?? [];
@@ -22,14 +30,16 @@ export function FailedTurnRows({ channelId, running }: { channelId: number; runn
             <p className={errorClass}>
               Turn {t.id} by {t.role} failed: {t.error}
             </p>
-            <button
-              type="button"
-              className={buttonClass}
-              disabled={running || retry.isPending}
-              onClick={() => retry.mutate(t.id)}
-            >
-              Retry
-            </button>
+            {!paused && (
+              <button
+                type="button"
+                className={buttonClass}
+                disabled={running || retry.isPending}
+                onClick={() => retry.mutate(t.id)}
+              >
+                Retry
+              </button>
+            )}
           </li>
         ))}
       </ul>
