@@ -46,8 +46,9 @@ func NewRunner(
 }
 
 // Run runs one turn with text. The reply is a reply in the thread of parent when it is
-// set. A cancelled ctx wraps ctx.Err(); a turn over the tool call cap pauses the channel
-// and wraps ErrCapped.
+// set. A cancelled ctx wraps ctx.Err(), and a ctx cancelled before the prompt is sent
+// stores the turn failed without sending it; a turn over the tool call cap pauses the
+// channel and wraps ErrCapped.
 func (r *Runner) Run(
 	ctx context.Context, text string, parent *int64, onEvent func(agent.Event),
 ) error {
@@ -60,6 +61,10 @@ func (r *Runner) Run(
 		return err
 	}
 
+	if err := ctx.Err(); err != nil {
+		return errors.Join(err, r.fail(wctx, turn, "interrupted", "", parent))
+	}
+
 	prompt := text
 	if r.preamble != "" {
 		prompt = r.preamble + "\n\n" + text
@@ -68,7 +73,7 @@ func (r *Runner) Run(
 		r.OnPrompt(prompt)
 	}
 	if err := r.ag.Send(ctx, prompt); err != nil {
-		return errors.Join(err, r.fail(wctx, turn, err.Error()))
+		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
 	r.preamble = ""
 
@@ -77,25 +82,26 @@ func (r *Runner) Run(
 	for {
 		select {
 		case <-ctx.Done():
-			return r.abort(wctx, turn, ctx.Err(), "interrupted")
+			return r.abort(wctx, turn, ctx.Err(), "interrupted", reply.String(), parent)
 		case ev, ok := <-r.ag.Events():
 			if !ok {
 				const msg = "agent exited"
-				return errors.Join(errors.New(msg), r.fail(wctx, turn, msg))
+				return errors.Join(errors.New(msg), r.fail(wctx, turn, msg, reply.String(), parent))
 			}
 			onEvent(ev)
 			switch ev.Kind {
 			case agent.KindSession:
 				r.sessionID, turn.SessionID = ev.SessionID, ev.SessionID
 				if _, err := r.st.SetTurnSession(wctx, turn.ID, ev.SessionID); err != nil {
-					return r.abort(wctx, turn, err, err.Error())
+					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
 			case agent.KindText:
 				reply.WriteString(ev.Text)
 			case agent.KindToolCall:
 				if calls++; calls > r.toolCap {
 					capped := fmt.Errorf("%w: more than %d tool calls", ErrCapped, r.toolCap)
-					return errors.Join(r.abort(wctx, turn, capped, capped.Error()),
+					return errors.Join(
+						r.abort(wctx, turn, capped, capped.Error(), reply.String(), parent),
 						r.st.PauseChannel(wctx, r.channelID, capped.Error()))
 				}
 			case agent.KindUsage:
@@ -103,18 +109,15 @@ func (r *Runner) Run(
 					turn.Usage.Add(*ev.Usage)
 				}
 			case agent.KindError:
-				return errors.Join(fmt.Errorf("agent: %s", ev.Text), r.fail(wctx, turn, ev.Text))
+				return errors.Join(fmt.Errorf("agent: %s", ev.Text),
+					r.fail(wctx, turn, ev.Text, reply.String(), parent))
 			case agent.KindTurnEnd:
-				if reply.Len() > 0 {
-					if _, err := r.st.CreateMessage(wctx, store.Message{
-						ChannelID: r.channelID, ParentID: parent, Author: r.role, Body: reply.String(),
-					}); err != nil {
-						return r.abort(wctx, turn, err, err.Error())
-					}
+				if err := r.keepReply(wctx, reply.String(), parent); err != nil {
+					return r.abort(wctx, turn, err, err.Error(), "", parent)
 				}
 				turn.Status = "done"
 				if _, err := r.st.EndTurn(wctx, turn); err != nil {
-					return r.abort(wctx, turn, err, err.Error())
+					return r.abort(wctx, turn, err, err.Error(), "", parent)
 				}
 				return nil
 			}
@@ -122,10 +125,12 @@ func (r *Runner) Run(
 	}
 }
 
-// abort interrupts the agent and stores turn as failed with reason. It returns
-// cause joined with the errors of those two steps. Usage the agent left in Events while
-// stopping counts to the turn.
-func (r *Runner) abort(ctx context.Context, turn store.Turn, cause error, reason string) error {
+// abort interrupts the agent and stores turn as failed with reason, keeping the reply
+// streamed so far in the thread of parent. It returns cause joined with the errors of those
+// steps. Usage the agent left in Events while stopping counts to the turn.
+func (r *Runner) abort(
+	ctx context.Context, turn store.Turn, cause error, reason, reply string, parent *int64,
+) error {
 	err := r.ag.Interrupt()
 drain:
 	for {
@@ -141,11 +146,25 @@ drain:
 			break drain
 		}
 	}
-	return errors.Join(cause, err, r.fail(ctx, turn, reason))
+	return errors.Join(cause, err, r.fail(ctx, turn, reason, reply, parent))
 }
 
-func (r *Runner) fail(ctx context.Context, turn store.Turn, reason string) error {
+func (r *Runner) fail(
+	ctx context.Context, turn store.Turn, reason, reply string, parent *int64,
+) error {
+	keepErr := r.keepReply(ctx, reply, parent)
 	turn.Status, turn.Error = "failed", reason
 	_, err := r.st.EndTurn(ctx, turn)
+	return errors.Join(keepErr, err)
+}
+
+// keepReply stores a non-empty reply as the role's message, in the thread of parent.
+func (r *Runner) keepReply(ctx context.Context, reply string, parent *int64) error {
+	if reply == "" {
+		return nil
+	}
+	_, err := r.st.CreateMessage(ctx, store.Message{
+		ChannelID: r.channelID, ParentID: parent, Author: r.role, Body: reply,
+	})
 	return err
 }

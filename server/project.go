@@ -114,6 +114,12 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	lift, err := s.stopChannels(r.Context(), store.ChannelFilter{ProjectID: &id})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer lift()
 	if err := s.st.DeleteProject(r.Context(), id); err != nil {
 		writeError(w, err)
 		return

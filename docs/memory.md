@@ -155,6 +155,7 @@ team. For `reef token` and `reef chat` it is free text.
   token lives for that wake. The lead's lives until the channel stops. A channel with a lead
   and an architect therefore has one token while only the lead runs, and two during an
   architect wake.
+- `reef token` stores the channel role as `lead` for now, even when `--role` names another role.
 - A token never expires. It goes away when its channel is deleted, or, for a `reef chat`
   token, when the chat ends.
 - `reef mcp` reads the token from the `REEF_TOKEN` environment variable, not from a flag,
@@ -298,10 +299,8 @@ it. A backend typo, or an agent that
 does not start, deletes the channel again.
 
 Resume (`--channel ID`): role, backend and permission mode come from the channel. The
-flags `--role`, `--backend`, `--name` and `--permission-mode` are refused. It checks the
-caps first (`channel.CheckCaps`, the same check as the server): a paused channel exits 1
-with the reason, and a channel at or over its token budget is paused, then exits 1 with the
-reason. Continue it from the window, or with `POST /channels/{id}/continue`.
+flags `--role`, `--backend`, `--name` and `--permission-mode` are refused. A paused
+channel still opens; see "Caps in chat" below.
 
 Each turn:
 
@@ -314,14 +313,24 @@ Each turn:
 - The reply is stored before the turn is marked `done`. If a store write fails during a
   turn, `reef chat` interrupts the agent and marks the turn `failed` with that error.
 - An agent error ends the turn `failed` with the error text. `reef chat` then exits 1 with
-  `reef: agent: <text>`.
+  `reef: agent: <text>`. A turn that ends `failed` for any reason (an error, a stop, the
+  tool call cap) still stores the reply streamed so far, if it has text.
+
+Caps in chat: before each line it sends, `reef chat` runs the same check as the server
+(`channel.CheckCaps`). A paused channel, or one at or over its token budget (paused first),
+does not run the line and does not store it. It prints `channel 1 is paused: <reason>` and
+`/continue to go on`, then `> ` again. The line `/continue` clears the pause the way
+`POST /channels/{id}/continue` does (`channel.Continue`): a channel at or over its token budget
+gets a budget of the tokens it used plus 1,000,000, and it prints `continued`. On a channel that is not paused
+it prints `the channel is not paused`. The next line then runs. A tool call cap still
+ends the chat, as below; resume the channel and type `/continue`.
 
 Leaving:
 
 - At the end of stdin (Ctrl-D, or the end of a piped file) it prints `channel 1: resume
   with reef chat --channel 1` and exits 0.
 - Ctrl-C during a turn interrupts the agent and stores the turn `failed` with error
-  `interrupted`. The part of the reply already printed is not stored. Then it prints the
+  `interrupted`. The part of the reply already printed is stored. Then it prints the
   same resume line and exits 0. Closing the terminal (SIGHUP) and SIGTERM do the same.
   A turn is stored even when the signal comes right after the line is sent.
 

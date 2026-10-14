@@ -1,10 +1,35 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
 )
+
+func TestUpdateChannelPermissionModeUsedWhenSessionOpens(t *testing.T) {
+	env := newLiveEnv(t)
+	var openedMode string
+	env.open = func(ctx context.Context) (session, error) {
+		ch, err := env.st.Channel(ctx, 1)
+		if err != nil {
+			return nil, err
+		}
+		openedMode = ch.PermissionMode
+		return env.fake, nil
+	}
+
+	if status, body := do(t, http.MethodPut, env.url+"/channels/1",
+		`{"name":"scratch","permissionMode":"acceptEdits"}`); status != 200 {
+		t.Fatalf("update channel = %d %s, want 200", status, body)
+	}
+	if status, body := env.send(t, "hello"); status != 202 {
+		t.Fatalf("send = %d %s, want 202", status, body)
+	}
+	if openedMode != "acceptEdits" {
+		t.Errorf("permission mode at session open = %q, want acceptEdits", openedMode)
+	}
+}
 
 func TestChannelStatus(t *testing.T) {
 	tests := []struct {
@@ -135,13 +160,23 @@ func TestChannelRoundTrip(t *testing.T) {
 		t.Fatalf("by feature = %d %s", status, body)
 	}
 
-	status, body = do(t, http.MethodPut, ts.URL+"/channels/1", `{"projectId":9,"featureId":1,"name":"renamed"}`)
-	if status != 200 || !strings.Contains(body, `"projectId":1,"featureId":null,"name":"renamed"`) {
+	status, body = do(t, http.MethodPut, ts.URL+"/channels/1",
+		`{"name":"renamed","permissionMode":"default"}`)
+	if status != 200 || !strings.Contains(body,
+		`"projectId":1,"featureId":null,"name":"renamed"`) ||
+		!strings.Contains(body, `"permissionMode":"default"`) {
 		t.Fatalf("rename quick session = %d %s", status, body)
+	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/channels/1",
+		`{"name":"renamed","permissionMode":"workspace-write"}`); status != 400 {
+		t.Fatalf("bad permission mode = %d %s, want 400", status, body)
 	}
 	status, body = do(t, http.MethodPut, ts.URL+"/channels/2", `{"name":"renamed"}`)
 	if status != 200 || !strings.Contains(body, `"projectId":1,"featureId":1,"name":"renamed"`) {
 		t.Fatalf("rename feature channel = %d %s", status, body)
+	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/channels/2", `{"projectId":9,"name":"x"}`); status != 400 {
+		t.Fatalf("ignored field update = %d %s, want 400", status, body)
 	}
 	if status, body = do(t, http.MethodPut, ts.URL+"/channels/9", `{"name":"x"}`); status != 404 {
 		t.Fatalf("rename unknown = %d %s, want 404", status, body)

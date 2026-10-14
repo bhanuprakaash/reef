@@ -49,6 +49,11 @@ type execer interface {
 	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
 }
 
+var (
+	_ execer = (*sql.DB)(nil)
+	_ execer = (*sql.Tx)(nil)
+)
+
 func insertFeature(ctx context.Context, x execer, f Feature) (Feature, error) {
 	now := time.Now().UTC()
 	res, err := x.ExecContext(ctx,

@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// TokenBudget is the default channel budget and what continuing over budget adds.
+// TokenBudget is the default channel budget and what continuing over budget leaves free.
 const TokenBudget = 1_000_000
 
 // HopCap is how many turns woken by agent messages a channel runs between user messages.
@@ -102,13 +102,15 @@ func (s *Store) Channels(ctx context.Context, f ChannelFilter) ([]Channel, error
 	return scanAll(rows, scanChannel)
 }
 
-// UpdateChannel sets the name of c.ID. A channel never changes project, and its feature
-// changes only from nil, through PromoteChannel.
+// UpdateChannel sets the name and permission mode of c.ID. A channel never changes
+// project, and its feature changes only from nil, through PromoteChannel.
 func (s *Store) UpdateChannel(ctx context.Context, c Channel) (Channel, error) {
 	if err := c.validate(); err != nil {
 		return Channel{}, err
 	}
-	res, err := s.db.ExecContext(ctx, "UPDATE channel SET name = ? WHERE id = ?", c.Name, c.ID)
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE channel SET name = ?, permission_mode = ? WHERE id = ?",
+		c.Name, c.PermissionMode, c.ID)
 	if err != nil {
 		return Channel{}, fmt.Errorf("update channel: %w", err)
 	}
@@ -207,9 +209,22 @@ func (s *Store) PauseChannel(ctx context.Context, id int64, reason string) error
 	return s.setChannel(ctx, id, "paused = ?", reason)
 }
 
-// ContinueChannel clears the pause and adds extra tokens to the budget.
-func (s *Store) ContinueChannel(ctx context.Context, id, extra int64) error {
-	return s.setChannel(ctx, id, "paused = '', token_budget = token_budget + ?", extra)
+// ContinueChannel clears the pause and raises the budget to at least budget.
+func (s *Store) ContinueChannel(ctx context.Context, id, budget int64) error {
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE channel SET paused = '', token_budget = MAX(token_budget, ?) WHERE id = ? AND paused <> ''",
+		budget, id)
+	if err != nil {
+		return fmt.Errorf("update channel: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update channel: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("channel %d is not paused: %w", id, ErrConflict)
+	}
+	return nil
 }
 
 // ChannelTokens sums input, output and cache write tokens; cache reads are not counted.
