@@ -19,6 +19,7 @@ func TestContinue(t *testing.T) {
 	}{
 		{name: "tool cap", givePause: "tool cap", giveTokens: 20, wantBudget: 1000000},
 		{name: "over budget", givePause: "budget", giveTokens: 1000000, wantBudget: 2000000},
+		{name: "far over budget", givePause: "budget", giveTokens: 3000000, wantBudget: 4000000},
 		{
 			name: "not paused", giveTokens: 20, wantBudget: 1000000,
 			wantErr: "channel 1 is not paused: conflict",

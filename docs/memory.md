@@ -234,8 +234,8 @@ Caps in chat: before each line it sends, `reef chat` runs the same check as the 
 (`channel.CheckCaps`). A paused channel, or one at or over its token budget (paused first),
 does not run the line and does not store it. It prints `channel 1 is paused: <reason>` and
 `/continue to go on`, then `> ` again. The line `/continue` clears the pause the way
-`POST /channels/{id}/continue` does (`channel.Continue`): a channel over its token budget
-gets another 1,000,000 tokens, and it prints `continued`. On a channel that is not paused
+`POST /channels/{id}/continue` does (`channel.Continue`): a channel at or over its token budget
+gets a budget of the tokens it used plus 1,000,000, and it prints `continued`. On a channel that is not paused
 it prints `the channel is not paused`. The next line then runs. A tool call cap still
 ends the chat, as below; resume the channel and type `/continue`.
 
