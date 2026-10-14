@@ -70,7 +70,7 @@ One line per acceptance line of the full-team slice and its sub-issues.
 
 Preconditions:
 
-- Baseline from the README. `ANTHROPIC_MODEL=sonnet` on every `serve-start`. Codex is not needed: the codex line uses the repo's test fixture, so `doctor` showing `FAIL codex-auth` does not matter here.
+- Baseline from the README. `ANTHROPIC_MODEL=sonnet` on every `serve-start`. Codex is not needed: the codex line uses the repo's test fixture, so `doctor` showing `FAIL codex-auth` does not matter here. Start a server that uses the fixture with `BASH_ENV=` set: a `BASH_ENV` that resets `PATH` hides the shim and the real codex runs.
 - In every Bash call set `H=.claude/skills/verify-reef/scripts/verify-reef`, `REEF_VERIFY_RUN=<id>`, `E=~/.reef-verify/<id>`, `S=$(cd /tmp && pwd -P)/reef-verify/<id>` and, once a server runs, `A=$(cat $S/serve.addr)`. Paste `wait_done` and `wait_for` from `teams.md`.
 - `$H reef` runs in the scratch cwd, so a repo file is named by its full path: `$PWD/teams/full.json`.
 - The scratch cwd is the project and must be a git repo with one commit:
