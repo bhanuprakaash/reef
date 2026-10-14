@@ -6,7 +6,7 @@ import { buttonClass, errorClass } from '@/utils/classes';
 export function FailedTurnRows({ channelId, running }: { channelId: number; running: boolean }) {
   const turns = useFailedTurns(channelId);
   const retry = useRetryTurn();
-  const retryable = turns.data?.filter((t) => !t.retried && t.wakeText !== '') ?? [];
+  const retryable = turns.data ?? [];
 
   if (retryable.length === 0) return null;
 

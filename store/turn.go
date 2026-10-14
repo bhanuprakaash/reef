@@ -17,6 +17,13 @@ const (
 	_turnFailed  = "failed"
 )
 
+const _interruptedError = "interrupted"
+
+// _retryable is true for a turn t that retry may run again: it failed, was not retried, kept
+// a wake, and no later turn of its role ran in the channel.
+const _retryable = `t.status = '` + _turnFailed + `' AND t.retried = 0 AND t.wake_text IS NOT NULL
+	AND NOT EXISTS (SELECT 1 FROM turn n WHERE n.channel_id = t.channel_id AND n.role = t.role AND n.id > t.id)`
+
 const (
 	_restartError  = "server restarted"
 	_restartAuthor = "reef"
@@ -52,10 +59,12 @@ type Turn struct {
 	Checkpoint *string `json:"checkpoint"`
 }
 
-// TurnFilter narrows Turns. A nil ChannelID or empty Status matches everything.
+// TurnFilter narrows Turns. A nil ChannelID or empty Status matches everything. Retryable
+// keeps the turns Retryable reports true for.
 type TurnFilter struct {
 	ChannelID *int64
 	Status    string
+	Retryable bool
 }
 
 // CreateTurn starts a running turn; any status in t is ignored, and so is Retried.
@@ -102,18 +111,33 @@ func (s *Store) Turns(ctx context.Context, f TurnFilter) ([]Turn, error) {
 	if f.Status != "" && !isTurnStatus(f.Status) {
 		return nil, fmt.Errorf("%w: unknown status %q", ErrInvalid, f.Status)
 	}
-	q, args := "SELECT "+_turnCols+" FROM turn WHERE 1 = 1", []any{}
+	q, args := "SELECT "+_turnCols+" FROM turn t WHERE 1 = 1", []any{}
 	if f.ChannelID != nil {
 		q, args = q+" AND channel_id = ?", append(args, *f.ChannelID)
 	}
 	if f.Status != "" {
 		q, args = q+" AND status = ?", append(args, f.Status)
 	}
+	if f.Retryable {
+		q += " AND " + _retryable
+	}
 	rows, err := s.db.QueryContext(ctx, q+" ORDER BY id", args...)
 	if err != nil {
 		return nil, fmt.Errorf("list turns: %w", err)
 	}
 	return scanAll(rows, scanTurn)
+}
+
+// Retryable reports whether retry may run the turn id again: it failed, was not retried, kept
+// a wake, and no later turn of its role ran in the channel.
+func (s *Store) Retryable(ctx context.Context, id int64) (bool, error) {
+	var ok bool
+	err := s.db.QueryRowContext(ctx,
+		"SELECT EXISTS (SELECT 1 FROM turn t WHERE t.id = ? AND "+_retryable+")", id).Scan(&ok)
+	if err != nil {
+		return false, fmt.Errorf("check turn %d: %w", id, err)
+	}
+	return ok, nil
 }
 
 // EndTurn moves the running turn t.ID to t.Status (done or failed) and

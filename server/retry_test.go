@@ -45,7 +45,7 @@ func TestRetry_RunsTheWakeAgain(t *testing.T) {
 	}
 
 	status, body := do(t, http.MethodPost, env.url+"/turns/1/retry", "")
-	if status != 409 || body != `{"error":"turn 1 is not failed, or retried is already true: conflict"}` {
+	if status != 409 || body != `{"error":"turn 1 cannot be retried: conflict"}` {
 		t.Errorf("retry again = %d %s, want 409", status, body)
 	}
 	if got := len(env.ranTexts()); got != 1 {
@@ -80,9 +80,9 @@ func TestRetry_Refused(t *testing.T) {
 		wantStatus int
 		wantBody   string
 	}{
-		{"done", "1", 409, `{"error":"turn 1 is not failed, or retried is already true: conflict"}`},
-		{"running", "2", 409, `{"error":"turn 2 is not failed, or retried is already true: conflict"}`},
-		{"no wake", "3", 409, `{"error":"turn 3 kept no wake to run again: conflict"}`},
+		{"done", "1", 409, `{"error":"turn 1 cannot be retried: conflict"}`},
+		{"running", "2", 409, `{"error":"turn 2 cannot be retried: conflict"}`},
+		{"no wake", "3", 409, `{"error":"turn 3 cannot be retried: conflict"}`},
 		{"unknown", "9", 404, `{"error":"turn 9: not found"}`},
 	}
 	for _, tt := range tests {
@@ -118,5 +118,54 @@ func TestRetry_Refused(t *testing.T) {
 	env.fake.release <- struct{}{}
 	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 1, message 1]\nblock"}) {
 		t.Errorf("ran = %q, want only the send: no refused retry ran", got)
+	}
+}
+
+func TestRetry_RefusedWhenSuperseded(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	env.failedTurn(t, "lead", "build it", nil)
+	later, err := env.st.CreateTurn(ctx, store.Turn{
+		ChannelID: 1, Role: "lead", Backend: "claude", WakeText: "build it again",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	later.Status = "done"
+	if _, err := env.st.EndTurn(ctx, later); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodPost, env.url+"/turns/1/retry", "")
+	if status != 409 || body != `{"error":"turn 1 cannot be retried: conflict"}` {
+		t.Errorf("retry = %d %s, want 409", status, body)
+	}
+	if _, body := do(t, http.MethodGet, env.url+"/turns?channel=1&retryable=1", ""); body != "[]" {
+		t.Errorf("retryable turns = %s, want none", body)
+	}
+	env.wantInbox(t)
+}
+
+func TestRetry_StoppedTurnIsRetryableButNotInTheInbox(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	turn, err := env.st.CreateTurn(ctx, store.Turn{
+		ChannelID: 1, Role: "lead", Backend: "claude", WakeText: "build it",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Status, turn.Error = "failed", "interrupted"
+	if _, err := env.st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	env.wantInbox(t)
+
+	_, body := do(t, http.MethodGet, env.url+"/turns?channel=1&retryable=1", "")
+	if !strings.Contains(body, `"id":1`) || !strings.Contains(body, `"error":"interrupted"`) {
+		t.Errorf("retryable turns = %s, want the stopped turn", body)
+	}
+	if status, _ := do(t, http.MethodPost, env.url+"/turns/1/retry", ""); status != 202 {
+		t.Errorf("retry = %d, want 202", status)
 	}
 }

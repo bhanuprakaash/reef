@@ -7,10 +7,10 @@ import (
 	"time"
 )
 
-// _inboxItems selects the items of the first three kinds. A failed turn is listed only when
-// no later turn of its role ran in the channel, so a retry, or a send that the role answered,
-// clears it, and of several failed turns only the newest shows. A paused channel is dated by
-// its newest turn, which is what paused it.
+// _inboxItems selects the items of the first three kinds. A failed turn is listed when retry
+// may run it again, so a retry, or a send that the role answered, clears it, and of several
+// failed turns only the newest shows; a turn the user stopped is not listed. A paused channel
+// is dated by its newest turn, which is what paused it.
 const _inboxItems = `
 SELECT 'approval', a.channel_id, c.feature_id, a.from_role || ' wants to wake ' || a.to_role,
 	a.created_at, a.id, NULL
@@ -24,22 +24,23 @@ FROM channel c WHERE c.paused != ''
 UNION ALL
 SELECT 'failed', t.channel_id, c.feature_id, t.role || ' failed: ' || t.error, t.ended_at, NULL, t.id
 FROM turn t JOIN channel c ON c.id = t.channel_id
-WHERE t.status = ? AND t.retried = 0 AND t.wake_text IS NOT NULL
-	AND NOT EXISTS (SELECT 1 FROM turn n WHERE n.channel_id = t.channel_id AND n.role = t.role AND n.id > t.id)`
+WHERE ` + _retryable + ` AND t.error != '` + _interruptedError + `'`
 
 // _inboxWaiting selects the channels that run no turn and whose newest message is from an
 // agent and held no wake at a gate: a message that woke somebody, or whose wake the user
-// decided on, is not waiting.
+// decided on, is not waiting. Nor is the reply a turn the user stopped kept.
 const _inboxWaiting = `
 SELECT 'waiting', c.id, c.feature_id, substr(m.body, 1, 200), m.created_at, NULL, NULL
 FROM channel c JOIN message m ON m.id = (SELECT MAX(id) FROM message WHERE channel_id = c.id)
 WHERE m.author NOT IN ('user', 'reef')
 	AND NOT EXISTS (SELECT 1 FROM approval WHERE message_id = m.id)
-	AND NOT EXISTS (SELECT 1 FROM turn WHERE channel_id = c.id AND status = ?)`
+	AND NOT EXISTS (SELECT 1 FROM turn WHERE channel_id = c.id AND status = ?)
+	AND NOT EXISTS (SELECT 1 FROM turn WHERE id = (SELECT MAX(id) FROM turn WHERE channel_id = c.id)
+		AND status = '` + _turnFailed + `' AND error = '` + _interruptedError + `')`
 
 // InboxItem is one thing waiting on the user. Kind is approval (a gate holds a wake;
 // ApprovalID), paused (a cap or a failure paused the channel; Text is the reason), failed (a
-// turn that kept a wake and was not retried; TurnID) or waiting (the channel ended on a
+// turn retry may run again that the user did not stop; TurnID) or waiting (the channel ended on a
 // message of an agent that woke nobody; Text starts that message).
 type InboxItem struct {
 	Kind       string    `json:"kind"`
@@ -55,7 +56,7 @@ type InboxItem struct {
 // the rows of approvals, channels, turns and messages. A waiting item shows only for a
 // channel with no other item.
 func (s *Store) Inbox(ctx context.Context) ([]InboxItem, error) {
-	rows, err := s.db.QueryContext(ctx, _inboxItems, ApprovalPending, ApprovalGate, _turnFailed)
+	rows, err := s.db.QueryContext(ctx, _inboxItems, ApprovalPending, ApprovalGate)
 	if err != nil {
 		return nil, fmt.Errorf("list inbox: %w", err)
 	}

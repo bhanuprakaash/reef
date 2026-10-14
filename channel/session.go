@@ -176,7 +176,7 @@ func (s *Session) run(
 	}
 	unlock, err := s.trees.Lock(ctx, m.dir)
 	if err != nil {
-		ferr := s.failTurn(ctx, m.run.role, m.run.backend, "interrupted", text, parent)
+		ferr := s.failTurn(ctx, m.run.role, m.run.backend, "interrupted", m.run.wake(text), parent)
 		return errors.Join(err, ferr)
 	}
 	defer unlock()
@@ -455,7 +455,13 @@ func (s *Session) propose(
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, err
 	}
-	if err := s.Run(ctx, prompt, nil, onEvent); err != nil {
+	m, err := s.member(ctx, s.ch.Role, "", nil)
+	if err != nil {
+		return store.Proposal{}, err
+	}
+	m.run.NoWake = true
+	defer func() { m.run.NoWake = false }()
+	if err := s.run(ctx, m, prompt, nil, onEvent); err != nil {
 		return store.Proposal{}, err
 	}
 	p, err := s.st.PendingProposal(ctx, s.ch.ID)

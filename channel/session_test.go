@@ -507,6 +507,10 @@ func TestSession_Wrap(t *testing.T) {
 		t.Errorf("prompt = %q, want it to end with the wrap prompt", ag.prompts[0])
 	}
 
+	if turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID}); err != nil || len(turns) != 1 || turns[0].WakeText != "" {
+		t.Errorf("turns = %+v, %v, want one turn that kept no wake", turns, err)
+	}
+
 	ag.propose = false
 	if _, err := s.Wrap(ctx, discard); !errors.Is(err, ErrNoProposal) {
 		t.Errorf("Wrap with an older proposal pending error = %v, want ErrNoProposal", err)
@@ -720,8 +724,8 @@ func TestSession_WrapOrPromoteCancelledStoresTurn(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Error != "interrupted" {
-				t.Errorf("turns = %+v, want one failed interrupted turn", turns)
+			if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Error != "interrupted" || turns[0].WakeText != "" {
+				t.Errorf("turns = %+v, want one failed interrupted turn that kept no wake", turns)
 			}
 		})
 	}
