@@ -18,8 +18,9 @@ packaged app the `reef` binary ships inside the app's resources instead.
 ## What it does at start
 
 - Reads `PATH` from the login shell (`$SHELL -ilc 'echo $PATH'`), so `claude` and `codex` are
-  found even when the app is opened from Finder, not a terminal. A shell that fails to run
-  falls back to the PATH Electron already has.
+  found even when the app is opened from Finder, not a terminal. A shell that fails to run, or
+  takes more than 5 seconds (an rc file waiting on stdin), falls back to the PATH Electron
+  already has.
 - Starts its own `reef serve` on `127.0.0.1:7700` with that `PATH`, in the dev binary
   (`desktop/bin/reef`) or, once packaged, the bundled one. It waits for `GET /health` before
   it opens the window. `REEF_PORT` sets another port, so a second app (a test run) can run
@@ -29,6 +30,11 @@ packaged app the `reef` binary ships inside the app's resources instead.
 - If the data folder is already in use by another `reef serve`, the server exits with
   `data folder ... is in use by another reef` on stderr. The app shows that error in a dialog,
   then quits.
+- The app trusts only the `reef serve` it spawned, never whatever else answers on the port: if
+  that process exits while the app is not quitting on purpose (a port clash, a crash, any time
+  before or after the window opens), the app shows a dialog with the last 64 KB of its stderr
+  and quits, instead of loading or continuing to show a foreign server. The child's stderr is
+  also forwarded to the app's own stderr, so it is not lost.
 
 ## Browser pane
 
@@ -76,12 +82,19 @@ take-over back off, so the button and the main process agree.
 ## Terminal pane
 
 One shell per working tree ([`desktop/terminal.js`](../desktop/terminal.js)): a feature's
-worktree, made the same way a first wake would (`POST /features/{id}/worktree`), or a project
-checkout for a quick session. The pane shows on a feature page and on a quick session's channel
-page; it renders nothing in a plain browser. `node-pty` spawns the login shell with the `PATH`
-the app already resolved at start, in the given directory. The shell's output is buffered in the
-main process per directory, so a pane that closes and reopens on the same directory sees what it
-missed, and keeps running until the app quits.
+worktree, or a project checkout for a quick session. A quick session's pane shows on its channel
+page right away, in the project path. A feature's worktree is not made just by viewing the
+feature page: an "Open terminal" button calls `POST /features/{id}/worktree` (making the
+worktree the same way a first wake would, or reusing it), then shows the pane in the returned
+path; a failed call shows its error under the button. The button asks again on every visit to
+the feature page in this window session; it does not remember that a tree was already opened.
+The pane renders nothing in a plain browser. `node-pty` spawns the login shell with the `PATH`
+the app already resolved at start, sized to xterm's own columns and rows so the shell's first
+output isn't wrapped to the wrong width. The shell's output is buffered in the main process per
+directory, so a pane that closes and reopens on the same directory sees what it missed. A shell
+that exits (the user typed `exit`, or it crashed) is dropped from that buffer, so reopening the
+same directory starts a fresh one instead of replaying a dead shell's last output; otherwise it
+keeps running until the app quits.
 
 ## Quit
 
@@ -95,7 +108,9 @@ removes `browser.sock`, and kills every shell the terminal pane started.
 `electron-builder` (a `desktop/` devDependency, config in `desktop/package.json`'s `build`
 field) makes an installable app. Each target cross-builds `reef` for the target's OS and arch
 with `go build`, puts it in `desktop/resources/<target>/reef`, and electron-builder copies it
-into the app as an extra resource.
+into the app as an extra resource. `npm install`'s `postinstall` makes `node-pty`'s darwin
+prebuilt `spawn-helper` executable (it ships without the execute bit), so a Mac build does not
+fail at run time with `posix_spawnp failed`; it is a no-op where there is no darwin prebuild.
 
 ### Mac
 
