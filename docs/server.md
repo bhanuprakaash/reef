@@ -459,10 +459,12 @@ a message wakes them.
   turn of any role of any channel runs on the tree (the write lock is held, or a read-only
   turn is a reader). A reader that starts during the restore is not held back. A turn with
   no `checkpoint` is 400. Then `reef` posts `Rolled back
-  to before turn N.` in the channel. The agent's session is not rewound. The next wake of
-  each role that has run before in the channel starts with the lines `reef wrote: ...` that
-  `reef` posted since that role's last turn began, so the role learns of the rollback (and of
-  a restart failure note); a role that never ran gets none.
+  to before turn N.` in the channel. The agent's session is not rewound. When a turn of
+  a role that has run before in the channel is sent, its prompt gets the lines `reef wrote: ...`
+  that `reef` posted since that role's last turn began, after the header line, so the role
+  learns of the rollback (and of a restart failure note) even when its wake was held at a gate
+  or is a retry; a role that never ran gets none. The wake kept as `wakeText` and shown in an
+  approval does not have them.
 - The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session.
