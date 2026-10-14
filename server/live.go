@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,10 +23,12 @@ const _keepAlive = 15 * time.Second
 
 var errStopping = errors.New("server is stopping")
 
-var _hopReason = fmt.Sprintf("hop cap: %d agent hops without a user message", store.HopCap)
+const _hopReasonPrefix = "hop cap:"
+
+var _hopReason = fmt.Sprintf("%s %d agent hops without a user message", _hopReasonPrefix, store.HopCap)
 
 type session interface {
-	Say(ctx context.Context, body string, parent *int64) error
+	Say(ctx context.Context, body string, parent *int64) (store.Message, error)
 	RunAs(ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 	Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
@@ -268,7 +271,7 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 	if err != nil {
 		return err
 	}
-	if ch.Paused == _hopReason {
+	if strings.HasPrefix(ch.Paused, _hopReasonPrefix) {
 		c.lift(&ch, ch.TokenBudget)
 	}
 	role, err := s.checkChannel(ctx, c.l, t.kind, ch)
@@ -284,20 +287,17 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 			return c.release(err)
 		}
 	}
-	after, err := s.st.LastMessageID(ctx, id)
+	msg, err := sess.Say(ctx, t.text, t.parent)
 	if err != nil {
-		return c.release(err)
-	}
-	if err := sess.Say(ctx, t.text, t.parent); err != nil {
 		return c.release(err)
 	}
 	queue := []wake{{from: _userAuthor, role: role, text: t.text, parent: t.parent}}
 	if t.kind == _message {
-		if queue, after, err = s.wakes(ctx, id, after, _userAuthor); err != nil {
+		if queue, err = s.route(ctx, id, []store.Message{msg}, _userAuthor); err != nil {
 			return c.release(err)
 		}
 	}
-	return c.start(ctx, sess, t.kind, queue, after)
+	return c.start(ctx, sess, t.kind, queue, msg.ID)
 }
 
 // runOne runs the turn of w and returns the frame that ends it, the pause it caused, if

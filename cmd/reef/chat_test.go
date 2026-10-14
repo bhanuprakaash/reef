@@ -28,9 +28,9 @@ type fakeSession struct {
 	wraps     int
 }
 
-func (f *fakeSession) Say(_ context.Context, body string, _ *int64) error {
+func (f *fakeSession) Say(_ context.Context, body string, _ *int64) (store.Message, error) {
 	f.stored = append(f.stored, body)
-	return nil
+	return store.Message{}, nil
 }
 
 func (f *fakeSession) Run(_ context.Context, text string, _ *int64, onEvent func(agent.Event)) error {
