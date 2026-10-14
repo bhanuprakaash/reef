@@ -142,3 +142,28 @@ func TestApplyTeam_RoleName(t *testing.T) {
 		t.Errorf("ApplyTeam with role Dev_2-b error = %v, want nil", err)
 	}
 }
+
+func TestApplyTeam_Write(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	got, err := s.ApplyTeam(ctx, Team{Name: "crew", Roles: []Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Write: true, Backend: "claude"},
+		{Name: "tester", Backend: "codex"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var writes []bool
+	for _, r := range got.Roles {
+		writes = append(writes, r.Write)
+	}
+	if want := []bool{false, true, false}; !reflect.DeepEqual(writes, want) {
+		t.Errorf("write of lead, developer, tester = %v, want %v", writes, want)
+	}
+}

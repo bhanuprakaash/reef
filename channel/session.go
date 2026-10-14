@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/bhanuprakaash/reef/agent"
@@ -239,10 +240,11 @@ func (s *Session) member(ctx context.Context, role string) (_ *member, err error
 	for i, srv := range r.MCPServers {
 		servers["mcp"+strconv.Itoa(i+1)] = srv
 	}
+	mode, tools := access(r)
 	cfg := agent.Config{
 		Cwd:            s.project.Path,
-		PermissionMode: r.PermissionMode,
-		Tools:          append(slices.Clone(r.Tools), "mcp__reef__*"),
+		PermissionMode: mode,
+		Tools:          append(tools, "mcp__reef__*"),
 		MCPServers:     servers,
 	}
 	var preamble string
@@ -291,6 +293,32 @@ func (s *Session) roleSetup(team store.Team, name string) (store.Role, error) {
 		}
 	}
 	return store.Role{}, fmt.Errorf("%w: team %s has no role %s", store.ErrInvalid, team.Name, name)
+}
+
+// _editTools change files on claude. A role without write never gets them, and runs in the
+// default permission mode: acceptEdits would let it edit and run file commands unasked.
+var _editTools = []string{"Edit", "Write", "MultiEdit", "NotebookEdit"}
+
+// access maps a role's write flag to the permission mode and allowed tools of its backend.
+// A write role on claude also gets Task to run parallel subagents. On codex a permission
+// mode the role sets stays when the role writes, so it may narrow it.
+func access(r store.Role) (mode string, tools []string) {
+	mode, tools = r.PermissionMode, slices.Clone(r.Tools)
+	switch {
+	case r.Backend == "codex" && !r.Write:
+		mode = "read-only"
+	case r.Backend == "codex" && mode == "":
+		mode = "workspace-write"
+	case r.Backend == "claude" && r.Write:
+		tools = append(tools, "Task")
+	case r.Backend == "claude":
+		mode = "default"
+		tools = slices.DeleteFunc(tools, func(t string) bool {
+			name, _, _ := strings.Cut(t, "(")
+			return slices.Contains(_editTools, name)
+		})
+	}
+	return mode, tools
 }
 
 func (s *Session) propose(

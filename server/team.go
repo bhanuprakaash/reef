@@ -17,6 +17,7 @@ type teamView struct {
 type roleView struct {
 	Name           string   `json:"name"`
 	Lead           bool     `json:"lead"`
+	Write          bool     `json:"write"`
 	Backend        string   `json:"backend"`
 	PermissionMode string   `json:"permissionMode"`
 	Persona        string   `json:"persona"`
@@ -57,7 +58,7 @@ func viewTeam(t store.Team) teamView {
 	roles := make([]roleView, len(t.Roles))
 	for i, r := range t.Roles {
 		roles[i] = roleView{
-			Name: r.Name, Lead: r.Lead, Backend: r.Backend, PermissionMode: r.PermissionMode,
+			Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend, PermissionMode: r.PermissionMode,
 			Persona: r.Persona, Skills: r.Skills, Tools: r.Tools,
 		}
 	}
