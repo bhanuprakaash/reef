@@ -320,7 +320,7 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	var extra int64
 	if used >= ch.TokenBudget {
-		extra = store.TokenBudget
+		extra = used - ch.TokenBudget + store.TokenBudget
 	}
 	if err := s.st.ContinueChannel(r.Context(), id, extra); err != nil {
 		writeError(w, err)

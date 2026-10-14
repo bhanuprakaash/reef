@@ -402,7 +402,7 @@ Two caps pause a channel. Both are constants in the code, not settings.
 
 A send to a paused channel is 409 with the reason in the error. `POST
 /channels/{id}/continue` clears the pause. When the token sum is at or over the budget it
-also adds 1,000,000 to `tokenBudget`; after a tool cap the next turn simply gets a fresh
+also sets `tokenBudget` to the sum plus 1,000,000; after a tool cap the next turn simply gets a fresh
 25. `continue` on a channel that is not paused is 409.
 
 The tool cap is counted in `channel.Runner`, so `reef chat` is capped too: it pauses the

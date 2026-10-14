@@ -180,6 +180,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 19 | Claude Code and Codex both in the baseline | Prove the Agent interface with two real backends |
 | 20 | One stdio MCP process per teammate on one shared database, each with its own token (amends 12) | Works with the server down, adapters already launch stdio MCP servers, no ports |
 | 21 | Live agent output streams to the UI over Server-Sent Events, one GET stream per channel; users send messages with POST | Standard library only, data flows one way, and EventSource reconnects |
+| 22 | Continue on a channel over its token budget sets the budget to the tokens used plus 1M (amends 10) | A flat +1M left a channel that used far more than its budget paused again at once |
 
 ## Open questions
 

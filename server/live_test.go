@@ -371,8 +371,35 @@ func TestSend_TokenBudgetPausesChannel(t *testing.T) {
 	if status, _ := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
-	if ch, err := env.st.Channel(ctx, 1); err != nil || ch.Paused != "" || ch.TokenBudget != 2000000 {
-		t.Errorf("channel after continue = %+v, %v, want not paused with budget 2000000", ch, err)
+	if ch, err := env.st.Channel(ctx, 1); err != nil || ch.Paused != "" || ch.TokenBudget != 2000312 {
+		t.Errorf("channel after continue = %+v, %v, want not paused with budget 2000312", ch, err)
+	}
+	if status, _ := env.send(t, "hello"); status != 202 {
+		t.Errorf("send after continue = %d, want 202", status)
+	}
+}
+
+func TestContinue_UsedFarOverBudget(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	turn, err := env.st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "lead", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Status = "done"
+	turn.Usage = agent.Usage{InputTokens: 5000000}
+	if _, err := env.st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	if status, _ := env.send(t, "hello"); status != 409 {
+		t.Fatalf("send over budget = %d, want 409", status)
+	}
+
+	if status, _ := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	if ch, err := env.st.Channel(ctx, 1); err != nil || ch.Paused != "" || ch.TokenBudget != 6000000 {
+		t.Errorf("channel after continue = %+v, %v, want not paused with budget 6000000", ch, err)
 	}
 	if status, _ := env.send(t, "hello"); status != 202 {
 		t.Errorf("send after continue = %d, want 202", status)
