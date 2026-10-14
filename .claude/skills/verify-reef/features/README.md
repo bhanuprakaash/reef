@@ -36,6 +36,7 @@ Later slices add the Mac shell; add a file here for each feature they bring.
 - For the memory loop, proof is the lines of `reef.log` (each `reef` call), `reef-mcp.log`
   (each `mcp-call`) and `sql.log` (the rows written).
 - Record the feature id and backend with each proof.
+- Claude's auto-memory (a user setting) can write a remembered word to a memory file in the scratch cwd, so a recall-only proof (`heliotrope`, `pineapple`) is weak: the same session id is the proof of a resume.
 - A sub-feature that does not apply to a backend is reported as not applicable, with the
   reason from its file.
 - A drive that could not run is reported as not run, with the command and the reason.
