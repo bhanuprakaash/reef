@@ -22,7 +22,8 @@ packaged app the `reef` binary ships inside the app's resources instead.
   falls back to the PATH Electron already has.
 - Starts its own `reef serve` on `127.0.0.1:7700` with that `PATH`, in the dev binary
   (`desktop/bin/reef`) or, once packaged, the bundled one. It waits for `GET /health` before
-  it opens the window.
+  it opens the window. `REEF_PORT` sets another port, so a second app (a test run) can run
+  beside the first with its own `HOME`; the pane refuses that port instead of 7700.
 - Opens a window on `http://127.0.0.1:7700`, which serves the same UI as a browser pointed at
   a `reef serve` started by hand (see [server.md](server.md#web-ui)).
 - If the data folder is already in use by another `reef serve`, the server exits with

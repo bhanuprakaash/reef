@@ -6,7 +6,6 @@ import path from 'node:path';
 const SOCKET_NAME = 'browser.sock';
 const LOAD_TIMEOUT = 5000;
 const MAX_ENTRIES = 500;
-const REEF_PORT = '7700';
 const REEF_HOSTS = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 // refError is returned for a ref that is not in the latest snapshot's map,
@@ -25,7 +24,7 @@ function isMissingNodeError(err) {
 // checkOrigin throws for anything the pane must not open: a non-http(s)
 // scheme, or Reef's own server, which would let an agent approve its own
 // proposals.
-function checkOrigin(raw) {
+function checkOrigin(raw, reefPort) {
   let url;
   try {
     url = new URL(raw);
@@ -35,14 +34,14 @@ function checkOrigin(raw) {
   if (url.protocol !== 'http:' && url.protocol !== 'https:') {
     throw new Error(`refused: ${url.protocol} is not allowed; only http and https`);
   }
-  if (REEF_HOSTS.has(url.hostname) && url.port === REEF_PORT) {
+  if (REEF_HOSTS.has(url.hostname) && url.port === reefPort) {
     throw new Error('refused: the browser pane cannot open Reef itself');
   }
 }
 
-function isAllowed(url) {
+function isAllowed(url, reefPort) {
   try {
-    checkOrigin(url);
+    checkOrigin(url, reefPort);
     return true;
   } catch {
     return false;
@@ -58,7 +57,7 @@ function pushCapped(list, item) {
 // driven over the Chrome DevTools Protocol, and a socket server that `reef
 // mcp` dials to run tools against it. handlers maps a tool name from the
 // socket wire to a function of its args.
-export function createBrowser(win) {
+export function createBrowser(win, reefPort) {
   const view = new WebContentsView();
   win.contentView.addChildView(view);
   view.webContents.loadURL('about:blank');
@@ -145,10 +144,10 @@ export function createBrowser(win) {
   // A page can carry an agent to Reef's own origin by a link or a redirect,
   // not only a navigate call, so those paths need the same check.
   view.webContents.on('will-navigate', (event, url) => {
-    if (!isAllowed(url)) event.preventDefault();
+    if (!isAllowed(url, reefPort)) event.preventDefault();
   });
   view.webContents.on('will-redirect', (event, url) => {
-    if (!isAllowed(url)) event.preventDefault();
+    if (!isAllowed(url, reefPort)) event.preventDefault();
   });
   view.webContents.setWindowOpenHandler(({ url }) => {
     navigate(url).catch(() => {});
@@ -156,7 +155,7 @@ export function createBrowser(win) {
   });
 
   async function navigate(url) {
-    checkOrigin(url);
+    checkOrigin(url, reefPort);
     const loaded = new Promise((resolve) => {
       const onMessage = (_event, method) => {
         if (method !== 'Page.loadEventFired') return;

@@ -6,7 +6,8 @@ import { createBrowser } from './browser.js';
 import { createTerminals } from './terminal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const ADDR = '127.0.0.1:7700';
+const PORT = process.env.REEF_PORT || '7700';
+const ADDR = `127.0.0.1:${PORT}`;
 const SERVER_STOP_TIMEOUT = 5000;
 
 // The same default data folder reef serve uses: os.UserConfigDir()/Reef in
@@ -110,7 +111,7 @@ app.whenReady().then(async () => {
   win.webContents.on('will-navigate', (event, url) => {
     if (new URL(url).origin !== `http://${ADDR}`) event.preventDefault();
   });
-  browser = createBrowser(win);
+  browser = createBrowser(win, PORT);
   browser.listen(dataDir());
   ipcMain.on('browser:bounds', (_event, rect) => browser.setBounds(rect));
   ipcMain.handle('browser:navigate', (_event, url) => browser.navigate(url));
