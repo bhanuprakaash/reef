@@ -19,6 +19,7 @@ type inspectorRole struct {
 // inspectorTurn is one turn with what the inspector shows of it.
 type inspectorTurn struct {
 	ID        int64               `json:"id"`
+	Role      string              `json:"role"`
 	StartedAt time.Time           `json:"startedAt"`
 	Status    string              `json:"status"`
 	Model     string              `json:"model"`
@@ -84,7 +85,7 @@ func (s *server) getInspector(w http.ResponseWriter, r *http.Request) {
 			tcs[i] = inspectorToolCall{Name: c.Name, Input: c.Input, Result: c.Result}
 		}
 		turnViews = append(turnViews, inspectorTurn{
-			ID: t.ID, StartedAt: t.StartedAt, Status: t.Status,
+			ID: t.ID, Role: t.Role, StartedAt: t.StartedAt, Status: t.Status,
 			Model: t.Model, Usage: t.Usage, CostUSD: t.CostUSD, Prompt: t.Prompt, ToolCalls: tcs,
 		})
 	}
