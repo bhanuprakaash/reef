@@ -16,6 +16,9 @@ import (
 // nothing to snapshot.
 var ErrNoCommit = errors.New("no commit to snapshot")
 
+// ErrDirty is returned by Remove for a worktree with uncommitted changes.
+var ErrDirty = errors.New("uncommitted changes")
+
 // Path is where the worktree of the feature with slug in project projectID lives.
 func Path(dataDir string, projectID int64, slug string) string {
 	return filepath.Join(dataDir, "worktrees", strconv.FormatInt(projectID, 10), slug)
@@ -56,6 +59,33 @@ func Ensure(ctx context.Context, repo, dir, branch string) error {
 	}
 	_, err = git(ctx, repo, args...)
 	return err
+}
+
+// Remove removes the worktree at dir of repo, and keeps its branch. A dir that is no worktree
+// is not an error. A worktree with uncommitted changes is left as it is and returns ErrDirty.
+func Remove(ctx context.Context, repo, dir string) error {
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		return nil
+	}
+	dirty, err := Dirty(ctx, dir)
+	if err != nil {
+		return err
+	}
+	if dirty {
+		return fmt.Errorf("%s: %w", dir, ErrDirty)
+	}
+	_, err = git(ctx, repo, "worktree", "remove", dir)
+	return err
+}
+
+// DeleteRefs deletes refs in repo. A ref that does not exist is not an error.
+func DeleteRefs(ctx context.Context, repo string, refs []string) error {
+	for _, ref := range refs {
+		if _, err := git(ctx, repo, "update-ref", "-d", ref); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // checkedOutAt is the path of the worktree of repo that has branch checked out, or "" when

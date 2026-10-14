@@ -345,7 +345,7 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |
 | `PUT /features/{id}` | `name`, `goal`, `stage` | 200 | 400, 404 |
-| `DELETE /features/{id}` | | 204 | 404 |
+| `DELETE /features/{id}` | | 204; the feature's worktree and the checkpoint refs of its turns are removed, its branch is kept | 404, 409 the worktree has uncommitted changes (nothing is removed) |
 | `GET /features/{id}/brief` | | 200 latest version | 404 no feature, or no brief yet |
 | `PUT /features/{id}/brief` | `body`, `author` | 201 new version | 400, 404 |
 | `GET /features/{id}/brief/versions` | | 200 oldest first | 404 |
@@ -471,6 +471,18 @@ a message wakes them.
   learns of the rollback (and of a restart failure note) even when its wake was held at a gate
   or is a retry; a role that never ran gets none. The wake kept as `wakeText` and shown in an
   approval does not have them.
+- `DELETE /features/{id}` cleans what Reef made for the feature. It stops the agents of the
+  feature's channels first (a running turn is stopped, as when a channel is deleted). A
+  worktree with uncommitted changes (untracked files count) is 409 with `feature <slug> has
+  uncommitted changes in <path>; commit or discard them first`, and nothing is removed.
+  Otherwise the worktree is removed with `git worktree remove`, the feature rows are
+  deleted, and last the `refs/reef/checkpoints/<turn id>` refs of every turn of its channels
+  are deleted. The worktree goes first because it is the step that can refuse or fail, and a
+  later wake of a feature makes it again; the refs go after the rows that name them, so a
+  failure there leaves refs that no turn points to, and the delete is 500. The branch
+  `feature/<slug>` is kept: it is the user's work. A feature with no worktree folder (no agent
+  ever started) only has its rows deleted. Deleting a channel or a project keeps worktrees
+  and refs.
 - The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session.
