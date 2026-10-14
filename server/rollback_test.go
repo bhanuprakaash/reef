@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -109,6 +110,22 @@ func TestRollback_RestoresTheWorktree(t *testing.T) {
 		`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 2]\ngo on"}) {
 		t.Errorf("ran = %q, want the wake without the note: the runner adds it when it sends", got)
+	}
+}
+
+func TestRollback_NotesEveryChannelOnTheTree(t *testing.T) {
+	env, _ := rollbackEnv(t)
+	do(t, http.MethodPost, env.url+"/channels", `{"projectId":2,"featureId":1,"name":"d","backend":"claude"}`)
+
+	if status, body := do(t, http.MethodPost, env.url+"/turns/1/rollback", ""); status != 204 || body != "" {
+		t.Fatalf("rollback = %d %q, want 204", status, body)
+	}
+
+	for _, id := range []int{2, 3} {
+		_, body := do(t, http.MethodGet, env.url+"/messages?channel="+strconv.Itoa(id), "")
+		if !strings.Contains(body, `"author":"reef","body":"Rolled back to before turn 1."`) {
+			t.Errorf("channel %d messages = %s, want the rollback note from reef", id, body)
+		}
 	}
 }
 
