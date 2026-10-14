@@ -88,8 +88,8 @@ func (e *inboxEnv) want(want ...string) {
 func TestInbox_Empty(t *testing.T) {
 	e := newInboxEnv(t)
 	items, err := e.s.Inbox(e.ctx)
-	if err != nil || items == nil || len(items) != 0 {
-		t.Errorf("Inbox = %#v, %v, want an empty list", items, err)
+	if err != nil || len(items) != 0 {
+		t.Errorf("Inbox = %#v, %v, want none", items, err)
 	}
 }
 

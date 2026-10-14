@@ -12,7 +12,6 @@ import (
 
 const (
 	_userAuthor = "user"
-	_reefAuthor = "reef"
 )
 
 // wake is a turn to run: role answers text, and its reply goes in the thread of parent.

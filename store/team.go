@@ -184,8 +184,8 @@ func (t Team) validate() error {
 		if r.Name == "" {
 			return fmt.Errorf("%w: role name is required", ErrInvalid)
 		}
-		if r.Name == "user" || !_roleName.MatchString(r.Name) {
-			return fmt.Errorf("%w: role name %q must be letters, digits, _ or -, and not user",
+		if r.Name == "user" || r.Name == ReefAuthor || !_roleName.MatchString(r.Name) {
+			return fmt.Errorf("%w: role name %q must be letters, digits, _ or -, and not user or reef",
 				ErrInvalid, r.Name)
 		}
 		if seen[r.Name] {

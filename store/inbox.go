@@ -32,7 +32,7 @@ WHERE ` + _retryable + ` AND t.error != '` + _interruptedError + `'`
 const _inboxWaiting = `
 SELECT 'waiting', c.id, c.feature_id, substr(m.body, 1, 200), m.created_at, NULL, NULL
 FROM channel c JOIN message m ON m.id = (SELECT MAX(id) FROM message WHERE channel_id = c.id)
-WHERE m.author NOT IN ('user', 'reef')
+WHERE m.author NOT IN ('user', '` + ReefAuthor + `')
 	AND NOT EXISTS (SELECT 1 FROM approval WHERE message_id = m.id)
 	AND NOT EXISTS (SELECT 1 FROM turn WHERE channel_id = c.id AND status = ?)
 	AND NOT EXISTS (SELECT 1 FROM turn WHERE id = (SELECT MAX(id) FROM turn WHERE channel_id = c.id)
@@ -78,9 +78,6 @@ func (s *Store) Inbox(ctx context.Context) ([]InboxItem, error) {
 		}
 	}
 	slices.SortStableFunc(items, func(a, b InboxItem) int { return b.At.Compare(a.At) })
-	if items == nil {
-		items = []InboxItem{}
-	}
 	return items, nil
 }
 

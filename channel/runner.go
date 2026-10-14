@@ -13,7 +13,6 @@ import (
 
 const (
 	_userAuthor = "user"
-	_reefAuthor = "reef"
 	_toolCap    = 25
 )
 

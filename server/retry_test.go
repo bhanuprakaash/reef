@@ -10,7 +10,6 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// failedTurn stores a failed turn of role that ran text, a wake in the thread of parent.
 func (e *liveEnv) failedTurn(t *testing.T, role, text string, parent *int64) store.Turn {
 	t.Helper()
 	ctx := context.Background()

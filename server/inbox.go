@@ -30,9 +30,13 @@ func (s *server) inbox(ctx context.Context) ([]store.InboxItem, error) {
 		return nil, err
 	}
 	s.markRunning(running)
-	return slices.DeleteFunc(items, func(i store.InboxItem) bool {
+	items = slices.DeleteFunc(items, func(i store.InboxItem) bool {
 		return i.Kind == "waiting" && running[i.ChannelID]
-	}), nil
+	})
+	if items == nil {
+		items = []store.InboxItem{}
+	}
+	return items, nil
 }
 
 func (s *server) markRunning(running map[int64]bool) {

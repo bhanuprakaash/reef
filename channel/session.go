@@ -73,15 +73,11 @@ var ErrNoProposal = errors.New("no proposal made")
 func Open(
 	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64, trees *Trees,
 ) (*Session, error) {
-	s, err := open(ctx, st, dataDir, exe, channelID, newAgent)
-	if err == nil {
-		s.trees = trees
-	}
-	return s, err
+	return open(ctx, st, dataDir, exe, channelID, trees, newAgent)
 }
 
 func open(
-	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64,
+	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64, trees *Trees,
 	mk func(backend string) (agent.Agent, error),
 ) (_ *Session, err error) {
 	ch, err := st.Channel(ctx, channelID)
@@ -98,7 +94,7 @@ func open(
 	}
 	s := &Session{
 		st: st, dataDir: dataDir, exe: exe, ch: ch, project: p, mk: mk, lock: lock,
-		members: map[string]*member{}, trees: NewTrees(),
+		members: map[string]*member{}, trees: trees,
 	}
 	defer func() {
 		if err != nil {
@@ -246,7 +242,7 @@ func (s *Session) noteWorktree(ctx context.Context, f store.Feature) error {
 		return nil
 	}
 	_, err = s.st.CreateMessage(ctx, store.Message{
-		ChannelID: s.ch.ID, Author: _reefAuthor,
+		ChannelID: s.ch.ID, Author: store.ReefAuthor,
 		Body: fmt.Sprintf("Uncommitted changes stay on the main checkout. This feature works in %s on %s.",
 			worktree.Path(s.dataDir, s.project.ID, f.Slug), worktree.Branch(f.Slug)),
 	})

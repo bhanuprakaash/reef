@@ -83,6 +83,7 @@ func newHandler(
 	s.channelRoutes(mux)
 	s.teamRoutes(mux)
 	s.liveRoutes(mux)
+	s.turnOpRoutes(mux)
 	s.proposalRoutes(mux)
 	s.taskRoutes(mux)
 	s.decisionRoutes(mux)

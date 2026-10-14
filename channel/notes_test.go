@@ -11,7 +11,7 @@ import (
 func reefNote(t *testing.T, st *store.Store, channelID int64, body string) {
 	t.Helper()
 	_, err := st.CreateMessage(context.Background(), store.Message{
-		ChannelID: channelID, Author: _reefAuthor, Body: body,
+		ChannelID: channelID, Author: store.ReefAuthor, Body: body,
 	})
 	if err != nil {
 		t.Fatal(err)

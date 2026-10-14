@@ -26,7 +26,6 @@ const _retryable = `t.status = '` + _turnFailed + `' AND t.retried = 0 AND t.wak
 
 const (
 	_restartError  = "server restarted"
-	_restartAuthor = "reef"
 	_restartAdvice = "The worktree may be dirty; retry or roll back."
 )
 
@@ -285,7 +284,7 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(channelID int64)
 		names = nil
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO message (channel_id, author, body, created_at) VALUES (?, ?, ?, ?)",
-			t.ChannelID, _restartAuthor, body, stamp); err != nil {
+			t.ChannelID, ReefAuthor, body, stamp); err != nil {
 			return nil, fmt.Errorf("insert restart message: %w", err)
 		}
 	}

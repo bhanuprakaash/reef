@@ -121,9 +121,10 @@ func TestApplyTeam_RoleName(t *testing.T) {
 		give string
 		want string
 	}{
-		{"reserved", "user", `invalid: role name "user" must be letters, digits, _ or -, and not user`},
-		{"space", "two words", `invalid: role name "two words" must be letters, digits, _ or -, and not user`},
-		{"punctuation", "dev.1", `invalid: role name "dev.1" must be letters, digits, _ or -, and not user`},
+		{"reserved", "user", `invalid: role name "user" must be letters, digits, _ or -, and not user or reef`},
+		{"reef", "reef", `invalid: role name "reef" must be letters, digits, _ or -, and not user or reef`},
+		{"space", "two words", `invalid: role name "two words" must be letters, digits, _ or -, and not user or reef`},
+		{"punctuation", "dev.1", `invalid: role name "dev.1" must be letters, digits, _ or -, and not user or reef`},
 		{"empty", "", "invalid: role name is required"},
 	}
 	for _, tt := range tests {
