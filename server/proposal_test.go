@@ -26,8 +26,23 @@ func TestWrap_RunsWrapTurn(t *testing.T) {
 	)
 }
 
+// gitProject makes the folder of project id a git repo with one commit, so a promote of one
+// of its channels can run.
+func gitProject(t *testing.T, env *liveEnv, id int64) {
+	t.Helper()
+	p, err := env.st.Project(context.Background(), id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, p.Path, "init", "-b", "main")
+	writeIn(t, p.Path, "a.txt", "a")
+	gitIn(t, p.Path, "add", ".")
+	gitIn(t, p.Path, "commit", "-m", "first")
+}
+
 func TestPromote_NewFeature(t *testing.T) {
 	env := newLiveEnv(t)
+	gitProject(t, env, 1)
 	sub := subscribe(t, env.url)
 	status, body := do(t, http.MethodPost, env.url+"/channels/1/promote",
 		`{"slug":"login","name":"Login"}`)
@@ -50,8 +65,25 @@ func TestPromote_NewFeature(t *testing.T) {
 	}
 }
 
+func TestPromote_NotAGitRepo(t *testing.T) {
+	env := newLiveEnv(t)
+	p, err := env.st.Project(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, body := do(t, http.MethodPost, env.url+"/channels/1/promote", `{"slug":"login","name":"Login"}`)
+	want := `{"error":"invalid: project ` + p.Path + ` is not a git repo with a commit"}`
+	if status != 400 || body != want {
+		t.Errorf("promote = %d %s, want 400 %s", status, body, want)
+	}
+	if _, err := env.st.FeatureByRef(context.Background(), "login"); err == nil {
+		t.Error("feature login exists, want none after a refused promote")
+	}
+}
+
 func TestPromote_ExistingFeature(t *testing.T) {
 	env := newLiveEnv(t)
+	gitProject(t, env, 1)
 	do(t, http.MethodPost, env.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
 	status, body := do(t, http.MethodPost, env.url+"/channels/1/promote", `{"featureId":1}`)
 	if status != 202 || !strings.Contains(body, `"featureId":1`) {
