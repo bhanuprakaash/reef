@@ -242,6 +242,21 @@ func TestInboxEvents_AcrossChannels(t *testing.T) {
 	inbox.wantInbox(t)
 }
 
+func TestInboxEvents_PausedOnlyOnceIdle(t *testing.T) {
+	env := newLiveEnv(t)
+	inbox := subscribePath(t, env.url+"/inbox/events")
+	inbox.wantInbox(t)
+
+	for range 20 {
+		env.send(t, "cap")
+		inbox.wantInbox(t, "paused 1 "+_capReason)
+		if status, _ := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 {
+			t.Fatalf("continue on the first paused frame = %d, want 204", status)
+		}
+		inbox.wantInbox(t)
+	}
+}
+
 func TestInboxEvents_RejectAndDeleteSendFrames(t *testing.T) {
 	tests := []struct {
 		name   string

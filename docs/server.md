@@ -641,8 +641,8 @@ id to act with:
 | `waiting` | the channel's newest message is from an agent (not `user` or `reef`) and woke nobody: no wake held at a gate for it, no turn running, no other item for the channel, and the channel's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | | any new message, such as a send |
 
 `at` is the time of the approval, of the failed turn's end, of the message, and for `paused`
-the end of the channel's newest turn. A channel that has a chain running lists no `waiting`
-item, since the chain is not over. Rejecting a gate is a decision, so the message it held is
+the end of the channel's newest turn. A channel that has a chain running lists no `waiting`,
+`paused` or `failed` item, since the chain is not over and `continue` or `retry` would be 409. Rejecting a gate is a decision, so the message it held is
 not `waiting`. A hold of a pause is not an item of its own: its channel is `paused`.
 
 `GET /inbox/events` is one Server-Sent Events stream for all channels, with a
