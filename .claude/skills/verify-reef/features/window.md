@@ -22,6 +22,7 @@ feature, and a channel that hits a cap pauses and says why. A channel on a team 
 - `window-diff` a feature's Diff section shows `GET /features/{id}/diff`: a turn that writes a file in the worktree, uncommitted, shows there as the file with its added line.
 - `window-memory` the home page shows a project memory editor, empty for a new project; saving it stores the body (`GET /projects/{id}/memory`), and it survives a reload.
 - `window-inspector` a channel's Inspector panel shows `GET /channels/{id}/inspector`: one block per role that ran with its turn count, tokens and cost from the API; a role block expands to its turns, newest first; a developer turn expands to its prompt and a tool call with its name, input and result.
+- `window-review` clicking a Diff panel line opens a comment box; comments collect below the files; Send to developer posts them as one message, `path:line` per comment, to the developer's latest thread and clears the list.
 
 Acceptance lines of the slice: "start a channel, chat, see streamed tool calls and text live" is
 `window-live`; "a new channel of the same feature starts from the brief" is `window-brief`;
@@ -44,6 +45,7 @@ Preconditions:
 - `ui teams` also needs the teams `duo` and `gated` applied to the `ui` folder: `$H reef --data-name ui -- team apply ...` before `serve-start` (files and commands in `teams.md`, Window).
 - `ui inbox` needs `gated` too, and reads the badge as `1`, so it fails on a server that already lists other items: run it first, or on its own folder (`$H reef --data-name inbox -- team apply $E/gated.json`, then `serve-start --data-name inbox`).
 - `ui inspector` needs the team `full` applied to the `ui` folder: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.
+- `ui review` needs the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.
 
 Each scenario adds its own project through the form (`ui-<scenario>-<suffix>`, folder = the run's scratch cwd), so they run in any order on one server.
 
@@ -62,6 +64,7 @@ REEF_VERIFY_RUN=<id> $H ui inbox
 REEF_VERIFY_RUN=<id> $H ui diff
 REEF_VERIFY_RUN=<id> $H ui memory
 REEF_VERIFY_RUN=<id> $H ui inspector
+REEF_VERIFY_RUN=<id> $H ui review
 ```
 
 - **live.** Prints a `PASS live:` line for the tool rows seen mid-turn (the first row's tool name and input), the one stored `lead` message (with the message rows) and the cleared live view. Screenshots `live-midturn.png` (tool rows under `LEAD is working...`; the label is the running role in capitals, `ARCHITECT is working...` in a team) and `live-final.png`.
@@ -78,6 +81,7 @@ REEF_VERIFY_RUN=<id> $H ui inspector
 - **diff.** Adds a project and feature and a solo channel, sends `Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.`, then opens the feature page and reads the Diff section: `new.txt` listed once as `added` with the line `hi`, and `GET /features/{id}/diff` returns the same file, status and line over REST. Screenshot `diff-diff.png`.
 
 - **inspector.** Needs the team `full` (see above). Adds a project and feature, starts a `full` channel, sends `Say ok in one word.` to the lead, then `@developer Use the Write tool to create the file d.txt containing the word yes. Then reply done.` to wake the developer directly. Opens the Inspector panel and reads `GET /channels/{id}/inspector`: checks the lead and developer blocks show the turn count and input tokens the API reports, expands the developer block and its one turn, and reads its prompt and its Write tool call's name and result in the panel. Screenshots `inspector-panel.png`, `inspector-turn-open.png`.
+- **review.** Needs the team `full` (see above). Adds a project and feature and a `full` channel, sends `@developer ...` twice (each wakes the developer directly and writes a file, `new.txt` then `d.txt`), so the developer owns two top-level messages, the second its latest thread. Opens the feature page, clicks the Diff panel's `new.txt:1` and `d.txt:1` lines, types a comment in each and clicks Add comment, then Send to developer. Checks the comment list (`new.txt:1 — ...`, `d.txt:1 — ...`) before sending, then: the channel has one new `user` message with both `path:line` lines, its `parentId` is the developer's latest top-level message, a `turn` row for `developer` appears after the send (the message matches no recorded scenario, so it is found by polling `turn`, not by `workingAs`), and the comment list and Send button are gone. Screenshots `review-diff.png`, `review-comments.png`, `review-sent.png`.
 
 - **inbox.** Needs the team `gated` (see `ui teams`). Grants the `notifications` permission and wraps `window.Notification` to record each `new Notification` (title and body). Adds a project and feature, starts a `gated` channel, sends `DESIGN a short plan for a login form.`, and clicks the Inbox link while the lead runs, so the channel is not open. Waits for the row `Approval: inbox room` (`lead wants to wake architect`) with Approve and Reject, reads the badge `1` and, after 3 s, exactly one notification titled `Approval: inbox room`; no architect turn yet. Calls the notification's `onclick` (opens `/channels/N#approval-M` with the row on screen and ringed), returns to the inbox and clicks the item (same), then Approve from the list: the row goes, the `approval` row is `approved` and the architect turn is `done`. The architect's answer then shows as a `Waiting: inbox room` item with Open and fires its own notification (two in all). Open on it lands on `#latest-message`, on screen and ringed. Two messages sent to that open channel through the API give new waiting items: the first, with the channel visible, fires no notification (still two); the second, with `document.visibilityState` forced to `hidden`, fires one (three). A fresh load of `/inbox` with the item listed fires none. Screenshots `inbox-approval-row`, `inbox-item-opened-channel`, `inbox-approved`, `inbox-after-wake`, `inbox-waiting-opened-channel`.
 

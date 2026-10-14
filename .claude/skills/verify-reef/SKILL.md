@@ -305,12 +305,13 @@ REEF_VERIFY_RUN=<id> $H ui inbox     # gated approval shows in the inbox, one no
 REEF_VERIFY_RUN=<id> $H ui diff      # a turn writes a file, the feature's Diff panel shows it added with its line
 REEF_VERIFY_RUN=<id> $H ui memory    # home page editor saves a project's memory, stored in the database and surviving a reload
 REEF_VERIFY_RUN=<id> $H ui inspector # full team: lead then developer turns, Inspector panel role blocks match the API, a developer turn expands to its prompt and a tool call
+REEF_VERIFY_RUN=<id> $H ui review    # Diff panel comments send as one message to the developer's latest thread
 ```
 
 `teams` needs the teams `duo` and `gated` (and `inbox` needs `gated`) applied to the `ui` folder first: run
 `$H reef --data-name ui -- team apply FILE.json` for each before `serve-start --data-name ui` (the
 files are in `features/teams.md`). `inbox` counts every item of the server, so run it first, or
-on a folder of its own (`--data-name inbox`, with `gated` applied). `inspector` needs the team
+on a folder of its own (`--data-name inbox`, with `gated` applied). `inspector` and `review` need the team
 `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"`.
 
 Each scenario adds a project on the scratch cwd and makes it a git repo with one commit when it

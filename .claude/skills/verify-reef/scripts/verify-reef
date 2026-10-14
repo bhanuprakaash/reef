@@ -16,7 +16,7 @@ usage: verify-reef build
        REEF_VERIFY_RUN=ID verify-reef sql [--write] "SQL"
        REEF_VERIFY_RUN=ID verify-reef reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A | --sigint-at-prompt]] [--timeout S] -- REEF_ARGS...
        REEF_TOKEN=T REEF_VERIFY_RUN=ID verify-reef mcp-call TOOL [JSON]
-       REEF_VERIFY_RUN=ID verify-reef ui live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector
+       REEF_VERIFY_RUN=ID verify-reef ui live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review
        REEF_VERIFY_RUN=ID verify-reef feature NAME
        REEF_VERIFY_RUN=ID verify-reef real
        REEF_VERIFY_RUN=ID verify-reef desktop
