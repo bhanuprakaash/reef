@@ -32,13 +32,14 @@ const (
 const (
 	_turnCols = "id, channel_id, role, backend, session_id, status, error, " +
 		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, " +
-		"wake_text, wake_parent, retried, checkpoint"
+		"wake_text, wake_parent, retried, checkpoint, sent"
 )
 
 // Turn is one agent run in a channel. It starts running and ends once, as
 // done or failed. There is no delete. WakeText and WakeParent are the prompt the turn ran
 // and the message its reply answers; WakeText is empty for a turn that kept none. Retried is
-// set once a failed turn has been run again.
+// set once a failed turn has been run again. Sent is true once the turn's prompt reached the
+// agent; false for a turn that failed before then.
 type Turn struct {
 	ID         int64       `json:"id"`
 	ChannelID  int64       `json:"channelId"`
@@ -53,6 +54,7 @@ type Turn struct {
 	WakeText   string      `json:"wakeText"`
 	WakeParent *int64      `json:"wakeParent"`
 	Retried    bool        `json:"retried"`
+	Sent       bool        `json:"sent"`
 	// Checkpoint is the git ref of the snapshot taken before the turn ran, nil for a
 	// turn that has none.
 	Checkpoint *string `json:"checkpoint"`
@@ -66,7 +68,7 @@ type TurnFilter struct {
 	Retryable bool
 }
 
-// CreateTurn starts a running turn; any status in t is ignored, and so is Retried.
+// CreateTurn starts a running turn; any status in t is ignored, and so are Retried and Sent.
 func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 	if t.Role == "" {
 		return Turn{}, fmt.Errorf("%w: turn role is required", ErrInvalid)
@@ -214,6 +216,23 @@ func (s *Store) SetTurnRetried(ctx context.Context, id int64, retried bool) erro
 	return nil
 }
 
+// SetTurnSent marks the running turn id as having sent its prompt to the agent.
+func (s *Store) SetTurnSent(ctx context.Context, id int64) (Turn, error) {
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE turn SET sent = 1 WHERE id = ? AND status = ?", id, _turnRunning)
+	if err != nil {
+		return Turn{}, fmt.Errorf("set turn sent: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return Turn{}, fmt.Errorf("set turn sent: %w", err)
+	}
+	if n == 0 {
+		return Turn{}, s.notRunning(ctx, id)
+	}
+	return s.Turn(ctx, id)
+}
+
 // SetTurnCheckpoint records the checkpoint ref of the running turn id.
 func (s *Store) SetTurnCheckpoint(ctx context.Context, id int64, ref string) (Turn, error) {
 	res, err := s.db.ExecContext(ctx,
@@ -324,7 +343,7 @@ func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 	if err := r.Scan(&t.ID, &t.ChannelID, &t.Role, &t.Backend, &t.SessionID, &t.Status, &t.Error,
 		&t.Usage.InputTokens, &t.Usage.OutputTokens, &t.Usage.CacheReadTokens,
 		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried,
-		&checkpoint); err != nil {
+		&checkpoint, &t.Sent); err != nil {
 		return Turn{}, err
 	}
 	t.WakeText = wake.String

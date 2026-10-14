@@ -142,7 +142,7 @@ func TestTurnRoundTrip(t *testing.T) {
 	status, body := do(t, http.MethodPost, ts.URL+"/turns", `{"channelId":1,"role":"architect","backend":"claude","status":"done"}`)
 	if status != 201 || !strings.HasPrefix(body,
 		`{"id":1,"channelId":1,"role":"architect","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"`) ||
-		!strings.HasSuffix(body, `"endedAt":null,"wakeText":"","wakeParent":null,"retried":false,"checkpoint":null}`) {
+		!strings.HasSuffix(body, `"endedAt":null,"wakeText":"","wakeParent":null,"retried":false,"sent":false,"checkpoint":null}`) {
 		t.Fatalf("create = %d %s", status, body)
 	}
 

@@ -9,10 +9,11 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// withNotes puts what reef posted in the channel since the role's last turn before turn
-// began into text, one "reef wrote:" line each, after the header line of a wake. A rollback
-// changes the files under a session that cannot be rewound, so this is how the role learns
-// of it. A role with no earlier turn gets none: it starts from the files as they are.
+// withNotes puts what reef posted in the channel since the role's last turn that sent its
+// prompt, before turn began, into text, one "reef wrote:" line each, after the header line of
+// a wake. A rollback changes the files under a session that cannot be rewound, so this is how
+// the role learns of it. A turn that failed before it sent does not count: the agent never
+// saw it. A role with no earlier sent turn gets none: it starts from the files as they are.
 func (r *Runner) withNotes(ctx context.Context, turn store.Turn, text string) (string, error) {
 	turns, err := r.st.Turns(ctx, store.TurnFilter{ChannelID: &r.channelID})
 	if err != nil {
@@ -20,7 +21,7 @@ func (r *Runner) withNotes(ctx context.Context, turn store.Turn, text string) (s
 	}
 	var since time.Time
 	for _, t := range turns {
-		if t.Role == r.role && t.ID < turn.ID {
+		if t.Role == r.role && t.ID < turn.ID && t.Sent {
 			since = t.StartedAt
 		}
 	}

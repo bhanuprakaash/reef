@@ -98,6 +98,9 @@ func (r *Runner) Run(
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
 	r.preamble = ""
+	if _, err := r.st.SetTurnSent(wctx, turn.ID); err != nil {
+		return r.abort(wctx, turn, err, err.Error(), "", parent)
+	}
 
 	var reply strings.Builder
 	calls := 0
