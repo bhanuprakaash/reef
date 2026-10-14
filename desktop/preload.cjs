@@ -8,6 +8,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('reef', {
   setBrowserBounds: (rect) => ipcRenderer.send('browser:bounds', rect),
   navigateBrowser: (url) => ipcRenderer.invoke('browser:navigate', url),
+  setTakeOver: (value) => ipcRenderer.invoke('browser:take-over', value),
   onBrowserNavigated: (callback) => {
     const listener = (_event, url) => callback(url);
     ipcRenderer.on('browser:navigated', listener);

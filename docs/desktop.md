@@ -57,6 +57,11 @@ call with its level (`log`, `error`, ...); `Network.requestWillBeSent`,
 method, URL and status. Both lists are cleared on `Page.frameStartedLoading` for the page's main
 frame, so a new navigation starts them empty.
 
+A "Take over" button next to the address bar flips a boolean in the main process. While it is on,
+every tool call over `browser.sock` fails with `the user has the browser`, and the button reads
+"Hand back" to release it. The button's own address-bar navigation goes over IPC, not the socket,
+so it still works while taken over.
+
 ## Terminal pane
 
 One shell per working tree ([`desktop/terminal.js`](../desktop/terminal.js)): a feature's

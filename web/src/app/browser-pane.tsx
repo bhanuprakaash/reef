@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { inputClass, mutedClass } from '@/utils/classes';
+import { buttonClass, inputClass, mutedClass } from '@/utils/classes';
 
 // BrowserPane is the one browser for the whole window, shared by every
 // channel. Its content is a native Electron view drawn on top of this pane by
@@ -8,6 +8,7 @@ import { inputClass, mutedClass } from '@/utils/classes';
 export function BrowserPane() {
   const containerRef = useRef<HTMLDivElement>(null);
   const [url, setUrl] = useState('');
+  const [takenOver, setTakenOver] = useState(false);
   const available = typeof window !== 'undefined' && window.reef != null;
 
   useEffect(() => {
@@ -39,9 +40,17 @@ export function BrowserPane() {
     window.reef?.navigateBrowser(url);
   };
 
+  const toggleTakeOver = async () => {
+    const next = await window.reef?.setTakeOver(!takenOver);
+    setTakenOver(next ?? !takenOver);
+  };
+
   return (
     <aside className="flex w-96 shrink-0 flex-col border-l border-neutral-200 dark:border-neutral-800">
-      <form onSubmit={navigate} className="border-b border-neutral-200 p-2 dark:border-neutral-800">
+      <form
+        onSubmit={navigate}
+        className="flex gap-2 border-b border-neutral-200 p-2 dark:border-neutral-800"
+      >
         <input
           type="text"
           value={url}
@@ -50,6 +59,14 @@ export function BrowserPane() {
           placeholder={available ? 'URL' : 'Open this in the Reef app to use the browser'}
           className={`${inputClass} w-full disabled:opacity-50`}
         />
+        <button
+          type="button"
+          onClick={toggleTakeOver}
+          disabled={!available}
+          className={buttonClass}
+        >
+          {takenOver ? 'Hand back' : 'Take over'}
+        </button>
       </form>
       <div ref={containerRef} className="min-h-0 flex-1">
         {!available && <p className={`${mutedClass} p-2`}>Browser pane needs the Reef app.</p>}

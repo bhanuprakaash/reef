@@ -110,6 +110,7 @@ app.whenReady().then(async () => {
   browser.listen(dataDir());
   ipcMain.on('browser:bounds', (_event, rect) => browser.setBounds(rect));
   ipcMain.handle('browser:navigate', (_event, url) => browser.navigate(url));
+  ipcMain.handle('browser:take-over', (_event, value) => browser.setTakenOver(value));
   terminals = createTerminals(win, PATH);
   ipcMain.handle('terminal:open', (_event, cwd) => terminals.open(cwd));
   ipcMain.on('terminal:write', (_event, cwd, data) => terminals.write(cwd, data));

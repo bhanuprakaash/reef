@@ -220,13 +220,23 @@ export function createBrowser(win) {
 
   let server = null;
   let socketPath = null;
+  let takenOver = false;
+
+  function setTakenOver(value) {
+    takenOver = value;
+    return takenOver;
+  }
 
   async function handleLine(line, conn) {
     let reply;
     try {
       const { tool, args } = JSON.parse(line);
-      const handler = handlers[tool];
-      reply = handler ? await handler(args ?? {}) : { error: `unknown tool "${tool}"` };
+      if (takenOver) {
+        reply = { error: 'the user has the browser' };
+      } else {
+        const handler = handlers[tool];
+        reply = handler ? await handler(args ?? {}) : { error: `unknown tool "${tool}"` };
+      }
     } catch (err) {
       reply = { error: err.message };
     }
@@ -262,5 +272,5 @@ export function createBrowser(win) {
     });
   }
 
-  return { listen, close, setBounds, navigate, screenshot };
+  return { listen, close, setBounds, navigate, screenshot, setTakenOver };
 }
