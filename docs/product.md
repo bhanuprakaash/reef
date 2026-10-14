@@ -190,6 +190,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 29 | A team is a JSON file applied with `reef team apply`; a team `solo` (lead only) always exists; a channel keeps the team it was created with | Smallest way to configurable teams now; the team workshop can edit them later |
 | 30 | A role's `tools` become Claude's allowed tools; Codex ignores them and is limited by its permission mode | Only Claude has a per-tool allow list |
 | 31 | Continue on a channel over its token budget sets the budget to the tokens used plus 1M (amends 10) | A flat +1M left a channel that used far more than its budget paused again at once |
+| 32 | Roles write only when the team file sets `write`; it maps to each backend's own limit (amends 9 and 30) | Checkpoints and the single-writer rule need one flag that does not depend on the backend |
 
 ## Open questions
 

@@ -97,7 +97,8 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 [`006_team.sql`](../store/migrations/006_team.sql) (`team`, `role`, `channel.team_id`),
 migration 7 [`007_thread.sql`](../store/migrations/007_thread.sql) (`message.parent_id`) and
 migration 8 [`008_approval.sql`](../store/migrations/008_approval.sql) (`gate`, `approval`) and
-migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql) (`approval.kind`).
+migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql) (`approval.kind`) and
+migration 10 [`010_role_write.sql`](../store/migrations/010_role_write.sql) (`role.write`).
 Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 
 ### project
@@ -236,6 +237,7 @@ channel that exists at it.
 | --- | --- | --- |
 | `name` | string | required; unique within the team; letters, digits, `_` and `-` only, and not `user`. It is the `author` of what the role posts, and the name an `@mention` uses |
 | `lead` | boolean | exactly one role of a team is the lead. The lead answers a message that nobody else owns |
+| `write` | boolean | default `false`. Only a role with `write` may change files. claude: without it the role never gets `Edit`, `Write`, `MultiEdit` or `NotebookEdit` (they are dropped from `tools`) and runs in the `default` permission mode, so `Bash` runs only as `tools` lists it. With it the role keeps its `tools` and permission mode (it still needs `acceptEdits`, or `Edit` in `tools`, to edit unasked) and also gets `Task`. codex: without it the sandbox is `read-only`; with it `workspace-write` unless the role's `permissionMode` is set. The seeded `solo` lead has `write` |
 | `backend` | string | required; `claude` or `codex` |
 | `permissionMode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`. The same rule as a channel's `permissionMode` |
 | `persona` | string | goes at the start of the role's first prompt |
@@ -339,7 +341,7 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has no `mcpServers`, whose `args` and `url` may hold API keys | |
-| `GET /teams/{name}` | | 200, without `mcpServers` as above | 404 |
+| `GET /teams/{name}` | | 200, without `mcpServers` as above; each role shows `write` | 404 |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
 | `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |

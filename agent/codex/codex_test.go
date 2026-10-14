@@ -203,6 +203,13 @@ func startTurn(t *testing.T, a *Agent) {
 	}
 }
 
+func TestThreadParams_Sandbox(t *testing.T) {
+	params := threadParams(agent.Config{Cwd: "/work", PermissionMode: "read-only"})
+	if params["sandbox"] != "read-only" || params["cwd"] != "/work" {
+		t.Errorf("threadParams = %v, want sandbox read-only in /work", params)
+	}
+}
+
 func TestThreadParams_MCPApprovalMode(t *testing.T) {
 	params := threadParams(agent.Config{MCPServers: map[string]agent.MCPServer{
 		"reef": {Command: "reef-mcp"},

@@ -101,7 +101,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 	}
 	tok := ag.cfg.MCPServers["reef"].Env["REEF_TOKEN"]
 	want := agent.Config{
-		Cwd: "/tmp/shop", PermissionMode: "acceptEdits", Tools: []string{"mcp__reef__*"},
+		Cwd: "/tmp/shop", PermissionMode: "acceptEdits", Tools: []string{"Task", "mcp__reef__*"},
 		MCPServers: map[string]agent.MCPServer{"reef": {
 			Command: "/bin/reef", Args: []string{"mcp", "--data", dir},
 			Env: map[string]string{"REEF_TOKEN": tok},

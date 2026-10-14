@@ -27,10 +27,12 @@ type Gate struct {
 	On   bool   `json:"on"`
 }
 
-// Role is one teammate's setup. Tools are the backend's allowed tools.
+// Role is one teammate's setup. Tools are the backend's allowed tools. Write says whether the
+// role may change files: without it the backend's tools and sandbox are held to read-only.
 type Role struct {
 	Name           string            `json:"name"`
 	Lead           bool              `json:"lead"`
+	Write          bool              `json:"write"`
 	Backend        string            `json:"backend"`
 	PermissionMode string            `json:"permissionMode"`
 	Persona        string            `json:"persona"`
@@ -90,9 +92,9 @@ func (s *Store) ApplyTeam(ctx context.Context, t Team) (Team, error) {
 		}
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO role (team_id, name, persona, skills, tools, mcp_servers, backend, "+
-				"permission_mode, lead) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				"permission_mode, lead, write) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			id, r.Name, r.Persona, r.Skills, string(tools), string(servers), r.Backend,
-			r.PermissionMode, r.Lead); err != nil {
+			r.PermissionMode, r.Lead, r.Write); err != nil {
 			return Team{}, fmt.Errorf("insert role %s: %w", r.Name, err)
 		}
 	}
@@ -105,7 +107,7 @@ func (s *Store) ApplyTeam(ctx context.Context, t Team) (Team, error) {
 // Team returns the team with the name, lead first, or ErrNotFound.
 func (s *Store) Team(ctx context.Context, name string) (Team, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT role.name, lead, backend, permission_mode, persona, skills, tools, mcp_servers "+
+		"SELECT role.name, lead, write, backend, permission_mode, persona, skills, tools, mcp_servers "+
 			"FROM role JOIN team ON team.id = team_id WHERE team.name = ? ORDER BY lead DESC, role.id",
 		name)
 	if err != nil {
@@ -231,7 +233,7 @@ func ValidateAgent(backend, permissionMode string) error {
 func scanRole(r interface{ Scan(...any) error }) (Role, error) {
 	var ro Role
 	var tools, servers string
-	if err := r.Scan(&ro.Name, &ro.Lead, &ro.Backend, &ro.PermissionMode, &ro.Persona,
+	if err := r.Scan(&ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Persona,
 		&ro.Skills, &tools, &servers); err != nil {
 		return Role{}, err
 	}

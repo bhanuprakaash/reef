@@ -116,7 +116,7 @@ teams with multiple roles; use the Reef window (`reef serve`) for those teams.
 ```
 
 - `name` and `roles` are required. A role needs `name` and `backend` (`claude` or `codex`). The
-  other role fields are optional: `lead` (default `false`), `permissionMode`, `persona`,
+  other role fields are optional: `lead` (default `false`), `write` (default `false`), `permissionMode`, `persona`,
   `skills`, `tools` and `mcpServers`. What each does is in [server.md](server.md#role).
   Exactly one role has `"lead": true`. A role name can appear once, uses only letters, digits,
   `_` and `-` (so an `@mention` can name it), and is not `user`.
@@ -136,7 +136,8 @@ teams with multiple roles; use the Reef window (`reef serve`) for those teams.
 - `tools` are the backend's allowed tools: Claude runs them without asking (`--allowedTools`),
   and so it does the reef tools (`mcp__reef__*`), but not the tools of the role's own `mcpServers`
   unless `tools` lists them (`mcp__mcp1__*`).
-  Codex ignores `tools`. Its limit is `permissionMode`.
+  Codex ignores `tools`. Its limit is `permissionMode`. `write` decides which limit applies
+  (see [server.md](server.md#role)).
 
 ## Tokens
 
