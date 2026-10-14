@@ -1,1 +1,2 @@
 ALTER TABLE turn ADD COLUMN sent INTEGER NOT NULL DEFAULT 0 CHECK (sent IN (0, 1));
+UPDATE turn SET sent = 1;
