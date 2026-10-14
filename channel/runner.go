@@ -8,6 +8,7 @@ import (
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 const (
@@ -24,6 +25,9 @@ var ErrCapped = errors.New("capped")
 type Runner struct {
 	// OnPrompt, when set, sees every prompt before it is sent to the agent.
 	OnPrompt func(prompt string)
+	// CheckpointDir, when set, is a git checkout snapshotted before every turn. A turn whose
+	// snapshot fails is stored failed and never sent to the agent.
+	CheckpointDir string
 
 	st        *store.Store
 	ag        agent.Agent
@@ -65,6 +69,17 @@ func (r *Runner) Run(
 
 	if err := ctx.Err(); err != nil {
 		return errors.Join(err, r.fail(wctx, turn, "interrupted", "", parent))
+	}
+
+	if r.CheckpointDir != "" {
+		ref := fmt.Sprintf("refs/reef/checkpoints/%d", turn.ID)
+		err := worktree.Checkpoint(wctx, r.CheckpointDir, ref)
+		if err == nil {
+			_, err = r.st.SetTurnCheckpoint(wctx, turn.ID, ref)
+		}
+		if err != nil {
+			return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
+		}
 	}
 
 	prompt := text

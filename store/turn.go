@@ -26,7 +26,7 @@ const (
 const (
 	_turnCols = "id, channel_id, role, backend, session_id, status, error, " +
 		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, " +
-		"wake_text, wake_parent, retried"
+		"wake_text, wake_parent, retried, checkpoint"
 )
 
 // Turn is one agent run in a channel. It starts running and ends once, as
@@ -47,6 +47,9 @@ type Turn struct {
 	WakeText   string      `json:"wakeText"`
 	WakeParent *int64      `json:"wakeParent"`
 	Retried    bool        `json:"retried"`
+	// Checkpoint is the git ref of the snapshot taken before the turn ran, nil for a
+	// turn that has none.
+	Checkpoint *string `json:"checkpoint"`
 }
 
 // TurnFilter narrows Turns. A nil ChannelID or empty Status matches everything.
@@ -188,6 +191,23 @@ func (s *Store) SetTurnRetried(ctx context.Context, id int64, retried bool) erro
 	return nil
 }
 
+// SetTurnCheckpoint records the checkpoint ref of the running turn id.
+func (s *Store) SetTurnCheckpoint(ctx context.Context, id int64, ref string) (Turn, error) {
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE turn SET checkpoint = ? WHERE id = ? AND status = ?", ref, id, _turnRunning)
+	if err != nil {
+		return Turn{}, fmt.Errorf("set turn checkpoint: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return Turn{}, fmt.Errorf("set turn checkpoint: %w", err)
+	}
+	if n == 0 {
+		return Turn{}, s.notRunning(ctx, id)
+	}
+	return s.Turn(ctx, id)
+}
+
 // FailRunningTurns marks every running turn failed, for turns the last server
 // run left unfinished, and posts one message per affected channel naming them.
 // Turns of a channel for which keep returns true stay running; keep may be nil.
@@ -277,10 +297,11 @@ func isBackend(s string) bool {
 func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 	var t Turn
 	var started string
-	var ended, wake sql.NullString
+	var ended, wake, checkpoint sql.NullString
 	if err := r.Scan(&t.ID, &t.ChannelID, &t.Role, &t.Backend, &t.SessionID, &t.Status, &t.Error,
 		&t.Usage.InputTokens, &t.Usage.OutputTokens, &t.Usage.CacheReadTokens,
-		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried); err != nil {
+		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried,
+		&checkpoint); err != nil {
 		return Turn{}, err
 	}
 	t.WakeText = wake.String
@@ -294,6 +315,9 @@ func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 			return Turn{}, fmt.Errorf("turn %d: bad ended_at: %w", t.ID, err)
 		}
 		t.EndedAt = &e
+	}
+	if checkpoint.Valid {
+		t.Checkpoint = &checkpoint.String
 	}
 	return t, nil
 }

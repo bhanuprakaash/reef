@@ -98,7 +98,8 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 migration 7 [`007_thread.sql`](../store/migrations/007_thread.sql) (`message.parent_id`) and
 migration 8 [`008_approval.sql`](../store/migrations/008_approval.sql) (`gate`, `approval`) and
 migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql) (`approval.kind`) and
-migration 10 [`010_role_write.sql`](../store/migrations/010_role_write.sql) (`role.write`).
+migration 10 [`010_role_write.sql`](../store/migrations/010_role_write.sql) (`role.write`) and
+migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`).
 Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 
 ### project
@@ -193,6 +194,7 @@ One agent run in a channel.
 | `wakeText` | string | default `""`; the text the turn ran: the wake, without the context prompt. Empty for a turn from before this field existed |
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
+| `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<turn id>`. `null` for a turn of a role without `write`, for a turn in a folder that is not a git checkout, and for a turn from before checkpoints. Set by the server, never by a request |
 
 ### decision
 
@@ -416,6 +418,13 @@ a message wakes them.
   start, so a promoted channel moves to the worktree at its next wake. A project that is not
   a git repo has no worktree: the start fails, with git's error as a `failed` turn, and the
   server goes on.
+- Before each turn of a role with `write` in a git checkout (a feature's worktree, or the
+  project path of a quick session that is a git repo), the server stores a checkpoint: a commit
+  of HEAD plus the whole working tree, untracked files included and ignored ones left out, at
+  `refs/reef/checkpoints/<turn id>`. It is built in a temporary index, so the index, HEAD and
+  the files do not change. The ref is on the turn's `checkpoint`. If the checkpoint fails (for
+  example a repo with no commit), the turn is stored `failed` with git's error and the agent
+  gets no prompt. A role without `write` gets none.
 - The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session.
@@ -709,10 +718,10 @@ $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/tasks -d '{
 {"id":1,"projectId":1,"featureId":1,"title":"Build the login form","body":"","status":"todo","createdAt":"2026-10-13T09:00:06.123456Z","updatedAt":"2026-10-13T09:00:06.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/turns -d '{"channelId":1,"role":"developer","backend":"claude"}'
-{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":null}
+{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":null,"checkpoint":null}
 
 $ curl -s -X PATCH -H 'Content-Type: application/json' localhost:7700/turns/1 -d '{"status":"done","sessionId":"3c1296cc","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0}}'
-{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"3c1296cc","status":"done","error":"","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":"2026-10-13T09:00:08.123456Z"}
+{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"3c1296cc","status":"done","error":"","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":"2026-10-13T09:00:08.123456Z","checkpoint":null}
 
 $ curl -s -X PATCH -H 'Content-Type: application/json' localhost:7700/turns/1 -d '{"status":"failed"}'
 {"error":"invalid: turn 1 already ended"}
