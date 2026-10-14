@@ -183,10 +183,19 @@ async function brief() {
 }
 
 async function promote() {
+  ensureRepo();
   const section = await addProject();
   const cid = await newChannel(section, 'New quick session', 'idea chat');
   await exchange('I have an idea: a search bar for the shop that filters products as you type.');
   await exchange('Decision: search is client side only for now, because the catalog is small (under 200 items).');
+  const quick = sql(`select id from turn where channel_id=${cid} and checkpoint is not null order by id`).split('\n');
+  const rows = main.getByRole('region', { name: 'Checkpoints' }).getByRole('listitem');
+  await rows.first().waitFor({ timeout: 15000 });
+  check(
+    quick.length === 2 && (await rows.count()) === 2,
+    'a quick session in a git repo lists its two checkpoints before the promote',
+    `turns with a checkpoint: ${quick.join(',')}; rows: ${await rows.count()}`,
+  );
   await shot('before-promote');
   await page.getByRole('button', { name: 'Promote' }).click();
   await page.getByLabel('Feature slug').fill('search');
@@ -199,6 +208,14 @@ async function promote() {
   await shot('proposal');
   console.log(`proposal:\n${await panel.innerText()}`);
   check(true, 'promote turn ends with a proposal panel');
+  await page.waitForTimeout(1000);
+  await shot('checkpoints-after-promote');
+  const left = await rows.allInnerTexts();
+  check(
+    !left.some((t) => quick.some((id) => t.includes(`Before turn ${id} `))),
+    'the quick-session checkpoints, taken in another tree, have no Rollback button after the promote',
+    `rows: ${JSON.stringify(left)}; GET rollbackable: ${JSON.stringify((await getJson(`/turns?channel=${cid}&rollbackable=1`)).map((t) => t.id))}`,
+  );
   const under = section
     .locator('li', { has: page.getByRole('link', { name: 'Search', exact: true }) })
     .getByRole('link', { name: 'idea chat' });
@@ -304,6 +321,9 @@ async function stop() {
   await page.getByText(/Failed: interrupted/).waitFor({ timeout: 30000 });
   await shot('stopped');
   check(true, 'Stop shows the turn failed', sql(`select id,status,error from turn where channel_id=${cid}`));
+  const partial = sql(`select substr(replace(body, char(10), ' '),1,40) from message where channel_id=${cid} and author='lead'`);
+  const shown = await main.getByText(partial, { exact: false }).count();
+  check(Boolean(partial) && shown === 1, 'the partial reply shows once, not as the message and as the live block', `partial: ${JSON.stringify(partial)}; shown ${shown} times`);
   await exchange('What was the secret word? Answer with the word only.');
   await shot('resumed');
   const answer = sql(`select body from message where channel_id=${cid} and author='lead' order by id desc limit 1`);
@@ -331,9 +351,9 @@ async function retry() {
   check(/^\d+ lead failed retried=1\n\d+ lead done retried=0$/.test(turns), 'Retry runs the failed wake as a new turn that ends done', turns);
 }
 
-async function rollback() {
-  const git = (dir, ...args) =>
-    execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+const git = (dir, ...args) =>
+  execFileSync('git', ['-C', dir, ...args], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim();
+function ensureRepo() {
   try {
     git(projectDir, 'rev-parse', 'HEAD');
   } catch {
@@ -342,6 +362,10 @@ async function rollback() {
     git(projectDir, 'add', '.');
     git(projectDir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'first');
   }
+}
+
+async function rollback() {
+  ensureRepo();
   const section = await addProject();
   const slug = await addFeature(section, 'login', 'Login');
   const cid = await newChannel(main, 'New channel', 'rollback chat');

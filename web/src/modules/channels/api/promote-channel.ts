@@ -13,6 +13,7 @@ export function usePromoteChannel(channelId: number) {
         queryClient.invalidateQueries({ queryKey: ['channels'] }),
         queryClient.invalidateQueries({ queryKey: ['features'] }),
         queryClient.invalidateQueries({ queryKey: ['messages', channelId] }),
+        queryClient.invalidateQueries({ queryKey: ['turns', channelId] }),
       ]),
   });
 }

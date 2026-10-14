@@ -12,9 +12,11 @@ export function LiveTurn({ turn, role }: { turn: LiveTurnState; role: string }) 
       </div>
       {turn.items.map((item, i) =>
         item.type === 'text' ? (
-          <p key={i} className="whitespace-pre-wrap text-sm">
-            {item.text}
-          </p>
+          turn.status !== 'failed' && (
+            <p key={i} className="whitespace-pre-wrap text-sm">
+              {item.text}
+            </p>
+          )
         ) : (
           <ToolRow key={item.tool.id} tool={item.tool} />
         ),

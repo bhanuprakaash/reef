@@ -60,8 +60,8 @@ logged in and on `PATH`. The new channel form picks a team from `GET /teams`. Ea
 shows its author, replies are folded under their thread root with a count, and a thread
 opens in a pane where you can reply. The running turn names its teammate. A wake held at a gate
 shows Approve and Reject, and a pause from the hop cap shows in the cap banner. A channel
-with checkpointed turns has a Checkpoints list; Rollback on a row asks to confirm, then does
-`POST /turns/{id}/rollback`.
+with rollbackable turns (`GET /turns?channel=ID&rollbackable=1`) has a Checkpoints list; Rollback on a row asks to confirm, then does
+`POST /turns/{id}/rollback`. A checkpoint taken in another tree, such as a quick session's turn after a promote, is not listed. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial reply is the stored message, so the live block does not repeat it.
 The Inbox link lists what waits on you from [`/inbox/events`](#inbox), with a count and the
 action of each item (Approve or Reject, Continue, Retry, Open). The window asks once, on a click,
 to show desktop notifications and then shows one for each item that is new since the page loaded.
@@ -377,7 +377,7 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `GET /tasks/{id}` | | 200 | 404 |
 | `PUT /tasks/{id}` | `title`, `body`, `status`, `featureId` | 200 | 400, 404 |
 | `DELETE /tasks/{id}` | | 204 | 404 |
-| `GET /turns` | `?channel=ID`, `?status=running\|done\|failed`, `?retryable=1` (only the turns `retry` accepts) | 200 | 400 bad id or status |
+| `GET /turns` | `?channel=ID`, `?status=running\|done\|failed`, `?retryable=1` (only the turns `retry` accepts), `?rollbackable=1` (needs `channel`; only the turns with a `checkpoint` taken in the tree the channel runs in now, so `rollback` is not a 409 for the tree) | 200 | 400 bad id or status, or `rollbackable` without a channel, 404 `rollbackable` on an unknown channel |
 | `POST /turns` | `channelId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent` | 201 | 400 bad backend or unknown channel or message |
 | `GET /turns/{id}` | | 200 | 404 |
 | `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId`. With no `status`, only `sessionId` is set and the turn stays `running` | 200 | 400 bad status, negative usage, empty `sessionId` without a status, `error` or `usage` without a status, or already ended; 404 |
