@@ -17,7 +17,16 @@ const channel = (id: number, team: string): Channel => ({
 
 const team = (name: string, roles: string[]): Team => ({
   name,
-  roles: roles.map((r) => ({ name: r, lead: r === 'lead' })),
+  roles: roles.map((r) => ({
+    name: r,
+    lead: r === 'lead',
+    write: false,
+    backend: 'claude',
+    permissionMode: '',
+    persona: '',
+    skills: '',
+    tools: [],
+  })),
 });
 
 const msg = (id: number, parentId: number | null, author: string): Message => ({

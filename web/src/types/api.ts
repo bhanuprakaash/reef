@@ -87,9 +87,23 @@ export type Turn = {
   checkpoint: string | null;
 };
 
+export type Role = {
+  name: string;
+  lead: boolean;
+  write: boolean;
+  backend: string;
+  permissionMode: string;
+  persona: string;
+  skills: string;
+  tools: string[];
+};
+
+export type Gate = { from: string; to: string; on: boolean };
+
 export type Team = {
   name: string;
-  roles: { name: string; lead: boolean }[];
+  roles: Role[];
+  gates?: Gate[];
 };
 
 export type Approval = {

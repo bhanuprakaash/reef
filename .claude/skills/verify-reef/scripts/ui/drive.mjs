@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|inspector|review BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|inspector|review|workshop BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
@@ -10,9 +10,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, workshop };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|workshop BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -800,6 +800,85 @@ async function teams() {
     'the approval is stored as approved',
     `approvals: ${sql(`select id,from_role,to_role,status from approval where channel_id=${gid}`)}; turns: ${sql(`select group_concat(role) from (select role from turn where channel_id=${gid} order by id)`)}`,
   );
+}
+
+// Waits for text matching pattern to show up in `main`, and returns it, or null on timeout:
+// an invalid save's error does not abort the scenario.
+async function errorText(pattern, timeout = 15000) {
+  const loc = main.getByText(pattern);
+  try {
+    await loc.waitFor({ timeout });
+    return (await loc.textContent()) ?? '';
+  } catch {
+    return null;
+  }
+}
+
+async function workshop() {
+  if ((await fetch(`${base}/teams/full`)).status !== 200) {
+    throw new Error('apply the team full first (teams/full.json, see features/teams.md)');
+  }
+  const mcpBefore = '[{"command":"true","env":{"API_KEY":"sk-verify-9911"}}]';
+  sql(`update role set mcp_servers = '${mcpBefore}' where team_id = (select id from team where name = 'full') and name = 'developer'`, true);
+
+  await page.goto(`${base}/teams`);
+  await main.getByRole('button', { name: 'full', exact: true }).click();
+  const personaBox = main.getByLabel('developer persona');
+  await personaBox.waitFor();
+  const marker = `WORKSHOP-MARKER-${Date.now().toString(36)}`;
+  const persona = `${await personaBox.inputValue()} Always say ${marker} once.`;
+  await personaBox.fill(persona);
+  await shot('persona-edited');
+  await main.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+  await shot('persona-saved');
+  check(
+    sql(`select persona from role where team_id = (select id from team where name = 'full') and name = 'developer'`) === persona,
+    "saving the developer's persona in the window updates its role row",
+  );
+  check(
+    sql(`select mcp_servers from role where team_id = (select id from team where name = 'full') and name = 'developer'`) === mcpBefore,
+    "the developer's mcpServers, left out of the window, are unchanged",
+  );
+
+  // Two leads: the same error reef team apply gives.
+  await main.getByLabel('architect lead').check();
+  await main.getByRole('button', { name: 'Save' }).click();
+  const twoLeads = await errorText(/needs exactly one lead role, has 2/);
+  await shot('two-leads-error');
+  check(!!twoLeads, 'an invalid team (two leads) shows the reef team apply error', twoLeads ?? '(not shown)');
+  await main.getByLabel('architect lead').uncheck();
+
+  // Unknown backend: the same error reef team apply gives.
+  await main.getByLabel('architect backend').fill('gemini');
+  await main.getByRole('button', { name: 'Save' }).click();
+  const badBackend = await errorText(/backend must be claude or codex/);
+  await shot('bad-backend-error');
+  check(!!badBackend, 'an invalid team (unknown backend) shows the reef team apply error', badBackend ?? '(not shown)');
+  await main.getByLabel('architect backend').fill('claude');
+  await main.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+
+  // "Copy as new team" makes a new team `reef team list` (the same store) shows.
+  const copyName = `workshop-copy-${Date.now().toString(36)}`;
+  await main.getByLabel('New team name').fill(copyName);
+  await main.getByRole('button', { name: 'Copy as new team' }).click();
+  await main.getByRole('button', { name: copyName, exact: true }).waitFor({ timeout: 15000 });
+  await shot('copied');
+  check(
+    sql(`select count(*) from team where name = '${copyName}'`) === '1',
+    '"Copy as new team" makes a new team',
+  );
+
+  // The next developer wake uses the new persona.
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const { id: cid } = await newTeamChannel('full', 'workshop room');
+  await send('@developer Say ok in one word.');
+  await workingAs('developer');
+  await idle();
+  const prompt = sql(`select prompt from turn where channel_id = ${cid} and role = 'developer' order by id limit 1`);
+  check(prompt.includes(marker), "the next developer wake's prompt carries the new persona", prompt.slice(0, 200));
 }
 
 try {
