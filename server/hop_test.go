@@ -66,6 +66,24 @@ func TestSend_UserMessageClearsHopPause(t *testing.T) {
 	}
 }
 
+func TestSend_UserMessageClearsHopPauseWithDifferentCount(t *testing.T) {
+	env := newLiveEnv(t)
+	sub := subscribe(t, env.url)
+	sub.want(t, _idleFrame)
+	if err := env.st.PauseChannel(context.Background(), 1,
+		"hop cap: 9 agent hops without a user message"); err != nil {
+		t.Fatal(err)
+	}
+
+	if status, body := env.send(t, "more"); status != 202 || body != "" {
+		t.Fatalf("send while hop paused = %d %q, want 202", status, body)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	if ch, err := env.st.Channel(context.Background(), 1); err != nil || ch.Paused != "" {
+		t.Errorf("channel = %+v, %v, want pause cleared", ch, err)
+	}
+}
+
 func TestContinue_RunsHopHeldWakeAfterRestart(t *testing.T) {
 	env := newLiveEnv(t)
 	id, _ := env.pingPong(t)
