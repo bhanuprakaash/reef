@@ -79,6 +79,8 @@ Rules for every command:
 | `reef decide <feature> "<body>" [--why W]` | Records a decision with no source message | `1  Use sessions, not JWT` |
 | `reef task add [<feature>] "<title>"` | Adds a `todo` task. With a feature, the task is in the feature's project and tagged with it. Without one, it is in the current folder's project, with no feature | `1  todo  Build the login form` |
 | `reef task list [<feature>] [--status S]` | Lists the feature's tasks, or all tasks of the current folder's project. `S` is `todo`, `doing` or `done` | one task per line, as for `task add` |
+| `reef team apply FILE.json` | Creates a team from a file, or replaces the roles and gates of the team with that name (see Teams) | `applied team duo: lead*(claude) architect(claude)` |
+| `reef team list` | Lists the teams by name, each with its roles | `duo  lead*(claude) architect(claude)`: the lead has a `*` |
 | `reef context <feature> --role R` | Prints the context prompt for role `R` (see below) | the prompt |
 | `reef token <feature> --role R` | Makes a channel and a token for role `R` (see Tokens) | a `claude mcp add` command |
 | `reef wrap list [<feature>]` | Lists pending wrap-up proposals (see Wrap-up): of the feature, or of the current folder's project | `1  login  3  architect  2026-10-13`: id, feature slug, channel id, role, created date |
@@ -88,18 +90,71 @@ Rules for every command:
 | `reef chat ...` | Runs a channel in the terminal (see below) | the conversation |
 | `reef mcp` | Serves the MCP tools over stdio (see below) | MCP only |
 
+## Teams
+
+A team is a set of roles, one of them the lead, and the gates between them. It is a JSON
+file. `reef team apply FILE.json` stores it, and a channel picks it by name (`team` in `POST
+/channels`, see [server.md](server.md#team)). Migration 6 seeds a team `solo`, with one role,
+`lead` on `claude`, and every channel without a team is in it. A `reef chat` channel is
+always in `solo`.
+
+```json
+{
+  "name": "duo",
+  "roles": [
+    {"name": "lead", "lead": true, "backend": "claude",
+     "persona": "You are the lead. Answer the user. Hand design work to @architect."},
+    {"name": "architect", "backend": "claude", "permissionMode": "default",
+     "persona": "You are the architect. Reply with a short plan.",
+     "skills": "Writing plans.",
+     "tools": ["Read", "Grep"],
+     "mcpServers": [{"command": "my-mcp", "args": ["--stdio"]}]}
+  ],
+  "gates": [{"from": "lead", "to": "architect", "on": true}]
+}
+```
+
+- `name` and `roles` are required. A role needs `name` and `backend` (`claude` or `codex`). The
+  other role fields are optional: `lead` (default `false`), `permissionMode`, `persona`,
+  `skills`, `tools` and `mcpServers`. What each does is in [server.md](server.md#role).
+  Exactly one role has `"lead": true`. A role name can appear once, uses only letters, digits,
+  `_` and `-` (so an `@mention` can name it), and is not `user`.
+- `gates` is optional. A gate `{"from","to","on"}` names two roles of the team. An edge the
+  file does not list uses the default: on for `architect` to `developer` and `developer` to
+  `tester`, off for the rest (see [server.md](server.md#gate)).
+- The file is read strictly: an unknown field is an error.
+- Applying a name that exists replaces its roles and gates in one transaction, and the
+  team keeps its channels. One failed check changes nothing. A new persona reaches a
+  session that starts after it. A session that resumes does not get its first prompt again.
+  A role applied with a new `backend` starts a new session; it does not resume the old one.
+- Errors print `reef: <message>` and exit 1: `reef: invalid: team bad needs exactly one
+  lead role, has 0` (or `has 2`), `reef: role a: invalid: backend must be claude or codex`,
+  `reef: invalid: role name "two words" must be letters, digits, _ or -, and not user`,
+  `reef: invalid: gate a to ghost names a role team bad does not have`, `reef: parse
+  team.json: json: unknown field "color"`.
+- `tools` are the backend's allowed tools: Claude runs them without asking (`--allowedTools`),
+  and so it does the reef tools (`mcp__reef__*`), but not the tools of the role's own `mcpServers`
+  unless `tools` lists them (`mcp__mcp1__*`).
+  Codex ignores `tools`. Its limit is `permissionMode`.
+
 ## Tokens
 
 A token says who a `reef mcp` process works for: one role in one channel. The channel
 gives the feature and the project. The role is the author of the decisions the agent
-records, the owner of the notes `get_brief` reads, and the role on a wrap-up proposal.
-Roles are free text for now.
+records, the owner of the notes `get_brief` reads, the author of what `post_to_channel`
+posts, and the role on a wrap-up proposal. A role of a channel in `reef serve` comes from its
+team. For `reef token` and `reef chat` it is free text.
 
 - A token is 64 hex characters (32 random bytes). It is stored in the `token` table (see
   [server.md](server.md#token)).
 - `reef token` makes one, in a new channel named `<role> (claude code)`. Every start of
   `reef chat`, new or resumed, makes one for its channel, and deletes it when the chat
   ends. The tokens of `reef token` stay.
+- `reef serve` makes one for each teammate session, when that teammate's agent starts, and
+  deletes it when the agent stops. A specialist's agent stops after each wake, so its
+  token lives for that wake. The lead's lives until the channel stops. A channel with a lead
+  and an architect therefore has one token while only the lead runs, and two during an
+  architect wake.
 - `reef token` stores the channel role as `lead` for now, even when `--role` names another role.
 - A token never expires. It goes away when its channel is deleted, or, for a `reef chat`
   token, when the chat ends.
@@ -117,8 +172,9 @@ It serves Reef's MCP tools over stdio, with the official Go SDK
 with exit code 1, when `REEF_TOKEN` is empty (`REEF_TOKEN is not set`) or matches no
 token (`unknown REEF_TOKEN`). It stops when stdin closes.
 
-Every tool works on the token's feature. On a quick-session channel (no feature) every
-tool fails with `this channel has no feature`. A result is one JSON object as text. A
+Every tool except `post_to_channel` works on the token's feature. On a quick-session channel
+(no feature) those tools fail with `this channel has no feature`, except `read_thread` of the
+token's own channel. A result is one JSON object as text. A
 tool error comes back as a result with `isError: true` and the message as text, so the
 agent can read it. Arguments that do not match the tool's schema are a tool error too
 (`validating "arguments": ... missing properties: ["query"]`). An unknown tool name is a
@@ -131,10 +187,17 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `add_task` | `title` (required), `body` | the new task: `todo`, in the feature's project, tagged with the feature | `invalid: task title is required` |
 | `search_sessions` | `query` (required), `limit` (default 20) | `{"hits": [{"channelId", "messageId", "author", "snippet"}]}`: messages in all of the feature's channels that contain `query`, newest first. Case is ignored for ASCII. The snippet is about 120 characters around the match. `hits` is `null` when nothing matches | `query is required` |
 | `read_decision` | `id` (required) | the decision | `decision 99: not found`, also for a decision of another feature |
-| `read_thread` | `channelId` (required), `after` (only newer message ids) | `{"messages": [...]}`: the channel's messages, oldest first. `messages` is `null` when there are none | `channel 9: not found`, also for a channel of another feature or a quick session |
+| `read_thread` | `channelId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the channel's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `channel 9: not found`, also for a channel of another feature or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the channel |
+| `post_to_channel` | `body` (required), `parent` (the id of a top-level message: reply in its thread; leave it out to post at the top level) | the stored message, with the token's role as `author`. It works on a quick session too | `invalid: message body is required`, `invalid: parent 9 is not a top-level message of channel 1` |
 | `propose_wrap` | `brief`, `notes`, `decisions` (all required). Each decision is `{"body", "why"}`; `why` may be `""` | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: decision body is required` |
 
 `propose_wrap` saves a pending proposal and changes nothing else. See Wrap-up.
+
+`post_to_channel` is how a teammate speaks in the channel besides its reply. `reef serve`
+routes the message when the poster's turn ends: every `@role` in the body wakes that teammate
+(once, even when the reply names the same role again), and a post that names nobody wakes no
+one (see [server.md](server.md#routing)). Plain Claude
+Code and `reef chat` have no router, so a post there is only stored.
 
 ## The context prompt
 
@@ -142,6 +205,9 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 message of a new channel. It holds the brief, the role's notes and an index. It never
 holds a message body. Its shape:
 
+0. When the role has a persona or skills (a team role, see Teams): the persona, then
+   `Your skills:` and the skills, each followed by a blank line. `reef serve` and `reef chat`
+   add this before part 1. `reef context` does not print it.
 1. One line: role, feature name and slug, project name. Then the goal (if set) and the
    stage.
 2. `## Brief`: the latest brief, or `No brief yet.`
@@ -151,6 +217,17 @@ holds a message body. Its shape:
    date, message count) and `### Open tasks` (tasks not `done`). An empty group says
    `none`.
 5. One closing line that names the tools for details.
+6. When the team has two or more roles, a `## Team` section: `Your team: @lead, @architect.`
+   It says that to hand work over you @mention a teammate in a message, which wakes them, and
+   that your reply, and anything you send with `post_to_channel`, is posted to the channel
+   and nobody sees anything else. A message that wakes you starts with `[channel N, message
+   N]` or `[channel N, message N, thread N]`; your plain reply goes where the header says (a
+   top-level reply starts your own thread), and `post_to_channel` takes the header's `thread` as
+   its `parent` when there is one.
+   The lead gets one more line: do not summarize or repeat a
+   specialist's post back to the user, because they see it. `reef context` does not print it.
+
+A quick session gets the same parts 0 and 6 around its two lines.
 
 Example, for a feature with one approved wrap-up:
 
@@ -190,19 +267,27 @@ reef chat --channel ID [--debug]
 ```
 
 `reef chat` runs one role in one channel, in the terminal. It uses the agent adapters
-from [agents.md](agents.md). The code that opens a channel is in package `channel`
-(`channel.Open`) and has no terminal code. `reef serve` is a second runner of it: the
-window sends messages, wraps up and promotes through the same code (see [server.md](server.md#channels-live)).
+from [agents.md](agents.md). The channel is in the `solo` team and `--role` is the name of
+its lead, so only the lead takes part: `reef chat` routes nothing, and an `@mention` in a
+reply wakes no one. For a team, use `reef serve`. The code that opens a channel is in
+package `channel` (`channel.Open`) and has no terminal code. `reef serve` is a second runner
+of it: the window sends messages, wraps up and promotes through the same code, and it also
+routes messages between teammates (see [server.md](server.md#channels-live)).
 
 A channel stores its role, its backend and its permission mode (see
-[server.md](server.md#channel)). `channel.Open` starts its agent in the project's folder,
-with one MCP server named `reef`: this `reef` binary, `mcp --data <data folder>`, with a
-new token in `REEF_TOKEN`. Its tools need no approval (see [agents.md](agents.md#gotchas)).
-It first fails any turn the channel left running (error `chat exited`). That turn
-belonged to a `reef chat` that died, because this one now holds the chat lock.
+[server.md](server.md#channel)). `channel.Open` locks the channel and fails any turn it left
+running (error `chat exited`). That turn belonged to a `reef chat` that died, because this
+one now holds the chat lock. It starts no agent: a teammate's agent starts when that role has
+its first turn, in the project's folder, with one MCP server named `reef` (this `reef`
+binary, `mcp --data <data folder>`, with that teammate's own new token in `REEF_TOKEN`), plus
+the role's own `mcpServers`. Claude runs the reef tools without approval; the role's own
+servers need their tools in `tools` (see [agents.md](agents.md#gotchas)).
+`reef chat` starts the lead at once (`Session.Start`), before the first line is read, so an
+agent that does not start fails the command at the start. In `reef serve` the lead starts at
+its first turn: a first message that goes to a specialist starts no lead.
 
-- With a turn that has a session id, the agent resumes the session of the newest such
-  turn, and the context prompt is not sent again.
+- With a turn of the role that has a session id, the agent resumes the session of the newest
+  such turn, and the context prompt is not sent again.
 - Without one, the agent starts a new session and the context prompt goes before the
   first message, in the same prompt. A channel on a feature gets the prompt below. A
   quick session (no feature) gets two lines: the role, the project's name and folder, and

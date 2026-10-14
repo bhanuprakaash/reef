@@ -95,6 +95,40 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 	return b.String(), nil
 }
 
+// roleIntro is the role's persona and skills, when it has any, to put before its context.
+func roleIntro(r store.Role) string {
+	var b strings.Builder
+	if r.Persona != "" {
+		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(r.Persona))
+	}
+	if r.Skills != "" {
+		fmt.Fprintf(&b, "Your skills:\n%s\n\n", strings.TrimSpace(r.Skills))
+	}
+	return b.String()
+}
+
+// teamIntro tells a teammate who is on its team and that they talk through the channel. A
+// team of one gets none.
+func teamIntro(team store.Team, r store.Role) string {
+	if len(team.Roles) < 2 {
+		return ""
+	}
+	names := make([]string, len(team.Roles))
+	for i, t := range team.Roles {
+		names[i] = "@" + t.Name
+	}
+	s := fmt.Sprintf("\n## Team\nYour team: %s. To hand work to a teammate, @mention them in a "+
+		"message: that wakes them. Your reply, and anything you send with post_to_channel, is "+
+		"posted to the channel; nobody sees anything else. A message that wakes you starts with "+
+		"[channel N, message N] or [channel N, message N, thread N]: your plain reply goes where "+
+		"the header says, a top-level one starting your own thread; pass thread as the parent of "+
+		"post_to_channel when the header has one.\n", strings.Join(names, ", "))
+	if r.Lead {
+		s += "Do not summarize or repeat a specialist's post back to the user: they see it.\n"
+	}
+	return s
+}
+
 func projectContext(p store.Project, role string) string {
 	return fmt.Sprintf("You are the %s in project %q (%s).\n"+
 		"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n",

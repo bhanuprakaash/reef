@@ -4,8 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
+	"slices"
+	"strconv"
 	"syscall"
 
 	"github.com/bhanuprakaash/reef/agent"
@@ -39,16 +42,28 @@ const (
 // ErrNoProposal is returned by Wrap when the agent made no proposal.
 var ErrNoProposal = errors.New("no proposal made")
 
-// Session is a channel with a running agent.
+// Session is a channel with one agent session per teammate in use. Each is opened for its
+// first turn. The lead's stays open until Close; a specialist's is closed after its turn.
 type Session struct {
+	st       *store.Store
+	dataDir  string
+	exe      string
+	ch       store.Channel
+	project  store.Project
+	mk       func(backend string) (agent.Agent, error)
+	lock     *os.File
+	onPrompt func(prompt string)
+	members  map[string]*member
+}
+
+type member struct {
 	run   *Runner
-	st    *store.Store
 	ag    agent.Agent
-	lock  *os.File
 	token string
 }
 
-// Open starts or resumes the channel's agent. The caller must Close the Session.
+// Open opens the channel; no agent starts until a turn needs it. The caller must Close
+// the Session.
 func Open(
 	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64,
 ) (*Session, error) {
@@ -63,10 +78,6 @@ func open(
 	if err != nil {
 		return nil, err
 	}
-	ag, err := mk(ch.Backend)
-	if err != nil {
-		return nil, err
-	}
 	p, err := st.Project(ctx, ch.ProjectID)
 	if err != nil {
 		return nil, err
@@ -75,7 +86,10 @@ func open(
 	if err != nil {
 		return nil, err
 	}
-	s := &Session{st: st, ag: ag, lock: lock}
+	s := &Session{
+		st: st, dataDir: dataDir, exe: exe, ch: ch, project: p, mk: mk, lock: lock,
+		members: map[string]*member{},
+	}
 	defer func() {
 		if err != nil {
 			_ = s.Close()
@@ -85,50 +99,167 @@ func open(
 	if err := failStaleTurns(ctx, st, channelID); err != nil {
 		return nil, err
 	}
-	last, err := newestSessionTurn(ctx, st, channelID)
+	return s, nil
+}
+
+// Start starts or resumes the lead now instead of at its first turn.
+func (s *Session) Start(ctx context.Context) error {
+	_, err := s.member(ctx, s.ch.Role)
+	return err
+}
+
+// member returns the agent session of role, starting or resuming it from the role's own
+// newest turn with a session id on the role's backend. A new session reads the team from the
+// store, so a team applied since the channel opened is the one it gets. An agent that fails
+// to start leaves a failed turn for the role, and so does a ctx cancelled before it starts:
+// the turn is interrupted. The store is read even then, as Run stores its turn.
+func (s *Session) member(ctx context.Context, role string) (_ *member, err error) {
+	if m, ok := s.members[role]; ok {
+		return m, nil
+	}
+	wctx := context.WithoutCancel(ctx)
+	team, err := s.st.Team(wctx, s.ch.Team)
 	if err != nil {
 		return nil, err
 	}
-	tok, err := st.CreateToken(ctx, channelID, ch.Role)
+	r, err := s.roleSetup(team, role)
 	if err != nil {
 		return nil, err
 	}
-	s.token = tok.Token
+	ag, err := s.mk(r.Backend)
+	if err != nil {
+		return nil, err
+	}
+	m := &member{ag: ag}
+	defer func() {
+		if err != nil {
+			_ = m.close(s.st)
+		}
+	}()
+
+	last, err := newestSessionTurn(wctx, s.st, s.ch.ID, role, r.Backend)
+	if err != nil {
+		return nil, err
+	}
+	tok, err := s.st.CreateToken(wctx, s.ch.ID, role)
+	if err != nil {
+		return nil, err
+	}
+	m.token = tok.Token
+	servers := map[string]agent.MCPServer{"reef": {
+		Command: s.exe,
+		Args:    []string{"mcp", "--data", s.dataDir},
+		Env:     map[string]string{TokenEnv: tok.Token},
+	}}
+	for i, srv := range r.MCPServers {
+		servers["mcp"+strconv.Itoa(i+1)] = srv
+	}
 	cfg := agent.Config{
-		Cwd:            p.Path,
-		PermissionMode: ch.PermissionMode,
-		MCPServers: map[string]agent.MCPServer{"reef": {
-			Command: exe,
-			Args:    []string{"mcp", "--data", dataDir},
-			Env:     map[string]string{TokenEnv: tok.Token},
-		}},
+		Cwd:            s.project.Path,
+		PermissionMode: r.PermissionMode,
+		Tools:          append(slices.Clone(r.Tools), "mcp__reef__*"),
+		MCPServers:     servers,
 	}
 	var preamble string
-	if last.SessionID != "" {
+	switch {
+	case ctx.Err() != nil:
+		err = ctx.Err()
+	case last.SessionID != "":
 		err = ag.Resume(ctx, cfg, last.SessionID)
-	} else {
-		if preamble, err = startPrompt(ctx, st, ch, p); err != nil {
+	default:
+		if preamble, err = startPrompt(wctx, s.st, s.ch.ID, s.project, team, r); err != nil {
 			return nil, err
 		}
 		err = ag.Start(ctx, cfg)
 	}
 	if err != nil {
-		return nil, err
+		reason := err.Error()
+		if ctx.Err() != nil {
+			reason = "interrupted"
+		}
+		t, terr := s.st.CreateTurn(wctx, store.Turn{
+			ChannelID: s.ch.ID, Role: role, Backend: r.Backend,
+		})
+		if terr == nil {
+			t.Status, t.Error = "failed", reason
+			_, terr = s.st.EndTurn(wctx, t)
+		}
+		return nil, errors.Join(err, terr)
 	}
-	s.run = NewRunner(st, ag, channelID, ch.Role, ch.Backend, preamble)
-	return s, nil
+	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
+	m.run.OnPrompt = s.onPrompt
+	s.members[role] = m
+	return m, nil
 }
 
-// SetOnPrompt sets a hook that sees every prompt before it is sent to the agent.
-func (s *Session) SetOnPrompt(f func(prompt string)) { s.run.OnPrompt = f }
+// roleSetup is the team's role called name. The lead is the channel's role; it takes the
+// channel's own backend and permission mode.
+func (s *Session) roleSetup(team store.Team, name string) (store.Role, error) {
+	if name == s.ch.Role {
+		lead := team.Roles[0]
+		lead.Name, lead.Backend, lead.PermissionMode = name, s.ch.Backend, s.ch.PermissionMode
+		return lead, nil
+	}
+	for _, r := range team.Roles {
+		if r.Name == name {
+			return r, nil
+		}
+	}
+	return store.Role{}, fmt.Errorf("%w: team %s has no role %s", store.ErrInvalid, team.Name, name)
+}
 
-// Say stores body as the user message.
-func (s *Session) Say(ctx context.Context, body string) error { return s.run.Say(ctx, body) }
+func (m *member) close(st *store.Store) error {
+	errs := []error{m.ag.Interrupt()}
+	if m.token != "" {
+		errs = append(errs, st.DeleteToken(context.Background(), m.token))
+	}
+	return errors.Join(errs...)
+}
 
-// Run runs one turn with text. A cancelled ctx wraps ctx.Err(); a turn over the tool
-// call cap pauses the channel and wraps ErrCapped.
-func (s *Session) Run(ctx context.Context, text string, onEvent func(agent.Event)) error {
-	return s.run.Run(ctx, text, onEvent)
+// SetOnPrompt sets a hook that sees every prompt before it is sent to an agent.
+func (s *Session) SetOnPrompt(f func(prompt string)) {
+	s.onPrompt = f
+	for _, m := range s.members {
+		m.run.OnPrompt = f
+	}
+}
+
+// Say stores body as the user message, a reply in the thread of parent when it is set.
+func (s *Session) Say(ctx context.Context, body string, parent *int64) error {
+	_, err := s.st.CreateMessage(ctx, store.Message{
+		ChannelID: s.ch.ID, ParentID: parent, Author: _userAuthor, Body: body,
+	})
+	return err
+}
+
+// Run runs one turn of the lead with text. A cancelled ctx wraps ctx.Err(); a turn over
+// the tool call cap pauses the channel and wraps ErrCapped. The reply is a reply in the
+// thread of parent when it is set.
+func (s *Session) Run(
+	ctx context.Context, text string, parent *int64, onEvent func(agent.Event),
+) error {
+	return s.RunAs(ctx, s.ch.Role, text, parent, onEvent)
+}
+
+// RunAs is Run for any role of the channel's team. A specialist's agent is closed when
+// its turn ends; its next turn resumes the session. A failure to close it is logged, and
+// does not fail the turn.
+func (s *Session) RunAs(
+	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
+) error {
+	m, err := s.member(ctx, role)
+	if err != nil {
+		return err
+	}
+	err = m.run.Run(ctx, text, parent, onEvent)
+	if role == s.ch.Role {
+		return err
+	}
+	delete(s.members, role)
+	if cerr := m.close(s.st); cerr != nil {
+		log.Printf("close %s of channel %d: %v", role, s.ch.ID, cerr)
+	}
+	return err
 }
 
 // Wrap runs a wrap-up turn and returns the proposal the agent made, or ErrNoProposal. Like
@@ -141,7 +272,7 @@ func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Pr
 // The channel must already have its feature. Like Run, a cancelled ctx still stores the turn.
 func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
 	rctx := context.WithoutCancel(ctx)
-	ch, err := s.st.Channel(rctx, s.run.channelID)
+	ch, err := s.st.Channel(rctx, s.ch.ID)
 	if err != nil {
 		return store.Proposal{}, err
 	}
@@ -164,14 +295,14 @@ func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store
 func (s *Session) propose(
 	ctx context.Context, prompt string, onEvent func(agent.Event),
 ) (store.Proposal, error) {
-	before, err := s.st.PendingProposal(context.WithoutCancel(ctx), s.run.channelID)
+	before, err := s.st.PendingProposal(context.WithoutCancel(ctx), s.ch.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, err
 	}
-	if err := s.run.Run(ctx, prompt, onEvent); err != nil {
+	if err := s.Run(ctx, prompt, nil, onEvent); err != nil {
 		return store.Proposal{}, err
 	}
-	p, err := s.st.PendingProposal(ctx, s.run.channelID)
+	p, err := s.st.PendingProposal(ctx, s.ch.ID)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && p.ID == before.ID) {
 		return store.Proposal{}, ErrNoProposal
 	}
@@ -180,9 +311,9 @@ func (s *Session) propose(
 
 // Close ends the Session.
 func (s *Session) Close() error {
-	errs := []error{s.ag.Interrupt()}
-	if s.token != "" {
-		errs = append(errs, s.st.DeleteToken(context.Background(), s.token))
+	var errs []error
+	for _, m := range s.members {
+		errs = append(errs, m.close(s.st))
 	}
 	return errors.Join(append(errs, s.lock.Close())...)
 }
@@ -198,12 +329,18 @@ func InUse(dataDir string, channelID int64) bool {
 }
 
 func startPrompt(
-	ctx context.Context, st *store.Store, ch store.Channel, p store.Project,
+	ctx context.Context, st *store.Store, channelID int64, p store.Project, team store.Team,
+	r store.Role,
 ) (string, error) {
-	if ch.FeatureID == nil {
-		return projectContext(p, ch.Role), nil
+	ch, err := st.Channel(ctx, channelID)
+	if err != nil {
+		return "", err
 	}
-	return Context(ctx, st, *ch.FeatureID, ch.Role)
+	if ch.FeatureID == nil {
+		return roleIntro(r) + projectContext(p, r.Name) + teamIntro(team, r), nil
+	}
+	body, err := Context(ctx, st, *ch.FeatureID, r.Name)
+	return roleIntro(r) + body + teamIntro(team, r), err
 }
 
 func failStaleTurns(ctx context.Context, st *store.Store, channelID int64) error {
@@ -220,14 +357,16 @@ func failStaleTurns(ctx context.Context, st *store.Store, channelID int64) error
 	return nil
 }
 
-func newestSessionTurn(ctx context.Context, st *store.Store, channelID int64) (store.Turn, error) {
+func newestSessionTurn(
+	ctx context.Context, st *store.Store, channelID int64, role, backend string,
+) (store.Turn, error) {
 	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &channelID})
 	if err != nil {
 		return store.Turn{}, err
 	}
 	var last store.Turn
 	for _, t := range turns {
-		if t.SessionID != "" {
+		if t.Role == role && t.Backend == backend && t.SessionID != "" {
 			last = t
 		}
 	}

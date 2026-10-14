@@ -28,12 +28,12 @@ type fakeSession struct {
 	wraps     int
 }
 
-func (f *fakeSession) Say(_ context.Context, body string) error {
+func (f *fakeSession) Say(_ context.Context, body string, _ *int64) error {
 	f.stored = append(f.stored, body)
 	return nil
 }
 
-func (f *fakeSession) Run(_ context.Context, text string, onEvent func(agent.Event)) error {
+func (f *fakeSession) Run(_ context.Context, text string, _ *int64, onEvent func(agent.Event)) error {
 	f.said = append(f.said, text)
 	if text == "cap" {
 		return fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)

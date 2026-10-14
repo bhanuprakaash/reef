@@ -9,13 +9,13 @@ live, Wrap-up and promotion, Caps).
 ## Sub-features
 
 - `live-send` `POST /channels/{id}/send {"text":...}` answers 202 at once and the user message is stored before the answer; a send while a turn runs is 409; an empty text is 400.
-- `live-events` `GET /channels/{id}/events` starts with `turn {"status":"idle"}` between turns, or the running turn's frames so far; then `turn` running, `agent` events, `turn` done or failed, and `pause` frames.
+- `live-events` `GET /channels/{id}/events` starts with `turn {"status":"idle"}` between turns, or the running chain's frames so far; then `turn` running (with the running teammate's `role`, here `lead`), `agent` events, `turn` done or failed, and `pause` frames. Wakes between teammates, approvals and the hop cap are in `teams.md`.
 - `live-stop` `POST /channels/{id}/stop` during a turn stores it `failed`, `interrupted`, stops the agent and frees the chat lock; the next send resumes the session.
 - `live-text-commands` the text `/wrap` runs a wrap-up turn; `/promote` sent as text is a plain message.
 - `live-wrap` `POST /channels/{id}/wrap` on a feature channel ends with a pending proposal (`GET /channels/{id}/proposal`); on a quick session it is 400 before any agent starts.
-- `live-promote` `POST /channels/{id}/promote {"slug","name"}` on a quick session sets the channel's feature and ends with a pending proposal holding the first brief; a taken slug is 409 and starts no agent; a channel with a feature is 400.
+- `live-promote` `POST /channels/{id}/promote {"slug","name"}` (or `{"featureId":N}` for an existing feature) on a quick session sets the channel's feature and ends with a pending proposal holding the first brief; both forms together, or neither, is 400; a taken slug is 409 and starts no agent; a channel with a feature is 400.
 - `live-decide` `POST /proposals/{id}/approve` adds a brief version and returns `decisionsAdded`; `reject` changes nothing; deciding twice is 400.
-- `live-caps` a paused channel refuses a send with 409 and the reason; `POST /channels/{id}/continue` clears it (409 when not paused) and sets a used-up token budget to the tokens used plus 1000000.
+- `live-caps` a channel paused by the token budget or the tool cap refuses a send with 409 and the reason; a hop-cap pause (`hop cap: 4 agent hops without a user message`) does not: a user send clears it, answers 202 and runs the turn. `POST /channels/{id}/continue` clears a pause (409 when not paused or while a turn runs), also runs held wakes (see `teams.md`), and sets a used-up token budget to the tokens used plus 1000000.
 - `live-delete` `DELETE /channels/{id}` on a live channel stops its agent first.
 
 ## How to get to it (user POV)
@@ -26,9 +26,9 @@ live, Wrap-up and promotion, Caps).
 ## Driving it with verify-reef
 
 Preconditions: baseline from the README, and a server started with the model set:
-`ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H serve-start --data-name live`. `A=$(cat /private/tmp/reef-verify/<id>/serve.addr)` for `curl -N`.
+`ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H serve-start --data-name live`. `A=$(cat <scratch>/serve.addr)` for `curl -N`.
 
-- **Setup.** `$H api POST /projects '{"name":"live","path":"/private/tmp/reef-verify/<id>/cwd"}'`, `$H api POST /features '{"projectId":1,"slug":"login","name":"Login"}'`, `$H api POST /channels '{"projectId":1,"featureId":1,"name":"build","backend":"claude","permissionMode":"acceptEdits"}'` (channel 1, `"role":"lead"`), `$H api POST /channels '{"projectId":1,"name":"idea","backend":"claude"}'` (channel 2, quick session).
+- **Setup.** `$H api POST /projects '{"name":"live","path":"<scratch>/cwd"}'`, `$H api POST /features '{"projectId":1,"slug":"login","name":"Login"}'`, `$H api POST /channels '{"projectId":1,"featureId":1,"name":"build","backend":"claude","permissionMode":"acceptEdits"}'` (channel 1, `"role":"lead"`), `$H api POST /channels '{"projectId":1,"name":"idea","backend":"claude"}'` (channel 2, quick session).
 - **Events between turns.** `curl -sN --max-time 2 http://$A/channels/1/events` prints `event: turn` / `data: {"status":"idle"}` first.
 - **Send.** Start `curl -sN --max-time 120 http://$A/channels/1/events > ~/.reef-verify/<id>/live-events.txt &`, then `$H api POST /channels/1/send '{"text":"Remember the word pineapple. List the files here with a tool, then reply in one sentence."}'` gives `HTTP 202`; at once `$H api GET '/messages?channel=1'` already has the user message. A second send before the turn ends gives 409 `has a turn running`. When `$H sql "select status from turn where channel_id=1"` is `done`, the events file has `turn` running, `agent` lines with `"kind":"tool_call"` and `"kind":"text"`, and `turn` done. `$H api POST /channels/1/send '{"text":""}'` gives 400.
 - **Stop and resume.** `$H api POST /channels/1/send '{"text":"Write a 1500-word story about lighthouses. Use no tools."}'`, wait 5 seconds, `$H api POST /channels/1/stop` gives 204; the turn row is `failed|interrupted`. `$H api POST /channels/1/send '{"text":"What word did I ask you to remember? Answer with the word only."}'`, then the newest `lead` message contains `pineapple`.
@@ -46,3 +46,4 @@ Preconditions: baseline from the README, and a server started with the model set
 - A turn that fails for any reason other than Stop also stops the agent; the next send starts it again by resume.
 - `/promote` as text is a message on purpose: only the promote route promotes.
 - A paused channel's 409 text ends with `: conflict`; match on `paused:` and the reason.
+- Agents start lazily, on a channel's first turn, so a "starts no agent" `pgrep` check on a channel that has had no turn is true whatever the server does. Count agents before and after the call, on a channel that already ran.

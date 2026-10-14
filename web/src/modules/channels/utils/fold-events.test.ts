@@ -133,6 +133,20 @@ describe('foldEvent', () => {
     expect(got).toEqual({ status: 'idle', items: [] });
   });
 
+  it('follows the role of each turn in a chain', () => {
+    const lead = fold([
+      { type: 'turn', status: 'running', role: 'lead' },
+      agent({ kind: 'text', text: 'asking' }),
+      { type: 'turn', status: 'done', role: 'lead' },
+    ]);
+    expect(lead.role).toBe('lead');
+    expect(foldEvent(lead, { type: 'turn', status: 'running', role: 'architect' })).toEqual({
+      status: 'running',
+      role: 'architect',
+      items: [],
+    });
+  });
+
   it('keeps the note of a done turn', () => {
     const got = fold([
       { type: 'turn', status: 'running' },

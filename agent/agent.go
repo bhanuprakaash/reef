@@ -33,6 +33,7 @@ type Agent interface {
 type Config struct {
 	Cwd            string
 	PermissionMode string               // backend-specific value, passed through
+	Tools          []string             // tools allowed without asking; codex ignores it
 	MCPServers     map[string]MCPServer // extra MCP servers, by name
 	Env            []string             // extra "KEY=value" on top of os.Environ
 }

@@ -22,16 +22,17 @@ type fakeAgent struct {
 	prompts []string
 }
 
-type sayRunner interface {
-	Say(ctx context.Context, body string) error
-	Run(ctx context.Context, text string, onEvent func(agent.Event)) error
-}
+type runFunc func(ctx context.Context, text string, parent *int64, onEvent func(agent.Event)) error
 
-func sendAs(ctx context.Context, r sayRunner, text string, onEvent func(agent.Event)) error {
-	if err := r.Say(ctx, text); err != nil {
+func sendAs(
+	ctx context.Context, st *store.Store, channelID int64, run runFunc, text string,
+	onEvent func(agent.Event),
+) error {
+	_, err := st.CreateMessage(ctx, store.Message{ChannelID: channelID, Author: _userAuthor, Body: text})
+	if err != nil {
 		return err
 	}
-	return r.Run(ctx, text, onEvent)
+	return run(ctx, text, nil, onEvent)
 }
 
 func (f *fakeAgent) Start(context.Context, agent.Config) error          { return nil }
@@ -65,7 +66,7 @@ func TestRunner_Send(t *testing.T) {
 
 	var streamed []string
 	for _, text := range []string{"one 1", "two 2"} {
-		err := sendAs(ctx, r, text, func(ev agent.Event) {
+		err := sendAs(ctx, st, ch.ID, r.Run, text, func(ev agent.Event) {
 			if ev.Kind == agent.KindText {
 				streamed = append(streamed, ev.Text)
 			}
@@ -142,6 +143,74 @@ func (s *scriptAgent) Send(context.Context, string) error {
 	return nil
 }
 
+func TestRunner_ReplyStaysInThread(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := st.CreateMessage(ctx, store.Message{ChannelID: ch.ID, Author: "user", Body: "root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fa := &fakeAgent{events: make(chan agent.Event, 8)}
+	r := NewRunner(st, fa, ch.ID, "architect", "claude", "")
+	if err := r.Run(ctx, "one 1", &root.ID, func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := st.Thread(ctx, ch.ID, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range msgs {
+		got = append(got, m.Author+": "+m.Body)
+	}
+	if want := []string{"user: root", "architect: reply 1"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("thread = %q, want %q", got, want)
+	}
+}
+
+func TestRunner_StoppedTurnKeepsReplyInThread(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := st.CreateMessage(bg, store.Message{ChannelID: ch.ID, Author: "user", Body: "root"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8), script: []agent.Event{{Kind: agent.KindText, Text: "par"}},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	ctx, cancel := context.WithCancel(bg)
+	defer cancel()
+
+	err = r.Run(ctx, "one", &root.ID, func(agent.Event) { cancel() })
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Run error = %v, want context canceled", err)
+	}
+	msgs, err := st.Thread(bg, ch.ID, root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range msgs {
+		got = append(got, m.Author+": "+m.Body)
+	}
+	if want := []string{"user: root", "architect: par"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("thread = %q, want %q", got, want)
+	}
+}
+
 func TestRunner_SendFailedTurn(t *testing.T) {
 	tests := []struct {
 		name        string
@@ -207,7 +276,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			ctx, cancel := context.WithCancel(bg)
 			defer cancel()
 
-			err = sendAs(ctx, r, "hi", func(ev agent.Event) {
+			err = sendAs(ctx, st, ch.ID, r.Run, "hi", func(ev agent.Event) {
 				if ev.Kind == tt.cancelOn {
 					cancel()
 				}
@@ -288,7 +357,7 @@ func TestRunner_SendCancelledAfterMessageStoresTurn(t *testing.T) {
 	ctx := &cancelOnDone{Context: bg, done: make(chan struct{})}
 	defer time.AfterFunc(5*time.Second, ctx.cancel).Stop()
 
-	if err := sendAs(ctx, r, "hi", func(agent.Event) {}); err == nil || err.Error() != "context canceled" {
+	if err := sendAs(ctx, st, ch.ID, r.Run, "hi", func(agent.Event) {}); err == nil || err.Error() != "context canceled" {
 		t.Fatalf("Send error = %v, want context canceled", err)
 	}
 	msgs, err := st.Messages(bg, ch.ID, 0)
@@ -322,7 +391,7 @@ func TestRunner_RunCancelledBeforeSend(t *testing.T) {
 	ctx, cancel := context.WithCancel(bg)
 	cancel()
 
-	if err := r.Run(ctx, "hi", func(agent.Event) {}); !errors.Is(err, context.Canceled) {
+	if err := r.Run(ctx, "hi", nil, func(agent.Event) {}); !errors.Is(err, context.Canceled) {
 		t.Fatalf("Run error = %v, want context canceled", err)
 	}
 	if len(sa.events) != 0 || sa.interrupted != 0 {
@@ -367,7 +436,7 @@ func TestRunner_SendToolCapIs25(t *testing.T) {
 			}
 			r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
 
-			err = sendAs(bg, r, "hi", func(agent.Event) {})
+			err = sendAs(bg, st, ch.ID, r.Run, "hi", func(agent.Event) {})
 			if got := fmt.Sprint(err); (tt.wantErr == "" && err != nil) ||
 				(tt.wantErr != "" && got != tt.wantErr) {
 				t.Errorf("Send error = %v, want %q", err, tt.wantErr)
@@ -396,7 +465,7 @@ func TestRunner_SendCapsToolCalls(t *testing.T) {
 	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
 	r.toolCap = 2
 
-	err = sendAs(bg, r, "hi", func(agent.Event) {})
+	err = sendAs(bg, st, ch.ID, r.Run, "hi", func(agent.Event) {})
 	if !errors.Is(err, ErrCapped) || err.Error() != "capped: more than 2 tool calls" {
 		t.Errorf("Send error = %v, want ErrCapped %q", err, "capped: more than 2 tool calls")
 	}
@@ -447,7 +516,7 @@ func TestRunner_SendCappedTurnKeepsUsage(t *testing.T) {
 	r := NewRunner(st, sa, ch.ID, "architect", "codex", "")
 	r.toolCap = 1
 
-	if err := sendAs(bg, r, "hi", func(agent.Event) {}); !errors.Is(err, ErrCapped) {
+	if err := sendAs(bg, st, ch.ID, r.Run, "hi", func(agent.Event) {}); !errors.Is(err, ErrCapped) {
 		t.Fatalf("Send error = %v, want ErrCapped", err)
 	}
 	turns, err := st.Turns(bg, store.TurnFilter{ChannelID: &ch.ID})
@@ -478,7 +547,7 @@ func TestRunner_SendCancelledKeepsStoppedUsage(t *testing.T) {
 	ctx, cancel := context.WithCancel(bg)
 	defer cancel()
 
-	_ = sendAs(ctx, r, "hi", func(agent.Event) { cancel() })
+	_ = sendAs(ctx, st, ch.ID, r.Run, "hi", func(agent.Event) { cancel() })
 	turns, err := st.Turns(bg, store.TurnFilter{ChannelID: &ch.ID})
 	if err != nil {
 		t.Fatal(err)

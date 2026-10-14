@@ -90,6 +90,9 @@ func run(
 		if err := json.Unmarshal(b, &cfg.MCPServers); err != nil {
 			return fmt.Errorf("parse %s: %w", *mcpFile, err)
 		}
+		for name := range cfg.MCPServers {
+			cfg.Tools = append(cfg.Tools, "mcp__"+name+"__*")
+		}
 	}
 	if *resume != "" {
 		err = a.Resume(ctx, cfg, *resume)

@@ -2,15 +2,19 @@ package store
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
 )
 
-// Message is append-only: there is no update or delete.
+// Message is append-only: there is no update or delete. A reply has the thread root as
+// ParentID; a top-level message has none.
 type Message struct {
 	ID        int64     `json:"id"`
 	ChannelID int64     `json:"channelId"`
+	ParentID  *int64    `json:"parentId"`
 	Author    string    `json:"author"`
 	Body      string    `json:"body"`
 	CreatedAt time.Time `json:"createdAt"`
@@ -32,10 +36,25 @@ func (s *Store) CreateMessage(ctx context.Context, m Message) (Message, error) {
 	if m.Body == "" {
 		return Message{}, fmt.Errorf("%w: message body is required", ErrInvalid)
 	}
+	if m.ParentID != nil {
+		var root bool
+		err := s.db.QueryRowContext(ctx,
+			"SELECT parent_id IS NULL FROM message WHERE id = ? AND channel_id = ?",
+			*m.ParentID, m.ChannelID).Scan(&root)
+		switch {
+		case errors.Is(err, sql.ErrNoRows), err == nil && !root:
+			return Message{}, fmt.Errorf(
+				"%w: parent %d is not a top-level message of channel %d",
+				ErrInvalid, *m.ParentID, m.ChannelID)
+		case err != nil:
+			return Message{}, fmt.Errorf("check parent: %w", err)
+		}
+	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO message (channel_id, author, body, created_at) VALUES (?, ?, ?, ?)",
-		m.ChannelID, m.Author, m.Body, now.Format(time.RFC3339Nano))
+		"INSERT INTO message (channel_id, parent_id, author, body, created_at) "+
+			"VALUES (?, ?, ?, ?, ?)",
+		m.ChannelID, m.ParentID, m.Author, m.Body, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Message{}, s.writeErr(ctx, "insert message", err, ErrInvalid,
 			parent{table: "channel", id: &m.ChannelID})
@@ -54,13 +73,58 @@ func (s *Store) Messages(ctx context.Context, channelID, after int64) ([]Message
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, channel_id, author, body, created_at FROM message "+
+		"SELECT id, channel_id, parent_id, author, body, created_at FROM message "+
 			"WHERE channel_id = ? AND id > ? ORDER BY id",
 		channelID, after)
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
 	return scanAll(rows, scanMessage)
+}
+
+// LastMessageID returns the id of the channel's newest message, 0 when it has none.
+func (s *Store) LastMessageID(ctx context.Context, channelID int64) (int64, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx,
+		"SELECT COALESCE(MAX(id), 0) FROM message WHERE channel_id = ?", channelID).Scan(&id)
+	if err != nil {
+		return 0, fmt.Errorf("last message: %w", err)
+	}
+	return id, nil
+}
+
+// Thread lists the top-level message root of the channel and its replies, oldest first.
+func (s *Store) Thread(ctx context.Context, channelID, root int64) ([]Message, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT id, channel_id, parent_id, author, body, created_at FROM message "+
+			"WHERE channel_id = ? AND (id = ? OR parent_id = ?) ORDER BY id",
+		channelID, root, root)
+	if err != nil {
+		return nil, fmt.Errorf("list thread: %w", err)
+	}
+	msgs, err := scanAll(rows, scanMessage)
+	if err != nil {
+		return nil, err
+	}
+	if len(msgs) == 0 || msgs[0].ParentID != nil {
+		return nil, fmt.Errorf("thread %d: %w", root, ErrNotFound)
+	}
+	return msgs, nil
+}
+
+// ThreadOwner returns the author of the root of the thread that message id is in.
+func (s *Store) ThreadOwner(ctx context.Context, id int64) (string, error) {
+	var author string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT r.author FROM message m JOIN message r ON r.id = COALESCE(m.parent_id, m.id) "+
+			"WHERE m.id = ?", id).Scan(&author)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", fmt.Errorf("message %d: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return "", fmt.Errorf("thread owner: %w", err)
+	}
+	return author, nil
 }
 
 // CountMessages returns how many messages the channel has.
@@ -104,7 +168,7 @@ func (s *Store) SearchMessages(
 func scanMessage(r interface{ Scan(...any) error }) (Message, error) {
 	var m Message
 	var created string
-	if err := r.Scan(&m.ID, &m.ChannelID, &m.Author, &m.Body, &created); err != nil {
+	if err := r.Scan(&m.ID, &m.ChannelID, &m.ParentID, &m.Author, &m.Body, &created); err != nil {
 		return Message{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

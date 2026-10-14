@@ -52,6 +52,7 @@ func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 		{ChannelID: 1, Author: "user", Body: "use sessions for auth"},
 		{ChannelID: 2, Author: "developer", Body: "100% sure, use_sessions"},
 		{ChannelID: 3, Author: "user", Body: "use sessions for billing"},
+		{ChannelID: 2, ParentID: &two, Author: "architect", Body: "agreed"},
 	} {
 		_, err = st.CreateMessage(ctx, m)
 		must(err)
@@ -162,9 +163,46 @@ func TestMCPTools(t *testing.T) {
 		{
 			name: "read thread after an id",
 			tool: "read_thread",
-			give: map[string]any{"channelId": 2, "after": 1},
+			give: map[string]any{"channelId": 2, "after": 2},
+			want: `{"messages":[{"author":"architect","body":"agreed","channelId":2,` +
+				`"createdAt":"T","id":4,"parentId":2}]}`,
+		},
+		{
+			name: "read thread of a root",
+			tool: "read_thread",
+			give: map[string]any{"channelId": 2, "root": 2},
 			want: `{"messages":[{"author":"developer","body":"100% sure, use_sessions",` +
-				`"channelId":2,"createdAt":"T","id":2}]}`,
+				`"channelId":2,"createdAt":"T","id":2,"parentId":null},` +
+				`{"author":"architect","body":"agreed","channelId":2,"createdAt":"T","id":4,` +
+				`"parentId":2}]}`,
+		},
+		{
+			name:    "read thread of a reply",
+			tool:    "read_thread",
+			give:    map[string]any{"channelId": 2, "root": 4},
+			want:    "thread 4: not found",
+			wantErr: true,
+		},
+		{
+			name: "post to channel as the token's role",
+			tool: "post_to_channel",
+			give: map[string]any{"body": "@developer take it"},
+			want: `{"author":"architect","body":"@developer take it","channelId":1,` +
+				`"createdAt":"T","id":5,"parentId":null}`,
+		},
+		{
+			name: "post to channel in a thread",
+			tool: "post_to_channel",
+			give: map[string]any{"body": "done", "parent": 1},
+			want: `{"author":"architect","body":"done","channelId":1,"createdAt":"T","id":6,` +
+				`"parentId":1}`,
+		},
+		{
+			name:    "post to channel under a reply",
+			tool:    "post_to_channel",
+			give:    map[string]any{"body": "x", "parent": 6},
+			want:    "invalid: parent 6 is not a top-level message of channel 1",
+			wantErr: true,
 		},
 		{
 			name:    "read another feature's thread",
@@ -242,5 +280,30 @@ func TestMCPQuickSession(t *testing.T) {
 				t.Errorf("%s = %q (error %v), want the no-feature error", tt.tool, got, isErr)
 			}
 		})
+	}
+}
+
+func TestMCPQuickSessionReadsItsOwnThread(t *testing.T) {
+	st, _ := mcpFixture(t)
+	ctx := context.Background()
+	tok, err := st.CreateToken(ctx, 4, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	root, err := st.CreateMessage(ctx, store.Message{ChannelID: 4, Author: "user", Body: "plan it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = st.CreateMessage(ctx, store.Message{
+		ChannelID: 4, ParentID: &root.ID, Author: "architect", Body: "ok",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, isErr := callTool(t, st, tok)("read_thread", map[string]any{"channelId": 4, "root": root.ID})
+	want := `{"messages":[{"author":"user","body":"plan it","channelId":4,"createdAt":"T","id":5,` +
+		`"parentId":null},{"author":"architect","body":"ok","channelId":4,"createdAt":"T","id":6,` +
+		`"parentId":5}]}`
+	if got != want || isErr {
+		t.Errorf("read_thread = %q (error %v), want %q", got, isErr, want)
 	}
 }

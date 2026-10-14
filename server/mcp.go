@@ -44,9 +44,14 @@ type (
 	threadIn struct {
 		ChannelID int64 `json:"channelId" jsonschema:"channel id, from search_sessions"`
 		After     int64 `json:"after,omitempty" jsonschema:"only messages with a larger id"`
+		Root      int64 `json:"root,omitempty" jsonschema:"id of a top-level message: read it and its replies instead; after is ignored"`
 	}
 	threadOut struct {
 		Messages []store.Message `json:"messages"`
+	}
+	postIn struct {
+		Body   string `json:"body" jsonschema:"the message; @mention a teammate to hand work over"`
+		Parent *int64 `json:"parent,omitempty" jsonschema:"id of a top-level message to reply to in its thread; omit to post at the top level"`
 	}
 	wrapIn struct {
 		Brief     string                   `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
@@ -88,9 +93,15 @@ func NewMCP(st *store.Store, tok store.Token) *mcp.Server {
 		Description: "Read one decision of this feature in full.",
 	}, m.readDecision)
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "read_thread",
-		Description: "Read the messages of one of this feature's channels, oldest first.",
+		Name: "read_thread",
+		Description: "Read the messages of one of this feature's channels, oldest first. " +
+			"Give root, a top-level message id, to read just that message and its replies.",
 	}, m.readThread)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "post_to_channel",
+		Description: "Post a message to this channel as yourself. @mention a teammate to wake " +
+			"them when your turn ends; a post that mentions nobody wakes no one.",
+	}, m.postToChannel)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_wrap",
 		Description: "Propose how to wrap up this channel; the user approves it before " +
@@ -194,19 +205,34 @@ func (m *mcpServer) readDecision(
 func (m *mcpServer) readThread(
 	ctx context.Context, _ *mcp.CallToolRequest, in threadIn,
 ) (*mcp.CallToolResult, threadOut, error) {
-	f, err := m.feature(ctx)
-	if err != nil {
-		return nil, threadOut{}, err
-	}
 	c, err := m.st.Channel(ctx, in.ChannelID)
 	if err != nil {
 		return nil, threadOut{}, err
 	}
-	if c.FeatureID == nil || *c.FeatureID != f.ID {
-		return nil, threadOut{}, fmt.Errorf("channel %d: %w", in.ChannelID, store.ErrNotFound)
+	if c.ID != m.tok.ChannelID {
+		f, err := m.feature(ctx)
+		if err != nil {
+			return nil, threadOut{}, err
+		}
+		if c.FeatureID == nil || *c.FeatureID != f.ID {
+			return nil, threadOut{}, fmt.Errorf("channel %d: %w", in.ChannelID, store.ErrNotFound)
+		}
+	}
+	if in.Root != 0 {
+		msgs, err := m.st.Thread(ctx, c.ID, in.Root)
+		return nil, threadOut{Messages: msgs}, err
 	}
 	msgs, err := m.st.Messages(ctx, c.ID, in.After)
 	return nil, threadOut{Messages: msgs}, err
+}
+
+func (m *mcpServer) postToChannel(
+	ctx context.Context, _ *mcp.CallToolRequest, in postIn,
+) (*mcp.CallToolResult, store.Message, error) {
+	msg, err := m.st.CreateMessage(ctx, store.Message{
+		ChannelID: m.tok.ChannelID, ParentID: in.Parent, Author: m.tok.Role, Body: in.Body,
+	})
+	return nil, msg, err
 }
 
 func (m *mcpServer) proposeWrap(

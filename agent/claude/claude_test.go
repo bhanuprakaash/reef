@@ -398,17 +398,31 @@ func TestResumeAfterBackgroundTask(t *testing.T) {
 	}
 }
 
-func TestMCPServersPreApproved(t *testing.T) {
+func TestMCPServersNotPreApproved(t *testing.T) {
 	a := fakeClaude(t, "argv")
 	cfg := agent.Config{
 		Cwd:        t.TempDir(),
-		MCPServers: map[string]agent.MCPServer{"reef": {Command: "r"}, "ping": {URL: "http://x"}},
+		Tools:      []string{"mcp__reef__*"},
+		MCPServers: map[string]agent.MCPServer{"reef": {Command: "r"}, "mcp1": {URL: "http://x"}},
 	}
 	if err := a.Start(context.Background(), cfg); err != nil {
 		t.Fatal(err)
 	}
 	got := collect(t, drain(a))
-	if len(got) != 1 || !strings.Contains(got[0].Output, " --allowedTools mcp__ping__*,mcp__reef__*") {
+	if len(got) != 1 || !strings.HasSuffix(got[0].Output, " --allowedTools mcp__reef__*") ||
+		strings.Contains(got[0].Output, "mcp__mcp1__") {
+		t.Errorf("events = %+v", got)
+	}
+}
+
+func TestToolsAllowed(t *testing.T) {
+	a := fakeClaude(t, "argv")
+	cfg := agent.Config{Cwd: t.TempDir(), Tools: []string{"Read", "Bash(git log:*)"}}
+	if err := a.Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	got := collect(t, drain(a))
+	if len(got) != 1 || !strings.Contains(got[0].Output, " --allowedTools Read,Bash(git log:*)") {
 		t.Errorf("events = %+v", got)
 	}
 }

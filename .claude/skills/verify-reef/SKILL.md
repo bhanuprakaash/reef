@@ -10,9 +10,10 @@ Four user surfaces exist so far:
 - `reef-agent` (`cmd/reef-agent`) runs one backend (`claude` or `codex`) and prints one JSON
   `Event` per line. Contract: `docs/agents.md`.
 - `reef serve` (`cmd/reef`) keeps Reef's data in one SQLite file and serves it as a JSON
-  REST API. Contract: `docs/server.md`.
+  REST API. It also runs a channel's team: it routes messages between teammates, holds
+  gated wakes and caps hops. Contract: `docs/server.md`.
 - The memory loop (`cmd/reef`): the CLI (`reef project`, `feature`, `brief`, `decide`,
-  `task`, `context`, `token`), `reef mcp` (stdio MCP tools for one teammate) and `reef
+  `task`, `team`, `context`, `token`), `reef mcp` (stdio MCP tools for one teammate) and `reef
   chat` (one role in one channel, in the terminal). Contract: `docs/memory.md`.
 - The window: the React app `reef serve` serves (`web/`). Contract: `docs/server.md` (Web UI).
 
@@ -33,10 +34,15 @@ scratch cwd; the server is started separately (see Server).
 # prints the run id, e.g. 20261013-134053-78591
 ```
 
-`build` runs `go build` for `./cmd/reef-agent` and `./cmd/reef` into `/private/tmp/reef-verify/<id>/bin/`, makes
-the scratch cwd `/private/tmp/reef-verify/<id>/cwd/`, and writes
+`build` runs `go build` for `./cmd/reef-agent` and `./cmd/reef` into `<scratch>/bin/`, makes
+the scratch cwd `<scratch>/cwd/`, and writes
 `~/.reef-verify/<id>/build.txt` (HEAD sha, dirty file count, both binary paths). Ready = it
 printed an id and exited 0.
+
+`<scratch>` is `/tmp/reef-verify/<id>` on Linux and `/private/tmp/reef-verify/<id>` on macOS: the
+helper resolves `/tmp` with `pwd -P`. This skill and its feature files write `<scratch>` for it.
+`<key>` is `<scratch>/cwd` with every character outside A-Z a-z 0-9 turned into `-`: claude keeps
+the scratch cwd's sessions in `~/.claude/projects/<key>/`.
 
 ## Doctor
 
@@ -85,7 +91,7 @@ tool `sleep_60` runs `sleep 60`) and prints the path of its `--mcp` file. The se
 
 ```sh
 REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef mcp-server
-# /private/tmp/reef-verify/<id>/mcp/mcp.json
+# <scratch>/mcp/mcp.json
 ```
 
 Both `run` and `interrupt` print the meta and exit with `reef-agent`'s exit code.
@@ -110,7 +116,7 @@ Launch:
 
 ```sh
 REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef serve-start [--data-name NAME]
-# serve: ready pid=... addr=127.0.0.1:PORT data=/private/tmp/reef-verify/<id>/NAME in 0.4 s
+# serve: ready pid=... addr=127.0.0.1:PORT data=<scratch>/NAME in 0.4 s
 ```
 
 It picks a free 127.0.0.1 port, starts `reef serve --addr ... --data <scratch>/NAME` (default
@@ -197,9 +203,24 @@ Rules:
 
 ## Window
 
-The window is driven in the system Chrome (`/Applications/Google Chrome.app`) with
-`playwright-core` (no browser download), by `scripts/ui/drive.mjs`. It needs a running
+The window is driven in Chrome with `playwright-core`, by `scripts/ui/drive.mjs`. On macOS that
+is the system Chrome (`/Applications/Google Chrome.app`), no browser download. It needs a running
 server, so launch as in Server. Read `features/window.md` first.
+
+On Linux there is no system Chrome (the launch fails with `Chromium distribution 'chrome' is not
+found`). Install Playwright's Chromium once, with its system libraries, and set
+`REEF_VERIFY_CHROME` to its binary on every `ui` call (each Bash call is a new shell). `ui` then
+launches that binary with `--no-sandbox`:
+
+```sh
+PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev npx playwright@1.64.0 install chromium
+npx playwright@1.64.0 install-deps chromium   # or the same libraries with apt
+export REEF_VERIFY_CHROME=$(ls $HOME/.cache/ms-playwright/chromium-*/chrome-linux*/chrome | tail -1)  # chrome-linux/ on x64, chrome-linux-arm64/ on arm64
+```
+
+`1.64.0` is the `playwright-core` version in `scripts/ui/package.json`. The default download host
+may be blocked, hence `PLAYWRIGHT_DOWNLOAD_HOST`. `<rev>` is the folder `install` made; `ls` it
+for the binary's exact path.
 
 Launch: build the web app first, because `build` embeds `web/dist` in `reef` (a missing build
 shows 503 `UI not built`). Start the server with the model set: it starts the `claude` agents.
@@ -221,7 +242,12 @@ REEF_VERIFY_RUN=<id> $H ui cap       # token_budget=1, banner with reason, Conti
 REEF_VERIFY_RUN=<id> $H ui pages     # bad project path error, stage survives reload, task marked done and filtered
 REEF_VERIFY_RUN=<id> $H ui stop      # Stop mid-turn shows Failed: interrupted, next message resumes
 REEF_VERIFY_RUN=<id> $H ui wrap      # Wrap up, Reject, /wrap, Approve, brief version 1
+REEF_VERIFY_RUN=<id> $H ui teams     # team picker, lead then architect, Thread pane reply, gate Approve
 ```
+
+`teams` needs the teams `duo` and `gated` applied to the `ui` folder first: run
+`$H reef --data-name ui -- team apply FILE.json` for each before `serve-start --data-name ui` (the
+files are in `features/teams.md`).
 
 `ui` runs `node scripts/ui/drive.mjs SCENARIO http://<serve.addr>` with the run's data folder, the
 scratch cwd as the project folder and `~/.reef-verify/<id>/ui` for screenshots. Each scenario adds
@@ -282,9 +308,9 @@ If this run's server is still up it gets SIGINT first. Then it sends SIGTERM, th
 pids this run recorded (`reef-agent`, `reef serve`, `reef` commands and the children seen under them), and only
 while the pid still runs the recorded command. It never
 kills by name: other claude sessions and a managed `codex app-server --listen` daemon may
-run on this machine. It removes `/private/tmp/reef-verify/<id>/` and claude's state for
-the scratch cwd (`~/.claude/projects/-private-tmp-reef-verify-<id>-cwd` and its task
-folder under `/private/tmp/claude-<uid>/`), then
+run on this machine. It removes `<scratch>/` and claude's state for
+the scratch cwd (`~/.claude/projects/<key>` and its task
+folder under `claude-<uid>/` beside `reef-verify/`), then
 lists the evidence dir it kept. The server's data folder goes with the scratch dir; `sql.log`
 keeps what you read from it. Run it after every run, failed ones too. Codex threads stay
 in `~/.codex/sessions`; cleanup leaves them.
@@ -307,5 +333,5 @@ in `~/.codex/sessions`; cleanup leaves them.
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |

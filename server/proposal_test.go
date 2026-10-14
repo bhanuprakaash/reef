@@ -20,9 +20,9 @@ func TestWrap_RunsWrapTurn(t *testing.T) {
 	}
 	sub.want(t,
 		_idleFrame,
-		`turn {"status":"running"}`,
+		`turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"wrapped"}`,
-		`turn {"status":"done"}`,
+		`turn {"role":"lead","status":"done"}`,
 	)
 }
 
@@ -36,9 +36,9 @@ func TestPromote_NewFeature(t *testing.T) {
 	}
 	sub.want(t,
 		_idleFrame,
-		`turn {"status":"running"}`,
+		`turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"promoted"}`,
-		`turn {"status":"done"}`,
+		`turn {"role":"lead","status":"done"}`,
 	)
 	status, body = do(t, http.MethodGet, env.url+"/features/1", "")
 	if status != 200 || !strings.Contains(body, `"projectId":1,"slug":"login","name":"Login"`) {
