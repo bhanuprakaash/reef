@@ -77,8 +77,19 @@ func chatCmd(
 			return err
 		}
 		*channelID = ch.ID
-	} else if _, err := st.Channel(ctx, *channelID); err != nil {
-		return err
+	} else {
+		ch, err := st.Channel(ctx, *channelID)
+		if err != nil {
+			return err
+		}
+		team, err := st.Team(ctx, ch.Team)
+		if err != nil {
+			return err
+		}
+		if len(team.Roles) > 1 {
+			return fmt.Errorf("channel %d belongs to team %q; use the Reef window for multi-role teams",
+				ch.ID, team.Name)
+		}
 	}
 	sess, err := channel.Open(ctx, st, dir, exe, *channelID)
 	if err == nil {
