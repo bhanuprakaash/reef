@@ -74,7 +74,7 @@ export function ChannelView({ channel, scope, features }: Props) {
         {messages.data && <MessageList threads={threads} onOpen={setThreadId} />}
         <LiveTurn turn={turn} role={turn.role || channel.role || 'agent'} />
         {turn.note && <p className={mutedClass}>{turn.note}</p>}
-        <FailedTurnRows channelId={channel.id} running={running} />
+        <FailedTurnRows channelId={channel.id} running={running} paused={channel.paused !== ''} />
         <CheckpointRows channelId={channel.id} running={running} />
         <ApprovalRows channelId={channel.id} />
         <ProposalPanel channelId={channel.id} featureId={channel.featureId} />

@@ -160,6 +160,20 @@ func TestInbox_Failed(t *testing.T) {
 	e.want()
 }
 
+func TestInbox_FailedTurnThatPausedItsChannelIsNotAlsoListedAsFailed(t *testing.T) {
+	e := newInboxEnv(t)
+	e.turn(1, "lead", "build it", "failed")
+	if err := e.s.PauseChannel(e.ctx, 1, "capped: more than 25 tool calls"); err != nil {
+		t.Fatal(err)
+	}
+	e.want("paused 1 capped: more than 25 tool calls")
+
+	if err := e.s.ContinueChannel(e.ctx, 1, TokenBudget); err != nil {
+		t.Fatal(err)
+	}
+	e.want("failed 1 lead failed: boom")
+}
+
 func TestInbox_StoppedTurnIsNotAnItem(t *testing.T) {
 	e := newInboxEnv(t)
 	stopped := e.turn(1, "lead", "build it", "running")
@@ -214,5 +228,5 @@ func TestInbox_NewestFirst(t *testing.T) {
 	if err := e.s.PauseChannel(e.ctx, 2, "capped: more than 25 tool calls"); err != nil {
 		t.Fatal(err)
 	}
-	e.want("waiting 1 hello", "paused 2 capped: more than 25 tool calls", "failed 2 lead failed: boom")
+	e.want("waiting 1 hello", "paused 2 capped: more than 25 tool calls")
 }

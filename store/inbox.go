@@ -10,7 +10,8 @@ import (
 // _inboxItems selects the items of the first three kinds. A failed turn is listed when retry
 // may run it again, so a retry, or a send that the role answered, clears it, and of several
 // failed turns only the newest shows; a turn the user stopped is not listed. A paused channel
-// is dated by its newest turn, which is what paused it.
+// is dated by its newest turn, which is what paused it. A turn that failed and paused its own
+// channel, such as the tool call cap, shows only as paused.
 const _inboxItems = `
 SELECT 'approval', a.channel_id, c.feature_id, a.from_role || ' wants to wake ' || a.to_role,
 	a.created_at, a.id, NULL
@@ -24,7 +25,7 @@ FROM channel c WHERE c.paused != ''
 UNION ALL
 SELECT 'failed', t.channel_id, c.feature_id, t.role || ' failed: ' || t.error, t.ended_at, NULL, t.id
 FROM turn t JOIN channel c ON c.id = t.channel_id
-WHERE ` + _retryable + ` AND t.error != '` + _interruptedError + `'`
+WHERE ` + _retryable + ` AND t.error != '` + _interruptedError + `' AND c.paused = ''`
 
 // _inboxWaiting selects the channels that run no turn and whose newest message is from an
 // agent and held no wake at a gate: a message that woke somebody, or whose wake the user
