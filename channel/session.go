@@ -131,27 +131,29 @@ func (s *Session) Run(ctx context.Context, text string, onEvent func(agent.Event
 	return s.run.Run(ctx, text, onEvent)
 }
 
-// Wrap runs a wrap-up turn and returns the proposal the agent made, or ErrNoProposal.
+// Wrap runs a wrap-up turn and returns the proposal the agent made, or ErrNoProposal. Like
+// Run, a cancelled ctx still stores the turn.
 func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
 	return s.propose(ctx, _wrapPrompt, onEvent)
 }
 
 // Promote runs a promote turn and returns the proposal the agent made, or ErrNoProposal.
-// The channel must already have its feature.
+// The channel must already have its feature. Like Run, a cancelled ctx still stores the turn.
 func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
-	ch, err := s.st.Channel(ctx, s.run.channelID)
+	rctx := context.WithoutCancel(ctx)
+	ch, err := s.st.Channel(rctx, s.run.channelID)
 	if err != nil {
 		return store.Proposal{}, err
 	}
 	if ch.FeatureID == nil {
 		return store.Proposal{}, fmt.Errorf("%w: channel %d has no feature", store.ErrInvalid, ch.ID)
 	}
-	f, err := s.st.Feature(ctx, *ch.FeatureID)
+	f, err := s.st.Feature(rctx, *ch.FeatureID)
 	if err != nil {
 		return store.Proposal{}, err
 	}
 	prompt := _promotePrompt
-	if _, err := s.st.Brief(ctx, f.ID); err == nil {
+	if _, err := s.st.Brief(rctx, f.ID); err == nil {
 		prompt = _promoteIntoBriefPrompt
 	} else if !errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, err
@@ -162,7 +164,7 @@ func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store
 func (s *Session) propose(
 	ctx context.Context, prompt string, onEvent func(agent.Event),
 ) (store.Proposal, error) {
-	before, err := s.st.PendingProposal(ctx, s.run.channelID)
+	before, err := s.st.PendingProposal(context.WithoutCancel(ctx), s.run.channelID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, err
 	}

@@ -53,7 +53,8 @@ func (r *Runner) Say(ctx context.Context, body string) error {
 	return err
 }
 
-// Run runs one turn with text. A cancelled ctx wraps ctx.Err(); a turn over the tool
+// Run runs one turn with text. A cancelled ctx wraps ctx.Err(), and a ctx cancelled before
+// the prompt is sent stores the turn failed without sending it; a turn over the tool
 // call cap pauses the channel and wraps ErrCapped.
 func (r *Runner) Run(ctx context.Context, text string, onEvent func(agent.Event)) error {
 	// The turn is recorded even when ctx is cancelled.
@@ -63,6 +64,10 @@ func (r *Runner) Run(ctx context.Context, text string, onEvent func(agent.Event)
 	})
 	if err != nil {
 		return err
+	}
+
+	if err := ctx.Err(); err != nil {
+		return errors.Join(err, r.fail(wctx, turn, "interrupted", ""))
 	}
 
 	prompt := text

@@ -332,6 +332,51 @@ func TestSession_Promote(t *testing.T) {
 	}
 }
 
+func TestSession_WrapOrPromoteCancelledStoresTurn(t *testing.T) {
+	tests := []struct {
+		name string
+		give func(s *Session, ctx context.Context) error
+	}{
+		{"wrap", func(s *Session, ctx context.Context) error {
+			_, err := s.Wrap(ctx, discard)
+			return err
+		}},
+		{"promote", func(s *Session, ctx context.Context) error {
+			_, err := s.Promote(ctx, discard)
+			return err
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			bg := context.Background()
+			st, f := openStore(t)
+			ch := sessionChannel(t, st, f, false)
+			ag := newRecordingAgent()
+			s, err := open(bg, st, t.TempDir(), "/bin/reef", ch.ID, ag.factory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			ctx, cancel := context.WithCancel(bg)
+			cancel()
+
+			if err := tt.give(s, ctx); !errors.Is(err, context.Canceled) {
+				t.Fatalf("error = %v, want context canceled", err)
+			}
+			if len(ag.prompts) != 0 {
+				t.Errorf("prompts = %q, want none", ag.prompts)
+			}
+			turns, err := st.Turns(bg, store.TurnFilter{ChannelID: &ch.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Error != "interrupted" {
+				t.Errorf("turns = %+v, want one failed interrupted turn", turns)
+			}
+		})
+	}
+}
+
 func TestSession_PromoteIntoFeatureWithBrief(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
