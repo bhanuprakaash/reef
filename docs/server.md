@@ -425,6 +425,13 @@ a message wakes them.
   the files do not change. The ref is on the turn's `checkpoint`. If the checkpoint fails (for
   example a repo with no commit), the turn is stored `failed` with git's error and the agent
   gets no prompt. A role without `write` gets none.
+- One write turn at a time runs on a tree, across all channels of the server: the feature's
+  worktree, or the project path for quick sessions. A wake of a role with `write` waits for
+  the write turn that runs on its tree, then runs. Its turn row is created when it starts, so
+  `startedAt` is after the other turn's `endedAt`. A stop ends the wait, and the turn is
+  stored `failed` as `interrupted`. A role without `write` is not held, and the first start
+  of a feature's worktree takes a lock of its own, so two channels waking at once add it once.
+  The lock lives in the server's process: `reef chat` in another process is not held by it.
 - The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session.
