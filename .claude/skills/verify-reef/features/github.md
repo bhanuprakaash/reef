@@ -18,6 +18,10 @@ in logs. Contract: `docs/server.md` (GitHub poll) and `docs/product.md` (decisio
 - `two-runs-same-name-both-noted` a rollup with two check runs under the same name (a matrix job, two workflows) notes both, once each, across repeat polls.
 - `wake-retries-after-busy` a failed check on a paused channel still posts its note; the busy cause is logged once, and the wake runs once the channel is no longer paused.
 - `no-gh-logged-once` with no `gh` on `PATH`, the server keeps running, posts nothing, and logs the cause once, not every poll.
+- `hop-cap` the wake is attributed to an author other than the user, so it counts as a hop like
+  any agent-originated wake: a run of distinct failed checks, one per poll, wakes the developer
+  up to `store.HopCap` times, then the next one is noted but pauses the channel at the hop cap
+  instead of waking it again.
 
 ## How to get to it (user POV)
 
