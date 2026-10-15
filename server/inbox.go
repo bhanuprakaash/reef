@@ -16,6 +16,30 @@ func (s *server) inboxRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/inbox", methodNotAllowed)
 	mux.HandleFunc("GET /inbox/events", s.inboxEvents)
 	mux.HandleFunc("/inbox/events", methodNotAllowed)
+	mux.HandleFunc("POST /channels/{id}/dismiss", s.dismissWaiting)
+	mux.HandleFunc("/channels/{id}/dismiss", methodNotAllowed)
+}
+
+// dismissWaiting hides the waiting item whose message is messageId; a newer message brings it
+// back.
+func (s *server) dismissWaiting(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		MessageID int64 `json:"messageId"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.st.DismissWaiting(r.Context(), id, in.MessageID); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // inbox lists the store's inbox without the waiting, paused and failed items of a channel with

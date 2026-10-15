@@ -213,6 +213,35 @@ func TestInbox_SendClearsWaiting(t *testing.T) {
 	env.wantInbox(t)
 }
 
+func TestInbox_DismissWaiting(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "what next?", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "hi")
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
+	env.wantInbox(t, "waiting 2 what next?")
+
+	url := fmt.Sprintf("%s/channels/%d/dismiss", env.url, id)
+	if status, _ := do(t, http.MethodPost, url, `{"messageId":999}`); status != 404 {
+		t.Errorf("dismiss of an unknown message = %d, want 404", status)
+	}
+	_, list := do(t, http.MethodGet, env.url+"/inbox", "")
+	var items []store.InboxItem
+	if err := json.Unmarshal([]byte(list), &items); err != nil || len(items) != 1 || items[0].MessageID == nil {
+		t.Fatalf("GET /inbox = %s, want one waiting item with a messageId", list)
+	}
+	if status, body := do(t, http.MethodPost, url, fmt.Sprintf(`{"messageId":%d}`, *items[0].MessageID)); status != 204 {
+		t.Fatalf("dismiss = %d %s, want 204", status, body)
+	}
+	env.wantInbox(t)
+}
+
 func TestInboxEvents_AcrossChannels(t *testing.T) {
 	env := newLiveEnv(t)
 	id := env.gatedTeam(t, "@architect block")

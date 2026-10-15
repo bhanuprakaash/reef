@@ -5,6 +5,7 @@ import { useContinueChannel } from '@/lib/api/continue-channel';
 import { useDecideApproval } from '@/lib/api/decide-approval';
 import { useRetryTurn } from '@/lib/api/retry-turn';
 import { useTeams } from '@/lib/api/get-teams';
+import { useDismissWaiting } from '@/modules/inbox/api/dismiss-waiting';
 import { age } from '@/modules/inbox/utils/age';
 import { kindLabels } from '@/modules/inbox/utils/new-items';
 import type { Channel, InboxItem } from '@/types/api';
@@ -22,10 +23,11 @@ export function InboxRow({ item, channel }: { item: InboxItem; channel?: Channel
   const decide = useDecideApproval();
   const cont = useContinueChannel();
   const retry = useRetryTurn();
+  const dismiss = useDismissWaiting();
   const teams = useTeams();
-  const pending = decide.isPending || cont.isPending || retry.isPending;
-  const error = decide.error ?? cont.error ?? retry.error;
-  const { channelId, approvalId, turnId } = item;
+  const pending = decide.isPending || cont.isPending || retry.isPending || dismiss.isPending;
+  const error = decide.error ?? cont.error ?? retry.error ?? dismiss.error;
+  const { channelId, approvalId, turnId, messageId } = item;
 
   return (
     <li className="flex gap-4 rounded-card border border-line bg-card px-5 py-[18px]">
@@ -90,6 +92,16 @@ export function InboxRow({ item, channel }: { item: InboxItem; channel?: Channel
           >
             {item.kind === 'waiting' ? 'Open' : 'Open channel'}
           </Link>
+          {item.kind === 'waiting' && messageId !== undefined && (
+            <Button
+              type="button"
+              variant="ghost"
+              disabled={pending}
+              onClick={() => dismiss.mutate({ channelId, messageId })}
+            >
+              Dismiss
+            </Button>
+          )}
         </div>
         {error && <p className="mt-2 text-sm text-danger">{error.message}</p>}
       </div>

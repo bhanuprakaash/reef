@@ -219,6 +219,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 58 | One Terminal toggle for the whole window, default off, remembered. It never creates a worktree: a feature without one shows an Open terminal button, and only that button makes it | Looking at a feature must not change the user's git repo |
 | 59 | A role with `write` has no tool call cap; the other roles keep 25 per turn | The writer does the long work (tests first, installs, checks), and the cap paused it mid-change; read-only roles stay capped so a looping reader stops |
 | 60 | A feature's worktree branches from the repo's default branch (the local branch `origin/HEAD` names, else `main`, else `master`, else HEAD), not from the checkout's HEAD; the feature diff is against the same ref. Replaces the HEAD part of 33 | A feature must not inherit the commits of whatever unrelated branch the checkout is on |
+| 61 | The user can dismiss a `waiting` item in Needs you; an approval, a pause and a failed turn have no dismiss | Waiting asks for no action and can pile up; the others block work until the user acts. Dismiss hides only the message it was pressed on, so a new agent message brings the item back |
 
 ## Open questions
 

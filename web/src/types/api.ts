@@ -140,6 +140,7 @@ export type InboxItem = {
   at: string;
   approvalId?: number;
   turnId?: number;
+  messageId?: number;
 };
 
 export type DiffLineKind = 'add' | 'del' | 'ctx';
