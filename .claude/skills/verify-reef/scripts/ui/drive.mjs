@@ -1189,6 +1189,13 @@ async function wrap() {
     'an approved channel shows Wrapped and Reopen, no composer, no Wrap up',
     `closed_at ${sql(`select closed_at from channel where id=${cid}`)}`,
   );
+  const queued = (await getJson('/inbox')).filter((i) => i.channelId === Number(cid));
+  await page.goto(`${base}/inbox`);
+  await page.getByRole('heading', { name: 'Needs you' }).waitFor();
+  await shot('wrapped-needs-you');
+  check(queued.length === 0, 'Needs you has no item for the wrapped channel', JSON.stringify(queued));
+  await page.goto(`${base}/channels/${cid}`);
+  await main.getByText('Wrapped', { exact: true }).waitFor();
   await aside.getByRole('button', { name: /^Wrapped \(1\)/ }).click();
   await section.getByRole('link', { name: /#wrap chat/ }).waitFor();
   await shot('wrapped-sidebar');
@@ -1199,8 +1206,10 @@ async function wrap() {
   check(sql(`select closed_at is null from channel where id=${cid}`) === '1', 'Reopen brings the composer back and clears closed_at');
 
   await section.getByRole('link', { name: 'Login', exact: true }).click();
-  page.once('dialog', (d) => d.accept());
   await main.getByRole('button', { name: 'Close feature' }).click();
+  await page.getByRole('dialog', { name: 'Close feature' }).waitFor();
+  await shot('close-dialog');
+  await page.getByRole('dialog', { name: 'Close feature' }).getByRole('button', { name: 'Close feature' }).click();
   await main.getByRole('button', { name: 'Reopen' }).waitFor();
   await aside.getByRole('button', { name: /^Closed \(1\)/ }).click();
   await section.getByRole('link', { name: 'Login', exact: true }).waitFor();
