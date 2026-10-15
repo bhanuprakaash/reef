@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
@@ -10,9 +10,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -308,6 +308,36 @@ async function pages() {
     'a task added in the window is marked done and filtered',
     `row ${sql(`select id,project_id,feature_id,status from task where title='${title}'`)}; url ${page.url().replace(base, '')}`,
   );
+}
+
+async function capture() {
+  const section = await addProject();
+  const name = await section.getByRole('heading', { level: 3 }).innerText();
+  const pid = sql(`select id from project where name='${name}'`);
+  await page.goto(base + '/capture');
+  await page.getByLabel('Capture project').selectOption({ label: name });
+  const text = `ui capture ${Date.now().toString(36)}`;
+  await page.getByLabel('Capture text').fill(text);
+  await page.getByLabel('Capture text').press('Enter');
+  await page.getByText('Captured').waitFor({ timeout: 15000 });
+  await shot('captured');
+  check((await page.getByLabel('Capture text').inputValue()) === '', 'the text box is empty after capture');
+  const row = sql(`select title from task where project_id=${pid} and title='idea: ${text}'`);
+  check(row === `idea: ${text}`, 'the captured text is stored as a task row', row);
+
+  // A failing request shows its error: the picked project is deleted before Enter.
+  const section2 = await addProject();
+  const name2 = await section2.getByRole('heading', { level: 3 }).innerText();
+  const pid2 = sql(`select id from project where name='${name2}'`);
+  await page.goto(base + '/capture');
+  await page.getByLabel('Capture project').selectOption({ label: name2 });
+  sql(`delete from project where id=${pid2}`, true);
+  await page.getByLabel('Capture text').fill('should fail');
+  await page.getByLabel('Capture text').press('Enter');
+  const err = page.getByText(/unknown project/);
+  await err.waitFor({ timeout: 15000 });
+  await shot('error');
+  check(true, 'a capture whose request fails shows the error', await err.innerText());
 }
 
 async function stop() {
