@@ -38,6 +38,7 @@ type Runner struct {
 	backend   string
 	preamble  string
 	sessionID string
+	model     string
 	toolCap   int
 }
 
@@ -68,6 +69,7 @@ func (r *Runner) Run(
 	if err != nil {
 		return err
 	}
+	turn.Model = r.model
 
 	if err := ctx.Err(); err != nil {
 		return errors.Join(err, r.fail(wctx, turn, "interrupted", "", parent))
@@ -120,7 +122,7 @@ func (r *Runner) Run(
 			case agent.KindSession:
 				r.sessionID, turn.SessionID = ev.SessionID, ev.SessionID
 				if ev.Model != "" {
-					turn.Model = ev.Model
+					r.model, turn.Model = ev.Model, ev.Model
 				}
 				if _, err := r.st.SetTurnSession(wctx, turn.ID, ev.SessionID); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)

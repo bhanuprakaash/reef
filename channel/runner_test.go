@@ -42,7 +42,7 @@ func (f *fakeAgent) Interrupt() error                                   { return
 
 func (f *fakeAgent) Send(_ context.Context, prompt string) error {
 	if len(f.prompts) == 0 {
-		f.events <- agent.Event{Kind: agent.KindSession, SessionID: "s1"}
+		f.events <- agent.Event{Kind: agent.KindSession, SessionID: "s1", Model: "m1"}
 	}
 	f.prompts = append(f.prompts, prompt)
 	f.events <- agent.Event{Kind: agent.KindText, Text: "re"}
@@ -108,9 +108,9 @@ func TestRunner_Send(t *testing.T) {
 		if want := []string{"one 1", "two 2"}[i]; tr.WakeText != want {
 			t.Errorf("turn %d wake = %q, want %q: the context is not part of it", tr.ID, tr.WakeText, want)
 		}
-		if tr.Status != "done" || tr.SessionID != "s1" || tr.Role != "architect" ||
+		if tr.Status != "done" || tr.SessionID != "s1" || tr.Role != "architect" || tr.Model != "m1" ||
 			tr.Usage != (agent.Usage{InputTokens: 3, OutputTokens: 5}) {
-			t.Errorf("turn = %+v, want done s1 architect with usage 3/5", tr)
+			t.Errorf("turn = %+v, want done s1 architect m1 with usage 3/5", tr)
 		}
 	}
 }
