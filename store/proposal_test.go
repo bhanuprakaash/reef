@@ -286,3 +286,29 @@ func TestCreateProposalInvalid(t *testing.T) {
 		})
 	}
 }
+
+func TestApproveProposalClosesChannelAndReopenClearsIt(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+	if _, _, err := s.ApproveProposal(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	c, err := s.Channel(ctx, 1)
+	if err != nil || c.ClosedAt == nil {
+		t.Fatalf("channel 1 closedAt after approve = %v, err = %v, want set", c.ClosedAt, err)
+	}
+	if q, err := s.Channel(ctx, 2); err != nil || q.ClosedAt != nil {
+		t.Errorf("channel 2 closedAt = %v, err = %v, want nil", q.ClosedAt, err)
+	}
+
+	if err := s.ReopenChannel(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if c, err = s.Channel(ctx, 1); err != nil || c.ClosedAt != nil {
+		t.Errorf("channel 1 closedAt after reopen = %v, err = %v, want nil", c.ClosedAt, err)
+	}
+	if err := s.ReopenChannel(ctx, 99); !errors.Is(err, ErrNotFound) {
+		t.Errorf("reopen channel 99 = %v, want ErrNotFound", err)
+	}
+}

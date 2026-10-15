@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -221,6 +222,22 @@ func TestInbox_Waiting(t *testing.T) {
 	e.want("paused 1 capped: more than 25 tool calls")
 }
 
+func TestInbox_ClosedChannelIsNotAnItem(t *testing.T) {
+	e := newInboxEnv(t)
+	e.say(1, "lead", "Wrap proposed.")
+	e.want("waiting 1 Wrap proposed.")
+
+	if _, err := e.s.db.ExecContext(e.ctx, "UPDATE channel SET closed_at = ? WHERE id = 1", "2026-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	e.want()
+
+	if err := e.s.ReopenChannel(e.ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	e.want("waiting 1 Wrap proposed.")
+}
+
 func TestInbox_NewestFirst(t *testing.T) {
 	e := newInboxEnv(t)
 	e.turn(2, "lead", "a", "failed")
@@ -229,4 +246,41 @@ func TestInbox_NewestFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.want("waiting 1 hello", "paused 2 capped: more than 25 tool calls")
+}
+
+func TestInbox_DismissWaiting(t *testing.T) {
+	e := newInboxEnv(t)
+	e.say(1, "user", "go")
+	reply := e.say(1, "lead", "done, your call")
+	other := e.say(2, "lead", "also done")
+	e.want("waiting 2 also done", "waiting 1 done, your call")
+	items, _ := e.s.Inbox(e.ctx)
+	if items[1].MessageID == nil || *items[1].MessageID != reply.ID {
+		t.Fatalf("item = %+v, want message id %d", items[1], reply.ID)
+	}
+
+	if err := e.s.DismissWaiting(e.ctx, 1, reply.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.want("waiting 2 also done")
+
+	e.say(1, "lead", "one more thing")
+	e.want("waiting 1 one more thing", "waiting 2 also done")
+
+	if err := e.s.DismissWaiting(e.ctx, 1, other.ID); !errors.Is(err, ErrNotFound) {
+		t.Errorf("DismissWaiting(message of another channel) = %v, want ErrNotFound", err)
+	}
+}
+
+func TestInbox_DismissLeavesApprovalsAlone(t *testing.T) {
+	e := newInboxEnv(t)
+	m := e.say(1, "lead", "@architect plan")
+	a := Approval{ChannelID: 1, From: "lead", To: "architect", MessageID: m.ID, Text: "plan"}
+	if _, err := e.s.CreateApproval(e.ctx, a); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.s.DismissWaiting(e.ctx, 1, m.ID); err != nil {
+		t.Fatal(err)
+	}
+	e.want("approval 1 lead wants to wake architect")
 }

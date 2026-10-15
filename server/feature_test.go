@@ -152,7 +152,7 @@ func TestFeatureRoundTrip(t *testing.T) {
 
 	status, body := do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"auth","name":"Auth"}`)
 	if status != 201 || !strings.HasPrefix(body,
-		`{"id":1,"projectId":1,"slug":"auth","name":"Auth","goal":"","stage":"ideation","createdAt":"`) {
+		`{"id":1,"projectId":1,"slug":"auth","name":"Auth","goal":"","stage":"ideation","kind":"journey","createdAt":"`) {
 		t.Fatalf("create = %d %s", status, body)
 	}
 	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":2,"slug":"auth","name":"Auth"}`)
@@ -170,6 +170,13 @@ func TestFeatureRoundTrip(t *testing.T) {
 	status, body = do(t, http.MethodPut, ts.URL+"/features/1", `{"slug":"auth","name":"Auth","goal":"sign in","stage":"build"}`)
 	if status != 200 || !strings.Contains(body, `"goal":"sign in","stage":"build"`) {
 		t.Fatalf("update = %d %s", status, body)
+	}
+	status, body = do(t, http.MethodPut, ts.URL+"/features/1", `{"name":"Auth","stage":"build","kind":"fixes"}`)
+	if status != 200 || !strings.Contains(body, `"kind":"fixes"`) {
+		t.Fatalf("update kind = %d %s", status, body)
+	}
+	if status, body = do(t, http.MethodPut, ts.URL+"/features/1", `{"name":"Auth","kind":"epic"}`); status != 400 {
+		t.Fatalf("update bad kind = %d %s, want 400", status, body)
 	}
 
 	status, body = do(t, http.MethodPut, ts.URL+"/features/1/brief", `{"body":"v1","author":"lead"}`)

@@ -1,0 +1,17 @@
+#!/bin/sh
+# Fake gh for `verify-reef ui pr`. $REEF_FAKE_GH/pr.json is the PR gh pr view prints; no file or
+# an empty one means no PR. gh pr merge logs its arguments to $REEF_FAKE_GH/merges.log and turns
+# an OPEN, MERGEABLE PR into MERGED.
+f="$REEF_FAKE_GH/pr.json"
+case "$1 $2" in
+"pr view")
+	[ -s "$f" ] || { echo "no pull requests found for branch \"$3\"" >&2; exit 1; }
+	cat "$f"
+	;;
+"pr merge")
+	echo "$*" >>"$REEF_FAKE_GH/merges.log"
+	grep -q '"mergeable":"MERGEABLE"' "$f" || { echo "Pull request is not mergeable" >&2; exit 1; }
+	sed 's/"state":"OPEN"/"state":"MERGED"/' "$f" >"$f.new" && mv "$f.new" "$f"
+	;;
+*) exit 1 ;;
+esac

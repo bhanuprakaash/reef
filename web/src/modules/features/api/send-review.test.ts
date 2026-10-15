@@ -13,6 +13,7 @@ const channel = (id: number, team: string): Channel => ({
   permissionMode: 'acceptEdits',
   paused: '',
   createdAt: '',
+  closedAt: null,
 });
 
 const team = (name: string, roles: string[]): Team => ({

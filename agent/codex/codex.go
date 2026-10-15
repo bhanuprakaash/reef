@@ -554,6 +554,9 @@ func threadParams(cfg agent.Config) map[string]any {
 	if cfg.PermissionMode != "" {
 		params["sandbox"] = cfg.PermissionMode
 	}
+	if cfg.Model != "" {
+		params["model"] = cfg.Model
+	}
 	if len(cfg.MCPServers) > 0 {
 		servers := make(map[string]mcpServer, len(cfg.MCPServers))
 		for name, s := range cfg.MCPServers {

@@ -240,7 +240,7 @@ holds a message body. Its shape:
    resuming, gets this part again, marked `Your persona or skills changed:`.
 1. One line: role, feature name and slug, project name. Then, when a profile exists,
    `You work with Ada, a developer. They like: short answers, ask before big changes.` (occupation
-   and style only when set, lower-cased; `Other` is left out). Then the goal (if set) and the stage. A quick session
+   and style only when set, lower-cased; `Other` is left out). Then the goal (if set) and the stage (a `fixes` feature says it is a list of fixes tracked as tasks instead). A quick session
    adds the same line after its second line.
 2. `## Project memory`: the project's memory (see [server.md](server.md#project_memory)), only
    when it is not empty.
@@ -418,7 +418,8 @@ Approve applies everything in one transaction:
 - each proposed decision, with the role as author and no source message. A decision whose
   body is exactly the body of one the feature already has is skipped, so a decision the
   agent recorded live is not saved twice. A repeat inside the proposal is skipped too,
-- the proposal marked `approved`, with `decidedAt`.
+- the proposal marked `approved`, with `decidedAt`,
+- the proposal's channel closed (`closedAt`). The server then stops its agent and refuses new turns on it until `POST /channels/{id}/reopen`.
 
 If any step fails, nothing is applied. It prints `approved: brief, notes and 1 decisions
 saved`, counting only the decisions it added.

@@ -17,6 +17,8 @@ export type ProjectMemory = {
   body: string;
 };
 
+export type FeatureKind = 'journey' | 'fixes';
+
 export type Feature = {
   id: number;
   projectId: number;
@@ -24,7 +26,9 @@ export type Feature = {
   name: string;
   goal: string;
   stage: string;
+  kind: FeatureKind;
   createdAt: string;
+  closedAt: string | null;
 };
 
 export type Brief = {
@@ -56,6 +60,7 @@ export type Channel = {
   permissionMode: string;
   paused: string;
   createdAt: string;
+  closedAt: string | null;
 };
 
 export type ChannelPreview = Channel & {
@@ -108,6 +113,7 @@ export type Role = {
   persona: string;
   skills: string;
   face?: string;
+  model?: string;
   tools: string[];
   mcp: { name: string; label: string }[];
   mcpRemove?: { name: string; label: string }[];
@@ -140,6 +146,7 @@ export type InboxItem = {
   at: string;
   approvalId?: number;
   turnId?: number;
+  messageId?: number;
 };
 
 export type DiffLineKind = 'add' | 'del' | 'ctx';
@@ -197,6 +204,19 @@ export type InspectorRole = {
 export type Inspector = {
   roles: InspectorRole[];
   turns: InspectorTurn[];
+};
+
+export type FeaturePR = {
+  number: number;
+  title: string;
+  state: 'OPEN' | 'MERGED' | 'CLOSED';
+  url: string;
+  isDraft: boolean;
+  reviewDecision: string;
+  base: string;
+  head: string;
+  canMerge: boolean;
+  checks: { name: string; state: 'pass' | 'fail' | 'pending' }[];
 };
 
 export type TaskStatus = 'todo' | 'doing' | 'done';

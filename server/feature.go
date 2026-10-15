@@ -21,6 +21,10 @@ func (s *server) featureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /features/{id}", s.updateFeature)
 	mux.HandleFunc("DELETE /features/{id}", s.deleteFeature)
 	mux.HandleFunc("/features/{id}", methodNotAllowed)
+	mux.HandleFunc("POST /features/{id}/close", s.closeFeature)
+	mux.HandleFunc("/features/{id}/close", methodNotAllowed)
+	mux.HandleFunc("POST /features/{id}/reopen", s.reopenFeature)
+	mux.HandleFunc("/features/{id}/reopen", methodNotAllowed)
 	mux.HandleFunc("GET /features/{id}/brief", s.getBrief)
 	mux.HandleFunc("PUT /features/{id}/brief", s.putBrief)
 	mux.HandleFunc("/features/{id}/brief", methodNotAllowed)
@@ -35,6 +39,10 @@ func (s *server) featureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/features/{id}/worktree", methodNotAllowed)
 	mux.HandleFunc("GET /features/{id}/diff", s.getFeatureDiff)
 	mux.HandleFunc("/features/{id}/diff", methodNotAllowed)
+	mux.HandleFunc("GET /features/{id}/pr", s.getFeaturePR)
+	mux.HandleFunc("/features/{id}/pr", methodNotAllowed)
+	mux.HandleFunc("POST /features/{id}/pr/merge", s.mergeFeaturePR)
+	mux.HandleFunc("/features/{id}/pr/merge", methodNotAllowed)
 }
 
 func (s *server) listFeatures(w http.ResponseWriter, r *http.Request) {
@@ -100,6 +108,56 @@ func (s *server) updateFeature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, f)
+}
+
+// closeFeature closes the feature and all its channels, and stops their agents. A channel with
+// a turn running is 409 and nothing is closed.
+func (s *server) closeFeature(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	cs, err := s.st.Channels(r.Context(), store.ChannelFilter{FeatureID: &id})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	for _, c := range cs {
+		if l := s.lookup(c.ID); l != nil {
+			l.mu.Lock()
+			busy := l.state != _idle
+			l.mu.Unlock()
+			if busy {
+				writeError(w, fmt.Errorf("channel %d has a turn running: %w", c.ID, store.ErrConflict))
+				return
+			}
+		}
+	}
+	lift, err := s.stopChannels(r.Context(), store.ChannelFilter{FeatureID: &id})
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	defer lift()
+	if err := s.st.CloseFeature(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) reopenFeature(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.st.ReopenFeature(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 // deleteFeature deletes the feature, its worktree and the checkpoint refs of its turns. The

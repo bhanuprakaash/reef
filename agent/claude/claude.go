@@ -207,6 +207,9 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 	if cfg.PermissionMode != "" {
 		args = append(args, "--permission-mode", cfg.PermissionMode)
 	}
+	if cfg.Model != "" {
+		args = append(args, "--model", cfg.Model)
+	}
 	if len(cfg.MCPServers) > 0 {
 		for name := range cfg.MCPServers {
 			if !_serverName.MatchString(name) {

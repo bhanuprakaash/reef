@@ -15,6 +15,7 @@ import { itemKey } from '@/modules/inbox/utils/new-items';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { useCreateTask } from '@/modules/tasks/api/create-task';
 import { useTasks } from '@/modules/tasks/api/get-tasks';
+import { TaskProgress } from '@/modules/tasks/components/task-progress';
 import type { Feature } from '@/types/api';
 import { roleFaces } from '@/utils/role-faces';
 
@@ -103,6 +104,7 @@ function FeatureCard({ feature }: { feature: Feature }) {
   const roles = team ? team.roles.map((r) => r.name) : latest ? [latest.role] : [];
   const faces = roleFaces(teams.data, latest?.team);
   const waiting = inbox.data?.some((i) => i.featureId === feature.id) ?? false;
+  const tasks = useTasks();
   const current = STAGES.findIndex((s) => s.value === feature.stage);
 
   return (
@@ -112,18 +114,24 @@ function FeatureCard({ feature }: { feature: Feature }) {
     >
       <div className="flex items-center gap-2">
         <span className="truncate text-base">{feature.name}</span>
-        <span className="ml-auto shrink-0 text-[12.5px] text-muted">
-          {STAGES[current]?.label ?? feature.stage}
-        </span>
+        {feature.kind === 'journey' && (
+          <span className="ml-auto shrink-0 text-[12.5px] text-muted">
+            {STAGES[current]?.label ?? feature.stage}
+          </span>
+        )}
       </div>
-      <div aria-hidden="true" className="grid grid-cols-8 gap-[3px]">
-        {STAGES.map((s, i) => (
-          <span
-            key={s.value}
-            className={`h-[3px] rounded-sm ${i === current ? 'bg-lead' : i < current ? 'bg-pill' : 'bg-track'}`}
-          />
-        ))}
-      </div>
+      {feature.kind === 'journey' ? (
+        <div aria-hidden="true" className="grid grid-cols-8 gap-[3px]">
+          {STAGES.map((s, i) => (
+            <span
+              key={s.value}
+              className={`h-[3px] rounded-sm ${i === current ? 'bg-lead' : i < current ? 'bg-pill' : 'bg-track'}`}
+            />
+          ))}
+        </div>
+      ) : (
+        <TaskProgress tasks={tasks.data?.filter((t) => t.featureId === feature.id) ?? []} />
+      )}
       <div
         className={`flex items-center gap-2 text-[13px] ${waiting ? 'text-paused' : 'text-muted'}`}
       >

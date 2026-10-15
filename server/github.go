@@ -6,11 +6,13 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,13 +20,23 @@ import (
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
-const _ghTimeout = 30 * time.Second
+const (
+	_ghTimeout = 30 * time.Second
+	// _noPRText is what gh pr view says on stderr for a branch with no PR.
+	_noPRText = "no pull requests found"
+)
 
 // ghPR is the gh pr view output this poll reads.
 type ghPR struct {
 	Number            int       `json:"number"`
+	Title             string    `json:"title"`
 	URL               string    `json:"url"`
 	State             string    `json:"state"`
+	IsDraft           bool      `json:"isDraft"`
+	Mergeable         string    `json:"mergeable"`
+	ReviewDecision    string    `json:"reviewDecision"`
+	HeadRefName       string    `json:"headRefName"`
+	BaseRefName       string    `json:"baseRefName"`
 	StatusCheckRollup []ghCheck `json:"statusCheckRollup"`
 }
 
@@ -218,21 +230,141 @@ func runGh(ctx context.Context, ghPath, dir, slug string) (ghPR, error) {
 	cctx, cancel := context.WithTimeout(ctx, _ghTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(cctx, ghPath, "pr", "view", worktree.Branch(slug),
-		"--json", "number,url,state,statusCheckRollup")
+		"--json", "number,title,url,state,isDraft,mergeable,reviewDecision,headRefName,"+
+			"baseRefName,statusCheckRollup")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
-		var ee *exec.ExitError
-		if errors.As(err, &ee) && len(ee.Stderr) > 0 {
-			return ghPR{}, fmt.Errorf("gh pr view: %s", strings.TrimSpace(string(ee.Stderr)))
-		}
-		return ghPR{}, fmt.Errorf("gh pr view: %w", err)
+		return ghPR{}, ghFailure("gh pr view", err)
 	}
 	var pr ghPR
 	if err := json.Unmarshal(out, &pr); err != nil {
 		return ghPR{}, fmt.Errorf("parse gh pr view output: %w", err)
 	}
 	return pr, nil
+}
+
+// ghFailure is err with gh's own message, when it printed one, so a caller can show it.
+func ghFailure(what string, err error) error {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
+		return fmt.Errorf("%s: %s", what, strings.TrimSpace(string(ee.Stderr)))
+	}
+	return fmt.Errorf("%s: %w", what, err)
+}
+
+// prView is a feature's PR as the window shows it. Each check's state is pass, fail or
+// pending; canMerge is true only for an open PR gh calls mergeable.
+type prView struct {
+	Number         int       `json:"number"`
+	Title          string    `json:"title"`
+	State          string    `json:"state"`
+	URL            string    `json:"url"`
+	IsDraft        bool      `json:"isDraft"`
+	ReviewDecision string    `json:"reviewDecision"`
+	Base           string    `json:"base"`
+	Head           string    `json:"head"`
+	CanMerge       bool      `json:"canMerge"`
+	Checks         []prCheck `json:"checks"`
+}
+
+type prCheck struct {
+	Name  string `json:"name"`
+	State string `json:"state"`
+}
+
+func newPRView(pr ghPR) prView {
+	checks := make([]prCheck, len(pr.StatusCheckRollup))
+	for i, c := range pr.StatusCheckRollup {
+		state := "pending"
+		if finished, word := c.outcome(); finished {
+			state = "fail"
+			if slices.Contains([]string{"succeeded", "skipped", "neutral"}, word) {
+				state = "pass"
+			}
+		}
+		checks[i] = prCheck{Name: c.checkName(), State: state}
+	}
+	return prView{
+		Number: pr.Number, Title: pr.Title, State: pr.State, URL: pr.URL, IsDraft: pr.IsDraft,
+		ReviewDecision: pr.ReviewDecision, Base: pr.BaseRefName, Head: pr.HeadRefName,
+		CanMerge: pr.State == "OPEN" && pr.Mergeable == "MERGEABLE", Checks: checks,
+	}
+}
+
+// featurePR finds the feature in the request and the project folder to run gh in. It writes
+// the error and reports ok = false when it cannot.
+func (s *server) featurePR(w http.ResponseWriter, r *http.Request) (
+	f store.Feature, p store.Project, ghPath string, ok bool,
+) {
+	id, err := pathID(r)
+	if err == nil {
+		f, err = s.st.Feature(r.Context(), id)
+	}
+	if err == nil {
+		p, err = s.st.Project(r.Context(), f.ProjectID)
+	}
+	if err != nil {
+		writeError(w, err)
+		return f, p, "", false
+	}
+	if ghPath, err = exec.LookPath("gh"); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "gh is not on PATH"})
+		return f, p, "", false
+	}
+	return f, p, ghPath, true
+}
+
+// getFeaturePR answers with the feature's PR, or {"pr": null} when it has none.
+func (s *server) getFeaturePR(w http.ResponseWriter, r *http.Request) {
+	f, p, ghPath, ok := s.featurePR(w, r)
+	if !ok {
+		return
+	}
+	pr, err := runGh(r.Context(), ghPath, p.Path, f.Slug)
+	if err != nil {
+		if strings.Contains(err.Error(), _noPRText) {
+			writeJSON(w, http.StatusOK, map[string]*prView{"pr": nil})
+			return
+		}
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	view := newPRView(pr)
+	writeJSON(w, http.StatusOK, map[string]*prView{"pr": &view})
+}
+
+// mergeFeaturePR merges the feature's PR with a merge commit and answers with its new state.
+// gh's own message is the error when it refuses.
+func (s *server) mergeFeaturePR(w http.ResponseWriter, r *http.Request) {
+	f, p, ghPath, ok := s.featurePR(w, r)
+	if !ok {
+		return
+	}
+	pr, err := runGh(r.Context(), ghPath, p.Path, f.Slug)
+	if err != nil {
+		status := http.StatusBadGateway
+		if strings.Contains(err.Error(), _noPRText) {
+			status = http.StatusNotFound
+		}
+		writeJSON(w, status, map[string]string{"error": err.Error()})
+		return
+	}
+	cctx, cancel := context.WithTimeout(r.Context(), _ghTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, ghPath, "pr", "merge", strconv.Itoa(pr.Number), "--merge")
+	cmd.Dir = p.Path
+	if _, err := cmd.Output(); err != nil {
+		err = ghFailure("gh pr merge", err)
+		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
+		return
+	}
+	if pr, err = runGh(r.Context(), ghPath, p.Path, f.Slug); err != nil {
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
+		return
+	}
+	view := newPRView(pr)
+	writeJSON(w, http.StatusOK, map[string]*prView{"pr": &view})
 }
 
 // notePRState posts a reef note when the PR appeared or changed state since the last poll.

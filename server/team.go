@@ -29,6 +29,7 @@ type roleView struct {
 	Persona        string    `json:"persona"`
 	Skills         string    `json:"skills"`
 	Face           string    `json:"face,omitempty"`
+	Model          string    `json:"model,omitempty"`
 	Tools          []string  `json:"tools"`
 	MCP            []mcpView `json:"mcp"`
 }
@@ -206,7 +207,7 @@ func viewTeam(t store.Team) teamView {
 	for i, r := range t.Roles {
 		roles[i] = roleView{
 			Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend, PermissionMode: r.PermissionMode,
-			Persona: r.Persona, Skills: r.Skills, Face: r.Face, Tools: r.Tools, MCP: viewMCP(r.MCPServers),
+			Persona: r.Persona, Skills: r.Skills, Face: r.Face, Model: r.Model, Tools: r.Tools, MCP: viewMCP(r.MCPServers),
 		}
 	}
 	return teamView{Name: t.Name, Roles: roles, Gates: t.Gates}

@@ -172,6 +172,23 @@ Details are on demand through the reef MCP tools read_decision, read_thread and 
 	}
 }
 
+func TestContext_FixesFeature(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	if _, err := st.UpdateFeature(ctx, store.Feature{ID: f.ID, Name: f.Name, Goal: f.Goal, Kind: "fixes"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Context(ctx, st, f.ID, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Goal: Google login\nThis feature is a list of fixes tracked as tasks, not one piece of work with stages.\n\n## Brief"
+	if !strings.Contains(got, want) || strings.Contains(got, "Stage:") {
+		t.Errorf("Context =\n%s\nwant it to contain %q and no Stage line", got, want)
+	}
+}
+
 func TestContext_ProjectMemory(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)

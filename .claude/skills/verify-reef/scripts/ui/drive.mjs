@@ -1,8 +1,9 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
-// REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
+// REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
+// REEF_FAKE_GH (pr only: the folder the server's fake gh keeps its PR in, see fake-gh/gh).
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -10,9 +11,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -179,10 +180,13 @@ async function live() {
   );
   await working();
   const row = main.getByRole('button', { name: /is working/ });
-  await row.getByText(/^(Bash|Read|Glob|Grep|LS|List)\b/).waitFor({ timeout: 120000 });
-  await page.waitForTimeout(1500);
+  const card = row.locator('xpath=..');
+  await card.locator('details summary').first().waitFor({ timeout: 120000 });
+  await page.waitForTimeout(1000);
   await shot('midturn');
-  check((await main.locator('details').count()) === 0, 'the channel shows one compact row, no inline tool rows', await row.innerText());
+  const inline = await card.locator('details summary').count();
+  const first = await card.locator('details summary').first().innerText();
+  check(inline >= 1 && inline <= 3 && /(Bash|Read|Glob|Grep|LS|List)\b/.test(first), 'the running card shows the last tool calls inline, at most 3', `${inline} rows, first: ${first}`);
   await openTurn();
   await turnPanel.locator('details summary').first().waitFor({ timeout: 120000 });
   await shot('turn-panel');
@@ -339,6 +343,66 @@ async function pages() {
     sql(`select status from task where title='${title}'`) === 'done' && page.url().includes('status=done'),
     'a task added in the window is marked done and filtered',
     `row ${sql(`select id,project_id,feature_id,status from task where title='${title}'`)}; url ${page.url().replace(base, '')}`,
+  );
+}
+
+async function fixes() {
+  const section = await addProject();
+  const name = 'Quick fixes';
+  await section.getByRole('button', { name: 'New feature' }).click();
+  await page.getByLabel('Feature name').fill(name);
+  await page.getByRole('button', { name: 'Fixes (task list)' }).click();
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('heading', { name, level: 1 }).waitFor();
+  const fid = page.url().split('/').pop();
+  await main.getByText('No fixes yet').waitFor();
+  await shot('empty');
+  check(
+    sql(`select kind from feature where id=${fid}`) === 'fixes' &&
+      (await main.getByRole('list', { name: 'Journey' }).count()) === 0 &&
+      (await main.getByRole('combobox', { name: 'Stage' }).count()) === 0,
+    'a Fixes feature has no stage bar or stage picker',
+    `kind ${sql(`select kind from feature where id=${fid}`)}`,
+  );
+  await page.goto(base + '/tasks');
+  const pid = sql(`select project_id from feature where id=${fid}`);
+  for (const title of ['fix one', 'fix two']) {
+    await page.getByLabel('Task title').fill(title);
+    await pick('Task project', sql(`select name from project where id=${pid}`));
+    await pick('Task feature', name);
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await main.locator('li', { hasText: title }).waitFor();
+  }
+  await page.goto(base + `/features/${fid}`);
+  await main.getByText('0 of 2 done').waitFor();
+  await main.locator('li', { hasText: 'fix one' }).getByRole('checkbox').click();
+  await main.getByText('1 of 2 done').waitFor();
+  const chip = await aside.getByRole('link', { name }).innerText();
+  await shot('one-of-two');
+  check(
+    chip.includes('1/2') && sql(`select count(*) from task where feature_id=${fid} and status='done'`) === '1',
+    'one of two tasks done shows "1 of 2 done" on the page and "1/2" in the sidebar',
+    `sidebar row "${chip.replace(/\s+/g, ' ')}"; tasks ${sql(`select title,status from task where feature_id=${fid}`).replace(/\n/g, ';')}`,
+  );
+  const tip = await aside.getByRole('link', { name }).getAttribute('title');
+  check(!/ideation/i.test(tip ?? ''), 'the sidebar tooltip of a Fixes feature has no stage', `title "${tip}"`);
+  await newChannel(main, 'New channel', 'fix chat', '');
+  const header = await main.getByRole('heading', { name: 'fix chat', level: 1 }).locator('..').innerText();
+  await shot('channel-header');
+  check(
+    header.includes('1/2') && !/ideation/i.test(header),
+    'the channel header of a Fixes feature shows "1/2", not the stage',
+    `header "${header.replace(/\s+/g, ' ')}"`,
+  );
+  await page.goto(base + '/');
+  const card = main.getByRole('link', { name: new RegExp(name) });
+  await card.waitFor();
+  const text = await card.innerText();
+  await shot('today-card');
+  check(
+    text.includes('1 of 2 done') && !/ideation/i.test(text),
+    'the Today card of a Fixes feature shows "1 of 2 done", not the stage',
+    `card "${text.replace(/\s+/g, ' ')}"`,
   );
 }
 
@@ -650,7 +714,7 @@ async function stop() {
   await send('Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
   await working();
   await openTurn();
-  await turnPanel.locator('div.bg-bubble:not([role])').first().waitFor({ timeout: 60000 });
+  await turnPanel.locator('p').first().waitFor({ timeout: 60000 });
   await page.waitForTimeout(1000);
   await page.getByRole('button', { name: 'Stop' }).click();
   await main.getByRole('button', { name: /Failed: interrupted/ }).waitFor({ timeout: 30000 });
@@ -1081,8 +1145,8 @@ async function inbox() {
   await shot('approval-row');
   const rowText = (await row.textContent()) ?? '';
   check(
-    /Approval/.test(rowText) && /#inbox room/.test(rowText) && (await row.getByRole('button', { name: 'Approve' }).count()) === 1 && (await row.getByRole('button', { name: 'Reject' }).count()) === 1,
-    'a new approval of a channel that is not open shows in the inbox with Approve and Reject',
+    /Approval/.test(rowText) && /#inbox room/.test(rowText) && (await row.getByRole('button', { name: 'Approve' }).count()) === 1 && (await row.getByRole('button', { name: 'Reject' }).count()) === 1 && (await row.getByRole('button', { name: 'Dismiss' }).count()) === 0,
+    'a new approval of a channel that is not open shows in the inbox with Approve and Reject, and no Dismiss',
     rowText,
   );
   const badge = await aside.getByLabel(/waiting$/).textContent();
@@ -1148,6 +1212,27 @@ async function inbox() {
   await page.waitForTimeout(3000);
   const afterReload = await notes();
   check(afterReload.length === 0, 'items present at load fire no notification', JSON.stringify(afterReload));
+
+  const dismissed = (await getJson('/inbox')).find((i) => i.kind === 'waiting' && String(i.channelId) === String(cid));
+  await shot('before-dismiss');
+  await waiting.getByRole('button', { name: 'Dismiss' }).click();
+  await waiting.waitFor({ state: 'hidden', timeout: 30000 });
+  await shot('dismissed');
+  check(
+    !(await getJson('/inbox')).some((i) => i.kind === 'waiting' && String(i.channelId) === String(cid)) &&
+      sql(`select dismissed_message_id from channel where id=${cid}`) === String(dismissed.messageId),
+    'Dismiss on a waiting item removes it and stores the message it was pressed on',
+    sql(`select dismissed_message_id from channel where id=${cid}`),
+  );
+  await page.reload();
+  await page.getByRole('heading', { name: 'Needs you', level: 1 }).waitFor();
+  await page.waitForTimeout(1000);
+  check((await waiting.count()) === 0, 'the dismissed item stays gone after a reload');
+  await sendApi(cid, 'Say ok in one word. Use no tools.');
+  await waitWaiting(cid, dismissed.at);
+  await waiting.waitFor({ timeout: 30000 });
+  await shot('back-after-new-message');
+  check(true, 'a new agent message brings the dismissed item back');
 }
 
 async function wrap() {
@@ -1178,6 +1263,47 @@ async function wrap() {
   await section.getByRole('link', { name: 'Login', exact: true }).click();
   await page.getByText('Version 1 by').waitFor();
   check(sql(`select count(*) from brief where feature_id=${fid}`) === '1', '/wrap then Approve makes brief version 1', `brief rows ${sql(`select id,author from brief where feature_id=${fid}`)}`);
+
+  await page.goto(`${base}/channels/${cid}`);
+  await main.getByText('Wrapped', { exact: true }).waitFor();
+  await shot('wrapped');
+  check(
+    (await main.getByRole('button', { name: 'Reopen' }).count()) === 1 &&
+      (await page.getByLabel('Message').count()) === 0 &&
+      (await page.getByRole('button', { name: 'Wrap up' }).count()) === 0,
+    'an approved channel shows Wrapped and Reopen, no composer, no Wrap up',
+    `closed_at ${sql(`select closed_at from channel where id=${cid}`)}`,
+  );
+  const queued = (await getJson('/inbox')).filter((i) => i.channelId === Number(cid));
+  await page.goto(`${base}/inbox`);
+  await page.getByRole('heading', { name: 'Needs you' }).waitFor();
+  await shot('wrapped-needs-you');
+  check(queued.length === 0, 'Needs you has no item for the wrapped channel', JSON.stringify(queued));
+  await page.goto(`${base}/channels/${cid}`);
+  await main.getByText('Wrapped', { exact: true }).waitFor();
+  await aside.getByRole('button', { name: /^Wrapped \(1\)/ }).click();
+  await section.getByRole('link', { name: /#wrap chat/ }).waitFor();
+  await shot('wrapped-sidebar');
+  check(true, 'the channel is listed under Wrapped (1) in the sidebar');
+
+  await main.getByRole('button', { name: 'Reopen' }).click();
+  await page.getByLabel('Message').waitFor();
+  check(sql(`select closed_at is null from channel where id=${cid}`) === '1', 'Reopen brings the composer back and clears closed_at');
+
+  await section.getByRole('link', { name: 'Login', exact: true }).click();
+  await main.getByRole('button', { name: 'Close feature' }).click();
+  await page.getByRole('dialog', { name: 'Close feature' }).waitFor();
+  await shot('close-dialog');
+  await page.getByRole('dialog', { name: 'Close feature' }).getByRole('button', { name: 'Close feature' }).click();
+  await main.getByRole('button', { name: 'Reopen' }).waitFor();
+  await aside.getByRole('button', { name: /^Closed \(1\)/ }).click();
+  await section.getByRole('link', { name: 'Login', exact: true }).waitFor();
+  await shot('closed-feature');
+  check(
+    sql(`select closed_at is not null from feature where id=${fid}`) === '1' &&
+      sql(`select closed_at is not null from channel where id=${cid}`) === '1',
+    'Close feature closes the feature and its channel; it is listed under Closed (1)',
+  );
 }
 
 async function teams() {
@@ -1460,6 +1586,87 @@ async function workshop() {
   check(otters > 0 && penguins === 0, "the channel shows the otter picked for the developer, not the penguin", `otter shapes ${otters}, penguin shapes ${penguins}`);
   const prompt = sql(`select prompt from turn where channel_id = ${cid} and role = 'developer' order by id limit 1`);
   check(prompt.includes(marker), "the next developer wake's prompt carries the new persona", prompt.slice(0, 200));
+}
+
+async function pr() {
+  const gh = process.env.REEF_FAKE_GH;
+  if (!gh) throw new Error('set REEF_FAKE_GH to the folder of the fake gh the server runs with');
+  ensureRepo();
+  const section = await addProject();
+  const slug = await addFeature(section, 'pr', 'PR panel');
+  const featureId = page.url().split('/').pop();
+  const cid = await newChannel(main, 'New channel', 'pr chat');
+  await fetch(`${base}/features/${featureId}/worktree`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+
+  const view = (over) => ({
+    number: 12, title: 'Add the login page', url: 'https://github.com/x/y/pull/12', state: 'OPEN',
+    isDraft: false, mergeable: 'CONFLICTING', reviewDecision: 'APPROVED', headRefName: `feature/${slug}`,
+    baseRefName: 'main',
+    statusCheckRollup: [
+      { __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+      { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE' },
+      { __typename: 'StatusContext', context: 'deploy preview', state: 'PENDING' },
+    ],
+    ...over,
+  });
+  const setPR = (over) => writeFileSync(path.join(gh, 'pr.json'), JSON.stringify(view(over)));
+  setPR({});
+
+  const chip = main.getByRole('button', { name: /^PR #12 / });
+  await chip.waitFor({ timeout: 30000 });
+  const panel = page.getByRole('complementary', { name: 'Pull request' });
+  await chip.click();
+  await panel.getByText('Add the login page').waitFor();
+  await shot('conflicting');
+  check(
+    page.url().endsWith(`/channels/${cid}`) && page.context().pages().length === 1,
+    'the header PR chip opens the panel in the channel, not the browser',
+    page.url(),
+  );
+  const merge = panel.getByRole('button', { name: 'Merge', exact: true });
+  check(await merge.isDisabled(), 'Merge is disabled while GitHub says the PR is not mergeable', await panel.innerText());
+
+  setPR({ mergeable: 'MERGEABLE' });
+  await page.reload();
+  await main.getByRole('button', { name: /^PR #12 / }).click();
+  await panel.getByRole('button', { name: 'Merge', exact: true }).waitFor();
+  await shot('panel');
+  const text = (await panel.innerText()).replace(/\s+/g, ' ');
+  const icons = await panel.getByRole('img').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')));
+  check(
+    text.includes('Add the login page') && text.includes('#12') && text.includes('Open') &&
+      text.includes('main ← feature/') && text.includes('Approved') &&
+      ['build', 'lint', 'deploy preview'].every((n) => text.includes(n)) && icons.join() === 'passed,failed,pending',
+    'the panel shows title, number, state, base <- head, review and each check with its icon',
+    `${text} | ${icons}`,
+  );
+  const link = panel.getByRole('link', { name: 'Open on GitHub' });
+  check(
+    (await link.getAttribute('href')) === 'https://github.com/x/y/pull/12' && (await link.getAttribute('target')) === '_blank',
+    'Open on GitHub is an external link to the PR url',
+  );
+  check(await panel.getByRole('button', { name: 'Merge', exact: true }).isEnabled(), 'Merge is enabled for an open, mergeable PR');
+
+  await panel.getByRole('button', { name: 'Merge', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Merge pull request' });
+  await dialog.getByText('with a merge commit').waitFor();
+  await shot('confirm');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await dialog.waitFor({ state: 'hidden' });
+  check(!existsSync(path.join(gh, 'merges.log')), 'Cancel in the dialog merges nothing');
+
+  await panel.getByRole('button', { name: 'Merge', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Merge', exact: true }).click();
+  await panel.getByText('Merged', { exact: true }).waitFor({ timeout: 15000 });
+  await shot('merged');
+  check(
+    readFileSync(path.join(gh, 'merges.log'), 'utf8') === 'pr merge 12 --merge\n' &&
+      (await panel.getByRole('button', { name: 'Merge', exact: true }).count()) === 0,
+    'confirming runs gh pr merge 12 --merge once and the panel shows Merged with no Merge button',
+    await panel.innerText(),
+  );
+  await main.getByRole('button', { name: 'PR #12 merged' }).waitFor({ timeout: 15000 });
+  check(true, 'the header chip follows to merged', sql(`select body from message where channel_id = ${cid} and author = 'reef' order by id desc limit 1`));
 }
 
 try {

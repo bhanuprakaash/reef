@@ -249,6 +249,18 @@ func apply(ctx context.Context, db *sql.DB, version int, body string) error {
 	return tx.Commit()
 }
 
+// parseClosed reads a nullable closed_at column.
+func parseClosed(closed sql.NullString) (*time.Time, error) {
+	if !closed.Valid {
+		return nil, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, closed.String)
+	if err != nil {
+		return nil, fmt.Errorf("bad closed_at: %w", err)
+	}
+	return &t, nil
+}
+
 func scanAll[T any](
 	rows *sql.Rows, scan func(interface{ Scan(...any) error }) (T, error),
 ) ([]T, error) {

@@ -1,19 +1,19 @@
 import type { ComponentProps } from 'react';
 import { useOutletContext, useParams } from 'react-router';
+import { FeatureStageChip } from '@/app/feature-stage';
 import type { LayoutContext } from '@/app/layout';
 import { FeatureTerminal } from '@/app/feature-terminal';
 import { ReviewDiff } from '@/app/review-diff';
 import { TerminalPane } from '@/app/terminal-pane';
 import { useTerminal } from '@/app/use-terminal';
 import { useChannel } from '@/modules/channels/api/get-channel';
-import { StageChip } from '@/components/stage-chip';
 import { ChannelView } from '@/modules/channels/components/channel-view';
 import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDiff } from '@/modules/features/api/get-diff';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { diffCounts } from '@/modules/features/utils/diff-counts';
-import { STAGES } from '@/modules/features/utils/stages';
 import { useProjects } from '@/modules/projects/api/get-projects';
+import { useTasks } from '@/modules/tasks/api/get-tasks';
 
 type ViewProps = ComponentProps<typeof ChannelView>;
 
@@ -35,6 +35,7 @@ export function ChannelPage() {
   const channel = useChannel(id);
   const features = useFeatures();
   const projects = useProjects();
+  const tasks = useTasks();
   const { browserOpen, setBrowserDriver } = useOutletContext<LayoutContext>();
   const project = projects.data?.find((p) => p.id === channel.data?.projectId);
   const terminal = useTerminal(
@@ -53,10 +54,7 @@ export function ChannelPage() {
     scope: feature ? (
       <>
         <span className="truncate">{feature.name}</span>
-        <StageChip
-          label={STAGES.find((s) => s.value === feature.stage)?.label ?? feature.stage}
-          color={STAGES.find((s) => s.value === feature.stage)?.color ?? 'var(--color-muted)'}
-        />
+        <FeatureStageChip feature={feature} tasks={tasks.data ?? []} />
       </>
     ) : (
       'quick session'

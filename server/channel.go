@@ -17,6 +17,8 @@ func (s *server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /channels/{id}", s.updateChannel)
 	mux.HandleFunc("DELETE /channels/{id}", s.deleteChannel)
 	mux.HandleFunc("/channels/{id}", methodNotAllowed)
+	mux.HandleFunc("POST /channels/{id}/reopen", s.reopenChannel)
+	mux.HandleFunc("/channels/{id}/reopen", methodNotAllowed)
 	mux.HandleFunc("GET /channels/{id}/inspector", s.getInspector)
 	mux.HandleFunc("/channels/{id}/inspector", methodNotAllowed)
 	mux.HandleFunc("GET /messages", s.listMessages)
@@ -148,6 +150,19 @@ func (s *server) deleteChannel(w http.ResponseWriter, r *http.Request) {
 	}
 	defer s.stopForDelete(id)()
 	if err := s.st.DeleteChannel(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (s *server) reopenChannel(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if err := s.st.ReopenChannel(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}

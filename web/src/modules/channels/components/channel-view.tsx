@@ -4,6 +4,8 @@ import { useApprovals } from '@/modules/channels/api/get-approvals';
 import { useFailedTurns } from '@/modules/channels/api/get-failed-turns';
 import { useMessages } from '@/lib/api/get-messages';
 import { useTeams } from '@/lib/api/get-teams';
+import { useReopenChannel } from '@/modules/channels/api/reopen-channel';
+import { useProposal } from '@/modules/channels/api/get-proposal';
 import { useWrapChannel } from '@/modules/channels/api/wrap-channel';
 import { ApprovalRows } from '@/modules/channels/components/approval-rows';
 import { ChannelHeader } from '@/modules/channels/components/channel-header';
@@ -14,6 +16,7 @@ import { InspectorPanel } from '@/modules/channels/components/inspector-panel';
 import { LiveTurn } from '@/modules/channels/components/live-turn';
 import { MessageList } from '@/modules/channels/components/message-list';
 import { PausedBanner } from '@/modules/channels/components/paused-banner';
+import { PrPanel } from '@/modules/channels/components/pr-panel';
 import { PromoteForm } from '@/modules/channels/components/promote-form';
 import { ProposalPanel } from '@/modules/channels/components/proposal-panel';
 import { TeamPanel } from '@/modules/channels/components/team-panel';
@@ -45,6 +48,7 @@ type Side =
   | { kind: 'turn' }
   | { kind: 'inspector' }
   | { kind: 'diff' }
+  | { kind: 'pr' }
   | null;
 
 export function ChannelView({
@@ -62,6 +66,9 @@ export function ChannelView({
   const failedTurns = useFailedTurns(channel.id);
   const turn = useLiveTurn(channel.id);
   const wrap = useWrapChannel(channel.id);
+  const proposal = useProposal(channel.id);
+  const reopen = useReopenChannel(channel.id);
+  const closed = channel.closedAt !== null;
   const running = turn.status === 'running';
   const [side, setSide] = useState<Side>(null);
   const [teamOpen, setTeamOpen] = useState(false);
@@ -96,8 +103,9 @@ export function ChannelView({
   };
   const wide = side?.kind === 'diff';
   const fullSheet = thread !== undefined || wide || turnOpen;
-  const showTeam = !thread && side?.kind !== 'inspector' && !wide && !turnOpen;
-  const wrapDisabled = running || wrap.isPending || blocksUser(channel.paused);
+  const showTeam =
+    !thread && side?.kind !== 'inspector' && side?.kind !== 'pr' && !wide && !turnOpen;
+  const wrapDisabled = running || wrap.isPending || !!proposal.data || blocksUser(channel.paused);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -107,6 +115,8 @@ export function ChannelView({
         roles={roles.length > 0 ? roles.map((r) => r.name) : [channel.role]}
         faces={faces}
         pullRequest={latestPullRequest(messages.data ?? [])}
+        onPullRequest={() => openSide(side?.kind === 'pr' ? null : { kind: 'pr' })}
+        pullRequestOpen={side?.kind === 'pr'}
         diff={diff}
         onDiff={diffPanel ? () => openSide(wide ? null : { kind: 'diff' }) : undefined}
         diffOpen={wide}
@@ -175,15 +185,27 @@ export function ChannelView({
               {channel.paused !== '' && (
                 <PausedBanner channelId={channel.id} reason={channel.paused} />
               )}
-              <Composer
-                channelId={channel.id}
-                running={running}
-                paused={blocksUser(channel.paused)}
-                reason={channel.paused}
-                roles={roles.map((r) => r.name)}
-                faces={faces}
-                working={working}
-              />
+              {closed ? (
+                <div className="flex items-center gap-3 rounded-card border border-hairline px-4 py-3">
+                  <span className="min-w-0 flex-1 text-sm text-muted">Wrapped</span>
+                  {reopen.isError && (
+                    <span className="text-sm text-danger">{reopen.error.message}</span>
+                  )}
+                  <Button type="button" disabled={reopen.isPending} onClick={() => reopen.mutate()}>
+                    Reopen
+                  </Button>
+                </div>
+              ) : (
+                <Composer
+                  channelId={channel.id}
+                  running={running}
+                  paused={blocksUser(channel.paused)}
+                  reason={channel.paused}
+                  roles={roles.map((r) => r.name)}
+                  faces={faces}
+                  working={working}
+                />
+              )}
             </div>
           </div>
         </section>
@@ -216,6 +238,7 @@ export function ChannelView({
               paused={blocksUser(channel.paused)}
               reason={channel.paused}
               working={working}
+              closed={closed}
               onClose={closeSide}
             />
           )}
@@ -224,13 +247,16 @@ export function ChannelView({
           {side?.kind === 'inspector' && (
             <InspectorPanel channelId={channel.id} faces={faces} onClose={closeSide} />
           )}
+          {side?.kind === 'pr' && channel.featureId !== null && (
+            <PrPanel featureId={channel.featureId} onClose={closeSide} />
+          )}
           {showTeam && (
             <div className="mb-5 flex items-center gap-2.5 md:hidden">
               <div className="min-w-0 flex-1">
                 <div className="truncate text-xl">#{channel.name}</div>
                 <div className="text-[13px] text-muted">Team · {channel.team}</div>
               </div>
-              {channel.featureId !== null && (
+              {channel.featureId !== null && !closed && (
                 <Button
                   variant="primary"
                   type="button"

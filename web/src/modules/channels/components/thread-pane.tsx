@@ -13,6 +13,7 @@ type Props = {
   running: boolean;
   paused: boolean;
   reason: string;
+  closed: boolean;
   working: string;
   onClose: () => void;
 };
@@ -26,6 +27,7 @@ export function ThreadPane({
   running,
   paused,
   reason,
+  closed,
   working,
   onClose,
 }: Props) {
@@ -97,18 +99,20 @@ export function ThreadPane({
           Your reply goes to <span className="capitalize">{owner}</span>, who owns this thread.
         </p>
       </div>
-      <div className="px-3.5 pb-5 pt-2.5">
-        <Composer
-          channelId={channelId}
-          running={running}
-          paused={paused}
-          parent={root.id}
-          reason={reason}
-          roles={roles}
-          faces={faces}
-          working={working}
-        />
-      </div>
+      {!closed && (
+        <div className="px-3.5 pb-5 pt-2.5">
+          <Composer
+            channelId={channelId}
+            running={running}
+            paused={paused}
+            parent={root.id}
+            reason={reason}
+            roles={roles}
+            faces={faces}
+            working={working}
+          />
+        </div>
+      )}
     </aside>
   );
 }
