@@ -22,8 +22,11 @@ func TestCLI_Memory(t *testing.T) {
 		"saved memory for project shop\n"; got != want {
 		t.Fatalf("memory set = %q, want %q", got, want)
 	}
-	if got, want := mustReef(t, dir, "memory", "show"), "Use Go, not Python.\n\n"; got != want {
+	if got, want := mustReef(t, dir, "memory", "show"), "Use Go, not Python.\n"; got != want {
 		t.Fatalf("memory show = %q, want %q", got, want)
+	}
+	if got, want := mustReef(t, dir, "memory"), "Use Go, not Python.\n"; got != want {
+		t.Fatalf("bare memory = %q, want %q", got, want)
 	}
 
 	var out bytes.Buffer
@@ -32,8 +35,11 @@ func TestCLI_Memory(t *testing.T) {
 	if err != nil {
 		t.Fatalf("memory set -: %v", err)
 	}
-	if got, want := mustReef(t, dir, "memory", "show"), "from stdin\n"; got != want {
+	if got, want := mustReef(t, dir, "memory", "show"), "from stdin"; got != want {
 		t.Fatalf("memory show after stdin set = %q, want %q", got, want)
+	}
+	if got, want := mustReef(t, dir, "memory", "--project", "1", "show"), "from stdin"; got != want {
+		t.Fatalf("memory --project 1 show = %q, want %q", got, want)
 	}
 
 	if _, err := reef(t, dir, "memory", "show", "--project", "9"); err == nil ||

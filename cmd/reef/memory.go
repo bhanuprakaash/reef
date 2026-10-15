@@ -12,47 +12,15 @@ import (
 )
 
 const (
-	_memoryUsage     = "usage: reef memory show|set FILE|- [--project P] [--data DIR]"
-	_memoryShowUsage = "usage: reef memory show [--project P] [--data DIR]"
-	_memorySetUsage  = "usage: reef memory set FILE|- [--project P] [--data DIR]"
+	_memoryUsage     = "usage: reef memory [--project P] [show|set FILE|-] [--data DIR]"
+	_memoryShowUsage = "usage: reef memory [--project P] show [--data DIR]"
+	_memorySetUsage  = "usage: reef memory [--project P] set FILE|- [--data DIR]"
 )
 
+// memoryCmd parses --project and --data before looking for the show|set word, so either can
+// come before or after it; bare `reef memory` means show.
 func memoryCmd(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
-	if len(args) == 0 {
-		return errors.New(_memoryUsage)
-	}
-	switch args[0] {
-	case "show":
-		return memoryShow(ctx, args[1:], stdout)
-	case "set":
-		return memorySet(ctx, args[1:], stdin, stdout)
-	}
-	return errors.New(_memoryUsage)
-}
-
-func memoryShow(ctx context.Context, args []string, stdout io.Writer) error {
-	c := newCommand("reef memory show", _memoryShowUsage, 0, 0)
-	project := c.fs.String("project", "", "")
-	st, _, err := c.open(args)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = st.Close() }()
-
-	p, err := memoryProject(ctx, st, *project)
-	if err != nil {
-		return err
-	}
-	m, err := st.ProjectMemory(ctx, p.ID)
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintln(stdout, m.Body)
-	return err
-}
-
-func memorySet(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
-	c := newCommand("reef memory set", _memorySetUsage, 1, 1)
+	c := newCommand("reef memory", _memoryUsage, 0, 2)
 	project := c.fs.String("project", "", "")
 	st, pos, err := c.open(args)
 	if err != nil {
@@ -60,15 +28,48 @@ func memorySet(ctx context.Context, args []string, stdin io.Reader, stdout io.Wr
 	}
 	defer func() { _ = st.Close() }()
 
-	p, err := memoryProject(ctx, st, *project)
+	sub, rest := "show", pos
+	if len(pos) > 0 {
+		sub, rest = pos[0], pos[1:]
+	}
+	switch sub {
+	case "show":
+		if len(rest) != 0 {
+			return errors.New(_memoryShowUsage)
+		}
+		return memoryShow(ctx, st, *project, stdout)
+	case "set":
+		if len(rest) != 1 {
+			return errors.New(_memorySetUsage)
+		}
+		return memorySet(ctx, st, *project, rest[0], stdin, stdout)
+	}
+	return errors.New(_memoryUsage)
+}
+
+func memoryShow(ctx context.Context, st *store.Store, project string, stdout io.Writer) error {
+	p, err := memoryProject(ctx, st, project)
+	if err != nil {
+		return err
+	}
+	m, err := st.ProjectMemory(ctx, p.ID)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprint(stdout, m.Body)
+	return err
+}
+
+func memorySet(ctx context.Context, st *store.Store, project, file string, stdin io.Reader, stdout io.Writer) error {
+	p, err := memoryProject(ctx, st, project)
 	if err != nil {
 		return err
 	}
 	var body []byte
-	if pos[0] == "-" {
+	if file == "-" {
 		body, err = io.ReadAll(stdin)
 	} else {
-		body, err = os.ReadFile(pos[0])
+		body, err = os.ReadFile(file)
 	}
 	if err != nil {
 		return fmt.Errorf("read memory: %w", err)
