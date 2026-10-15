@@ -1,9 +1,13 @@
 package server
 
 import (
+	"context"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/bhanuprakaash/reef/store"
 )
 
 func TestTurnStatus(t *testing.T) {
@@ -142,7 +146,7 @@ func TestTurnRoundTrip(t *testing.T) {
 	status, body := do(t, http.MethodPost, ts.URL+"/turns", `{"channelId":1,"role":"architect","backend":"claude","status":"done"}`)
 	if status != 201 || !strings.HasPrefix(body,
 		`{"id":1,"channelId":1,"role":"architect","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"`) ||
-		!strings.HasSuffix(body, `"endedAt":null,"wakeText":"","wakeParent":null,"retried":false,"sent":false,"checkpoint":null,"model":"","costUsd":null,"prompt":""}`) {
+		!strings.HasSuffix(body, `"endedAt":null,"wakeText":"","wakeParent":null,"retried":false,"sent":false,"checkpoint":null,"model":"","costUsd":null}`) {
 		t.Fatalf("create = %d %s", status, body)
 	}
 
@@ -184,5 +188,39 @@ func TestTurnRoundTrip(t *testing.T) {
 		if status != 200 || strings.Count(body, `"role"`) != tt.want {
 			t.Errorf("list %q = %d %s, want %d turns", tt.query, status, body, tt.want)
 		}
+	}
+}
+
+func TestTurnHasNoPrompt(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	h := New(st, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"c","backend":"claude"}`)
+	if _, err := st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "architect", Backend: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.EndTurn(ctx, store.Turn{ID: 1, Status: "done", Prompt: "do it"}); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, path := range []string{"/turns", "/turns/1"} {
+		status, body := do(t, http.MethodGet, ts.URL+path, "")
+		if status != 200 || strings.Contains(body, "prompt") {
+			t.Errorf("get %s = %d %s, want no prompt field", path, status, body)
+		}
+	}
+
+	status, body := do(t, http.MethodGet, ts.URL+"/channels/1/inspector", "")
+	if status != 200 || !strings.Contains(body, `"prompt":"do it"`) {
+		t.Errorf("inspector = %d %s, want prompt \"do it\"", status, body)
 	}
 }

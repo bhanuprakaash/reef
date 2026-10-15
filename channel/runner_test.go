@@ -611,6 +611,37 @@ func TestRunner_RecordsModelCostPromptAndToolCalls(t *testing.T) {
 	}
 }
 
+func TestRunner_FailedTurnStoresCost(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cost := 0.0073
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8),
+		script: []agent.Event{
+			{Kind: agent.KindSession, SessionID: "s1", Model: "claude-opus-5-5"},
+			{Kind: agent.KindError, Text: "boom", CostUSD: &cost},
+		},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	if err := sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {}); err == nil {
+		t.Fatal("want error")
+	}
+
+	turn, err := st.Turn(bg, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if turn.Status != "failed" || turn.CostUSD == nil || *turn.CostUSD != cost {
+		t.Errorf("turn = %+v, want failed with cost %v", turn, cost)
+	}
+}
+
 func TestRunner_CodexTurnHasModelNoCost(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)

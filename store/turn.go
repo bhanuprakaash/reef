@@ -63,8 +63,8 @@ type Turn struct {
 	// CostUSD is nil until the agent reports one; codex turns never get one.
 	CostUSD *float64 `json:"costUsd"`
 	// Prompt is the full text sent to the agent, set once assembled. Empty for a turn that
-	// never sent one.
-	Prompt string `json:"prompt"`
+	// never sent one. Hidden from Turn's own JSON; the inspector has its own view of it.
+	Prompt string `json:"-"`
 }
 
 // TurnFilter narrows Turns. A nil ChannelID or empty Status matches everything. Retryable
