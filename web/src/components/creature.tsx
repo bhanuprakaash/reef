@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 
 export type CreatureState = 'idle' | 'working' | 'needs-you' | 'asleep' | 'failed';
 
@@ -392,6 +392,7 @@ type CreatureProps = {
   state?: CreatureState;
   size: number;
   animate?: boolean;
+  delay?: number;
 };
 
 const bubbles = (
@@ -417,7 +418,7 @@ const bubbles = (
   </>
 );
 
-export function Creature({ role, face, state = 'idle', size, animate }: CreatureProps) {
+export function Creature({ role, face, state = 'idle', size, animate, delay }: CreatureProps) {
   const looping = animate && state === 'idle';
   return (
     <svg
@@ -425,6 +426,7 @@ export function Creature({ role, face, state = 'idle', size, animate }: Creature
       height={size}
       viewBox="0 0 64 64"
       aria-hidden="true"
+      style={delay ? ({ '--c-delay': `${-delay}s` } as CSSProperties) : undefined}
       className={`shrink-0 overflow-visible${animate ? ' creature-live' : ''}${looping ? ' creature-loop' : ''}`}
     >
       <Body role={role} face={face} state={state} />

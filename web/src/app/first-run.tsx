@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '@/components/button';
+import { ProfileFields } from '@/app/profile-fields';
 import { Creature } from '@/components/creature';
 import { TextField } from '@/components/text-field';
 import { useProfile } from '@/lib/api/get-profile';
@@ -10,6 +11,8 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 
 function NameStep() {
   const [name, setName] = useState('');
+  const [role, setRole] = useState('');
+  const [style, setStyle] = useState<string[]>([]);
   const save = usePutProfile();
 
   return (
@@ -17,7 +20,7 @@ function NameStep() {
       className="flex w-full flex-col gap-3 rounded-[22px] bg-card p-[18px] text-left"
       onSubmit={(e) => {
         e.preventDefault();
-        save.mutate(name);
+        save.mutate({ name, role, style });
       }}
     >
       <div className="space-y-1.5">
@@ -34,10 +37,13 @@ function NameStep() {
           required
         />
       </div>
+      <ProfileFields role={role} style={style} onRole={setRole} onStyle={setStyle} />
       {save.isError && <p className="text-sm text-danger">{save.error.message}</p>}
-      <Button variant="primary" size="lg" type="submit" loading={save.isPending}>
-        Continue
-      </Button>
+      <div className="flex justify-end">
+        <Button variant="primary" type="submit" loading={save.isPending}>
+          Continue
+        </Button>
+      </div>
     </form>
   );
 }
@@ -83,9 +89,11 @@ function ProjectStep() {
         />
       </div>
       {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
-      <Button variant="primary" size="lg" type="submit" loading={create.isPending}>
-        Add project
-      </Button>
+      <div className="flex justify-end">
+        <Button variant="primary" type="submit" loading={create.isPending}>
+          Add project
+        </Button>
+      </div>
     </form>
   );
 }
@@ -101,10 +109,10 @@ export function FirstRun() {
       <div className="app-drag fixed inset-x-0 top-0 h-8" />
       <div className="flex w-full max-w-[520px] flex-col items-center gap-[22px] text-center">
         <div className="flex items-end gap-2.5">
-          <Creature role="architect" size={44} />
-          <Creature role="lead" size={72} />
-          <Creature role="developer" size={44} />
-          <Creature role="tester" size={44} />
+          <Creature role="architect" size={44} animate delay={0.4} />
+          <Creature role="lead" size={72} animate />
+          <Creature role="developer" size={44} animate delay={1.1} />
+          <Creature role="tester" size={44} animate delay={1.8} />
         </div>
         {twoSteps && <p className="text-[13px] text-muted">Step {askName ? 1 : 2} of 2</p>}
         <h1 className="text-4xl font-normal tracking-[-0.02em]">
@@ -112,7 +120,7 @@ export function FirstRun() {
         </h1>
         <p className="text-base text-muted">
           {askName
-            ? 'The team and the sidebar use it to greet you.'
+            ? 'Your team uses your name when they talk to you.'
             : 'Point Reef at a repo. Every feature you start there keeps its own memory, and a team works on it with you.'}
         </p>
         {askName ? <NameStep /> : <ProjectStep />}

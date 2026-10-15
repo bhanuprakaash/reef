@@ -192,11 +192,11 @@ func TestContext_ProjectMemory(t *testing.T) {
 func TestProjectContext_Memory(t *testing.T) {
 	p := store.Project{Name: "shop", Path: "/work/shop"}
 
-	if got := projectContext(p, "lead", ""); strings.Contains(got, "Project memory") {
+	if got := projectContext(p, "lead", "", ""); strings.Contains(got, "Project memory") {
 		t.Errorf("projectContext with no memory = %q, want no Project memory section", got)
 	}
 
-	got := projectContext(p, "lead", "Use Go, not Python.")
+	got := projectContext(p, "lead", "Use Go, not Python.", "")
 	want := `You are the lead in project "shop" (/work/shop).
 This is a quick session: it has no feature yet, so there is no brief, notes or decisions.
 
@@ -205,6 +205,62 @@ Use Go, not Python.
 `
 	if got != want {
 		t.Errorf("projectContext with memory =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestContext_Profile(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+
+	first := func() string {
+		t.Helper()
+		got, err := Context(ctx, st, f.ID, "architect")
+		if err != nil {
+			t.Fatal(err)
+		}
+		return strings.SplitN(got, "\n", 3)[1]
+	}
+	if got := first(); got != "Goal: Google login" {
+		t.Errorf("second line with no profile = %q, want the goal", got)
+	}
+
+	tests := []struct {
+		name string
+		give store.Profile
+		want string
+	}{
+		{"name only", store.Profile{Name: "Ada"}, "You work with Ada."},
+		{"role", store.Profile{Name: "Ada", Role: "Developer"},
+			"You work with Ada, a developer."},
+		{"role with a vowel", store.Profile{Name: "Ada", Role: "Engineer"},
+			"You work with Ada, an engineer."},
+		{"other role", store.Profile{Name: "Ada", Role: "Other"}, "You work with Ada."},
+		{"role and style", store.Profile{Name: "Ada", Role: "Developer",
+			Style: []string{"Short answers", "Ask before big changes"}},
+			"You work with Ada, a developer. They like: short answers, ask before big changes."},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := st.PutProfile(ctx, tt.give); err != nil {
+				t.Fatal(err)
+			}
+			if got := first(); got != tt.want {
+				t.Errorf("second line = %q, want %q", got, tt.want)
+			}
+		})
+	}
+
+	p := store.Project{Name: "shop", Path: "/work/shop"}
+	want := `You are the lead in project "shop" (/work/shop).
+This is a quick session: it has no feature yet, so there is no brief, notes or decisions.
+You work with Ada, a developer. They like: short answers, ask before big changes.
+`
+	who, err := profileLine(ctx, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := projectContext(p, "lead", "", who); got != want {
+		t.Errorf("projectContext =\n%s\nwant\n%s", got, want)
 	}
 }
 

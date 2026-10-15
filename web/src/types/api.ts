@@ -7,6 +7,8 @@ export type Project = {
 
 export type Profile = {
   name: string;
+  role: string;
+  style: string[];
   updatedAt: string;
 };
 

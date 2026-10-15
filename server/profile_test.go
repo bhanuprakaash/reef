@@ -20,12 +20,19 @@ func TestProfileRoundTrip(t *testing.T) {
 	}
 
 	status, body = do(t, http.MethodPut, ts.URL+"/profile", `{"name":" Ada "}`)
-	if status != 200 || !strings.HasPrefix(body, `{"name":"Ada","updatedAt":"`) {
+	if status != 200 || !strings.HasPrefix(body, `{"name":"Ada","role":"","style":[],"updatedAt":"`) {
 		t.Fatalf("put profile = %d %s", status, body)
 	}
 
+	status, body = do(t, http.MethodPut, ts.URL+"/profile",
+		`{"name":"Ada","role":" Developer ","style":["Short answers"," ","Tests first"]}`)
+	if status != 200 {
+		t.Fatalf("put role and style = %d %s", status, body)
+	}
+
 	status, body = do(t, http.MethodGet, ts.URL+"/profile", "")
-	if status != 200 || !strings.HasPrefix(body, `{"name":"Ada","updatedAt":"`) {
+	want := `{"name":"Ada","role":"Developer","style":["Short answers","Tests first"],"updatedAt":"`
+	if status != 200 || !strings.HasPrefix(body, want) {
 		t.Fatalf("get profile = %d %s", status, body)
 	}
 

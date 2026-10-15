@@ -84,9 +84,9 @@ logged in and on `PATH`.
   rejected if that name is taken. "New team" asks for a name and a team to start from and
   sends the same `?from=` request. The hop, turn and token caps are not team fields, so the
   page has no Caps section.
-- Settings (`/settings`): your name, theme (dark, light or Match macOS, kept in `localStorage`)
+- Settings (`/settings`): your name, role and working preferences (chips), theme (dark, light or Match macOS, kept in `localStorage`)
   and notifications.
-- First run: one page with two steps. Your name (saved with `PUT /profile`), then the first
+- First run: one page with two steps. Your name with an optional role and working preferences (saved with `PUT /profile`), then the first
   project. A name with no project starts at the project step; a project with no name asks only
   for the name.
 
@@ -150,7 +150,11 @@ in the sidebar.
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `name` | string | required; trimmed |
+| `role` | string | default `""`; trimmed. The window offers Developer, Designer, Product, Founder, Student and Other |
+| `style` | string array | default `[]`; trimmed, empty entries dropped, kept as one newline-joined column. The window offers six working preferences |
 | `updatedAt` | string | |
+
+The server stores `role` and `style` as given; the window owns the option lists. The context prompt names the person and, when set, the role (except `Other`) and style (see [memory.md](memory.md#the-context-prompt)).
 
 ### project_memory
 
@@ -417,7 +421,7 @@ tool calls.
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200 | 404 |
 | `GET /profile` | | 200 | 404 no name set yet |
-| `PUT /profile` | `name`; replaces the old one | 200 | 400 empty name |
+| `PUT /profile` | `name`, `role`, `style`; replaces the old profile | 200 | 400 empty name |
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |

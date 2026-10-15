@@ -509,7 +509,11 @@ func startPrompt(
 		if err != nil {
 			return "", err
 		}
-		return roleIntro(r) + projectContext(p, r.Name, mem.Body) + teamIntro(team, r), nil
+		who, err := profileLine(ctx, st)
+		if err != nil {
+			return "", err
+		}
+		return roleIntro(r) + projectContext(p, r.Name, mem.Body, who) + teamIntro(team, r), nil
 	}
 	body, err := Context(ctx, st, *ch.FeatureID, r.Name)
 	return roleIntro(r) + body + teamIntro(team, r), err

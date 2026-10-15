@@ -1,4 +1,5 @@
 import { useState, type ReactNode } from 'react';
+import { ProfileFields } from '@/app/profile-fields';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import { useProfile } from '@/lib/api/get-profile';
@@ -48,37 +49,55 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function NameSection() {
   const profile = useProfile();
   const save = usePutProfile();
-  const [draft, setDraft] = useState<string | null>(null);
-  const saved = profile.data?.name ?? '';
-  const name = draft ?? saved;
+  const [draft, setDraft] = useState<{ name: string; role: string; style: string[] } | null>(null);
+  const saved = {
+    name: profile.data?.name ?? '',
+    role: profile.data?.role ?? '',
+    style: profile.data?.style ?? [],
+  };
+  const { name, role, style } = draft ?? saved;
+  const changed =
+    name.trim() !== saved.name ||
+    role !== saved.role ||
+    style.join('\n') !== saved.style.join('\n');
 
   return (
     <Section title="Profile">
       <form
-        className="flex items-center gap-3"
+        className="flex flex-col gap-3"
         onSubmit={(e) => {
           e.preventDefault();
-          save.mutate(name, { onSuccess: () => setDraft(null) });
+          save.mutate({ name, role, style }, { onSuccess: () => setDraft(null) });
         }}
       >
-        <label htmlFor="profile-name" className="text-[13px] text-muted">
-          Your name
-        </label>
-        <TextField
-          id="profile-name"
-          className="min-w-0 flex-1"
-          value={name}
-          onChange={(e) => setDraft(e.target.value)}
+        <div className="flex items-center gap-3">
+          <label htmlFor="profile-name" className="text-[13px] text-muted">
+            Your name
+          </label>
+          <TextField
+            id="profile-name"
+            className="min-w-0 flex-1"
+            value={name}
+            onChange={(e) => setDraft({ name: e.target.value, role, style })}
+          />
+        </div>
+        <ProfileFields
+          role={role}
+          style={style}
+          onRole={(r) => setDraft({ name, role: r, style })}
+          onStyle={(s) => setDraft({ name, role, style: s })}
         />
-        <Button
-          variant="primary"
-          size="md"
-          type="submit"
-          loading={save.isPending}
-          disabled={name.trim() === '' || name.trim() === saved}
-        >
-          Save
-        </Button>
+        <div className="flex justify-end">
+          <Button
+            variant="primary"
+            size="md"
+            type="submit"
+            loading={save.isPending}
+            disabled={name.trim() === '' || !changed}
+          >
+            Save
+          </Button>
+        </div>
       </form>
       {save.isError && <p className="text-sm text-danger">{save.error.message}</p>}
     </Section>
