@@ -182,7 +182,7 @@ export function ChannelHeader({
           type="button"
           onClick={onTeam}
           aria-label="Team"
-          className={`min-[1100px]:hidden ${phoneIcon}`}
+          className={`${browserOpen ? 'min-[1540px]:hidden' : 'min-[1100px]:hidden'} ${phoneIcon}`}
         >
           <svg
             width="20"

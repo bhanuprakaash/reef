@@ -56,7 +56,7 @@ export function ChannelPage() {
       ? `${feature.name} · ${STAGES.find((s) => s.value === feature.stage)?.label ?? feature.stage}`
       : 'quick session',
     onTerminal: hasTerminal ? toggleTerminal : undefined,
-    browserOpen,
+    browserOpen: hasTerminal && browserOpen,
     onBrowser: hasTerminal ? toggleBrowser : undefined,
     onBrowserDriver: setBrowserDriver,
   };

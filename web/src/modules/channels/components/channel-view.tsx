@@ -180,7 +180,7 @@ export function ChannelView({
           />
         )}
         <div
-          className={`shrink-0 overflow-y-auto md:w-[400px] md:border-l md:border-hairline ${thread ? 'flex flex-col max-md:fixed max-md:inset-0 max-md:z-30 max-md:bg-main' : 'p-4 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-20 max-md:max-h-[85dvh] max-md:rounded-t-[28px] max-md:bg-field max-md:pb-8'} ${showTeam && !teamOpen ? 'hidden min-[1100px]:block' : ''}`}
+          className={`shrink-0 overflow-y-auto md:w-[400px] md:border-l md:border-hairline ${thread ? 'flex flex-col max-md:fixed max-md:inset-0 max-md:z-30 max-md:bg-main' : 'p-4 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-20 max-md:max-h-[85dvh] max-md:rounded-t-[28px] max-md:bg-field max-md:pb-8'} ${showTeam && !teamOpen ? (browserOpen ? 'hidden min-[1540px]:block' : 'hidden min-[1100px]:block') : ''}`}
         >
           {!thread && (
             <div className="mx-auto mb-4 h-[5px] w-[38px] rounded-pill bg-raised md:hidden" />
