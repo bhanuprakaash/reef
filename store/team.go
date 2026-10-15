@@ -55,6 +55,8 @@ type Role struct {
 
 var _roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 
+var _skillName = regexp.MustCompile(`^[A-Za-z0-9:_-]+$`)
+
 // UnrestrictedBash reports whether a claude tool entry allows every shell command.
 func UnrestrictedBash(tool string) bool {
 	return slices.Contains([]string{"Bash", "Bash(*)", "Bash(:*)"}, strings.TrimSpace(tool))
@@ -83,6 +85,14 @@ func (s *Store) CreateTeam(ctx context.Context, t Team) (Team, error) {
 func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, error) {
 	if err := t.validate(); err != nil {
 		return Team{}, err
+	}
+	t.Roles = slices.Clone(t.Roles)
+	for i, r := range t.Roles {
+		names, err := cleanSkills(r)
+		if err != nil {
+			return Team{}, err
+		}
+		t.Roles[i].Skills = names
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -262,6 +272,26 @@ func (t Team) validate() error {
 			ErrInvalid, t.Name, leads)
 	}
 	return nil
+}
+
+// cleanSkills returns r's skill names trimmed, failing with ErrInvalid on an empty, repeated or
+// oddly spelled one.
+func cleanSkills(r Role) ([]string, error) {
+	names := make([]string, 0, len(r.Skills))
+	for _, name := range r.Skills {
+		name = strings.TrimSpace(name)
+		switch {
+		case name == "":
+			return nil, fmt.Errorf("%w: role %s has an empty skill name", ErrInvalid, r.Name)
+		case !_skillName.MatchString(name):
+			return nil, fmt.Errorf("%w: role %s: skill %q must be letters, digits, :, _ or -",
+				ErrInvalid, r.Name, name)
+		case slices.Contains(names, name):
+			return nil, fmt.Errorf("%w: role %s lists skill %q twice", ErrInvalid, r.Name, name)
+		}
+		names = append(names, name)
+	}
+	return names, nil
 }
 
 // ValidateAgent checks that backend is known and permissionMode, when set, is one it accepts.

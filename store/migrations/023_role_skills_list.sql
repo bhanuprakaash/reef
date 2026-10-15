@@ -6,20 +6,24 @@ UPDATE role SET
     ELSE char(10) || char(10) || p.extra
   END
 FROM (
-  SELECT id, names, is_list, CASE WHEN is_list THEN rest ELSE old END AS extra
+  SELECT id, is_list,
+    (SELECT json_group_array(value) FROM json_each(safe_raw) WHERE value <> '') AS names,
+    CASE WHEN is_list THEN rest ELSE old END AS extra
   FROM (
-    SELECT id, old, rest, names,
-      head <> '' AND instr(replace(head, ', ', ''), ' ') = 0 AND json_valid(names) AS is_list
+    SELECT id, old, rest, raw,
+      head <> '' AND instr(replace(head, ', ', ''), ' ') = 0 AND json_valid(raw) AS is_list,
+      CASE WHEN json_valid(raw) THEN raw ELSE '[]' END AS safe_raw
     FROM (
-      SELECT id, old, rest, head,
-        '["' || replace(replace(head, ', ', ','), ',', '","') || '"]' AS names
+      SELECT id, old, head, rest,
+        '["' || replace(replace(head, ', ', ','), ',', '","') || '"]' AS raw
       FROM (
-        SELECT id, trim(skills, char(32, 9, 10, 13)) AS old,
-          trim(CASE WHEN instr(skills, '.') > 0 THEN substr(skills, 1, instr(skills, '.') - 1)
-                    ELSE skills END, char(32, 9, 10, 13)) AS head,
-          trim(CASE WHEN instr(skills, '.') > 0 THEN substr(skills, instr(skills, '.') + 1)
+        SELECT id, old,
+          trim(CASE WHEN instr(old, '. ') > 0 THEN substr(old, 1, instr(old, '. ') - 1)
+                    WHEN substr(old, -1) = '.' THEN substr(old, 1, length(old) - 1)
+                    ELSE old END, char(32, 9, 10, 13)) AS head,
+          trim(CASE WHEN instr(old, '. ') > 0 THEN substr(old, instr(old, '. ') + 2)
                     ELSE '' END, char(32, 9, 10, 13)) AS rest
-        FROM role
+        FROM (SELECT id, trim(skills, char(32, 9, 10, 13)) AS old FROM role)
       )
     )
   )
