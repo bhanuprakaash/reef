@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
@@ -37,6 +38,17 @@ func setGhResponse(t *testing.T, path, body string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// TestGhInterval_ZeroOrNegativeDefaults covers REEF_GH_INTERVAL=0 or a negative duration,
+// which would otherwise panic time.NewTicker in the poll goroutine.
+func TestGhInterval_ZeroOrNegativeDefaults(t *testing.T) {
+	for _, v := range []string{"0", "0s", "-1s"} {
+		t.Setenv("REEF_GH_INTERVAL", v)
+		if got := ghInterval(); got != 60*time.Second {
+			t.Errorf("ghInterval() with REEF_GH_INTERVAL=%q = %v, want 60s", v, got)
+		}
 	}
 }
 
