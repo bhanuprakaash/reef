@@ -1,8 +1,9 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
-// REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
+// REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
+// REEF_FAKE_GH (pr only: the folder the server's fake gh keeps its PR in, see fake-gh/gh).
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -10,9 +11,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -1460,6 +1461,87 @@ async function workshop() {
   check(otters > 0 && penguins === 0, "the channel shows the otter picked for the developer, not the penguin", `otter shapes ${otters}, penguin shapes ${penguins}`);
   const prompt = sql(`select prompt from turn where channel_id = ${cid} and role = 'developer' order by id limit 1`);
   check(prompt.includes(marker), "the next developer wake's prompt carries the new persona", prompt.slice(0, 200));
+}
+
+async function pr() {
+  const gh = process.env.REEF_FAKE_GH;
+  if (!gh) throw new Error('set REEF_FAKE_GH to the folder of the fake gh the server runs with');
+  ensureRepo();
+  const section = await addProject();
+  const slug = await addFeature(section, 'pr', 'PR panel');
+  const featureId = page.url().split('/').pop();
+  const cid = await newChannel(main, 'New channel', 'pr chat');
+  await fetch(`${base}/features/${featureId}/worktree`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+
+  const view = (over) => ({
+    number: 12, title: 'Add the login page', url: 'https://github.com/x/y/pull/12', state: 'OPEN',
+    isDraft: false, mergeable: 'CONFLICTING', reviewDecision: 'APPROVED', headRefName: `feature/${slug}`,
+    baseRefName: 'main',
+    statusCheckRollup: [
+      { __typename: 'CheckRun', name: 'build', status: 'COMPLETED', conclusion: 'SUCCESS' },
+      { __typename: 'CheckRun', name: 'lint', status: 'COMPLETED', conclusion: 'FAILURE' },
+      { __typename: 'StatusContext', context: 'deploy preview', state: 'PENDING' },
+    ],
+    ...over,
+  });
+  const setPR = (over) => writeFileSync(path.join(gh, 'pr.json'), JSON.stringify(view(over)));
+  setPR({});
+
+  const chip = main.getByRole('button', { name: /^PR #12 / });
+  await chip.waitFor({ timeout: 30000 });
+  const panel = page.getByRole('complementary', { name: 'Pull request' });
+  await chip.click();
+  await panel.getByText('Add the login page').waitFor();
+  await shot('conflicting');
+  check(
+    page.url().endsWith(`/channels/${cid}`) && page.context().pages().length === 1,
+    'the header PR chip opens the panel in the channel, not the browser',
+    page.url(),
+  );
+  const merge = panel.getByRole('button', { name: 'Merge', exact: true });
+  check(await merge.isDisabled(), 'Merge is disabled while GitHub says the PR is not mergeable', await panel.innerText());
+
+  setPR({ mergeable: 'MERGEABLE' });
+  await page.reload();
+  await main.getByRole('button', { name: /^PR #12 / }).click();
+  await panel.getByRole('button', { name: 'Merge', exact: true }).waitFor();
+  await shot('panel');
+  const text = (await panel.innerText()).replace(/\s+/g, ' ');
+  const icons = await panel.getByRole('img').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')));
+  check(
+    text.includes('Add the login page') && text.includes('#12') && text.includes('Open') &&
+      text.includes('main ← feature/') && text.includes('Approved') &&
+      ['build', 'lint', 'deploy preview'].every((n) => text.includes(n)) && icons.join() === 'passed,failed,pending',
+    'the panel shows title, number, state, base <- head, review and each check with its icon',
+    `${text} | ${icons}`,
+  );
+  const link = panel.getByRole('link', { name: 'Open on GitHub' });
+  check(
+    (await link.getAttribute('href')) === 'https://github.com/x/y/pull/12' && (await link.getAttribute('target')) === '_blank',
+    'Open on GitHub is an external link to the PR url',
+  );
+  check(await panel.getByRole('button', { name: 'Merge', exact: true }).isEnabled(), 'Merge is enabled for an open, mergeable PR');
+
+  await panel.getByRole('button', { name: 'Merge', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Merge pull request' });
+  await dialog.getByText('with a merge commit').waitFor();
+  await shot('confirm');
+  await dialog.getByRole('button', { name: 'Cancel' }).click();
+  await dialog.waitFor({ state: 'hidden' });
+  check(!existsSync(path.join(gh, 'merges.log')), 'Cancel in the dialog merges nothing');
+
+  await panel.getByRole('button', { name: 'Merge', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Merge', exact: true }).click();
+  await panel.getByText('Merged', { exact: true }).waitFor({ timeout: 15000 });
+  await shot('merged');
+  check(
+    readFileSync(path.join(gh, 'merges.log'), 'utf8') === 'pr merge 12 --merge\n' &&
+      (await panel.getByRole('button', { name: 'Merge', exact: true }).count()) === 0,
+    'confirming runs gh pr merge 12 --merge once and the panel shows Merged with no Merge button',
+    await panel.innerText(),
+  );
+  await main.getByRole('button', { name: 'PR #12 merged' }).waitFor({ timeout: 15000 });
+  check(true, 'the header chip follows to merged', sql(`select body from message where channel_id = ${cid} and author = 'reef' order by id desc limit 1`));
 }
 
 try {
