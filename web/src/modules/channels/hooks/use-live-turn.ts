@@ -1,5 +1,6 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useReducer } from 'react';
+import { inspectorKey } from '@/lib/query-keys';
 import {
   emptyTurn,
   foldEvent,
@@ -37,6 +38,7 @@ export function useLiveTurn(channelId: number): LiveTurn {
         void refresh().then(() => dispatch('clear'));
         void queryClient.invalidateQueries({ queryKey: ['proposal', channelId] });
         void queryClient.invalidateQueries({ queryKey: ['turns', channelId] });
+        void queryClient.invalidateQueries({ queryKey: inspectorKey(channelId) });
       } else if (data.status === 'failed') {
         void refresh();
         void queryClient.invalidateQueries({ queryKey: ['turns', channelId] });
