@@ -318,6 +318,27 @@ func TestParse_turnUsage(t *testing.T) {
 	}
 }
 
+func TestParse_costIsPerTurnNotProcessTotal(t *testing.T) {
+	result := func(cost float64) string {
+		return fmt.Sprintf(`{"type":"result","subtype":"success","is_error":false,"result":"done","total_cost_usd":%g}`, cost)
+	}
+	var st state
+	var got []float64
+	for _, line := range []string{result(0.0477), result(0.0590), result(0.0663)} {
+		for _, ev := range parse([]byte(line), &st) {
+			if ev.Kind == agent.KindTurnEnd {
+				got = append(got, *ev.CostUSD)
+			}
+		}
+	}
+	want := []float64{0.0477, 0.0113, 0.0073}
+	for i := range want {
+		if diff := got[i] - want[i]; diff > 1e-9 || diff < -1e-9 {
+			t.Errorf("turn %d cost = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
 func fakeClaude(t *testing.T, scenario string) *Agent {
 	t.Helper()
 	dir, err := filepath.Abs("testdata")
