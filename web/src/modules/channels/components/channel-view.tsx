@@ -147,12 +147,13 @@ export function ChannelView({
             {turn.note && <p className="text-sm text-muted">{turn.note}</p>}
             <FailedTurnRows
               channelId={channel.id}
+              faces={faces}
               running={running}
               paused={channel.paused !== ''}
             />
             <CheckpointRows channelId={channel.id} running={running} />
-            <ApprovalRows channelId={channel.id} />
-            <ProposalPanel channelId={channel.id} featureId={channel.featureId} />
+            <ApprovalRows channelId={channel.id} faces={faces} />
+            <ProposalPanel channelId={channel.id} featureId={channel.featureId} faces={faces} />
             <div className="sticky bottom-0 bg-main pb-1 pt-2">
               <Composer
                 channelId={channel.id}
@@ -200,7 +201,7 @@ export function ChannelView({
             />
           )}
           {side?.kind === 'inspector' && (
-            <InspectorPanel channelId={channel.id} onClose={closeSide} />
+            <InspectorPanel channelId={channel.id} faces={faces} onClose={closeSide} />
           )}
           {showTeam && (
             <div className="mb-5 flex items-center gap-2.5 md:hidden">

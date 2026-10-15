@@ -40,6 +40,11 @@
   --color-asleep: #6f6f74;
   --color-danger: #ff8a80;
   --color-danger-bg: #3a1716;
+  --color-badge: #d92f26;
+  --color-banner-bg: #1f2a3d;
+  --color-banner-line: #2e3a52;
+  --color-banner-fg: #cfe0ff;
+  --color-terminal: #161616;
 
   --color-lead: #f26b2e;
   --color-mark-ink: #1c1c1e;
@@ -100,6 +105,11 @@
   --color-asleep: #a1a1a6;
   --color-danger: #c4281c;
   --color-danger-bg: #fde3e1;
+  --color-badge: #d70015;
+  --color-banner-bg: #e8f0ff;
+  --color-banner-line: #c5d6f5;
+  --color-banner-fg: #1a4a99;
+  --color-terminal: #f7f7f8;
 
   --shadow-menu: 0 16px 40px rgb(0 0 0 / 0.12);
   --shadow-dialog: 0 24px 60px rgb(0 0 0 / 0.18);
@@ -146,6 +156,11 @@
     --color-asleep: #a1a1a6;
     --color-danger: #c4281c;
     --color-danger-bg: #fde3e1;
+    --color-badge: #d70015;
+    --color-banner-bg: #e8f0ff;
+    --color-banner-line: #c5d6f5;
+    --color-banner-fg: #1a4a99;
+    --color-terminal: #f7f7f8;
 
     --shadow-menu: 0 16px 40px rgb(0 0 0 / 0.12);
     --shadow-dialog: 0 24px 60px rgb(0 0 0 / 0.18);

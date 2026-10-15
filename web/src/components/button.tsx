@@ -1,23 +1,32 @@
 import type { ComponentProps } from 'react';
 
-type Variant = 'primary' | 'secondary' | 'ghost' | 'destructive';
-type Size = 'sm' | 'md' | 'lg';
+type Variant = 'primary' | 'secondary' | 'ghost' | 'destructive' | 'paused' | 'failed';
+type Size = 'sm' | 'md' | 'lg' | 'icon';
 
 const variants: Record<Variant, string> = {
-  primary: 'rounded-pill bg-pill px-4 text-pill-ink',
-  secondary: 'rounded-pill border border-line px-4 text-fg hover:bg-card',
-  ghost: 'rounded-field px-3 text-soft hover:bg-card',
-  destructive: 'rounded-pill bg-danger-bg px-4 text-danger',
+  primary: 'bg-pill text-pill-ink',
+  secondary: 'border border-line text-fg hover:bg-card',
+  ghost: 'text-soft hover:bg-card',
+  destructive: 'bg-danger-bg text-danger',
+  paused: 'bg-paused text-paused-ink',
+  failed: 'border border-failed-line text-failed-fg',
 };
 
 const sizes: Record<Size, string> = {
   sm: 'h-11 text-xs md:h-7',
   md: 'h-11 text-sm md:h-9',
   lg: 'h-11 text-[15px]',
+  icon: 'size-11 md:size-10',
 };
 
 export function buttonClass(variant: Variant = 'secondary', size: Size = 'md') {
-  return `inline-flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:border-0 disabled:bg-track disabled:text-faint ${variants[variant]} ${sizes[size]}`;
+  const shape =
+    size === 'icon'
+      ? 'rounded-full'
+      : variant === 'ghost'
+        ? 'rounded-field px-3'
+        : 'rounded-pill px-4';
+  return `inline-flex items-center justify-center gap-2 disabled:cursor-not-allowed disabled:border-0 disabled:bg-track disabled:text-faint ${shape} ${variants[variant]} ${sizes[size]}`;
 }
 
 type Props = ComponentProps<'button'> & { variant?: Variant; size?: Size; loading?: boolean };

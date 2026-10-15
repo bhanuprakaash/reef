@@ -50,7 +50,7 @@ export function Composer({
 
   const mention = closed || paused ? null : findMention(text, caret);
   const matches = mention
-    ? (roles ?? []).filter((name) => name.startsWith(mention.query.toLowerCase()))
+    ? (roles ?? []).filter((name) => name.toLowerCase().startsWith(mention.query.toLowerCase()))
     : [];
   const open = mention !== null && matches.length > 0;
   const highlighted = Math.min(active, matches.length - 1);
@@ -124,7 +124,7 @@ export function Composer({
         </Menu>
       )}
       <div className="flex min-h-14 items-center gap-2.5 rounded-pill border border-hover bg-field p-1.5">
-        <Button type="button" aria-label="Attach" disabled className="size-10 shrink-0 px-0">
+        <Button type="button" size="icon" aria-label="Attach" disabled className="shrink-0">
           <svg {...icon} strokeWidth={1.7}>
             <path d="M12 5v14M5 12h14" />
           </svg>
@@ -174,8 +174,9 @@ export function Composer({
           <Button
             variant="primary"
             type="button"
+            size="icon"
             aria-label="Stop"
-            className="size-10 shrink-0 px-0"
+            className="shrink-0"
             disabled={stop.isPending}
             onClick={() => stop.mutate()}
           >
@@ -187,8 +188,9 @@ export function Composer({
           <Button
             variant="primary"
             type="submit"
+            size="icon"
             aria-label="Send"
-            className="size-10 shrink-0 px-0"
+            className="shrink-0"
             disabled={text.trim() === '' || paused || send.isPending}
           >
             <svg {...icon} width={16} height={16} strokeWidth={2.2}>

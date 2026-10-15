@@ -7,9 +7,11 @@ import { Creature } from '@/components/creature';
 export function ProposalPanel({
   channelId,
   featureId,
+  faces,
 }: {
   channelId: number;
   featureId: number | null;
+  faces: Record<string, string | undefined>;
 }) {
   const proposal = useProposal(channelId);
   const decide = useDecideProposal(channelId, featureId);
@@ -51,7 +53,7 @@ export function ProposalPanel({
       className="flex scroll-mb-44 flex-col gap-2.5 rounded-card border border-line bg-card p-4 [--creature-ring:var(--color-card)]"
     >
       <div className="flex items-center gap-2">
-        <Creature role={p.role} size={22} />
+        <Creature role={p.role} face={faces[p.role]} size={22} />
         <h2>Wrap-up proposal from {p.role}</h2>
         <span className="ml-auto text-[12.5px] text-muted">{summary}</span>
       </div>

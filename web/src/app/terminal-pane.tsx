@@ -19,7 +19,14 @@ export function TerminalPane({ cwd, onHide }: { cwd: string; onHide?: () => void
 
     let disposed = false;
     let stopData = () => {};
-    const term = new Terminal({ convertEol: true, theme: { background: '#161616' } });
+    const style = getComputedStyle(container);
+    const term = new Terminal({
+      convertEol: true,
+      theme: {
+        background: style.getPropertyValue('--color-terminal').trim(),
+        foreground: style.getPropertyValue('--color-fg').trim(),
+      },
+    });
     termRef.current = term;
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -57,8 +64,8 @@ export function TerminalPane({ cwd, onHide }: { cwd: string; onHide?: () => void
   if (!available) return null;
 
   return (
-    <section aria-label="Terminal" className="bg-[#161616]">
-      <div className="flex h-9 items-center gap-2 border-b border-[#262626] pl-4 pr-2.5 text-[12.5px] text-muted">
+    <section aria-label="Terminal" className="bg-terminal">
+      <div className="flex h-9 items-center gap-2 border-b border-hairline pl-4 pr-2.5 text-[12.5px] text-muted">
         <span className="text-fg">Terminal</span>
         <span className="min-w-0 truncate font-mono">{cwd}</span>
         <Button

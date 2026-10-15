@@ -4,7 +4,13 @@ import { approvalAnchor } from '@/utils/anchors';
 import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
 
-export function ApprovalRows({ channelId }: { channelId: number }) {
+export function ApprovalRows({
+  channelId,
+  faces,
+}: {
+  channelId: number;
+  faces: Record<string, string | undefined>;
+}) {
   const approvals = useApprovals(channelId);
   const decide = useDecideApproval();
 
@@ -20,7 +26,7 @@ export function ApprovalRows({ channelId }: { channelId: number }) {
             className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-card px-4 py-3.5 [--creature-ring:var(--color-card)]"
           >
             <span className="flex items-center gap-1">
-              <Creature role={a.from} size={26} />
+              <Creature role={a.from} face={faces[a.from]} size={26} />
               <svg
                 width="16"
                 height="12"
@@ -35,7 +41,7 @@ export function ApprovalRows({ channelId }: { channelId: number }) {
               >
                 <path d="M1 6h12M9 2l4 4-4 4" />
               </svg>
-              <Creature role={a.to} state="needs-you" size={26} />
+              <Creature role={a.to} face={faces[a.to]} state="needs-you" size={26} />
             </span>
             <div className="min-w-0 flex-1 basis-48">
               <p className="text-[14.5px] whitespace-pre-wrap">{a.text}</p>

@@ -30,8 +30,8 @@ export function PausedBanner({ channelId, reason }: { channelId: number; reason:
         {cont.isError && <p className="text-sm text-danger">{cont.error.message}</p>}
       </div>
       <Button
+        variant="paused"
         type="button"
-        className="bg-paused! text-paused-ink! disabled:bg-track! disabled:text-faint!"
         disabled={cont.isPending}
         onClick={() => cont.mutate(channelId)}
       >

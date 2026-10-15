@@ -35,7 +35,7 @@ describe('FailedTurnRows', () => {
     useFailedTurns.mockReturnValue({ data: [turn] });
 
     const markup = renderToStaticMarkup(
-      <FailedTurnRows channelId={2} running={false} paused={false} />,
+      <FailedTurnRows channelId={2} faces={{}} running={false} paused={false} />,
     );
 
     expect(markup).toContain('>developer</span>&#x27;s turn 7 failed');
@@ -47,7 +47,7 @@ describe('FailedTurnRows', () => {
     useFailedTurns.mockReturnValue({ data: [turn] });
 
     const markup = renderToStaticMarkup(
-      <FailedTurnRows channelId={2} running={false} paused={true} />,
+      <FailedTurnRows channelId={2} faces={{}} running={false} paused={true} />,
     );
 
     expect(markup).toContain('>developer</span>&#x27;s turn 7 failed');
@@ -60,7 +60,7 @@ describe('FailedTurnRows', () => {
     useTurns.mockReturnValue({ data: [{ id: 8 }] });
 
     const markup = renderToStaticMarkup(
-      <FailedTurnRows channelId={2} running={false} paused={false} />,
+      <FailedTurnRows channelId={2} faces={{}} running={false} paused={false} />,
     );
 
     expect(markup.match(/Roll back/g)).toHaveLength(1);
@@ -70,7 +70,7 @@ describe('FailedTurnRows', () => {
     useFailedTurns.mockReturnValue({ data: [] });
 
     const markup = renderToStaticMarkup(
-      <FailedTurnRows channelId={2} running={false} paused={false} />,
+      <FailedTurnRows channelId={2} faces={{}} running={false} paused={false} />,
     );
 
     expect(markup).toBe('');

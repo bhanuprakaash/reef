@@ -18,7 +18,9 @@ describe('InspectorPanel', () => {
   it('shows cost to 4 decimals instead of rounding to $0.00', () => {
     useInspector.mockReturnValue({ isPending: false, isError: false, data });
 
-    const markup = renderToStaticMarkup(<InspectorPanel channelId={1} onClose={() => {}} />);
+    const markup = renderToStaticMarkup(
+      <InspectorPanel channelId={1} faces={{}} onClose={() => {}} />,
+    );
 
     expect(markup).toContain('$0.0034');
   });
@@ -30,13 +32,15 @@ describe('InspectorPanel', () => {
       data: { roles: [{ role: 'lead', turns: 2, usage, costUsd: null }], turns: [] },
     });
 
-    const markup = renderToStaticMarkup(<InspectorPanel channelId={1} onClose={() => {}} />);
+    const markup = renderToStaticMarkup(
+      <InspectorPanel channelId={1} faces={{}} onClose={() => {}} />,
+    );
 
     expect(markup).toContain('n/a');
     expect(markup).toContain('Codex does not report cost');
   });
 
-  it('sums roles into the totals and skips n/a costs', () => {
+  it('sums known costs and marks the total when a role has none', () => {
     useInspector.mockReturnValue({
       isPending: false,
       isError: false,
@@ -60,9 +64,11 @@ describe('InspectorPanel', () => {
       },
     });
 
-    const markup = renderToStaticMarkup(<InspectorPanel channelId={1} onClose={() => {}} />);
+    const markup = renderToStaticMarkup(
+      <InspectorPanel channelId={1} faces={{}} onClose={() => {}} />,
+    );
 
-    expect(markup).toContain('$0.7500');
+    expect(markup).toContain('>$0.7500 + n/a<');
     expect(markup).toContain('4.0k');
     expect(markup).toContain('>14<');
   });
@@ -70,7 +76,9 @@ describe('InspectorPanel', () => {
   it('shows "1 turn" for a single turn, not "1 turns"', () => {
     useInspector.mockReturnValue({ isPending: false, isError: false, data });
 
-    const markup = renderToStaticMarkup(<InspectorPanel channelId={1} onClose={() => {}} />);
+    const markup = renderToStaticMarkup(
+      <InspectorPanel channelId={1} faces={{}} onClose={() => {}} />,
+    );
 
     expect(markup).toContain('1 turn<');
     expect(markup).not.toContain('1 turns');
@@ -83,7 +91,9 @@ describe('InspectorPanel', () => {
       data: { roles: [{ role: 'lead', turns: 2, usage, costUsd: 0.0034 }], turns: [] },
     });
 
-    const markup = renderToStaticMarkup(<InspectorPanel channelId={1} onClose={() => {}} />);
+    const markup = renderToStaticMarkup(
+      <InspectorPanel channelId={1} faces={{}} onClose={() => {}} />,
+    );
 
     expect(markup).toContain('2 turns');
   });

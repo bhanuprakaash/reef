@@ -17,12 +17,18 @@ function tokens(usage: Pick<Usage, 'inputTokens' | 'outputTokens'>) {
   return formatTokens(usage.inputTokens + usage.outputTokens);
 }
 
-function TurnRow({ turn }: { turn: InspectorTurn }) {
+function TurnRow({
+  turn,
+  faces,
+}: {
+  turn: InspectorTurn;
+  faces: Record<string, string | undefined>;
+}) {
   const { usage } = turn;
   return (
     <details className="rounded-menu bg-field text-[12.5px]">
       <summary className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-[13.5px]">
-        <Creature role={turn.role} size={20} />
+        <Creature role={turn.role} face={faces[turn.role]} size={20} />
         <span className="whitespace-nowrap">Turn {turn.id}</span>
         <span
           className={`min-w-0 truncate ${turn.status === 'failed' ? 'text-danger' : 'text-muted'}`}
@@ -62,13 +68,24 @@ function TurnRow({ turn }: { turn: InspectorTurn }) {
   );
 }
 
-export function InspectorPanel({ channelId, onClose }: { channelId: number; onClose: () => void }) {
+export function InspectorPanel({
+  channelId,
+  faces,
+  onClose,
+}: {
+  channelId: number;
+  faces: Record<string, string | undefined>;
+  onClose: () => void;
+}) {
   const inspector = useInspector(channelId, true);
   const data = inspector.data;
   const roles = data?.roles ?? [];
   const costs = roles.flatMap((r) => (r.costUsd === null ? [] : [r.costUsd]));
+  const total = cost(costs.length === 0 ? null : costs.reduce((a, b) => a + b, 0));
+  const costTotal =
+    costs.length > 0 && costs.length < roles.length ? `${total} + ${NO_COST}` : total;
   const totals = [
-    ['Cost', cost(costs.length === 0 ? null : costs.reduce((a, b) => a + b, 0))],
+    ['Cost', costTotal],
     [
       'Tokens',
       formatTokens(roles.reduce((n, r) => n + r.usage.inputTokens + r.usage.outputTokens, 0)),
@@ -119,7 +136,7 @@ export function InspectorPanel({ channelId, onClose }: { channelId: number; onCl
             <ul className="text-[13.5px] tabular-nums">
               {roles.map((role) => (
                 <li key={role.role} className="flex min-h-9 items-center gap-2">
-                  <Creature role={role.role} size={20} />
+                  <Creature role={role.role} face={faces[role.role]} size={20} />
                   <span className="min-w-0 flex-1 truncate capitalize">{role.role}</span>
                   <span className="text-right text-muted">{turnsLabel(role.turns)}</span>
                   <span className="w-11 text-right text-muted">{tokens(role.usage)}</span>
@@ -141,7 +158,7 @@ export function InspectorPanel({ channelId, onClose }: { channelId: number; onCl
               {[...data.turns]
                 .sort((a, b) => b.id - a.id)
                 .map((turn) => (
-                  <TurnRow key={turn.id} turn={turn} />
+                  <TurnRow key={turn.id} turn={turn} faces={faces} />
                 ))}
             </div>
           </div>

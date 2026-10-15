@@ -9,10 +9,12 @@ import { Creature } from '@/components/creature';
 
 export function FailedTurnRows({
   channelId,
+  faces,
   running,
   paused,
 }: {
   channelId: number;
+  faces: Record<string, string | undefined>;
   running: boolean;
   paused: boolean;
 }) {
@@ -34,7 +36,7 @@ export function FailedTurnRows({
             id={failedTurnAnchor(t.id)}
             className="flex flex-wrap items-center gap-3 rounded-card border border-failed-line bg-failed-bg px-4 py-3.5 [--creature-ring:var(--color-failed-bg)]"
           >
-            <Creature role={t.role} state="failed" size={24} />
+            <Creature role={t.role} face={faces[t.role]} state="failed" size={24} />
             <div className="min-w-0 flex-1 basis-48">
               <p className="text-failed-fg">
                 <span className="capitalize">{t.role}</span>
@@ -44,8 +46,8 @@ export function FailedTurnRows({
             </div>
             {rollbackable.has(t.id) && (
               <Button
+                variant="failed"
                 type="button"
-                className="border-failed-line! text-failed-fg! disabled:text-faint!"
                 disabled={running || rollback.isPending}
                 onClick={() => confirmRollback(t.id) && rollback.mutate(t.id)}
               >

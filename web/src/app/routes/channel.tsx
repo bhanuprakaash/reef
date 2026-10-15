@@ -37,7 +37,7 @@ export function ChannelPage() {
   const channel = useChannel(id);
   const features = useFeatures();
   const projects = useProjects();
-  const [terminalFlipped, setTerminalFlipped] = useState(false);
+  const [flippedId, setFlippedId] = useState<number | null>(null);
   const { browserOpen, toggleBrowser, setBrowserDriver } = useOutletContext<LayoutContext>();
 
   if (channel.isPending) return <p className="text-sm text-muted">Loading...</p>;
@@ -47,8 +47,8 @@ export function ChannelPage() {
   const feature = features.data?.find((f) => f.id === featureId);
   const project = projects.data?.find((p) => p.id === channel.data.projectId);
   const hasTerminal = typeof window !== 'undefined' && window.reef != null;
-  const toggleTerminal = () => setTerminalFlipped((flipped) => !flipped);
-  const terminalOpen = hasTerminal && (featureId === null) !== terminalFlipped;
+  const toggleTerminal = () => setFlippedId(flippedId === id ? null : id);
+  const terminalOpen = hasTerminal && (featureId === null) !== (flippedId === id);
   const props: ViewProps = {
     channel: channel.data,
     features: features.data ?? [],

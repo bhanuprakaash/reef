@@ -71,8 +71,8 @@ function QuickCapture() {
       <Button
         type="submit"
         variant="primary"
+        size="icon"
         aria-label="Capture"
-        className="size-10 px-0"
         disabled={!project || text.trim() === ''}
         loading={create.isPending}
       >

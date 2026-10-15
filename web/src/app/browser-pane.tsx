@@ -139,11 +139,11 @@ export function BrowserPane({ open, driver }: { open: boolean; driver: BrowserDr
         {!banner && takeOverButton}
       </form>
       {banner && (
-        <div className="flex items-center gap-2.5 border-b border-[#2E3A52] bg-[#1F2A3D] px-3.5 py-2.5 text-[13px]">
+        <div className="flex items-center gap-2.5 border-b border-banner-line bg-banner-bg px-3.5 py-2.5 text-[13px]">
           {!takenOver && driver && (
             <Creature role={driver.role} face={driver.face} size={22} state="working" />
           )}
-          <span role="status" className="flex-1 text-[#CFE0FF]">
+          <span role="status" className="flex-1 text-banner-fg">
             {takenOver || !driver ? (
               'You have the browser'
             ) : (

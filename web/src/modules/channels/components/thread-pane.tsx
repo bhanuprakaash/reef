@@ -30,7 +30,7 @@ export function ThreadPane({
   onClose,
 }: Props) {
   const { root, replies } = thread;
-  const owner = root.author === 'user' || root.author === 'reef' ? lead : root.author;
+  const owner = roles.includes(root.author) ? root.author : lead;
   const time = new Date(root.createdAt).toLocaleTimeString([], {
     hour: '2-digit',
     minute: '2-digit',
@@ -45,9 +45,10 @@ export function ThreadPane({
         </span>
         <Button
           variant="ghost"
+          size="icon"
           type="button"
           aria-label="Close thread"
-          className="ml-auto size-9 px-0 max-md:order-first max-md:ml-0 max-md:size-11"
+          className="ml-auto max-md:order-first max-md:ml-0"
           onClick={onClose}
         >
           <svg

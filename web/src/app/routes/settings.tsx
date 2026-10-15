@@ -3,6 +3,7 @@ import { Button } from '@/components/button';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
 import { useNotificationPermission } from '@/lib/use-notification-permission';
 
+// The previews depict each theme, so they keep literal colours.
 const themes: { value: Theme; label: string; preview: ReactNode }[] = [
   {
     value: 'dark',
