@@ -829,18 +829,28 @@ async function memory() {
   const value = await editor.inputValue();
   check(value === 'Use Go, not Python.', 'the saved memory survives a reload', value);
 
-  const slug = `pp-${Date.now().toString(36)}`;
+  const id = Date.now().toString(36);
   await main.getByRole('button', { name: 'New feature' }).click();
   const featureDialog = page.getByRole('dialog', { name: 'New feature' });
-  await featureDialog.getByLabel('Feature slug').fill(slug);
-  await featureDialog.getByLabel('Feature name').fill('Project page feature');
+  await featureDialog.getByLabel('Feature name').fill(`Pp ${id}`);
   await featureDialog.getByRole('button', { name: 'Add', exact: true }).click();
-  await main.getByRole('link', { name: 'Project page feature' }).waitFor();
+  await main.getByRole('link', { name: `Pp ${id}` }).waitFor();
   await shot('feature-added');
+  const autoSlug = sql(`select slug from feature where project_id=${pid} and name='Pp ${id}'`);
   check(
-    sql(`select count(*) from feature where project_id=${pid} and slug='${slug}'`) === '1',
-    'New feature on the project page stores the feature and lists it',
+    autoSlug === `pp-${id}`,
+    'New feature on the project page fills the slug from the name, stores the feature and lists it',
+    autoSlug,
   );
+
+  await main.getByRole('button', { name: 'New feature' }).click();
+  await featureDialog.getByLabel('Feature name').fill(`Hand ${id}`);
+  await featureDialog.getByLabel('Feature slug').fill(`kept-${id}`);
+  await featureDialog.getByLabel('Feature name').fill(`Hand edited ${id}`);
+  await featureDialog.getByRole('button', { name: 'Add', exact: true }).click();
+  await main.getByRole('link', { name: `Hand edited ${id}` }).waitFor();
+  const handSlug = sql(`select slug from feature where project_id=${pid} and name='Hand edited ${id}'`);
+  check(handSlug === `kept-${id}`, 'a slug edited by hand stays when the name changes', handSlug);
 
   const session = `quick-${Date.now().toString(36)}`;
   await main.getByRole('button', { name: 'New quick session' }).click();
