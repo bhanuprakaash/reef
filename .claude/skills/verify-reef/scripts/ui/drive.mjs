@@ -179,10 +179,13 @@ async function live() {
   );
   await working();
   const row = main.getByRole('button', { name: /is working/ });
-  await row.getByText(/^(Bash|Read|Glob|Grep|LS|List)\b/).waitFor({ timeout: 120000 });
-  await page.waitForTimeout(1500);
+  const card = row.locator('xpath=..');
+  await card.locator('details summary').first().waitFor({ timeout: 120000 });
+  await page.waitForTimeout(1000);
   await shot('midturn');
-  check((await main.locator('details').count()) === 0, 'the channel shows one compact row, no inline tool rows', await row.innerText());
+  const inline = await card.locator('details summary').count();
+  const first = await card.locator('details summary').first().innerText();
+  check(inline >= 1 && inline <= 3 && /(Bash|Read|Glob|Grep|LS|List)\b/.test(first), 'the running card shows the last tool calls inline, at most 3', `${inline} rows, first: ${first}`);
   await openTurn();
   await turnPanel.locator('details summary').first().waitFor({ timeout: 120000 });
   await shot('turn-panel');
