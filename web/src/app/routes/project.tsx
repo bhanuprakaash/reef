@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
+import { BackButton } from '@/components/back-button';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { GroupAvatar } from '@/components/creature';
@@ -39,7 +40,10 @@ export function ProjectPage() {
     <div className="mx-auto w-full max-w-[820px] space-y-6 py-6">
       <header className="flex flex-wrap items-end gap-3.5">
         <div className="min-w-[300px] flex-1">
-          <div className="font-mono text-[12.5px] text-muted">{project.path}</div>
+          <div className="-ml-2 flex items-center gap-1 font-mono text-[12.5px] text-muted">
+            <BackButton fallback="/" />
+            {project.path}
+          </div>
           <h1 className="mt-1 text-[32px] font-normal tracking-[-0.02em]">{project.name}</h1>
         </div>
         <Button type="button" onClick={() => setDialog('session')}>

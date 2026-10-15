@@ -41,6 +41,7 @@ type Props = {
   featureName: string;
   branch: string;
   developerFace?: string;
+  leading?: ReactNode;
   actions?: ReactNode;
 };
 
@@ -50,6 +51,7 @@ export function DiffPanel({
   featureName,
   branch,
   developerFace,
+  leading,
   actions,
 }: Props) {
   const [comments, setComments] = useState<ReviewComment[]>([]);
@@ -69,6 +71,7 @@ export function DiffPanel({
   return (
     <>
       <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-3.5 pr-3.5 md:pl-[22px] md:pr-4 md:in-data-desktop:pr-[88px]">
+        {leading}
         <Link to={`/features/${featureId}`} className="text-[13px] text-muted hover:text-fg">
           {featureName}
         </Link>

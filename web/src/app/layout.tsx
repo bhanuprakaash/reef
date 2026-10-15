@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { Outlet } from 'react-router';
+import { useEffect, useState } from 'react';
+import { Outlet, useNavigate } from 'react-router';
 import { BrowserPane, type BrowserDriver } from '@/app/browser-pane';
 import { FirstRun } from '@/app/first-run';
 import { PaneToggles } from '@/app/pane-toggles';
@@ -26,6 +26,19 @@ export function Layout() {
   const [browserDriver, setBrowserDriver] = useState<BrowserDriver | null>(null);
   const profile = useProfile();
   const desktop = typeof window !== 'undefined' && window.reef != null;
+  const navigate = useNavigate();
+  useEffect(() => {
+    if (!desktop) return;
+    function onKey(e: KeyboardEvent) {
+      if (!e.metaKey || (e.key !== '[' && e.key !== ']')) return;
+      const el = e.target as HTMLElement;
+      if (el.closest('input, textarea, [contenteditable]')) return;
+      e.preventDefault();
+      navigate(e.key === '[' ? -1 : 1);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [desktop, navigate]);
   if (projects.isPending || profile.isPending) return null;
   if (projects.data?.length === 0 || profile.data === null) return <FirstRun />;
 

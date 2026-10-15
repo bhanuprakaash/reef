@@ -129,6 +129,12 @@ that exits (the user typed `exit`, or it crashed) is dropped from that buffer, s
 same directory starts a fresh one instead of replaying a dead shell's last output; otherwise it
 keeps running until the app quits.
 
+## Back and forward
+
+The window has no browser toolbar, so detail pages (feature, review, project) start with a Back
+button: it goes back one page, or to the page's parent when the window has no earlier page.
+`Cmd+[` goes back and `Cmd+]` forward, except while a text field is focused.
+
 ## Quick capture
 
 `CommandOrControl+Shift+Space`, registered as a global shortcut while the app runs, opens a

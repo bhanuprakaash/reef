@@ -21,6 +21,7 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 import { useTasks } from '@/modules/tasks/api/get-tasks';
 import { TaskList } from '@/modules/tasks/components/task-list';
 import { roleFaces } from '@/utils/role-faces';
+import { BackButton } from '@/components/back-button';
 import { Button, buttonClass } from '@/components/button';
 import { Card } from '@/components/card';
 import { Dialog } from '@/components/dialog';
@@ -56,7 +57,10 @@ export function FeaturePage() {
     <div className="space-y-7">
       <header className="flex flex-wrap items-end gap-4">
         <div className="flex-1 md:min-w-[360px]">
-          <div className="mb-2 text-xs text-muted">{project?.name} · feature</div>
+          <div className="-ml-2 mb-2 flex items-center gap-1 text-xs text-muted">
+            <BackButton fallback="/" />
+            {project?.name} · feature
+          </div>
           <h1 className="text-[40px] leading-[1.05] font-normal tracking-[-0.02em]">{f.name}</h1>
           {f.goal && <p className="mt-2 max-w-xl text-sm text-muted">{f.goal}</p>}
         </div>

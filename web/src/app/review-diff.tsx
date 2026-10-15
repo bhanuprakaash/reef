@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { BackButton } from '@/components/back-button';
 import { useChannels } from '@/lib/api/get-channels';
 import { useTeams } from '@/lib/api/get-teams';
 import { useDiff } from '@/modules/features/api/get-diff';
@@ -27,6 +28,7 @@ export function ReviewDiff({ id, onClose }: { id: number; onClose?: () => void }
       featureName={feature.data.name}
       branch={`feature/${feature.data.slug}`}
       developerFace={roleFaces(teams.data, latestTeam).developer}
+      leading={!onClose && <BackButton fallback={`/features/${id}`} />}
       actions={
         onClose && (
           <>
