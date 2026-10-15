@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { useUpdateTeam } from '@/modules/teams/api/update-team';
 import { AddGateRow } from '@/modules/teams/components/add-gate-row';
 import { AddRoleRow } from '@/modules/teams/components/add-role-row';
@@ -11,12 +11,22 @@ import { Toggle } from '@/components/toggle';
 type Props = { team: Team; onSaved: (name: string) => void; onDuplicate: () => void };
 
 export function TeamEditor({ team, onSaved, onDuplicate }: Props) {
+  const [loaded, setLoaded] = useState(team);
   const [roles, setRoles] = useState<Role[]>(team.roles);
-  const nextKey = useRef(team.roles.length);
   const [keys, setKeys] = useState(() => team.roles.map((_, i) => i));
   const [gates, setGates] = useState<Gate[]>(team.gates ?? []);
   const [open, setOpen] = useState<number | null>(null);
   const save = useUpdateTeam();
+
+  function load(t: Team) {
+    setLoaded(t);
+    setRoles(t.roles);
+    setGates(t.gates ?? []);
+    setKeys(t.roles.map((_, i) => i));
+  }
+  const unsaved =
+    JSON.stringify([roles, gates]) !== JSON.stringify([loaded.roles, loaded.gates ?? []]);
+  if (team !== loaded && !unsaved) load(team);
 
   function updateRole(i: number, role: Role) {
     setRoles(roles.map((r, idx) => (idx === i ? role : r)));
@@ -59,7 +69,7 @@ export function TeamEditor({ team, onSaved, onDuplicate }: Props) {
         <AddRoleRow
           onAdd={(role) => {
             setRoles([...roles, role]);
-            setKeys([...keys, nextKey.current++]);
+            setKeys([...keys, Math.max(-1, ...keys) + 1]);
             setOpen(roles.length);
           }}
         />
@@ -119,7 +129,7 @@ export function TeamEditor({ team, onSaved, onDuplicate }: Props) {
                   { name: team.name, team: { name: team.name, roles, gates } },
                   {
                     onSuccess: (saved) => {
-                      setRoles(saved.roles);
+                      load(saved);
                       onSaved(saved.name);
                     },
                   },

@@ -152,7 +152,13 @@ export function RoleEditor({ role, open, onToggle, onChange, onRemove }: Props) 
               label="MCP servers"
               empty="None. Add them with reef team apply."
               values={role.mcp.map((m) => (m.label ? `${m.name} · ${m.label}` : m.name))}
-              onRemove={(i) => onChange({ ...role, mcp: role.mcp.filter((_, j) => j !== i) })}
+              onRemove={(i) =>
+                onChange({
+                  ...role,
+                  mcp: role.mcp.filter((_, j) => j !== i),
+                  mcpRemove: [...(role.mcpRemove ?? []), role.mcp[i]],
+                })
+              }
             />
           </div>
         </div>

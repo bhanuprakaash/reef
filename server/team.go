@@ -40,10 +40,10 @@ type mcpView struct {
 	Label string `json:"label"`
 }
 
-// putRole is a role in a PUT body. Its mcp lists the servers to keep, by name.
+// putRole is a role in a PUT body. Its mcpRemove lists the servers to drop, as GET showed them.
 type putRole struct {
 	store.Role
-	MCP []mcpView `json:"mcp"`
+	MCPRemove []mcpView `json:"mcpRemove"`
 }
 
 type putBody struct {
@@ -51,8 +51,6 @@ type putBody struct {
 	Roles []putRole    `json:"roles"`
 	Gates []store.Gate `json:"gates,omitempty"`
 }
-
-func mcpName(i int) string { return "mcp" + strconv.Itoa(i+1) }
 
 func (s *server) teamRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /teams", s.listTeams)
@@ -85,8 +83,8 @@ func (s *server) getTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 // putTeam applies the body like `reef team apply`. A role whose body omits mcpServers keeps
-// the server's stored ones, since the window never sees them; if it lists `mcp`, it keeps only
-// the stored servers with those names. With a `from` query param it instead copies the team
+// the server's stored ones, since the window never sees them, except those its `mcpRemove`
+// lists; a listed server that no longer matches by name and label is a conflict. With a `from` query param it instead copies the team
 // named by `from`: `name` must not exist yet, and a role's stored mcpServers come from
 // `from`'s role of the same name.
 func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
@@ -113,7 +111,10 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
-		fillMCPServers(t, body, existing)
+		if err := fillMCPServers(t, body, existing); err != nil {
+			writeError(w, err)
+			return
+		}
 		applied, err := s.st.ApplyTeam(r.Context(), t)
 		if err != nil {
 			writeError(w, err)
@@ -131,7 +132,10 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	fillMCPServers(t, body, source)
+	if err := fillMCPServers(t, body, source); err != nil {
+		writeError(w, err)
+		return
+	}
 	applied, err := s.st.CreateTeam(r.Context(), t)
 	if err != nil {
 		writeError(w, err)
@@ -141,33 +145,48 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 // fillMCPServers gives each role of t that omits mcpServers the servers of existing's role of
-// the same name, since the window never sees them. When the role's body lists mcp, only the
-// servers it names are kept.
-func fillMCPServers(t store.Team, body putBody, existing store.Team) {
+// the same name, since the window never sees them, minus the ones the role's body lists in
+// mcpRemove.
+func fillMCPServers(t store.Team, body putBody, existing store.Team) error {
 	for i, role := range t.Roles {
 		if role.MCPServers != nil {
 			continue
 		}
 		for _, er := range existing.Roles {
-			if er.Name == role.Name {
-				t.Roles[i].MCPServers = keepMCP(er.MCPServers, body.Roles[i].MCP)
-				break
+			if er.Name != role.Name {
+				continue
 			}
+			kept, err := removeMCP(er.MCPServers, body.Roles[i].MCPRemove)
+			if err != nil {
+				return err
+			}
+			t.Roles[i].MCPServers = kept
+			break
 		}
 	}
+	return nil
 }
 
-func keepMCP(servers []agent.MCPServer, keep []mcpView) []agent.MCPServer {
-	if keep == nil {
-		return servers
+// removeMCP drops the servers that remove names. Each must match a stored server by both name
+// and label, so a team changed by `reef team apply` since the window loaded it is a conflict,
+// never a removal of the wrong server.
+func removeMCP(servers []agent.MCPServer, remove []mcpView) ([]agent.MCPServer, error) {
+	if len(remove) == 0 {
+		return servers, nil
 	}
-	kept := []agent.MCPServer{}
+	views := viewMCP(servers)
+	for _, r := range remove {
+		if !slices.Contains(views, r) {
+			return nil, fmt.Errorf("%w: MCP servers changed since you loaded the team; reload", store.ErrConflict)
+		}
+	}
+	var kept []agent.MCPServer
 	for i, srv := range servers {
-		if slices.ContainsFunc(keep, func(k mcpView) bool { return k.Name == mcpName(i) }) {
+		if !slices.Contains(remove, views[i]) {
 			kept = append(kept, srv)
 		}
 	}
-	return kept
+	return kept, nil
 }
 
 func viewMCP(servers []agent.MCPServer) []mcpView {
@@ -192,3 +211,5 @@ func viewTeam(t store.Team) teamView {
 	}
 	return teamView{Name: t.Name, Roles: roles, Gates: t.Gates}
 }
+
+func mcpName(i int) string { return "mcp" + strconv.Itoa(i+1) }

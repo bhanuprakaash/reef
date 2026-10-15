@@ -9,7 +9,10 @@ export function useUpdateTeam() {
       const query = from ? `?from=${encodeURIComponent(from)}` : '';
       return api<Team>(`/teams/${encodeURIComponent(name)}${query}`, {
         method: 'PUT',
-        body: JSON.stringify(team),
+        body: JSON.stringify({
+          ...team,
+          roles: team.roles.map((role) => ({ ...role, mcp: undefined })),
+        }),
       });
     },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['teams'] }),

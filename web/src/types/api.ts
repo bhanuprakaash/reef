@@ -109,6 +109,7 @@ export type Role = {
   face?: string;
   tools: string[];
   mcp: { name: string; label: string }[];
+  mcpRemove?: { name: string; label: string }[];
 };
 
 export type Gate = { from: string; to: string; on: boolean };
