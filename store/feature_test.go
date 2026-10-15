@@ -121,3 +121,37 @@ func TestFeatureByRef(t *testing.T) {
 		})
 	}
 }
+
+func TestFeatureKind(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := s.CreateFeature(ctx, Feature{ProjectID: 1, Slug: "a", Name: "A"})
+	if err != nil || f.Kind != "journey" {
+		t.Fatalf("CreateFeature without kind = %q, %v, want journey", f.Kind, err)
+	}
+	if _, err := s.CreateFeature(ctx, Feature{ProjectID: 1, Slug: "b", Name: "B", Kind: "epic"}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("CreateFeature kind epic = %v, want ErrInvalid", err)
+	}
+	g, err := s.CreateFeature(ctx, Feature{ProjectID: 1, Slug: "c", Name: "C", Kind: "fixes"})
+	if err != nil || g.Kind != "fixes" {
+		t.Fatalf("CreateFeature fixes = %q, %v, want fixes", g.Kind, err)
+	}
+
+	if got, err := s.UpdateFeature(ctx, Feature{ID: g.ID, Name: "C2"}); err != nil || got.Kind != "fixes" {
+		t.Errorf("UpdateFeature without kind = %q, %v, want fixes kept", got.Kind, err)
+	}
+	if got, err := s.UpdateFeature(ctx, Feature{ID: g.ID, Name: "C2", Kind: "journey"}); err != nil || got.Kind != "journey" {
+		t.Errorf("UpdateFeature journey = %q, %v, want journey", got.Kind, err)
+	}
+	if _, err := s.UpdateFeature(ctx, Feature{ID: g.ID, Name: "C2", Kind: "epic"}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("UpdateFeature kind epic = %v, want ErrInvalid", err)
+	}
+}

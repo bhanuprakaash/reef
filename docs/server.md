@@ -59,7 +59,7 @@ logged in and on `PATH`.
 
 - Sidebar: a top row with the brand and a New channel button, search, the project switcher,
   then Today, Needs you and a Features section: its header has a button to add a feature, and
-  each feature is a group with its stage chip, collapsible, over one row per channel
+  each feature is a group with its stage chip (a fixes feature shows `done/total` of its tasks instead), collapsible, over one row per channel
   (teammate creatures, name, a preview of the newest message from `lastMessage`, its time);
   quick sessions are listed after the features. A feature's closed channels are folded under "Wrapped (N)" below its open ones, and closed features under "Closed (N)" at the bottom. The list scrolls; the foot is fixed and shows your name beside the Tasks, Teams and
   Settings links. Below 768 px the sidebar is a
@@ -181,6 +181,7 @@ is loaded into every fresh session's context prompt (see [memory.md](memory.md#t
 | `name` | string | required |
 | `goal` | string | default `""` |
 | `stage` | string | default `ideation`; not checked against a list |
+| `kind` | string | `journey` (default) or `fixes`, else `invalid`. A `fixes` feature is a list of small fixes whose state is its tasks: the feature page and the sidebar show the tasks done, `N of M done`, in place of the stage bar, and its agents are told it is a list of fixes instead of the stage. A `PUT` without `kind` keeps the old one |
 | `createdAt` | string | |
 | `closedAt` | string? | `null` while the feature is open. Set by `POST /features/{id}/close`, cleared by `/reopen`; never set by a client. Stage stays a label: a closed feature is not gated |
 
@@ -429,9 +430,9 @@ tool calls.
 | `GET /profile` | | 200 | 404 no name set yet |
 | `PUT /profile` | `name`, `occupation`, `style`; replaces the old profile | 200 | 400 empty name or a line break in a field |
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
-| `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
+| `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage`, `kind` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |
-| `PUT /features/{id}` | `name`, `goal`, `stage` | 200 | 400, 404 |
+| `PUT /features/{id}` | `name`, `goal`, `stage`, `kind` | 200 | 400, 404 |
 | `POST /features/{id}/close` | no body needed | 204; sets `closedAt` on the feature and on each of its channels, and stops their agents | 404, 409 a channel has a turn running (nothing is closed) |
 | `POST /features/{id}/reopen` | no body needed | 204; clears the feature's `closedAt` only, its channels stay closed | 404 |
 | `DELETE /features/{id}` | | 204; the feature's worktree and the checkpoint refs of its turns are removed, its branch is kept | 404, 409 the worktree has uncommitted changes (nothing is removed) |
@@ -944,7 +945,7 @@ $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/projects -d
 {"id":1,"name":"shop","path":"/tmp","createdAt":"2026-10-13T09:00:00.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Login"}'
-{"id":1,"projectId":1,"slug":"login","name":"Login","goal":"","stage":"ideation","createdAt":"2026-10-13T09:00:01.123456Z","closedAt":null}
+{"id":1,"projectId":1,"slug":"login","name":"Login","goal":"","stage":"ideation","kind":"journey","createdAt":"2026-10-13T09:00:01.123456Z","closedAt":null}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Again"}'
 {"error":"feature slug \"login\" is taken in its project: conflict"}

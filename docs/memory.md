@@ -240,7 +240,7 @@ holds a message body. Its shape:
    resuming, gets this part again, marked `Your persona or skills changed:`.
 1. One line: role, feature name and slug, project name. Then, when a profile exists,
    `You work with Ada, a developer. They like: short answers, ask before big changes.` (occupation
-   and style only when set, lower-cased; `Other` is left out). Then the goal (if set) and the stage. A quick session
+   and style only when set, lower-cased; `Other` is left out). Then the goal (if set) and the stage (a `fixes` feature says it is a list of fixes tracked as tasks instead). A quick session
    adds the same line after its second line.
 2. `## Project memory`: the project's memory (see [server.md](server.md#project_memory)), only
    when it is not empty.
