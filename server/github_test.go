@@ -340,6 +340,52 @@ func TestPollGitHub_TwoRunsSameNameBothNoted(t *testing.T) {
 	}
 }
 
+// TestPollGitHub_TimedOutAndStartupFailureCountAsFailed covers two conclusions gh reports for
+// a check run that never produced a result: both must be noted and treated as failed, the
+// same as FAILURE.
+func TestPollGitHub_TimedOutAndStartupFailureCountAsFailed(t *testing.T) {
+	for _, conclusion := range []string{"TIMED_OUT", "STARTUP_FAILURE"} {
+		t.Run(conclusion, func(t *testing.T) {
+			st, err := store.Open(t.TempDir())
+			if err != nil {
+				t.Fatal(err)
+			}
+			dataDir := t.TempDir()
+			h := New(st, dataDir, "/bin/reef")
+			ts := httptest.NewServer(h)
+			t.Cleanup(ts.Close)
+
+			repo := t.TempDir()
+			gitIn(t, repo, "init", "-b", "main")
+			writeIn(t, repo, "a.txt", "a")
+			gitIn(t, repo, "add", ".")
+			gitIn(t, repo, "commit", "-m", "first")
+			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
+			do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
+			do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
+			do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+
+			binDir := t.TempDir()
+			writeFakeGh(t, binDir, repo)
+			t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+			respFile := filepath.Join(t.TempDir(), "resp.json")
+			t.Setenv("GH_FAKE_RESPONSE", respFile)
+			setGhResponse(t, respFile, `{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN",`+
+				`"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED",`+
+				`"conclusion":"`+conclusion+`","detailsUrl":"https://github.com/x/y/actions/runs/1/job/1"}]}`)
+
+			h.s.pollGitHub(context.Background())
+			msgs, err := st.Messages(context.Background(), 1, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(msgs) != 2 || msgs[1].Body != "build failed" {
+				t.Fatalf("messages for conclusion %s = %+v, want a failed check note", conclusion, msgs)
+			}
+		})
+	}
+}
+
 func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {

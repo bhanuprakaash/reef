@@ -104,7 +104,7 @@ func resultWord(v string) string {
 	switch v {
 	case "SUCCESS":
 		return "succeeded"
-	case "FAILURE", "ERROR":
+	case "FAILURE", "ERROR", "TIMED_OUT", "STARTUP_FAILURE":
 		return "failed"
 	default:
 		return strings.ToLower(v)
