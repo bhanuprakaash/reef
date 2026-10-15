@@ -1,1 +1,65 @@
 @import 'tailwindcss';
+
+@theme {
+  --color-sidebar: #1a1a1a;
+  --color-main: #212121;
+  --color-card: #2a2a2a;
+  --color-bubble: #2e2e2e;
+  --color-hairline: #2e2e2e;
+  --color-line: #3a3a3a;
+  --color-field: #262626;
+  --color-raised: #3e3e3e;
+  --color-hover: #383838;
+  --color-track: #333333;
+  --color-scrim: #0f0f0f;
+  --color-fg: #ececec;
+  --color-soft: #cfcfcf;
+  --color-muted: #9b9b9b;
+  --color-faint: #6f6f74;
+  --color-ring: rgb(236 236 236 / 0.15);
+
+  --color-pill: #ececec;
+  --color-pill-ink: #161616;
+
+  --color-working: #5b9bff;
+  --color-needs-you: #ff453a;
+  --color-paused: #f2b33d;
+  --color-done: #4cc38a;
+  --color-failed: #ff6b60;
+  --color-asleep: #6f6f74;
+  --color-danger: #ff8a80;
+  --color-danger-bg: #3a1716;
+
+  --color-lead: #f26b2e;
+  --color-architect: #8b5cf6;
+  --color-developer: #3fbfa0;
+  --color-tester: #3b82f6;
+
+  --radius-pill: 999px;
+  --radius-card: 20px;
+  --radius-menu: 14px;
+  --radius-field: 10px;
+
+  --shadow-menu: 0 16px 40px rgb(0 0 0 / 0.45);
+  --shadow-dialog: 0 24px 60px rgb(0 0 0 / 0.5);
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, Menlo, monospace;
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+  }
+
+  body {
+    background: var(--color-main);
+    color: var(--color-fg);
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-fg);
+    outline-offset: 2px;
+  }
+}

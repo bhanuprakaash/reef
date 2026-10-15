@@ -4,8 +4,8 @@ import { Sidebar } from '@/app/sidebar';
 
 export function Layout() {
   return (
-    <div className="flex h-screen bg-white font-sans text-neutral-900 dark:bg-neutral-900 dark:text-neutral-100">
-      <aside className="w-64 shrink-0 overflow-y-auto border-r border-neutral-200 p-4 dark:border-neutral-800">
+    <div className="flex h-screen bg-main font-sans text-fg">
+      <aside className="w-64 shrink-0 overflow-y-auto border-r border-hairline bg-sidebar p-4">
         <Link to="/" className="mb-4 block text-lg font-semibold">
           Reef
         </Link>

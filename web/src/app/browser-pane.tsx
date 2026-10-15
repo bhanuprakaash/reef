@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { buttonClass, errorClass, inputClass } from '@/utils/classes';
+import { Button } from '@/components/button';
+import { TextField } from '@/components/text-field';
 
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 
@@ -54,23 +55,20 @@ export function BrowserPane() {
   if (!available) return null;
 
   return (
-    <aside className="flex w-96 shrink-0 flex-col border-l border-neutral-200 dark:border-neutral-800">
-      <form
-        onSubmit={navigate}
-        className="flex gap-2 border-b border-neutral-200 p-2 dark:border-neutral-800"
-      >
-        <input
+    <aside className="flex w-96 shrink-0 flex-col border-l border-hairline">
+      <form onSubmit={navigate} className="flex gap-2 border-b border-hairline p-2">
+        <TextField
           type="text"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           placeholder="URL"
-          className={`${inputClass} w-full`}
+          className="w-full"
         />
-        <button type="button" onClick={toggleTakeOver} className={buttonClass}>
+        <Button type="button" onClick={toggleTakeOver}>
           {takenOver ? 'Hand back' : 'Take over'}
-        </button>
+        </Button>
       </form>
-      {error && <p className={`${errorClass} px-2 py-1`}>{error}</p>}
+      {error && <p className="text-sm text-danger px-2 py-1">{error}</p>}
       <div ref={containerRef} className="min-h-0 flex-1" />
     </aside>
   );

@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { usePromoteChannel } from '@/modules/channels/api/promote-channel';
 import type { Channel, Feature } from '@/types/api';
-import { buttonClass, errorClass, inputClass } from '@/utils/classes';
+import { Button } from '@/components/button';
+import { Select } from '@/components/select';
+import { TextField } from '@/components/text-field';
 
 export function PromoteForm({
   channel,
@@ -22,20 +24,15 @@ export function PromoteForm({
 
   if (!open) {
     return (
-      <button
-        type="button"
-        className={buttonClass}
-        disabled={disabled}
-        onClick={() => setOpen(true)}
-      >
+      <Button type="button" disabled={disabled} onClick={() => setOpen(true)}>
         Promote
-      </button>
+      </Button>
     );
   }
 
   return (
     <form
-      className="space-y-2 rounded border border-neutral-300 p-3 dark:border-neutral-700"
+      className="space-y-2 rounded border border-line p-3"
       onSubmit={(e) => {
         e.preventDefault();
         promote.mutate(
@@ -49,8 +46,8 @@ export function PromoteForm({
         Use an existing feature
       </label>
       {existing ? (
-        <select
-          className={`${inputClass} w-full`}
+        <Select
+          className="w-full"
           aria-label="Feature"
           required
           value={featureId}
@@ -62,19 +59,19 @@ export function PromoteForm({
               {f.name}
             </option>
           ))}
-        </select>
+        </Select>
       ) : (
         <>
-          <input
-            className={`${inputClass} w-full`}
+          <TextField
+            className="w-full"
             aria-label="Feature slug"
             placeholder="slug"
             required
             value={slug}
             onChange={(e) => setSlug(e.target.value)}
           />
-          <input
-            className={`${inputClass} w-full`}
+          <TextField
+            className="w-full"
             aria-label="Feature name"
             placeholder="name"
             required
@@ -83,14 +80,14 @@ export function PromoteForm({
           />
         </>
       )}
-      {promote.isError && <p className={errorClass}>{promote.error.message}</p>}
+      {promote.isError && <p className="text-sm text-danger">{promote.error.message}</p>}
       <div className="flex gap-2">
-        <button type="submit" className={buttonClass} disabled={promote.isPending}>
+        <Button variant="primary" type="submit" loading={promote.isPending}>
           Promote
-        </button>
-        <button type="button" className={buttonClass} onClick={() => setOpen(false)}>
+        </Button>
+        <Button variant="ghost" type="button" onClick={() => setOpen(false)}>
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

@@ -1,7 +1,7 @@
 import { useDecideApproval } from '@/lib/api/decide-approval';
 import { useApprovals } from '@/modules/channels/api/get-approvals';
 import { approvalAnchor } from '@/utils/anchors';
-import { buttonClass, errorClass } from '@/utils/classes';
+import { Button } from '@/components/button';
 
 export function ApprovalRows({ channelId }: { channelId: number }) {
   const approvals = useApprovals(channelId);
@@ -16,7 +16,7 @@ export function ApprovalRows({ channelId }: { channelId: number }) {
           <li
             key={a.id}
             id={approvalAnchor(a.id)}
-            className="flex items-center justify-between gap-3 rounded border border-neutral-300 p-3 text-sm dark:border-neutral-700"
+            className="flex items-center justify-between gap-3 rounded border border-line p-3 text-sm"
           >
             <p className="whitespace-pre-wrap">
               <span className="font-medium">
@@ -25,27 +25,27 @@ export function ApprovalRows({ channelId }: { channelId: number }) {
               {a.text}
             </p>
             <div className="flex gap-2">
-              <button
+              <Button
+                variant="primary"
                 type="button"
-                className={buttonClass}
                 disabled={decide.isPending}
                 onClick={() => decide.mutate({ channelId, id: a.id, approve: true })}
               >
                 Approve
-              </button>
-              <button
+              </Button>
+              <Button
+                variant="destructive"
                 type="button"
-                className={buttonClass}
                 disabled={decide.isPending}
                 onClick={() => decide.mutate({ channelId, id: a.id, approve: false })}
               >
                 Reject
-              </button>
+              </Button>
             </div>
           </li>
         ))}
       </ul>
-      {decide.isError && <p className={errorClass}>{decide.error.message}</p>}
+      {decide.isError && <p className="text-sm text-danger">{decide.error.message}</p>}
     </div>
   );
 }

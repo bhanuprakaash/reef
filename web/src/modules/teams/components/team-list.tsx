@@ -1,5 +1,5 @@
 import type { Team } from '@/types/api';
-import { buttonClass } from '@/utils/classes';
+import { Button } from '@/components/button';
 
 type Props = { teams: Team[]; selected: string; onSelect: (name: string) => void };
 
@@ -8,13 +8,13 @@ export function TeamList({ teams, selected, onSelect }: Props) {
     <ul className="flex flex-wrap gap-2">
       {teams.map((t) => (
         <li key={t.name}>
-          <button
+          <Button
             type="button"
-            className={`${buttonClass} ${t.name === selected ? 'bg-neutral-100 dark:bg-neutral-800' : ''}`}
+            variant={t.name === selected ? 'primary' : 'secondary'}
             onClick={() => onSelect(t.name)}
           >
             {t.name}
-          </button>
+          </Button>
         </li>
       ))}
     </ul>

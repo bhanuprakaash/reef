@@ -1,6 +1,6 @@
 import { useTurns } from '@/modules/channels/api/get-turns';
 import { useRollbackTurn } from '@/modules/channels/api/rollback-turn';
-import { buttonClass, errorClass } from '@/utils/classes';
+import { Button } from '@/components/button';
 
 export function CheckpointRows({ channelId, running }: { channelId: number; running: boolean }) {
   const turns = useTurns(channelId);
@@ -16,14 +16,14 @@ export function CheckpointRows({ channelId, running }: { channelId: number; runn
         {checkpoints.map((t) => (
           <li
             key={t.id}
-            className="flex items-center justify-between gap-3 rounded border border-neutral-300 p-3 dark:border-neutral-700"
+            className="flex items-center justify-between gap-3 rounded border border-line p-3"
           >
             <p>
               Before turn {t.id} by {t.role}
             </p>
-            <button
+            <Button
+              variant="destructive"
               type="button"
-              className={buttonClass}
               disabled={running || rollback.isPending}
               onClick={() => {
                 if (
@@ -36,11 +36,11 @@ export function CheckpointRows({ channelId, running }: { channelId: number; runn
               }}
             >
               Rollback
-            </button>
+            </Button>
           </li>
         ))}
       </ul>
-      {rollback.isError && <p className={errorClass}>{rollback.error.message}</p>}
+      {rollback.isError && <p className="text-sm text-danger">{rollback.error.message}</p>}
     </section>
   );
 }

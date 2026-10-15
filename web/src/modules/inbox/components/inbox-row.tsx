@@ -1,11 +1,11 @@
 import { Link } from 'react-router';
+import { Button, buttonClass } from '@/components/button';
 import { useContinueChannel } from '@/lib/api/continue-channel';
 import { useDecideApproval } from '@/lib/api/decide-approval';
 import { useRetryTurn } from '@/lib/api/retry-turn';
 import { kindLabels } from '@/modules/inbox/utils/new-items';
 import type { InboxItem } from '@/types/api';
 import { itemPath } from '@/utils/anchors';
-import { buttonClass, errorClass, mutedClass } from '@/utils/classes';
 
 export function InboxRow({ item, channelName }: { item: InboxItem; channelName: string }) {
   const decide = useDecideApproval();
@@ -16,64 +16,54 @@ export function InboxRow({ item, channelName }: { item: InboxItem; channelName: 
   const { channelId, approvalId, turnId } = item;
 
   return (
-    <li className="rounded border border-neutral-300 p-3 text-sm dark:border-neutral-700">
+    <li className="rounded border border-line p-3 text-sm">
       <div className="flex items-center justify-between gap-3">
         <Link to={itemPath(item)} className="min-w-0 flex-1 hover:underline">
           <span className="font-medium">
             {kindLabels[item.kind]}: {channelName}
           </span>{' '}
-          <span className={mutedClass}>{new Date(item.at).toLocaleString()}</span>
+          <span className="text-sm text-muted">{new Date(item.at).toLocaleString()}</span>
           <span className="block whitespace-pre-wrap">{item.text}</span>
         </Link>
         <div className="flex gap-2">
           {item.kind === 'approval' && approvalId !== undefined && (
             <>
-              <button
+              <Button
                 type="button"
-                className={buttonClass}
+                variant="primary"
                 disabled={pending}
                 onClick={() => decide.mutate({ channelId, id: approvalId, approve: true })}
               >
                 Approve
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className={buttonClass}
+                variant="destructive"
                 disabled={pending}
                 onClick={() => decide.mutate({ channelId, id: approvalId, approve: false })}
               >
                 Reject
-              </button>
+              </Button>
             </>
           )}
           {item.kind === 'paused' && (
-            <button
-              type="button"
-              className={buttonClass}
-              disabled={pending}
-              onClick={() => cont.mutate(channelId)}
-            >
+            <Button type="button" disabled={pending} onClick={() => cont.mutate(channelId)}>
               Continue
-            </button>
+            </Button>
           )}
           {item.kind === 'failed' && turnId !== undefined && (
-            <button
-              type="button"
-              className={buttonClass}
-              disabled={pending}
-              onClick={() => retry.mutate(turnId)}
-            >
+            <Button type="button" disabled={pending} onClick={() => retry.mutate(turnId)}>
               Retry
-            </button>
+            </Button>
           )}
           {item.kind === 'waiting' && (
-            <Link to={itemPath(item)} className={buttonClass}>
+            <Link to={itemPath(item)} className={buttonClass()}>
               Open
             </Link>
           )}
         </div>
       </div>
-      {error && <p className={errorClass}>{error.message}</p>}
+      {error && <p className="text-sm text-danger">{error.message}</p>}
     </li>
   );
 }

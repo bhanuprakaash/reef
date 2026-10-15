@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import type { Role } from '@/types/api';
 import { parseTools } from '@/modules/teams/utils/parse-tools';
-import { buttonClass, inputClass, mutedClass } from '@/utils/classes';
+import { Button } from '@/components/button';
+import { TextArea } from '@/components/text-area';
+import { TextField } from '@/components/text-field';
 
 type Props = { role: Role; onChange: (role: Role) => void; onRemove: () => void };
 
@@ -9,10 +11,10 @@ export function RoleEditor({ role, onChange, onRemove }: Props) {
   const label = role.name || 'role';
   const [toolsText, setToolsText] = useState(role.tools.join('\n'));
   return (
-    <fieldset className="space-y-2 rounded border border-neutral-300 p-3 dark:border-neutral-700">
+    <fieldset className="space-y-2 rounded border border-line p-3">
       <div className="flex items-center gap-2">
-        <input
-          className={`${inputClass} flex-1`}
+        <TextField
+          className="flex-1"
           aria-label={`${label} name`}
           value={role.name}
           onChange={(e) => onChange({ ...role, name: e.target.value })}
@@ -35,20 +37,20 @@ export function RoleEditor({ role, onChange, onRemove }: Props) {
           />
           Write
         </label>
-        <button type="button" className={buttonClass} onClick={onRemove}>
+        <Button variant="ghost" type="button" onClick={onRemove}>
           Remove
-        </button>
+        </Button>
       </div>
       <div className="flex gap-2">
-        <input
-          className={`${inputClass} flex-1`}
+        <TextField
+          className="flex-1"
           aria-label={`${label} backend`}
           placeholder="backend"
           value={role.backend}
           onChange={(e) => onChange({ ...role, backend: e.target.value })}
         />
-        <input
-          className={`${inputClass} flex-1`}
+        <TextField
+          className="flex-1"
           aria-label={`${label} permission mode`}
           placeholder="permission mode"
           value={role.permissionMode}
@@ -56,9 +58,9 @@ export function RoleEditor({ role, onChange, onRemove }: Props) {
         />
       </div>
       <label className="block space-y-1">
-        <span className={mutedClass}>Persona</span>
-        <textarea
-          className={`${inputClass} w-full`}
+        <span className="text-sm text-muted">Persona</span>
+        <TextArea
+          className="w-full"
           rows={3}
           aria-label={`${label} persona`}
           value={role.persona}
@@ -66,18 +68,18 @@ export function RoleEditor({ role, onChange, onRemove }: Props) {
         />
       </label>
       <label className="block space-y-1">
-        <span className={mutedClass}>Skills</span>
-        <input
-          className={`${inputClass} w-full`}
+        <span className="text-sm text-muted">Skills</span>
+        <TextField
+          className="w-full"
           aria-label={`${label} skills`}
           value={role.skills}
           onChange={(e) => onChange({ ...role, skills: e.target.value })}
         />
       </label>
       <label className="block space-y-1">
-        <span className={mutedClass}>Tools (one per line)</span>
-        <textarea
-          className={`${inputClass} w-full`}
+        <span className="text-sm text-muted">Tools (one per line)</span>
+        <TextArea
+          className="w-full"
           rows={3}
           aria-label={`${label} tools`}
           value={toolsText}

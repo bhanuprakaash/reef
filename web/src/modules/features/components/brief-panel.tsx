@@ -1,15 +1,14 @@
 import type { Brief } from '@/types/api';
-import { mutedClass } from '@/utils/classes';
 
 export function BriefPanel({ versions }: { versions: Brief[] }) {
-  if (versions.length === 0) return <p className={mutedClass}>No brief yet.</p>;
+  if (versions.length === 0) return <p className="text-sm text-muted">No brief yet.</p>;
 
   const latest = versions[versions.length - 1];
   const older = versions.slice(0, -1).reverse();
 
   return (
     <div className="space-y-3">
-      <p className={mutedClass}>
+      <p className="text-sm text-muted">
         Version {versions.length} by {latest.author}, {new Date(latest.createdAt).toLocaleString()}
       </p>
       <pre className="font-sans text-sm whitespace-pre-wrap">{latest.body}</pre>

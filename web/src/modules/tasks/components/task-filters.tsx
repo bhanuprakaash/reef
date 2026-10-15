@@ -1,5 +1,5 @@
 import type { Feature, Project } from '@/types/api';
-import { inputClass } from '@/utils/classes';
+import { Select } from '@/components/select';
 
 type Props = {
   projects: Project[];
@@ -16,8 +16,7 @@ export function TaskFilters({ projects, features, project, feature, status, onCh
 
   return (
     <div className="flex flex-wrap gap-2">
-      <select
-        className={inputClass}
+      <Select
         aria-label="Filter by project"
         value={project}
         onChange={(e) => onChange('project', e.target.value)}
@@ -28,9 +27,8 @@ export function TaskFilters({ projects, features, project, feature, status, onCh
             {p.name}
           </option>
         ))}
-      </select>
-      <select
-        className={inputClass}
+      </Select>
+      <Select
         aria-label="Filter by feature"
         value={feature}
         onChange={(e) => onChange('feature', e.target.value)}
@@ -41,9 +39,8 @@ export function TaskFilters({ projects, features, project, feature, status, onCh
             {f.name}
           </option>
         ))}
-      </select>
-      <select
-        className={inputClass}
+      </Select>
+      <Select
         aria-label="Filter by status"
         value={status}
         onChange={(e) => onChange('status', e.target.value)}
@@ -51,7 +48,7 @@ export function TaskFilters({ projects, features, project, feature, status, onCh
         <option value="">Open and done</option>
         <option value="open">Open</option>
         <option value="done">Done</option>
-      </select>
+      </Select>
     </div>
   );
 }

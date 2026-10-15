@@ -1,7 +1,7 @@
 import { useFailedTurns } from '@/modules/channels/api/get-failed-turns';
 import { useRetryTurn } from '@/lib/api/retry-turn';
 import { failedTurnAnchor } from '@/utils/anchors';
-import { buttonClass, errorClass } from '@/utils/classes';
+import { Button } from '@/components/button';
 
 export function FailedTurnRows({
   channelId,
@@ -25,25 +25,24 @@ export function FailedTurnRows({
           <li
             key={t.id}
             id={failedTurnAnchor(t.id)}
-            className="flex items-center justify-between gap-3 rounded border border-red-300 p-3 text-sm dark:border-red-800"
+            className="flex items-center justify-between gap-3 rounded border border-failed/50 p-3 text-sm"
           >
-            <p className={errorClass}>
+            <p className="text-sm text-danger">
               Turn {t.id} by {t.role} failed: {t.error}
             </p>
             {!paused && (
-              <button
+              <Button
                 type="button"
-                className={buttonClass}
                 disabled={running || retry.isPending}
                 onClick={() => retry.mutate(t.id)}
               >
                 Retry
-              </button>
+              </Button>
             )}
           </li>
         ))}
       </ul>
-      {retry.isError && <p className={errorClass}>{retry.error.message}</p>}
+      {retry.isError && <p className="text-sm text-danger">{retry.error.message}</p>}
     </div>
   );
 }

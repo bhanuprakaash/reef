@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router';
 
-const ring = 'ring-2 ring-amber-400'.split(' ');
+const ring = 'ring-2 ring-paused'.split(' ');
 
 export function useScrollToHash(ready: boolean) {
   const { hash } = useLocation();

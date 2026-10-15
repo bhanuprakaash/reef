@@ -1,7 +1,9 @@
 import { useState } from 'react';
 import { useCreateTask } from '@/modules/tasks/api/create-task';
 import type { Feature, Project } from '@/types/api';
-import { buttonClass, errorClass, inputClass } from '@/utils/classes';
+import { Button } from '@/components/button';
+import { Select } from '@/components/select';
+import { TextField } from '@/components/text-field';
 
 type Props = {
   projects: Project[];
@@ -30,16 +32,15 @@ export function AddTaskForm({ projects, features }: Props) {
         );
       }}
     >
-      <input
-        className={`${inputClass} w-64`}
+      <TextField
+        className="w-64"
         placeholder="New task"
         aria-label="Task title"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         required
       />
-      <select
-        className={inputClass}
+      <Select
         aria-label="Task project"
         value={projectId}
         onChange={(e) => {
@@ -54,9 +55,8 @@ export function AddTaskForm({ projects, features }: Props) {
             {p.name}
           </option>
         ))}
-      </select>
-      <select
-        className={inputClass}
+      </Select>
+      <Select
         aria-label="Task feature"
         value={featureId}
         onChange={(e) => setFeatureId(e.target.value)}
@@ -67,11 +67,11 @@ export function AddTaskForm({ projects, features }: Props) {
             {f.name}
           </option>
         ))}
-      </select>
-      <button type="submit" className={buttonClass} disabled={create.isPending}>
+      </Select>
+      <Button variant="primary" type="submit" loading={create.isPending}>
         Add task
-      </button>
-      {create.isError && <p className={errorClass}>{create.error.message}</p>}
+      </Button>
+      {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
     </form>
   );
 }

@@ -3,7 +3,7 @@ import { useChannels } from '@/lib/api/get-channels';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { InboxRow } from '@/modules/inbox/components/inbox-row';
 import { itemKey } from '@/modules/inbox/utils/new-items';
-import { buttonClass, errorClass, mutedClass } from '@/utils/classes';
+import { Button } from '@/components/button';
 
 export function InboxList() {
   const inbox = useInbox();
@@ -15,17 +15,16 @@ export function InboxList() {
       <div className="flex items-center justify-between gap-3">
         <h1 className="text-xl font-semibold">Inbox</h1>
         {permission === 'default' && (
-          <button
+          <Button
             type="button"
-            className={buttonClass}
             onClick={() => void Notification.requestPermission().then(setPermission)}
           >
             Turn on notifications
-          </button>
+          </Button>
         )}
       </div>
-      {inbox.isError && <p className={errorClass}>{inbox.error.message}</p>}
-      {inbox.data?.length === 0 && <p className={mutedClass}>Nothing waits on you.</p>}
+      {inbox.isError && <p className="text-sm text-danger">{inbox.error.message}</p>}
+      {inbox.data?.length === 0 && <p className="text-sm text-muted">Nothing waits on you.</p>}
       <ul className="space-y-2">
         {inbox.data?.map((item) => (
           <InboxRow

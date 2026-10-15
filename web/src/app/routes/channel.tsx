@@ -4,7 +4,6 @@ import { useChannel } from '@/modules/channels/api/get-channel';
 import { ChannelView } from '@/modules/channels/components/channel-view';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { useProjects } from '@/modules/projects/api/get-projects';
-import { errorClass, mutedClass } from '@/utils/classes';
 
 export function ChannelPage() {
   const id = Number(useParams().id);
@@ -12,8 +11,8 @@ export function ChannelPage() {
   const features = useFeatures();
   const projects = useProjects();
 
-  if (channel.isPending) return <p className={mutedClass}>Loading...</p>;
-  if (channel.isError) return <p className={errorClass}>{channel.error.message}</p>;
+  if (channel.isPending) return <p className="text-sm text-muted">Loading...</p>;
+  if (channel.isError) return <p className="text-sm text-danger">{channel.error.message}</p>;
 
   const feature = features.data?.find((f) => f.id === channel.data.featureId);
   const isQuickSession = channel.data.featureId === null;

@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { useUpdateFeature } from '@/modules/features/api/update-feature';
 import { STAGES } from '@/modules/features/utils/stages';
 import type { Feature } from '@/types/api';
-import { buttonClass, errorClass, inputClass, mutedClass } from '@/utils/classes';
+import { Button } from '@/components/button';
+import { Select } from '@/components/select';
+import { TextArea } from '@/components/text-area';
+import { TextField } from '@/components/text-field';
 
 export function FeatureForm({ feature }: { feature: Feature }) {
   const [name, setName] = useState(feature.name);
@@ -22,43 +25,39 @@ export function FeatureForm({ feature }: { feature: Feature }) {
       }}
     >
       <label className="block space-y-1">
-        <span className={mutedClass}>Name</span>
-        <input
-          className={`${inputClass} w-full`}
+        <span className="text-sm text-muted">Name</span>
+        <TextField
+          className="w-full"
           value={name}
           onChange={(e) => setName(e.target.value)}
           required
         />
       </label>
       <label className="block space-y-1">
-        <span className={mutedClass}>About</span>
-        <textarea
-          className={`${inputClass} w-full`}
+        <span className="text-sm text-muted">About</span>
+        <TextArea
+          className="w-full"
           rows={4}
           value={goal}
           onChange={(e) => setGoal(e.target.value)}
         />
       </label>
       <label className="block space-y-1">
-        <span className={mutedClass}>Stage</span>
-        <select
-          className={`${inputClass} block`}
-          value={stage}
-          onChange={(e) => setStage(e.target.value)}
-        >
+        <span className="text-sm text-muted">Stage</span>
+        <Select className="block" value={stage} onChange={(e) => setStage(e.target.value)}>
           {stages.map((s) => (
             <option key={s.value} value={s.value}>
               {s.label}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       <div className="flex items-center gap-3">
-        <button type="submit" className={buttonClass} disabled={update.isPending}>
+        <Button variant="primary" type="submit" loading={update.isPending}>
           Save
-        </button>
-        {update.isSuccess && <span className={mutedClass}>Saved</span>}
-        {update.isError && <span className={errorClass}>{update.error.message}</span>}
+        </Button>
+        {update.isSuccess && <span className="text-sm text-muted">Saved</span>}
+        {update.isError && <span className="text-sm text-danger">{update.error.message}</span>}
       </div>
     </form>
   );

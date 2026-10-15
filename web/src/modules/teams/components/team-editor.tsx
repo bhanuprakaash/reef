@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { useUpdateTeam } from '@/modules/teams/api/update-team';
 import { RoleEditor } from '@/modules/teams/components/role-editor';
 import type { Gate, Role, Team } from '@/types/api';
-import { buttonClass, errorClass, inputClass, mutedClass } from '@/utils/classes';
+import { Button } from '@/components/button';
+import { TextField } from '@/components/text-field';
 
 const teamNamePattern = /^[A-Za-z0-9_-]+$/;
 
@@ -50,28 +51,22 @@ export function TeamEditor({ team, onSaved }: Props) {
             onRemove={() => removeRole(i)}
           />
         ))}
-        <button
-          type="button"
-          className={buttonClass}
-          onClick={() => setRoles([...roles, { ...blankRole }])}
-        >
+        <Button type="button" onClick={() => setRoles([...roles, { ...blankRole }])}>
           Add role
-        </button>
+        </Button>
       </div>
 
       <div className="space-y-2">
         <h3 className="font-medium">Gates</h3>
         {gates.map((gate, i) => (
           <div key={i} className="flex items-center gap-2">
-            <input
-              className={inputClass}
+            <TextField
               aria-label={`gate ${i} from`}
               placeholder="from"
               value={gate.from}
               onChange={(e) => updateGate(i, { ...gate, from: e.target.value })}
             />
-            <input
-              className={inputClass}
+            <TextField
               aria-label={`gate ${i} to`}
               placeholder="to"
               value={gate.to}
@@ -86,24 +81,19 @@ export function TeamEditor({ team, onSaved }: Props) {
               />
               On
             </label>
-            <button type="button" className={buttonClass} onClick={() => removeGate(i)}>
+            <Button variant="ghost" type="button" onClick={() => removeGate(i)}>
               Remove
-            </button>
+            </Button>
           </div>
         ))}
-        <button
-          type="button"
-          className={buttonClass}
-          onClick={() => setGates([...gates, { from: '', to: '', on: true }])}
-        >
+        <Button type="button" onClick={() => setGates([...gates, { from: '', to: '', on: true }])}>
           Add gate
-        </button>
+        </Button>
       </div>
 
       <div className="flex items-center gap-3">
-        <button
+        <Button
           type="button"
-          className={buttonClass}
           disabled={save.isPending}
           onClick={() =>
             save.mutate(
@@ -113,22 +103,20 @@ export function TeamEditor({ team, onSaved }: Props) {
           }
         >
           Save
-        </button>
-        {save.isSuccess && <span className={mutedClass}>Saved</span>}
-        {save.isError && <span className={errorClass}>{save.error.message}</span>}
+        </Button>
+        {save.isSuccess && <span className="text-sm text-muted">Saved</span>}
+        {save.isError && <span className="text-sm text-danger">{save.error.message}</span>}
       </div>
 
       <div className="flex items-center gap-2">
-        <input
-          className={inputClass}
+        <TextField
           aria-label="New team name"
           placeholder="new team name"
           value={copyName}
           onChange={(e) => setCopyName(e.target.value)}
         />
-        <button
+        <Button
           type="button"
-          className={buttonClass}
           disabled={copy.isPending || !teamNamePattern.test(copyName.trim())}
           onClick={() =>
             copy.mutate(
@@ -147,9 +135,9 @@ export function TeamEditor({ team, onSaved }: Props) {
           }
         >
           Copy as new team
-        </button>
-        {copy.isSuccess && <span className={mutedClass}>Saved</span>}
-        {copy.isError && <span className={errorClass}>{copy.error.message}</span>}
+        </Button>
+        {copy.isSuccess && <span className="text-sm text-muted">Saved</span>}
+        {copy.isError && <span className="text-sm text-danger">{copy.error.message}</span>}
       </div>
     </div>
   );

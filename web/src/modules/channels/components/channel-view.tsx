@@ -19,7 +19,7 @@ import { useScrollToHash } from '@/modules/channels/hooks/use-scroll-to-hash';
 import { blocksUser } from '@/modules/channels/utils/blocks-user';
 import { groupThreads } from '@/modules/channels/utils/group-threads';
 import type { Channel, Feature } from '@/types/api';
-import { buttonClass, errorClass, mutedClass } from '@/utils/classes';
+import { Button } from '@/components/button';
 
 type Props = { channel: Channel; scope: string; features: Feature[] };
 
@@ -50,42 +50,41 @@ export function ChannelView({ channel, scope, features }: Props) {
         <header className="flex items-start justify-between gap-3">
           <div className="space-y-1">
             <h1 className="text-xl font-semibold">{channel.name}</h1>
-            <p className={mutedClass}>
+            <p className="text-sm text-muted">
               {channel.backend || 'no backend'}
               {channel.permissionMode && ` (${channel.permissionMode})`} · {scope}
             </p>
           </div>
           <div className="flex gap-2">
-            <button type="button" className={buttonClass} onClick={() => setShowInspector(true)}>
+            <Button type="button" onClick={() => setShowInspector(true)}>
               Inspector
-            </button>
+            </Button>
             {channel.featureId !== null && (
-              <button
+              <Button
                 type="button"
-                className={buttonClass}
                 disabled={running || wrap.isPending || blocksUser(channel.paused)}
                 onClick={() => wrap.mutate()}
               >
                 Wrap up
-              </button>
+              </Button>
             )}
           </div>
         </header>
         {channel.featureId === null && (
           <PromoteForm channel={channel} features={features} disabled={running} />
         )}
-        {wrap.isError && <p className={errorClass}>{wrap.error.message}</p>}
+        {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
         {channel.paused !== '' && <PausedBanner channelId={channel.id} reason={channel.paused} />}
-        {messages.isPending && <p className={mutedClass}>Loading...</p>}
-        {messages.isError && <p className={errorClass}>{messages.error.message}</p>}
+        {messages.isPending && <p className="text-sm text-muted">Loading...</p>}
+        {messages.isError && <p className="text-sm text-danger">{messages.error.message}</p>}
         {messages.data && <MessageList threads={threads} onOpen={setThreadId} />}
         <LiveTurn turn={turn} role={turn.role || channel.role || 'agent'} />
-        {turn.note && <p className={mutedClass}>{turn.note}</p>}
+        {turn.note && <p className="text-sm text-muted">{turn.note}</p>}
         <FailedTurnRows channelId={channel.id} running={running} paused={channel.paused !== ''} />
         <CheckpointRows channelId={channel.id} running={running} />
         <ApprovalRows channelId={channel.id} />
         <ProposalPanel channelId={channel.id} featureId={channel.featureId} />
-        <div className="sticky bottom-0 bg-white pb-1 pt-2 dark:bg-neutral-900">
+        <div className="sticky bottom-0 bg-main pb-1 pt-2">
           <Composer channelId={channel.id} running={running} paused={blocksUser(channel.paused)} />
         </div>
         <div ref={end} />

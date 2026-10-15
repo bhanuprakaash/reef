@@ -14,7 +14,7 @@ import { DiffPanel } from '@/modules/features/components/diff-panel';
 import { FeatureForm } from '@/modules/features/components/feature-form';
 import { useTasks } from '@/modules/tasks/api/get-tasks';
 import { TaskList } from '@/modules/tasks/components/task-list';
-import { buttonClass, errorClass, mutedClass } from '@/utils/classes';
+import { Button } from '@/components/button';
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
@@ -36,8 +36,8 @@ export function FeaturePage() {
   const hasTerminal = typeof window !== 'undefined' && window.reef != null;
   const worktree = useEnsureWorktree(id);
 
-  if (feature.isPending) return <p className={mutedClass}>Loading...</p>;
-  if (feature.isError) return <p className={errorClass}>{feature.error.message}</p>;
+  if (feature.isPending) return <p className="text-sm text-muted">Loading...</p>;
+  if (feature.isError) return <p className="text-sm text-danger">{feature.error.message}</p>;
 
   return (
     <div className="max-w-3xl space-y-8">
@@ -45,35 +45,35 @@ export function FeaturePage() {
       <FeatureForm key={feature.data.id} feature={feature.data} />
       <Section title="Brief">
         {briefs.isError ? (
-          <p className={errorClass}>{briefs.error.message}</p>
+          <p className="text-sm text-danger">{briefs.error.message}</p>
         ) : (
           <BriefPanel versions={briefs.data ?? []} />
         )}
       </Section>
       <Section title="Decisions">
         {decisions.isError ? (
-          <p className={errorClass}>{decisions.error.message}</p>
+          <p className="text-sm text-danger">{decisions.error.message}</p>
         ) : (
           <DecisionList decisions={decisions.data ?? []} />
         )}
       </Section>
       <Section title="Diff">
         {diff.isError ? (
-          <p className={errorClass}>{diff.error.message}</p>
+          <p className="text-sm text-danger">{diff.error.message}</p>
         ) : (
           <DiffPanel files={diff.data ?? []} featureId={id} />
         )}
       </Section>
       <Section title="Tasks">
         {tasks.isError ? (
-          <p className={errorClass}>{tasks.error.message}</p>
+          <p className="text-sm text-danger">{tasks.error.message}</p>
         ) : (
           <TaskList tasks={tasks.data ?? []} />
         )}
       </Section>
       <Section title="Channels">
         {channels.isError ? (
-          <p className={errorClass}>{channels.error.message}</p>
+          <p className="text-sm text-danger">{channels.error.message}</p>
         ) : (
           <ChannelList channels={channels.data?.filter((c) => c.featureId === id) ?? []} />
         )}
@@ -86,16 +86,11 @@ export function FeaturePage() {
           {worktree.data ? (
             <TerminalPane cwd={worktree.data.path} />
           ) : (
-            <button
-              type="button"
-              className={buttonClass}
-              onClick={() => worktree.mutate()}
-              disabled={worktree.isPending}
-            >
+            <Button type="button" onClick={() => worktree.mutate()} disabled={worktree.isPending}>
               Open terminal
-            </button>
+            </Button>
           )}
-          {worktree.isError && <p className={errorClass}>{worktree.error.message}</p>}
+          {worktree.isError && <p className="text-sm text-danger">{worktree.error.message}</p>}
         </Section>
       )}
     </div>

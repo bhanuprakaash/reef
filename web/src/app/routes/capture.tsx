@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { useCreateTask } from '@/modules/tasks/api/create-task';
 import { useProjects } from '@/modules/projects/api/get-projects';
-import { buttonClass, errorClass, inputClass, mutedClass } from '@/utils/classes';
+import { Button } from '@/components/button';
+import { Select } from '@/components/select';
+import { TextField } from '@/components/text-field';
 
 const KINDS = ['idea', 'todo', 'bug'] as const;
 const LAST_PROJECT_KEY = 'reef.capture.lastProjectId';
@@ -25,7 +27,7 @@ export function CapturePage() {
   }, []);
 
   return (
-    <div className="flex h-screen flex-col gap-2 bg-white p-4 text-sm dark:bg-neutral-900 dark:text-neutral-100">
+    <div className="flex h-screen flex-col gap-2 bg-main p-4 text-sm text-fg">
       <form
         className="flex flex-col gap-2"
         onSubmit={(e) => {
@@ -45,8 +47,7 @@ export function CapturePage() {
           );
         }}
       >
-        <select
-          className={inputClass}
+        <Select
           aria-label="Capture project"
           value={projectId}
           onChange={(e) => setProjectId(e.target.value)}
@@ -58,9 +59,8 @@ export function CapturePage() {
               {p.name}
             </option>
           ))}
-        </select>
-        <select
-          className={inputClass}
+        </Select>
+        <Select
           aria-label="Capture kind"
           value={kind}
           onChange={(e) => setKind(e.target.value as (typeof KINDS)[number])}
@@ -70,20 +70,19 @@ export function CapturePage() {
               {k}
             </option>
           ))}
-        </select>
-        <input
-          className={inputClass}
+        </Select>
+        <TextField
           aria-label="Capture text"
           autoFocus
           value={text}
           onChange={(e) => setText(e.target.value)}
           required
         />
-        <button type="submit" className={buttonClass} disabled={create.isPending}>
+        <Button variant="primary" type="submit" loading={create.isPending}>
           Capture
-        </button>
-        {create.isError && <p className={errorClass}>{create.error.message}</p>}
-        {create.isSuccess && !isDesktop && <p className={mutedClass}>Captured</p>}
+        </Button>
+        {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
+        {create.isSuccess && !isDesktop && <p className="text-sm text-muted">Captured</p>}
       </form>
     </div>
   );

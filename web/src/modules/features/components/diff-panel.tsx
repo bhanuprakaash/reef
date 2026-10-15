@@ -1,11 +1,12 @@
 import { useState } from 'react';
 import { type ReviewComment, useSendReview } from '@/modules/features/api/send-review';
 import type { DiffLine, FileDiff } from '@/types/api';
-import { buttonClass, errorClass, inputClass, mutedClass } from '@/utils/classes';
+import { Button } from '@/components/button';
+import { TextField } from '@/components/text-field';
 
 const lineClass: Record<DiffLine['kind'], string> = {
-  add: 'bg-green-50 text-green-900 dark:bg-green-950 dark:text-green-200',
-  del: 'bg-red-50 text-red-900 dark:bg-red-950 dark:text-red-200',
+  add: 'bg-done/15 text-done',
+  del: 'bg-failed/15 text-danger',
   ctx: '',
 };
 
@@ -27,25 +28,22 @@ export function DiffPanel({ files, featureId }: { files: FileDiff[]; featureId: 
     setDraft('');
   }
 
-  if (files.length === 0) return <p className={mutedClass}>No changes.</p>;
+  if (files.length === 0) return <p className="text-sm text-muted">No changes.</p>;
 
   return (
     <div className="space-y-4">
       {files.map((f) => (
-        <div
-          key={f.path}
-          className="overflow-x-auto rounded border border-neutral-300 dark:border-neutral-700"
-        >
-          <p className="border-b border-neutral-300 px-2 py-1 text-sm font-medium dark:border-neutral-700">
-            {f.path} <span className={mutedClass}>{f.status}</span>
+        <div key={f.path} className="overflow-x-auto rounded border border-line">
+          <p className="border-b border-line px-2 py-1 text-sm font-medium">
+            {f.path} <span className="text-sm text-muted">{f.status}</span>
           </p>
           {f.hunks.length === 0 ? (
-            <p className={mutedClass + ' px-2 py-1'}>No text changes.</p>
+            <p className={'text-sm text-muted px-2 py-1'}>No text changes.</p>
           ) : (
             <pre className="font-mono text-xs">
               {f.hunks.map((h) => (
                 <div key={h.header}>
-                  <div className={mutedClass + ' px-2'}>{h.header}</div>
+                  <div className={'text-sm text-muted px-2'}>{h.header}</div>
                   {h.lines.map((l, i) => {
                     const num = l.new ?? l.old;
                     const removed = l.kind === 'del';
@@ -70,16 +68,16 @@ export function DiffPanel({ files, featureId }: { files: FileDiff[]; featureId: 
                           active.line === num &&
                           active.removed === removed && (
                             <div className="flex gap-2 px-2 py-1">
-                              <input
-                                className={`${inputClass} flex-1`}
+                              <TextField
+                                className="flex-1"
                                 aria-label={`Comment on ${f.path}:${num}${removed ? ' (removed)' : ''}`}
                                 value={draft}
                                 onChange={(e) => setDraft(e.target.value)}
                                 onKeyDown={(e) => e.key === 'Enter' && addComment()}
                               />
-                              <button type="button" className={buttonClass} onClick={addComment}>
+                              <Button type="button" onClick={addComment}>
                                 Add comment
-                              </button>
+                              </Button>
                             </div>
                           )}
                       </div>
@@ -101,15 +99,14 @@ export function DiffPanel({ files, featureId }: { files: FileDiff[]; featureId: 
               </li>
             ))}
           </ul>
-          {send.isError && <p className={errorClass}>{send.error.message}</p>}
-          <button
+          {send.isError && <p className="text-sm text-danger">{send.error.message}</p>}
+          <Button
             type="button"
-            className={buttonClass}
             disabled={send.isPending}
             onClick={() => send.mutate(comments, { onSuccess: () => setComments([]) })}
           >
             Send to developer
-          </button>
+          </Button>
         </div>
       )}
     </div>

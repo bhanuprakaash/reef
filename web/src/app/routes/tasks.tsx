@@ -7,7 +7,7 @@ import { TaskBoard } from '@/modules/tasks/components/task-board';
 import { TaskFilters } from '@/modules/tasks/components/task-filters';
 import { TaskList } from '@/modules/tasks/components/task-list';
 import type { Task } from '@/types/api';
-import { buttonClass, errorClass } from '@/utils/classes';
+import { SegmentedControl } from '@/components/segmented-control';
 
 export function TasksPage() {
   const [params, setParams] = useSearchParams();
@@ -61,26 +61,17 @@ export function TasksPage() {
           status={status}
           onChange={onFilter}
         />
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className={buttonClass}
-            aria-pressed={view === 'list'}
-            onClick={() => onView('list')}
-          >
-            List
-          </button>
-          <button
-            type="button"
-            className={buttonClass}
-            aria-pressed={view === 'board'}
-            onClick={() => onView('board')}
-          >
-            Board
-          </button>
-        </div>
+        <SegmentedControl
+          label="View"
+          options={[
+            { value: 'list', label: 'List' },
+            { value: 'board', label: 'Board' },
+          ]}
+          value={view}
+          onChange={onView}
+        />
       </div>
-      {tasks.isError && <p className={errorClass}>{tasks.error.message}</p>}
+      {tasks.isError && <p className="text-sm text-danger">{tasks.error.message}</p>}
       {view === 'board' ? (
         <TaskBoard tasks={shown ?? []} context={context} />
       ) : (

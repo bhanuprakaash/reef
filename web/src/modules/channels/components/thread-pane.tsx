@@ -1,6 +1,6 @@
 import { Composer } from '@/modules/channels/components/composer';
 import type { Thread } from '@/modules/channels/utils/group-threads';
-import { buttonClass } from '@/utils/classes';
+import { Button } from '@/components/button';
 
 type Props = {
   channelId: number;
@@ -14,18 +14,18 @@ export function ThreadPane({ channelId, thread, running, paused, onClose }: Prop
   return (
     <aside
       aria-label="Thread"
-      className="w-80 shrink-0 space-y-3 self-start rounded border border-neutral-300 p-3 dark:border-neutral-700"
+      className="w-80 shrink-0 space-y-3 self-start rounded border border-line p-3"
     >
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium">Thread</h2>
-        <button type="button" className={buttonClass} onClick={onClose}>
+        <Button variant="ghost" type="button" onClick={onClose}>
           Close
-        </button>
+        </Button>
       </div>
       <ul className="space-y-3">
         {[thread.root, ...thread.replies].map((m) => (
           <li key={m.id}>
-            <div className="text-xs font-medium uppercase text-neutral-500">{m.author}</div>
+            <div className="text-xs font-medium uppercase text-muted">{m.author}</div>
             <p className="whitespace-pre-wrap text-sm">{m.body}</p>
           </li>
         ))}

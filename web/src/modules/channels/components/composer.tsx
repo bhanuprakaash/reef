@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { useSendMessage } from '@/modules/channels/api/send-message';
 import { useStopChannel } from '@/modules/channels/api/stop-channel';
-import { buttonClass, errorClass, inputClass } from '@/utils/classes';
+import { Button } from '@/components/button';
+import { TextArea } from '@/components/text-area';
 
 type Props = { channelId: number; running: boolean; paused: boolean; parent?: number };
 
@@ -24,9 +25,9 @@ export function Composer({ channelId, running, paused, parent }: Props) {
         submit();
       }}
     >
-      {send.isError && !paused && <p className={errorClass}>{send.error.message}</p>}
-      <textarea
-        className={`${inputClass} w-full`}
+      {send.isError && !paused && <p className="text-sm text-danger">{send.error.message}</p>}
+      <TextArea
+        className="w-full"
         rows={3}
         placeholder="Message (Enter sends, Shift+Enter adds a line)"
         aria-label={parent === undefined ? 'Message' : 'Reply'}
@@ -41,22 +42,13 @@ export function Composer({ channelId, running, paused, parent }: Props) {
         }}
       />
       <div className="flex gap-2">
-        <button
-          type="submit"
-          className={buttonClass}
-          disabled={running || paused || send.isPending}
-        >
+        <Button variant="primary" type="submit" disabled={running || paused || send.isPending}>
           Send
-        </button>
+        </Button>
         {running && (
-          <button
-            type="button"
-            className={buttonClass}
-            disabled={stop.isPending}
-            onClick={() => stop.mutate()}
-          >
+          <Button type="button" disabled={stop.isPending} onClick={() => stop.mutate()}>
             Stop
-          </button>
+          </Button>
         )}
       </div>
     </form>

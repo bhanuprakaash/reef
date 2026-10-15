@@ -1,6 +1,6 @@
 import { useInspector } from '@/modules/channels/api/get-inspector';
 import type { InspectorRole, InspectorTurn } from '@/types/api';
-import { buttonClass, errorClass, mutedClass } from '@/utils/classes';
+import { Button } from '@/components/button';
 
 function cost(costUsd: number | null) {
   return costUsd === null ? '—' : `$${costUsd.toFixed(4)}`;
@@ -16,16 +16,16 @@ function tokens(usage: InspectorRole['usage']) {
 
 function TurnRow({ turn }: { turn: InspectorTurn }) {
   return (
-    <details className="rounded border border-neutral-200 text-sm dark:border-neutral-800">
+    <details className="rounded border border-hairline text-sm">
       <summary className="flex cursor-pointer gap-2 px-2 py-1">
         <span className="min-w-0 flex-1 truncate">{turn.model || turn.status}</span>
-        <span className={mutedClass}>
+        <span className="text-sm text-muted">
           {tokens(turn.usage)} · {cost(turn.costUsd)}
         </span>
       </summary>
-      <div className="space-y-2 border-t border-neutral-200 p-2 dark:border-neutral-800">
+      <div className="space-y-2 border-t border-hairline p-2">
         <div>
-          <div className={mutedClass}>Prompt</div>
+          <div className="text-sm text-muted">Prompt</div>
           <pre className="overflow-x-auto whitespace-pre-wrap font-mono text-xs">{turn.prompt}</pre>
         </div>
         {turn.toolCalls.map((call, i) => (
@@ -47,14 +47,14 @@ function TurnRow({ turn }: { turn: InspectorTurn }) {
 function RoleBlock({ role, turns }: { role: InspectorRole; turns: InspectorTurn[] }) {
   const sorted = [...turns].sort((a, b) => b.id - a.id);
   return (
-    <details className="rounded border border-neutral-200 text-sm dark:border-neutral-800">
+    <details className="rounded border border-hairline text-sm">
       <summary className="flex cursor-pointer gap-2 px-2 py-1">
         <span className="font-medium">{role.role}</span>
-        <span className={mutedClass}>
+        <span className="text-sm text-muted">
           {turnsLabel(role.turns)} · {tokens(role.usage)} · {cost(role.costUsd)}
         </span>
       </summary>
-      <div className="space-y-2 border-t border-neutral-200 p-2 dark:border-neutral-800">
+      <div className="space-y-2 border-t border-hairline p-2">
         {sorted.map((turn) => (
           <TurnRow key={turn.id} turn={turn} />
         ))}
@@ -69,18 +69,18 @@ export function InspectorPanel({ channelId, onClose }: { channelId: number; onCl
   return (
     <aside
       aria-label="Inspector"
-      className="w-80 shrink-0 space-y-3 self-start rounded border border-neutral-300 p-3 dark:border-neutral-700"
+      className="w-80 shrink-0 space-y-3 self-start rounded border border-line p-3"
     >
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium">Inspector</h2>
-        <button type="button" className={buttonClass} onClick={onClose}>
+        <Button variant="ghost" type="button" onClick={onClose}>
           Close
-        </button>
+        </Button>
       </div>
-      {inspector.isPending && <p className={mutedClass}>Loading...</p>}
-      {inspector.isError && <p className={errorClass}>{inspector.error.message}</p>}
+      {inspector.isPending && <p className="text-sm text-muted">Loading...</p>}
+      {inspector.isError && <p className="text-sm text-danger">{inspector.error.message}</p>}
       {inspector.data && inspector.data.roles.length === 0 && (
-        <p className={mutedClass}>No turns yet.</p>
+        <p className="text-sm text-muted">No turns yet.</p>
       )}
       {inspector.data && (
         <div className="space-y-2">

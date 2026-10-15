@@ -6,7 +6,6 @@ import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { InboxLink } from '@/modules/inbox/components/inbox-link';
 import { AddProjectForm } from '@/modules/projects/components/add-project-form';
-import { errorClass, mutedClass } from '@/utils/classes';
 
 export function Sidebar() {
   const projects = useProjects();
@@ -37,9 +36,9 @@ export function Sidebar() {
         Capture
       </Link>
       <div className="space-y-3">
-        <h2 className="text-xs font-medium uppercase text-neutral-500">Projects</h2>
-        {projects.isPending && <p className={mutedClass}>Loading...</p>}
-        {error && <p className={errorClass}>{error.message}</p>}
+        <h2 className="text-xs font-medium uppercase text-muted">Projects</h2>
+        {projects.isPending && <p className="text-sm text-muted">Loading...</p>}
+        {error && <p className="text-sm text-danger">{error.message}</p>}
         {projects.data?.map((p) => {
           const projectFeatures = features.data?.filter((f) => f.projectId === p.id) ?? [];
           const quickSessions =
@@ -55,7 +54,7 @@ export function Sidebar() {
                     <Link to={`/features/${f.id}`} className="hover:underline">
                       {f.name}
                     </Link>
-                    <ul className="pl-3 text-neutral-500">
+                    <ul className="pl-3 text-muted">
                       {channels.data
                         ?.filter((c) => c.featureId === f.id)
                         .map((c) => (
@@ -71,8 +70,8 @@ export function Sidebar() {
               </ul>
               {quickSessions.length > 0 && (
                 <div className="pl-2">
-                  <h4 className="text-xs uppercase text-neutral-500">Quick sessions</h4>
-                  <ul className="pl-3 text-neutral-500">
+                  <h4 className="text-xs uppercase text-muted">Quick sessions</h4>
+                  <ul className="pl-3 text-muted">
                     {quickSessions.map((c) => (
                       <li key={c.id}>
                         <Link to={`/channels/${c.id}`} className="hover:underline">

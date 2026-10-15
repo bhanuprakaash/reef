@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useCreateProject } from '@/modules/projects/api/create-project';
-import { buttonClass, errorClass, inputClass } from '@/utils/classes';
+import { Button } from '@/components/button';
+import { TextField } from '@/components/text-field';
 
 export function AddProjectForm() {
   const [open, setOpen] = useState(false);
@@ -10,9 +11,9 @@ export function AddProjectForm() {
 
   if (!open) {
     return (
-      <button type="button" className={buttonClass} onClick={() => setOpen(true)}>
+      <Button type="button" onClick={() => setOpen(true)}>
         Add project
-      </button>
+      </Button>
     );
   }
 
@@ -33,37 +34,37 @@ export function AddProjectForm() {
         );
       }}
     >
-      <input
-        className={`${inputClass} w-full`}
+      <TextField
+        className="w-full"
         placeholder="Name"
         aria-label="Project name"
         value={name}
         onChange={(e) => setName(e.target.value)}
         required
       />
-      <input
-        className={`${inputClass} w-full`}
+      <TextField
+        className="w-full"
         placeholder="/absolute/path/to/repo"
         aria-label="Project path"
         value={path}
         onChange={(e) => setPath(e.target.value)}
         required
       />
-      {create.isError && <p className={errorClass}>{create.error.message}</p>}
+      {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
       <div className="flex gap-2">
-        <button type="submit" className={buttonClass} disabled={create.isPending}>
+        <Button variant="primary" type="submit" loading={create.isPending}>
           Add
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
           type="button"
-          className={buttonClass}
           onClick={() => {
             create.reset();
             setOpen(false);
           }}
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

@@ -54,7 +54,7 @@ export function TerminalPane({ cwd }: { cwd: string }) {
   if (!available) return null;
 
   return (
-    <div className="h-64 overflow-hidden rounded border border-neutral-200 p-1 dark:border-neutral-800">
+    <div className="h-64 overflow-hidden rounded border border-hairline p-1">
       <div ref={containerRef} className="h-full" />
     </div>
   );
