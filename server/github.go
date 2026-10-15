@@ -124,14 +124,13 @@ func ghInterval() time.Duration {
 
 // startGitHubPoll polls every feature with a worktree for its PR and CI status once right
 // away, then every ghInterval until the server closes, so a restart does not sit on a stale
-// note for a whole interval. The first poll runs on the caller's goroutine, before any other
-// code can reach the server's state, so it never races a caller that polls or inspects it
-// right after construction.
+// note for a whole interval. Both the first poll and the ticker run on the same background
+// goroutine, so construction never blocks on gh.
 func (s *server) startGitHubPoll() {
-	s.pollGitHub(s.ctx)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
+		s.pollGitHub(s.ctx)
 		t := time.NewTicker(ghInterval())
 		defer t.Stop()
 		for {
@@ -151,10 +150,7 @@ func (s *server) startGitHubPoll() {
 func (s *server) pollGitHub(ctx context.Context) {
 	ghPath, err := exec.LookPath("gh")
 	if err != nil {
-		if !s.ghNoGhLogged {
-			log.Print("github poll: gh is not on PATH")
-			s.ghNoGhLogged = true
-		}
+		s.logGhNoPathOnce()
 		return
 	}
 	features, err := s.st.Features(ctx, nil)
@@ -191,10 +187,26 @@ func (s *server) pollFeatureGitHub(ctx context.Context, ghPath string, f store.F
 	return s.noteFinishedChecks(ctx, f, pr, ghPath, p.Path)
 }
 
+// logGhNoPathOnce logs that gh is not on PATH once, guarded by ghMu since the first poll
+// runs on its own goroutine and can overlap a caller that polls or inspects the server right
+// after construction, such as a test.
+func (s *server) logGhNoPathOnce() {
+	s.ghMu.Lock()
+	defer s.ghMu.Unlock()
+	if s.ghNoGhLogged {
+		return
+	}
+	log.Print("github poll: gh is not on PATH")
+	s.ghNoGhLogged = true
+}
+
 // logGhErrOnce logs a gh error for the feature once, and again only once its text changes,
-// so a cause such as "no PR for the branch" does not fill the log on every poll.
+// so a cause such as "no PR for the branch" does not fill the log on every poll. Guarded by
+// ghMu for the same reason as logGhNoPathOnce.
 func (s *server) logGhErrOnce(featureID int64, err error) {
 	text := err.Error()
+	s.ghMu.Lock()
+	defer s.ghMu.Unlock()
 	if s.ghFeatureErrLogged[featureID] == text {
 		return
 	}

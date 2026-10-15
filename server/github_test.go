@@ -89,12 +89,73 @@ func TestStartGitHubPoll_PollsOnceAtStart(t *testing.T) {
 	// test waiting anywhere near that long.
 	h2 := New(st, dataDir, "/bin/reef")
 	t.Cleanup(h2.Close)
-	msgs, err := st.Messages(context.Background(), 1, 0)
+	var msgs []store.Message
+	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
+		if msgs, err = st.Messages(context.Background(), 1, 0); err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) > 0 {
+			break
+		}
+	}
+	if len(msgs) != 1 || msgs[0].Body != "PR #12 open: https://github.com/x/y/pull/12" {
+		t.Fatalf("messages soon after New() = %+v, want the PR note already posted", msgs)
+	}
+}
+
+// TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh covers a GitHub that is slow or
+// offline: New must not sit on the caller's goroutine waiting for the first poll's gh calls,
+// since reef serve only starts listening once New returns (decision 41). The first poll must
+// still run, without waiting a full REEF_GH_INTERVAL.
+func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
+	storeDir, dataDir := t.TempDir(), t.TempDir()
+	st, err := store.Open(storeDir)
 	if err != nil {
 		t.Fatal(err)
 	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-b", "main")
+	writeIn(t, repo, "a.txt", "a")
+	gitIn(t, repo, "add", ".")
+	gitIn(t, repo, "commit", "-m", "first")
+	h := New(st, dataDir, "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
+	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	ts.Close()
+	h.Close()
+
+	binDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(binDir, "gh"), []byte("#!/bin/sh\nsleep 5\n"+
+		"echo '{\"number\":12,\"url\":\"https://github.com/x/y/pull/12\",\"state\":\"OPEN\",\"statusCheckRollup\":[]}'\n"),
+		0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	start := time.Now()
+	h2 := New(st, dataDir, "/bin/reef")
+	t.Cleanup(h2.Close)
+	if elapsed := time.Since(start); elapsed > time.Second {
+		t.Fatalf("New() took %v, want under 1s: it must not wait on the slow gh", elapsed)
+	}
+
+	var msgs []store.Message
+	for end := time.Now().Add(10 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
+		if msgs, err = st.Messages(context.Background(), 1, 0); err != nil {
+			t.Fatal(err)
+		}
+		if len(msgs) > 0 {
+			break
+		}
+	}
 	if len(msgs) != 1 || msgs[0].Body != "PR #12 open: https://github.com/x/y/pull/12" {
-		t.Fatalf("messages right after New() = %+v, want the PR note already posted", msgs)
+		t.Fatalf("messages after the slow gh returns = %+v, want the PR note posted by the first poll", msgs)
 	}
 }
 
