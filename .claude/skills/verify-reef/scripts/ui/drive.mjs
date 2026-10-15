@@ -121,7 +121,7 @@ async function newChannel(box, openName, name, mode = 'acceptEdits') {
 }
 
 // The label of the running turn names its role: `<role> is working...`.
-const liveLabel = main.locator('div.text-xs', { hasText: 'is working...' });
+const liveLabel = main.getByText('is working...').locator('..');
 async function workingAs(role, timeout = 240000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
@@ -135,7 +135,7 @@ async function workingAs(role, timeout = 240000) {
 }
 // The top-level message rows of the main list that `author` wrote (they have the Reply button).
 const rootRow = (author) =>
-  main.locator('ul > li:has(> button)').filter({ has: page.locator('div.text-xs', { hasText: new RegExp(`^${author}$`) }) });
+  main.locator('ul > li:has(> button)').filter({ has: page.getByText(author, { exact: true }) });
 // Starts a channel on `team` from the form (backend and permission mode stay the team's).
 async function newTeamChannel(team, name, step) {
   await main.getByRole('button', { name: 'New channel' }).click();
@@ -819,13 +819,13 @@ async function teams() {
   await pane.locator('li').nth(2).waitFor({ timeout: 240000 });
   await idle();
   await shot('thread-answered');
-  const authors = await pane.locator('li > div.text-xs').allTextContents();
+  const authors = await pane.locator('li > div').allTextContents();
   check(authors.join(',') === 'architect,user,architect', 'the Thread pane shows the root, the user reply and the architect answer', authors.join(','));
   const inThread = (await getJson(`/messages?channel=${cid}`)).filter((m) => m.parentId === root.id).map((m) => m.author);
   check(inThread.join(',') === 'user,architect', 'both replies are stored under the root', inThread.join(','));
   await pane.getByRole('button', { name: 'Close' }).click();
   const count = await rootRow('architect').last().getByRole('button').textContent();
-  check(count === '2 replies', 'the main list shows the root with a replies button', count);
+  check(count === '2 replies in thread', 'the main list shows the root with a replies button', count);
   await shot('main-list');
 
   await section.getByRole('link', { name: 'Login', exact: true }).click();
