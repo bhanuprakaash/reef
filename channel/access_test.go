@@ -54,9 +54,9 @@ func TestSession_RunAsConfigFollowsWrite(t *testing.T) {
 		wantDeny  []string
 	}{
 		{"tester", "default", []string{"Read", "mcp__reef__*"},
-			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Skill"}},
+			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit"}},
 		{"reviewer", "read-only", []string{"mcp__reef__*"}, nil},
-		{"developer", "", []string{"Read", "Task", "mcp__reef__*"}, []string{"Skill"}},
+		{"developer", "", []string{"Read", "Task", "mcp__reef__*"}, nil},
 	}
 	for _, tt := range tests {
 		next = tt.role
@@ -131,7 +131,7 @@ func TestSession_RunAsDeniesUnpickedSkills(t *testing.T) {
 		},
 		"lead": {
 			[]string{"mcp__reef__*"},
-			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Skill"},
+			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit"},
 		},
 		"reviewer": {[]string{"mcp__reef__*"}, nil},
 	} {
@@ -164,7 +164,7 @@ func TestAccess(t *testing.T) {
 			},
 			nil,
 			"default", []string{"Read", "Bash(go test:*)"},
-			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Skill"},
+			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit"},
 		},
 		{
 			"claude without write drops unrestricted Bash, even from a team saved before the check",
@@ -174,7 +174,7 @@ func TestAccess(t *testing.T) {
 			},
 			nil,
 			"default", []string{"Read", "Bash(go test:*)"},
-			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit", "Skill"},
+			[]string{"Edit", "Write", "MultiEdit", "NotebookEdit"},
 		},
 		{
 			"claude with write keeps its mode and gains Task",
@@ -183,7 +183,7 @@ func TestAccess(t *testing.T) {
 				Tools: []string{"Read", "Edit"},
 			},
 			nil,
-			"acceptEdits", []string{"Read", "Edit", "Task"}, []string{"Skill"},
+			"acceptEdits", []string{"Read", "Edit", "Task"}, nil,
 		},
 		{
 			"claude without write allows its picked skills and denies the other skills on disk",
@@ -205,10 +205,10 @@ func TestAccess(t *testing.T) {
 			"", []string{"Task", "Skill(how)"}, nil,
 		},
 		{
-			"claude with no picked skills denies the Skill tool",
+			"claude with no picked skills keeps every skill",
 			store.Role{Backend: "claude", Write: true},
 			[]string{"how", "why"},
-			"", []string{"Task"}, []string{"Skill"},
+			"", []string{"Task"}, nil,
 		},
 		{
 			"codex gets no skill rules",

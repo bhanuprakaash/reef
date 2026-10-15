@@ -18,7 +18,7 @@ export function SkillPicker({ label, picked, available, noProject, onChange }: P
       <ChipList
         label="Skills"
         mono
-        empty="None picked."
+        empty="None picked: every skill is available."
         values={picked}
         missing={(name) => isMissing(available, name)}
         onRemove={(i) => onChange(picked.filter((_, j) => j !== i))}

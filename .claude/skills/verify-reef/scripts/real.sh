@@ -145,7 +145,7 @@ dev_line="" tester_line=""
 for p in $(pgrep -P "$(cat "$S/serve.pid")" -x claude); do
 	line=$(ps -ww -o args= -p "$p")
 	case $line in
-	*--disallowedTools\ Edit*) tester_line=$line ;;
+	*--disallowedTools*) tester_line=$line ;;
 	*) dev_line=$line ;;
 	esac
 done
@@ -155,10 +155,9 @@ wait_done 2 1
 
 refused_ok=1
 case $dev_line in *--permission-mode\ acceptEdits*) ;; *) refused_ok=0 ;; esac
-case $dev_line in *--disallowedTools\ Skill*) ;; *) refused_ok=0 ;; esac
-case $dev_line in *--disallowedTools\ Edit*) refused_ok=0 ;; esac
+case $dev_line in *--disallowedTools*) refused_ok=0 ;; esac
 case $tester_line in *--permission-mode\ default*) ;; *) refused_ok=0 ;; esac
-case $tester_line in *--disallowedTools\ Edit,Write,MultiEdit,NotebookEdit,Skill*) ;; *) refused_ok=0 ;; esac
+case $tester_line in *--disallowedTools\ Edit,Write,MultiEdit,NotebookEdit*) ;; *) refused_ok=0 ;; esac
 [ -e "$S/real-proj/rtwrite.txt" ] && refused_ok=0
 git -C "$S/real-proj" status --porcelain | diff -q "$S/real-status-before.txt" - >/dev/null || refused_ok=0
 
@@ -172,7 +171,7 @@ else
 fi
 
 if [ "$refused_ok" = 1 ]; then
-	check write-claude-refused 1 "tester args had --permission-mode default --disallowedTools Edit,Write,MultiEdit,NotebookEdit,Skill, developer had acceptEdits and only --disallowedTools Skill, rtwrite.txt absent, tree unchanged, $errs is_error tool results"
+	check write-claude-refused 1 "tester args had --permission-mode default --disallowedTools Edit,Write,MultiEdit,NotebookEdit, developer had acceptEdits and no --disallowedTools, rtwrite.txt absent, tree unchanged, $errs is_error tool results"
 else
 	check write-claude-refused 0 "dev_line=[$dev_line] tester_line=[$tester_line] rtwrite.txt exists=$([ -e "$S/real-proj/rtwrite.txt" ] && echo yes || echo no)"
 fi

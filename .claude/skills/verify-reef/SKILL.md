@@ -418,7 +418,7 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H feature full-team
 `PASS <id>: ...` or `FAIL <id>: ...` per id, tees to `~/.reef-verify/<id>/real.log`, and exits
 1 on any `FAIL`. It is the set of lines that test claude's own behavior, not Reef's: a tester
 without `write` is refused Write then Bash, with `--permission-mode default` and
-`--disallowedTools Edit,Write,MultiEdit,NotebookEdit,Skill` (`write-claude-refused`), the same with a
+`--disallowedTools Edit,Write,MultiEdit,NotebookEdit` (`write-claude-refused`), the same with a
 project `.claude/settings.json` that allows Edit (`write-settings`), `--permission-mode` holds
 for an allowed and a denied tool (`turn-permission`), and a subagent's tool calls carry
 `parentToolId` while the `Agent` call and other top-level events do not (`subagent-parent`,

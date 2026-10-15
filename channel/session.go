@@ -436,7 +436,7 @@ func (s *Session) roleSetup(team store.Team, name string) (store.Role, error) {
 var _editTools = []string{"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
 // claudeSkills names the skills claude finds in dir, for a claude role that picked some. A role
-// with none denies the Skill tool whole, so there is nothing to scan.
+// with none keeps every skill, so there is nothing to scan.
 func claudeSkills(r store.Role, dir string) []string {
 	if r.Backend != "claude" || len(r.Skills) == 0 {
 		return nil
@@ -456,7 +456,7 @@ func claudeSkills(r store.Role, dir string) []string {
 // access maps a role's write flag to the permission mode, allowed tools and denied tools of its backend.
 // A write role on claude also gets Task to run parallel subagents. On codex a permission
 // mode the role sets stays when the role writes, so it may narrow it. A claude role may use only
-// the skills it picked: onDisk names the skills on disk, and each one not picked is denied.
+// the skills it picked, if it picked any: onDisk names the skills on disk, and each one not picked is denied.
 func access(r store.Role, onDisk []string) (mode string, tools, denied []string) {
 	mode, tools = r.PermissionMode, slices.Clone(r.Tools)
 	switch {
@@ -474,16 +474,13 @@ func access(r store.Role, onDisk []string) (mode string, tools, denied []string)
 			return slices.Contains(_editTools, name) || store.UnrestrictedBash(t)
 		})
 	}
-	if r.Backend == "claude" {
+	if r.Backend == "claude" && len(r.Skills) > 0 {
 		for _, name := range r.Skills {
 			tools = append(tools, "Skill("+name+")")
 		}
 		denied = slices.Clone(denied)
-		if len(r.Skills) == 0 {
-			denied = append(denied, "Skill")
-		}
 		for _, name := range onDisk {
-			if len(r.Skills) > 0 && !slices.Contains(r.Skills, name) {
+			if !slices.Contains(r.Skills, name) {
 				denied = append(denied, "Skill("+name+")")
 			}
 		}
