@@ -84,8 +84,11 @@ logged in and on `PATH`.
   rejected if that name is taken. "New team" asks for a name and a team to start from and
   sends the same `?from=` request. The hop, turn and token caps are not team fields, so the
   page has no Caps section.
-- Settings (`/settings`): theme (dark, light or Match macOS, kept in `localStorage`) and
-  notifications.
+- Settings (`/settings`): your name, theme (dark, light or Match macOS, kept in `localStorage`)
+  and notifications.
+- First run: one page with two steps. Your name (saved with `PUT /profile`), then the first
+  project. A name with no project starts at the project step; a project with no name asks only
+  for the name.
 
 Client routes such as `/features/3`, `/tasks` and `/inbox` have the same paths as the REST API. In the Go server, `GET /` and `HEAD /` always get the app's `index.html`; other `GET` or `HEAD` requests get it when the `Accept` header includes `text/html`. Every other request goes to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`) are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
 
@@ -126,7 +129,8 @@ migration 8 [`008_approval.sql`](../store/migrations/008_approval.sql) (`gate`, 
 migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql) (`approval.kind`) and
 migration 10 [`010_role_write.sql`](../store/migrations/010_role_write.sql) (`role.write`) and
 migration 11 [`011_turn_wake.sql`](../store/migrations/011_turn_wake.sql) (`turn.wake_text`, `turn.wake_parent`, `turn.retried`) and
-migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`).
+migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`) and
+migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`).
 Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 
 ### project
@@ -137,6 +141,16 @@ Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 | `name` | string | required |
 | `path` | string | required; the repo folder, stored as an absolute path with symlinks resolved |
 | `createdAt` | string | |
+
+### profile
+
+The person using Reef: one row, no id. The window asks for the name on first run and shows it
+in the sidebar.
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `name` | string | required; trimmed |
+| `updatedAt` | string | |
 
 ### project_memory
 
@@ -402,6 +416,8 @@ tool calls.
 | `DELETE /projects/{id}` | | 204; the worktrees of its features and the checkpoint refs of the turns of all its channels are removed, its branches are kept | 404, 409 a feature's worktree has uncommitted changes (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200 | 404 |
+| `GET /profile` | | 200 | 404 no name set yet |
+| `PUT /profile` | `name`; replaces the old one | 200 | 400 empty name |
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |

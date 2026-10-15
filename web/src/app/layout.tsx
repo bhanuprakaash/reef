@@ -5,6 +5,7 @@ import { FirstRun } from '@/app/first-run';
 import { Sidebar } from '@/app/sidebar';
 import { TabBar } from '@/app/tab-bar';
 import { Unreachable } from '@/app/unreachable';
+import { useProfile } from '@/lib/api/get-profile';
 import { useProjects } from '@/modules/projects/api/get-projects';
 
 export type LayoutContext = {
@@ -17,8 +18,9 @@ export function Layout() {
   const projects = useProjects();
   const [browserOpen, setBrowserOpen] = useState(true);
   const [browserDriver, setBrowserDriver] = useState<BrowserDriver | null>(null);
-  if (projects.isPending) return null;
-  if (projects.data?.length === 0) return <FirstRun />;
+  const profile = useProfile();
+  if (projects.isPending || profile.isPending) return null;
+  if (projects.data?.length === 0 || profile.data === null) return <FirstRun />;
 
   return (
     <div className="relative flex h-screen flex-col bg-main font-sans text-fg md:flex-row">

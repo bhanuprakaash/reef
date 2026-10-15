@@ -73,6 +73,11 @@ async function exchange(text) {
 
 async function submitProject(name, folder) {
   const switcher = aside.getByRole('button', { name: 'Switch project' });
+  await page.getByLabel('Your name').or(page.getByLabel('Repo folder')).or(switcher).waitFor();
+  if (await page.getByLabel('Your name').count()) {
+    await page.getByLabel('Your name').fill('Tester');
+    await page.getByRole('button', { name: 'Continue' }).click();
+  }
   await page.getByLabel('Repo folder').or(switcher).waitFor();
   if (await page.getByLabel('Repo folder').count()) {
     await page.getByLabel('Repo folder').fill(folder);

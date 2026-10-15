@@ -7,6 +7,7 @@ import { Dialog } from '@/components/dialog';
 import { Logo } from '@/components/logo';
 import { Row } from '@/components/row';
 import { useChannels } from '@/lib/api/get-channels';
+import { useProfile } from '@/lib/api/get-profile';
 import { useCurrentProject } from '@/lib/current-project';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
@@ -14,6 +15,7 @@ import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { useInboxEvents } from '@/modules/inbox/hooks/use-inbox-events';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { itemPath } from '@/utils/anchors';
+import { initials } from '@/utils/initials';
 
 function IconCircle({ children, dot }: { children: ReactNode; dot?: boolean }) {
   return (
@@ -76,6 +78,7 @@ export function Sidebar() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const projects = useProjects();
+  const profileName = useProfile().data?.name ?? '';
   const features = useFeatures();
   const channels = useChannels();
   const inbox = useInbox();
@@ -180,9 +183,9 @@ export function Sidebar() {
 
       <div className="flex shrink-0 items-center gap-2.5 px-1.5 pt-3">
         <span className="flex size-[30px] flex-none items-center justify-center rounded-full bg-bubble text-[11.5px] text-soft">
-          Y
+          {initials(profileName)}
         </span>
-        <span className="text-sm">You</span>
+        <span className="min-w-0 truncate text-sm">{profileName}</span>
         <div className="ml-auto flex gap-0.5">
           <BarLink to="/tasks" label="Tasks" active={pathname === '/tasks'}>
             <path d="M9 11l3 3 8-8" />

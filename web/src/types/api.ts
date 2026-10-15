@@ -5,6 +5,11 @@ export type Project = {
   createdAt: string;
 };
 
+export type Profile = {
+  name: string;
+  updatedAt: string;
+};
+
 export type ProjectMemory = {
   projectId: number;
   body: string;

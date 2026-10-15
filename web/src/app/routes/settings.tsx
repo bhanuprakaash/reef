@@ -1,5 +1,8 @@
 import { useState, type ReactNode } from 'react';
 import { Button } from '@/components/button';
+import { TextField } from '@/components/text-field';
+import { useProfile } from '@/lib/api/get-profile';
+import { usePutProfile } from '@/lib/api/put-profile';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
 import { useNotificationPermission } from '@/lib/use-notification-permission';
 
@@ -42,6 +45,46 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+function NameSection() {
+  const profile = useProfile();
+  const save = usePutProfile();
+  const [draft, setDraft] = useState<string | null>(null);
+  const saved = profile.data?.name ?? '';
+  const name = draft ?? saved;
+
+  return (
+    <Section title="Profile">
+      <form
+        className="flex items-center gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate(name, { onSuccess: () => setDraft(null) });
+        }}
+      >
+        <label htmlFor="profile-name" className="text-[13px] text-muted">
+          Your name
+        </label>
+        <TextField
+          id="profile-name"
+          className="min-w-0 flex-1"
+          value={name}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+        <Button
+          variant="primary"
+          size="md"
+          type="submit"
+          loading={save.isPending}
+          disabled={name.trim() === '' || name.trim() === saved}
+        >
+          Save
+        </Button>
+      </form>
+      {save.isError && <p className="text-sm text-danger">{save.error.message}</p>}
+    </Section>
+  );
+}
+
 export function SettingsPage() {
   const [theme, setChosen] = useState(getTheme);
   const { permission, request } = useNotificationPermission();
@@ -49,6 +92,8 @@ export function SettingsPage() {
   return (
     <div className="mx-auto flex w-full max-w-[820px] flex-col gap-[22px] py-6">
       <h1 className="text-[32px] font-normal tracking-[-0.02em]">Settings</h1>
+
+      <NameSection />
 
       <Section title="Appearance">
         <div role="radiogroup" aria-label="Theme" className="grid grid-cols-3 gap-2.5">

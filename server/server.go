@@ -89,6 +89,7 @@ func newHandler(
 	mux.HandleFunc("/health", methodNotAllowed)
 	mux.HandleFunc("/", notFound)
 	s.projectRoutes(mux)
+	s.profileRoutes(mux)
 	s.featureRoutes(mux)
 	s.channelRoutes(mux)
 	s.teamRoutes(mux)
