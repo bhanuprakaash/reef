@@ -383,6 +383,26 @@ async function fixes() {
     'one of two tasks done shows "1 of 2 done" on the page and "1/2" in the sidebar',
     `sidebar row "${chip.replace(/\s+/g, ' ')}"; tasks ${sql(`select title,status from task where feature_id=${fid}`).replace(/\n/g, ';')}`,
   );
+  const tip = await aside.getByRole('link', { name }).getAttribute('title');
+  check(!/ideation/i.test(tip ?? ''), 'the sidebar tooltip of a Fixes feature has no stage', `title "${tip}"`);
+  await newChannel(main, 'New channel', 'fix chat', '');
+  const header = await main.getByRole('heading', { name: 'fix chat', level: 1 }).locator('..').innerText();
+  await shot('channel-header');
+  check(
+    header.includes('1/2') && !/ideation/i.test(header),
+    'the channel header of a Fixes feature shows "1/2", not the stage',
+    `header "${header.replace(/\s+/g, ' ')}"`,
+  );
+  await page.goto(base + '/');
+  const card = main.getByRole('link', { name: new RegExp(name) });
+  await card.waitFor();
+  const text = await card.innerText();
+  await shot('today-card');
+  check(
+    text.includes('1 of 2 done') && !/ideation/i.test(text),
+    'the Today card of a Fixes feature shows "1 of 2 done", not the stage',
+    `card "${text.replace(/\s+/g, ' ')}"`,
+  );
 }
 
 async function capture() {
