@@ -111,10 +111,11 @@ func resultWord(v string) string {
 	}
 }
 
-// ghInterval is how often reef serve polls GitHub, REEF_GH_INTERVAL or 60s.
+// ghInterval is how often reef serve polls GitHub, REEF_GH_INTERVAL or 60s. A zero or
+// negative value, which would panic time.NewTicker, also defaults.
 func ghInterval() time.Duration {
 	if v := os.Getenv("REEF_GH_INTERVAL"); v != "" {
-		if d, err := time.ParseDuration(v); err == nil {
+		if d, err := time.ParseDuration(v); err == nil && d > 0 {
 			return d
 		}
 	}
