@@ -4,6 +4,8 @@ import { RoleEditor } from '@/modules/teams/components/role-editor';
 import type { Gate, Role, Team } from '@/types/api';
 import { buttonClass, errorClass, inputClass, mutedClass } from '@/utils/classes';
 
+const teamNamePattern = /^[A-Za-z0-9_-]+$/;
+
 const blankRole: Role = {
   name: '',
   lead: false,
@@ -21,7 +23,8 @@ export function TeamEditor({ team, onSaved }: Props) {
   const [roles, setRoles] = useState<Role[]>(team.roles);
   const [gates, setGates] = useState<Gate[]>(team.gates ?? []);
   const [copyName, setCopyName] = useState('');
-  const update = useUpdateTeam();
+  const save = useUpdateTeam();
+  const copy = useUpdateTeam();
 
   function updateRole(i: number, role: Role) {
     setRoles(roles.map((r, idx) => (idx === i ? role : r)));
@@ -101,9 +104,9 @@ export function TeamEditor({ team, onSaved }: Props) {
         <button
           type="button"
           className={buttonClass}
-          disabled={update.isPending}
+          disabled={save.isPending}
           onClick={() =>
-            update.mutate(
+            save.mutate(
               { name: team.name, team: { name: team.name, roles, gates } },
               { onSuccess: (saved) => onSaved(saved.name) },
             )
@@ -111,7 +114,8 @@ export function TeamEditor({ team, onSaved }: Props) {
         >
           Save
         </button>
-        {update.isError && <span className={errorClass}>{update.error.message}</span>}
+        {save.isSuccess && <span className={mutedClass}>Saved</span>}
+        {save.isError && <span className={errorClass}>{save.error.message}</span>}
       </div>
 
       <div className="flex items-center gap-2">
@@ -125,9 +129,9 @@ export function TeamEditor({ team, onSaved }: Props) {
         <button
           type="button"
           className={buttonClass}
-          disabled={update.isPending || copyName.trim() === ''}
+          disabled={copy.isPending || !teamNamePattern.test(copyName.trim())}
           onClick={() =>
-            update.mutate(
+            copy.mutate(
               {
                 name: copyName.trim(),
                 team: { name: copyName.trim(), roles, gates },
@@ -144,8 +148,8 @@ export function TeamEditor({ team, onSaved }: Props) {
         >
           Copy as new team
         </button>
-        {update.isSuccess && <span className={mutedClass}>Saved</span>}
-        {update.isError && <span className={errorClass}>{update.error.message}</span>}
+        {copy.isSuccess && <span className={mutedClass}>Saved</span>}
+        {copy.isError && <span className={errorClass}>{copy.error.message}</span>}
       </div>
     </div>
   );
