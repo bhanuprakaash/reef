@@ -3,14 +3,19 @@ import { useUpdateTeam } from '@/modules/teams/api/update-team';
 import { AddGateRow } from '@/modules/teams/components/add-gate-row';
 import { AddRoleRow } from '@/modules/teams/components/add-role-row';
 import { RoleEditor } from '@/modules/teams/components/role-editor';
-import type { Gate, Role, Team } from '@/types/api';
+import type { Gate, Role, Skills, Team } from '@/types/api';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import { Toggle } from '@/components/toggle';
 
-type Props = { team: Team; onSaved: (name: string) => void; onDuplicate: () => void };
+type Props = {
+  team: Team;
+  skills?: Skills;
+  onSaved: (name: string) => void;
+  onDuplicate: () => void;
+};
 
-export function TeamEditor({ team, onSaved, onDuplicate }: Props) {
+export function TeamEditor({ team, skills, onSaved, onDuplicate }: Props) {
   const [loaded, setLoaded] = useState(team);
   const [roles, setRoles] = useState<Role[]>(team.roles);
   const [keys, setKeys] = useState(() => team.roles.map((_, i) => i));
@@ -60,6 +65,7 @@ export function TeamEditor({ team, onSaved, onDuplicate }: Props) {
           <RoleEditor
             key={keys[i]}
             role={role}
+            skills={skills}
             open={open === i}
             onToggle={() => setOpen(open === i ? null : i)}
             onChange={(r) => updateRole(i, r)}

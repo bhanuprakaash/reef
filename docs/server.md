@@ -84,12 +84,16 @@ logged in and on `PATH`.
   since the page loaded.
 - Teams (`/teams`): lists teams and edits one's roles, faces and gates, saving with
   `PUT /teams/{name}`. An opened role shows its persona, skills, allowed tools, permission
-  mode and MCP servers; a server can be removed there, not added (use `reef team apply`).
+  mode and MCP servers. Skills are picked from the current project's `GET /skills` list for the
+  role's backend; a picked name that is not on disk shows as missing. Allowed tools are
+  checkboxes (`Read`, `Grep`, `Glob`, `Edit`, `Write`, `Bash`, `WebFetch`, `WebSearch`, and
+  `mcp__<name>__*` for each MCP server) plus a field for patterns such as `Bash(git log:*)`,
+  and are hidden on a Codex role. A server can be removed there, not added (use `reef team apply`).
   Duplicate applies the same roles, gates and MCP servers under a new name with `?from=`,
   rejected if that name is taken. "New team" asks for a name and a team to start from and
   sends the same `?from=` request. The hop, turn and token caps are not team fields, so the
   page has no Caps section.
-- Settings (`/settings`): your name, occupation and working preferences (chips), theme (dark, light or Match macOS, kept in `localStorage`)
+- Settings (`/settings`): your name, occupation and working preferences (chips), the current project's skills read from disk, grouped Claude Code and Codex, each with its description, theme (dark, light or Match macOS, kept in `localStorage`)
   and notifications.
 - First run: one page with two steps. Your name with an optional occupation and working preferences (saved with `PUT /profile`), then the first
   project. A name with no project starts at the project step; a project with no name asks only

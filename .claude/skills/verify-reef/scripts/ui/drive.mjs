@@ -1500,9 +1500,13 @@ async function workshop() {
     throw new Error('apply the team full first (teams/full.json, see features/teams.md)');
   }
   const mcpBefore = '[{"command":"true","env":{"API_KEY":"sk-verify-9911"}}]';
-  sql(`update role set mcp_servers = '${mcpBefore}', skills = '[]', tools = '["Read","Grep","Glob","Edit","Write","Bash"]' where team_id = (select id from team where name = 'full') and name = 'developer'`, true);
+  sql(`update role set mcp_servers = '${mcpBefore}', skills = '["ghost-skill"]', tools = '["Read","Grep","Glob","Edit","Write","Bash"]' where team_id = (select id from team where name = 'full') and name = 'developer'`, true);
+  mkdirSync(path.join(projectDir, '.claude/skills/workshop-skill'), { recursive: true });
+  writeFileSync(path.join(projectDir, '.claude/skills/workshop-skill/SKILL.md'), '---\nname: workshop-skill\ndescription: Picked in the workshop scenario.\n---\n');
 
   const section = await addProject();
+  const projectId = sql('select max(id) from project');
+  await page.evaluate((id) => localStorage.setItem('reef.sidebar.projectId', id), projectId);
   await page.goto(`${base}/teams`);
   await main.getByRole('button', { name: 'full', exact: true }).click();
   await main.getByRole('button', { name: /^developer/ }).click();
@@ -1540,30 +1544,46 @@ async function workshop() {
   await main.getByLabel('architect lead').uncheck();
 
   // Unrestricted Bash on a role without write: the same error reef team apply gives.
-  await main.getByLabel('architect add tool').fill('Bash');
-  await main.getByLabel('architect add tool').press('Enter');
+  await main.getByLabel('architect tool Bash').check();
   await main.getByRole('button', { name: 'Save' }).click();
   const badTool = await errorText(/cannot have unrestricted Bash/);
   await shot('bad-tool-error');
   check(!!badTool, 'an invalid team (unrestricted Bash without write) shows the reef team apply error', badTool ?? '(not shown)');
-  await main.getByRole('button', { name: 'Remove Bash', exact: true }).click();
+  await main.getByLabel('architect tool Bash').uncheck();
   await main.getByRole('button', { name: 'Save' }).click();
   await page.getByText('Saved').waitFor();
 
-  // Skills and allowed tools edit in the window and save; removing an MCP server removes it.
+  // Skills and allowed tools are picked in the window and save; removing an MCP server removes it.
   const row = (col) => sql(`select ${col} from role where team_id = (select id from team where name = 'full') and name = 'developer'`);
   await main.getByRole('button', { name: /^developer/ }).click();
-  await main.getByLabel('developer add skill').fill('careful-refactors');
-  await main.getByLabel('developer add skill').press('Enter');
+  const ghost = main.getByText('ghost-skill').locator('..');
+  check((await ghost.innerText()).includes('missing'), 'a picked skill that is not on disk shows as missing', await ghost.innerText());
+  await main.getByRole('button', { name: 'Remove ghost-skill', exact: true }).click();
+  await main.getByRole('combobox', { name: 'developer add skill', exact: true }).click();
+  const offered = await page.getByRole('listbox', { name: 'developer add skill', exact: true }).getByRole('option').allInnerTexts();
+  check(offered.some((o) => o.startsWith('workshop-skill')), "the claude skill picker offers the project's skill", `${offered.length} offered`);
+  await page.getByRole('listbox', { name: 'developer add skill', exact: true }).getByRole('option', { name: /^workshop-skill/ }).click();
+  check(!(await main.getByText('workshop-skill').locator('..').innerText()).includes('missing'), 'a picked skill that is on disk is not missing');
+  check((await main.getByLabel('developer tool Read').isChecked()) && !(await main.getByLabel('developer tool WebFetch').isChecked()), 'the tool checkboxes show the role\'s tools');
+  check(await main.getByLabel('developer tool mcp__mcp1__*').count() === 1, 'the tool picker has one entry for the role\'s MCP server');
+  await main.getByLabel('developer tool WebFetch').check();
   await main.getByLabel('developer add tool').fill('Bash(git log:*)');
   await main.getByLabel('developer add tool').press('Enter');
-  await main.getByRole('button', { name: 'Remove Write', exact: true }).click();
+  await main.getByLabel('developer tool Write').uncheck();
   await shot('role-skills-tools-mcp');
+  await pick('developer backend', 'Codex', main);
+  check((await main.getByLabel('developer tool Read').count()) === 0, 'the tool picker is hidden on a Codex role');
+  await main.getByRole('combobox', { name: 'developer add skill', exact: true }).click();
+  const codexOffered = await page.getByRole('listbox', { name: 'developer add skill', exact: true }).getByRole('option').allInnerTexts();
+  check(!codexOffered.some((o) => o.startsWith('workshop-skill')), 'a Codex role is not offered the Claude skills', `${codexOffered.length} offered`);
+  await page.keyboard.press('Escape');
+  await pick('developer backend', 'Claude Code', main);
+  await pick('developer permission mode', 'acceptEdits', main);
   await main.getByRole('button', { name: 'Remove mcp1 · true' }).click();
   await main.getByRole('button', { name: 'Save' }).click();
   await page.getByText('Saved').waitFor();
-  check(row('skills') === '["careful-refactors"]', "saving the developer's skills updates its role row", row('skills'));
-  check(row('tools').includes('Bash(git log:*)') && !row('tools').includes('"Write"'), "adding and removing allowed tools saves them to the role row", row('tools'));
+  check(row('skills') === '["workshop-skill"]', "saving the developer's skills updates its role row", row('skills'));
+  check(row('tools').includes('Bash(git log:*)') && row('tools').includes('"WebFetch"') && !row('tools').includes('"Write"'), "picking and unpicking allowed tools saves them to the role row", row('tools'));
   check(row('mcp_servers') === '[]', "removing the developer's MCP server in the window removes it from its role row", row('mcp_servers'));
 
   // Duplicate makes a new team `reef team list` (the same store) shows.
@@ -1591,6 +1611,15 @@ async function workshop() {
   check(otters > 0 && penguins === 0, "the channel shows the otter picked for the developer, not the penguin", `otter shapes ${otters}, penguin shapes ${penguins}`);
   const prompt = sql(`select prompt from turn where channel_id = ${cid} and role = 'developer' order by id limit 1`);
   check(prompt.includes(marker), "the next developer wake's prompt carries the new persona", prompt.slice(0, 200));
+
+  await page.goto(`${base}/settings`);
+  const skills = main.getByRole('region', { name: 'Skills' });
+  await skills.getByRole('group', { name: 'Claude Code' }).waitFor();
+  const claudeGroup = await skills.getByRole('group', { name: 'Claude Code' }).innerText();
+  const codexGroup = await skills.getByRole('group', { name: 'Codex' }).innerText();
+  await shot('settings-skills');
+  check(claudeGroup.includes('workshop-skill') && claudeGroup.includes('Picked in the workshop scenario.'), 'Settings lists the project\'s Claude skill with its description', claudeGroup.replace(/\s+/g, ' ').slice(0, 160));
+  check(!codexGroup.includes('workshop-skill'), 'Settings keeps the Claude skill out of the Codex group', codexGroup.replace(/\s+/g, ' ').slice(0, 160));
 }
 
 async function pr() {

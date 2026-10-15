@@ -3,7 +3,11 @@ import { ProfileFields } from '@/app/profile-fields';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import { useProfile } from '@/lib/api/get-profile';
+import { useSkills } from '@/lib/api/get-skills';
+import { useCurrentProject } from '@/lib/current-project';
+import { useProjects } from '@/modules/projects/api/get-projects';
 import { usePutProfile } from '@/lib/api/put-profile';
+import type { SkillInfo } from '@/types/api';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
 import { useNotificationPermission } from '@/lib/use-notification-permission';
 
@@ -106,6 +110,46 @@ function NameSection() {
   );
 }
 
+function SkillGroup({ title, skills }: { title: string; skills: SkillInfo[] }) {
+  return (
+    <div aria-label={title} role="group" className="flex flex-col gap-y-1.5">
+      <h3 className="text-[11px] uppercase tracking-[0.08em] text-muted">{title}</h3>
+      {skills.length === 0 && <p className="text-[13px] text-muted">None found.</p>}
+      <ul className="flex flex-col gap-y-1.5">
+        {skills.map((s) => (
+          <li key={s.name} className="text-[13px]">
+            <span className="font-mono">{s.name}</span>
+            {s.description && <span className="text-muted"> {s.description}</span>}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function SkillsSection() {
+  const projects = useProjects();
+  const [project] = useCurrentProject(projects.data);
+  const skills = useSkills(project?.id);
+
+  return (
+    <Section title="Skills">
+      <p className="text-[13px] text-muted">
+        Read from disk for {project ? project.name : 'the current project'}. Roles pick from the
+        list of their backend.
+      </p>
+      {!project && <p className="text-sm text-muted">Add a project to see its skills.</p>}
+      {skills.isError && <p className="text-sm text-danger">{skills.error.message}</p>}
+      {skills.data && (
+        <>
+          <SkillGroup title="Claude Code" skills={skills.data.claude} />
+          <SkillGroup title="Codex" skills={skills.data.codex} />
+        </>
+      )}
+    </Section>
+  );
+}
+
 export function SettingsPage() {
   const [theme, setChosen] = useState(getTheme);
   const { permission, request } = useNotificationPermission();
@@ -142,6 +186,8 @@ export function SettingsPage() {
           ))}
         </div>
       </Section>
+
+      <SkillsSection />
 
       <Section title="Notifications">
         <div className="flex min-h-9 items-center gap-3">

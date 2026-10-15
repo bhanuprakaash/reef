@@ -119,6 +119,10 @@ export type Role = {
   mcpRemove?: { name: string; label: string }[];
 };
 
+export type SkillInfo = { name: string; description: string };
+
+export type Skills = { claude: SkillInfo[]; codex: SkillInfo[] };
+
 export type Gate = { from: string; to: string; on: boolean };
 
 export type Team = {
