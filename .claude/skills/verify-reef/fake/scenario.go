@@ -35,6 +35,7 @@ var _scenarios = []scenario{
 	{"write-refused", "", pat(`file t\.txt containing the word nope`)},
 	{"write-d", "", pat(`file d\.txt containing the word yes`)},
 	{"write-file", "", pat(`create new\.txt in the current directory containing the word hi`)},
+	{"delete-readme", "", pat(`Bash tool to delete README\.md`)},
 	{"f-file", "", pat(`file f\.txt containing the word one`)},
 	{"append-commit", "", pat(`Append a line with the word two to a\.txt`)},
 	{"branch-switch", "", pat(`git checkout -q -b side`)},

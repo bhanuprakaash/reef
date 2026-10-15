@@ -533,20 +533,26 @@ async function review() {
   await send('@developer Use the Write tool to create the file d.txt containing the word yes.');
   await workingAs('developer', 60000);
   await idle();
+  await send('@developer Use the Bash tool to delete README.md. Then reply done.');
+  await workingAs('developer', 60000);
+  await idle();
   const root = (await getJson(`/messages?channel=${cid}`))
     .filter((m) => m.author === 'developer' && m.parentId === null)
     .at(-1);
-  check(!!root, 'the developer posted a second top-level message, its latest thread root', root && `message ${root.id}`);
+  check(!!root, 'the developer posted a third top-level message, its latest thread root', root && `message ${root.id}`);
 
   await page.goto(`${base}/features/${featureId}`);
   const panel = main.locator('section', { has: page.getByRole('heading', { name: 'Diff', level: 2 }) });
-  await panel.getByText('d.txt').waitFor({ timeout: 15000 });
+  await panel.getByText('README.md').waitFor({ timeout: 15000 });
   await shot('diff');
   await panel.locator('[data-path="new.txt"][data-line="1"]').click();
   await panel.getByLabel('Comment on new.txt:1').fill('nice start');
   await panel.getByRole('button', { name: 'Add comment' }).click();
   await panel.locator('[data-path="d.txt"][data-line="1"]').click();
   await panel.getByLabel('Comment on d.txt:1').fill('rename this');
+  await panel.getByRole('button', { name: 'Add comment' }).click();
+  await panel.locator('[data-path="README.md"][data-line="1"]').click();
+  await panel.getByLabel('Comment on README.md:1 (removed)').fill('was this needed?');
   await panel.getByRole('button', { name: 'Add comment' }).click();
   await shot('comments');
   const before = Number(sql(`select count(*) from turn where channel_id=${cid} and role='developer'`));
@@ -563,8 +569,11 @@ async function review() {
 
   const sent = (await getJson(`/messages?channel=${cid}`)).at(-1);
   check(
-    sent.author === 'user' && sent.body.includes('new.txt:1') && sent.body.includes('d.txt:1'),
-    'the two comments made one user message with both path:line lines',
+    sent.author === 'user' &&
+      sent.body.includes('new.txt:1') &&
+      sent.body.includes('d.txt:1') &&
+      sent.body.includes('README.md:1 (removed)'),
+    'the three comments made one user message, the deleted line marked (removed)',
     JSON.stringify(sent),
   );
   check(sent.parentId === root.id, "the message's parent is the developer's latest thread root", `parentId ${sent.parentId}, root ${root.id}`);

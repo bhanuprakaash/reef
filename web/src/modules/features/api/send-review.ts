@@ -5,11 +5,14 @@ import { channelsQuery } from '@/lib/api/get-channels';
 import { teamsQuery } from '@/lib/api/get-teams';
 import type { Channel, Message, Team } from '@/types/api';
 
-export type ReviewComment = { path: string; line: number; text: string };
+export type ReviewComment = { path: string; line: number; text: string; removed?: boolean };
 
-// reviewText lists each comment as its path:line followed by its text.
+// reviewText lists each comment as its path:line (marked "(removed)" for a deleted line)
+// followed by its text.
 export function reviewText(comments: ReviewComment[]): string {
-  return comments.map((c) => `${c.path}:${c.line}\n${c.text}`).join('\n\n');
+  return comments
+    .map((c) => `${c.path}:${c.line}${c.removed ? ' (removed)' : ''}\n${c.text}`)
+    .join('\n\n');
 }
 
 // pickChannel returns the feature's channel whose team has a developer role, the most
