@@ -1,6 +1,7 @@
 import { type ComponentProps, useEffect, useState } from 'react';
 import { useOutletContext, useParams } from 'react-router';
 import type { LayoutContext } from '@/app/layout';
+import { ReviewDiff } from '@/app/review-diff';
 import { TerminalPane } from '@/app/terminal-pane';
 import { useChannel } from '@/modules/channels/api/get-channel';
 import { ChannelView } from '@/modules/channels/components/channel-view';
@@ -21,6 +22,7 @@ function FeatureChannelView({ featureId, ...props }: ViewProps & { featureId: nu
     <ChannelView
       {...props}
       diff={diff.data && diffCounts(diff.data)}
+      diffPanel={(onClose) => <ReviewDiff id={featureId} onClose={onClose} />}
       brief={briefs.data?.at(-1)?.body}
     />
   );

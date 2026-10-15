@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { Link } from 'react-router';
 import { type ReviewComment, useSendReview } from '@/modules/features/api/send-review';
 import { diffCounts } from '@/modules/features/utils/diff-counts';
@@ -40,9 +40,17 @@ type Props = {
   featureName: string;
   branch: string;
   developerFace?: string;
+  actions?: ReactNode;
 };
 
-export function DiffPanel({ files, featureId, featureName, branch, developerFace }: Props) {
+export function DiffPanel({
+  files,
+  featureId,
+  featureName,
+  branch,
+  developerFace,
+  actions,
+}: Props) {
   const [comments, setComments] = useState<ReviewComment[]>([]);
   const [selected, setSelected] = useState('');
   const [active, setActive] = useState<Target | null>(null);
@@ -93,6 +101,7 @@ export function DiffPanel({ files, featureId, featureName, branch, developerFace
           >
             Send to <Creature role="developer" face={developerFace} size={18} /> Developer
           </Button>
+          {actions}
         </div>
       </header>
       {send.isError && <p className="px-[22px] pt-3 text-sm text-danger">{send.error.message}</p>}

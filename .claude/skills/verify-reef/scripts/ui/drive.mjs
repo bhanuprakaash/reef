@@ -48,6 +48,12 @@ const shot = async (step) => {
   console.log(`shot ${file}`);
 };
 
+// Opens the custom select named `label` (inside `within`) and clicks the option named `option`.
+async function pick(label, option, within = page) {
+  await within.getByRole('combobox', { name: label, exact: true }).click();
+  await page.getByRole('listbox', { name: label, exact: true }).getByRole('option', { name: option, exact: true }).click();
+}
+
 async function send(text) {
   await page.getByLabel('Message').fill(text);
   await page.getByLabel('Message').press('Enter');
@@ -112,8 +118,8 @@ async function addFeature(section, prefix, name) {
 // Starts a claude channel from the form in `box` and returns its id.
 async function newChannel(box, openName, name, mode = 'acceptEdits') {
   await box.getByRole('button', { name: openName }).click();
-  await box.getByLabel('Backend', { exact: true }).selectOption('claude');
-  await box.getByLabel('Permission mode', { exact: true }).selectOption(mode);
+  await pick('Backend', 'claude', box);
+  await pick('Permission mode', mode, box);
   await box.getByLabel('Channel name').fill(name);
   await box.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name, level: 1 }).waitFor();
@@ -139,10 +145,12 @@ const rootRow = (author) =>
 // Starts a channel on `team` from the form (backend and permission mode stay the team's).
 async function newTeamChannel(team, name, step) {
   await main.getByRole('button', { name: 'New channel' }).click();
-  const picker = main.getByLabel('Team', { exact: true });
-  await picker.locator('option', { hasText: team }).waitFor({ state: 'attached' });
-  const options = await picker.locator('option').allTextContents();
-  await picker.selectOption(team);
+  const picker = main.getByRole('combobox', { name: 'Team', exact: true });
+  await picker.click();
+  const listbox = page.getByRole('listbox', { name: 'Team', exact: true });
+  await listbox.getByRole('option', { name: team, exact: true }).waitFor();
+  const options = await listbox.getByRole('option').allTextContents();
+  await listbox.getByRole('option', { name: team, exact: true }).click();
   await main.getByLabel('Channel name').fill(name);
   if (step) await shot(step);
   await main.getByRole('button', { name: 'Start' }).click();
@@ -291,23 +299,23 @@ async function pages() {
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
   const fid = page.url().split('/').pop();
-  await main.getByLabel('Stage').selectOption('live-testing');
+  await pick('Stage', 'Live testing', main);
   await main.locator('[aria-current="step"]', { hasText: 'Live testing' }).waitFor();
   await page.reload();
   const bar = await main.locator('[aria-current="step"]').innerText();
-  const stage = await main.getByLabel('Stage').inputValue();
-  check(stage === 'live-testing' && bar === 'Live testing', 'stage survives a reload', `select ${stage}, bar ${bar}, row ${sql(`select stage from feature where id=${fid}`)}`);
+  const stage = (await main.getByRole('combobox', { name: 'Stage' }).innerText()).replace('Stage: ', '');
+  check(stage === 'Live testing' && bar === 'Live testing', 'stage survives a reload', `select ${stage}, bar ${bar}, row ${sql(`select stage from feature where id=${fid}`)}`);
   await page.goto(base + '/tasks');
   const title = `ui task ${Date.now().toString(36)}`;
   await page.getByLabel('Task title').fill(title);
   const pid = sql(`select project_id from feature where id=${fid}`);
-  await page.getByLabel('Task project').selectOption(pid);
-  await page.getByLabel('Task feature').selectOption(fid);
+  await pick('Task project', sql(`select name from project where id=${pid}`));
+  await pick('Task feature', 'Login');
   await page.getByRole('button', { name: 'Add task' }).click();
   const row = main.locator('li', { hasText: title });
   await row.waitFor();
-  await page.getByLabel('Filter by project').selectOption(pid);
-  await page.getByLabel('Filter by feature').selectOption(fid);
+  await pick('Filter by project', sql(`select name from project where id=${pid}`));
+  await pick('Filter by feature', 'Login');
   await row.getByRole('checkbox').click();
   await row.getByRole('checkbox', { checked: true }).waitFor();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
@@ -325,7 +333,7 @@ async function capture() {
   const name = (await section.getAttribute('aria-label')) ?? '';
   const pid = sql(`select id from project where name='${name}'`);
   await page.goto(base + '/capture');
-  await page.getByLabel('Capture project').selectOption({ label: name });
+  await pick('Capture project', name);
   const text = `ui capture ${Date.now().toString(36)}`;
   await page.getByLabel('Capture text').fill(text);
   await page.getByLabel('Capture text').press('Enter');
@@ -340,7 +348,7 @@ async function capture() {
   const name2 = (await section2.getAttribute('aria-label')) ?? '';
   const pid2 = sql(`select id from project where name='${name2}'`);
   await page.goto(base + '/capture');
-  await page.getByLabel('Capture project').selectOption({ label: name2 });
+  await pick('Capture project', name2);
   sql(`delete from project where id=${pid2}`, true);
   await page.getByLabel('Capture text').fill('should fail');
   await page.getByLabel('Capture text').press('Enter');
@@ -597,7 +605,8 @@ async function phone() {
   await page.getByRole('button', { name: 'Close sheet' }).click({ position: { x: 195, y: 40 } });
   await inspector.waitFor({ state: 'hidden' });
 
-  await main.getByRole('link', { name: /^Diff/ }).click();
+  await main.getByRole('button', { name: /^Diff/ }).click();
+  await main.getByRole('link', { name: 'Expand diff' }).click();
   const files = main.getByRole('navigation', { name: 'Files' });
   await files.getByText('auth.go').waitFor({ timeout: 15000 });
   check(!(await tabs.isVisible()), 'the tab bar is hidden on the review page');
@@ -774,9 +783,17 @@ async function diff() {
     await card.innerText(),
   );
   await page.goto(`${base}/channels/${cid}`);
-  await page.getByRole('link', { name: /^Diff \+1/ }).click();
+  await page.getByRole('button', { name: /^Diff \+1/ }).click();
   await main.getByRole('heading', { name: 'Changes', level: 1 }).waitFor();
-  check(page.url().endsWith(`/features/${featureId}/review`), "the channel header's Diff button opens the review page", page.url());
+  await main.getByRole('navigation', { name: 'Files' }).getByText('new.txt').waitFor();
+  await shot('panel');
+  check(page.url().endsWith(`/channels/${cid}`), "the channel header's Diff button opens a side panel in the channel", page.url());
+  await main.getByRole('button', { name: 'Close diff' }).click();
+  await main.getByRole('heading', { name: 'Changes', level: 1 }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: /^Diff \+1/ }).click();
+  await main.getByRole('link', { name: 'Expand diff' }).click();
+  await page.waitForURL(`**/features/${featureId}/review`);
+  check(true, "the panel's expand button opens the full review page", page.url());
 }
 
 async function memory() {
@@ -1223,8 +1240,7 @@ async function dragCard(card, target) {
   await page.evaluate(
     ([c, t]) => {
       const data = new DataTransfer();
-      c.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
-      t.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data }));
+      c.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));      t.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data }));
       t.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: data }));
     },
     [cardEl, targetEl],
@@ -1245,15 +1261,15 @@ async function board() {
   await page.goto(base + '/tasks');
   const title = `board task ${Date.now().toString(36)}`;
   await page.getByLabel('Task title').fill(title);
-  await page.getByLabel('Task project').selectOption(pid);
-  await page.getByLabel('Task feature').selectOption(fid);
+  await pick('Task project', sql(`select name from project where id=${pid}`));
+  await pick('Task feature', 'Board feature');
   await page.getByRole('button', { name: 'Add task' }).click();
   await page.getByText(title).waitFor();
 
   const otherTitle = `board other ${Date.now().toString(36)}`;
   await page.getByLabel('Task title').fill(otherTitle);
-  await page.getByLabel('Task project').selectOption(otherPid);
-  await page.getByLabel('Task feature').selectOption(otherFid);
+  await pick('Task project', sql(`select name from project where id=${otherPid}`));
+  await pick('Task feature', 'Other feature');
   await page.getByRole('button', { name: 'Add task' }).click();
   await page.getByText(otherTitle).waitFor();
 
@@ -1273,14 +1289,15 @@ async function board() {
     page.url().replace(base, ''),
   );
 
-  await page.getByLabel('Filter by project').selectOption(pid);
+  await pick('Filter by project', sql(`select name from project where id=${pid}`));
   await todo.getByText(otherTitle).waitFor({ state: 'hidden' });
   check(
     (await todo.getByText(title).count()) === 1 && (await todo.getByText(otherTitle).count()) === 0,
     'the project filter also filters the board',
     page.url().replace(base, ''),
   );
-  await page.getByLabel('Filter by feature').selectOption(fid);
+  await pick('Filter by feature', 'Board feature');
+  await page.waitForLoadState('networkidle');
   await todo.getByText(title).waitFor();
   check((await todo.getByText(title).count()) === 1, 'the feature filter also filters the board', page.url().replace(base, ''));
 
@@ -1294,12 +1311,12 @@ async function board() {
     sql(`select id,status from task where title='${title}'`),
   );
   await page.reload();
-  await page.getByLabel('Filter by project').selectOption(pid);
-  await page.getByLabel('Filter by feature').selectOption(fid);
+  await pick('Filter by project', sql(`select name from project where id=${pid}`));
+  await pick('Filter by feature', 'Board feature');
   await doing.getByText(title).waitFor();
   check((await doing.getByText(title).count()) === 1, 'a reload keeps the card in Doing', page.url().replace(base, ''));
 
-  await doing.getByLabel(`Move ${title}`).selectOption('done');
+  await pick(`Move ${title}`, 'Done', doing);
   await done.getByText(title).waitFor();
   await shot('moved-with-select');
   check(

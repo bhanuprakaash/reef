@@ -63,7 +63,8 @@ logged in and on `PATH`.
   bottom tab bar (Today, Channels, Needs you, Tasks, Teams) and a channel opens full screen.
 - Today (`/`): what waits on you, the project's features and recent done tasks, and capture.
 - Channel: bubbles with each author's creature, replies folded under their thread root with a
-  count, and a side panel for the team, a thread or the inspector. The running turn names its
+  count, and a side panel for the team, a thread, the inspector or the diff (its expand button opens
+  the review page). The running turn names its
   teammate. A wake held at a gate shows Approve and Reject; a pause from the hop cap shows in
   the cap banner. A channel with rollbackable turns (`GET /turns?channel=ID&rollbackable=1`)
   lists Checkpoints; Roll back on a row asks to confirm, then does `POST /turns/{id}/rollback`.
@@ -78,7 +79,8 @@ logged in and on `PATH`.
   since the page loaded.
 - Teams (`/teams`): lists teams and edits one's roles, faces and gates, saving with
   `PUT /teams/{name}`; "Copy as new team" applies the same roles, gates and MCP servers
-  under a new name with `?from=`, rejected if that name is taken.
+  under a new name with `?from=`, rejected if that name is taken. "New team" asks for a name
+  and a team to start from and sends the same `?from=` request.
 - Settings (`/settings`): theme (dark, light or Match macOS, kept in `localStorage`) and
   notifications.
 

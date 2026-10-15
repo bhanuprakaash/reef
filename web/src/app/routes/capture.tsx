@@ -5,6 +5,7 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 import { Button } from '@/components/button';
 import { Logo } from '@/components/logo';
 import { SegmentedControl } from '@/components/segmented-control';
+import { Select } from '@/components/select';
 
 type Kind = 'idea' | 'todo' | 'bug';
 const KINDS: { value: Kind; label: string }[] = [
@@ -64,30 +65,21 @@ export function CapturePage() {
       </div>
       <div className="flex flex-wrap items-center gap-2">
         <SegmentedControl label="Capture kind" options={KINDS} value={kind} onChange={setKind} />
-        <div className="relative">
-          <select
-            className="h-[34px] appearance-none rounded-pill border border-line bg-transparent pr-7 pl-3 text-[13px] text-soft"
-            aria-label="Capture project"
-            value={project?.id ?? ''}
-            onChange={(e) => {
-              const picked = projects.data?.find((p) => String(p.id) === e.target.value);
-              if (picked) pickProject(picked);
-            }}
-            required
-          >
-            <option value="">Project</option>
-            {projects.data?.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-soft">
-            ▾
-          </span>
-        </div>
+        <Select
+          variant="pill"
+          aria-label="Capture project"
+          value={project ? String(project.id) : ''}
+          onChange={(id) => {
+            const picked = projects.data?.find((p) => String(p.id) === id);
+            if (picked) pickProject(picked);
+          }}
+          options={[
+            { value: '', label: 'Project', disabled: true },
+            ...(projects.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
+          ]}
+        />
         <span className="ml-auto text-xs text-muted">↵ save · esc close</span>
-        <Button type="submit" variant="primary" loading={create.isPending}>
+        <Button type="submit" variant="primary" disabled={!project} loading={create.isPending}>
           Capture
         </Button>
       </div>

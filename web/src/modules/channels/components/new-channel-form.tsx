@@ -69,18 +69,15 @@ export function NewChannelForm({ projectId, featureId, onClose }: Props) {
           className="w-full"
           aria-label="Backend"
           value={backend}
-          onChange={(e) => {
-            setBackend(e.target.value);
+          onChange={(v) => {
+            setBackend(v);
             setPermissionMode('');
           }}
-        >
-          <option value="">Team default</option>
-          {BACKENDS.map((b) => (
-            <option key={b} value={b}>
-              {b}
-            </option>
-          ))}
-        </Select>
+          options={[
+            { value: '', label: 'Team default' },
+            ...BACKENDS.map((b) => ({ value: b, label: b })),
+          ]}
+        />
       </label>
       {backend && (
         <label className="block space-y-1">
@@ -89,15 +86,12 @@ export function NewChannelForm({ projectId, featureId, onClose }: Props) {
             className="w-full"
             aria-label="Permission mode"
             value={permissionMode}
-            onChange={(e) => setPermissionMode(e.target.value)}
-          >
-            <option value="">Backend default</option>
-            {PERMISSION_MODES[backend].map((m) => (
-              <option key={m} value={m}>
-                {m}
-              </option>
-            ))}
-          </Select>
+            onChange={setPermissionMode}
+            options={[
+              { value: '', label: 'Backend default' },
+              ...PERMISSION_MODES[backend].map((m) => ({ value: m, label: m })),
+            ]}
+          />
         </label>
       )}
       <label className="block space-y-1">
@@ -112,14 +106,12 @@ export function NewChannelForm({ projectId, featureId, onClose }: Props) {
             className="w-full"
             aria-label="Team"
             value={team}
-            onChange={(e) => setTeam(e.target.value)}
-          >
-            {(teams.data ?? [{ name: 'solo' }]).map((t) => (
-              <option key={t.name} value={t.name}>
-                {t.name}
-              </option>
-            ))}
-          </Select>
+            onChange={setTeam}
+            options={(teams.data ?? [{ name: 'solo' }]).map((t) => ({
+              value: t.name,
+              label: t.name,
+            }))}
+          />
         </div>
       </label>
       <TextField

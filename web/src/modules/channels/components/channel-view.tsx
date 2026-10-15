@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
 import { Dialog } from '@/components/dialog';
 import { useApprovals } from '@/modules/channels/api/get-approvals';
 import { useFailedTurns } from '@/modules/channels/api/get-failed-turns';
@@ -32,6 +32,7 @@ type Props = {
   scope: string;
   features: Feature[];
   diff?: { added: number; removed: number };
+  diffPanel?: (onClose: () => void) => ReactNode;
   brief?: string;
   onTerminal?: () => void;
   browserOpen?: boolean;
@@ -39,13 +40,14 @@ type Props = {
   onBrowserDriver?: (driver: { role: string; face?: string; action: string } | null) => void;
 };
 
-type Side = { kind: 'thread'; rootId: number } | { kind: 'inspector' } | null;
+type Side = { kind: 'thread'; rootId: number } | { kind: 'inspector' } | { kind: 'diff' } | null;
 
 export function ChannelView({
   channel,
   scope,
   features,
   diff,
+  diffPanel,
   brief,
   onTerminal,
   browserOpen,
@@ -90,7 +92,9 @@ export function ChannelView({
     setSide(next);
     setTeamOpen(false);
   };
-  const showTeam = !thread && side?.kind !== 'inspector';
+  const wide = side?.kind === 'diff';
+  const fullSheet = thread !== undefined || wide;
+  const showTeam = !thread && side?.kind !== 'inspector' && !wide;
   const wrapDisabled = running || wrap.isPending || blocksUser(channel.paused);
 
   return (
@@ -102,6 +106,8 @@ export function ChannelView({
         faces={faces}
         pullRequest={latestPullRequest(messages.data ?? [])}
         diff={diff}
+        onDiff={diffPanel ? () => openSide(wide ? null : { kind: 'diff' }) : undefined}
+        diffOpen={wide}
         wrapDisabled={wrapDisabled}
         onWrap={() => wrap.mutate()}
         promoteDisabled={running}
@@ -172,7 +178,7 @@ export function ChannelView({
             </div>
           </div>
         </section>
-        {!thread && (side || teamOpen) && (
+        {!fullSheet && (side || teamOpen) && (
           <button
             type="button"
             aria-label="Close sheet"
@@ -184,9 +190,9 @@ export function ChannelView({
           />
         )}
         <div
-          className={`shrink-0 overflow-y-auto md:w-[400px] md:border-l md:border-hairline ${browserOpen ? 'md:max-[1539px]:absolute md:max-[1539px]:inset-y-0 md:max-[1539px]:right-0 md:max-[1539px]:z-20 md:max-[1539px]:bg-main' : 'md:max-[1099px]:absolute md:max-[1099px]:inset-y-0 md:max-[1099px]:right-0 md:max-[1099px]:z-20 md:max-[1099px]:bg-main'} ${thread ? 'flex flex-col max-md:fixed max-md:inset-0 max-md:z-30 max-md:bg-main' : 'p-4 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-20 max-md:max-h-[85dvh] max-md:rounded-t-[28px] max-md:bg-field max-md:pb-8'} ${showTeam && !teamOpen ? (browserOpen ? 'hidden min-[1540px]:block' : 'hidden min-[1100px]:block') : ''}`}
+          className={`shrink-0 overflow-y-auto ${wide ? 'md:w-[min(840px,65%)]' : 'md:w-[400px]'} md:border-l md:border-hairline ${browserOpen ? 'md:max-[1539px]:absolute md:max-[1539px]:inset-y-0 md:max-[1539px]:right-0 md:max-[1539px]:z-20 md:max-[1539px]:bg-main' : 'md:max-[1099px]:absolute md:max-[1099px]:inset-y-0 md:max-[1099px]:right-0 md:max-[1099px]:z-20 md:max-[1099px]:bg-main'} ${fullSheet ? 'flex flex-col max-md:fixed max-md:inset-0 max-md:z-30 max-md:bg-main' : 'p-4 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-20 max-md:max-h-[85dvh] max-md:rounded-t-[28px] max-md:bg-field max-md:pb-8'} ${showTeam && !teamOpen ? (browserOpen ? 'hidden min-[1540px]:block' : 'hidden min-[1100px]:block') : ''}`}
         >
-          {!thread && (
+          {!fullSheet && (
             <div className="mx-auto mb-4 h-[5px] w-[38px] rounded-pill bg-raised md:hidden" />
           )}
           {thread && (
@@ -204,6 +210,7 @@ export function ChannelView({
               onClose={closeSide}
             />
           )}
+          {wide && diffPanel?.(closeSide)}
           {side?.kind === 'inspector' && (
             <InspectorPanel channelId={channel.id} faces={faces} onClose={closeSide} />
           )}

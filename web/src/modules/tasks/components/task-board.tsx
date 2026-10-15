@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { DragEvent } from 'react';
 import { useUpdateTask } from '@/modules/tasks/api/update-task';
 import type { Feature, Task, TaskStatus } from '@/types/api';
+import { Select } from '@/components/select';
 
 const COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: 'todo', label: 'Todo' },
@@ -64,20 +65,14 @@ export function TaskBoard({ tasks, features }: Props) {
                           {feature.name}
                         </span>
                       )}
-                      <select
+                      <Select
+                        variant="bare"
+                        className="ml-auto"
                         aria-label={`Move ${task.title}`}
                         value={task.status}
-                        onChange={(e) =>
-                          update.mutate({ task, status: e.target.value as TaskStatus })
-                        }
-                        className="ml-auto h-11 rounded-field md:h-6 bg-transparent px-1 text-xs text-muted outline-none focus-visible:ring-3 focus-visible:ring-ring"
-                      >
-                        {COLUMNS.map((c) => (
-                          <option key={c.status} value={c.status}>
-                            {c.label}
-                          </option>
-                        ))}
-                      </select>
+                        onChange={(v) => update.mutate({ task, status: v as TaskStatus })}
+                        options={COLUMNS.map((c) => ({ value: c.status, label: c.label }))}
+                      />
                     </div>
                   </article>
                 );

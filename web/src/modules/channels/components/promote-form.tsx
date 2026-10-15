@@ -90,17 +90,14 @@ export function PromoteForm({
         <Field label="Feature">
           <Select
             className="w-full"
-            required
+            aria-label="Feature"
             value={featureId}
-            onChange={(e) => setFeatureId(e.target.value)}
-          >
-            <option value="">Pick a feature</option>
-            {choices.map((f) => (
-              <option key={f.id} value={f.id}>
-                {f.name}
-              </option>
-            ))}
-          </Select>
+            onChange={setFeatureId}
+            options={[
+              { value: '', label: 'Pick a feature', disabled: true },
+              ...choices.map((f) => ({ value: String(f.id), label: f.name })),
+            ]}
+          />
         </Field>
       ) : (
         <div className="grid grid-cols-2 gap-2">
@@ -137,7 +134,12 @@ export function PromoteForm({
         <Button type="button" onClick={onClose}>
           Cancel
         </Button>
-        <Button variant="primary" type="submit" loading={promote.isPending}>
+        <Button
+          variant="primary"
+          type="submit"
+          disabled={existing && featureId === ''}
+          loading={promote.isPending}
+        >
           Promote
         </Button>
       </div>

@@ -13,6 +13,8 @@ type Props = {
   faces: Record<string, string | undefined>;
   pullRequest: PullRequest | null;
   diff?: { added: number; removed: number };
+  onDiff?: () => void;
+  diffOpen?: boolean;
   wrapDisabled: boolean;
   onWrap: () => void;
   promoteDisabled: boolean;
@@ -34,6 +36,8 @@ export function ChannelHeader({
   faces,
   pullRequest,
   diff,
+  onDiff,
+  diffOpen,
   wrapDisabled,
   onWrap,
   promoteDisabled,
@@ -132,11 +136,13 @@ export function ChannelHeader({
             </svg>
           </button>
         )}
-        {diff && channel.featureId !== null && (
-          <Link
-            to={`/features/${channel.featureId}/review`}
+        {diff && onDiff && (
+          <button
+            type="button"
+            onClick={onDiff}
+            aria-pressed={diffOpen}
             aria-label={`Diff +${diff.added} -${diff.removed}`}
-            className="flex h-11 items-center gap-1.5 rounded-field px-2.5 text-[13px] text-soft hover:bg-card md:h-9"
+            className="flex h-11 items-center gap-1.5 rounded-field px-2.5 text-[13px] text-soft hover:bg-card aria-pressed:bg-bubble aria-pressed:text-fg md:h-9"
           >
             <svg
               width="18"
@@ -153,7 +159,7 @@ export function ChannelHeader({
             </svg>
             <span className="text-done max-md:hidden">+{diff.added}</span>
             <span className="text-failed max-md:hidden">−{diff.removed}</span>
-          </Link>
+          </button>
         )}
         <Button
           variant="ghost"
