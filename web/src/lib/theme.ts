@@ -1,6 +1,6 @@
 export type Theme = 'dark' | 'light' | 'system';
 
-export const THEME_KEY = 'reef.theme';
+const THEME_KEY = 'reef.theme';
 
 export function getTheme(): Theme {
   try {
