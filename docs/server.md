@@ -57,9 +57,12 @@ Then open `http://127.0.0.1:7700`. Build the web app before `go build`, because 
 embeds `web/dist` as it was at build time. A channel's agent is the `claude` or `codex` CLI,
 logged in and on `PATH`.
 
-- Sidebar: the project switcher, then Today, Needs you and one row per channel of the project
-  (teammate creatures, name, a preview of the newest message from `lastMessage`, its time),
-  with Tasks, Board, Teams and Settings links at the foot. Below 768 px the sidebar is a
+- Sidebar: a top row with the brand and a New channel button, search, the project switcher,
+  then Today, Needs you and a Features section: its header has a button to add a feature, and
+  each feature is a group with its stage chip, collapsible, over one row per channel
+  (teammate creatures, name, a preview of the newest message from `lastMessage`, its time);
+  quick sessions are listed after the features. The list scrolls; the foot is fixed and shows your name beside the Tasks, Teams and
+  Settings links. Below 768 px the sidebar is a
   bottom tab bar (Today, Channels, Needs you, Tasks, Teams) and a channel opens full screen.
 - Today (`/`): what waits on you, the project's features and recent done tasks, and capture.
 - Channel: bubbles with each author's creature, replies folded under their thread root with a
@@ -84,9 +87,9 @@ logged in and on `PATH`.
   rejected if that name is taken. "New team" asks for a name and a team to start from and
   sends the same `?from=` request. The hop, turn and token caps are not team fields, so the
   page has no Caps section.
-- Settings (`/settings`): your name, role and working preferences (chips), theme (dark, light or Match macOS, kept in `localStorage`)
+- Settings (`/settings`): your name, occupation and working preferences (chips), theme (dark, light or Match macOS, kept in `localStorage`)
   and notifications.
-- First run: one page with two steps. Your name with an optional role and working preferences (saved with `PUT /profile`), then the first
+- First run: one page with two steps. Your name with an optional occupation and working preferences (saved with `PUT /profile`), then the first
   project. A name with no project starts at the project step; a project with no name asks only
   for the name.
 
@@ -150,11 +153,11 @@ in the sidebar.
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `name` | string | required; trimmed |
-| `role` | string | default `""`; trimmed. The window offers Developer, Designer, Product, Founder, Student and Other |
+| `occupation` | string | default `""`; trimmed. The window offers Developer, Designer, Product manager, Founder, Student and Other |
 | `style` | string array | default `[]`; trimmed, empty entries dropped, kept as one newline-joined column. The window offers six working preferences |
 | `updatedAt` | string | |
 
-The server stores `role` and `style` as given; the window owns the option lists. The context prompt names the person and, when set, the role (except `Other`) and style (see [memory.md](memory.md#the-context-prompt)).
+The server stores `occupation` and `style` as given, but a line break in `name`, `occupation` or a style entry is 400 (the context prompt is built from them); the window owns the option lists. The context prompt names the person and, when set, the occupation (except `Other`) and style (see [memory.md](memory.md#the-context-prompt)).
 
 ### project_memory
 
@@ -421,7 +424,7 @@ tool calls.
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200 | 404 |
 | `GET /profile` | | 200 | 404 no name set yet |
-| `PUT /profile` | `name`, `role`, `style`; replaces the old profile | 200 | 400 empty name |
+| `PUT /profile` | `name`, `occupation`, `style`; replaces the old profile | 200 | 400 empty name or a line break in a field |
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |
@@ -433,6 +436,7 @@ tool calls.
 | `GET /features/{id}/notes/{role}` | | 200 | 404 no feature, or no notes for the role |
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
+| `GET /features/{id}/worktree` | | 200 `{"path": "..."}`; the path of the feature's worktree, or `""` when it has none yet. Never makes one | 404 |
 | `POST /features/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the feature's worktree the same way the first wake of one of its channels would, reusing it when it already exists | 404 |
 | `GET /features/{id}/diff` | | 200 the worktree's changes against the commit its branch and the project's HEAD last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |

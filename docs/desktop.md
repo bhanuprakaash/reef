@@ -58,7 +58,7 @@ shared by every channel. It sits to the right of the main area with Back, Forwar
 buttons and an address bar; a preload script reports the pane's size to the main process so the
 native view stays lined up with it. The Browser toggle at the window's top right (every page)
 shows or hides the pane, as does the pane's own close button; the choice is remembered and the
-pane starts closed. A hidden pane reports a zero size, which hides the view. Back, Forward and
+pane starts closed, and opens by itself while an agent drives it (the stored choice does not change). A hidden pane reports a zero size, which hides the view. Back, Forward and
 Reload go over IPC (`browser:back`, `browser:forward`, `browser:reload`) to the view's navigation
 history; every navigation sends the renderer the URL and whether Back and Forward have anywhere
 to go, and the buttons are disabled when they do not.
@@ -111,14 +111,16 @@ take-over back off, so the button and the main process agree.
 ## Terminal pane
 
 One shell per working tree ([`desktop/terminal.js`](../desktop/terminal.js)): a feature's
-worktree, or a project checkout for a quick session. A quick session's pane shows on its channel
-page right away, in the project path. A feature's worktree is not made just by viewing the
-feature page: turning the Terminal toggle on calls `POST /features/{id}/worktree` (making the
-worktree the same way a first wake would, or reusing it), then shows the pane in the returned
-path; a failed call shows its error under the header. It asks again each time the toggle goes on
-or the page opens with it on.
+worktree, or a project checkout for a quick session. Neither the toggle nor viewing a page ever
+makes a worktree. With the toggle on, a feature page or feature channel reads
+`GET /features/{id}/worktree`: when the feature has one, the pane opens the shell there; when it
+has none, the pane shows "No worktree yet" and an Open terminal button, and only that button
+calls `POST /features/{id}/worktree` (making the worktree the same way a first wake would), then
+opens the shell in the returned path; a failed call shows its error in the pane. A quick session
+opens in the project path. The pane is keyed by feature, so moving to another feature never keeps
+the previous one's shell.
 The Terminal toggle sits next to the Browser toggle at the window's top right, only on a channel or
-feature page (a page with a folder); one on/off choice for the window, remembered. On a channel
+feature page (a page with a folder); one on/off choice for the window (default off, quick sessions included), remembered. On a channel
 page the terminal is a drawer under the messages, on a feature page a panel pinned to the bottom,
 with a header (folder, Clear, hide); the toggle or the hide button turns it off.
 The pane renders nothing in a plain browser. `node-pty` spawns the login shell with the `PATH`
@@ -144,7 +146,7 @@ over IPC, so capture also works where the global shortcut does not reach, and in
 browser (no `window.reef`) the button just navigates to `/capture`. The capture window has a
 project picker (the project chosen last time, kept in `localStorage`, is the default), a kind
 (idea, todo, bug) and a text box. Enter creates a task with no feature, titled `<kind>: <text>`,
-through `POST /tasks`, and closes the window; Escape closes it without creating a task. The
+through `POST /tasks`, and closes the window; Escape closes it without creating a task. The window also hides when it loses focus, so its transparent room never blocks the app below. It is placed on the main window that opened it, by its own width. The
 shortcut is unregistered when the app quits. The window is frameless and transparent: the
 rounded translucent panel on `/capture` is the window (the OS draws its shadow), and you drag it
 by the panel. It is 400px tall, about 150px of panel and transparent room below for the project
