@@ -1084,8 +1084,8 @@ async function inbox() {
   await shot('approval-row');
   const rowText = (await row.textContent()) ?? '';
   check(
-    /Approval/.test(rowText) && /#inbox room/.test(rowText) && (await row.getByRole('button', { name: 'Approve' }).count()) === 1 && (await row.getByRole('button', { name: 'Reject' }).count()) === 1,
-    'a new approval of a channel that is not open shows in the inbox with Approve and Reject',
+    /Approval/.test(rowText) && /#inbox room/.test(rowText) && (await row.getByRole('button', { name: 'Approve' }).count()) === 1 && (await row.getByRole('button', { name: 'Reject' }).count()) === 1 && (await row.getByRole('button', { name: 'Dismiss' }).count()) === 0,
+    'a new approval of a channel that is not open shows in the inbox with Approve and Reject, and no Dismiss',
     rowText,
   );
   const badge = await aside.getByLabel(/waiting$/).textContent();
@@ -1151,6 +1151,27 @@ async function inbox() {
   await page.waitForTimeout(3000);
   const afterReload = await notes();
   check(afterReload.length === 0, 'items present at load fire no notification', JSON.stringify(afterReload));
+
+  const dismissed = (await getJson('/inbox')).find((i) => i.kind === 'waiting' && String(i.channelId) === String(cid));
+  await shot('before-dismiss');
+  await waiting.getByRole('button', { name: 'Dismiss' }).click();
+  await waiting.waitFor({ state: 'hidden', timeout: 30000 });
+  await shot('dismissed');
+  check(
+    !(await getJson('/inbox')).some((i) => i.kind === 'waiting' && String(i.channelId) === String(cid)) &&
+      sql(`select dismissed_message_id from channel where id=${cid}`) === String(dismissed.messageId),
+    'Dismiss on a waiting item removes it and stores the message it was pressed on',
+    sql(`select dismissed_message_id from channel where id=${cid}`),
+  );
+  await page.reload();
+  await page.getByRole('heading', { name: 'Needs you', level: 1 }).waitFor();
+  await page.waitForTimeout(1000);
+  check((await waiting.count()) === 0, 'the dismissed item stays gone after a reload');
+  await sendApi(cid, 'Say ok in one word. Use no tools.');
+  await waitWaiting(cid, dismissed.at);
+  await waiting.waitFor({ timeout: 30000 });
+  await shot('back-after-new-message');
+  check(true, 'a new agent message brings the dismissed item back');
 }
 
 async function wrap() {

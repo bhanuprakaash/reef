@@ -221,6 +221,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 60 | A feature's worktree branches from the repo's default branch (the local branch `origin/HEAD` names, else `main`, else `master`, else HEAD), not from the checkout's HEAD; the feature diff is against the same ref. Replaces the HEAD part of 33 | A feature must not inherit the commits of whatever unrelated branch the checkout is on |
 | 61 | Approving a wrap-up closes the channel: the server refuses its turns with 409 until the user reopens it, and the sidebar folds it under Wrapped | Decision 16 ends a channel with wrap-up, but nothing stopped a message after it; "record and close" recorded the decisions twice |
 | 62 | A feature can be closed: closing it closes all its channels (409 while a turn runs) and moves it under Closed in the sidebar; reopening restores the feature only, each channel is reopened by hand. Stage stays a label (decision 2) | A finished feature should leave the working list without being deleted, and its channels must stop taking turns with it |
+| 63 | The user can dismiss a `waiting` item in Needs you; an approval, a pause and a failed turn have no dismiss | Waiting asks for no action and can pile up; the others block work until the user acts. Dismiss hides only the message it was pressed on, so a new agent message brings the item back |
 
 ## Open questions
 
