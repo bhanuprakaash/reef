@@ -109,7 +109,7 @@ function openCaptureWindow() {
     return;
   }
   captureWindow = new BrowserWindow({
-    width: 480,
+    width: 600,
     height: 200,
     alwaysOnTop: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },

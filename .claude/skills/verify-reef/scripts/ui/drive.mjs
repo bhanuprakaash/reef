@@ -322,8 +322,8 @@ async function capture() {
   await page.getByText('Captured').waitFor({ timeout: 15000 });
   await shot('captured');
   check((await page.getByLabel('Capture text').inputValue()) === '', 'the text box is empty after capture');
-  const row = sql(`select title from task where project_id=${pid} and title='idea: ${text}'`);
-  check(row === `idea: ${text}`, 'the captured text is stored as a task row', row);
+  const row = sql(`select title from task where project_id=${pid} and title='todo: ${text}'`);
+  check(row === `todo: ${text}`, 'the captured text is stored as a task row', row);
 
   // A failing request shows its error: the picked project is deleted before Enter.
   const section2 = await addProject();
