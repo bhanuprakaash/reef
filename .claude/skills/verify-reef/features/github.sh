@@ -200,6 +200,51 @@ echo "$wake3" | grep -qF 'want 5 got 6' || busy_ok=0
 check wake-retries-after-busy "$busy_ok" \
 	"turns while paused=$turns_while_paused, busy cause logged before=$log_before after=$log_after, turn=$turn3 wake_text: $(echo "$wake3" | tr '\n' '|')"
 
+### Hop cap: the wake is attributed to an author other than the user, so it counts as a hop
+### like any agent-originated wake. A run of distinct failed checks, one new run per poll,
+### wakes the developer up to store.HopCap times; the next one is still noted, but pauses the
+### channel at the cap instead of waking the developer again.
+
+api_call POST /features '{"projectId":1,"slug":"hopcap-demo","name":"Hopcap Demo"}'
+api_call POST /features/5/worktree ""
+api_call POST /channels '{"projectId":1,"featureId":5,"name":"hops","team":"full"}'
+
+hop_ok=1
+for n in $(seq 1 6); do
+	printf 'FAIL TestHop%s\nwant %s got 0\n' "$n" "$n" >"$GH/log.txt"
+	echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","statusCheckRollup":[' \
+		'{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE",' \
+		'"detailsUrl":"https://github.com/x/y/actions/runs/'"$((100 + n))"'/job/1"}]}' | tr -d '\n' >"$GH/resp.json"
+	ok=0
+	for i in $(seq 30); do
+		t=$("$H" sql "select count(*) from turn where channel_id = 5 and role = 'developer'" | tail -1)
+		[ "$t" = "$n" ] && { ok=1; break; }
+		sleep 1
+	done
+	[ "$ok" = 1 ] || hop_ok=0
+done
+dev_turns_hop=$("$H" sql "select count(*) from turn where channel_id = 5 and role = 'developer'" | tail -1)
+[ "$dev_turns_hop" = 6 ] || hop_ok=0
+
+notes_before_cap=$(msg_count 5)
+printf 'FAIL TestHop7\nwant 7 got 0\n' >"$GH/log.txt"
+echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","statusCheckRollup":[' \
+	'{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE",' \
+	'"detailsUrl":"https://github.com/x/y/actions/runs/107/job/1"}]}' | tr -d '\n' >"$GH/resp.json"
+hop_note_wait=1
+for i in $(seq 30); do
+	[ "$(msg_count 5)" -gt "$notes_before_cap" ] 2>/dev/null && { hop_note_wait=0; break; }
+	sleep 1
+done
+sleep 2
+dev_turns_after_cap=$("$H" sql "select count(*) from turn where channel_id = 5 and role = 'developer'" | tail -1)
+paused5=$("$H" sql "select paused from channel where id = 5" | tail -1)
+[ "$hop_note_wait" = 0 ] || hop_ok=0
+[ "$dev_turns_after_cap" = 6 ] || hop_ok=0
+case "$paused5" in "hop cap:"*) ;; *) hop_ok=0 ;; esac
+check hop-cap "$hop_ok" \
+	"developer turns=$dev_turns_hop after 6 failed checks, still $dev_turns_after_cap after a 7th, channel 5 paused=$paused5"
+
 "$H" serve-stop
 
 ### No gh on PATH: the server runs, posts nothing, and logs the cause once
