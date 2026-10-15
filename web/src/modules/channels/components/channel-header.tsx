@@ -10,6 +10,7 @@ type Props = {
   channel: Channel;
   scope: string;
   roles: string[];
+  faces: Record<string, string | undefined>;
   pullRequest: PullRequest | null;
   diff?: { added: number; removed: number };
   wrapDisabled: boolean;
@@ -25,6 +26,7 @@ export function ChannelHeader({
   channel,
   scope,
   roles,
+  faces,
   pullRequest,
   diff,
   wrapDisabled,
@@ -35,7 +37,7 @@ export function ChannelHeader({
 }: Props) {
   return (
     <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-[22px] pr-4">
-      <GroupAvatar roles={roles} size={26} />
+      <GroupAvatar roles={roles} faces={faces} size={26} />
       <h1 className="text-base font-normal">
         <span aria-hidden="true">#</span> {channel.name}
       </h1>

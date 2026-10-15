@@ -3,13 +3,20 @@ import { Bubble } from '@/modules/channels/components/bubble';
 import { ToolRow } from '@/modules/channels/components/tool-row';
 import type { LiveTurn as LiveTurnState } from '@/modules/channels/utils/fold-events';
 
-export function LiveTurn({ turn, role }: { turn: LiveTurnState; role: string }) {
+type Props = { turn: LiveTurnState; role: string; face?: string };
+
+export function LiveTurn({ turn, role, face }: Props) {
   if (turn.status === 'idle') return null;
 
   return (
     <div className="flex flex-col items-start gap-2.5">
       <div className="mt-2.5 flex items-center gap-2 text-[13px] capitalize text-muted">
-        <Creature role={role} size={20} state={turn.status === 'running' ? 'working' : 'failed'} />
+        <Creature
+          role={role}
+          face={face}
+          size={20}
+          state={turn.status === 'running' ? 'working' : 'failed'}
+        />
         <span>
           {role} {turn.status === 'running' && <span className="normal-case">is working...</span>}
         </span>

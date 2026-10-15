@@ -837,7 +837,7 @@ async function teams() {
   await pane.locator('li').nth(2).waitFor({ timeout: 240000 });
   await idle();
   await shot('thread-answered');
-  const authors = await pane.locator('li > div').allTextContents();
+  const authors = await pane.locator('li').evaluateAll((items) => items.map((li) => li.querySelector('span.capitalize')?.textContent ?? 'user'));
   check(authors.join(',') === 'architect,user,architect', 'the Thread pane shows the root, the user reply and the architect answer', authors.join(','));
   const inThread = (await getJson(`/messages?channel=${cid}`)).filter((m) => m.parentId === root.id).map((m) => m.author);
   check(inThread.join(',') === 'user,architect', 'both replies are stored under the root', inThread.join(','));
@@ -1053,6 +1053,10 @@ async function workshop() {
   await send('@developer Say ok in one word.');
   await workingAs('developer');
   await idle();
+  await shot('channel-otter');
+  const otters = await main.locator('svg [fill="#C08A5B"]').count();
+  const penguins = await main.locator('svg [fill="#3FBFA0"]').count();
+  check(otters > 0 && penguins === 0, "the channel shows the otter picked for the developer, not the penguin", `otter shapes ${otters}, penguin shapes ${penguins}`);
   const prompt = sql(`select prompt from turn where channel_id = ${cid} and role = 'developer' order by id limit 1`);
   check(prompt.includes(marker), "the next developer wake's prompt carries the new persona", prompt.slice(0, 200));
 }

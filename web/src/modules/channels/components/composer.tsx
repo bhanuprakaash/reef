@@ -13,6 +13,7 @@ type Props = {
   parent?: number;
   reason?: string;
   roles?: string[];
+  faces?: Record<string, string | undefined>;
   working?: string;
 };
 
@@ -28,7 +29,16 @@ const icon = {
   'aria-hidden': true,
 } as const;
 
-export function Composer({ channelId, running, paused, parent, reason, roles, working }: Props) {
+export function Composer({
+  channelId,
+  running,
+  paused,
+  parent,
+  reason,
+  roles,
+  faces,
+  working,
+}: Props) {
   const [text, setText] = useState('');
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
@@ -73,9 +83,11 @@ export function Composer({ channelId, running, paused, parent, reason, roles, wo
       : 'Paused'
     : running
       ? `${working ? working[0].toUpperCase() + working.slice(1) : 'Agent'} is working…`
-      : roles
-        ? 'Message the team, @ to mention'
-        : 'Message';
+      : parent !== undefined
+        ? 'Reply in thread'
+        : roles
+          ? 'Message the team, @ to mention'
+          : 'Message';
 
   return (
     <form
@@ -104,7 +116,7 @@ export function Composer({ channelId, running, paused, parent, reason, roles, wo
                 pick(name);
               }}
             >
-              <Creature role={name} size={22} state={state(name)} />
+              <Creature role={name} face={faces?.[name]} size={22} state={state(name)} />
               {name}
               <span className="ml-auto text-xs text-muted">{state(name).replace('-', ' ')}</span>
             </div>

@@ -50,6 +50,7 @@ export function ChannelView({ channel, scope, features, diff, brief, onTerminal 
     side?.kind === 'thread' ? threads.find((t) => t.root.id === side.rootId) : undefined;
   const teams = useTeams();
   const roles = teams.data?.find((t) => t.name === channel.team)?.roles ?? [];
+  const faces = Object.fromEntries(roles.map((r) => [r.name, r.face]));
   const working = turn.role || channel.role || 'agent';
 
   useEffect(() => {
@@ -69,6 +70,7 @@ export function ChannelView({ channel, scope, features, diff, brief, onTerminal 
         channel={channel}
         scope={scope}
         roles={roles.length > 0 ? roles.map((r) => r.name) : [channel.role]}
+        faces={faces}
         pullRequest={latestPullRequest(messages.data ?? [])}
         diff={diff}
         wrapDisabled={running || wrap.isPending || blocksUser(channel.paused)}
@@ -95,10 +97,12 @@ export function ChannelView({ channel, scope, features, diff, brief, onTerminal 
             {messages.data && (
               <MessageList
                 threads={threads}
+                faces={faces}
+                openId={thread?.root.id}
                 onOpen={(rootId) => setSide({ kind: 'thread', rootId })}
               />
             )}
-            <LiveTurn turn={turn} role={working} />
+            <LiveTurn turn={turn} role={working} face={faces[working]} />
             {turn.note && <p className="text-sm text-muted">{turn.note}</p>}
             <FailedTurnRows
               channelId={channel.id}
@@ -115,6 +119,7 @@ export function ChannelView({ channel, scope, features, diff, brief, onTerminal 
                 paused={blocksUser(channel.paused)}
                 reason={channel.paused}
                 roles={roles.map((r) => r.name)}
+                faces={faces}
                 working={working}
               />
             </div>
@@ -122,15 +127,20 @@ export function ChannelView({ channel, scope, features, diff, brief, onTerminal 
           </div>
         </section>
         <div
-          className={`w-80 shrink-0 overflow-y-auto border-l border-hairline p-4 ${showTeam && !teamOpen ? 'hidden min-[1100px]:block' : ''}`}
+          className={`w-[400px] shrink-0 overflow-y-auto border-l border-hairline ${thread ? 'flex flex-col' : 'p-4'} ${showTeam && !teamOpen ? 'hidden min-[1100px]:block' : ''}`}
         >
           {thread && (
             <ThreadPane
               key={thread.root.id}
               channelId={channel.id}
               thread={thread}
+              lead={channel.role}
+              roles={roles.map((r) => r.name)}
+              faces={faces}
               running={running}
               paused={blocksUser(channel.paused)}
+              reason={channel.paused}
+              working={working}
               onClose={closeSide}
             />
           )}

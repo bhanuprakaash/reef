@@ -10,11 +10,16 @@ import { Button } from '@/components/button';
 import { Creature, GroupAvatar } from '@/components/creature';
 import { StatusDot } from '@/components/status-dot';
 
-type Props = { threads: Thread[]; onOpen: (rootId: number) => void };
+type Props = {
+  threads: Thread[];
+  faces: Record<string, string | undefined>;
+  openId?: number;
+  onOpen: (rootId: number) => void;
+};
 
 const isTeammate = (author: string) => author !== 'user' && author !== 'reef';
 
-export function MessageList({ threads, onOpen }: Props) {
+export function MessageList({ threads, faces, openId, onOpen }: Props) {
   if (threads.length === 0) return <p className="text-sm text-muted">No messages yet.</p>;
 
   const newest = Math.max(...threads.map(({ root, replies }) => (replies.at(-1) ?? root).id));
@@ -51,7 +56,7 @@ export function MessageList({ threads, onOpen }: Props) {
             {joined && (
               <li className="flex items-center justify-center gap-2 py-2.5 text-sm text-muted">
                 Joined
-                <Creature role={root.author} size={18} />
+                <Creature role={root.author} face={faces[root.author]} size={18} />
                 <span className="capitalize text-fg">{root.author}</span>
               </li>
             )}
@@ -76,8 +81,10 @@ export function MessageList({ threads, onOpen }: Props) {
                 </p>
               ) : (
                 <>
-                  {named && <Author name={root.author} />}
-                  <Bubble own={root.author === 'user'}>{root.body}</Bubble>
+                  {named && <Author name={root.author} face={faces[root.author]} />}
+                  <Bubble own={root.author === 'user'} ringed={root.id === openId}>
+                    {root.body}
+                  </Bubble>
                 </>
               )}
               {(root.author !== 'reef' || replies.length > 0) && (
@@ -85,10 +92,10 @@ export function MessageList({ threads, onOpen }: Props) {
                   type="button"
                   variant="ghost"
                   size="sm"
-                  className="gap-2 px-1"
+                  className={`gap-2 px-1 ${root.id === openId ? 'bg-card' : ''}`}
                   onClick={() => onOpen(root.id)}
                 >
-                  {repliers.length > 0 && <GroupAvatar roles={repliers} size={20} />}
+                  {repliers.length > 0 && <GroupAvatar roles={repliers} faces={faces} size={20} />}
                   {replies.length === 0
                     ? 'Reply'
                     : `${replies.length} ${replies.length === 1 ? 'reply' : 'replies'} in thread`}
