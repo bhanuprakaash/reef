@@ -26,13 +26,17 @@ api_call() {
 # session_file SESSION_ID: path of claude's session jsonl, wherever its project folder is.
 session_file() { ls "$HOME"/.claude/projects/*/"$1".jsonl 2>/dev/null | head -1; }
 
-### Preconditions
+turn_col() { "$H" sql "select $2 from turn where id = $1" | tail -1; } # turn_col ID COLUMN(S)
 
-git -C "$S/cwd" rev-parse --verify HEAD >/dev/null 2>&1 || {
-	git -C "$S/cwd" init -q -b main
-	echo one >"$S/cwd/a.txt"
-	git -C "$S/cwd" add a.txt
-	git -C "$S/cwd" -c user.name=v -c user.email=v@example.com commit -qm init
+run_ui() { # run_ui ID SCENARIO
+	local id=$1 scenario=$2 out rc
+	out=$("$H" ui "$scenario" 2>&1)
+	rc=$?
+	if echo "$out" | grep -qiE 'Chromium distribution|executable doesn.t exist|could not find chrome|ENOENT'; then
+		not_run "$id" "no Chrome/Chromium for \`\$H ui $scenario\`: $(echo "$out" | tail -3 | tr '\n' ' ')"
+	else
+		check "$id" "$([ "$rc" = 0 ] && echo 1 || echo 0)" "$(echo "$out" | grep -E '^(PASS|FAIL)' | tr '\n' '; ')"
+	fi
 }
 
 ### Team files in $E
@@ -75,6 +79,7 @@ cat >"$E/relay.json" <<'EOF'
 }
 EOF
 
+section_full() {
 ### Teams, no server needed (data folder full)
 
 apply_full=$("$H" reef --data-name full -- team apply "$PWD/teams/full.json")
@@ -123,8 +128,6 @@ api_call POST /channels '{"projectId":1,"name":"quick","team":"crew"}'
 api_call POST /channels '{"projectId":2,"featureId":3,"name":"nogit"}'
 
 T="$S/full/worktrees/1/a"
-
-turn_col() { "$H" sql "select $2 from turn where id = $1" | tail -1; } # turn_col ID COLUMN(S)
 
 ### Worktrees and writers
 
@@ -546,10 +549,11 @@ echo "$kinds_after" | grep -q '"kind":"paused","channelId":8' || restart_ok=0
 echo "$kinds_after" | grep -q '"kind":"failed","channelId":5' || restart_ok=0
 echo "$kinds_after" | grep -q '"kind":"waiting"' || restart_ok=0
 check inbox-restart "$restart_ok" "inbox before/after a restart match byte for byte: $(echo "$kinds_after" | tr '\n' ' ')"
+}
 
+section_cx() {
 ### Codex on the test fixture (write-codex-readonly), folder cx
 
-"$H" serve-stop
 mkdir -p "$S/spy"
 printf '#!/bin/sh\ntee -a %s/codex-in.log | %s/agent/codex/testdata/codex "$@"\n' "$E" "$PWD" >"$S/spy/codex"
 chmod +x "$S/spy/codex"
@@ -573,7 +577,9 @@ second_sandbox=$(echo "$sandbox_seq" | sed -n 2p)
 [ "$first_sandbox" = '"sandbox":"read-only"' ] || codex_ok=0
 [ "$second_sandbox" = '"sandbox":"workspace-write"' ] || codex_ok=0
 check write-codex-readonly "$codex_ok" "turns: $(echo "$rows_cx" | tr '\n' ' '); sandbox sequence: $first_sandbox then $second_sandbox"
+}
 
+section_inbox() {
 ### Window (`$H ui`)
 
 cat >"$E/gated.json" <<'EOF'
@@ -598,27 +604,18 @@ cat >"$E/gated.json" <<'EOF'
 }
 EOF
 
-run_ui() { # run_ui ID SCENARIO
-	local id=$1 scenario=$2 out rc
-	out=$("$H" ui "$scenario" 2>&1)
-	rc=$?
-	if echo "$out" | grep -qiE 'Chromium distribution|executable doesn.t exist|could not find chrome|ENOENT'; then
-		not_run "$id" "no Chrome/Chromium for \`\$H ui $scenario\`: $(echo "$out" | tail -3 | tr '\n' ' ')"
-	else
-		check "$id" "$([ "$rc" = 0 ] && echo 1 || echo 0)" "$(echo "$out" | grep -E '^(PASS|FAIL)' | tr '\n' '; ')"
-	fi
-}
-
-"$H" serve-stop
 "$H" reef --data-name inbox -- team apply "$E/gated.json" >/dev/null
 ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name inbox
 run_ui window-inbox inbox
+}
 
-"$H" serve-stop
+section_ui2() {
 ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name ui2
 run_ui window-rollback rollback
 run_ui window-retry retry
+}
 
+section_google() {
 ### Google login end to end (google-login), folder google, real claude on sonnet
 
 mkdir -p "$S/google-app"
@@ -687,7 +684,6 @@ git -C "$S/google-app" init -q -b main
 git -C "$S/google-app" add -A
 git -C "$S/google-app" -c user.name=v -c user.email=v@example.com commit -qm "shop with email login" >/dev/null
 
-"$H" serve-stop
 "$H" reef --data-name google -- team apply "$PWD/teams/full.json" >/dev/null
 ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name google
 A=$(cat "$S/serve.addr")
@@ -768,12 +764,13 @@ grep -A1 '^event: approval' "$E/google-events.txt" | grep -q pending || { google
 grep -A1 '^event: approval' "$E/google-events.txt" | grep -q approved || { google_ok=0; google_bad+=" $LINENO"; }
 
 check google-login "$google_ok" "${google_bad:+failed at full-team.sh lines$google_bad; }lead, architect, gate, developer, gate, tester, lead ran end to end; checkpoints, worktree, clean main checkout, inbox and event streams all match"
+}
 
-### Gates, notes, retry and rollback rules, folder fu, on the same scratch cwd
+section_fu() {
+### Gates, notes, retry and rollback rules, folder fu
 
 prompt() { grep -h '"type":"user"' "$HOME"/.claude/projects/*/"$1".jsonl 2>/dev/null | grep -o '"content":"\[channel[^"]*' | tail -1; }
 
-"$H" serve-stop
 python3 -I -c 'import json,sys
 t=json.load(open(sys.argv[1]))
 t["name"]="open"
@@ -1062,6 +1059,46 @@ settings_sess=$("$H" sql "select session_id from turn where channel_id = $settin
 settings_file=$(session_file "$settings_sess")
 if [ -n "$settings_file" ]; then grep -q '"is_error":true' "$settings_file" || settings_ok=0; else settings_ok=0; fi
 check write-settings "$settings_ok" "a project .claude/settings.json allowing Edit still refuses the tester"
+}
+
+# section NAME: run section_NAME under the run id $REEF_VERIFY_RUN/NAME, so it has its own
+# scratch folder, evidence folder and server; its output goes to $E/NAME/full-team.log.
+section() (
+	export REEF_VERIFY_RUN=$REEF_VERIFY_RUN/$1
+	"$H" build >/dev/null || exit 1
+	"$H" doctor >/dev/null
+	cp "$E/crew.json" "$E/cx.json" "$E/relay.json" "$E/$1/"
+	E=$E/$1 S=$S/$1
+	{
+		git -C "$S/cwd" rev-parse --verify HEAD >/dev/null 2>&1 || {
+			git -C "$S/cwd" init -q -b main
+			echo one >"$S/cwd/a.txt"
+			git -C "$S/cwd" add a.txt
+			git -C "$S/cwd" -c user.name=v -c user.email=v@example.com commit -qm init
+		}
+		"section_$1"
+		"$H" serve-stop
+	} >"$E/full-team.log" 2>&1
+)
+
+# Both window sections would run npm ci in scripts/ui at the same time.
+ui=.claude/skills/verify-reef/scripts/ui
+[ -d "$ui/node_modules" ] || (cd "$ui" && npm ci >&2)
+
+for sec in full cx inbox ui2 google fu; do
+	section "$sec" &
+done
+wait
+
+for id in $(sed -n '/^## Sub-features/,/^## /s/^- `\([a-z0-9-]*\)`.*/\1/p' "$(dirname "$0")/full-team.md"); do
+	line=$(grep -h "^\(PASS\|FAIL\) $id:" "$E"/*/full-team.log 2>/dev/null | head -1)
+	if [ -n "$line" ]; then
+		echo "$line"
+		case $line in FAIL*) failed=1 ;; esac
+	else
+		not_run "$id" "no PASS or FAIL line in $E/*/full-team.log"
+	fi
+done
 
 rm -rf "$HOME"/.claude/projects/"$(printf '%s' "$S" | sed 's/[^A-Za-z0-9]/-/g')"-*
 

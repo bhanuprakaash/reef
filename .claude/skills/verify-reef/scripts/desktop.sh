@@ -40,9 +40,9 @@ free_port() {
 	python3 -I -c 'import socket; s = socket.socket(); s.bind(("127.0.0.1", 0)); print(s.getsockname()[1])'
 }
 
-cdp() { # a dead app fails at once, so the retry loops below end instead of waiting 10 s a try
+cdp() { # cdp EXPR [WINDOW]: a dead app fails at once, so the retry loops below end instead of waiting 10 s a try
 	kill -0 "${app:-0}" 2>/dev/null || { echo "the app is not running" >&2; return 1; }
-	node "$CDP" "$cdp_port" "$app_port" "$1"
+	node "$CDP" "$cdp_port" "$app_port" "$1" "${2:-}"
 }
 
 # shot NAME: the whole screen (Xvfb's on Linux) to $D/NAME.png; prints its standard deviation,
@@ -304,6 +304,72 @@ sd=$(shot terminal)
 check terminal-feature "$([ -n "$shell" ] && [ "$cwd" = "$WT" ] && ! grep -q 'feature/term' <<<"$before" &&
 	tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}feature/term" && echo 1)" \
 	"shell pid ${shell:-none} (child of the app) cwd ${cwd:-none}; after pwd; git branch --show-current the pane shows $(tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}feature/term" || echo 'no ')$WT then feature/term ($D/terminal.txt, $D/terminal.png std dev $sd)"
+
+# --- quick capture: the global shortcut and the sidebar button open the same window ---
+have_xdotool=$(command -v xdotool >/dev/null 2>&1 && echo 1 || echo 0)
+disp=$(cat "$S/app.display")
+xauth=$(cat "$S/app.xauth")
+xdo() { DISPLAY="$disp" XAUTHORITY="$xauth" xdotool "$@"; }
+
+wait_capture() { # polls for the capture window's CDP target; prints its title, or "" on timeout
+	title=""
+	for _ in $(seq 50); do
+		title=$(cdp 'document.title' capture 2>&1)
+		case $title in *"no capture window among"*) title="" ;; *) break ;; esac
+		sleep 0.2
+	done
+	echo "$title"
+}
+
+wait_capture_closed() {
+	for _ in $(seq 50); do
+		case $(cdp 'document.title' capture 2>&1) in *"no capture window among"*) return 0 ;; esac
+		sleep 0.2
+	done
+	return 1
+}
+
+if [ "$(uname)" = Darwin ]; then
+	echo "skip capture-shortcut: xdotool only drives X11; on a Mac, open the app, press Cmd+Shift+Space and confirm the capture window opens (user check)"
+elif [ "$have_xdotool" = 1 ]; then
+	xdo key --clearmodifiers ctrl+shift+space
+	title=$(wait_capture)
+	sd=$([ -n "$title" ] && shot capture-shortcut || echo 0)
+	check capture-shortcut "$([ -n "$title" ] && nonzero "$sd" && echo 1)" \
+		"ctrl+shift+space via xdotool opened the capture window (title $title); screenshot std dev $sd ($D/capture-shortcut.png)"
+	cdp 'window.close()' capture >/dev/null 2>&1
+	wait_capture_closed >/dev/null
+else
+	echo "note capture-shortcut: xdotool not installed; proving the capture window via the sidebar button instead"
+fi
+
+cdp "(() => { const a = [...document.querySelectorAll('a')].find((a) => a.textContent.trim() === 'Capture'); a && a.click(); })()" >/dev/null
+title=$(wait_capture)
+sd=$([ -n "$title" ] && shot capture-button || echo 0)
+check capture-button "$([ -n "$title" ] && nonzero "$sd" && echo 1)" \
+	"the sidebar Capture button opened the capture window (title $title); screenshot std dev $sd ($D/capture-button.png)"
+
+# a project chosen (set directly; the select itself is not under test here) and "bug: login fails" typed, then Enter
+cdp "document.querySelector('[aria-label=\"Capture project\"]').value = '$proj';
+document.querySelector('[aria-label=\"Capture project\"]').dispatchEvent(new Event('change', { bubbles: true }));
+document.querySelector('[aria-label=\"Capture kind\"]').value = 'bug';
+document.querySelector('[aria-label=\"Capture kind\"]').dispatchEvent(new Event('change', { bubbles: true }))" capture >/dev/null
+xdo type -- 'login fails'
+xdo key Return
+closed=$(wait_capture_closed && echo 1 || echo 0)
+row=$("$H" sql "select title, feature_id from task where title = 'bug: login fails'" | tail -n 1)
+check capture-enter "$([ "$closed" = 1 ] && [ "$row" = "bug: login fails|" ] && echo 1)" \
+	"typed 'login fails' and Return via xdotool; window closed=$closed; task row: ${row:-none} ($E/sql.log)"
+
+# Escape closes the window without a task
+cdp "(() => { const a = [...document.querySelectorAll('a')].find((a) => a.textContent.trim() === 'Capture'); a && a.click(); })()" >/dev/null
+wait_capture >/dev/null
+before=$("$H" sql "select count(*) from task" | tail -n 1)
+xdo key Escape
+closed=$(wait_capture_closed && echo 1 || echo 0)
+after=$("$H" sql "select count(*) from task" | tail -n 1)
+check capture-escape "$([ "$closed" = 1 ] && [ "$before" = "$after" ] && echo 1)" \
+	"Escape via xdotool closed the window=$closed; task count $before before, $after after"
 
 # --- quit: SIGTERM is a quit request; nothing the app started may outlive it ---
 descendants "$app" >"$D/procs-before-quit.txt"

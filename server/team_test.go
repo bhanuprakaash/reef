@@ -107,3 +107,105 @@ func TestChannelTeam(t *testing.T) {
 		t.Errorf("GET /teams/nope = %d, want 404", status)
 	}
 }
+
+func TestPutTeam(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude", Persona: "old persona", MCPServers: []agent.MCPServer{
+			{Command: "my-mcp", Args: []string{"--key", "sk-secret-456"}},
+		}},
+		{Name: "developer", Backend: "claude", Write: true},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	// A body that omits mcpServers keeps the lead's stored one and updates the persona.
+	body := `{"name":"crew","roles":[` +
+		`{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"","persona":"new persona","skills":"","tools":[]},` +
+		`{"name":"developer","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"","skills":"","tools":[]}]}`
+	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew", body)
+	if status != 200 || strings.Contains(resBody, "mcpServers") {
+		t.Fatalf("PUT /teams/crew = %d %s, want 200 without mcpServers", status, resBody)
+	}
+	got, err := st.Team(context.Background(), "crew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Roles[0].Persona != "new persona" {
+		t.Errorf("lead persona = %q, want %q", got.Roles[0].Persona, "new persona")
+	}
+	if len(got.Roles[0].MCPServers) != 1 || got.Roles[0].MCPServers[0].Args[1] != "sk-secret-456" {
+		t.Errorf("lead mcpServers = %+v, want the stored one kept", got.Roles[0].MCPServers)
+	}
+
+	// The same error as `reef team apply`: two leads.
+	status, resBody = do(t, http.MethodPut, ts.URL+"/teams/crew", `{"roles":[`+
+		`{"name":"lead","lead":true,"backend":"claude"},{"name":"developer","lead":true,"backend":"claude"}]}`)
+	want := `{"error":"invalid: team crew needs exactly one lead role, has 2"}`
+	if status != 400 || resBody != want {
+		t.Errorf("PUT /teams/crew two leads = %d %s, want 400 %s", status, resBody, want)
+	}
+
+	// The same error as `reef team apply`: unknown backend.
+	status, resBody = do(t, http.MethodPut, ts.URL+"/teams/crew", `{"roles":[{"name":"lead","lead":true,"backend":"gemini"}]}`)
+	want = `{"error":"role lead: invalid: backend must be claude or codex"}`
+	if status != 400 || resBody != want {
+		t.Errorf("PUT /teams/crew bad backend = %d %s, want 400 %s", status, resBody, want)
+	}
+
+	// A body name that does not match the path is invalid.
+	status, _ = do(t, http.MethodPut, ts.URL+"/teams/crew", `{"name":"other","roles":[{"name":"lead","lead":true,"backend":"claude"}]}`)
+	if status != 400 {
+		t.Errorf("PUT /teams/crew with mismatched name = %d, want 400", status)
+	}
+}
+
+func TestPutTeamCopyFrom(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
+			{Command: "my-mcp", Args: []string{"--key", "sk-secret-789"}},
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	body := `{"roles":[{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"",` +
+		`"persona":"","skills":"","tools":[]}]}`
+	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew2?from=crew", body)
+	if status != 200 || strings.Contains(resBody, "mcpServers") {
+		t.Fatalf("PUT /teams/crew2?from=crew = %d %s, want 200 without mcpServers", status, resBody)
+	}
+	got, err := st.Team(context.Background(), "crew2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Roles[0].MCPServers) != 1 || got.Roles[0].MCPServers[0].Args[1] != "sk-secret-789" {
+		t.Errorf("copy's lead mcpServers = %+v, want the source's kept", got.Roles[0].MCPServers)
+	}
+
+	// A copy over a name that already exists is a conflict, not a silent replace.
+	status, resBody = do(t, http.MethodPut, ts.URL+"/teams/crew2?from=crew", body)
+	want := `{"error":"conflict: a team named \"crew2\" already exists"}`
+	if status != 409 || resBody != want {
+		t.Errorf("PUT /teams/crew2?from=crew again = %d %s, want 409 %s", status, resBody, want)
+	}
+}

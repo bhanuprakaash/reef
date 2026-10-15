@@ -5,6 +5,11 @@ export type Project = {
   createdAt: string;
 };
 
+export type ProjectMemory = {
+  projectId: number;
+  body: string;
+};
+
 export type Feature = {
   id: number;
   projectId: number;
@@ -82,9 +87,23 @@ export type Turn = {
   checkpoint: string | null;
 };
 
+export type Role = {
+  name: string;
+  lead: boolean;
+  write: boolean;
+  backend: string;
+  permissionMode: string;
+  persona: string;
+  skills: string;
+  tools: string[];
+};
+
+export type Gate = { from: string; to: string; on: boolean };
+
 export type Team = {
   name: string;
-  roles: { name: string; lead: boolean }[];
+  roles: Role[];
+  gates?: Gate[];
 };
 
 export type Approval = {
@@ -106,6 +125,63 @@ export type InboxItem = {
   at: string;
   approvalId?: number;
   turnId?: number;
+};
+
+export type DiffLineKind = 'add' | 'del' | 'ctx';
+
+export type DiffLine = {
+  kind: DiffLineKind;
+  old?: number;
+  new?: number;
+  text: string;
+};
+
+export type DiffHunk = {
+  header: string;
+  lines: DiffLine[];
+};
+
+export type FileDiff = {
+  path: string;
+  status: 'added' | 'modified' | 'deleted';
+  hunks: DiffHunk[];
+};
+
+export type Usage = {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+};
+
+export type InspectorToolCall = {
+  name: string;
+  input: string;
+  result: string;
+};
+
+export type InspectorTurn = {
+  id: number;
+  role: string;
+  startedAt: string;
+  status: string;
+  model: string;
+  usage: Usage;
+  costUsd: number | null;
+  prompt: string;
+  toolCalls: InspectorToolCall[];
+};
+
+export type InspectorRole = {
+  role: string;
+  turns: number;
+  usage: Usage;
+  costUsd: number | null;
+};
+
+export type Inspector = {
+  roles: InspectorRole[];
+  turns: InspectorTurn[];
 };
 
 export type TaskStatus = 'todo' | 'doing' | 'done';

@@ -83,6 +83,7 @@ type (
 		Type      string `json:"type"`
 		Subtype   string `json:"subtype"`
 		SessionID string `json:"session_id"`
+		Model     string `json:"model"` // system/init
 		Event     struct {
 			Type  string `json:"type"`
 			Delta struct {
@@ -100,6 +101,7 @@ type (
 		Result          string      `json:"result"`
 		Errors          []string    `json:"errors"`
 		Usage           usageCounts `json:"usage"`
+		TotalCostUSD    *float64    `json:"total_cost_usd"` // result; nil when the backend did not send one
 		Origin          struct {
 			Kind string `json:"kind"`
 		} `json:"origin"`
@@ -349,6 +351,10 @@ type state struct {
 	// (--replay-user-messages, a user line with isReplay). A turn with no such echo is one
 	// claude ran by itself for a background task: its text and tool events answer no prompt.
 	unprompted bool
+
+	// lastCost is the process total the most recent result line with a cost reported; carried
+	// across a reset so a turn's CostUSD is its own share, not the process running total.
+	lastCost float64
 }
 
 // parse maps one stdout line to Events. Text comes from the partial-message deltas, so
@@ -361,7 +367,8 @@ type state struct {
 // the message_delta waits with the calls, so a call never follows its own result. A
 // subagent's messages have no message_delta, so its calls are sent at once. The result line
 // sends what is still held, then only what is left of its usage total. An unprompted turn
-// gives only its usage.
+// gives only its usage. A result's total_cost_usd is the cost of the process so far, not the
+// turn: CostUSD is that total minus the last one seen in the process.
 func parse(line []byte, st *state) []agent.Event {
 	evs := parseLine(line, st)
 	if !st.unprompted {
@@ -381,7 +388,7 @@ func parseLine(line []byte, st *state) []agent.Event {
 	case "system":
 		if l.Subtype == "init" {
 			st.unprompted = true
-			return []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID}}
+			return []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID, Model: l.Model}}
 		}
 	case "stream_event":
 		if l.Event.Type == "message_start" {
@@ -447,7 +454,13 @@ func parseLine(line []byte, st *state) []agent.Event {
 			CacheWriteTokens: total.CacheWriteTokens - st.seen.CacheWriteTokens,
 		}
 		evs := st.held
-		*st = state{}
+		lastCost := st.lastCost
+		var cost *float64
+		if l.TotalCostUSD != nil {
+			delta := *l.TotalCostUSD - lastCost
+			cost, lastCost = &delta, *l.TotalCostUSD
+		}
+		*st = state{lastCost: lastCost}
 		if rest != (agent.Usage{}) {
 			evs = append(evs, agent.Event{Kind: agent.KindUsage, Usage: &rest})
 		}
@@ -459,7 +472,7 @@ func parseLine(line []byte, st *state) []agent.Event {
 			text := strings.Join(append([]string{l.Result}, l.Errors...), "\n")
 			return append(evs, agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text)})
 		}
-		return append(evs, agent.Event{Kind: agent.KindTurnEnd})
+		return append(evs, agent.Event{Kind: agent.KindTurnEnd, CostUSD: cost})
 	}
 	return nil
 }

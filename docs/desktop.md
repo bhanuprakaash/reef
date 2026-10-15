@@ -97,6 +97,18 @@ that exits (the user typed `exit`, or it crashed) is dropped from that buffer, s
 same directory starts a fresh one instead of replaying a dead shell's last output; otherwise it
 keeps running until the app quits.
 
+## Quick capture
+
+`CommandOrControl+Shift+Space`, registered as a global shortcut while the app runs, opens a
+small always-on-top window on `/capture`: the same web app, no sidebar or browser pane. The
+main window's sidebar has a Capture button that calls the same open through `window.reef.capture()`
+over IPC, so capture also works where the global shortcut does not reach, and in tests; in a plain
+browser (no `window.reef`) the button just navigates to `/capture`. The capture window has a
+project picker (the project chosen last time, kept in `localStorage`, is the default), a kind
+(idea, todo, bug) and a text box. Enter creates a task with no feature, titled `<kind>: <text>`,
+through `POST /tasks`, and closes the window; Escape closes it without creating a task. The
+shortcut is unregistered when the app quits.
+
 ## Quit
 
 Quitting the app (the window, the menu, or a signal) stops its `reef serve` first: the server

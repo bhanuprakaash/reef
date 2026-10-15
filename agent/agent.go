@@ -67,6 +67,7 @@ type Event struct {
 	Kind         Kind            `json:"kind"`
 	Text         string          `json:"text,omitempty"`      // text delta, error message
 	SessionID    string          `json:"sessionId,omitempty"` // KindSession
+	Model        string          `json:"model,omitempty"`     // KindSession
 	ToolID       string          `json:"toolId,omitempty"`    // tool call and its result share it
 	ToolName     string          `json:"toolName,omitempty"`
 	ParentToolID string          `json:"parentToolId,omitempty"` // ToolID of the Agent call whose subagent made this
@@ -74,6 +75,7 @@ type Event struct {
 	Output       string          `json:"output,omitempty"`       // tool result
 	IsError      bool            `json:"isError,omitempty"`      // tool result failed
 	Usage        *Usage          `json:"usage,omitempty"`
+	CostUSD      *float64        `json:"costUsd,omitempty"` // KindTurnEnd, claude only; the turn's own cost, not the process total
 }
 
 // Usage is the token count of a turn.

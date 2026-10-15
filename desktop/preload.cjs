@@ -6,6 +6,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 // drive it from the address bar. A plain browser pointed at reef serve has no
 // preload script, so window.reef is undefined there.
 contextBridge.exposeInMainWorld('reef', {
+  capture: () => ipcRenderer.invoke('capture:open'),
   setBrowserBounds: (rect) => ipcRenderer.send('browser:bounds', rect),
   navigateBrowser: (url) => ipcRenderer.invoke('browser:navigate', url),
   setTakeOver: (value) => ipcRenderer.invoke('browser:take-over', value),

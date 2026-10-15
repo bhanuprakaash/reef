@@ -79,6 +79,8 @@ Rules for every command:
 | `reef decide <feature> "<body>" [--why W]` | Records a decision with no source message | `1  Use sessions, not JWT` |
 | `reef task add [<feature>] "<title>"` | Adds a `todo` task. With a feature, the task is in the feature's project and tagged with it. Without one, it is in the current folder's project, with no feature | `1  todo  Build the login form` |
 | `reef task list [<feature>] [--status S]` | Lists the feature's tasks, or all tasks of the current folder's project. `S` is `todo`, `doing` or `done` | one task per line, as for `task add` |
+| `reef memory [--project P] [show]` | Prints the current project's memory, or the memory of project `P` (an id); bare `reef memory` means `show`. `--project` may come before or after `show` | the memory body exactly as stored, or nothing when none is set |
+| `reef memory [--project P] set FILE\|-` | Sets the project's memory from a file, or from stdin with `-`, replacing any before | `saved memory for project shop` |
 | `reef team apply FILE.json` | Creates a team from a file, or replaces the roles and gates of the team with that name (see Teams) | `applied team duo: lead*(claude) architect(claude)` |
 | `reef team list` | Lists the teams by name, each with its roles | `duo  lead*(claude) architect(claude)`: the lead has a `*` |
 | `reef context <feature> --role R` | Prints the context prompt for role `R` (see below) | the prompt |
@@ -236,14 +238,16 @@ holds a message body. Its shape:
    add this before part 1. `reef context` does not print it.
 1. One line: role, feature name and slug, project name. Then the goal (if set) and the
    stage.
-2. `## Brief`: the latest brief, or `No brief yet.`
-3. `## Your notes`: this role's notes, or `No notes yet.`
-4. `## Index`, with `### Decisions` (one line each: id, the first line of the body cut
+2. `## Project memory`: the project's memory (see [server.md](server.md#project_memory)), only
+   when it is not empty.
+3. `## Brief`: the latest brief, or `No brief yet.`
+4. `## Your notes`: this role's notes, or `No notes yet.`
+5. `## Index`, with `### Decisions` (one line each: id, the first line of the body cut
    at 100 characters with `…`, author, date), `### Channels` (channels with messages, one line each: id, name,
    date, message count) and `### Open tasks` (tasks not `done`). An empty group says
    `none`.
-5. One closing line that names the tools for details.
-6. When the team has two or more roles, a `## Team` section: `Your team: @lead, @architect.`
+6. One closing line that names the tools for details.
+7. When the team has two or more roles, a `## Team` section: `Your team: @lead, @architect.`
    It says that to hand work over you @mention a teammate in a message, which wakes them, and
    that your reply, and anything you send with `post_to_channel`, is posted to the channel
    and nobody sees anything else. A message that wakes you starts with `[channel N, message
@@ -256,7 +260,7 @@ holds a message body. Its shape:
    The lead gets one more line: do not summarize or repeat a
    specialist's post back to the user, because they see it. `reef context` does not print it.
 
-A quick session gets the same parts 0 and 6 around its two lines.
+A quick session gets the same parts 0, 2 and 7 around its two lines.
 
 Example, for a feature with one approved wrap-up:
 
@@ -264,6 +268,9 @@ Example, for a feature with one approved wrap-up:
 You are the developer on feature "Email login" (login) in project "shop".
 Goal: Users sign in with email and password
 Stage: ideation
+
+## Project memory
+Sessions are stored server-side, not JWT.
 
 ## Brief
 Goal: Users sign in with email and password.

@@ -48,6 +48,9 @@ export function useLiveTurn(channelId: number): LiveTurn {
     source.addEventListener('approval', () => {
       void queryClient.invalidateQueries({ queryKey: ['approvals', channelId] });
     });
+    source.addEventListener('note', () => {
+      void refresh();
+    });
     source.addEventListener('agent', (e) => {
       const event: AgentEvent = JSON.parse(e.data);
       dispatch({ type: 'agent', event });

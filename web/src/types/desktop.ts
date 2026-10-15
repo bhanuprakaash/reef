@@ -2,6 +2,7 @@
 // Chrome pointed at reef serve has no preload script, so it is undefined
 // there.
 export type ReefBridge = {
+  capture: () => Promise<void>;
   setBrowserBounds: (rect: { x: number; y: number; width: number; height: number }) => void;
   navigateBrowser: (url: string) => Promise<void>;
   setTakeOver: (value: boolean) => Promise<boolean>;

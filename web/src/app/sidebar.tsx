@@ -21,6 +21,21 @@ export function Sidebar() {
       <Link to="/tasks" className="block hover:underline">
         Tasks
       </Link>
+      <Link to="/teams" className="block hover:underline">
+        Teams
+      </Link>
+      <Link
+        to="/capture"
+        className="block hover:underline"
+        onClick={(e) => {
+          if (window.reef) {
+            e.preventDefault();
+            window.reef.capture();
+          }
+        }}
+      >
+        Capture
+      </Link>
       <div className="space-y-3">
         <h2 className="text-xs font-medium uppercase text-neutral-500">Projects</h2>
         {projects.isPending && <p className={mutedClass}>Loading...</p>}

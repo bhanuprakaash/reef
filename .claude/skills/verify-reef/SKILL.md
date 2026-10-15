@@ -302,12 +302,19 @@ REEF_VERIFY_RUN=<id> $H ui teams     # team picker, lead then architect, Thread 
 REEF_VERIFY_RUN=<id> $H ui retry     # Stop mid-turn, Retry on the failed turn row, new turn ends done
 REEF_VERIFY_RUN=<id> $H ui rollback  # a turn writes a file, a commit is made, Rollback restores the tree
 REEF_VERIFY_RUN=<id> $H ui inbox     # gated approval shows in the inbox, one notification, Approve from the list, item opens its channel
+REEF_VERIFY_RUN=<id> $H ui diff      # a turn writes a file, the feature's Diff panel shows it added with its line
+REEF_VERIFY_RUN=<id> $H ui memory    # home page editor saves a project's memory, stored in the database and surviving a reload
+REEF_VERIFY_RUN=<id> $H ui inspector # full team: lead then developer turns, Inspector panel role blocks match the API, a developer turn expands to its prompt and a tool call
+REEF_VERIFY_RUN=<id> $H ui review    # Diff panel comments send as one message to the developer's latest thread
+REEF_VERIFY_RUN=<id> $H ui board      # tasks page board view, drag a card between columns, project and feature filters apply
+REEF_VERIFY_RUN=<id> $H ui workshop  # /teams page edits a role's persona, keeps its mcpServers, shows reef team apply's errors, copies a team, next developer wake uses the new persona
 ```
 
 `teams` needs the teams `duo` and `gated` (and `inbox` needs `gated`) applied to the `ui` folder first: run
 `$H reef --data-name ui -- team apply FILE.json` for each before `serve-start --data-name ui` (the
 files are in `features/teams.md`). `inbox` counts every item of the server, so run it first, or
-on a folder of its own (`--data-name inbox`, with `gated` applied).
+on a folder of its own (`--data-name inbox`, with `gated` applied). `inspector`, `review` and `workshop`
+need the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"`.
 
 Each scenario adds a project on the scratch cwd and makes it a git repo with one commit when it
 is not one, because a channel on a feature runs in a git worktree. Its feature slug gets a
@@ -389,8 +396,13 @@ Rules:
 done) with `H`, `REEF_VERIFY_RUN`, `E` and `S` exported, tees its output to
 `~/.reef-verify/<id>/feature-NAME.log`, and exits 1 if any line is `FAIL`. So far there is
 `features/full-team.sh`, which drives every line of `full-team.md` and prints one
-`PASS <id>: ...` or `FAIL <id>: ...` per sub-feature id. It works the same whichever `claude`
-is on `PATH` (fake, record or real).
+`PASS <id>: ...` or `FAIL <id>: ...` per sub-feature id, in the order of its Sub-features list.
+It works the same whichever `claude` is on `PATH` (fake, record or real). Its six sections
+(`full`, `cx`, `inbox`, `ui2`, `google`, `fu`) run at the same time, each as its own run
+`<id>/<section>` (`build`, `doctor`, its own scratch folder and server), so the run takes about
+as long as its longest section (`google`, about 3.5 minutes on the fake). Each section's full output is in
+`~/.reef-verify/<id>/<section>/full-team.log`, next to that section's `serve.log`, `api.log` and
+`sql.log`. `cleanup` of `<id>` cleans up each `<id>/<section>` first.
 
 ```sh
 ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H feature full-team
@@ -488,7 +500,7 @@ claude, above).
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |

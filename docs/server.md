@@ -56,7 +56,10 @@ cd .. && go build -o reef ./cmd/reef
 Then open `http://127.0.0.1:7700`. Build the web app before `go build`, because the binary
 embeds `web/dist` as it was at build time. Add a project (an absolute path to an existing
 folder), then a feature, then a channel. A channel's agent is the `claude` or `codex` CLI,
-logged in and on `PATH`. The new channel form picks a team from `GET /teams`. Each message
+logged in and on `PATH`. The new channel form picks a team from `GET /teams`. The `/teams`
+page lists teams and edits one's roles and gates, saving with `PUT /teams/{name}`; "Copy as
+new team" applies the same roles, gates and MCP servers under a new name with `?from=`,
+rejected if that name is taken. Each message
 shows its author, replies are folded under their thread root with a count, and a thread
 opens in a pane where you can reply. The running turn names its teammate. A wake held at a gate
 shows Approve and Reject, and a pause from the hop cap shows in the cap banner. A channel
@@ -117,6 +120,17 @@ Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 | `path` | string | required; the repo folder, stored as an absolute path with symlinks resolved |
 | `createdAt` | string | |
 
+### project_memory
+
+One body per project, kept as a column on `project` (migration 14
+[`014_project_memory.sql`](../store/migrations/014_project_memory.sql)). The user writes it; it
+is loaded into every fresh session's context prompt (see [memory.md](memory.md#the-context-prompt)).
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `projectId` | number | from the path |
+| `body` | string | default `""` |
+
 ### feature
 
 | Field | JSON | Notes |
@@ -128,6 +142,15 @@ Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 | `goal` | string | default `""` |
 | `stage` | string | default `ideation`; not checked against a list |
 | `createdAt` | string | |
+
+### feature_github
+
+The last GitHub PR state the [GitHub poll](#github-poll) posted about a feature, kept across
+a restart so it does not repeat a note. No REST route; tables `feature_github` (one row per
+feature: `pr_number`, `pr_state`, `pr_url`) and `feature_github_check` (one row per
+`(feature, check name, run key)` of the feature's PR: `run_key`, `woken`; a row's existence
+means it was noted), migration 16
+[`016_feature_github.sql`](../store/migrations/016_feature_github.sql).
 
 ### brief
 
@@ -201,6 +224,22 @@ One agent run in a channel.
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
 | `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<turn id>`. `null` for a turn of a role without `write`, for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
+| `model` | string | default `""`; the backend's model name, set from the agent's first event once the turn ends |
+| `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one |
+| `prompt` | string | default `""`; the full text sent to the agent (context preamble and notes included), set once the turn ends |
+
+### tool_call
+
+One tool call of a turn. Input and result are cut to 4 KB each. There is no update or
+delete; deleting the turn deletes its tool calls.
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `id` | number | |
+| `turnId` | number | required |
+| `name` | string | the tool's name |
+| `input` | string | cut to 4 KB |
+| `result` | string | default `""` until the call's result arrives, then cut to 4 KB |
 
 ### decision
 
@@ -231,10 +270,10 @@ The list is global. A task belongs to a project and may name a feature.
 
 ### team
 
-A named set of roles and the gates between them. A team has exactly one lead role. There
-is no REST route to write a team: `reef team apply` does (see [memory.md](memory.md#teams)).
-Migration 6 seeds the team `solo`, with one role, `lead` on `claude`, and points every
-channel that exists at it.
+A named set of roles and the gates between them. A team has exactly one lead role. `reef
+team apply` (see [memory.md](memory.md#teams)) and `PUT /teams/{name}` both write a team,
+through the same validation. Migration 6 seeds the team `solo`, with one role, `lead` on
+`claude`, and points every channel that exists at it.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -331,7 +370,8 @@ promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 Create returns 201 and the row. Update returns 200 and the row. Delete returns 204 and no
 body. Deleting a row deletes what hangs off it by foreign key: a project takes its
 features, channels and tasks; a feature takes its briefs, notes, decisions and channels;
-a channel takes its messages, turns, tokens, proposals and approvals.
+a channel takes its messages, turns, tokens, proposals and approvals; a turn takes its
+tool calls.
 
 | Route | Filters and body | OK | Notable errors |
 | --- | --- | --- | --- |
@@ -341,6 +381,8 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `GET /projects/{id}` | | 200 | 404 |
 | `PUT /projects/{id}` | `name`, `path` | 200 | 400 (same `path` rule), 404 |
 | `DELETE /projects/{id}` | | 204; the worktrees of its features and the checkpoint refs of the turns of all its channels are removed, its branches are kept | 404, 409 a feature's worktree has uncommitted changes (nothing is removed) |
+| `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set | 404 |
+| `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200 | 404 |
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |
@@ -353,8 +395,10 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
 | `POST /features/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the feature's worktree the same way the first wake of one of its channels would, reusing it when it already exists | 404 |
+| `GET /features/{id}/diff` | | 200 the worktree's changes against the commit its branch and the project's HEAD last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has no `mcpServers`, whose `args` and `url` may hold API keys | |
 | `GET /teams/{name}` | | 200, without `mcpServers` as above; each role shows `write` | 404 |
+| `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones; 409 `?from=` names a team that already exists |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
 | `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
@@ -362,6 +406,7 @@ a channel takes its messages, turns, tokens, proposals and approvals.
 | `DELETE /channels/{id}` | stops the channel first if it is live; a send during the delete is 404 | 204 | 404 |
 | `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 turn running, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
+| `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `toolCalls` (`name`, `input`, `result`) | 404 |
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
 | `GET /channels/{id}/approvals` | | 200 the channel's pending gate approvals, oldest first; `[]` when none | 404 |
@@ -585,7 +630,7 @@ restart.
 ### Events
 
 `GET /channels/{id}/events` is a Server-Sent Events stream. It works for a channel that
-is not live: it waits. A `: keepalive` comment comes every 15 seconds. Four kinds of event:
+is not live: it waits. A `: keepalive` comment comes every 15 seconds. Five kinds of event:
 
 - `turn`: `{"role":"architect","status":"running"}` when a turn of that role starts, then
   `{"role":"architect","status":"done"}` or `{"role":"architect","status":"failed","error":"interrupted"}`
@@ -599,6 +644,8 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Four kind
   a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
 - `approval`: an [approval](#approval) as JSON, `pending` when a gate holds a wake, and again
   with `approved` or `rejected` when it is decided.
+- `note`: `{}`, sent when a message is posted outside a turn, such as a [GitHub
+  poll](#github-poll) note, so a subscriber knows to re-read `GET /messages`.
 
 A subscriber is brought up to date when it connects, so a reconnect needs no other
 request to know the state. The server keeps the events of the running chain in memory. A
@@ -740,6 +787,42 @@ line, `reef chat` runs the same pause and token budget check as send (`channel.C
 and prints the reason instead of running the line. The line `/continue` does what
 `continue` does (`channel.Continue`). See [memory.md](memory.md#reef-chat). Hops do not
 exist in `reef chat`: it wakes nobody.
+
+## GitHub poll
+
+`reef serve` polls GitHub for each feature that has a worktree, every `REEF_GH_INTERVAL`
+(default 60s), once right away and then on that interval until the server closes: `gh pr
+view feature/<slug> --json number,url,state,statusCheckRollup`, run in the project's
+folder. `statusCheckRollup` items are either a `CheckRun` (`name`, `status`, `conclusion`,
+`detailsUrl`, `completedAt`) or a `StatusContext` (`context`, `state`, `targetUrl`,
+`startedAt`); both are read.
+
+When the PR first appears, changes state (`open`, `merged`, `closed`) or a check run
+finishes (a `CheckRun` whose `status` is `COMPLETED`, or a `StatusContext` whose `state` is
+not `PENDING`/`EXPECTED`), the feature's most recent channel (the one with the newest
+message across the feature, or, when it has none, its most recently created channel) gets
+one message from author `reef`: `PR #12 open: <url>` or `<check name> succeeded`/`failed`.
+A check run is identified by its name plus its `detailsUrl`/`targetUrl` (falling back to
+`completedAt`/`startedAt`) as its run key; a rerun of the same check name, such as CI run
+again on a later push, is a different run key and is noted again, and two runs of the same
+name in one rollup (a matrix job, two workflows) are two rows, both noted. The state posted
+is stored one row per `(feature, name, run key)` (migration 16
+[`016_feature_github.sql`](../store/migrations/016_feature_github.sql), tables
+`feature_github` and `feature_github_check`), so a restart does not repeat it and a second
+poll with the same answer posts nothing. No `gh` on `PATH`: nothing is posted, logged once.
+`gh` erroring (not logged in, no PR for the branch): nothing is posted, logged once per
+feature for that cause; logged again once the cause changes.
+
+A check run that finished failed also wakes the `developer` role in that channel, once per
+run, also across restarts (`feature_github_check.woken`): the text names the PR and the
+failed check, plus the last 50 lines of `gh run view <run id> --log-failed` when the run id
+can be read from the `CheckRun`'s `detailsUrl` (`/actions/runs/<id>/`); no run id, no log. A
+channel whose team has no `developer` role gets the note only. The wake runs as its own
+chain, the way a retried turn does (decision 39): no gate holds it, since no role sent it,
+but the channel's own caps (pause, token budget, hop count) still apply. A channel with a
+turn running, or paused, cannot take the wake on that poll; the note still posts, the wake is
+retried on a later poll once the channel is idle, and the busy cause is logged once, not
+every poll.
 
 ## Append-only
 

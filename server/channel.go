@@ -17,6 +17,8 @@ func (s *server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /channels/{id}", s.updateChannel)
 	mux.HandleFunc("DELETE /channels/{id}", s.deleteChannel)
 	mux.HandleFunc("/channels/{id}", methodNotAllowed)
+	mux.HandleFunc("GET /channels/{id}/inspector", s.getInspector)
+	mux.HandleFunc("/channels/{id}/inspector", methodNotAllowed)
 	mux.HandleFunc("GET /messages", s.listMessages)
 	mux.HandleFunc("POST /messages", s.createMessage)
 	mux.HandleFunc("/messages", methodNotAllowed)

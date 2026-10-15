@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
@@ -10,9 +10,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -421,6 +421,160 @@ async function rollback() {
   check(Boolean(file) && readFileSync(file, 'utf8').includes(note), 'the next turn was told of the rollback', `${note} in ${file}`);
 }
 
+async function diff() {
+  ensureRepo();
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const featureId = page.url().split('/').pop();
+  await newChannel(main, 'New channel', 'diff chat');
+  await send('Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.');
+  await working();
+  await idle();
+  await page.goto(`${base}/features/${featureId}`);
+  const panel = main.locator('section', { has: page.getByRole('heading', { name: 'Diff', level: 2 }) });
+  await panel.getByText('new.txt').waitFor({ timeout: 15000 });
+  await shot('diff');
+  check(
+    (await panel.getByText('added').count()) === 1 && (await panel.getByText('hi').count()) === 1,
+    'the diff panel shows new.txt as added with its line',
+    await panel.innerText(),
+  );
+  const json = await getJson(`/features/${featureId}/diff`);
+  check(
+    json.length === 1 && json[0].path === 'new.txt' && json[0].status === 'added' && json[0].hunks[0].lines[0].text === 'hi',
+    'GET /features/{id}/diff returns the file with its added line',
+    JSON.stringify(json),
+  );
+}
+
+async function memory() {
+  const section = await addProject();
+  const name = (await section.getByRole('heading', { level: 3 }).textContent()) ?? '';
+  const pid = sql(`select id from project where name='${name}'`);
+  const home = main.locator('section', { has: page.getByRole('heading', { name, level: 2 }) });
+  await home.getByLabel('Project memory').waitFor();
+  await shot('empty');
+  check((await home.getByLabel('Project memory').inputValue()) === '', 'a new project has no memory yet');
+  await home.getByLabel('Project memory').fill('Use Go, not Python.');
+  await home.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+  await shot('saved');
+  check(
+    sql(`select memory from project where id=${pid}`) === 'Use Go, not Python.',
+    'saving the editor stores the memory',
+    sql(`select id,memory from project where id=${pid}`),
+  );
+  await page.reload();
+  const value = await home.getByLabel('Project memory').inputValue();
+  check(value === 'Use Go, not Python.', 'the saved memory survives a reload', value);
+}
+
+async function inspector() {
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const { id: cid } = await newTeamChannel('full', 'inspector room');
+  await send('Say ok in one word.');
+  await workingAs('lead');
+  await idle();
+  await send('@developer Use the Write tool to create the file d.txt containing the word yes. Then reply done.');
+  await workingAs('developer');
+  await idle();
+
+  await main.getByRole('button', { name: 'Inspector' }).click();
+  const panel = page.getByRole('complementary', { name: 'Inspector' });
+  const devSummary = panel.locator('summary', { hasText: 'developer' });
+  await devSummary.waitFor({ timeout: 15000 });
+  await shot('panel');
+
+  const json = await getJson(`/channels/${cid}/inspector`);
+  const leadRole = json.roles.find((r) => r.role === 'lead');
+  const devRole = json.roles.find((r) => r.role === 'developer');
+  check(!!leadRole && !!devRole, 'the API lists a lead role and a developer role', JSON.stringify(json.roles));
+
+  const turnsLabel = (n) => `${n} turn${n === 1 ? '' : 's'}`;
+  const leadText = await panel.locator('summary', { hasText: 'lead' }).innerText();
+  const devText = await devSummary.innerText();
+  check(
+    leadText.includes(turnsLabel(leadRole.turns)) && leadText.includes(`${leadRole.usage.inputTokens} in`),
+    'the lead block shows turn count and tokens from the API',
+    leadText,
+  );
+  check(
+    devText.includes(turnsLabel(devRole.turns)) && devText.includes(`${devRole.usage.inputTokens} in`),
+    'the developer block shows turn count and tokens from the API',
+    devText,
+  );
+
+  await devSummary.click();
+  const devTurn = json.turns.find((t) => t.role === 'developer');
+  await panel.locator('details summary').last().click();
+  await shot('turn-open');
+  const body = await panel.innerText();
+  check(body.includes(devTurn.prompt), 'expanding the developer turn shows its prompt', body);
+  check(
+    devTurn.toolCalls.length > 0 && body.includes(devTurn.toolCalls[0].name) && body.includes(devTurn.toolCalls[0].result),
+    'the developer turn shows a tool call with its input and result',
+    body,
+  );
+}
+
+async function review() {
+  if ((await fetch(`${base}/teams/full`)).status !== 200) {
+    throw new Error('apply the team full first (teams/full.json, see features/teams.md)');
+  }
+  ensureRepo();
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const featureId = page.url().split('/').pop();
+  const { id: cid } = await newTeamChannel('full', 'review room');
+  await send('@developer Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.');
+  await workingAs('developer', 60000);
+  await idle();
+  await send('@developer Use the Write tool to create the file d.txt containing the word yes.');
+  await workingAs('developer', 60000);
+  await idle();
+  const root = (await getJson(`/messages?channel=${cid}`))
+    .filter((m) => m.author === 'developer' && m.parentId === null)
+    .at(-1);
+  check(!!root, 'the developer posted a second top-level message, its latest thread root', root && `message ${root.id}`);
+
+  await page.goto(`${base}/features/${featureId}`);
+  const panel = main.locator('section', { has: page.getByRole('heading', { name: 'Diff', level: 2 }) });
+  await panel.getByText('d.txt').waitFor({ timeout: 15000 });
+  await shot('diff');
+  await panel.locator('[data-path="new.txt"][data-line="1"]').click();
+  await panel.getByLabel('Comment on new.txt:1').fill('nice start');
+  await panel.getByRole('button', { name: 'Add comment' }).click();
+  await panel.locator('[data-path="d.txt"][data-line="1"]').click();
+  await panel.getByLabel('Comment on d.txt:1').fill('rename this');
+  await panel.getByRole('button', { name: 'Add comment' }).click();
+  await shot('comments');
+  const before = Number(sql(`select count(*) from turn where channel_id=${cid} and role='developer'`));
+  await panel.getByRole('button', { name: 'Send to developer' }).click();
+  // The review message matches no recorded scenario, so the turn may error and end before
+  // the window ever shows "is working...": poll the turn row instead of workingAs/idle.
+  let after = before;
+  for (let i = 0; i < 60 && after === before; i++) {
+    await page.waitForTimeout(500);
+    after = Number(sql(`select count(*) from turn where channel_id=${cid} and role='developer'`));
+  }
+  await idle();
+  await shot('sent');
+
+  const sent = (await getJson(`/messages?channel=${cid}`)).at(-1);
+  check(
+    sent.author === 'user' && sent.body.includes('new.txt:1') && sent.body.includes('d.txt:1'),
+    'the two comments made one user message with both path:line lines',
+    JSON.stringify(sent),
+  );
+  check(sent.parentId === root.id, "the message's parent is the developer's latest thread root", `parentId ${sent.parentId}, root ${root.id}`);
+  check(after > before, 'a developer turn started for the review message', `turns before ${before}, after ${after}`);
+  check(
+    (await panel.getByRole('button', { name: 'Send to developer' }).count()) === 0,
+    'comments clear after a successful send',
+  );
+}
+
 async function inbox() {
   if ((await fetch(`${base}/teams/gated`)).status !== 200) throw new Error('apply the team gated first (see features/teams.md)');
   const context = page.context();
@@ -647,6 +801,180 @@ async function teams() {
     'the approval is stored as approved',
     `approvals: ${sql(`select id,from_role,to_role,status from approval where channel_id=${gid}`)}; turns: ${sql(`select group_concat(role) from (select role from turn where channel_id=${gid} order by id)`)}`,
   );
+}
+
+// Dispatches a native HTML5 drag sequence (dragstart on `card`, dragover and drop on
+// `target`) through the DOM, since the window uses the draggable attribute, not mouse
+// gestures a synthetic drag can trigger headless.
+async function dragCard(card, target) {
+  const cardEl = await card.elementHandle();
+  const targetEl = await target.elementHandle();
+  await page.evaluate(
+    ([c, t]) => {
+      const data = new DataTransfer();
+      c.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
+      t.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data }));
+      t.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: data }));
+    },
+    [cardEl, targetEl],
+  );
+}
+
+async function board() {
+  const section = await addProject();
+  await addFeature(section, 'board', 'Board feature');
+  const fid = page.url().split('/').pop();
+  const pid = sql(`select project_id from feature where id=${fid}`);
+
+  const otherSection = await addProject();
+  await addFeature(otherSection, 'other', 'Other feature');
+  const otherFid = page.url().split('/').pop();
+  const otherPid = sql(`select project_id from feature where id=${otherFid}`);
+
+  await page.goto(base + '/tasks');
+  const title = `board task ${Date.now().toString(36)}`;
+  await page.getByLabel('Task title').fill(title);
+  await page.getByLabel('Task project').selectOption(pid);
+  await page.getByLabel('Task feature').selectOption(fid);
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await page.getByText(title).waitFor();
+
+  const otherTitle = `board other ${Date.now().toString(36)}`;
+  await page.getByLabel('Task title').fill(otherTitle);
+  await page.getByLabel('Task project').selectOption(otherPid);
+  await page.getByLabel('Task feature').selectOption(otherFid);
+  await page.getByRole('button', { name: 'Add task' }).click();
+  await page.getByText(otherTitle).waitFor();
+
+  await page.getByRole('button', { name: 'Board' }).click();
+  const todo = page.getByRole('group', { name: 'Todo' });
+  const doing = page.getByRole('group', { name: 'Doing' });
+  const done = page.getByRole('group', { name: 'Done' });
+  await todo.getByText(title).waitFor();
+  await shot('columns');
+  check(
+    page.url().includes('view=board') &&
+      (await todo.getByText(title).count()) === 1 &&
+      (await todo.getByText(otherTitle).count()) === 1 &&
+      (await doing.count()) === 1 &&
+      (await done.count()) === 1,
+    '/tasks?view=board shows three columns with both tasks under Todo',
+    page.url().replace(base, ''),
+  );
+
+  await page.getByLabel('Filter by project').selectOption(pid);
+  await todo.getByText(otherTitle).waitFor({ state: 'hidden' });
+  check(
+    (await todo.getByText(title).count()) === 1 && (await todo.getByText(otherTitle).count()) === 0,
+    'the project filter also filters the board',
+    page.url().replace(base, ''),
+  );
+  await page.getByLabel('Filter by feature').selectOption(fid);
+  await todo.getByText(title).waitFor();
+  check((await todo.getByText(title).count()) === 1, 'the feature filter also filters the board', page.url().replace(base, ''));
+
+  const card = todo.locator('div.space-y-1', { hasText: title });
+  await dragCard(card, doing);
+  await doing.getByText(title).waitFor();
+  await shot('dragged');
+  check(
+    sql(`select status from task where title='${title}'`) === 'doing',
+    'dragging the card to Doing changes its row in SQLite',
+    sql(`select id,status from task where title='${title}'`),
+  );
+  await page.reload();
+  await page.getByLabel('Filter by project').selectOption(pid);
+  await page.getByLabel('Filter by feature').selectOption(fid);
+  await doing.getByText(title).waitFor();
+  check((await doing.getByText(title).count()) === 1, 'a reload keeps the card in Doing', page.url().replace(base, ''));
+
+  await doing.getByLabel(`Move ${title}`).selectOption('done');
+  await done.getByText(title).waitFor();
+  await shot('moved-with-select');
+  check(
+    sql(`select status from task where title='${title}'`) === 'done',
+    'the per-card select moves a card for keyboard use',
+    sql(`select id,status from task where title='${title}'`),
+  );
+}
+
+// Waits for text matching pattern to show up in `main`, and returns it, or null on timeout:
+// an invalid save's error does not abort the scenario.
+async function errorText(pattern, timeout = 15000) {
+  const loc = main.getByText(pattern);
+  try {
+    await loc.waitFor({ timeout });
+    return (await loc.textContent()) ?? '';
+  } catch {
+    return null;
+  }
+}
+
+async function workshop() {
+  if ((await fetch(`${base}/teams/full`)).status !== 200) {
+    throw new Error('apply the team full first (teams/full.json, see features/teams.md)');
+  }
+  const mcpBefore = '[{"command":"true","env":{"API_KEY":"sk-verify-9911"}}]';
+  sql(`update role set mcp_servers = '${mcpBefore}' where team_id = (select id from team where name = 'full') and name = 'developer'`, true);
+
+  await page.goto(`${base}/teams`);
+  await main.getByRole('button', { name: 'full', exact: true }).click();
+  const personaBox = main.getByLabel('developer persona');
+  await personaBox.waitFor();
+  const marker = `WORKSHOP-MARKER-${Date.now().toString(36)}`;
+  const persona = `${await personaBox.inputValue()} Always say ${marker} once.`;
+  await personaBox.fill(persona);
+  await shot('persona-edited');
+  await main.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+  await shot('persona-saved');
+  check(
+    sql(`select persona from role where team_id = (select id from team where name = 'full') and name = 'developer'`) === persona,
+    "saving the developer's persona in the window updates its role row",
+  );
+  check(
+    sql(`select mcp_servers from role where team_id = (select id from team where name = 'full') and name = 'developer'`) === mcpBefore,
+    "the developer's mcpServers, left out of the window, are unchanged",
+  );
+
+  // Two leads: the same error reef team apply gives.
+  await main.getByLabel('architect lead').check();
+  await main.getByRole('button', { name: 'Save' }).click();
+  const twoLeads = await errorText(/needs exactly one lead role, has 2/);
+  await shot('two-leads-error');
+  check(!!twoLeads, 'an invalid team (two leads) shows the reef team apply error', twoLeads ?? '(not shown)');
+  await main.getByLabel('architect lead').uncheck();
+
+  // Unknown backend: the same error reef team apply gives.
+  await main.getByLabel('architect backend').fill('gemini');
+  await main.getByRole('button', { name: 'Save' }).click();
+  const badBackend = await errorText(/backend must be claude or codex/);
+  await shot('bad-backend-error');
+  check(!!badBackend, 'an invalid team (unknown backend) shows the reef team apply error', badBackend ?? '(not shown)');
+  await main.getByLabel('architect backend').fill('claude');
+  await main.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+
+  // "Copy as new team" makes a new team `reef team list` (the same store) shows.
+  const copyName = `workshop-copy-${Date.now().toString(36)}`;
+  await main.getByLabel('New team name').fill(copyName);
+  await main.getByRole('button', { name: 'Copy as new team' }).click();
+  await main.getByRole('button', { name: copyName, exact: true }).waitFor({ timeout: 15000 });
+  await shot('copied');
+  check(
+    sql(`select count(*) from team where name = '${copyName}'`) === '1',
+    '"Copy as new team" makes a new team',
+  );
+
+  // The next developer wake uses the new persona.
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const { id: cid } = await newTeamChannel('full', 'workshop room');
+  await send('@developer Say ok in one word.');
+  await workingAs('developer');
+  await idle();
+  const prompt = sql(`select prompt from turn where channel_id = ${cid} and role = 'developer' order by id limit 1`);
+  check(prompt.includes(marker), "the next developer wake's prompt carries the new persona", prompt.slice(0, 200));
 }
 
 try {

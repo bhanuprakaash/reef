@@ -1,6 +1,8 @@
 package server
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 
 	"github.com/bhanuprakaash/reef/store"
@@ -29,6 +31,7 @@ func (s *server) teamRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /teams", s.listTeams)
 	mux.HandleFunc("/teams", methodNotAllowed)
 	mux.HandleFunc("GET /teams/{name}", s.getTeam)
+	mux.HandleFunc("PUT /teams/{name}", s.putTeam)
 	mux.HandleFunc("/teams/{name}", methodNotAllowed)
 }
 
@@ -52,6 +55,59 @@ func (s *server) getTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, viewTeam(t))
+}
+
+// putTeam applies the body like `reef team apply`. A role whose body omits mcpServers keeps
+// the server's stored ones, since the window never sees them. With a `from` query param it
+// instead copies the team named by `from`: `name` must not exist yet, and a role's stored
+// mcpServers come from `from`'s role of the same name.
+func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
+	name := r.PathValue("name")
+	from := r.URL.Query().Get("from")
+	var t store.Team
+	if err := readJSON(r, &t); err != nil {
+		writeError(w, err)
+		return
+	}
+	if t.Name == "" {
+		t.Name = name
+	} else if t.Name != name {
+		writeError(w, fmt.Errorf("%w: body name %q does not match %q", store.ErrInvalid, t.Name, name))
+		return
+	}
+	source := name
+	if from != "" {
+		if _, err := s.st.Team(r.Context(), name); err == nil {
+			writeError(w, fmt.Errorf("%w: a team named %q already exists", store.ErrConflict, name))
+			return
+		} else if !errors.Is(err, store.ErrNotFound) {
+			writeError(w, err)
+			return
+		}
+		source = from
+	}
+	existing, err := s.st.Team(r.Context(), source)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		writeError(w, err)
+		return
+	}
+	for i, role := range t.Roles {
+		if role.MCPServers != nil {
+			continue
+		}
+		for _, er := range existing.Roles {
+			if er.Name == role.Name {
+				t.Roles[i].MCPServers = er.MCPServers
+				break
+			}
+		}
+	}
+	applied, err := s.st.ApplyTeam(r.Context(), t)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, viewTeam(applied))
 }
 
 func viewTeam(t store.Team) teamView {
