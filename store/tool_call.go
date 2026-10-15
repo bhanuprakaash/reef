@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"fmt"
+	"unicode/utf8"
 )
 
 // _toolCallMax is how much of a tool call's input and result the store keeps, each.
@@ -62,10 +63,15 @@ func scanToolCall(r interface{ Scan(...any) error }) (ToolCall, error) {
 	return c, nil
 }
 
-// cut truncates s to _toolCallMax bytes.
+// cut truncates s to at most _toolCallMax bytes, backing off to the start of a rune so a
+// multi-byte character is never split.
 func cut(s string) string {
-	if len(s) > _toolCallMax {
-		return s[:_toolCallMax]
+	if len(s) <= _toolCallMax {
+		return s
 	}
-	return s
+	n := _toolCallMax
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
