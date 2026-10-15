@@ -4,10 +4,12 @@ import { Creature } from '@/components/creature';
 import { useContinueChannel } from '@/lib/api/continue-channel';
 import { useDecideApproval } from '@/lib/api/decide-approval';
 import { useRetryTurn } from '@/lib/api/retry-turn';
+import { useTeams } from '@/lib/api/get-teams';
 import { age } from '@/modules/inbox/utils/age';
 import { kindLabels } from '@/modules/inbox/utils/new-items';
 import type { Channel, InboxItem } from '@/types/api';
 import { itemPath } from '@/utils/anchors';
+import { roleFaces } from '@/utils/role-faces';
 
 const kindColors: Record<InboxItem['kind'], string> = {
   approval: 'text-paused',
@@ -20,13 +22,18 @@ export function InboxRow({ item, channel }: { item: InboxItem; channel?: Channel
   const decide = useDecideApproval();
   const cont = useContinueChannel();
   const retry = useRetryTurn();
+  const teams = useTeams();
   const pending = decide.isPending || cont.isPending || retry.isPending;
   const error = decide.error ?? cont.error ?? retry.error;
   const { channelId, approvalId, turnId } = item;
 
   return (
     <li className="flex gap-4 rounded-card border border-line bg-card px-5 py-[18px]">
-      <Creature role={channel?.role ?? ''} size={40} />
+      <Creature
+        role={channel?.role ?? ''}
+        face={roleFaces(teams.data, channel?.team)[channel?.role ?? '']}
+        size={40}
+      />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-2 text-xs">
           <span className={`font-semibold uppercase tracking-wider ${kindColors[item.kind]}`}>

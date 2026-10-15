@@ -2,12 +2,12 @@ import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Logo } from '@/components/logo';
 import { Menu, MenuItem, MenuSeparator } from '@/components/menu';
+import { useCurrentProject } from '@/lib/current-project';
 import { AddProjectForm } from '@/modules/projects/components/add-project-form';
 import type { Project } from '@/types/api';
 
-type Props = { projects: Project[]; current: Project; onPick: (project: Project) => void };
-
-export function ProjectSwitcher({ projects, current, onPick }: Props) {
+export function ProjectSwitcher({ projects }: { projects: Project[] }) {
+  const [current, onPick] = useCurrentProject(projects);
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
@@ -32,6 +32,8 @@ export function ProjectSwitcher({ projects, current, onPick }: Props) {
     onPick(project);
     setOpen(false);
   }
+
+  if (!current) return null;
 
   return (
     <div ref={ref} className="relative mt-3.5 mb-1.5">

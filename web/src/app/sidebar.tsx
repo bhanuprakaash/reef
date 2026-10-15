@@ -1,17 +1,18 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { ChannelList, Row } from '@/app/channel-list';
+import { FeatureChannels } from '@/app/feature-channels';
 import { ProjectSwitcher } from '@/app/project-switcher';
+import { CountBadge } from '@/components/count-badge';
 import { Dialog } from '@/components/dialog';
+import { Row } from '@/components/row';
 import { useChannels } from '@/lib/api/get-channels';
+import { useCurrentProject } from '@/lib/current-project';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { useInboxEvents } from '@/modules/inbox/hooks/use-inbox-events';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { itemPath } from '@/utils/anchors';
-
-const PROJECT_KEY = 'reef.sidebar.projectId';
 
 function IconCircle({ children, dot }: { children: ReactNode; dot?: boolean }) {
   return (
@@ -78,13 +79,13 @@ export function Sidebar() {
   const channels = useChannels();
   const inbox = useInbox();
   useInboxEvents(useCallback((item) => void navigate(itemPath(item)), [navigate]));
-  const [picked, setPicked] = useState(() => Number(localStorage.getItem(PROJECT_KEY)));
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
 
-  const current = projects.data?.find((p) => p.id === picked) ?? projects.data?.[0];
+  const [current] = useCurrentProject(projects.data);
   const error = projects.error ?? features.error ?? channels.error;
   const waiting = inbox.data ?? [];
+  const projectFeatures = features.data?.filter((f) => f.projectId === current?.id).length ?? 0;
   const isBoard = pathname === '/tasks' && search.includes('view=board');
 
   return (
@@ -139,16 +140,7 @@ export function Sidebar() {
         />
       </label>
 
-      {projects.data && current && (
-        <ProjectSwitcher
-          projects={projects.data}
-          current={current}
-          onPick={(p) => {
-            localStorage.setItem(PROJECT_KEY, String(p.id));
-            setPicked(p.id);
-          }}
-        />
-      )}
+      {projects.data && current && <ProjectSwitcher projects={projects.data} />}
 
       <div className="flex flex-col gap-0.5">
         <Row
@@ -161,7 +153,7 @@ export function Sidebar() {
             </IconCircle>
           }
           title="Today"
-          preview={`${features.data?.length ?? 0} ${features.data?.length === 1 ? 'feature' : 'features'}`}
+          preview={`${projectFeatures} ${projectFeatures === 1 ? 'feature' : 'features'}`}
         />
         <Row
           to="/inbox"
@@ -175,14 +167,14 @@ export function Sidebar() {
           title="Needs you"
           aside={
             waiting.length > 0 && (
-              <span aria-label={`${waiting.length} waiting`}>{waiting.length}</span>
+              <CountBadge count={waiting.length} label={`${waiting.length} waiting`} />
             )
           }
           preview={waiting[0]?.text ?? 'Nothing waiting'}
         />
 
         {error && <p className="px-2.5 pt-3 text-sm text-danger">{error.message}</p>}
-        {current && <ChannelList project={current} query={query} />}
+        {current && <FeatureChannels project={current} query={query} />}
       </div>
 
       <div className="mt-auto flex items-center gap-2.5 px-1.5 pt-3">

@@ -2,7 +2,9 @@ import type { Decision } from '@/types/api';
 import { Card } from '@/components/card';
 import { Creature } from '@/components/creature';
 
-export function DecisionList({ decisions }: { decisions: Decision[] }) {
+type Props = { decisions: Decision[]; faces: Record<string, string | undefined> };
+
+export function DecisionList({ decisions, faces }: Props) {
   return (
     <Card
       title="Decisions"
@@ -35,7 +37,7 @@ export function DecisionList({ decisions }: { decisions: Decision[] }) {
                     {author[0]}
                   </span>
                 ) : (
-                  <Creature role={d.author} size={22} />
+                  <Creature role={d.author} face={faces[d.author]} size={22} />
                 )}
               </li>
             );

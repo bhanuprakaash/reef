@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme } from 'electron';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -126,7 +126,7 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
-    backgroundColor: '#161616',
+    backgroundColor: nativeTheme.shouldUseDarkColors ? '#161616' : '#ffffff',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
   win.loadFile(path.join(__dirname, 'splash.html'));

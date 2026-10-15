@@ -17,7 +17,6 @@ export function Layout() {
   const projects = useProjects();
   const [browserOpen, setBrowserOpen] = useState(true);
   const [browserDriver, setBrowserDriver] = useState<BrowserDriver | null>(null);
-  if (projects.error instanceof TypeError) return <Unreachable />;
   if (projects.isPending) return null;
   if (projects.data?.length === 0) return <FirstRun />;
 
@@ -39,6 +38,7 @@ export function Layout() {
       </main>
       <BrowserPane open={browserOpen} driver={browserDriver} />
       <TabBar />
+      {projects.error instanceof TypeError && <Unreachable />}
     </div>
   );
 }

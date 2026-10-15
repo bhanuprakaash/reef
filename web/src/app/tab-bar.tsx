@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { NavLink, useMatch } from 'react-router';
+import { CountBadge } from '@/components/count-badge';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 
 function Tab({
@@ -36,11 +37,8 @@ function Tab({
       </svg>
       {label}
       {badge !== undefined && badge > 0 && (
-        <span
-          aria-label={`${badge} waiting`}
-          className="absolute top-0.5 left-[56%] flex h-[18px] min-w-[18px] items-center justify-center rounded-pill bg-needs-you px-[5px] text-[11px] text-white"
-        >
-          {badge}
+        <span className="absolute top-0.5 left-[56%]">
+          <CountBadge count={badge} label={`${badge} waiting`} />
         </span>
       )}
     </NavLink>

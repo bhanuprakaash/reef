@@ -34,9 +34,15 @@ function Counts({ files }: { files: FileDiff[] }) {
   );
 }
 
-type Props = { files: FileDiff[]; featureId: number; featureName: string; branch: string };
+type Props = {
+  files: FileDiff[];
+  featureId: number;
+  featureName: string;
+  branch: string;
+  developerFace?: string;
+};
 
-export function DiffPanel({ files, featureId, featureName, branch }: Props) {
+export function DiffPanel({ files, featureId, featureName, branch, developerFace }: Props) {
   const [comments, setComments] = useState<ReviewComment[]>([]);
   const [selected, setSelected] = useState('');
   const [active, setActive] = useState<Target | null>(null);
@@ -85,7 +91,7 @@ export function DiffPanel({ files, featureId, featureName, branch }: Props) {
             disabled={comments.length === 0 || send.isPending}
             onClick={() => send.mutate(comments, { onSuccess: () => setComments([]) })}
           >
-            Send to <Creature role="developer" size={18} /> Developer
+            Send to <Creature role="developer" face={developerFace} size={18} /> Developer
           </Button>
         </div>
       </header>

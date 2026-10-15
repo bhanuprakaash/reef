@@ -1,44 +1,20 @@
 import { useQuery } from '@tanstack/react-query';
-import type { ReactNode } from 'react';
 import { Link, useLocation } from 'react-router';
 import { GroupAvatar } from '@/components/creature';
+import { Row } from '@/components/row';
 import { channelsQuery } from '@/lib/api/get-channels';
 import { useTeams } from '@/lib/api/get-teams';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import type { ChannelPreview, Project } from '@/types/api';
+import { roleFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
-
-export function Row(props: {
-  to: string;
-  active: boolean;
-  avatar: ReactNode;
-  title: string;
-  aside?: ReactNode;
-  preview: string;
-}) {
-  return (
-    <Link
-      to={props.to}
-      className={`flex items-center gap-3 rounded-xl px-2.5 py-[9px] ${props.active ? 'bg-active' : 'hover:bg-hover/50'}`}
-    >
-      {props.avatar}
-      <span className="min-w-0 flex-1">
-        <span className="flex items-baseline gap-2">
-          <span className="truncate text-[14.5px]">{props.title}</span>
-          <span className="ml-auto shrink-0 text-xs text-muted">{props.aside}</span>
-        </span>
-        <span className="block truncate text-[13px] text-muted">{props.preview}</span>
-      </span>
-    </Link>
-  );
-}
 
 const oneLine = (m: NonNullable<ChannelPreview['lastMessage']>) =>
   `${m.author === 'user' ? 'you' : m.author}: ${m.body.replace(/\s+/g, ' ')}`;
 
-export function ChannelList({ project, query }: { project: Project; query: string }) {
+export function FeatureChannels({ project, query }: { project: Project; query: string }) {
   const { pathname } = useLocation();
   const features = useFeatures();
   const channels = useQuery({ ...channelsQuery, refetchInterval: 5000 });
@@ -62,14 +38,15 @@ export function ChannelList({ project, query }: { project: Project; query: strin
   const quick = projectChannels.filter((c) => c.featureId === null && matches(c.name));
 
   function channelRow(c: ChannelPreview, named: string) {
-    const roles = teams.data?.find((t) => t.name === c.team)?.roles.map((r) => r.name);
+    const faces = roleFaces(teams.data, c.team);
+    const roles = Object.keys(faces);
     return (
       <Row
         to={`/channels/${c.id}`}
         active={pathname === `/channels/${c.id}`}
         avatar={
           <span className="relative flex-none">
-            <GroupAvatar roles={roles ?? [c.role]} size={30} />
+            <GroupAvatar roles={roles.length > 0 ? roles : [c.role]} faces={faces} size={30} />
             {waiting.some((i) => i.channelId === c.id) && (
               <span
                 role="img"

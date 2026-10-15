@@ -5,6 +5,7 @@ import { Creature, GroupAvatar } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 import { useChannels } from '@/lib/api/get-channels';
 import { useTeams } from '@/lib/api/get-teams';
+import { useCurrentProject } from '@/lib/current-project';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { STAGES } from '@/modules/features/utils/stages';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
@@ -15,9 +16,9 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 import { useCreateTask } from '@/modules/tasks/api/create-task';
 import { useTasks } from '@/modules/tasks/api/get-tasks';
 import type { Feature } from '@/types/api';
+import { roleFaces } from '@/utils/role-faces';
 
 const DAY = 24 * 60 * 60 * 1000;
-const PROJECT_KEY = 'reef.sidebar.projectId';
 
 function greeting(now: Date) {
   const hour = now.getHours();
@@ -28,8 +29,7 @@ function QuickCapture() {
   const projects = useProjects();
   const create = useCreateTask();
   const [text, setText] = useState('');
-  const picked = Number(localStorage.getItem(PROJECT_KEY));
-  const project = projects.data?.find((p) => p.id === picked) ?? projects.data?.[0];
+  const [project] = useCurrentProject(projects.data);
   const isDesktop = typeof window !== 'undefined' && window.reef != null;
 
   return (
@@ -101,7 +101,7 @@ function FeatureCard({ feature }: { feature: Feature }) {
   const latest = mine[mine.length - 1];
   const team = teams.data?.find((t) => t.name === latest?.team);
   const roles = team ? team.roles.map((r) => r.name) : latest ? [latest.role] : [];
-  const faces = Object.fromEntries((team?.roles ?? []).map((r) => [r.name, r.face]));
+  const faces = roleFaces(teams.data, latest?.team);
   const waiting = inbox.data?.some((i) => i.featureId === feature.id) ?? false;
   const current = STAGES.findIndex((s) => s.value === feature.stage);
 
@@ -144,6 +144,7 @@ export function HomePage() {
   const inbox = useInbox();
   const tasks = useTasks();
   const channels = useChannels();
+  const [project] = useCurrentProject(projects.data);
   const now = new Date();
   const since = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - DAY;
 
@@ -152,6 +153,7 @@ export function HomePage() {
     .filter((t) => t.status === 'done' && Date.parse(t.updatedAt) >= since)
     .sort((a, b) => Date.parse(b.updatedAt) - Date.parse(a.updatedAt));
   const error = projects.error ?? features.error ?? inbox.error ?? tasks.error;
+  const projectFeatures = features.data?.filter((f) => f.projectId === project?.id);
   const summary = [
     done.length > 0 &&
       `The team finished ${done.length} ${done.length === 1 ? 'task' : 'tasks'} since yesterday.`,
@@ -201,11 +203,14 @@ export function HomePage() {
         <h2 id="today-features" className="text-[15px] font-medium">
           Features
         </h2>
-        {features.data?.length === 0 && (
-          <p className="text-[13px] text-muted">No features yet. Add one from the sidebar.</p>
+        {projectFeatures?.length === 0 && (
+          <p className="text-[13px] text-muted">
+            No features yet. Add one from <span className="md:hidden">Channels.</span>
+            <span className="hidden md:inline">the sidebar.</span>
+          </p>
         )}
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {features.data?.map((f) => (
+          {projectFeatures?.map((f) => (
             <li key={f.id} className="flex">
               <FeatureCard feature={f} />
             </li>

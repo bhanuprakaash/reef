@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Button } from '@/components/button';
-import { Logo } from '@/components/logo';
+import { Creature } from '@/components/creature';
 import { TextField } from '@/components/text-field';
 import { useCreateProject } from '@/modules/projects/api/create-project';
 
@@ -14,7 +14,12 @@ export function FirstRun() {
   return (
     <div className="flex h-screen items-center justify-center overflow-y-auto bg-main px-4 py-10 font-sans text-fg">
       <div className="flex w-full max-w-[520px] flex-col items-center gap-[22px] text-center">
-        <Logo size={72} />
+        <div className="flex items-end gap-2.5">
+          <Creature role="architect" size={44} />
+          <Creature role="lead" size={72} />
+          <Creature role="developer" size={44} />
+          <Creature role="tester" size={44} />
+        </div>
         <h1 className="text-4xl font-normal tracking-[-0.02em]">Welcome to the reef</h1>
         <p className="text-base text-muted">
           Point Reef at a repo. Every feature you start there keeps its own memory, and a team works

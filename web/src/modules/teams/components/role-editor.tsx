@@ -33,7 +33,7 @@ export function RoleEditor({ role, open, onToggle, onChange, onRemove }: Props) 
           <span className="flex items-center gap-2">
             <span className="font-semibold">{role.name || 'role'}</span>
             {role.lead && (
-              <span className="rounded-pill bg-lead/15 px-2 text-[11px] leading-5 text-lead">
+              <span className="rounded-pill bg-lead px-2 text-[11px] leading-5 text-mark-ink">
                 answers by default
               </span>
             )}

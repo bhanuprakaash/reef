@@ -3,6 +3,7 @@ import { Link, useParams } from 'react-router';
 import { TerminalPane } from '@/app/terminal-pane';
 import { ChannelList } from '@/modules/channels/components/channel-list';
 import { useChannels } from '@/lib/api/get-channels';
+import { useTeams } from '@/lib/api/get-teams';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDecisions } from '@/modules/features/api/get-decisions';
@@ -18,6 +19,7 @@ import { diffCounts } from '@/modules/features/utils/diff-counts';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { useTasks } from '@/modules/tasks/api/get-tasks';
 import { TaskList } from '@/modules/tasks/components/task-list';
+import { roleFaces } from '@/utils/role-faces';
 import { Button, buttonClass } from '@/components/button';
 import { Card } from '@/components/card';
 
@@ -30,6 +32,7 @@ export function FeaturePage() {
   const diff = useDiff(id);
   const tasks = useTasks({ feature: id });
   const channels = useChannels();
+  const teams = useTeams();
   const hasTerminal = typeof window !== 'undefined' && window.reef != null;
   const worktree = useEnsureWorktree(id);
   const [editing, setEditing] = useState(false);
@@ -45,7 +48,7 @@ export function FeaturePage() {
   return (
     <div className="space-y-7">
       <header className="flex flex-wrap items-end gap-4">
-        <div className="min-w-[360px] flex-1">
+        <div className="flex-1 md:min-w-[360px]">
           <div className="mb-2 text-xs text-muted">{project?.name} · feature</div>
           <h1 className="text-[40px] leading-[1.05] font-normal tracking-[-0.02em]">{f.name}</h1>
           {f.goal && <p className="mt-2 max-w-xl text-sm text-muted">{f.goal}</p>}
@@ -71,7 +74,7 @@ export function FeaturePage() {
       {editing && <FeatureForm key={f.id} feature={f} onDone={() => setEditing(false)} />}
       <JourneyBar stage={f.stage} />
       <div className="flex flex-wrap items-start gap-5">
-        <div className="flex min-w-[460px] flex-[999_1_460px] flex-col gap-5">
+        <div className="flex flex-[999_1_460px] flex-col gap-5 md:min-w-[460px]">
           {briefs.isError ? (
             <p className="text-sm text-danger">{briefs.error.message}</p>
           ) : (
@@ -80,7 +83,10 @@ export function FeaturePage() {
           {decisions.isError ? (
             <p className="text-sm text-danger">{decisions.error.message}</p>
           ) : (
-            <DecisionList decisions={decisions.data ?? []} />
+            <DecisionList
+              decisions={decisions.data ?? []}
+              faces={roleFaces(teams.data, latestChannel?.team)}
+            />
           )}
           <Card title="Diff">
             {diff.isError ? (

@@ -5,12 +5,14 @@ import { Card } from '@/components/card';
 import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { useChannels } from '@/lib/api/get-channels';
+import { useTeams } from '@/lib/api/get-teams';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
 import { STAGES } from '@/modules/features/utils/stages';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { ProjectMemoryForm } from '@/modules/projects/components/project-memory-form';
+import { roleFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
 
 const rowClass = 'flex min-h-10 items-center gap-2.5 hover:text-fg';
@@ -20,6 +22,7 @@ export function ProjectPage() {
   const projects = useProjects();
   const features = useFeatures();
   const channels = useChannels();
+  const teams = useTeams();
   const [dialog, setDialog] = useState<'feature' | 'session' | null>(null);
 
   if (projects.isPending) return <p className="text-sm text-muted">Loading...</p>;
@@ -47,7 +50,7 @@ export function ProjectPage() {
       </header>
 
       <div className="flex flex-wrap items-start gap-5">
-        <div className="min-w-[460px] flex-[999_1_460px]">
+        <div className="flex-[999_1_460px] md:min-w-[460px]">
           <ProjectMemoryForm projectId={id} />
         </div>
         <div className="flex min-w-[300px] flex-1 flex-col gap-4">
@@ -78,7 +81,7 @@ export function ProjectPage() {
               {quick.map((c) => (
                 <li key={c.id}>
                   <Link to={`/channels/${c.id}`} className={rowClass}>
-                    <GroupAvatar roles={[c.role]} size={22} />
+                    <GroupAvatar roles={[c.role]} faces={roleFaces(teams.data, c.team)} size={22} />
                     {c.name}
                     <span className="ml-auto text-[12.5px] text-muted">
                       {rowTime(c.lastMessage?.createdAt ?? c.createdAt)}

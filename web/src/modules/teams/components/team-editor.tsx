@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import { useUpdateTeam } from '@/modules/teams/api/update-team';
 import { AddRoleCard } from '@/modules/teams/components/add-role-card';
 import { RoleEditor } from '@/modules/teams/components/role-editor';
@@ -13,6 +13,8 @@ type Props = { team: Team; onSaved: (name: string) => void };
 
 export function TeamEditor({ team, onSaved }: Props) {
   const [roles, setRoles] = useState<Role[]>(team.roles);
+  const nextKey = useRef(team.roles.length);
+  const [keys, setKeys] = useState(() => team.roles.map((_, i) => i));
   const [gates, setGates] = useState<Gate[]>(team.gates ?? []);
   const [open, setOpen] = useState<number | null>(null);
   const [copyName, setCopyName] = useState('');
@@ -24,6 +26,7 @@ export function TeamEditor({ team, onSaved }: Props) {
   }
   function removeRole(i: number) {
     setRoles(roles.filter((_, idx) => idx !== i));
+    setKeys(keys.filter((_, idx) => idx !== i));
     setOpen(null);
   }
   function updateGate(i: number, gate: Gate) {
@@ -39,7 +42,7 @@ export function TeamEditor({ team, onSaved }: Props) {
         <h2 className="text-[11px] uppercase tracking-[0.08em] text-muted">Roles</h2>
         {roles.map((role, i) => (
           <RoleEditor
-            key={i}
+            key={keys[i]}
             role={role}
             open={open === i}
             onToggle={() => setOpen(open === i ? null : i)}
@@ -50,6 +53,7 @@ export function TeamEditor({ team, onSaved }: Props) {
         <AddRoleCard
           onAdd={(role) => {
             setRoles([...roles, role]);
+            setKeys([...keys, nextKey.current++]);
             setOpen(roles.length);
           }}
         />

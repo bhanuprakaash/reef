@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { ChannelList } from '@/app/channel-list';
+import { FeatureChannels } from '@/app/feature-channels';
 import { Dialog } from '@/components/dialog';
 import { TextField } from '@/components/text-field';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
@@ -46,7 +46,7 @@ export function ChannelsPage() {
               </svg>
             </button>
           </div>
-          <ChannelList project={p} query={query} />
+          <FeatureChannels project={p} query={query} />
         </div>
       ))}
       <Dialog open={creating !== null} onClose={() => setCreating(null)} title="New quick session">
