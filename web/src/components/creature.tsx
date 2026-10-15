@@ -5,6 +5,7 @@ export type CreatureState = 'idle' | 'working' | 'needs-you' | 'asleep' | 'faile
 type Palette = { body: string; light: string; accent: string; white: string };
 type Eye = readonly [number, number, number, number];
 type Drawing = {
+  motion: string;
   colors: Palette;
   eyes: readonly [Eye, Eye];
   shapes: (p: Palette) => ReactNode;
@@ -15,6 +16,7 @@ const none = { light: '', accent: '', white: '' };
 
 const drawings = {
   jellyfish: {
+    motion: 'c-bob',
     colors: { body: '#F26B2E', ...none },
     eyes: [
       [36, 19, 37.5, 26],
@@ -23,17 +25,22 @@ const drawings = {
     shapes: (p) => (
       <>
         <path d="M8 34 a24 24 0 0 1 48 0 q0 6 -6 6 H14 q-6 0 -6 -6 z" fill={p.body} />
-        <path
-          d="M18 44 q-4 6 0 13 M32 44 q4 6 0 13 M46 44 q-4 6 0 13"
-          fill="none"
-          stroke={p.body}
-          strokeWidth="5.5"
-          strokeLinecap="round"
-        />
+        {['M18 44 q-4 6 0 13', 'M32 44 q4 6 0 13', 'M46 44 q-4 6 0 13'].map((d, i) => (
+          <path
+            key={d}
+            className={['c-sway', 'c-sway-1', 'c-sway-2'][i]}
+            d={d}
+            fill="none"
+            stroke={p.body}
+            strokeWidth="5.5"
+            strokeLinecap="round"
+          />
+        ))}
       </>
     ),
   },
   whale: {
+    motion: 'c-bob',
     colors: { body: '#8B5CF6', ...none },
     eyes: [
       [18, 28, 19.5, 35],
@@ -41,9 +48,14 @@ const drawings = {
     ],
     shapes: (p) => (
       <>
-        <path d="M46 36 q9 -2 13 -13 q2 9 -3 15 q6 1 8 8 q-9 -3 -16 -2 z" fill={p.body} />
+        <path
+          className="c-flick"
+          d="M46 36 q9 -2 13 -13 q2 9 -3 15 q6 1 8 8 q-9 -3 -16 -2 z"
+          fill={p.body}
+        />
         <ellipse cx="27" cy="38" rx="24" ry="19" fill={p.body} />
         <path
+          className="c-puff"
           d="M24 16 v-6 M24 11 q-4 -4 -8 -3 M24 11 q4 -4 8 -3"
           fill="none"
           stroke={p.body}
@@ -54,6 +66,7 @@ const drawings = {
     ),
   },
   penguin: {
+    motion: 'c-waddle',
     colors: { body: '#3FBFA0', light: '#EEF6F3', accent: '#F2A03A', white: '' },
     eyes: [
       [26, 15, 26.5, 21],
@@ -61,8 +74,12 @@ const drawings = {
     ],
     shapes: (p) => (
       <>
-        <ellipse cx="10" cy="40" rx="5" ry="12" transform="rotate(22 10 40)" fill={p.body} />
-        <ellipse cx="54" cy="40" rx="5" ry="12" transform="rotate(-22 54 40)" fill={p.body} />
+        <g className="c-flap">
+          <ellipse cx="10" cy="40" rx="5" ry="12" transform="rotate(22 10 40)" fill={p.body} />
+        </g>
+        <g className="c-flap-1">
+          <ellipse cx="54" cy="40" rx="5" ry="12" transform="rotate(-22 54 40)" fill={p.body} />
+        </g>
         <ellipse cx="25" cy="61" rx="6" ry="2.6" fill={p.accent} />
         <ellipse cx="39" cy="61" rx="6" ry="2.6" fill={p.accent} />
         <ellipse cx="32" cy="34" rx="22" ry="26" fill={p.body} />
@@ -78,6 +95,7 @@ const drawings = {
     ),
   },
   shark: {
+    motion: 'c-swim',
     colors: { body: '#3B82F6', light: '#DCEBFF', accent: '', white: '#FFFFFF' },
     eyes: [
       [45, 24, 46, 30],
@@ -86,6 +104,7 @@ const drawings = {
     shapes: (p) => (
       <>
         <path
+          className="c-tail"
           d="M12 34 L1 21 Q3 34 1 47 Z"
           fill={p.body}
           stroke={p.body}
@@ -107,6 +126,7 @@ const drawings = {
     ),
   },
   octopus: {
+    motion: 'c-bob',
     colors: { body: '#EC6FA8', ...none },
     eyes: [
       [29, 20, 30, 27],
@@ -114,18 +134,28 @@ const drawings = {
     ],
     shapes: (p) => (
       <>
-        <path
-          d="M16 36 q-7 11 2 18 M26 40 q-3 11 4 16 M38 40 q3 11 -4 16 M48 36 q7 11 -2 18"
-          fill="none"
-          stroke={p.body}
-          strokeWidth="6"
-          strokeLinecap="round"
-        />
+        {[
+          'M16 36 q-7 11 2 18',
+          'M26 40 q-3 11 4 16',
+          'M38 40 q3 11 -4 16',
+          'M48 36 q7 11 -2 18',
+        ].map((d, i) => (
+          <path
+            key={d}
+            className={['c-sway', 'c-sway-1', 'c-sway-2', 'c-sway-1'][i]}
+            d={d}
+            fill="none"
+            stroke={p.body}
+            strokeWidth="6"
+            strokeLinecap="round"
+          />
+        ))}
         <ellipse cx="32" cy="27" rx="21" ry="20" fill={p.body} />
       </>
     ),
   },
   turtle: {
+    motion: 'c-peek',
     colors: { body: '#8BC34A', light: '#B5DB8A', accent: '', white: '' },
     eyes: [
       [28, 11, 28.5, 17],
@@ -133,8 +163,12 @@ const drawings = {
     ],
     shapes: (p) => (
       <>
-        <ellipse cx="11" cy="34" rx="7" ry="4.5" transform="rotate(-30 11 34)" fill={p.body} />
-        <ellipse cx="53" cy="34" rx="7" ry="4.5" transform="rotate(30 53 34)" fill={p.body} />
+        <g className="c-paddle">
+          <ellipse cx="11" cy="34" rx="7" ry="4.5" transform="rotate(-30 11 34)" fill={p.body} />
+        </g>
+        <g className="c-paddle-1">
+          <ellipse cx="53" cy="34" rx="7" ry="4.5" transform="rotate(30 53 34)" fill={p.body} />
+        </g>
         <ellipse cx="14" cy="56" rx="6" ry="4" fill={p.body} />
         <ellipse cx="50" cy="56" rx="6" ry="4" fill={p.body} />
         <circle cx="32" cy="15" r="11" fill={p.body} />
@@ -144,6 +178,7 @@ const drawings = {
     ),
   },
   seahorse: {
+    motion: 'c-hover',
     colors: { body: '#F5C542', ...none },
     eyes: [
       [36, 11, 36.5, 17],
@@ -159,6 +194,7 @@ const drawings = {
           strokeLinecap="round"
         />
         <path
+          className="c-flutter"
           d="M22 32 l-8 -4 l2 10 z"
           fill={p.body}
           stroke={p.body}
@@ -172,6 +208,7 @@ const drawings = {
     ),
   },
   otter: {
+    motion: 'c-rock',
     colors: { body: '#C08A5B', light: '#EBD3BB', accent: '#1C1C1E', white: '' },
     eyes: [
       [24, 25, 24.5, 31],
@@ -188,6 +225,7 @@ const drawings = {
     ),
   },
   clownfish: {
+    motion: 'c-swim',
     colors: { body: '#E5484D', light: '', accent: '', white: '#FFFFFF' },
     eyes: [
       [45, 27, 45.5, 33],
@@ -196,6 +234,7 @@ const drawings = {
     shapes: (p) => (
       <>
         <path
+          className="c-tail"
           d="M12 34 L0 22 Q3 34 0 46 Z"
           fill={p.body}
           stroke={p.body}
@@ -214,6 +253,7 @@ const drawings = {
     ),
   },
   'manta-ray': {
+    motion: 'c-glide',
     colors: { body: '#38BDF8', ...none },
     eyes: [
       [26, 20, 26.5, 26],
@@ -222,6 +262,7 @@ const drawings = {
     shapes: (p) => (
       <>
         <path
+          className="c-tailwave"
           d="M33 46 q4 10 12 14"
           fill="none"
           stroke={p.body}
@@ -229,6 +270,7 @@ const drawings = {
           strokeLinecap="round"
         />
         <path
+          className="c-wing"
           d="M2 30 Q18 10 32 14 Q46 10 62 30 Q46 34 38 44 Q32 50 26 44 Q18 34 2 30 Z"
           fill={p.body}
         />
@@ -243,6 +285,7 @@ const drawings = {
     ),
   },
   pebble: {
+    motion: 'c-bob',
     colors: { body: '#8E8E93', ...none },
     eyes: [
       [24, 28, 24.5, 34],
@@ -278,39 +321,67 @@ function eyes([a, b]: readonly [Eye, Eye], state: CreatureState) {
       return [cx - 3.5, cy + (i === 0 ? 3 : -3), cx + 3.5, cy + (i === 0 ? -3 : 3)];
     return e;
   });
-  return ticks.map(([x1, y1, x2, y2]) => (
-    <line
-      key={x1}
-      x1={x1}
-      y1={y1}
-      x2={x2}
-      y2={y2}
-      stroke="#1C1C1E"
-      strokeWidth="4"
-      strokeLinecap="round"
-    />
-  ));
+  return (
+    <g className={state === 'working' ? 'c-dart' : 'c-blink'}>
+      {ticks.map(([x1, y1, x2, y2]) => (
+        <line
+          key={x1}
+          x1={x1}
+          y1={y1}
+          x2={x2}
+          y2={y2}
+          stroke="#1C1C1E"
+          strokeWidth="4"
+          strokeLinecap="round"
+        />
+      ))}
+    </g>
+  );
 }
 
 function Body({ role, face, state }: { role: string; face?: string; state: CreatureState }) {
   const d: Drawing = drawings[creatureName(role, face)];
   const p = state === 'asleep' ? asleep : d.colors;
   return (
-    <>
+    <g className={d.motion}>
       {d.shapes(p)}
       {eyes(d.eyes, state)}
-    </>
+    </g>
   );
 }
 
 const marks = {
   'needs-you': (
-    <circle cx="53" cy="11" r="10" fill="#FF453A" stroke="var(--creature-ring)" strokeWidth="4" />
+    <circle
+      className="c-pulse"
+      cx="53"
+      cy="11"
+      r="10"
+      fill="#FF453A"
+      stroke="var(--creature-ring)"
+      strokeWidth="4"
+    />
   ),
   asleep: (
     <>
-      <circle cx="54" cy="10" r="3.5" fill="none" stroke="#8E8E93" strokeWidth="2" />
-      <circle cx="60" cy="2" r="2.2" fill="none" stroke="#8E8E93" strokeWidth="1.8" />
+      <circle
+        className="c-rise"
+        cx="54"
+        cy="10"
+        r="3.5"
+        fill="none"
+        stroke="#8E8E93"
+        strokeWidth="2"
+      />
+      <circle
+        className="c-rise-1"
+        cx="60"
+        cy="2"
+        r="2.2"
+        fill="none"
+        stroke="#8E8E93"
+        strokeWidth="1.8"
+      />
     </>
   ),
 };
@@ -320,19 +391,45 @@ type CreatureProps = {
   face?: string;
   state?: CreatureState;
   size: number;
+  animate?: boolean;
 };
 
-export function Creature({ role, face, state = 'idle', size }: CreatureProps) {
+const bubbles = (
+  <>
+    <circle
+      className="c-rise"
+      cx="56"
+      cy="8"
+      r="4"
+      fill="none"
+      stroke="#8E8E93"
+      strokeWidth="2.5"
+    />
+    <circle
+      className="c-rise-1"
+      cx="60"
+      cy="2"
+      r="2.5"
+      fill="none"
+      stroke="#8E8E93"
+      strokeWidth="2"
+    />
+  </>
+);
+
+export function Creature({ role, face, state = 'idle', size, animate }: CreatureProps) {
+  const looping = animate && state === 'idle';
   return (
     <svg
       width={size}
       height={size}
       viewBox="0 0 64 64"
       aria-hidden="true"
-      className="shrink-0 overflow-visible"
+      className={`shrink-0 overflow-visible${animate ? ' creature-live' : ''}${looping ? ' creature-loop' : ''}`}
     >
       <Body role={role} face={face} state={state} />
       {state === 'needs-you' || state === 'asleep' ? marks[state] : null}
+      {looping && creatureName(role, face) === 'pebble' ? bubbles : null}
     </svg>
   );
 }

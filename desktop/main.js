@@ -11,6 +11,8 @@ const ADDR = `127.0.0.1:${PORT}`;
 const SERVER_STOP_TIMEOUT = 5000;
 const LOGIN_SHELL_TIMEOUT = 5000;
 const STDERR_TAIL = 64 * 1024;
+const SPLASH_MIN = 1200;
+const SPLASH_FADE = 250;
 
 // The same default data folder reef serve uses: os.UserConfigDir()/Reef in
 // Go is app.getPath('appData') + '/Reef' in Electron on both Mac and Linux.
@@ -121,14 +123,18 @@ function openCaptureWindow() {
 }
 
 app.whenReady().then(async () => {
-  const PATH = await loginShellPath();
-  const ok = await startServer(PATH);
-  if (!ok) return;
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    backgroundColor: '#161616',
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
+  win.loadFile(path.join(__dirname, 'splash.html'));
+  const splashAt = Date.now();
+  const PATH = await loginShellPath();
+  if (win.isDestroyed()) return;
+  const ok = await startServer(PATH);
+  if (!ok) return;
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event, url) => {
     if (new URL(url).origin !== `http://${ADDR}`) event.preventDefault();
@@ -144,6 +150,11 @@ app.whenReady().then(async () => {
   ipcMain.on('terminal:resize', (_event, cwd, cols, rows) => terminals.resize(cwd, cols, rows));
   ipcMain.handle('capture:open', () => openCaptureWindow());
   globalShortcut.register('CommandOrControl+Shift+Space', openCaptureWindow);
+  await new Promise((resolve) => setTimeout(resolve, Math.max(0, splashAt + SPLASH_MIN - Date.now())));
+  if (win.isDestroyed()) return;
+  await win.webContents.executeJavaScript("document.body.classList.add('leaving')");
+  await new Promise((resolve) => setTimeout(resolve, SPLASH_FADE));
+  if (win.isDestroyed()) return;
   win.loadURL(`http://${ADDR}`);
 });
 

@@ -65,3 +65,262 @@
     outline-offset: 2px;
   }
 }
+
+.creature-live [class^='c-'] {
+  transform-box: fill-box;
+}
+
+@keyframes c-bob {
+  50% {
+    transform: translateY(-3px);
+  }
+}
+@keyframes c-sway {
+  0%,
+  100% {
+    transform: rotate(-9deg);
+  }
+  50% {
+    transform: rotate(9deg);
+  }
+}
+@keyframes c-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes c-puff {
+  0%,
+  55% {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.15) translateY(-2px);
+    opacity: 0;
+  }
+}
+@keyframes c-flick {
+  0%,
+  100% {
+    transform: rotate(-7deg);
+  }
+  50% {
+    transform: rotate(7deg);
+  }
+}
+@keyframes c-waddle {
+  0%,
+  100% {
+    transform: rotate(-5deg);
+  }
+  50% {
+    transform: rotate(5deg);
+  }
+}
+@keyframes c-flap {
+  50% {
+    transform: rotate(-14deg);
+  }
+}
+@keyframes c-swim {
+  0%,
+  100% {
+    transform: translateX(-2px) rotate(-1.5deg);
+  }
+  50% {
+    transform: translateX(2px) rotate(1.5deg);
+  }
+}
+@keyframes c-dart {
+  0%,
+  40%,
+  100% {
+    transform: translateX(-5px);
+  }
+  50%,
+  90% {
+    transform: translateX(0);
+  }
+}
+@keyframes c-pulse {
+  50% {
+    transform: scale(1.25);
+  }
+}
+@keyframes c-rise {
+  0% {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-14px);
+    opacity: 0;
+  }
+}
+@keyframes c-paddle {
+  0%,
+  100% {
+    transform: rotate(-14deg);
+  }
+  50% {
+    transform: rotate(14deg);
+  }
+}
+@keyframes c-peek {
+  50% {
+    transform: translateY(-2.5px);
+  }
+}
+@keyframes c-hover {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(3deg);
+  }
+}
+@keyframes c-flutter {
+  50% {
+    transform: scaleX(0.55);
+  }
+}
+@keyframes c-rock {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes c-glide {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(2deg);
+  }
+}
+@keyframes c-wing {
+  50% {
+    transform: scaleY(0.8);
+  }
+}
+
+.creature-loop .c-bob {
+  animation: c-bob 3.2s ease-in-out infinite;
+}
+.creature-loop .c-sway,
+.creature-loop .c-sway-1,
+.creature-loop .c-sway-2 {
+  transform-origin: 50% 0;
+  animation: c-sway 2.4s ease-in-out infinite;
+}
+.creature-loop .c-sway-1 {
+  animation-delay: -0.4s;
+}
+.creature-loop .c-sway-2 {
+  animation-delay: -0.8s;
+}
+.creature-loop .c-blink {
+  transform-origin: 50% 50%;
+  animation: c-blink 4.5s infinite;
+}
+.creature-loop .c-puff {
+  transform-origin: 50% 100%;
+  animation: c-puff 3s ease-out infinite;
+}
+.creature-loop .c-flick {
+  transform-origin: 0% 50%;
+  animation: c-flick 1.6s ease-in-out infinite;
+}
+.creature-loop .c-waddle {
+  transform-origin: 50% 100%;
+  animation: c-waddle 1.4s ease-in-out infinite;
+}
+.creature-loop .c-flap,
+.creature-loop .c-flap-1 {
+  transform-origin: 50% 0;
+  animation: c-flap 1.4s ease-in-out infinite;
+}
+.creature-loop .c-flap-1 {
+  animation-delay: -0.7s;
+}
+.creature-loop .c-swim {
+  transform-origin: 50% 50%;
+  animation: c-swim 2.6s ease-in-out infinite;
+}
+.creature-loop .c-tail {
+  transform-origin: 100% 50%;
+  animation: c-flick 1.3s ease-in-out infinite;
+}
+.creature-loop .c-paddle,
+.creature-loop .c-paddle-1 {
+  transform-origin: 50% 50%;
+  animation: c-paddle 1.8s ease-in-out infinite;
+}
+.creature-loop .c-paddle-1 {
+  animation-delay: -0.9s;
+}
+.creature-loop .c-peek {
+  animation: c-peek 3s ease-in-out infinite;
+}
+.creature-loop .c-hover {
+  transform-origin: 50% 50%;
+  animation: c-hover 3.4s ease-in-out infinite;
+}
+.creature-loop .c-flutter {
+  transform-origin: 100% 50%;
+  animation: c-flutter 0.5s ease-in-out infinite;
+}
+.creature-loop .c-rock {
+  transform-origin: 50% 100%;
+  animation: c-rock 3s ease-in-out infinite;
+}
+.creature-loop .c-glide {
+  transform-origin: 50% 50%;
+  animation: c-glide 3.6s ease-in-out infinite;
+}
+.creature-loop .c-wing {
+  transform-origin: 50% 40%;
+  animation: c-wing 1.8s ease-in-out infinite;
+}
+.creature-loop .c-tailwave {
+  transform-origin: 0% 0%;
+  animation: c-flick 2s ease-in-out infinite;
+}
+.creature-live .c-dart {
+  animation: c-dart 2.2s ease-in-out infinite;
+}
+.creature-live .c-pulse {
+  transform-origin: 50% 50%;
+  animation: c-pulse 1.2s ease-in-out 3;
+}
+.creature-live .c-rise,
+.creature-live .c-rise-1 {
+  animation: c-rise 2.8s ease-out infinite;
+}
+.creature-live .c-rise-1 {
+  animation-delay: -1.4s;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .creature-live * {
+    animation: none !important;
+  }
+}

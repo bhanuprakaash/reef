@@ -26,7 +26,7 @@ export function TeamList({ teams, selected, onSelect }: Props) {
             </button>
             <div className="mt-2.5 flex">
               {t.roles.map((r) => (
-                <Creature key={r.name} role={r.name} face={r.face} size={26} />
+                <Creature key={r.name} role={r.name} face={r.face} size={26} animate />
               ))}
             </div>
             <div className="mt-2 text-xs text-muted">

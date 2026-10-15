@@ -28,7 +28,7 @@ export function RoleEditor({ role, open, onToggle, onChange, onRemove }: Props) 
         onClick={onToggle}
         className="flex w-full flex-wrap items-center gap-3.5 px-4 py-3.5 text-left"
       >
-        <Creature role={role.name} face={role.face} size={40} />
+        <Creature role={role.name} face={role.face} size={40} animate />
         <span className="min-w-0 flex-1 basis-40">
           <span className="flex items-center gap-2">
             <span className="font-semibold">{role.name || 'role'}</span>

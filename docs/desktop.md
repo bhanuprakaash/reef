@@ -22,11 +22,14 @@ packaged app the `reef` binary ships inside the app's resources instead.
   takes more than 5 seconds (an rc file waiting on stdin), falls back to the PATH Electron
   already has.
 - Starts its own `reef serve` on `127.0.0.1:7700` with that `PATH`, in the dev binary
-  (`desktop/bin/reef`) or, once packaged, the bundled one. It opens the window only after
+  (`desktop/bin/reef`) or, once packaged, the bundled one. It loads the app only after
   that server logs `listening on 127.0.0.1:7700`, so it never trusts another process that
   already holds the port. `REEF_PORT` sets another port, so a second app (a test run) can run
   beside the first with its own `HOME`; the pane refuses that port instead of 7700.
-- Opens a window on `http://127.0.0.1:7700`, which serves the same UI as a browser pointed at
+- Opens the window at once on a local splash page ([`desktop/splash.html`](../desktop/splash.html),
+  no server needed: the jelly, "reef" and "Starting reef serve..."). When the server is
+  listening and the splash has shown for at least 1.2 s, the splash fades out and the window
+  loads `http://127.0.0.1:7700`, which serves the same UI as a browser pointed at
   a `reef serve` started by hand (see [server.md](server.md#web-ui)).
 - If the data folder is already in use by another `reef serve`, the server exits with
   `data folder ... is in use by another reef` on stderr. The app shows that error in a dialog,

@@ -74,7 +74,7 @@ export function InboxList() {
       )}
       {inbox.data?.length === 0 && (
         <EmptyState title="Nothing needs you" body="Everything is moving on its own.">
-          <Creature role="lead" state="asleep" size={64} />
+          <Creature role="lead" state="asleep" size={64} animate />
         </EmptyState>
       )}
       <ul className="flex flex-col gap-3">
