@@ -39,7 +39,7 @@ export function ToolPicker({ label, tools, write, servers, onChange }: Props) {
               className="flex items-center gap-x-1.5 text-sm"
               title={
                 blocked
-                  ? "Read-only roles can't run any command. Add a pattern like Bash(git log:*)."
+                  ? "Read-only roles can't run every command. Add a pattern like Bash(git log:*)."
                   : undefined
               }
             >
