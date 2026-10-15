@@ -119,8 +119,8 @@ async function addFeature(section, prefix, name) {
 async function newChannel(box, openName, name, mode = 'acceptEdits') {
   await box.getByRole('button', { name: openName }).click();
   await pick('Backend', 'claude', box);
-  await pick('Permission mode', mode, box);
-  await box.getByLabel('Channel name').fill(name);
+  if (mode) await pick('Permission mode', mode, box);
+  await box.getByLabel('Name', { exact: true }).fill(name);
   await box.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name, level: 1 }).waitFor();
   return sql(`select id from channel where name='${name}' order by id desc limit 1`);
@@ -145,13 +145,11 @@ const rootRow = (author) =>
 // Starts a channel on `team` from the form (backend and permission mode stay the team's).
 async function newTeamChannel(team, name, step) {
   await main.getByRole('button', { name: 'New channel' }).click();
-  const picker = main.getByRole('combobox', { name: 'Team', exact: true });
-  await picker.click();
-  const listbox = page.getByRole('listbox', { name: 'Team', exact: true });
-  await listbox.getByRole('option', { name: team, exact: true }).waitFor();
-  const options = await listbox.getByRole('option').allTextContents();
-  await listbox.getByRole('option', { name: team, exact: true }).click();
-  await main.getByLabel('Channel name').fill(name);
+  const card = page.getByRole('dialog', { name: 'New channel' }).getByRole('button', { name: team, exact: true });
+  await card.waitFor();
+  const options = await card.locator('xpath=..').getByRole('button').allTextContents();
+  await card.click();
+  await main.getByLabel('Name', { exact: true }).fill(name);
   if (step) await shot(step);
   await main.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name, level: 1 }).waitFor();
@@ -842,7 +840,7 @@ async function memory() {
   const session = `quick-${Date.now().toString(36)}`;
   await main.getByRole('button', { name: 'New quick session' }).click();
   const sessionDialog = page.getByRole('dialog', { name: 'New quick session' });
-  await sessionDialog.getByLabel('Channel name').fill(session);
+  await sessionDialog.getByLabel('Name', { exact: true }).fill(session);
   await sessionDialog.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name: session, level: 1 }).waitFor();
   check(

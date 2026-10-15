@@ -1,19 +1,18 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useCreateChannel } from '@/modules/channels/api/create-channel';
 import { useTeams } from '@/lib/api/get-teams';
 import { BACKENDS, PERMISSION_MODES } from '@/modules/channels/utils/backends';
-import type { Role } from '@/types/api';
 import { Button } from '@/components/button';
 import { GroupAvatar } from '@/components/creature';
 import { Select } from '@/components/select';
 import { TextField } from '@/components/text-field';
 
-type Props = { projectId: number; featureId: number | null; onClose?: () => void };
+const labelClass = 'mb-1.5 block text-[12.5px] text-muted';
+
+type Props = { projectId: number; featureId: number | null; onClose: () => void };
 
 export function NewChannelForm({ projectId, featureId, onClose }: Props) {
-  const label = featureId === null ? 'New quick session' : 'New channel';
-  const [open, setOpen] = useState(onClose !== undefined);
   const [backend, setBackend] = useState('');
   const [permissionMode, setPermissionMode] = useState('');
   const [team, setTeam] = useState('solo');
@@ -21,26 +20,12 @@ export function NewChannelForm({ projectId, featureId, onClose }: Props) {
   const create = useCreateChannel();
   const teams = useTeams();
   const navigate = useNavigate();
-
-  function close() {
-    setOpen(false);
-    onClose?.();
-  }
-
-  if (!open) {
-    return (
-      <Button type="button" onClick={() => setOpen(true)}>
-        {label}
-      </Button>
-    );
-  }
-
-  const teamRoles: Pick<Role, 'name' | 'face'>[] = teams.data?.find((t) => t.name === team)
-    ?.roles ?? [{ name: 'lead' }];
+  const nameId = useId();
+  const teamList = teams.data ?? [{ name: 'solo', roles: [{ name: 'lead', face: undefined }] }];
 
   return (
     <form
-      className="space-y-2"
+      className="space-y-3.5"
       onSubmit={(e) => {
         e.preventDefault();
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
@@ -55,86 +40,93 @@ export function NewChannelForm({ projectId, featureId, onClose }: Props) {
           },
           {
             onSuccess: (channel) => {
-              setName('');
-              close();
+              onClose();
               void navigate(`/channels/${channel.id}`);
             },
           },
         );
       }}
     >
-      <label className="block space-y-1">
-        <span className="text-sm text-muted">Backend</span>
-        <Select
+      <div>
+        <label htmlFor={nameId} className={labelClass}>
+          Name
+        </label>
+        <TextField
+          id={nameId}
           className="w-full"
-          aria-label="Backend"
-          value={backend}
-          onChange={(v) => {
-            setBackend(v);
-            setPermissionMode('');
-          }}
-          options={[
-            { value: '', label: 'Team default' },
-            ...BACKENDS.map((b) => ({ value: b, label: b })),
-          ]}
+          placeholder="optional"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
         />
-      </label>
-      {backend && (
-        <label className="block space-y-1">
-          <span className="text-sm text-muted">Permission mode</span>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <div className={labelClass}>Backend</div>
+          <Select
+            className="w-full"
+            aria-label="Backend"
+            value={backend}
+            onChange={(v) => {
+              setBackend(v);
+              setPermissionMode('');
+            }}
+            options={[
+              { value: '', label: 'Team default' },
+              ...BACKENDS.map((b) => ({ value: b, label: b })),
+            ]}
+          />
+        </div>
+        <div>
+          <div className={labelClass}>Permission</div>
           <Select
             className="w-full"
             aria-label="Permission mode"
+            disabled={!backend}
             value={permissionMode}
             onChange={setPermissionMode}
             options={[
               { value: '', label: 'Backend default' },
-              ...PERMISSION_MODES[backend].map((m) => ({ value: m, label: m })),
+              ...(PERMISSION_MODES[backend] ?? []).map((m) => ({ value: m, label: m })),
             ]}
           />
-        </label>
-      )}
-      <label className="block space-y-1">
-        <span className="text-sm text-muted">Team</span>
-        <div className="flex items-center gap-2">
-          <GroupAvatar
-            roles={teamRoles.map((r) => r.name)}
-            faces={Object.fromEntries(teamRoles.map((r) => [r.name, r.face]))}
-            size={30}
-          />
-          <Select
-            className="w-full"
-            aria-label="Team"
-            value={team}
-            onChange={setTeam}
-            options={(teams.data ?? [{ name: 'solo' }]).map((t) => ({
-              value: t.name,
-              label: t.name,
-            }))}
-          />
         </div>
-      </label>
-      <TextField
-        className="w-full"
-        placeholder="Name (optional)"
-        aria-label="Channel name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-      />
+      </div>
+      <div>
+        <div className={labelClass}>Team</div>
+        <div className="grid grid-cols-2 gap-2">
+          {teamList.map((t) => (
+            <button
+              key={t.name}
+              type="button"
+              aria-pressed={t.name === team}
+              onClick={() => setTeam(t.name)}
+              className={`flex min-w-0 items-center gap-2 rounded-menu border p-2.5 text-left text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring ${
+                t.name === team ? 'border-fg bg-raised text-fg' : 'border-line text-soft'
+              }`}
+            >
+              <GroupAvatar
+                roles={t.roles.map((r) => r.name)}
+                faces={Object.fromEntries(t.roles.map((r) => [r.name, r.face]))}
+                size={26}
+              />
+              <span className="truncate">{t.name}</span>
+            </button>
+          ))}
+        </div>
+      </div>
       {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
-      <div className="flex gap-2">
-        <Button variant="primary" type="submit" loading={create.isPending}>
-          Start
-        </Button>
+      <div className="flex justify-end gap-2">
         <Button
-          variant="ghost"
           type="button"
           onClick={() => {
             create.reset();
-            close();
+            onClose();
           }}
         >
           Cancel
+        </Button>
+        <Button variant="primary" type="submit" loading={create.isPending}>
+          Start
         </Button>
       </div>
     </form>
