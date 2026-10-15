@@ -28,9 +28,11 @@ type Gate struct {
 	On   bool   `json:"on"`
 }
 
-var _faces = []string{
-	"jellyfish", "whale", "penguin", "shark", "octopus", "turtle", "seahorse", "otter",
-	"clownfish", "manta-ray", "pebble",
+func faces() []string {
+	return []string{
+		"jellyfish", "whale", "penguin", "shark", "octopus", "turtle", "seahorse", "otter",
+		"clownfish", "manta-ray", "pebble",
+	}
 }
 
 // Role is one teammate's setup. Face picks the creature the window draws for the role; empty
@@ -231,9 +233,9 @@ func (t Team) validate() error {
 		if err := ValidateAgent(r.Backend, r.PermissionMode); err != nil {
 			return fmt.Errorf("role %s: %w", r.Name, err)
 		}
-		if r.Face != "" && !slices.Contains(_faces, r.Face) {
+		if r.Face != "" && !slices.Contains(faces(), r.Face) {
 			return fmt.Errorf("%w: role %s: face %q must be one of %s",
-				ErrInvalid, r.Name, r.Face, strings.Join(_faces, ", "))
+				ErrInvalid, r.Name, r.Face, strings.Join(faces(), ", "))
 		}
 		if r.Backend == "claude" && !r.Write && slices.ContainsFunc(r.Tools, UnrestrictedBash) {
 			return fmt.Errorf("%w: role %s has no write, so it cannot have unrestricted Bash; "+

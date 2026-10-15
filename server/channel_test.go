@@ -141,9 +141,12 @@ func TestListChannelsLastMessage(t *testing.T) {
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
 	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"talk","backend":"claude"}`)
 	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"empty","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"long","backend":"claude"}`)
 	for _, m := range []string{
 		`{"channelId":1,"author":"user","body":"hi"}`,
 		`{"channelId":1,"author":"lead","body":"hello there"}`,
+		`{"channelId":1,"parentId":1,"author":"user","body":"in a thread"}`,
+		`{"channelId":3,"author":"user","body":"` + strings.Repeat("a", 250) + `"}`,
 	} {
 		if status, body := do(t, http.MethodPost, ts.URL+"/messages", m); status != 201 {
 			t.Fatalf("post message = %d %s", status, body)
@@ -165,11 +168,14 @@ func TestListChannelsLastMessage(t *testing.T) {
 	if err := json.Unmarshal([]byte(body), &got); err != nil {
 		t.Fatal(err)
 	}
-	if len(got) != 2 || got[0].Name != "talk" || got[1].Name != "empty" {
+	if len(got) != 3 || got[0].Name != "talk" || got[1].Name != "empty" || got[2].Name != "long" {
 		t.Fatalf("channels = %s", body)
 	}
-	if m := got[0].LastMessage; m == nil || m.Author != "lead" || m.Body != "hello there" || m.CreatedAt == "" {
-		t.Errorf("talk lastMessage = %+v, want lead: hello there", m)
+	if m := got[0].LastMessage; m == nil || m.Author != "user" || m.Body != "in a thread" || m.CreatedAt == "" {
+		t.Errorf("talk lastMessage = %+v, want user: in a thread", m)
+	}
+	if m := got[2].LastMessage; m == nil || m.Body != strings.Repeat("a", 200) {
+		t.Errorf("long lastMessage = %+v, want the first 200 characters", m)
 	}
 	if got[1].LastMessage != nil || !strings.Contains(body, `"lastMessage":null`) {
 		t.Errorf("empty lastMessage = %+v, want null in %s", got[1].LastMessage, body)

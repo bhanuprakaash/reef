@@ -40,7 +40,11 @@ type ChannelPreview struct {
 	LastMessage *LastMessage `json:"lastMessage"`
 }
 
-// LastMessage is the author, body and time of a channel's newest message.
+// _previewChars is how many characters of the newest message a channel preview keeps.
+const _previewChars = "200"
+
+// LastMessage is the author, body (cut to its first 200 characters) and time of a channel's
+// newest message.
 type LastMessage struct {
 	Author    string    `json:"author"`
 	Body      string    `json:"body"`
@@ -51,6 +55,18 @@ type LastMessage struct {
 type ChannelFilter struct {
 	ProjectID *int64
 	FeatureID *int64
+}
+
+func (f ChannelFilter) where() (string, []any) {
+	var q string
+	args := []any{}
+	if f.ProjectID != nil {
+		q, args = q+" AND channel.project_id = ?", append(args, *f.ProjectID)
+	}
+	if f.FeatureID != nil {
+		q, args = q+" AND channel.feature_id = ?", append(args, *f.FeatureID)
+	}
+	return q, args
 }
 
 // CreateChannel adds c in team c.Team (solo when empty), which must exist. A set
@@ -136,7 +152,7 @@ func (s *Store) Channels(ctx context.Context, f ChannelFilter) ([]Channel, error
 func (s *Store) ChannelPreviews(ctx context.Context, f ChannelFilter) ([]ChannelPreview, error) {
 	where, args := f.where()
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT "+_channelCols+", m.author, m.body, m.created_at FROM channel "+
+		"SELECT "+_channelCols+", m.author, substr(m.body, 1, "+_previewChars+"), m.created_at FROM channel "+
 			"LEFT JOIN message m ON m.id = "+
 			"(SELECT MAX(id) FROM message WHERE channel_id = channel.id) "+
 			"WHERE 1 = 1"+where+" ORDER BY channel.id", args...)
@@ -144,18 +160,6 @@ func (s *Store) ChannelPreviews(ctx context.Context, f ChannelFilter) ([]Channel
 		return nil, fmt.Errorf("list channel previews: %w", err)
 	}
 	return scanAll(rows, scanChannelPreview)
-}
-
-func (f ChannelFilter) where() (string, []any) {
-	var q string
-	args := []any{}
-	if f.ProjectID != nil {
-		q, args = q+" AND channel.project_id = ?", append(args, *f.ProjectID)
-	}
-	if f.FeatureID != nil {
-		q, args = q+" AND channel.feature_id = ?", append(args, *f.FeatureID)
-	}
-	return q, args
 }
 
 // UpdateChannel sets the name and permission mode of c.ID. A channel never changes
@@ -344,26 +348,26 @@ func (c Channel) validate() error {
 	return nil
 }
 
-type scanWith struct {
-	r    interface{ Scan(...any) error }
-	rest []any
-}
-
-func (s scanWith) Scan(dest ...any) error { return s.r.Scan(append(dest, s.rest...)...) }
-
 func scanChannelPreview(r interface{ Scan(...any) error }) (ChannelPreview, error) {
-	var author, body, created sql.NullString
-	c, err := scanChannel(scanWith{r, []any{&author, &body, &created}})
-	if err != nil {
+	var p ChannelPreview
+	var created string
+	var author, body, lastCreated sql.NullString
+	if err := r.Scan(&p.ID, &p.ProjectID, &p.FeatureID, &p.Name, &p.Role, &p.Backend,
+		&p.PermissionMode, &p.Paused, &p.TokenBudget, &created, &p.Team,
+		&author, &body, &lastCreated); err != nil {
 		return ChannelPreview{}, err
 	}
-	p := ChannelPreview{Channel: c}
-	if !created.Valid {
+	t, err := time.Parse(time.RFC3339Nano, created)
+	if err != nil {
+		return ChannelPreview{}, fmt.Errorf("channel %d: bad created_at: %w", p.ID, err)
+	}
+	p.CreatedAt = t
+	if !lastCreated.Valid {
 		return p, nil
 	}
-	t, err := time.Parse(time.RFC3339Nano, created.String)
+	t, err = time.Parse(time.RFC3339Nano, lastCreated.String)
 	if err != nil {
-		return ChannelPreview{}, fmt.Errorf("channel %d: bad last message created_at: %w", c.ID, err)
+		return ChannelPreview{}, fmt.Errorf("channel %d: bad last message created_at: %w", p.ID, err)
 	}
 	p.LastMessage = &LastMessage{Author: author.String, Body: body.String, CreatedAt: t}
 	return p, nil
