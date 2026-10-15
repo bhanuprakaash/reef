@@ -200,8 +200,53 @@ export function DiffPanel({
                             <span className="flex size-5 flex-none items-center justify-center rounded-full bg-line text-[9px] text-soft">
                               You
                             </span>
-                            <span className="flex-1">{c.text}</span>
+                            <span className="flex-1 whitespace-pre-wrap">{c.text}</span>
                             <span className="text-xs text-muted">draft</span>
+                            <button
+                              type="button"
+                              aria-label="Edit comment"
+                              title="Edit"
+                              onClick={() => {
+                                setComments((cs) => cs.filter((x) => x !== c));
+                                setActive(target);
+                                setDraft(c.text);
+                              }}
+                              className="-my-1 flex size-6 flex-none items-center justify-center rounded-md text-muted hover:bg-hover hover:text-fg max-md:size-11"
+                            >
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M4 20h4L19 9l-4-4L4 16z" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Delete comment"
+                              title="Delete"
+                              onClick={() => setComments((cs) => cs.filter((x) => x !== c))}
+                              className="-my-1 flex size-6 flex-none items-center justify-center rounded-md text-muted hover:bg-hover hover:text-danger max-md:size-11"
+                            >
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M6 6l12 12M18 6L6 18" />
+                              </svg>
+                            </button>
                           </div>
                         ))}
                         {active && target && sameTarget(active, target) && (

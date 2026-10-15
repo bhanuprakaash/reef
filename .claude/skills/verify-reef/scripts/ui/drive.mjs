@@ -59,10 +59,10 @@ async function send(text) {
   await page.getByLabel('Message').press('Enter');
 }
 async function working() {
-  await page.getByText('is working...').waitFor({ timeout: 30000 });
+  await page.getByText('is working').waitFor({ timeout: 30000 });
 }
 async function idle() {
-  await page.getByText('is working...').waitFor({ state: 'hidden', timeout: 240000 });
+  await page.getByText('is working').waitFor({ state: 'hidden', timeout: 240000 });
   await page.getByRole('button', { name: 'Stop' }).waitFor({ state: 'hidden' });
 }
 async function exchange(text) {
@@ -131,18 +131,24 @@ async function newChannel(box, openName, name, mode = 'acceptEdits') {
   return sql(`select id from channel where name='${name}' order by id desc limit 1`);
 }
 
-// The label of the running turn names its role: `<role> is working...`.
-const liveLabel = main.getByText('is working...').locator('..');
+// The label of the running turn names its role: `<role> is working`.
+const liveLabel = main.getByText('is working').locator('..');
 async function workingAs(role, timeout = 240000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
     if ((await liveLabel.count()) > 0) {
       const text = (await liveLabel.first().textContent().catch(() => '')) ?? '';
-      if (text.replace('is working...', '').trim() === role) return true;
+      if (text.replace('is working', '').trim() === role) return true;
     }
     await page.waitForTimeout(250);
   }
   return false;
+}
+// The running turn is one compact row in the channel; clicking it opens the panel with the full stream.
+const turnPanel = page.getByRole('complementary', { name: 'Turn' });
+async function openTurn() {
+  await main.getByRole('button', { name: /is working/ }).click();
+  await turnPanel.waitFor();
 }
 // The top-level message rows of the main list that `author` wrote (they have the Reply button).
 const rootRow = (author) =>
@@ -172,11 +178,16 @@ async function live() {
     'List the files in this directory with a tool, then read one of them with a tool, then summarize what you saw in two sentences.',
   );
   await working();
-  await main.locator('details summary').first().waitFor({ timeout: 120000 });
+  const row = main.getByRole('button', { name: /is working/ });
+  await row.getByText(/^(Bash|Read|Glob|Grep|LS|List)\b/).waitFor({ timeout: 120000 });
   await page.waitForTimeout(1500);
   await shot('midturn');
-  const rows = await main.locator('details summary').count();
-  check(rows >= 1, 'tool rows shown while the turn runs', `${rows} rows, first: ${await main.locator('details summary').first().innerText()}`);
+  check((await main.locator('details').count()) === 0, 'the channel shows one compact row, no inline tool rows', await row.innerText());
+  await openTurn();
+  await turnPanel.locator('details summary').first().waitFor({ timeout: 120000 });
+  await shot('turn-panel');
+  const rows = await turnPanel.locator('details summary').count();
+  check(rows >= 1, 'tool rows shown in the turn panel while the turn runs', `${rows} rows, first: ${await turnPanel.locator('details summary').first().innerText()}`);
   await idle();
   await shot('final');
   const lead = sql(`select count(*) from message where channel_id=${cid} and author='lead'`);
@@ -212,12 +223,12 @@ async function promote() {
   await exchange('I have an idea: a search bar for the shop that filters products as you type.');
   await exchange('Decision: search is client side only for now, because the catalog is small (under 200 items).');
   const quick = sql(`select id from turn where channel_id=${cid} and checkpoint is not null order by id`).split('\n');
-  const rows = main.getByRole('region', { name: 'Checkpoints' }).getByRole('listitem');
-  await rows.first().waitFor({ timeout: 15000 });
+  const checkpoints = main.getByRole('region', { name: 'Checkpoints' });
+  await checkpoints.getByText('2 checkpoints').waitFor({ timeout: 15000 });
   check(
-    quick.length === 2 && (await rows.count()) === 2,
+    quick.length === 2,
     'a quick session in a git repo lists its two checkpoints before the promote',
-    `turns with a checkpoint: ${quick.join(',')}; rows: ${await rows.count()}`,
+    `turns with a checkpoint: ${quick.join(',')}; row: ${await checkpoints.innerText()}`,
   );
   await shot('before-promote');
   await page.getByRole('button', { name: 'Promote to feature' }).click();
@@ -234,11 +245,11 @@ async function promote() {
   check(true, 'promote turn ends with a proposal panel');
   await page.waitForTimeout(1000);
   await shot('checkpoints-after-promote');
-  const left = await rows.allInnerTexts();
+  const left = await checkpoints.allInnerTexts();
   check(
-    !left.some((t) => quick.some((id) => t.includes(`before turn ${id} `))),
+    !left.some((t) => t.includes('2 checkpoints') || quick.some((id) => t.includes(`before turn ${id} `))),
     'the quick-session checkpoints, taken in another tree, have no Roll back button after the promote',
-    `rows: ${JSON.stringify(left)}; GET rollbackable: ${JSON.stringify((await getJson(`/turns?channel=${cid}&rollbackable=1`)).map((t) => t.id))}`,
+    `row: ${JSON.stringify(left)}; GET rollbackable: ${JSON.stringify((await getJson(`/turns?channel=${cid}&rollbackable=1`)).map((t) => t.id))}`,
   );
   const under = section
     .locator('li', { has: page.getByRole('link', { name: 'Search', exact: true }) })
@@ -638,10 +649,11 @@ async function stop() {
   const cid = await newChannel(main, 'New channel', 'stop chat');
   await send('Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
   await working();
-  await main.locator('div.items-start:has(span.normal-case) > div.bg-bubble:not([role])').first().waitFor({ timeout: 60000 });
+  await openTurn();
+  await turnPanel.locator('div.bg-bubble:not([role])').first().waitFor({ timeout: 60000 });
   await page.waitForTimeout(1000);
   await page.getByRole('button', { name: 'Stop' }).click();
-  await page.getByText(/Failed: interrupted/).waitFor({ timeout: 30000 });
+  await main.getByRole('button', { name: /Failed: interrupted/ }).waitFor({ timeout: 30000 });
   await shot('stopped');
   check(true, 'Stop shows the turn failed', sql(`select id,status,error from turn where channel_id=${cid}`));
   const partial = sql(`select substr(replace(body, char(10), ' '),1,40) from message where channel_id=${cid} and author='lead'`);
@@ -707,11 +719,11 @@ async function rollback() {
   git(tree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'by the turn');
   const turnId = sql(`select id from turn where channel_id=${cid} order by id desc limit 1`);
   const list = main.getByRole('region', { name: 'Checkpoints' });
-  await list.getByText(`Checkpoint before turn ${turnId} by lead`).waitFor({ timeout: 15000 });
+  await list.getByText('2 checkpoints').waitFor({ timeout: 15000 });
   await shot('checkpoints');
   check(
-    git(tree, 'log', '--oneline').includes('by the turn') && (await list.getByRole('button', { name: 'Roll back' }).count()) === 2,
-    'two turns have a Roll back button and the turn left a commit and new.txt',
+    git(tree, 'log', '--oneline').includes('by the turn') && (await list.innerText()).includes('2 checkpoints'),
+    'the two turns fold into one checkpoint row and the turn left a commit and new.txt',
     `files: ${git(tree, 'ls-files')}; log:\n${git(tree, 'log', '--oneline')}`,
   );
   let asked = '';
@@ -719,7 +731,9 @@ async function rollback() {
     asked = d.message();
     d.accept();
   });
-  await list.getByRole('listitem').filter({ hasText: `before turn ${turnId} by` }).getByRole('button', { name: 'Roll back' }).click();
+  await list.getByRole('button', { name: 'Roll back…' }).click();
+  await shot('checkpoint-menu');
+  await page.getByRole('menuitem', { name: new RegExp(`^Before turn ${turnId} · lead`) }).click();
   await page.getByText(`Rolled back to before turn ${turnId}.`).waitFor({ timeout: 15000 });
   await shot('rolled-back');
   check(asked.includes(`Roll back to before turn ${turnId}?`), 'Roll back asks to confirm', asked);
@@ -990,7 +1004,7 @@ async function review() {
   const before = Number(sql(`select count(*) from turn where channel_id=${cid} and role='developer'`));
   await sendButton.click();
   // The review message matches no recorded scenario, so the turn may error and end before
-  // the window ever shows "is working...": poll the turn row instead of workingAs/idle.
+  // the window ever shows "is working": poll the turn row instead of workingAs/idle.
   let after = before;
   for (let i = 0; i < 60 && after === before; i++) {
     await page.waitForTimeout(500);

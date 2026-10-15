@@ -380,6 +380,7 @@ func (s *Session) member(
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.OnPrompt = s.onPrompt
+	m.run.Uncapped = r.Write
 	if r.Write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
 		m.run.CheckpointDir = cwd
 	}

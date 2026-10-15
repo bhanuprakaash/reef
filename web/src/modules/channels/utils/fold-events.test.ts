@@ -34,6 +34,22 @@ describe('foldEvent', () => {
     });
   });
 
+  it('drops the whitespace a text block starts with, and skips a block of only whitespace', () => {
+    const got = fold([
+      agent({ kind: 'text', text: '\n\n' }),
+      agent({ kind: 'text', text: 'Hi' }),
+      agent({ kind: 'tool_call', toolId: 't1', toolName: 'Bash', input: {} }),
+      agent({ kind: 'text', text: '\n\n' }),
+      agent({ kind: 'text', text: '\n\nFails (' }),
+      agent({ kind: 'text', text: 'two\n\nlines)' }),
+    ]);
+    expect(got.items.map((i) => (i.type === 'text' ? i.text : i.tool.id))).toEqual([
+      'Hi',
+      't1',
+      'Fails (two\n\nlines)',
+    ]);
+  });
+
   it('pairs a tool result with its call by tool id', () => {
     const got = fold([
       agent({ kind: 'tool_call', toolId: 't1', toolName: 'Read', input: { file_path: 'a' } }),

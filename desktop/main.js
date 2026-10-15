@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, shell } from 'electron';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -191,7 +191,10 @@ app.whenReady().then(async () => {
   if (win.isDestroyed()) return;
   const ok = await startServer(PATH);
   if (!ok) return;
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
   win.webContents.on('will-navigate', (event, url) => {
     if (new URL(url).origin !== `http://${ADDR}`) event.preventDefault();
   });

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Brief } from '@/types/api';
 import { Card } from '@/components/card';
+import { Markdown } from '@/components/markdown';
 import { EmptyState } from '@/components/empty-state';
 
 export function BriefPanel({ versions }: { versions: Brief[] }) {
@@ -43,9 +44,9 @@ export function BriefPanel({ versions }: { versions: Brief[] }) {
         />
       ) : (
         <div className="space-y-3">
-          <pre className="font-sans text-[15px] leading-relaxed whitespace-pre-wrap text-soft">
-            {latest.body}
-          </pre>
+          <div className="text-[15px] leading-relaxed text-soft">
+            <Markdown>{latest.body}</Markdown>
+          </div>
           {showHistory && (
             <ul className="space-y-2 border-t border-hairline pt-3">
               {older.map((b, i) => (
@@ -55,9 +56,9 @@ export function BriefPanel({ versions }: { versions: Brief[] }) {
                       Version {older.length - i} by <span className="capitalize">{b.author}</span>,{' '}
                       {new Date(b.createdAt).toLocaleString()}
                     </summary>
-                    <pre className="mt-1.5 font-sans text-sm whitespace-pre-wrap text-muted">
-                      {b.body}
-                    </pre>
+                    <div className="mt-1.5 text-sm text-muted">
+                      <Markdown>{b.body}</Markdown>
+                    </div>
                   </details>
                 </li>
               ))}

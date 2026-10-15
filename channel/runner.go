@@ -30,6 +30,8 @@ type Runner struct {
 	CheckpointDir string
 	// NoWake, when set, keeps no wake on the turns it stores, so they cannot be retried.
 	NoWake bool
+	// Uncapped, when set, lets a turn make any number of tool calls.
+	Uncapped bool
 
 	st        *store.Store
 	ag        agent.Agent
@@ -130,7 +132,7 @@ func (r *Runner) Run(
 			case agent.KindText:
 				reply.WriteString(ev.Text)
 			case agent.KindToolCall:
-				if calls++; calls > r.toolCap {
+				if calls++; !r.Uncapped && calls > r.toolCap {
 					capped := fmt.Errorf("%w: more than %d tool calls", ErrCapped, r.toolCap)
 					return errors.Join(
 						r.abort(wctx, turn, capped, capped.Error(), reply.String(), parent),
