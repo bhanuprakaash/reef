@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import type { DragEvent } from 'react';
+import { Link } from 'react-router';
 import { useUpdateTask } from '@/modules/tasks/api/update-task';
 import type { Feature, Task, TaskStatus } from '@/types/api';
 import { Select } from '@/components/select';
@@ -58,10 +59,15 @@ export function TaskBoard({ tasks, features }: Props) {
                     onDragStart={(e) => e.dataTransfer.setData('text/plain', String(task.id))}
                     className={`flex flex-col gap-2 rounded-menu px-3.5 py-3 ${done ? 'bg-main text-muted' : 'bg-card'}`}
                   >
-                    <p className="flex gap-1.5">
+                    <Link
+                      to={`/tasks/${task.id}`}
+                      draggable={false}
+                      className="flex gap-1.5 hover:underline"
+                    >
                       <span className="text-muted">#{task.id}</span>
                       <span className={done ? 'line-through' : ''}>{task.title}</span>
-                    </p>
+                    </Link>
+                    {task.body && <p className="line-clamp-2 text-xs text-muted">{task.body}</p>}
                     <div className="flex items-center gap-2 text-xs text-muted">
                       {feature && (
                         <span className="flex h-5 items-center rounded-pill bg-track px-2">
