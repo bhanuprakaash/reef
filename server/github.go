@@ -38,6 +38,16 @@ type ghPR struct {
 	HeadRefName       string    `json:"headRefName"`
 	BaseRefName       string    `json:"baseRefName"`
 	StatusCheckRollup []ghCheck `json:"statusCheckRollup"`
+	Body              string    `json:"body"`
+	Additions         int       `json:"additions"`
+	Deletions         int       `json:"deletions"`
+	Files             []ghFile  `json:"files"`
+}
+
+type ghFile struct {
+	Path      string `json:"path"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
 }
 
 // ghCheck is one item of statusCheckRollup: a CheckRun (name, status, conclusion, detailsUrl,
@@ -231,7 +241,7 @@ func runGh(ctx context.Context, ghPath, dir, slug string) (ghPR, error) {
 	defer cancel()
 	cmd := exec.CommandContext(cctx, ghPath, "pr", "view", worktree.Branch(slug),
 		"--json", "number,title,url,state,isDraft,mergeable,reviewDecision,headRefName,"+
-			"baseRefName,statusCheckRollup")
+			"baseRefName,statusCheckRollup,body,additions,deletions,files")
 	cmd.Dir = dir
 	out, err := cmd.Output()
 	if err != nil {
@@ -266,6 +276,16 @@ type prView struct {
 	Head           string    `json:"head"`
 	CanMerge       bool      `json:"canMerge"`
 	Checks         []prCheck `json:"checks"`
+	Body           string    `json:"body"`
+	Additions      int       `json:"additions"`
+	Deletions      int       `json:"deletions"`
+	Files          []prFile  `json:"files"`
+}
+
+type prFile struct {
+	Path      string `json:"path"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
 }
 
 type prCheck struct {
@@ -285,10 +305,15 @@ func newPRView(pr ghPR) prView {
 		}
 		checks[i] = prCheck{Name: c.checkName(), State: state}
 	}
+	files := make([]prFile, len(pr.Files))
+	for i, f := range pr.Files {
+		files[i] = prFile(f)
+	}
 	return prView{
 		Number: pr.Number, Title: pr.Title, State: pr.State, URL: pr.URL, IsDraft: pr.IsDraft,
 		ReviewDecision: pr.ReviewDecision, Base: pr.BaseRefName, Head: pr.HeadRefName,
 		CanMerge: pr.State == "OPEN" && pr.Mergeable == "MERGEABLE", Checks: checks,
+		Body: pr.Body, Additions: pr.Additions, Deletions: pr.Deletions, Files: files,
 	}
 }
 

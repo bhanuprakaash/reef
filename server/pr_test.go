@@ -84,12 +84,16 @@ func TestFeaturePR(t *testing.T) {
 		`"headRefName":"feature/demo","baseRefName":"main","statusCheckRollup":[`+
 		`{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"SUCCESS"},`+
 		`{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"FAILURE"},`+
-		`{"__typename":"StatusContext","context":"deploy","state":"PENDING"}]}`)
+		`{"__typename":"StatusContext","context":"deploy","state":"PENDING"}],`+
+		`"body":"Line one\nLine two","additions":10,"deletions":3,"changedFiles":2,"files":[`+
+		`{"path":"a.go","additions":7,"deletions":1},{"path":"b.go","additions":3,"deletions":2}]}`)
 	const open = `{"pr":{"number":12,"title":"Add login","state":"OPEN",` +
 		`"url":"https://github.com/x/y/pull/12","isDraft":false,"reviewDecision":"APPROVED",` +
 		`"base":"main","head":"feature/demo","canMerge":true,"checks":[` +
 		`{"name":"build","state":"pass"},{"name":"lint","state":"fail"},` +
-		`{"name":"deploy","state":"pending"}]}}`
+		`{"name":"deploy","state":"pending"}],"body":"Line one\nLine two","additions":10,` +
+		`"deletions":3,"files":[{"path":"a.go","additions":7,"deletions":1},` +
+		`{"path":"b.go","additions":3,"deletions":2}]}}`
 	if code, body := do(t, http.MethodGet, ts.URL+"/features/1/pr", ""); code != 200 || body != open {
 		t.Errorf("GET open PR = %d %s, want 200 %s", code, body, open)
 	}

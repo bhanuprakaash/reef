@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { Button, buttonClass } from '@/components/button';
 import { Dialog } from '@/components/dialog';
 import { StageChip } from '@/components/stage-chip';
@@ -84,6 +85,7 @@ export function PrPanel({ featureId, onClose }: { featureId: number; onClose: ()
               <span className="font-mono">{pr.head}</span>
             </div>
           </div>
+          {pr.body && <PrBody body={pr.body} />}
           <div className="flex items-center justify-between rounded-menu bg-field px-3 py-2.5 text-[13.5px]">
             <span className="text-muted">Review</span>
             <span>{REVIEW[pr.reviewDecision] ?? 'No reviews'}</span>
@@ -118,6 +120,29 @@ export function PrPanel({ featureId, onClose }: { featureId: number; onClose: ()
                   </li>
                 );
               })}
+            </ul>
+          </section>
+          <section aria-label="Changes" className="space-y-1.5">
+            <h3 className="flex gap-2 text-[12.5px] font-normal text-muted">
+              Changes
+              <span className="ml-auto">
+                +{pr.additions} −{pr.deletions} · {pr.files.length}{' '}
+                {pr.files.length === 1 ? 'file' : 'files'}
+              </span>
+            </h3>
+            <ul className="space-y-1.5">
+              {pr.files.map((f) => (
+                <li key={f.path}>
+                  <Link
+                    to={`/features/${featureId}/review`}
+                    className="flex items-center gap-2.5 rounded-menu bg-field px-3 py-2 text-[13.5px] hover:bg-hover"
+                  >
+                    <span className="min-w-0 flex-1 truncate font-mono">{f.path}</span>
+                    <span className="shrink-0 text-[12.5px] text-done">+{f.additions}</span>
+                    <span className="shrink-0 text-[12.5px] text-failed">−{f.deletions}</span>
+                  </Link>
+                </li>
+              ))}
             </ul>
           </section>
           <div className="flex flex-wrap items-center gap-2">
@@ -170,5 +195,32 @@ export function PrPanel({ featureId, onClose }: { featureId: number; onClose: ()
         </>
       )}
     </aside>
+  );
+}
+
+function PrBody({ body }: { body: string }) {
+  const [expanded, setExpanded] = useState(false);
+  const [long, setLong] = useState(false);
+
+  return (
+    <div className="space-y-1">
+      <div
+        ref={(el) => {
+          if (el && !expanded) setLong(el.scrollHeight > el.clientHeight);
+        }}
+        className={`text-[13.5px] whitespace-pre-wrap text-soft ${expanded ? '' : 'line-clamp-6'}`}
+      >
+        {body}
+      </div>
+      {long && (
+        <button
+          type="button"
+          className="text-[12.5px] text-muted hover:text-fg"
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </div>
   );
 }
