@@ -116,7 +116,7 @@ read-only `git` commands. Apply it with `reef team apply teams/full.json`.
      "persona": "You are the lead. Answer the user. Hand design work to @architect."},
     {"name": "architect", "backend": "claude", "permissionMode": "default",
      "persona": "You are the architect. Reply with a short plan.",
-     "skills": "Writing plans.",
+     "skills": ["writing-plans"],
      "tools": ["Read", "Grep"],
      "mcpServers": [{"command": "my-mcp", "args": ["--stdio"]}]}
   ],
@@ -147,6 +147,9 @@ read-only `git` commands. Apply it with `reef team apply teams/full.json`.
 - `tools` are the backend's allowed tools: Claude runs them without asking (`--allowedTools`),
   and so it does the reef tools (`mcp__reef__*`), but not the tools of the role's own `mcpServers`
   unless `tools` lists them (`mcp__mcp1__*`).
+  A claude role that picks skills (`skills`) may use only those: each is allowed as `Skill(name)` and every
+  other claude skill on disk is denied. A role that picks none keeps every skill. A codex role gets the
+  names in its prompt only.
   A claude role without `write` cannot list plain `Bash` (or `Bash(*)`): `reef team apply`
   rejects it, so list patterns such as `Bash(go test:*)`.
   Codex ignores `tools`. Its limit is `permissionMode`. `write` decides which limit applies

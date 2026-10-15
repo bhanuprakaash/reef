@@ -6,12 +6,23 @@ type Props = {
   values: string[];
   mono?: boolean;
   empty?: string;
+  missing?: (value: string) => boolean;
   onRemove: (index: number) => void;
   onAdd?: (value: string) => void;
   addLabel?: string;
 };
 
-export function ChipList({ label, hint, values, mono, empty, onRemove, onAdd, addLabel }: Props) {
+export function ChipList({
+  label,
+  hint,
+  values,
+  mono,
+  empty,
+  missing,
+  onRemove,
+  onAdd,
+  addLabel,
+}: Props) {
   const [draft, setDraft] = useState('');
 
   function add() {
@@ -33,6 +44,7 @@ export function ChipList({ label, hint, values, mono, empty, onRemove, onAdd, ad
             className={`inline-flex h-[26px] items-center gap-1 rounded-pill bg-track pr-1 pl-2.5 text-xs text-soft ${mono ? 'font-mono' : ''}`}
           >
             {value}
+            {missing?.(value) && <span className="font-sans text-danger">missing</span>}
             <button
               type="button"
               aria-label={`Remove ${value}`}

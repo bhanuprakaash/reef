@@ -111,13 +111,17 @@ export type Role = {
   backend: string;
   permissionMode: string;
   persona: string;
-  skills: string;
+  skills: string[];
   face?: string;
   model?: string;
   tools: string[];
   mcp: { name: string; label: string }[];
   mcpRemove?: { name: string; label: string }[];
 };
+
+export type SkillInfo = { name: string; description: string };
+
+export type Skills = { claude: SkillInfo[]; codex: SkillInfo[] };
 
 export type Gate = { from: string; to: string; on: boolean };
 

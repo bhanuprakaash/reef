@@ -71,7 +71,7 @@ cat > $E/duo.json <<'EOF'
       "name": "architect",
       "backend": "claude",
       "persona": "You are the architect. Answer in one short sentence, and end it with the word PLANNED. Use no tools unless asked to. Never @mention anyone.",
-      "skills": "Writing short plans.",
+      "skills": ["short-plans"],
       "tools": ["Read"]
     }
   ]
@@ -88,7 +88,7 @@ cat > $E/pingpong.json <<'EOF'
   ]
 }
 EOF
-sed 's/Writing short plans./Writing very short plans./' $E/duo.json > $E/duo2.json
+sed 's/short-plans/very-short-plans/' $E/duo.json > $E/duo2.json
 sed 's/"name": "duo",/"name": "gated", "gates": [{"from": "lead", "to": "architect", "on": true}],/' $E/duo.json > $E/gated.json
 sed -e 's/"name": "duo"/"name": "mixed"/' -e '/"name": "architect"/{n;s/"claude"/"codex", "permissionMode": "read-only"/}' $E/duo.json > $E/mixed.json
 printf '{"name":"bad","roles":[{"name":"a","backend":"claude"}]}' > $E/nolead.json
@@ -105,7 +105,7 @@ printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude"}],"gat
 Teams, no server needed (data folder `teams`):
 
 - **Apply and list.** `$H reef --data-name teams -- team apply $E/duo.json` prints `applied team duo: lead*(claude) architect(claude)`. `$H reef -- team list` prints `duo  lead*(claude) architect(claude)` and `solo  lead*(claude)`. `$H sql "select team.name, role.name, lead from role join team on team.id = team_id order by team.name, role.id"` shows `duo|lead|1`, `duo|architect|0`, `solo|lead|1`.
-- **Apply again.** `$H reef -- team apply $E/duo2.json` prints the same line. `$H sql "select count(*) from team"` is still `2`, and `$H sql "select skills from role where name = 'architect'"` is `Writing very short plans.`. Put the original back with `$H reef -- team apply $E/duo.json`.
+- **Apply again.** `$H reef -- team apply $E/duo2.json` prints the same line. `$H sql "select count(*) from team"` is still `2`, and `$H sql "select skills from role where name = 'architect'"` is `["very-short-plans"]`. Put the original back with `$H reef -- team apply $E/duo.json`.
 - **Errors.** Each `$H reef -- team apply $E/<file>` ends `exit: 1` and `$H sql "select count(*) from team"` stays `2`:
   - `nolead.json`: `reef: invalid: team bad needs exactly one lead role, has 0`
   - `twolead.json`: `reef: invalid: team bad needs exactly one lead role, has 2`
@@ -126,7 +126,7 @@ Server (the same folder): `ANTHROPIC_MODEL=sonnet $H serve-start --data-name tea
 
 Lazy lead, channel 3. `claude` processes of the server are `pgrep -P $(cat $S/serve.pid) -x claude`:
 
-- **Only the architect starts.** `$H api POST /channels/3/send '{"text":"@architect Write the numbers from 1 to 300 separated by spaces. Remember the codeword kiwi-77."}'` is 202. At once (the turn lasts several seconds): `$H sql "select role from token"` is `architect` and no other row; `pgrep -P $(cat $S/serve.pid) -x claude | wc -l` is `1`; `ps -ww -o args= -p $(pgrep -P $(cat $S/serve.pid) -x claude)` shows `--allowedTools Read,mcp__reef__*` (the architect's `tools` plus the `reef` server). After `wait_done 3 1`: the `claude` count is `0`, `$H sql "select count(*) from token"` is `0`, and `$H sql "select role from turn where channel_id = 3"` is one `architect` row: the lead never started.
+- **Only the architect starts.** `$H api POST /channels/3/send '{"text":"@architect Write the numbers from 1 to 300 separated by spaces. Remember the codeword kiwi-77."}'` is 202. At once (the turn lasts several seconds): `$H sql "select role from token"` is `architect` and no other row; `pgrep -P $(cat $S/serve.pid) -x claude | wc -l` is `1`; `ps -ww -o args= -p $(pgrep -P $(cat $S/serve.pid) -x claude)` shows `--allowedTools Read,Skill(short-plans),mcp__reef__*` (the architect's `tools`, its picked skill and the `reef` server) and a `--disallowedTools` that names `Edit,Write,MultiEdit,NotebookEdit` and `Skill(name)` for each other claude skill on disk. After `wait_done 3 1`: the `claude` count is `0`, `$H sql "select count(*) from token"` is `0`, and `$H sql "select role from turn where channel_id = 3"` is one `architect` row: the lead never started.
 
 Channel 2, lead and architect:
 

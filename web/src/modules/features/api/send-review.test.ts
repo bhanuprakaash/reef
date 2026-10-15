@@ -25,7 +25,7 @@ const team = (name: string, roles: string[]): Team => ({
     backend: 'claude',
     permissionMode: '',
     persona: '',
-    skills: '',
+    skills: [],
     tools: [],
     mcp: [],
   })),

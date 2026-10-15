@@ -15,6 +15,7 @@ import (
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/agent/claude"
 	"github.com/bhanuprakaash/reef/agent/codex"
+	"github.com/bhanuprakaash/reef/skill"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -338,7 +339,7 @@ func (s *Session) member(
 		return nil, err
 	}
 	m.dir = cwd
-	mode, tools, denied := access(r)
+	mode, tools, denied := access(r, claudeSkills(r, cwd))
 	cfg := agent.Config{
 		Cwd:             cwd,
 		PermissionMode:  mode,
@@ -434,10 +435,29 @@ func (s *Session) roleSetup(team store.Team, name string) (store.Role, error) {
 // permission mode: acceptEdits would let it edit and run file commands unasked.
 var _editTools = []string{"Edit", "Write", "MultiEdit", "NotebookEdit"}
 
+// claudeSkills names the skills claude finds in dir, for a claude role that picked some. A role
+// with none keeps every skill, so there is nothing to scan.
+func claudeSkills(r store.Role, dir string) []string {
+	if r.Backend != "claude" || len(r.Skills) == 0 {
+		return nil
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		log.Printf("find home folder to list skills: %v", err)
+		return nil
+	}
+	var names []string
+	for _, s := range skill.Claude(home, dir) {
+		names = append(names, s.Name)
+	}
+	return names
+}
+
 // access maps a role's write flag to the permission mode, allowed tools and denied tools of its backend.
 // A write role on claude also gets Task to run parallel subagents. On codex a permission
-// mode the role sets stays when the role writes, so it may narrow it.
-func access(r store.Role) (mode string, tools, denied []string) {
+// mode the role sets stays when the role writes, so it may narrow it. A claude role may use only
+// the skills it picked, if it picked any: onDisk names the skills on disk, and each one not picked is denied.
+func access(r store.Role, onDisk []string) (mode string, tools, denied []string) {
 	mode, tools = r.PermissionMode, slices.Clone(r.Tools)
 	switch {
 	case r.Backend == "codex" && !r.Write:
@@ -453,6 +473,17 @@ func access(r store.Role) (mode string, tools, denied []string) {
 			name, _, _ := strings.Cut(t, "(")
 			return slices.Contains(_editTools, name) || store.UnrestrictedBash(t)
 		})
+	}
+	if r.Backend == "claude" && len(r.Skills) > 0 {
+		for _, name := range r.Skills {
+			tools = append(tools, "Skill("+name+")")
+		}
+		denied = slices.Clone(denied)
+		for _, name := range onDisk {
+			if !slices.Contains(r.Skills, name) {
+				denied = append(denied, "Skill("+name+")")
+			}
+		}
 	}
 	return mode, tools, denied
 }

@@ -27,7 +27,7 @@ type roleView struct {
 	Backend        string    `json:"backend"`
 	PermissionMode string    `json:"permissionMode"`
 	Persona        string    `json:"persona"`
-	Skills         string    `json:"skills"`
+	Skills         []string  `json:"skills"`
 	Face           string    `json:"face,omitempty"`
 	Model          string    `json:"model,omitempty"`
 	Tools          []string  `json:"tools"`

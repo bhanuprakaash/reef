@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/skill"
 )
 
 // SoloTeam is the lead-only team a channel gets when none is named.
@@ -46,7 +47,7 @@ type Role struct {
 	Backend        string            `json:"backend"`
 	PermissionMode string            `json:"permissionMode"`
 	Persona        string            `json:"persona"`
-	Skills         string            `json:"skills"`
+	Skills         []string          `json:"skills"`
 	Face           string            `json:"face,omitempty"`
 	Model          string            `json:"model,omitempty"`
 	Tools          []string          `json:"tools"`
@@ -83,6 +84,14 @@ func (s *Store) CreateTeam(ctx context.Context, t Team) (Team, error) {
 func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, error) {
 	if err := t.validate(); err != nil {
 		return Team{}, err
+	}
+	t.Roles = slices.Clone(t.Roles)
+	for i, r := range t.Roles {
+		names, err := cleanSkills(r)
+		if err != nil {
+			return Team{}, err
+		}
+		t.Roles[i].Skills = names
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -123,6 +132,10 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 		if err != nil {
 			return Team{}, fmt.Errorf("encode tools: %w", err)
 		}
+		skills, err := json.Marshal(nonNil(r.Skills))
+		if err != nil {
+			return Team{}, fmt.Errorf("encode skills: %w", err)
+		}
 		servers, err := json.Marshal(nonNil(r.MCPServers))
 		if err != nil {
 			return Team{}, fmt.Errorf("encode mcp servers: %w", err)
@@ -130,7 +143,7 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO role (team_id, name, persona, skills, face, tools, mcp_servers, backend, "+
 				"permission_mode, lead, write, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			id, r.Name, r.Persona, r.Skills, r.Face, string(tools), string(servers), r.Backend,
+			id, r.Name, r.Persona, string(skills), r.Face, string(tools), string(servers), r.Backend,
 			r.PermissionMode, r.Lead, r.Write, r.Model); err != nil {
 			return Team{}, fmt.Errorf("insert role %s: %w", r.Name, err)
 		}
@@ -260,6 +273,24 @@ func (t Team) validate() error {
 	return nil
 }
 
+func cleanSkills(r Role) ([]string, error) {
+	names := make([]string, 0, len(r.Skills))
+	for _, name := range r.Skills {
+		name = strings.TrimSpace(name)
+		switch {
+		case name == "":
+			return nil, fmt.Errorf("%w: role %s has an empty skill name", ErrInvalid, r.Name)
+		case !skill.ValidName(name):
+			return nil, fmt.Errorf("%w: role %s: skill %q must be letters, digits, :, _ or -",
+				ErrInvalid, r.Name, name)
+		case slices.Contains(names, name):
+			return nil, fmt.Errorf("%w: role %s lists skill %q twice", ErrInvalid, r.Name, name)
+		}
+		names = append(names, name)
+	}
+	return names, nil
+}
+
 // ValidateAgent checks that backend is known and permissionMode, when set, is one it accepts.
 func ValidateAgent(backend, permissionMode string) error {
 	var modes []string
@@ -280,10 +311,13 @@ func ValidateAgent(backend, permissionMode string) error {
 
 func scanRole(r interface{ Scan(...any) error }) (Role, error) {
 	var ro Role
-	var tools, servers string
+	var skills, tools, servers string
 	if err := r.Scan(&ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Persona,
-		&ro.Skills, &ro.Face, &ro.Model, &tools, &servers); err != nil {
+		&skills, &ro.Face, &ro.Model, &tools, &servers); err != nil {
 		return Role{}, err
+	}
+	if err := json.Unmarshal([]byte(skills), &ro.Skills); err != nil {
+		return Role{}, fmt.Errorf("role %s: bad skills: %w", ro.Name, err)
 	}
 	if err := json.Unmarshal([]byte(tools), &ro.Tools); err != nil {
 		return Role{}, fmt.Errorf("role %s: bad tools: %w", ro.Name, err)
