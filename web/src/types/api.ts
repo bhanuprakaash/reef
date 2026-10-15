@@ -96,6 +96,7 @@ export type Turn = {
   wakeText: string;
   retried: boolean;
   checkpoint: string | null;
+  startedAt: string;
 };
 
 export type Role = {

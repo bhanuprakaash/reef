@@ -223,12 +223,12 @@ async function promote() {
   await exchange('I have an idea: a search bar for the shop that filters products as you type.');
   await exchange('Decision: search is client side only for now, because the catalog is small (under 200 items).');
   const quick = sql(`select id from turn where channel_id=${cid} and checkpoint is not null order by id`).split('\n');
-  const rows = main.getByRole('region', { name: 'Checkpoints' }).getByRole('listitem');
-  await rows.first().waitFor({ timeout: 15000 });
+  const checkpoints = main.getByRole('region', { name: 'Checkpoints' });
+  await checkpoints.getByText('2 checkpoints').waitFor({ timeout: 15000 });
   check(
-    quick.length === 2 && (await rows.count()) === 2,
+    quick.length === 2,
     'a quick session in a git repo lists its two checkpoints before the promote',
-    `turns with a checkpoint: ${quick.join(',')}; rows: ${await rows.count()}`,
+    `turns with a checkpoint: ${quick.join(',')}; row: ${await checkpoints.innerText()}`,
   );
   await shot('before-promote');
   await page.getByRole('button', { name: 'Promote to feature' }).click();
@@ -245,11 +245,11 @@ async function promote() {
   check(true, 'promote turn ends with a proposal panel');
   await page.waitForTimeout(1000);
   await shot('checkpoints-after-promote');
-  const left = await rows.allInnerTexts();
+  const left = await checkpoints.allInnerTexts();
   check(
-    !left.some((t) => quick.some((id) => t.includes(`before turn ${id} `))),
+    !left.some((t) => t.includes('2 checkpoints') || quick.some((id) => t.includes(`before turn ${id} `))),
     'the quick-session checkpoints, taken in another tree, have no Roll back button after the promote',
-    `rows: ${JSON.stringify(left)}; GET rollbackable: ${JSON.stringify((await getJson(`/turns?channel=${cid}&rollbackable=1`)).map((t) => t.id))}`,
+    `row: ${JSON.stringify(left)}; GET rollbackable: ${JSON.stringify((await getJson(`/turns?channel=${cid}&rollbackable=1`)).map((t) => t.id))}`,
   );
   const under = section
     .locator('li', { has: page.getByRole('link', { name: 'Search', exact: true }) })
@@ -719,11 +719,11 @@ async function rollback() {
   git(tree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'by the turn');
   const turnId = sql(`select id from turn where channel_id=${cid} order by id desc limit 1`);
   const list = main.getByRole('region', { name: 'Checkpoints' });
-  await list.getByText(`Checkpoint before turn ${turnId} by lead`).waitFor({ timeout: 15000 });
+  await list.getByText('2 checkpoints').waitFor({ timeout: 15000 });
   await shot('checkpoints');
   check(
-    git(tree, 'log', '--oneline').includes('by the turn') && (await list.getByRole('button', { name: 'Roll back' }).count()) === 2,
-    'two turns have a Roll back button and the turn left a commit and new.txt',
+    git(tree, 'log', '--oneline').includes('by the turn') && (await list.innerText()).includes('2 checkpoints'),
+    'the two turns fold into one checkpoint row and the turn left a commit and new.txt',
     `files: ${git(tree, 'ls-files')}; log:\n${git(tree, 'log', '--oneline')}`,
   );
   let asked = '';
@@ -731,7 +731,9 @@ async function rollback() {
     asked = d.message();
     d.accept();
   });
-  await list.getByRole('listitem').filter({ hasText: `before turn ${turnId} by` }).getByRole('button', { name: 'Roll back' }).click();
+  await list.getByRole('button', { name: 'Roll back…' }).click();
+  await shot('checkpoint-menu');
+  await page.getByRole('menuitem', { name: new RegExp(`^Before turn ${turnId} · lead`) }).click();
   await page.getByText(`Rolled back to before turn ${turnId}.`).waitFor({ timeout: 15000 });
   await shot('rolled-back');
   check(asked.includes(`Roll back to before turn ${turnId}?`), 'Roll back asks to confirm', asked);
