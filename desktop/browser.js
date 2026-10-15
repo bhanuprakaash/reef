@@ -175,6 +175,11 @@ export function createBrowser(win, reefPort) {
       view.webContents.debugger.on('message', onMessage);
     });
     const { errorText } = await view.webContents.debugger.sendCommand('Page.navigate', { url });
+    // Chromium reports ERR_ABORTED when another navigation replaced this one or the response
+    // was not a page (204, a download); no load event may follow, so do not wait for one.
+    if (errorText === 'net::ERR_ABORTED') {
+      return { text: `navigation to ${url} was aborted: another navigation replaced it, or it was not a page` };
+    }
     if (errorText) throw new Error(errorText);
     await loaded;
     return { text: `navigated to ${url}` };

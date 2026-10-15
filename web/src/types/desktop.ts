@@ -1,3 +1,5 @@
+import type { Theme } from '@/lib/theme';
+
 // The Reef desktop app's preload script exposes this on window.reef. Plain
 // Chrome pointed at reef serve has no preload script, so it is undefined
 // there.
@@ -5,6 +7,7 @@ export type BrowserState = { url: string; canGoBack: boolean; canGoForward: bool
 
 export type ReefBridge = {
   capture: () => Promise<void>;
+  setTheme: (theme: Theme) => void;
   setBrowserBounds: (rect: { x: number; y: number; width: number; height: number }) => void;
   navigateBrowser: (url: string) => Promise<void>;
   browserBack: () => void;

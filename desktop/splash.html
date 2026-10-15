@@ -5,13 +5,18 @@
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
 <title>Reef</title>
 <style>
-html, body { margin: 0; height: 100%; background: #161616; overflow: hidden; }
-body {
-  color: #ECECEC;
-  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
-  transition: opacity 0.25s ease-out;
+:root { --bg: #212121; --fg: #ECECEC; --muted: #8E8E93; --bubble: #333; }
+@media (prefers-color-scheme: light) {
+  :root { --bg: #FFFFFF; --fg: #1C1C1E; --muted: #626267; --bubble: #D9D9DC; }
 }
-body.leaving { opacity: 0; }
+html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+body {
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+#stage { height: 100%; transition: opacity 0.25s ease-out; }
+body.leaving #stage { opacity: 0; }
 main {
   height: 100%;
   display: flex;
@@ -23,10 +28,10 @@ main {
 svg { overflow: visible; }
 svg g, svg path, svg line { transform-box: fill-box; }
 h1 { margin: 0; font-size: 64px; font-weight: 400; letter-spacing: -0.04em; }
-p { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 14px; color: #8E8E93; }
-p span { width: 4px; height: 4px; border-radius: 50%; background: #8E8E93; }
+p { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); }
+p span { width: 4px; height: 4px; border-radius: 50%; background: var(--muted); }
 
-.bubble { position: absolute; bottom: 0; border-radius: 50%; border: 2px solid #333; }
+.bubble { position: absolute; bottom: 0; border-radius: 50%; border: 2px solid var(--bubble); }
 .b1 { left: 22%; width: 14px; height: 14px; animation: rise 6s linear infinite; }
 .b2 { left: 70%; width: 9px; height: 9px; animation: rise 6s linear -2s infinite; }
 .b3 { left: 58%; width: 18px; height: 18px; animation: rise 6s linear -4s infinite; }
@@ -58,6 +63,7 @@ p span:nth-child(3) { animation-delay: 0.4s; }
 </style>
 </head>
 <body>
+<div id="stage">
 <span class="bubble b1"></span>
 <span class="bubble b2"></span>
 <span class="bubble b3"></span>
@@ -79,5 +85,6 @@ p span:nth-child(3) { animation-delay: 0.4s; }
   <h1>reef</h1>
   <p role="status">Starting reef serve<span></span><span></span><span></span></p>
 </main>
+</div>
 </body>
 </html>

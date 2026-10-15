@@ -89,7 +89,11 @@ export function BrowserPane({ open, driver }: { open: boolean; driver: BrowserDr
     e.preventDefault();
     const target = HAS_SCHEME.test(url) ? url : `http://${url}`;
     setError(null);
-    window.reef?.navigateBrowser(target).catch((err: Error) => setError(err.message));
+    window.reef
+      ?.navigateBrowser(target)
+      .catch((err: Error) =>
+        setError(err.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '')),
+      );
   };
 
   const toggleTakeOver = async () => {

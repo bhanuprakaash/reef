@@ -7,6 +7,7 @@ const { contextBridge, ipcRenderer } = require('electron');
 // preload script, so window.reef is undefined there.
 contextBridge.exposeInMainWorld('reef', {
   capture: () => ipcRenderer.invoke('capture:open'),
+  setTheme: (theme) => ipcRenderer.send('theme:set', theme),
   setBrowserBounds: (rect) => ipcRenderer.send('browser:bounds', rect),
   navigateBrowser: (url) => ipcRenderer.invoke('browser:navigate', url),
   browserBack: () => ipcRenderer.send('browser:back'),

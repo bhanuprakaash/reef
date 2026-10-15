@@ -1,5 +1,6 @@
 import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme } from 'electron';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createBrowser } from './browser.js';
@@ -18,6 +19,31 @@ const SPLASH_FADE = 250;
 // Go is app.getPath('appData') + '/Reef' in Electron on both Mac and Linux.
 function dataDir() {
   return path.join(app.getPath('appData'), 'Reef');
+}
+
+// The web app's own colours, so a window is never another colour while the page loads.
+const BACKGROUNDS = { dark: '#212121', light: '#ffffff' };
+const THEMES = ['dark', 'light', 'system'];
+
+function themeFile() {
+  return path.join(app.getPath('userData'), 'theme');
+}
+
+// The app's theme choice lives in the page's localStorage, which the main process cannot
+// read before the page loads; the page reports it (theme:set) and the main process keeps it,
+// so the splash and every window start in the right colour.
+function restoreTheme() {
+  try {
+    const theme = fs.readFileSync(themeFile(), 'utf8');
+    if (THEMES.includes(theme)) return theme;
+  } catch {
+    // no choice kept yet
+  }
+  return 'dark';
+}
+
+function windowBackground() {
+  return BACKGROUNDS[nativeTheme.shouldUseDarkColors ? 'dark' : 'light'];
 }
 
 function reefPath() {
@@ -114,6 +140,7 @@ function openCaptureWindow() {
     width: 600,
     height: 200,
     alwaysOnTop: true,
+    backgroundColor: windowBackground(),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
   captureWindow.on('closed', () => {
@@ -123,10 +150,16 @@ function openCaptureWindow() {
 }
 
 app.whenReady().then(async () => {
+  nativeTheme.themeSource = restoreTheme();
+  ipcMain.on('theme:set', (_event, theme) => {
+    if (!THEMES.includes(theme)) return;
+    nativeTheme.themeSource = theme;
+    fs.writeFileSync(themeFile(), theme);
+  });
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
-    backgroundColor: nativeTheme.shouldUseDarkColors ? '#161616' : '#ffffff',
+    backgroundColor: windowBackground(),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
   win.loadFile(path.join(__dirname, 'splash.html'));

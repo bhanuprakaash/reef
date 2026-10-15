@@ -13,6 +13,7 @@ export function getTheme(): Theme {
 
 export function setTheme(theme: Theme) {
   document.documentElement.dataset.theme = theme;
+  if (typeof window !== 'undefined') window.reef?.setTheme(theme);
   try {
     localStorage.setItem(THEME_KEY, theme);
   } catch {

@@ -28,9 +28,13 @@ packaged app the `reef` binary ships inside the app's resources instead.
   beside the first with its own `HOME`; the pane refuses that port instead of 7700.
 - Opens the window at once on a local splash page ([`desktop/splash.html`](../desktop/splash.html),
   no server needed: the jelly, "reef" and "Starting reef serve..."). When the server is
-  listening and the splash has shown for at least 1.2 s, the splash fades out and the window
-  loads `http://127.0.0.1:7700`, which serves the same UI as a browser pointed at
-  a `reef serve` started by hand (see [server.md](server.md#web-ui)).
+  listening and the splash has shown for at least 1.2 s, the jelly and text fade out and the
+  window loads `http://127.0.0.1:7700`, which serves the same UI as a browser pointed at
+  a `reef serve` started by hand (see [server.md](server.md#web-ui)). The splash, the window and
+  the app share one background colour (the app's main colour for its theme), and the app fades
+  in on its first paint, so the handoff has no jump in colour. The web app reports its theme
+  (dark, light or system) to the main process (`theme:set`); the main process keeps it in
+  `theme` in Electron's user data folder and applies it before the first window opens.
 - If the data folder is already in use by another `reef serve`, the server exits with
   `data folder ... is in use by another reef` on stderr. The app shows that error in a dialog,
   then quits.
@@ -64,6 +68,11 @@ Reef itself`: otherwise an agent could open Reef's own UI and approve its own pr
 check blocks a link or a redirect inside the page that targets Reef's origin, and denies any
 `window.open`, opening the URL in the pane itself instead of a new window. The main window has
 its own, simpler guard: no new windows, and navigation stays on Reef's own origin.
+
+A `navigate` that ends with CDP `net::ERR_ABORTED` is not an error and does not wait for a load:
+another navigation replaced it (a second `navigate`, a page redirect), or the response was not a
+page (204, a download, a redirect to Reef's own origin that the pane blocks). It answers that it
+was aborted. Real failures (DNS, refused) still fail.
 
 `snapshot` reads the page's accessibility tree (CDP `Accessibility.getFullAXTree`) and renders
 it as text, one line per element, indented to match the tree, each with a ref such as `e12`
@@ -120,7 +129,8 @@ browser (no `window.reef`) the button just navigates to `/capture`. The capture 
 project picker (the project chosen last time, kept in `localStorage`, is the default), a kind
 (idea, todo, bug) and a text box. Enter creates a task with no feature, titled `<kind>: <text>`,
 through `POST /tasks`, and closes the window; Escape closes it without creating a task. The
-shortcut is unregistered when the app quits.
+shortcut is unregistered when the app quits. The window has the app's main colour as its
+background, so closing it (or opening it) never flashes white.
 
 ## Quit
 
