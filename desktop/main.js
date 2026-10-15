@@ -126,6 +126,9 @@ function stopServer() {
   });
 }
 
+// The panel is about 150px tall; the rest is transparent room for the project listbox to open into.
+const CAPTURE_HEIGHT = 400;
+
 let browser = null;
 let terminals = null;
 let captureWindow = null;
@@ -138,9 +141,15 @@ function openCaptureWindow() {
   }
   captureWindow = new BrowserWindow({
     width: 600,
-    height: 200,
+    height: CAPTURE_HEIGHT,
+    center: true,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: true,
+    resizable: false,
+    skipTaskbar: true,
     alwaysOnTop: true,
-    backgroundColor: windowBackground(),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
   captureWindow.on('closed', () => {

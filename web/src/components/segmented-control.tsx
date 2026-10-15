@@ -3,11 +3,22 @@ type Props<T extends string> = {
   options: { value: T; label: string }[];
   value: T;
   onChange: (value: T) => void;
+  className?: string;
 };
 
-export function SegmentedControl<T extends string>({ label, options, value, onChange }: Props<T>) {
+export function SegmentedControl<T extends string>({
+  label,
+  options,
+  value,
+  onChange,
+  className,
+}: Props<T>) {
   return (
-    <div role="group" aria-label={label} className="inline-flex rounded-field bg-card p-[3px]">
+    <div
+      role="group"
+      aria-label={label}
+      className={`inline-flex rounded-field bg-card p-[3px] ${className ?? ''}`}
+    >
       {options.map((o) => (
         <button
           key={o.value}

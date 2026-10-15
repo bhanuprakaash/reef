@@ -25,6 +25,12 @@ export function CapturePage() {
   const isDesktop = typeof window !== 'undefined' && window.reef != null;
 
   useEffect(() => {
+    const els = [document.documentElement, document.body];
+    els.forEach((el) => (el.style.background = 'transparent'));
+    return () => els.forEach((el) => (el.style.background = ''));
+  }, []);
+
+  useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') window.close();
     }
@@ -35,7 +41,7 @@ export function CapturePage() {
   return (
     <form
       aria-label="Quick capture"
-      className="flex h-screen flex-col gap-3 bg-main p-4 text-sm"
+      className="app-drag flex flex-col gap-3 rounded-[22px] border border-line bg-main/92 p-4 text-sm"
       onSubmit={(e) => {
         e.preventDefault();
         create.mutate(
@@ -63,10 +69,17 @@ export function CapturePage() {
           required
         />
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <SegmentedControl label="Capture kind" options={KINDS} value={kind} onChange={setKind} />
+      <div className="flex items-center gap-2">
+        <SegmentedControl
+          label="Capture kind"
+          options={KINDS}
+          value={kind}
+          onChange={setKind}
+          className="bg-bubble! [&_button]:h-7! [&_button]:px-3!"
+        />
         <Select
           variant="pill"
+          className="max-w-44 min-w-0 [&>button]:h-[34px]!"
           aria-label="Capture project"
           value={project ? String(project.id) : ''}
           onChange={(id) => {
@@ -79,7 +92,13 @@ export function CapturePage() {
           ]}
         />
         <span className="ml-auto text-xs text-muted">↵ save · esc close</span>
-        <Button type="submit" variant="primary" disabled={!project} loading={create.isPending}>
+        <Button
+          type="submit"
+          variant="primary"
+          className="h-[34px]! text-[13.5px]!"
+          disabled={!project}
+          loading={create.isPending}
+        >
           Capture
         </Button>
       </div>

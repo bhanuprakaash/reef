@@ -487,6 +487,6 @@
 .app-drag {
   -webkit-app-region: drag;
 }
-.app-drag :is(button, input, a) {
+.app-drag :is(button, input, a, [role='listbox']) {
   -webkit-app-region: no-drag;
 }

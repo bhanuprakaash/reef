@@ -136,8 +136,10 @@ browser (no `window.reef`) the button just navigates to `/capture`. The capture 
 project picker (the project chosen last time, kept in `localStorage`, is the default), a kind
 (idea, todo, bug) and a text box. Enter creates a task with no feature, titled `<kind>: <text>`,
 through `POST /tasks`, and closes the window; Escape closes it without creating a task. The
-shortcut is unregistered when the app quits. The window has the app's main colour as its
-background, so closing it (or opening it) never flashes white.
+shortcut is unregistered when the app quits. The window is frameless and transparent: the
+rounded translucent panel on `/capture` is the window (the OS draws its shadow), and you drag it
+by the panel. It is 400px tall, about 150px of panel and transparent room below for the project
+listbox to open into; there is no blur (vibrancy would paint the transparent corners and room).
 
 ## Quit
 
