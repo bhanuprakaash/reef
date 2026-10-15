@@ -169,6 +169,15 @@ func TestPutTeam(t *testing.T) {
 	if status != 400 {
 		t.Errorf("PUT /teams/crew with mismatched name = %d, want 400", status)
 	}
+
+	// A name with a space or a slash, as the URL-encoded path sends it, is a clear invalid error.
+	roleBody := `{"roles":[{"name":"lead","lead":true,"backend":"claude"}]}`
+	for _, path := range []string{"/teams/a%20b", "/teams/a%2Fb"} {
+		status, resBody = do(t, http.MethodPut, ts.URL+path, roleBody)
+		if status != 400 || !strings.Contains(resBody, "must be letters, digits, _ or -") {
+			t.Errorf("PUT %s = %d %s, want 400 naming the allowed characters", path, status, resBody)
+		}
+	}
 }
 
 func TestPutTeamCopyFrom(t *testing.T) {
