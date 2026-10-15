@@ -1,5 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
+import { messagesQuery } from '@/lib/api/get-messages';
+import { channelsQuery } from '@/lib/api/get-channels';
+import { teamsQuery } from '@/lib/api/get-teams';
 import type { Channel, Message, Team } from '@/types/api';
 
 export type ReviewComment = { path: string; line: number; text: string };
@@ -31,12 +34,15 @@ export function useSendReview(featureId: number) {
   return useMutation({
     mutationFn: async (comments: ReviewComment[]) => {
       const [channels, teams] = await Promise.all([
-        api<Channel[]>(`/channels?feature=${featureId}`),
-        api<Team[]>('/teams'),
+        queryClient.fetchQuery(channelsQuery),
+        queryClient.fetchQuery(teamsQuery),
       ]);
-      const channel = pickChannel(channels, teams);
+      const channel = pickChannel(
+        channels.filter((c) => c.featureId === featureId),
+        teams,
+      );
       if (!channel) throw new Error('no channel with a developer role on this feature');
-      const messages = await api<Message[]>(`/messages?channel=${channel.id}`);
+      const messages = await queryClient.fetchQuery(messagesQuery(channel.id));
       const parent = pickRoot(messages);
       const text = reviewText(comments);
       await api<void>(`/channels/${channel.id}/send`, {

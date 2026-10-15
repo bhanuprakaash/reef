@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useApprovals } from '@/modules/channels/api/get-approvals';
 import { useFailedTurns } from '@/modules/channels/api/get-failed-turns';
-import { useMessages } from '@/modules/channels/api/get-messages';
+import { useMessages } from '@/lib/api/get-messages';
 import { useWrapChannel } from '@/modules/channels/api/wrap-channel';
 import { ApprovalRows } from '@/modules/channels/components/approval-rows';
 import { CheckpointRows } from '@/modules/channels/components/checkpoint-rows';
