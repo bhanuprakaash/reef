@@ -650,7 +650,7 @@ async function stop() {
   await send('Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
   await working();
   await openTurn();
-  await turnPanel.locator('div.bg-bubble:not([role])').first().waitFor({ timeout: 60000 });
+  await turnPanel.locator('p').first().waitFor({ timeout: 60000 });
   await page.waitForTimeout(1000);
   await page.getByRole('button', { name: 'Stop' }).click();
   await main.getByRole('button', { name: /Failed: interrupted/ }).waitFor({ timeout: 30000 });
