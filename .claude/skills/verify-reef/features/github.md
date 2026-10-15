@@ -4,7 +4,7 @@
 and posts a `reef` note in the feature's most recent channel when the PR appears, changes
 state, or a check run finishes. A check run that finishes failed also wakes the `developer`
 role in that channel, once per run, so it can look at the failure without the user pasting
-in logs. Contract: `docs/server.md` (GitHub poll) and `docs/product.md` (decision 47).
+in logs. Contract: `docs/server.md` (GitHub poll) and `docs/product.md` (decision 48).
 
 ## Sub-features
 
@@ -15,6 +15,8 @@ in logs. Contract: `docs/server.md` (GitHub poll) and `docs/product.md` (decisio
 - `restart-no-repeat` a restart of `reef serve` does not repeat the note or the wake.
 - `check-rerun-wakes-again` the same check name finishing failed again, with a new run id, posts a new note and wakes the developer again.
 - `solo-note-only` a feature on the `solo` team (no `developer` role) gets the failed-check note and no turn runs.
+- `two-runs-same-name-both-noted` a rollup with two check runs under the same name (a matrix job, two workflows) notes both, once each, across repeat polls.
+- `wake-retries-after-busy` a failed check on a paused channel still posts its note; the busy cause is logged once, and the wake runs once the channel is no longer paused.
 - `no-gh-logged-once` with no `gh` on `PATH`, the server keeps running, posts nothing, and logs the cause once, not every poll.
 
 ## How to get to it (user POV)

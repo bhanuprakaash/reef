@@ -142,6 +142,64 @@ turns_solo=$("$H" sql "select count(*) from turn where channel_id = 2" | tail -1
 check solo-note-only "$([ "$solo_wait" = 0 ] && [ "$turns_solo" = 0 ] && echo 1 || echo 0)" \
 	"channel 2 messages: $(curl -s "http://$A/messages?channel=2" | tr -d '\n'); turns=$turns_solo"
 
+### Two check runs under the same name: both are noted, not merged into one row
+
+api_call POST /features '{"projectId":1,"slug":"two-runs-demo","name":"Two Runs Demo"}'
+api_call POST /features/3/worktree ""
+api_call POST /channels '{"projectId":1,"featureId":3,"name":"both","team":"full"}'
+
+echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","statusCheckRollup":[' \
+	'{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS",' \
+	'"detailsUrl":"https://github.com/x/y/actions/runs/21/job/21"},' \
+	'{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS",' \
+	'"detailsUrl":"https://github.com/x/y/actions/runs/22/job/22"}]}' | tr -d '\n' >"$GH/resp.json"
+wait_for '/messages?channel=3' 'test succeeded' && two_runs_wait=0 || two_runs_wait=1
+sleep 3
+test_notes=$("$H" sql "select count(*) from message where channel_id = 3 and body = 'test succeeded'" | tail -1)
+check two-runs-same-name-both-noted "$([ "$two_runs_wait" = 0 ] && [ "$test_notes" = 2 ] && echo 1 || echo 0)" \
+	"'test succeeded' notes on channel 3 after repeat polls = $test_notes, want 2 (one per run, no dup)"
+
+### A failed check whose wake cannot run (the channel is paused): the note still posts, the
+### busy cause is logged once, and the wake is retried once the channel is clear.
+
+api_call POST /features '{"projectId":1,"slug":"busy-demo","name":"Busy Demo"}'
+api_call POST /features/4/worktree ""
+api_call POST /channels '{"projectId":1,"featureId":4,"name":"busy","team":"full"}'
+"$H" sql --write "update channel set paused = 'verify busy' where id = 4" >/dev/null
+
+printf 'FAIL TestBaz\nwant 5 got 6\n' >"$GH/log.txt"
+echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","statusCheckRollup":[' \
+	'{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE",' \
+	'"detailsUrl":"https://github.com/x/y/actions/runs/30/job/30"}]}' | tr -d '\n' >"$GH/resp.json"
+wait_for '/messages?channel=4' 'build failed' && busy_note_wait=0 || busy_note_wait=1
+sleep 3
+turns_while_paused=$("$H" sql "select count(*) from turn where channel_id = 4" | tail -1)
+log_before=$(grep -c 'wake developer: channel 4 is paused' "$E/serve.log")
+
+for i in $(seq 10); do
+	api_call POST /channels/4/continue
+	[ "$STATUS" = 204 ] && break
+	sleep 1
+done
+turn3=""
+for i in $(seq 30); do
+	turn3=$("$H" sql "select id from turn where channel_id = 4 and role = 'developer' order by id limit 1" | tail -1)
+	[ -n "$turn3" ] && break
+	sleep 1
+done
+wake3=$(turn_col "$turn3" wake_text)
+log_after=$(grep -c 'wake developer: channel 4 is paused' "$E/serve.log")
+
+busy_ok=1
+[ "$busy_note_wait" = 0 ] || busy_ok=0
+[ "$turns_while_paused" = 0 ] || busy_ok=0
+[ "$log_before" = 1 ] || busy_ok=0
+[ "$log_after" = "$log_before" ] || busy_ok=0
+[ -n "$turn3" ] || busy_ok=0
+echo "$wake3" | grep -qF 'want 5 got 6' || busy_ok=0
+check wake-retries-after-busy "$busy_ok" \
+	"turns while paused=$turns_while_paused, busy cause logged before=$log_before after=$log_after, turn=$turn3 wake_text: $(echo "$wake3" | tr '\n' '|')"
+
 "$H" serve-stop
 
 ### No gh on PATH: the server runs, posts nothing, and logs the cause once
