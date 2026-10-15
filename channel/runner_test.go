@@ -673,3 +673,37 @@ func TestRunner_CodexTurnHasModelNoCost(t *testing.T) {
 		t.Errorf("turn = %+v, want model gpt-6-codex, no cost, usage 10/3", turn)
 	}
 }
+
+func TestRunner_UncappedRunsPastToolCap(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := agent.Event{Kind: agent.KindToolCall, ToolName: "Edit"}
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8),
+		script: []agent.Event{call, call, call, {Kind: agent.KindText, Text: "done"}, {Kind: agent.KindTurnEnd}},
+	}
+	r := NewRunner(st, sa, ch.ID, "developer", "claude", "")
+	r.toolCap = 2
+	r.Uncapped = true
+
+	if err := sendAs(bg, st, ch.ID, r.Run, "hi", func(agent.Event) {}); err != nil {
+		t.Fatalf("Send error = %v, want nil", err)
+	}
+	got, err := st.Channel(bg, ch.ID)
+	if err != nil || got.Paused != "" {
+		t.Errorf("channel = %+v, %v, want not paused", got, err)
+	}
+	turns, err := st.Turns(bg, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 1 || turns[0].Status != "done" {
+		t.Errorf("turns = %+v, want one done turn", turns)
+	}
+}

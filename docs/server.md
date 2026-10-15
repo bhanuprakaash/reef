@@ -787,8 +787,9 @@ its turn is stored `failed`, `interrupted`.
 
 Three caps pause a channel. All are constants in the code, not settings.
 
-- Tool calls per wake: one turn (one wake, or the turn that answers one user message) may
-  make 25 tool calls, subagent calls included. The 26th interrupts the agent, ends the turn
+- Tool calls per wake: one turn (one wake, or the turn that answers one user message) of a
+  role without `write` may make 25 tool calls, subagent calls included; a writing role has no
+  tool call cap. The 26th interrupts the agent, ends the turn
   `failed` with the error `capped: more than 25 tool calls` and pauses the channel with that
   text as `paused`. The agent stops like after a failed turn; the next send resumes it by
   session id. The wakes still waiting in the chain are dropped.
