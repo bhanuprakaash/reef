@@ -1,8 +1,8 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import type { Feature } from '@/types/api';
+import type { Feature, FeatureKind } from '@/types/api';
 
-type FeatureEdit = { name: string; goal: string; stage: string };
+type FeatureEdit = { name: string; goal: string; stage: string; kind?: FeatureKind };
 
 export function useUpdateFeature(id: number) {
   const queryClient = useQueryClient();

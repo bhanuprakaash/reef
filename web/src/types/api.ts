@@ -17,6 +17,8 @@ export type ProjectMemory = {
   body: string;
 };
 
+export type FeatureKind = 'journey' | 'fixes';
+
 export type Feature = {
   id: number;
   projectId: number;
@@ -24,6 +26,7 @@ export type Feature = {
   name: string;
   goal: string;
   stage: string;
+  kind: FeatureKind;
   createdAt: string;
   closedAt: string | null;
 };

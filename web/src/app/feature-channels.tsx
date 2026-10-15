@@ -12,7 +12,8 @@ import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
 import { STAGES } from '@/modules/features/utils/stages';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
-import type { ChannelPreview, Feature, Project } from '@/types/api';
+import { useTasks } from '@/modules/tasks/api/get-tasks';
+import type { ChannelPreview, Feature, Project, Task } from '@/types/api';
 import { roleFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
 
@@ -26,11 +27,16 @@ function storedCollapsed(): number[] {
   }
 }
 
-function FeatureStage({ stage }: { stage: string }) {
-  const s = STAGES.find((x) => x.value === stage);
+function FeatureStage({ feature, tasks }: { feature: Feature; tasks: Task[] }) {
+  const s = STAGES.find((x) => x.value === feature.stage);
+  const mine = tasks.filter((t) => t.featureId === feature.id);
+  const label =
+    feature.kind === 'fixes'
+      ? `${mine.filter((t) => t.status === 'done').length}/${mine.length}`
+      : (s?.label ?? feature.stage);
   return (
     <span className="ml-auto">
-      <StageChip label={s?.label ?? stage} color={s?.color ?? 'var(--color-muted)'} />
+      <StageChip label={label} color={s?.color ?? 'var(--color-muted)'} />
     </span>
   );
 }
@@ -142,6 +148,7 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
   const channels = useQuery({ ...channelsQuery, refetchInterval: 5000 });
   const teams = useTeams();
   const inbox = useInbox();
+  const tasks = useTasks();
 
   const waiting = inbox.data ?? [];
   const q = query.trim().toLowerCase();
@@ -228,7 +235,7 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
             {!open && cs.length > 0 && (
               <span className="flex-none text-[11px] text-faint">{cs.length}</span>
             )}
-            <FeatureStage stage={f.stage} />
+            <FeatureStage feature={f} tasks={tasks.data ?? []} />
           </Link>
           <AddButton
             reveal

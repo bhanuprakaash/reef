@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
@@ -10,9 +10,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -342,6 +342,46 @@ async function pages() {
     sql(`select status from task where title='${title}'`) === 'done' && page.url().includes('status=done'),
     'a task added in the window is marked done and filtered',
     `row ${sql(`select id,project_id,feature_id,status from task where title='${title}'`)}; url ${page.url().replace(base, '')}`,
+  );
+}
+
+async function fixes() {
+  const section = await addProject();
+  const name = 'Quick fixes';
+  await section.getByRole('button', { name: 'New feature' }).click();
+  await page.getByLabel('Feature name').fill(name);
+  await page.getByRole('button', { name: 'Fixes (task list)' }).click();
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await page.getByRole('heading', { name, level: 1 }).waitFor();
+  const fid = page.url().split('/').pop();
+  await main.getByText('No fixes yet').waitFor();
+  await shot('empty');
+  check(
+    sql(`select kind from feature where id=${fid}`) === 'fixes' &&
+      (await main.getByRole('list', { name: 'Journey' }).count()) === 0 &&
+      (await main.getByRole('combobox', { name: 'Stage' }).count()) === 0,
+    'a Fixes feature has no stage bar or stage picker',
+    `kind ${sql(`select kind from feature where id=${fid}`)}`,
+  );
+  await page.goto(base + '/tasks');
+  const pid = sql(`select project_id from feature where id=${fid}`);
+  for (const title of ['fix one', 'fix two']) {
+    await page.getByLabel('Task title').fill(title);
+    await pick('Task project', sql(`select name from project where id=${pid}`));
+    await pick('Task feature', name);
+    await page.getByRole('button', { name: 'Add task' }).click();
+    await main.locator('li', { hasText: title }).waitFor();
+  }
+  await page.goto(base + `/features/${fid}`);
+  await main.getByText('0 of 2 done').waitFor();
+  await main.locator('li', { hasText: 'fix one' }).getByRole('checkbox').click();
+  await main.getByText('1 of 2 done').waitFor();
+  const chip = await aside.getByRole('link', { name }).innerText();
+  await shot('one-of-two');
+  check(
+    chip.includes('1/2') && sql(`select count(*) from task where feature_id=${fid} and status='done'`) === '1',
+    'one of two tasks done shows "1 of 2 done" on the page and "1/2" in the sidebar',
+    `sidebar row "${chip.replace(/\s+/g, ' ')}"; tasks ${sql(`select title,status from task where feature_id=${fid}`).replace(/\n/g, ';')}`,
   );
 }
 
