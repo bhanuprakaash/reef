@@ -104,6 +104,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 	tok := ag.cfg.MCPServers["reef"].Env["REEF_TOKEN"]
 	want := agent.Config{
 		Cwd: dir + "/worktrees/1/login", PermissionMode: "acceptEdits", Tools: []string{"Task", "mcp__reef__*"},
+		DisallowedTools: []string{"Skill"},
 		MCPServers: map[string]agent.MCPServer{"reef": {
 			Command: "/bin/reef", Args: []string{"mcp", "--data", dir},
 			Env: map[string]string{"REEF_TOKEN": tok},
@@ -246,6 +247,7 @@ func TestOpen_ResumesNewestSession(t *testing.T) {
 
 func TestSession_RunAsSpecialist(t *testing.T) {
 	ctx := context.Background()
+	t.Setenv("HOME", t.TempDir())
 	st, f := openStore(t)
 	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
@@ -298,7 +300,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if len(ags) != 1 || !strings.HasPrefix(ags[0].prompts[0], want) {
 		t.Errorf("prompts = %q, want one starting with %q", ags[0].prompts, want)
 	}
-	if !reflect.DeepEqual(ags[0].cfg.Tools, []string{"Read", "Grep", "mcp__reef__*"}) ||
+	if !reflect.DeepEqual(ags[0].cfg.Tools, []string{"Read", "Grep", "Skill(sketch)", "mcp__reef__*"}) ||
 		ags[0].cfg.MCPServers["mcp1"].URL != "http://x" {
 		t.Errorf("config = %+v, want the role's tools and mcp server", ags[0].cfg)
 	}

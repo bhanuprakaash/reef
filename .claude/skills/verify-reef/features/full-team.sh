@@ -196,7 +196,7 @@ dev_line="" tester_line=""
 for p in $(pgrep -P "$(cat "$S/serve.pid")" -x claude); do
 	line=$(ps -ww -o args= -p "$p")
 	case $line in
-	*--disallowedTools*) tester_line=$line ;;
+	*--disallowedTools\ Edit*) tester_line=$line ;;
 	*) dev_line=$line ;;
 	esac
 done
@@ -216,10 +216,11 @@ check writer-reader "$reader_ok" "tester turn $t_turn ($s_t..$e_t) ran inside de
 refused_ok=1
 case $dev_line in *"--permission-mode acceptEdits"*) ;; *) refused_ok=0 ;; esac
 case $dev_line in *"--allowedTools Read,Edit,Write,Bash,Task,mcp__reef__*"*) ;; *) refused_ok=0 ;; esac
-case $dev_line in *--disallowedTools*) refused_ok=0 ;; esac
+case $dev_line in *"--disallowedTools Skill"*) ;; *) refused_ok=0 ;; esac
+case $dev_line in *"--disallowedTools Edit"*) refused_ok=0 ;; esac
 case $tester_line in *"--permission-mode default"*) ;; *) refused_ok=0 ;; esac
 case $tester_line in *"--allowedTools Read,Bash(ls:*),mcp__reef__*"*) ;; *) refused_ok=0 ;; esac
-case $tester_line in *"--disallowedTools Edit,Write,MultiEdit,NotebookEdit"*) ;; *) refused_ok=0 ;; esac
+case $tester_line in *"--disallowedTools Edit,Write,MultiEdit,NotebookEdit,Skill"*) ;; *) refused_ok=0 ;; esac
 [ ! -e "$T/t.txt" ] || refused_ok=0
 diff <(git -C "$T" status --porcelain) "$E/a-status-before.txt" >/dev/null || refused_ok=0
 t_sess=$(turn_col "$t_turn" session_id)
