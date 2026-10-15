@@ -267,7 +267,8 @@ func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghP
 	return nil
 }
 
-// noteFeature posts a reef note in the feature's most recent channel.
+// noteFeature posts a reef note in the feature's most recent channel, and tells an open
+// stream on it that a message arrived, so the window refreshes without a reload.
 func (s *server) noteFeature(ctx context.Context, featureID int64, body string) error {
 	ch, err := s.st.FeatureLatestChannel(ctx, featureID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -276,10 +277,13 @@ func (s *server) noteFeature(ctx context.Context, featureID int64, body string) 
 	if err != nil {
 		return err
 	}
-	_, err = s.st.CreateMessage(ctx, store.Message{
+	if _, err = s.st.CreateMessage(ctx, store.Message{
 		ChannelID: ch.ID, Author: store.ReefAuthor, Body: body,
-	})
-	return err
+	}); err != nil {
+		return err
+	}
+	s.notifyMessage(ch.ID)
+	return nil
 }
 
 // wakeDeveloper wakes the developer role in the feature's most recent channel when a check
