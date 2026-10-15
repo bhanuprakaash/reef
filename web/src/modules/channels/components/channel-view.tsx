@@ -113,6 +113,9 @@ export function ChannelView({ channel, scope, features, diff, brief, onTerminal 
                 channelId={channel.id}
                 running={running}
                 paused={blocksUser(channel.paused)}
+                reason={channel.paused}
+                roles={roles.map((r) => r.name)}
+                working={working}
               />
             </div>
             <div ref={end} />

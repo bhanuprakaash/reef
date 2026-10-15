@@ -357,7 +357,7 @@ async function stop() {
   const cid = await newChannel(main, 'New channel', 'stop chat');
   await send('Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
   await working();
-  await main.locator('div.border-dashed p.whitespace-pre-wrap').first().waitFor({ timeout: 60000 });
+  await main.locator('div.items-start:has(span.normal-case) > div.bg-bubble:not([role])').first().waitFor({ timeout: 60000 });
   await page.waitForTimeout(1000);
   await page.getByRole('button', { name: 'Stop' }).click();
   await page.getByText(/Failed: interrupted/).waitFor({ timeout: 30000 });
