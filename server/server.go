@@ -38,6 +38,9 @@ type server struct {
 	inboxMu   sync.Mutex
 	inboxWake chan struct{}
 
+	// ghMu guards ghNoGhLogged and ghFeatureErrLogged: the first github poll runs on its
+	// own goroutine and can overlap a caller that polls the server right after construction.
+	ghMu sync.Mutex
 	// ghNoGhLogged is set once the github poll has logged that gh is not on PATH, so it
 	// logs that once, not every poll.
 	ghNoGhLogged bool
