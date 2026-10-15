@@ -147,8 +147,9 @@ is loaded into every fresh session's context prompt (see [memory.md](memory.md#t
 
 The last GitHub PR state the [GitHub poll](#github-poll) posted about a feature, kept across
 a restart so it does not repeat a note. No REST route; tables `feature_github` (one row per
-feature: `pr_number`, `pr_state`, `pr_url`) and `feature_github_check` (one row per check
-name of the feature's PR, `notified`), migration 16
+feature: `pr_number`, `pr_state`, `pr_url`) and `feature_github_check` (one row per
+`(feature, check name, run key)` of the feature's PR: `run_key`, `woken`; a row's existence
+means it was noted), migration 16
 [`016_feature_github.sql`](../store/migrations/016_feature_github.sql).
 
 ### brief
@@ -800,10 +801,11 @@ not `PENDING`/`EXPECTED`), the feature's most recent channel (the one with the n
 message across the feature, or, when it has none, its most recently created channel) gets
 one message from author `reef`: `PR #12 open: <url>` or `<check name> succeeded`/`failed`.
 A check run is identified by its name plus its `detailsUrl`/`targetUrl` (falling back to
-`completedAt`/`startedAt`), so a rerun of the same check name, such as CI run again on a
-later push, is noted again. The last state posted is stored (migration 16
-[`016_feature_github.sql`](../store/migrations/016_feature_github.sql), migration 17
-[`017_feature_github_run.sql`](../store/migrations/017_feature_github_run.sql), tables
+`completedAt`/`startedAt`) as its run key; a rerun of the same check name, such as CI run
+again on a later push, is a different run key and is noted again, and two runs of the same
+name in one rollup (a matrix job, two workflows) are two rows, both noted. The state posted
+is stored one row per `(feature, name, run key)` (migration 16
+[`016_feature_github.sql`](../store/migrations/016_feature_github.sql), tables
 `feature_github` and `feature_github_check`), so a restart does not repeat it and a second
 poll with the same answer posts nothing. No `gh` on `PATH`: nothing is posted, logged once.
 `gh` erroring (not logged in, no PR for the branch): nothing is posted, logged once per
