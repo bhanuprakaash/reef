@@ -122,29 +122,31 @@ export function PrPanel({ featureId, onClose }: { featureId: number; onClose: ()
               })}
             </ul>
           </section>
-          <section aria-label="Changes" className="space-y-1.5">
-            <h3 className="flex gap-2 text-[12.5px] font-normal text-muted">
-              Changes
-              <span className="ml-auto">
-                +{pr.additions} −{pr.deletions} · {pr.files.length}{' '}
-                {pr.files.length === 1 ? 'file' : 'files'}
-              </span>
-            </h3>
-            <ul className="space-y-1.5">
-              {pr.files.map((f) => (
-                <li key={f.path}>
-                  <Link
-                    to={`/features/${featureId}/review`}
-                    className="flex items-center gap-2.5 rounded-menu bg-field px-3 py-2 text-[13.5px] hover:bg-hover"
-                  >
-                    <span className="min-w-0 flex-1 truncate font-mono">{f.path}</span>
-                    <span className="shrink-0 text-[12.5px] text-done">+{f.additions}</span>
-                    <span className="shrink-0 text-[12.5px] text-failed">−{f.deletions}</span>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          </section>
+          {pr.files.length > 0 && (
+            <section aria-label="Changes" className="space-y-1.5">
+              <h3 className="flex gap-2 text-[12.5px] font-normal text-muted">
+                Changes
+                <span className="ml-auto">
+                  +{pr.additions} −{pr.deletions} · {pr.files.length}{' '}
+                  {pr.files.length === 1 ? 'file' : 'files'}
+                </span>
+              </h3>
+              <ul className="space-y-1.5">
+                {pr.files.map((f) => (
+                  <li key={f.path}>
+                    <Link
+                      to={`/features/${featureId}/review`}
+                      className="flex items-center gap-2.5 rounded-menu bg-field px-3 py-2 text-[13.5px] hover:bg-hover"
+                    >
+                      <span className="min-w-0 flex-1 truncate font-mono">{f.path}</span>
+                      <span className="shrink-0 text-[12.5px] text-done">+{f.additions}</span>
+                      <span className="shrink-0 text-[12.5px] text-failed">−{f.deletions}</span>
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
           <div className="flex flex-wrap items-center gap-2">
             <a href={pr.url} target="_blank" rel="noreferrer" className={buttonClass()}>
               Open on GitHub

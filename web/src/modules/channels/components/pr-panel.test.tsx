@@ -55,6 +55,12 @@ describe('PrPanel', () => {
     expect(render({ ...pr, body: '' })).not.toContain('whitespace-pre-wrap');
   });
 
+  it('hides the Changes section when the PR has no files', () => {
+    const markup = render({ ...pr, additions: 0, deletions: 0, files: [] });
+
+    expect(markup).not.toContain('Changes');
+  });
+
   it('shows the change totals and each file linking to the review page', () => {
     const markup = render(pr);
 
