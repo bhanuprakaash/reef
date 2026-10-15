@@ -274,8 +274,6 @@ func (t Team) validate() error {
 	return nil
 }
 
-// cleanSkills returns r's skill names trimmed, failing with ErrInvalid on an empty, repeated or
-// oddly spelled one.
 func cleanSkills(r Role) ([]string, error) {
 	names := make([]string, 0, len(r.Skills))
 	for _, name := range r.Skills {

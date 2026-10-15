@@ -1,5 +1,5 @@
 UPDATE role SET
-  skills = CASE WHEN p.is_list THEN p.names ELSE '[]' END,
+  skills = p.names,
   persona = role.persona || CASE
     WHEN p.extra = '' THEN ''
     WHEN role.persona = '' THEN p.extra
@@ -7,12 +7,14 @@ UPDATE role SET
   END
 FROM (
   SELECT id, is_list,
-    (SELECT json_group_array(value) FROM json_each(safe_raw) WHERE value <> '') AS names,
+    CASE WHEN is_list
+      THEN (SELECT json_group_array(DISTINCT value) FROM json_each(raw) WHERE value <> '')
+      ELSE '[]' END AS names,
     CASE WHEN is_list THEN rest ELSE old END AS extra
   FROM (
     SELECT id, old, rest, raw,
-      head <> '' AND instr(replace(head, ', ', ''), ' ') = 0 AND json_valid(raw) AS is_list,
-      CASE WHEN json_valid(raw) THEN raw ELSE '[]' END AS safe_raw
+      head <> '' AND instr(replace(head, ', ', ''), ' ') = 0
+        AND head NOT GLOB '*[^A-Za-z0-9:_, -]*' AS is_list
     FROM (
       SELECT id, old, head, rest,
         '["' || replace(replace(head, ', ', ','), ',', '","') || '"]' AS raw
