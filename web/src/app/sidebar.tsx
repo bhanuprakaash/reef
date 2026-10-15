@@ -29,7 +29,7 @@ function Row(props: {
   return (
     <Link
       to={props.to}
-      className={`flex items-center gap-3 rounded-xl px-2.5 py-[9px] ${props.active ? 'bg-[#2c2c2c]' : 'hover:bg-hover/50'}`}
+      className={`flex items-center gap-3 rounded-xl px-2.5 py-[9px] ${props.active ? 'bg-active' : 'hover:bg-hover/50'}`}
     >
       {props.avatar}
       <span className="min-w-0 flex-1">
@@ -81,7 +81,7 @@ function BarLink({
     <Link
       to={to}
       aria-label={label}
-      className={`flex size-8 items-center justify-center rounded-lg text-soft hover:bg-hover/50 ${active ? 'bg-[#2c2c2c] text-fg' : ''}`}
+      className={`flex size-8 items-center justify-center rounded-lg text-soft hover:bg-hover/50 ${active ? 'bg-active text-fg' : ''}`}
     >
       <svg
         width="17"
@@ -188,7 +188,7 @@ export function Sidebar() {
         </button>
       </div>
 
-      <label className="flex h-[38px] items-center gap-2 rounded-xl border border-[#333] bg-[#232323] px-3 text-muted">
+      <label className="flex h-[38px] items-center gap-2 rounded-xl border border-search-line bg-search px-3 text-muted">
         <svg
           width="16"
           height="16"
@@ -315,6 +315,10 @@ export function Sidebar() {
             <circle cx="9" cy="9" r="4" />
             <circle cx="17" cy="11" r="3" />
             <path d="M2 20c.8-3.5 3.6-5 7-5s6.2 1.5 7 5M15.5 15.5c2.6 0 4.7 1.3 5.5 4.5" />
+          </BarLink>
+          <BarLink to="/settings" label="Settings" active={pathname === '/settings'}>
+            <circle cx="12" cy="12" r="3" />
+            <path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3h.1a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8v.1a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z" />
           </BarLink>
         </div>
       </div>

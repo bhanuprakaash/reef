@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
@@ -10,9 +10,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -349,6 +349,132 @@ async function capture() {
   await err.waitFor({ timeout: 15000 });
   await shot('error');
   check(true, 'a capture whose request fails shows the error', await err.innerText());
+}
+
+// Text colour against the background it sits on, for every visible text element, one row per
+// colour pair, named by theme token. Large text needs 3:1, the rest 4.5:1.
+async function contrast(screen) {
+  const rows = await page.evaluate(() => {
+    const cv = document.createElement('canvas');
+    cv.width = cv.height = 1;
+    const cx = cv.getContext('2d', { willReadFrequently: true });
+    const rgba = (css) => {
+      cx.clearRect(0, 0, 1, 1);
+      cx.fillStyle = '#000';
+      cx.fillStyle = css;
+      cx.fillRect(0, 0, 1, 1);
+      const d = cx.getImageData(0, 0, 1, 1).data;
+      return [d[0], d[1], d[2], d[3] / 255];
+    };
+    const mix = (under, [r, g, b, a]) => [under[0] * (1 - a) + r * a, under[1] * (1 - a) + g * a, under[2] * (1 - a) + b * a];
+    const hex = (c) => '#' + c.map((v) => Math.round(v).toString(16).padStart(2, '0')).join('');
+    const lum = (c) => {
+      const [r, g, b] = c.map((v) => {
+        const s = v / 255;
+        return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+      });
+      return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+    };
+    const root = getComputedStyle(document.documentElement);
+    const names = {};
+    for (const n of ['main', 'sidebar', 'card', 'bubble', 'field', 'raised', 'hover', 'active', 'search', 'track', 'paused-bg', 'failed-bg', 'danger-bg', 'fg', 'soft', 'muted', 'faint', 'pill', 'pill-ink', 'working', 'needs-you', 'paused', 'paused-fg', 'paused-ink', 'done', 'failed', 'failed-fg', 'failed-soft', 'danger', 'lead']) {
+      const [r, g, b, a] = rgba(root.getPropertyValue(`--color-${n}`).trim());
+      if (a === 1) (names[hex([r, g, b])] ??= []).push(n);
+    }
+    const name = (h) => names[h]?.join('/') ?? h;
+    const out = new Map();
+    for (const el of document.body.querySelectorAll('*')) {
+      if (el.closest('svg, [disabled], [aria-disabled="true"]')) continue;
+      const text = [...el.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent.trim()).join(' ').trim();
+      const r = el.getBoundingClientRect();
+      const cs = getComputedStyle(el);
+      if (!text || r.width === 0 || r.height === 0 || cs.visibility !== 'visible') continue;
+      const chain = [];
+      for (let a = el; a; a = a.parentElement) chain.unshift(a);
+      let bg = [255, 255, 255];
+      for (const a of chain) bg = mix(bg, rgba(getComputedStyle(a).backgroundColor));
+      const fg = mix(bg, rgba(cs.color));
+      const ratio = (Math.max(lum(fg), lum(bg)) + 0.05) / (Math.min(lum(fg), lum(bg)) + 0.05);
+      const large = parseFloat(cs.fontSize) >= 24 || (parseFloat(cs.fontSize) >= 18.66 && Number(cs.fontWeight) >= 700);
+      const key = `${hex(fg)}|${hex(bg)}`;
+      if (!out.has(key)) out.set(key, { fg: name(hex(fg)), bg: name(hex(bg)), ratio, min: large ? 3 : 4.5, text: text.slice(0, 28) });
+    }
+    return [...out.values()].sort((a, b) => a.ratio - b.ratio);
+  });
+  const theme = await page.evaluate(() => document.documentElement.dataset.theme ?? 'dark');
+  console.log(`contrast ${screen} (${theme}): text on background, token names`);
+  for (const r of rows) console.log(`  ${r.ratio.toFixed(2).padStart(5)} ${r.ratio >= r.min ? 'ok  ' : 'LOW '} ${r.fg} on ${r.bg} | ${r.text}`);
+  const low = rows.filter((r) => r.ratio < r.min);
+  check(low.length === 0, `${screen} text is at least 4.5:1 (3:1 for large) in ${theme}`, `${rows.length} colour pairs, lowest ${rows[0]?.ratio.toFixed(2)}${low.length ? `, below: ${low.map((r) => `${r.fg} on ${r.bg}`).join(', ')}` : ''}`);
+}
+
+async function theme() {
+  if ((await fetch(`${base}/teams/gated`)).status !== 200) throw new Error('apply the team gated first (see features/teams.md)');
+  const bodyBg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
+  const cdp = await page.context().newCDPSession(page);
+  const system = (value) => cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value }] });
+
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const fid = sql('select id from feature order by id desc limit 1');
+  const pid = sql(`select project_id from feature where id=${fid}`);
+  await fetch(`${base}/tasks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: Number(pid), featureId: Number(fid), title: 'Wire the login form' }) });
+  await fetch(`${base}/decisions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ featureId: Number(fid), body: 'Sessions, not JWT', why: 'one server', author: 'user' }) });
+  await newTeamChannel('gated', 'theme room');
+  await send('DESIGN a short plan for a login form.');
+  await main.getByRole('button', { name: 'Approve' }).waitFor({ timeout: 240000 });
+  const channelUrl = page.url();
+
+  const screens = async (mode) => {
+    await page.goto(channelUrl);
+    await main.getByRole('button', { name: 'Approve' }).waitFor();
+    await shot(`channel-${mode}`);
+    await contrast('channel');
+    await page.goto(base + '/inbox');
+    await main.getByRole('button', { name: 'Approve' }).waitFor();
+    await shot(`inbox-${mode}`);
+    await contrast('inbox');
+    await page.goto(`${base}/features/${fid}`);
+    await page.getByRole('heading', { name: 'Login', level: 1 }).waitFor();
+    await page.waitForTimeout(500);
+    await shot(`feature-${mode}`);
+    await contrast('feature page');
+  };
+
+  await page.goto(base + '/settings');
+  await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor();
+  const dark = await bodyBg();
+  check((await page.getByRole('radio', { name: 'Dark' }).isChecked()) && dark === 'rgb(33, 33, 33)', 'Settings opens on Dark with the dark main colour', dark);
+  const notify = await main.getByRole('region', { name: 'Notifications' }).innerText();
+  check(/Turn on notifications|On|Blocked/.test(notify), 'the Notifications section has the permission control', notify.replace(/\s+/g, ' '));
+  await shot('settings-dark');
+  await screens('dark');
+
+  await page.goto(base + '/settings');
+  await page.getByRole('radio', { name: 'Light' }).check();
+  const light = await bodyBg();
+  check(light === 'rgb(255, 255, 255)' && (await page.evaluate(() => document.documentElement.dataset.theme)) === 'light', 'picking Light restyles the open page at once', light);
+  await shot('settings-light');
+  await page.reload();
+  const reloaded = await bodyBg();
+  check(reloaded === 'rgb(255, 255, 255)' && (await page.getByRole('radio', { name: 'Light' }).isChecked()), 'Light survives a reload', `${reloaded}; localStorage ${await page.evaluate(() => localStorage.getItem('reef.theme'))}`);
+  await screens('light');
+
+  await page.goto(base + '/settings');
+  await page.getByRole('radio', { name: 'Match macOS' }).check();
+  await system('light');
+  const followsLight = await bodyBg();
+  await system('dark');
+  const followsDark = await bodyBg();
+  check(followsLight === 'rgb(255, 255, 255)' && followsDark === 'rgb(33, 33, 33)', 'Match macOS follows prefers-color-scheme, both ways, without a reload', `light ${followsLight}, dark ${followsDark}`);
+  await system('light');
+  await page.reload();
+  check((await bodyBg()) === 'rgb(255, 255, 255)' && (await page.getByRole('radio', { name: 'Match macOS' }).isChecked()), 'Match macOS survives a reload and follows the system', await bodyBg());
+  await shot('settings-system-light');
+
+  await page.getByRole('radio', { name: 'Dark' }).check();
+  await system('light');
+  check((await bodyBg()) === 'rgb(33, 33, 33)', 'Dark stays dark while the system is light', await bodyBg());
 }
 
 async function stop() {

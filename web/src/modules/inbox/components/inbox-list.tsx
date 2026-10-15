@@ -3,6 +3,7 @@ import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 import { useChannels } from '@/lib/api/get-channels';
+import { useNotificationPermission } from '@/lib/use-notification-permission';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { InboxRow } from '@/modules/inbox/components/inbox-row';
 import { itemKey } from '@/modules/inbox/utils/new-items';
@@ -21,7 +22,7 @@ const filters: { value: Filter; label: string }[] = [
 export function InboxList() {
   const inbox = useInbox();
   const channels = useChannels();
-  const [permission, setPermission] = useState(Notification.permission);
+  const { permission, request } = useNotificationPermission();
   const [chosen, setChosen] = useState<Filter>('all');
 
   const items = inbox.data ?? [];
@@ -43,11 +44,7 @@ export function InboxList() {
         {permission === 'default' && (
           <p className="mt-2.5 flex items-center gap-2.5 text-[13px] text-muted">
             Get a Mac notification when something needs you
-            <Button
-              type="button"
-              size="sm"
-              onClick={() => void Notification.requestPermission().then(setPermission)}
-            >
+            <Button type="button" size="sm" onClick={request}>
               Turn on notifications
             </Button>
           </p>
