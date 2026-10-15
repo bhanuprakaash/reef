@@ -34,9 +34,7 @@ type Props = {
   diff?: { added: number; removed: number };
   diffPanel?: (onClose: () => void) => ReactNode;
   brief?: string;
-  onTerminal?: () => void;
   browserOpen?: boolean;
-  onBrowser?: () => void;
   onBrowserDriver?: (driver: { role: string; face?: string; action: string } | null) => void;
 };
 
@@ -49,9 +47,7 @@ export function ChannelView({
   diff,
   diffPanel,
   brief,
-  onTerminal,
   browserOpen,
-  onBrowser,
   onBrowserDriver,
 }: Props) {
   const messages = useMessages(channel.id);
@@ -117,9 +113,7 @@ export function ChannelView({
           setTeamOpen(!showTeam || !teamOpen);
           closeSide();
         }}
-        onTerminal={onTerminal}
         browserOpen={browserOpen}
-        onBrowser={onBrowser}
       />
       {channel.featureId === null && (
         <Dialog open={promoting} onClose={() => setPromoting(false)} title="Promote to a feature">

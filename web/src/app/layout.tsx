@@ -2,23 +2,30 @@ import { useState } from 'react';
 import { Outlet } from 'react-router';
 import { BrowserPane, type BrowserDriver } from '@/app/browser-pane';
 import { FirstRun } from '@/app/first-run';
+import { PaneToggles } from '@/app/pane-toggles';
 import { Sidebar } from '@/app/sidebar';
 import { TabBar } from '@/app/tab-bar';
 import { Unreachable } from '@/app/unreachable';
 import { useProfile } from '@/lib/api/get-profile';
+import { useStoredFlag } from '@/lib/use-stored-flag';
 import { useProjects } from '@/modules/projects/api/get-projects';
 
 export type LayoutContext = {
   browserOpen: boolean;
-  toggleBrowser: () => void;
+  terminalOpen: boolean;
+  toggleTerminal: () => void;
+  setHasTerminal: (has: boolean) => void;
   setBrowserDriver: (driver: BrowserDriver | null) => void;
 };
 
 export function Layout() {
   const projects = useProjects();
-  const [browserOpen, setBrowserOpen] = useState(true);
+  const [browserOpen, toggleBrowser] = useStoredFlag('reef.browserPane.open');
+  const [terminalOpen, toggleTerminal] = useStoredFlag('reef.terminalPane.open');
+  const [hasTerminal, setHasTerminal] = useState(false);
   const [browserDriver, setBrowserDriver] = useState<BrowserDriver | null>(null);
   const profile = useProfile();
+  const desktop = typeof window !== 'undefined' && window.reef != null;
   if (projects.isPending || profile.isPending) return null;
   if (projects.data?.length === 0 || profile.data === null) return <FirstRun />;
 
@@ -28,18 +35,30 @@ export function Layout() {
       <aside className="hidden w-[300px] shrink-0 border-r border-hairline bg-sidebar [--creature-ring:var(--color-sidebar)] md:block">
         <Sidebar />
       </aside>
-      <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 md:p-6">
-        <Outlet
-          context={
-            {
-              browserOpen,
-              toggleBrowser: () => setBrowserOpen((open) => !open),
-              setBrowserDriver,
-            } satisfies LayoutContext
-          }
-        />
-      </main>
-      <BrowserPane open={browserOpen} driver={browserDriver} />
+      <div data-desktop={desktop || undefined} className="relative flex min-h-0 min-w-0 flex-1">
+        <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 md:p-6">
+          <Outlet
+            context={
+              {
+                browserOpen,
+                terminalOpen: desktop && terminalOpen,
+                toggleTerminal,
+                setHasTerminal,
+                setBrowserDriver,
+              } satisfies LayoutContext
+            }
+          />
+        </main>
+        {desktop && (
+          <PaneToggles
+            browserOpen={browserOpen}
+            onBrowser={toggleBrowser}
+            terminalOpen={terminalOpen}
+            onTerminal={hasTerminal ? toggleTerminal : undefined}
+          />
+        )}
+      </div>
+      <BrowserPane open={browserOpen} driver={browserDriver} onClose={toggleBrowser} />
       <TabBar />
       {projects.error instanceof TypeError && <Unreachable />}
     </div>

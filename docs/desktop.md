@@ -56,8 +56,9 @@ dialog's Choose button opens the native folder picker (`folder:choose`).
 One `WebContentsView` ([`desktop/browser.js`](../desktop/browser.js)), for the whole window,
 shared by every channel. It sits to the right of the main area with Back, Forward and Reload
 buttons and an address bar; a preload script reports the pane's size to the main process so the
-native view stays lined up with it. The Browser button in a channel's header shows or hides the
-pane (open at start); a hidden pane reports a zero size, which hides the view. Back, Forward and
+native view stays lined up with it. The Browser toggle at the window's top right (every page)
+shows or hides the pane, as does the pane's own close button; the choice is remembered and the
+pane starts closed. A hidden pane reports a zero size, which hides the view. Back, Forward and
 Reload go over IPC (`browser:back`, `browser:forward`, `browser:reload`) to the view's navigation
 history; every navigation sends the renderer the URL and whether Back and Forward have anywhere
 to go, and the buttons are disabled when they do not.
@@ -112,12 +113,14 @@ take-over back off, so the button and the main process agree.
 One shell per working tree ([`desktop/terminal.js`](../desktop/terminal.js)): a feature's
 worktree, or a project checkout for a quick session. A quick session's pane shows on its channel
 page right away, in the project path. A feature's worktree is not made just by viewing the
-feature page: an "Open terminal" button calls `POST /features/{id}/worktree` (making the
+feature page: turning the Terminal toggle on calls `POST /features/{id}/worktree` (making the
 worktree the same way a first wake would, or reusing it), then shows the pane in the returned
-path; a failed call shows its error under the button. The button asks again on every visit to
-the feature page in this window session; it does not remember that a tree was already opened.
-On a channel page the terminal is a drawer under the messages, with a header (folder, Clear,
-hide); the Terminal button in the channel header, or the hide button, toggles it.
+path; a failed call shows its error under the header. It asks again each time the toggle goes on
+or the page opens with it on.
+The Terminal toggle sits next to the Browser toggle at the window's top right, only on a channel or
+feature page (a page with a folder); one on/off choice for the window, remembered. On a channel
+page the terminal is a drawer under the messages, on a feature page a panel pinned to the bottom,
+with a header (folder, Clear, hide); the toggle or the hide button turns it off.
 The pane renders nothing in a plain browser. `node-pty` spawns the login shell with the `PATH`
 the app already resolved at start, sized to xterm's own columns and rows so the shell's first
 output isn't wrapped to the wrong width. The shell's output is buffered in the main process per

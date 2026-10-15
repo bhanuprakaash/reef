@@ -63,7 +63,15 @@ function NavButton({
 // native view's bounds in sync with the pane's own size (a hidden pane reports
 // a zero size, which hides the view). Plain Chrome has no window.reef, and so
 // no native view to show, so it renders nothing.
-export function BrowserPane({ open, driver }: { open: boolean; driver: BrowserDriver | null }) {
+export function BrowserPane({
+  open,
+  driver,
+  onClose,
+}: {
+  open: boolean;
+  driver: BrowserDriver | null;
+  onClose: () => void;
+}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [url, setUrl] = useState('');
   const [canGo, setCanGo] = useState({ back: false, forward: false });
@@ -192,6 +200,26 @@ export function BrowserPane({ open, driver }: { open: boolean; driver: BrowserDr
           className="h-8 min-w-0 flex-1 rounded-pill bg-field px-3 text-[13px] text-soft outline-none placeholder:text-muted focus-visible:ring-3 focus-visible:ring-ring"
         />
         {!banner && takeOverButton}
+        <button
+          type="button"
+          aria-label="Close browser"
+          title="Close browser"
+          onClick={onClose}
+          className={navButton}
+        >
+          <svg
+            width="16"
+            height="16"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            aria-hidden="true"
+          >
+            <path d="M6 6l12 12M18 6L6 18" />
+          </svg>
+        </button>
       </form>
       {banner && (
         <div className="flex items-center gap-2.5 border-b border-banner-line bg-banner-bg px-3.5 py-2.5 text-[13px]">

@@ -21,12 +21,9 @@ type Props = {
   onPromote: () => void;
   onInspector: () => void;
   onTeam: () => void;
-  onTerminal?: () => void;
   browserOpen?: boolean;
-  onBrowser?: () => void;
 };
 
-const iconButton = 'flex size-9 items-center justify-center rounded-field text-soft hover:bg-card';
 const phoneIcon = 'max-md:size-11 max-md:px-0';
 
 export function ChannelHeader({
@@ -44,12 +41,10 @@ export function ChannelHeader({
   onPromote,
   onInspector,
   onTeam,
-  onTerminal,
   browserOpen,
-  onBrowser,
 }: Props) {
   return (
-    <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-2 pr-2 md:pl-[22px] md:pr-4">
+    <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-2 pr-2 md:pl-[22px] md:pr-4 md:in-data-desktop:pr-[88px]">
       <Link
         to="/channels"
         aria-label="Back"
@@ -94,48 +89,6 @@ export function ChannelHeader({
         </a>
       )}
       <div className="flex items-center gap-0.5 md:ml-auto">
-        {onBrowser && (
-          <button
-            type="button"
-            aria-label="Browser"
-            aria-pressed={browserOpen}
-            onClick={onBrowser}
-            className={`${iconButton} aria-pressed:bg-bubble aria-pressed:text-fg`}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="9" />
-              <path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" />
-            </svg>
-          </button>
-        )}
-        {onTerminal && (
-          <button type="button" aria-label="Terminal" onClick={onTerminal} className={iconButton}>
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <rect x="3" y="4" width="18" height="16" rx="3" />
-              <path d="M7 9l3 3-3 3M13 15h4" />
-            </svg>
-          </button>
-        )}
         {diff && onDiff && (
           <button
             type="button"

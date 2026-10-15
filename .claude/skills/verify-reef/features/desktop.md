@@ -20,7 +20,7 @@ stops everything it started. Contract: `docs/desktop.md`.
 - `browser-network` `browser_network` lists `GET <url> 200` and `GET <url>missing.json 404`.
 - `browser-take-over` with `window.reef.setTakeOver(true)` (what Take over does) `browser_snapshot` fails with `the user has the browser`; after `setTakeOver(false)` it works again.
 - `browser-stale-ref` after a new navigation, `browser_click` on a ref of the old snapshot fails with `ref eM is not on the page; take a new snapshot`.
-- `terminal-feature` opening `/features/<id>` and pressing Open terminal (viewing the page alone makes no worktree) starts a login shell, a child of the app, whose cwd is the feature's worktree `<data>/worktrees/<project id>/term`; after `pwd; git branch --show-current` the pane shows that path then `feature/term`.
+- `terminal-feature` opening `/features/<id>` and turning on the window's Terminal toggle (viewing the page alone makes no worktree) starts a login shell, a child of the app, whose cwd is the feature's worktree `<data>/worktrees/<project id>/term`; after `pwd; git branch --show-current` the pane shows that path then `feature/term`.
 - `desktop-quit` after SIGTERM to the app, xvfb-run, the app and every process it had (Electron helpers, `reef serve`, the shell) are gone, and so is `browser.sock`.
 - `browser-unavailable` with the app closed, `browser_snapshot` fails with `browser unavailable: the Reef app is not open`.
 - `capture-shortcut` `CommandOrControl+Shift+Space`, sent for real with `xdotool key`, opens the capture window (a screenshot of it is not blank). Skipped on a Mac (user check) or noted when `xdotool` is not installed.
@@ -43,8 +43,8 @@ Acceptance lines of the quick capture ticket: "the shortcut opens the capture wi
 
 - Open the app (`cd desktop && npm start`, the `.deb`'s `reef-desktop`, or Reef.app).
 - An agent in a channel calls the `mcp__reef__browser_*` tools; the pane on the right follows.
-- Take over / Hand back is the button in the banner under the address bar while an agent drives, else next to it. The channel header's Browser button shows or hides the pane; Back, Forward and Reload sit left of the address bar.
-- A feature's page shows the Terminal section at the bottom, with an Open terminal button.
+- Take over / Hand back is the button in the banner under the address bar while an agent drives, else next to it. The Browser toggle at the window's top right shows or hides the pane, and the pane's own close button hides it; Back, Forward and Reload sit left of the address bar.
+- On a channel or feature page the Terminal toggle at the window's top right shows the Terminal section (bottom of the page on a feature).
 - `CommandOrControl+Shift+Space`, or the sidebar's Capture link, opens the quick capture window.
 - Quit from the menu, Cmd+Q, closing the window, or a signal.
 

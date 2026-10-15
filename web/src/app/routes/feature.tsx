@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { TerminalPane } from '@/app/terminal-pane';
+import { useTerminal } from '@/app/use-terminal';
 import { ChannelList } from '@/modules/channels/components/channel-list';
 import { useChannels } from '@/lib/api/get-channels';
 import { useTeams } from '@/lib/api/get-teams';
@@ -35,8 +36,12 @@ export function FeaturePage() {
   const tasks = useTasks({ feature: id });
   const channels = useChannels();
   const teams = useTeams();
-  const hasTerminal = typeof window !== 'undefined' && window.reef != null;
+  const terminal = useTerminal(true);
   const worktree = useEnsureWorktree(id);
+  const { mutate: ensureWorktree } = worktree;
+  useEffect(() => {
+    if (terminal.open) ensureWorktree();
+  }, [terminal.open, ensureWorktree]);
   const [dialog, setDialog] = useState<'edit' | 'channel' | null>(null);
 
   if (feature.isPending) return <p className="text-sm text-muted">Loading...</p>;
@@ -57,11 +62,6 @@ export function FeaturePage() {
         </div>
         <div className="flex gap-2">
           <StagePicker feature={f} />
-          {hasTerminal && !worktree.data && (
-            <Button type="button" onClick={() => worktree.mutate()} disabled={worktree.isPending}>
-              Open terminal
-            </Button>
-          )}
           <Button type="button" onClick={() => setDialog('edit')}>
             Edit
           </Button>
@@ -144,9 +144,9 @@ export function FeaturePage() {
           <NewChannelForm projectId={f.projectId} featureId={id} onClose={() => setDialog(null)} />
         )}
       </Dialog>
-      {worktree.data && (
-        <div className="overflow-hidden rounded-card border border-hairline">
-          <TerminalPane cwd={worktree.data.path} />
+      {terminal.open && worktree.data && (
+        <div className="sticky bottom-0 z-10 overflow-hidden rounded-card border border-hairline">
+          <TerminalPane cwd={worktree.data.path} onHide={terminal.hide} />
         </div>
       )}
     </div>
