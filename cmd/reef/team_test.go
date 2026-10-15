@@ -66,6 +66,30 @@ func TestTeam_ApplyKeepsFace(t *testing.T) {
 	}
 }
 
+func TestTeam_ApplyKeepsModel(t *testing.T) {
+	dir := t.TempDir()
+	mustReef(t, dir, "team", "apply", writeTeam(t, `{"name":"core","roles":[
+		{"name":"lead","lead":true,"backend":"claude","model":"opus"},
+		{"name":"developer","backend":"claude"}]}`))
+
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	tm, err := st.Team(context.Background(), "core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var models []string
+	for _, r := range tm.Roles {
+		models = append(models, r.Name+"="+r.Model)
+	}
+	if got, want := strings.Join(models, " "), "lead=opus developer="; got != want {
+		t.Errorf("models = %q, want %q", got, want)
+	}
+}
+
 func TestTeam_ApplyErrors(t *testing.T) {
 	tests := []struct {
 		name string

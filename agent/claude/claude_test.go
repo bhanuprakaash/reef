@@ -516,6 +516,30 @@ func TestToolsAllowed(t *testing.T) {
 	}
 }
 
+func TestModel(t *testing.T) {
+	tests := []struct {
+		name string
+		give string
+		want bool
+	}{
+		{"set", "sonnet", true},
+		{"empty", "", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			a := fakeClaude(t, "argv")
+			if err := a.Start(context.Background(), agent.Config{Cwd: t.TempDir(), Model: tt.give}); err != nil {
+				t.Fatal(err)
+			}
+			got := collect(t, drain(a))
+			if len(got) != 1 || strings.Contains(got[0].Output, "--model") != tt.want ||
+				tt.want && !strings.HasSuffix(got[0].Output, " --model sonnet") {
+				t.Errorf("events = %+v, want --model sonnet only when set", got)
+			}
+		})
+	}
+}
+
 func TestToolsDisallowed(t *testing.T) {
 	a := fakeClaude(t, "argv")
 	cfg := agent.Config{Cwd: t.TempDir(), DisallowedTools: []string{"Edit", "Write"}}
