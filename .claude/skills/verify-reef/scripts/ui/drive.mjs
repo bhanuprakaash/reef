@@ -657,7 +657,7 @@ async function stop() {
   await shot('stopped');
   check(true, 'Stop shows the turn failed', sql(`select id,status,error from turn where channel_id=${cid}`));
   const partial = sql(`select substr(replace(body, char(10), ' '),1,40) from message where channel_id=${cid} and author='lead'`);
-  const shown = await main.getByText(partial, { exact: false }).count();
+  const shown = await main.getByText(partial.replace(/[*_`]/g, ''), { exact: false }).count();
   check(Boolean(partial) && shown === 1, 'the partial reply shows once, not as the message and as the live block', `partial: ${JSON.stringify(partial)}; shown ${shown} times`);
   await exchange('What was the secret word? Answer with the word only.');
   await shot('resumed');
