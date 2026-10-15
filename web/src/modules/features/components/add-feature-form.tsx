@@ -3,11 +3,18 @@ import { useCreateFeature } from '@/modules/features/api/create-feature';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
 
-export function AddFeatureForm({ projectId }: { projectId: number }) {
-  const [open, setOpen] = useState(false);
+type Props = { projectId: number; onClose?: () => void };
+
+export function AddFeatureForm({ projectId, onClose }: Props) {
+  const [open, setOpen] = useState(onClose !== undefined);
   const [slug, setSlug] = useState('');
   const [name, setName] = useState('');
   const create = useCreateFeature();
+
+  function close() {
+    setOpen(false);
+    onClose?.();
+  }
 
   if (!open) {
     return (
@@ -28,7 +35,7 @@ export function AddFeatureForm({ projectId }: { projectId: number }) {
             onSuccess: () => {
               setSlug('');
               setName('');
-              setOpen(false);
+              close();
             },
           },
         );
@@ -60,7 +67,7 @@ export function AddFeatureForm({ projectId }: { projectId: number }) {
           type="button"
           onClick={() => {
             create.reset();
-            setOpen(false);
+            close();
           }}
         >
           Cancel

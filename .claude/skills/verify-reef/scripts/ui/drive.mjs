@@ -516,12 +516,21 @@ async function memory() {
   const section = await addProject();
   const name = (await section.getAttribute('aria-label')) ?? '';
   const pid = sql(`select id from project where name='${name}'`);
-  const home = main.locator('section', { has: page.getByRole('heading', { name, level: 2 }) });
-  await home.getByLabel('Project memory').waitFor();
+  await aside.getByRole('button', { name: 'Switch project' }).click();
+  await page.getByRole('menuitem', { name: 'Open project' }).click();
+  await page.waitForURL(`**/projects/${pid}`);
+  const editor = main.getByRole('textbox', { name: 'Project memory' });
+  await editor.waitFor();
   await shot('empty');
-  check((await home.getByLabel('Project memory').inputValue()) === '', 'a new project has no memory yet');
-  await home.getByLabel('Project memory').fill('Use Go, not Python.');
-  await home.getByRole('button', { name: 'Save' }).click();
+  check((await editor.inputValue()) === '', 'a new project has no memory yet');
+  await editor.fill('Use Go, not Python.');
+  await main.getByRole('button', { name: 'Preview' }).click();
+  check(
+    (await main.getByText('Use Go, not Python.').count()) === 1 && (await editor.count()) === 0,
+    'Preview shows the text instead of the editor',
+  );
+  await main.getByRole('button', { name: 'Write' }).click();
+  await main.getByRole('button', { name: 'Save' }).click();
   await page.getByText('Saved').waitFor();
   await shot('saved');
   check(
@@ -530,8 +539,35 @@ async function memory() {
     sql(`select id,memory from project where id=${pid}`),
   );
   await page.reload();
-  const value = await home.getByLabel('Project memory').inputValue();
+  const value = await editor.inputValue();
   check(value === 'Use Go, not Python.', 'the saved memory survives a reload', value);
+
+  const slug = `pp-${Date.now().toString(36)}`;
+  await main.getByRole('button', { name: 'New feature' }).click();
+  const featureDialog = page.getByRole('dialog', { name: 'New feature' });
+  await featureDialog.getByLabel('Feature slug').fill(slug);
+  await featureDialog.getByLabel('Feature name').fill('Project page feature');
+  await featureDialog.getByRole('button', { name: 'Add', exact: true }).click();
+  await main.getByRole('link', { name: 'Project page feature' }).waitFor();
+  await shot('feature-added');
+  check(
+    sql(`select count(*) from feature where project_id=${pid} and slug='${slug}'`) === '1',
+    'New feature on the project page stores the feature and lists it',
+  );
+
+  const session = `quick-${Date.now().toString(36)}`;
+  await main.getByRole('button', { name: 'New quick session' }).click();
+  const sessionDialog = page.getByRole('dialog', { name: 'New quick session' });
+  await sessionDialog.getByLabel('Channel name').fill(session);
+  await sessionDialog.getByRole('button', { name: 'Start' }).click();
+  await page.getByRole('heading', { name: session, level: 1 }).waitFor();
+  check(
+    sql(`select count(*) from channel where project_id=${pid} and feature_id is null and name='${session}'`) === '1',
+    'New quick session on the project page stores a channel with no feature and opens it',
+  );
+  await page.goto(`${base}/projects/${pid}`);
+  await main.getByRole('link', { name: session }).waitFor();
+  await shot('quick-session-listed');
 }
 
 async function inspector() {

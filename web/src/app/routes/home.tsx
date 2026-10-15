@@ -12,7 +12,6 @@ import { InboxRow } from '@/modules/inbox/components/inbox-row';
 import { age } from '@/modules/inbox/utils/age';
 import { itemKey } from '@/modules/inbox/utils/new-items';
 import { useProjects } from '@/modules/projects/api/get-projects';
-import { ProjectMemoryForm } from '@/modules/projects/components/project-memory-form';
 import { useCreateTask } from '@/modules/tasks/api/create-task';
 import { useTasks } from '@/modules/tasks/api/get-tasks';
 import type { Feature } from '@/types/api';
@@ -235,16 +234,6 @@ export function HomePage() {
           </ul>
         </section>
       )}
-
-      <div className="flex flex-col gap-3">
-        <h2 className="text-[15px] font-medium">Project memory</h2>
-        {projects.data?.map((p) => (
-          <section key={p.id} className="space-y-2">
-            <h2 className="text-lg font-medium">{p.name}</h2>
-            <ProjectMemoryForm projectId={p.id} />
-          </section>
-        ))}
-      </div>
     </div>
   );
 }

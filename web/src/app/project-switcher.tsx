@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router';
 import { Logo } from '@/components/logo';
 import { Menu, MenuItem, MenuSeparator } from '@/components/menu';
 import { AddProjectForm } from '@/modules/projects/components/add-project-form';
@@ -9,6 +10,7 @@ type Props = { projects: Project[]; current: Project; onPick: (project: Project)
 export function ProjectSwitcher({ projects, current, onPick }: Props) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const navigate = useNavigate();
 
   useEffect(() => {
     if (!open) return;
@@ -65,6 +67,14 @@ export function ProjectSwitcher({ projects, current, onPick }: Props) {
             </MenuItem>
           ))}
           <MenuSeparator />
+          <MenuItem
+            onClick={() => {
+              void navigate(`/projects/${current.id}`);
+              setOpen(false);
+            }}
+          >
+            Open project
+          </MenuItem>
           <div className="p-1.5">
             <AddProjectForm onCreated={pick} />
           </div>
