@@ -1,4 +1,4 @@
-const roles = ['Developer', 'Designer', 'Product', 'Founder', 'Student', 'Other'];
+const roles = ['Developer', 'Designer', 'Product manager', 'Founder', 'Student', 'Other'];
 const styles = [
   'Short answers',
   'Detailed explanations',
