@@ -90,8 +90,6 @@ func pluginSkills(home, dir string) ([]Skill, error) {
 	return found, nil
 }
 
-// scan reads root/*/SKILL.md, giving each skill the prefix. A folder without a SKILL.md is
-// not a skill, and a missing root has none.
 func scan(root, prefix string) ([]Skill, error) {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -129,7 +127,6 @@ func unique(skills []Skill) []Skill {
 	return out
 }
 
-// frontmatter returns the name and description of a SKILL.md's leading --- block.
 func frontmatter(body string) (name, description string) {
 	lines := strings.Split(strings.ReplaceAll(body, "\r\n", "\n"), "\n")
 	if lines[0] != "---" {
@@ -160,7 +157,6 @@ func frontmatter(body string) (name, description string) {
 	return name, description
 }
 
-// scalar unquotes a YAML flow scalar written with double or single quotes.
 func scalar(v string) string {
 	if len(v) >= 2 && v[0] == '"' && v[len(v)-1] == '"' {
 		if s, err := strconv.Unquote(v); err == nil {
