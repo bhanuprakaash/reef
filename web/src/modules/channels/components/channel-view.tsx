@@ -29,7 +29,7 @@ import { Button } from '@/components/button';
 
 type Props = {
   channel: Channel;
-  scope: string;
+  scope: ReactNode;
   features: Feature[];
   diff?: { added: number; removed: number };
   diffPanel?: (onClose: () => void) => ReactNode;
@@ -211,7 +211,7 @@ export function ChannelView({
           {showTeam && (
             <div className="mb-5 flex items-center gap-2.5 md:hidden">
               <div className="min-w-0 flex-1">
-                <div className="truncate text-xl"># {channel.name}</div>
+                <div className="truncate text-xl">#{channel.name}</div>
                 <div className="text-[13px] text-muted">Team · {channel.team}</div>
               </div>
               {channel.featureId !== null && (

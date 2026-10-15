@@ -4,6 +4,7 @@ import { Link, useLocation, useNavigate } from 'react-router';
 import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { Row } from '@/components/row';
+import { StageChip } from '@/components/stage-chip';
 import { channelsQuery } from '@/lib/api/get-channels';
 import { useTeams } from '@/lib/api/get-teams';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
@@ -25,19 +26,11 @@ function storedCollapsed(): number[] {
   }
 }
 
-function StageChip({ stage }: { stage: string }) {
+function FeatureStage({ stage }: { stage: string }) {
   const s = STAGES.find((x) => x.value === stage);
-  const color = s?.color ?? 'var(--color-muted)';
   return (
-    <span
-      style={{
-        color,
-        borderColor: `color-mix(in srgb, ${color} 35%, transparent)`,
-        background: `color-mix(in srgb, ${color} 10%, transparent)`,
-      }}
-      className="ml-auto flex-none rounded-pill border px-2 text-[11px] leading-[18px]"
-    >
-      {s?.label ?? stage}
+    <span className="ml-auto">
+      <StageChip label={s?.label ?? stage} color={s?.color ?? 'var(--color-muted)'} />
     </span>
   );
 }
@@ -188,7 +181,7 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
                   {!open && cs.length > 0 && (
                     <span className="flex-none text-[11px] text-faint">{cs.length}</span>
                   )}
-                  <StageChip stage={f.stage} />
+                  <FeatureStage stage={f.stage} />
                 </Link>
                 <AddButton
                   reveal
@@ -199,7 +192,7 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
               {open && (
                 <ul className="flex flex-col gap-0.5">
                   {cs.map((c) => (
-                    <li key={c.id}>{channelRow(c, `# ${c.name}`)}</li>
+                    <li key={c.id}>{channelRow(c, `#${c.name}`)}</li>
                   ))}
                 </ul>
               )}

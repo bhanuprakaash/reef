@@ -40,7 +40,7 @@ export function InboxRow({ item, channel }: { item: InboxItem; channel?: Channel
             {kindLabels[item.kind]}
           </span>
           <span className="text-muted">
-            # {channel?.name ?? `Channel ${channelId}`} · {age(item.at)}
+            #{channel?.name ?? `Channel ${channelId}`} · {age(item.at)}
           </span>
         </div>
         <div className="mt-1 whitespace-pre-wrap text-[15px]">{item.text}</div>

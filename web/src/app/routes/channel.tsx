@@ -5,6 +5,7 @@ import { ReviewDiff } from '@/app/review-diff';
 import { TerminalPane } from '@/app/terminal-pane';
 import { useTerminal } from '@/app/use-terminal';
 import { useChannel } from '@/modules/channels/api/get-channel';
+import { StageChip } from '@/components/stage-chip';
 import { ChannelView } from '@/modules/channels/components/channel-view';
 import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDiff } from '@/modules/features/api/get-diff';
@@ -55,9 +56,17 @@ export function ChannelPage() {
   const props: ViewProps = {
     channel: channel.data,
     features: features.data ?? [],
-    scope: feature
-      ? `${feature.name} · ${STAGES.find((s) => s.value === feature.stage)?.label ?? feature.stage}`
-      : 'quick session',
+    scope: feature ? (
+      <>
+        <span className="truncate">{feature.name}</span>
+        <StageChip
+          label={STAGES.find((s) => s.value === feature.stage)?.label ?? feature.stage}
+          color={STAGES.find((s) => s.value === feature.stage)?.color ?? 'var(--color-muted)'}
+        />
+      </>
+    ) : (
+      'quick session'
+    ),
     browserOpen: hasBrowser && browserOpen,
     onBrowserDriver: setBrowserDriver,
   };

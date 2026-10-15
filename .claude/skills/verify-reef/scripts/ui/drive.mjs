@@ -531,7 +531,7 @@ async function phone() {
   await page.getByRole('button', { name: 'Capture', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Captured' }).waitFor();
   await visit('channels', /^Channels/, page.getByRole('heading', { name: 'Channels', level: 1 }));
-  const row = main.getByRole('link', { name: /# phone room/ });
+  const row = main.getByRole('link', { name: /#phone room/ });
   check(await row.isVisible(), 'the Channels tab lists the channel under its feature', await main.innerText().then((t) => t.replace(/\s+/g, ' ').slice(0, 120)));
   await visit('needs-you', /^Needs you/, main.getByRole('button', { name: 'Approve' }));
   const badge = await tabs.getByLabel(/waiting$/).textContent();
@@ -556,7 +556,7 @@ async function phone() {
   writeFileSync(path.join(tree, 'auth.go'), ['package auth', '', 'func check(r *http.Request) error {', '\ttok := r.URL.Query().Get("token")', '\treturn verify(tok)', '}', ''].join('\n'));
 
   await tabs.getByRole('link', { name: /^Channels/ }).click();
-  await main.getByRole('link', { name: /# phone room/ }).click();
+  await main.getByRole('link', { name: /#phone room/ }).click();
   await page.getByRole('heading', { name: 'phone room', level: 1 }).waitFor();
   await main.getByRole('button', { name: 'Approve' }).waitFor();
   check(!(await tabs.isVisible()), 'the tab bar is hidden in a channel');
@@ -1057,7 +1057,7 @@ async function inbox() {
   await shot('approval-row');
   const rowText = (await row.textContent()) ?? '';
   check(
-    /Approval/.test(rowText) && /# inbox room/.test(rowText) && (await row.getByRole('button', { name: 'Approve' }).count()) === 1 && (await row.getByRole('button', { name: 'Reject' }).count()) === 1,
+    /Approval/.test(rowText) && /#inbox room/.test(rowText) && (await row.getByRole('button', { name: 'Approve' }).count()) === 1 && (await row.getByRole('button', { name: 'Reject' }).count()) === 1,
     'a new approval of a channel that is not open shows in the inbox with Approve and Reject',
     rowText,
   );

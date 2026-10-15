@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { PullRequestIcon } from '@/modules/channels/components/pull-request-icon';
 import type { PullRequest } from '@/modules/channels/utils/pull-request';
@@ -8,7 +9,7 @@ import { GroupAvatar } from '@/components/creature';
 
 type Props = {
   channel: Channel;
-  scope: string;
+  scope: ReactNode;
   roles: string[];
   faces: Record<string, string | undefined>;
   pullRequest: PullRequest | null;
@@ -67,14 +68,15 @@ export function ChannelHeader({
       <GroupAvatar roles={roles} faces={faces} size={26} />
       <div className="flex min-w-0 flex-1 flex-col md:flex-none md:flex-row md:items-center md:gap-2.5">
         <h1 className="truncate text-base font-normal">
-          <span aria-hidden="true">#</span> {channel.name}
+          <span aria-hidden="true">#</span>
+          {channel.name}
         </h1>
         {channel.featureId === null ? (
-          <span className="truncate text-[13px] text-muted">{scope}</span>
+          <span className="flex min-w-0 items-center gap-2 text-[13px] text-muted">{scope}</span>
         ) : (
           <Link
             to={`/features/${channel.featureId}`}
-            className="truncate text-[13px] text-muted hover:text-fg"
+            className="flex min-w-0 items-center gap-2 text-[13px] text-muted hover:text-fg"
           >
             {scope}
           </Link>
