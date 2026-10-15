@@ -5,6 +5,7 @@ import { useMessages } from '@/lib/api/get-messages';
 import { useTeams } from '@/lib/api/get-teams';
 import { useWrapChannel } from '@/modules/channels/api/wrap-channel';
 import { ApprovalRows } from '@/modules/channels/components/approval-rows';
+import { ChannelHeader } from '@/modules/channels/components/channel-header';
 import { CheckpointRows } from '@/modules/channels/components/checkpoint-rows';
 import { Composer } from '@/modules/channels/components/composer';
 import { FailedTurnRows } from '@/modules/channels/components/failed-turn-rows';
@@ -14,18 +15,27 @@ import { MessageList } from '@/modules/channels/components/message-list';
 import { PausedBanner } from '@/modules/channels/components/paused-banner';
 import { PromoteForm } from '@/modules/channels/components/promote-form';
 import { ProposalPanel } from '@/modules/channels/components/proposal-panel';
+import { TeamPanel } from '@/modules/channels/components/team-panel';
 import { ThreadPane } from '@/modules/channels/components/thread-pane';
 import { useLiveTurn } from '@/modules/channels/hooks/use-live-turn';
 import { useScrollToHash } from '@/modules/channels/hooks/use-scroll-to-hash';
 import { blocksUser } from '@/modules/channels/utils/blocks-user';
 import { groupThreads } from '@/modules/channels/utils/group-threads';
+import { latestPullRequest } from '@/modules/channels/utils/pull-request';
 import type { Channel, Feature } from '@/types/api';
-import { Button } from '@/components/button';
-import { Creature } from '@/components/creature';
 
-type Props = { channel: Channel; scope: string; features: Feature[] };
+type Props = {
+  channel: Channel;
+  scope: string;
+  features: Feature[];
+  diff?: { added: number; removed: number };
+  brief?: string;
+  onTerminal?: () => void;
+};
 
-export function ChannelView({ channel, scope, features }: Props) {
+type Side = { kind: 'thread'; rootId: number } | { kind: 'inspector' } | null;
+
+export function ChannelView({ channel, scope, features, diff, brief, onTerminal }: Props) {
   const messages = useMessages(channel.id);
   const approvals = useApprovals(channel.id);
   const failedTurns = useFailedTurns(channel.id);
@@ -33,17 +43,14 @@ export function ChannelView({ channel, scope, features }: Props) {
   const wrap = useWrapChannel(channel.id);
   const end = useRef<HTMLDivElement>(null);
   const running = turn.status === 'running';
-  const [threadId, setThreadId] = useState<number | null>(null);
-  const [showInspector, setShowInspector] = useState(false);
+  const [side, setSide] = useState<Side>(null);
+  const [teamOpen, setTeamOpen] = useState(false);
   const threads = groupThreads(messages.data ?? []);
-  const thread = threads.find((t) => t.root.id === threadId);
+  const thread =
+    side?.kind === 'thread' ? threads.find((t) => t.root.id === side.rootId) : undefined;
   const teams = useTeams();
+  const roles = teams.data?.find((t) => t.name === channel.team)?.roles ?? [];
   const working = turn.role || channel.role || 'agent';
-  const sleeping =
-    teams.data
-      ?.find((t) => t.name === channel.team)
-      ?.roles.map((r) => r.name)
-      .filter((name) => name !== working) ?? [];
 
   useEffect(() => {
     end.current?.scrollIntoView({ block: 'end' });
@@ -53,71 +60,92 @@ export function ChannelView({ channel, scope, features }: Props) {
     messages.isSuccess && ![messages, approvals, failedTurns].some((q) => q.isFetching),
   );
 
+  const closeSide = () => setSide(null);
+  const showTeam = !thread && side?.kind !== 'inspector';
+
   return (
-    <div className="flex items-start gap-6">
-      <div className="min-w-0 max-w-3xl flex-1 space-y-4">
-        <header className="flex items-start justify-between gap-3">
-          <div className="space-y-1">
-            <h1 className="text-xl font-semibold">{channel.name}</h1>
-            <p className="text-sm text-muted">
-              {channel.backend || 'no backend'}
-              {channel.permissionMode && ` (${channel.permissionMode})`} · {scope}
-            </p>
-          </div>
-          <div className="flex gap-2">
-            <Button type="button" onClick={() => setShowInspector(true)}>
-              Inspector
-            </Button>
-            {channel.featureId !== null && (
-              <Button
-                type="button"
-                disabled={running || wrap.isPending || blocksUser(channel.paused)}
-                onClick={() => wrap.mutate()}
-              >
-                Wrap up
-              </Button>
+    <div className="flex min-h-0 flex-1 flex-col">
+      <ChannelHeader
+        channel={channel}
+        scope={scope}
+        roles={roles.length > 0 ? roles.map((r) => r.name) : [channel.role]}
+        pullRequest={latestPullRequest(messages.data ?? [])}
+        diff={diff}
+        wrapDisabled={running || wrap.isPending || blocksUser(channel.paused)}
+        onWrap={() => wrap.mutate()}
+        onInspector={() => setSide(side?.kind === 'inspector' ? null : { kind: 'inspector' })}
+        onTeam={() => {
+          setTeamOpen(!showTeam || !teamOpen);
+          closeSide();
+        }}
+        onTerminal={onTerminal}
+      />
+      <div className="flex min-h-0 flex-1">
+        <section className="min-w-0 flex-1 overflow-y-auto px-7 pt-4">
+          <div className="mx-auto max-w-3xl space-y-4">
+            {channel.featureId === null && (
+              <PromoteForm channel={channel} features={features} disabled={running} />
             )}
-          </div>
-        </header>
-        {channel.featureId === null && (
-          <PromoteForm channel={channel} features={features} disabled={running} />
-        )}
-        {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
-        {channel.paused !== '' && <PausedBanner channelId={channel.id} reason={channel.paused} />}
-        {messages.isPending && <p className="text-sm text-muted">Loading...</p>}
-        {messages.isError && <p className="text-sm text-danger">{messages.error.message}</p>}
-        {messages.data && <MessageList threads={threads} onOpen={setThreadId} />}
-        <LiveTurn turn={turn} role={working} />
-        {running &&
-          sleeping.map((role) => (
-            <div key={role} className="flex items-center gap-2 text-sm text-muted">
-              <Creature role={role} size={20} state="asleep" />
-              {role} is asleep · wakes on @{role}
+            {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
+            {channel.paused !== '' && (
+              <PausedBanner channelId={channel.id} reason={channel.paused} />
+            )}
+            {messages.isPending && <p className="text-sm text-muted">Loading...</p>}
+            {messages.isError && <p className="text-sm text-danger">{messages.error.message}</p>}
+            {messages.data && (
+              <MessageList
+                threads={threads}
+                onOpen={(rootId) => setSide({ kind: 'thread', rootId })}
+              />
+            )}
+            <LiveTurn turn={turn} role={working} />
+            {turn.note && <p className="text-sm text-muted">{turn.note}</p>}
+            <FailedTurnRows
+              channelId={channel.id}
+              running={running}
+              paused={channel.paused !== ''}
+            />
+            <CheckpointRows channelId={channel.id} running={running} />
+            <ApprovalRows channelId={channel.id} />
+            <ProposalPanel channelId={channel.id} featureId={channel.featureId} />
+            <div className="sticky bottom-0 bg-main pb-1 pt-2">
+              <Composer
+                channelId={channel.id}
+                running={running}
+                paused={blocksUser(channel.paused)}
+              />
             </div>
-          ))}
-        {turn.note && <p className="text-sm text-muted">{turn.note}</p>}
-        <FailedTurnRows channelId={channel.id} running={running} paused={channel.paused !== ''} />
-        <CheckpointRows channelId={channel.id} running={running} />
-        <ApprovalRows channelId={channel.id} />
-        <ProposalPanel channelId={channel.id} featureId={channel.featureId} />
-        <div className="sticky bottom-0 bg-main pb-1 pt-2">
-          <Composer channelId={channel.id} running={running} paused={blocksUser(channel.paused)} />
+            <div ref={end} />
+          </div>
+        </section>
+        <div
+          className={`w-80 shrink-0 overflow-y-auto border-l border-hairline p-4 ${showTeam && !teamOpen ? 'hidden min-[1100px]:block' : ''}`}
+        >
+          {thread && (
+            <ThreadPane
+              key={thread.root.id}
+              channelId={channel.id}
+              thread={thread}
+              running={running}
+              paused={blocksUser(channel.paused)}
+              onClose={closeSide}
+            />
+          )}
+          {side?.kind === 'inspector' && (
+            <InspectorPanel channelId={channel.id} onClose={closeSide} />
+          )}
+          {showTeam && (
+            <TeamPanel
+              channelId={channel.id}
+              featureId={channel.featureId}
+              roles={roles}
+              working={running ? working : null}
+              waiting={approvals.data?.map((a) => a.to) ?? []}
+              brief={brief}
+            />
+          )}
         </div>
-        <div ref={end} />
       </div>
-      {thread && (
-        <ThreadPane
-          key={thread.root.id}
-          channelId={channel.id}
-          thread={thread}
-          running={running}
-          paused={blocksUser(channel.paused)}
-          onClose={() => setThreadId(null)}
-        />
-      )}
-      {showInspector && (
-        <InspectorPanel channelId={channel.id} onClose={() => setShowInspector(false)} />
-      )}
     </div>
   );
 }

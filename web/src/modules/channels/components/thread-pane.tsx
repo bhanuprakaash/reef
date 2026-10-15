@@ -13,10 +13,7 @@ type Props = {
 
 export function ThreadPane({ channelId, thread, running, paused, onClose }: Props) {
   return (
-    <aside
-      aria-label="Thread"
-      className="w-80 shrink-0 space-y-3 self-start rounded border border-line p-3"
-    >
+    <aside aria-label="Thread" className="space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium">Thread</h2>
         <Button variant="ghost" type="button" onClick={onClose}>

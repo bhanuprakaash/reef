@@ -67,10 +67,7 @@ export function InspectorPanel({ channelId, onClose }: { channelId: number; onCl
   const inspector = useInspector(channelId, true);
 
   return (
-    <aside
-      aria-label="Inspector"
-      className="w-80 shrink-0 space-y-3 self-start rounded border border-line p-3"
-    >
+    <aside aria-label="Inspector" className="space-y-3">
       <div className="flex items-center justify-between">
         <h2 className="text-sm font-medium">Inspector</h2>
         <Button variant="ghost" type="button" onClick={onClose}>
