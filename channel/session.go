@@ -41,9 +41,6 @@ type member struct {
 	// write and dir say which tree the role's turns hold, one at a time.
 	write bool
 	dir   string
-	// intro is the roleIntro this member's session has, so a later persona or skills
-	// change can be told apart from one already sent.
-	intro string
 }
 
 // TokenEnv carries the token to the channel's reef mcp. WrapCommand is the text that asks
@@ -290,8 +287,16 @@ func (s *Session) member(
 	}
 	if m, ok := s.members[role]; ok {
 		if _, err := os.Stat(m.dir); !errors.Is(err, os.ErrNotExist) {
-			if intro := roleIntro(r); intro != "" && intro != m.intro {
-				m.run.preamble, m.intro = updatedRoleIntro(r), intro
+			// Before its first turn, m's preamble already carries the current intro, set
+			// when it was started or resumed; nothing has been sent yet to compare against.
+			if intro := roleIntro(r); intro != "" && m.run.sessionID != "" {
+				sent, err := introSent(wctx, s.st, s.ch.ID, role, r.Backend, m.run.sessionID)
+				if err != nil {
+					return nil, err
+				}
+				if !strings.HasPrefix(sent, intro) {
+					m.run.preamble = updatedRoleIntro(r)
+				}
 			}
 			return m, nil
 		}
@@ -350,8 +355,14 @@ func (s *Session) member(
 	case ctx.Err() != nil:
 		err = ctx.Err()
 	case last.SessionID != "":
-		if intro := roleIntro(r); intro != "" && !strings.HasPrefix(last.Prompt, intro) {
-			preamble = updatedRoleIntro(r)
+		if intro := roleIntro(r); intro != "" {
+			sent, serr := introSent(wctx, s.st, s.ch.ID, role, r.Backend, last.SessionID)
+			if serr != nil {
+				return nil, serr
+			}
+			if !strings.HasPrefix(sent, intro) {
+				preamble = updatedRoleIntro(r)
+			}
 		}
 		err = ag.Resume(ctx, cfg, last.SessionID)
 	default:
@@ -369,7 +380,6 @@ func (s *Session) member(
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.OnPrompt = s.onPrompt
-	m.intro = roleIntro(r)
 	if r.Write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
 		m.run.CheckpointDir = cwd
 	}
@@ -533,6 +543,34 @@ func newestSessionTurn(
 		}
 	}
 	return last, nil
+}
+
+// introSent is the role intro its session (same session id) in the channel was last given:
+// the session's first turn always carries one, from startPrompt, and a later turn carries one
+// when the role's persona or skills changed since, from updatedRoleIntro. Empty when neither
+// applies, so a prefix check against it never matches a non-empty roleIntro.
+func introSent(
+	ctx context.Context, st *store.Store, channelID int64, role, backend, sessionID string,
+) (string, error) {
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &channelID})
+	if err != nil {
+		return "", err
+	}
+	var sent string
+	first := true
+	for _, t := range turns {
+		if t.Role != role || t.Backend != backend || t.SessionID != sessionID {
+			continue
+		}
+		if first {
+			sent, first = t.Prompt, false
+			continue
+		}
+		if after, ok := strings.CutPrefix(t.Prompt, _introChangedPrefix); ok {
+			sent = after
+		}
+	}
+	return sent, nil
 }
 
 func newAgent(backend string) (agent.Agent, error) {
