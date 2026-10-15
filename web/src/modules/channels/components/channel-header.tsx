@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { PullRequestIcon } from '@/modules/channels/components/pull-request-icon';
 import type { PullRequest } from '@/modules/channels/utils/pull-request';
 import type { Channel } from '@/types/api';
 import { Button } from '@/components/button';
@@ -51,6 +52,7 @@ export function ChannelHeader({
       {pullRequest && (
         <a href={pullRequest.url} target="_blank" rel="noreferrer">
           <Chip>
+            <PullRequestIcon className="text-done" />
             PR #{pullRequest.number} {pullRequest.state}
           </Chip>
         </a>

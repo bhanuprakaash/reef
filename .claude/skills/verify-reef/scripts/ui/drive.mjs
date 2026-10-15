@@ -530,8 +530,8 @@ async function inspector() {
 
   await main.getByRole('button', { name: 'Inspector' }).click();
   const panel = page.getByRole('complementary', { name: 'Inspector' });
-  const devSummary = panel.locator('summary', { hasText: 'developer' });
-  await devSummary.waitFor({ timeout: 15000 });
+  const devRow = panel.locator('li', { hasText: 'developer' });
+  await devRow.waitFor({ timeout: 15000 });
   await shot('panel');
 
   const json = await getJson(`/channels/${cid}/inspector`);
@@ -540,22 +540,38 @@ async function inspector() {
   check(!!leadRole && !!devRole, 'the API lists a lead role and a developer role', JSON.stringify(json.roles));
 
   const turnsLabel = (n) => `${n} turn${n === 1 ? '' : 's'}`;
-  const leadText = await panel.locator('summary', { hasText: 'lead' }).innerText();
-  const devText = await devSummary.innerText();
+  const tokens = (u) => {
+    const n = u.inputTokens + u.outputTokens;
+    return n < 1000 ? String(n) : `${(n / 1000).toFixed(1)}k`;
+  };
+  const leadText = await panel.locator('li', { hasText: 'lead' }).innerText();
+  const devText = await devRow.innerText();
   check(
-    leadText.includes(turnsLabel(leadRole.turns)) && leadText.includes(`${leadRole.usage.inputTokens} in`),
-    'the lead block shows turn count and tokens from the API',
+    leadText.includes(turnsLabel(leadRole.turns)) && leadText.includes(tokens(leadRole.usage)),
+    'the lead row shows turn count and tokens from the API',
     leadText,
   );
   check(
-    devText.includes(turnsLabel(devRole.turns)) && devText.includes(`${devRole.usage.inputTokens} in`),
-    'the developer block shows turn count and tokens from the API',
+    devText.includes(turnsLabel(devRole.turns)) && devText.includes(tokens(devRole.usage)),
+    'the developer row shows turn count and tokens from the API',
     devText,
   );
 
-  await devSummary.click();
+  const sumCost = json.roles.reduce((n, r) => n + (r.costUsd ?? 0), 0);
+  const all = (await panel.innerText()).replace(/\s+/g, ' ');
+  const total = (label, value) => all.includes(`${label} ${value}`);
+  check(
+    total('Cost', `$${sumCost.toFixed(4)}`) &&
+      total('Tokens', tokens({ inputTokens: json.roles.reduce((n, r) => n + r.usage.inputTokens + r.usage.outputTokens, 0), outputTokens: 0 })) &&
+      total('Turns', json.roles.reduce((n, r) => n + r.turns, 0)),
+    'the totals are the sums of the API roles',
+    all,
+  );
+
   const devTurn = json.turns.find((t) => t.role === 'developer');
-  await panel.locator('details summary').last().click();
+  const turnSummary = panel.locator('summary', { hasText: new RegExp(`Turn ${devTurn.id}(?!\\d)`) });
+  await turnSummary.click();
+  await turnSummary.locator('xpath=..').locator('summary', { hasText: 'Prompt' }).click();
   await shot('turn-open');
   const body = await panel.innerText();
   check(body.includes(devTurn.prompt), 'expanding the developer turn shows its prompt', body);

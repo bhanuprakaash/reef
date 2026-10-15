@@ -2,10 +2,13 @@ import { Fragment } from 'react';
 import type { Thread } from '@/modules/channels/utils/group-threads';
 import { Author } from '@/modules/channels/components/author';
 import { Bubble } from '@/modules/channels/components/bubble';
+import { PullRequestIcon } from '@/modules/channels/components/pull-request-icon';
 import { showTimestamp, timestampLabel } from '@/modules/channels/utils/message-time';
+import { checkResult, pullRequestNote } from '@/modules/channels/utils/pull-request';
 import { latestMessageAnchor } from '@/utils/anchors';
 import { Button } from '@/components/button';
 import { Creature, GroupAvatar } from '@/components/creature';
+import { StatusDot } from '@/components/status-dot';
 
 type Props = { threads: Thread[]; onOpen: (rootId: number) => void };
 
@@ -35,6 +38,8 @@ export function MessageList({ threads, onOpen }: Props) {
           isTeammate(root.author) && firstId.get(root.author) === root.id && root.id !== founder;
         const named =
           isTeammate(root.author) && (stamped || joined || previous?.author !== root.author);
+        const pullRequest = pullRequestNote(root);
+        const check = checkResult(root);
         const repliers = [...new Set(replies.map((r) => r.author).filter(isTeammate))];
         return (
           <Fragment key={root.id}>
@@ -54,8 +59,19 @@ export function MessageList({ threads, onOpen }: Props) {
               id={(replies.at(-1) ?? root).id === newest ? latestMessageAnchor : undefined}
               className={`flex flex-col gap-2.5 ${root.author === 'user' ? 'items-end' : 'items-start'} ${named ? 'mt-2.5' : ''}`}
             >
-              {root.author === 'reef' ? (
-                <p className="w-full whitespace-pre-wrap py-2.5 text-center text-sm text-muted">
+              {pullRequest ? (
+                <p className="flex w-full items-center justify-center gap-2 py-2 text-sm text-muted">
+                  <PullRequestIcon />
+                  GitHub
+                  <a href={pullRequest.url} target="_blank" rel="noreferrer" className="text-fg">
+                    PR #{pullRequest.number} {pullRequest.state}
+                  </a>
+                </p>
+              ) : root.author === 'reef' ? (
+                <p
+                  className={`flex w-full items-center justify-center gap-2 whitespace-pre-wrap text-center text-sm ${check ? 'py-1' : 'py-2.5'} ${check === 'failed' ? 'text-danger' : 'text-muted'}`}
+                >
+                  {check && <StatusDot status={check === 'failed' ? 'failed' : 'done'} />}
                   {root.body}
                 </p>
               ) : (

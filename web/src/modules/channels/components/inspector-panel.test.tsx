@@ -23,7 +23,7 @@ describe('InspectorPanel', () => {
     expect(markup).toContain('$0.0034');
   });
 
-  it('shows — when cost is null', () => {
+  it('shows n/a when cost is null', () => {
     useInspector.mockReturnValue({
       isPending: false,
       isError: false,
@@ -32,7 +32,39 @@ describe('InspectorPanel', () => {
 
     const markup = renderToStaticMarkup(<InspectorPanel channelId={1} onClose={() => {}} />);
 
-    expect(markup).toContain('—');
+    expect(markup).toContain('n/a');
+    expect(markup).toContain('Codex does not report cost');
+  });
+
+  it('sums roles into the totals and skips n/a costs', () => {
+    useInspector.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: {
+        roles: [
+          {
+            role: 'lead',
+            turns: 4,
+            usage: { ...usage, inputTokens: 1500, outputTokens: 500 },
+            costUsd: 0.25,
+          },
+          {
+            role: 'developer',
+            turns: 8,
+            usage: { ...usage, inputTokens: 2000, outputTokens: 0 },
+            costUsd: 0.5,
+          },
+          { role: 'tester', turns: 2, usage, costUsd: null },
+        ],
+        turns: [],
+      },
+    });
+
+    const markup = renderToStaticMarkup(<InspectorPanel channelId={1} onClose={() => {}} />);
+
+    expect(markup).toContain('$0.7500');
+    expect(markup).toContain('4.0k');
+    expect(markup).toContain('>14<');
   });
 
   it('shows "1 turn" for a single turn, not "1 turns"', () => {
@@ -40,7 +72,7 @@ describe('InspectorPanel', () => {
 
     const markup = renderToStaticMarkup(<InspectorPanel channelId={1} onClose={() => {}} />);
 
-    expect(markup).toContain('1 turn ');
+    expect(markup).toContain('1 turn<');
     expect(markup).not.toContain('1 turns');
   });
 

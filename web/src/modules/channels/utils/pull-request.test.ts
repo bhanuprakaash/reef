@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Message } from '@/types/api';
-import { latestPullRequest } from './pull-request';
+import { checkResult, latestPullRequest } from './pull-request';
 
 const note = (id: number, author: string, body: string): Message => ({
   id,
@@ -27,5 +27,17 @@ describe('latestPullRequest', () => {
 
   it('ignores a user message that looks like a note', () => {
     expect(latestPullRequest([note(1, 'user', 'PR #7 open: https://x.test/7')])).toBeNull();
+  });
+});
+
+describe('checkResult', () => {
+  it('reads a check note from reef', () => {
+    expect(checkResult(note(1, 'reef', 'test failed'))).toBe('failed');
+    expect(checkResult(note(2, 'reef', 'lint succeeded'))).toBe('succeeded');
+  });
+
+  it('ignores other reef notes and user messages', () => {
+    expect(checkResult(note(1, 'reef', 'Rolled back to before turn 3.'))).toBeNull();
+    expect(checkResult(note(2, 'user', 'test failed'))).toBeNull();
   });
 });
