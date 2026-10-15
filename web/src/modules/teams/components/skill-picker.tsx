@@ -39,6 +39,9 @@ export function SkillPicker({ label, picked, available, noProject, onChange }: P
         ]}
         onChange={(name) => name && onChange([...picked, name])}
       />
+      {picked.length > 0 && (
+        <p className="mt-2 text-xs text-muted">Only these skills are available.</p>
+      )}
       {noProject && <p className="mt-2 text-xs text-muted">Add a project to see its skills.</p>}
     </div>
   );
