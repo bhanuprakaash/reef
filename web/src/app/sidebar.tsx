@@ -73,7 +73,7 @@ function BarLink({
 }
 
 export function Sidebar() {
-  const { pathname, search } = useLocation();
+  const { pathname } = useLocation();
   const navigate = useNavigate();
   const projects = useProjects();
   const features = useFeatures();
@@ -87,7 +87,6 @@ export function Sidebar() {
   const error = projects.error ?? features.error ?? channels.error;
   const waiting = inbox.data ?? [];
   const projectFeatures = features.data?.filter((f) => f.projectId === current?.id).length ?? 0;
-  const isBoard = pathname === '/tasks' && search.includes('view=board');
 
   return (
     <nav aria-label="Channels" className="flex h-full flex-col px-3 pt-4 pb-3 text-sm">
@@ -185,14 +184,9 @@ export function Sidebar() {
         </span>
         <span className="text-sm">You</span>
         <div className="ml-auto flex gap-0.5">
-          <BarLink to="/tasks" label="Tasks" active={pathname === '/tasks' && !isBoard}>
+          <BarLink to="/tasks" label="Tasks" active={pathname === '/tasks'}>
             <path d="M9 11l3 3 8-8" />
             <path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9" />
-          </BarLink>
-          <BarLink to="/tasks?view=board" label="Board" active={isBoard}>
-            <rect x="3" y="4" width="5" height="16" rx="1.5" />
-            <rect x="10" y="4" width="5" height="10" rx="1.5" />
-            <rect x="17" y="4" width="4" height="13" rx="1.5" />
           </BarLink>
           <BarLink to="/teams" label="Teams" active={pathname === '/teams'}>
             <circle cx="9" cy="9" r="4" />
