@@ -127,34 +127,39 @@ export function ChannelView({
         </Dialog>
       )}
       <div className="relative flex min-h-0 flex-1">
-        <section className="min-w-0 flex-1 overflow-y-auto px-3.5 pt-4 md:px-7">
-          <div className="mx-auto max-w-3xl space-y-4">
-            {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
-            {channel.paused !== '' && (
-              <PausedBanner channelId={channel.id} reason={channel.paused} />
-            )}
-            {messages.isPending && <p className="text-sm text-muted">Loading...</p>}
-            {messages.isError && <p className="text-sm text-danger">{messages.error.message}</p>}
-            {messages.data && (
-              <MessageList
-                threads={threads}
+        <section className="flex min-w-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-y-auto px-3.5 pt-4 md:px-7">
+            <div className="mx-auto max-w-3xl space-y-4">
+              {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
+              {channel.paused !== '' && (
+                <PausedBanner channelId={channel.id} reason={channel.paused} />
+              )}
+              {messages.isPending && <p className="text-sm text-muted">Loading...</p>}
+              {messages.isError && <p className="text-sm text-danger">{messages.error.message}</p>}
+              {messages.data && (
+                <MessageList
+                  threads={threads}
+                  faces={faces}
+                  openId={thread?.root.id}
+                  onOpen={(rootId) => openSide({ kind: 'thread', rootId })}
+                />
+              )}
+              <LiveTurn turn={turn} role={working} face={face} />
+              {turn.note && <p className="text-sm text-muted">{turn.note}</p>}
+              <FailedTurnRows
+                channelId={channel.id}
                 faces={faces}
-                openId={thread?.root.id}
-                onOpen={(rootId) => openSide({ kind: 'thread', rootId })}
+                running={running}
+                paused={channel.paused !== ''}
               />
-            )}
-            <LiveTurn turn={turn} role={working} face={face} />
-            {turn.note && <p className="text-sm text-muted">{turn.note}</p>}
-            <FailedTurnRows
-              channelId={channel.id}
-              faces={faces}
-              running={running}
-              paused={channel.paused !== ''}
-            />
-            <CheckpointRows channelId={channel.id} running={running} />
-            <ApprovalRows channelId={channel.id} faces={faces} />
-            <ProposalPanel channelId={channel.id} featureId={channel.featureId} faces={faces} />
-            <div className="sticky bottom-0 bg-main pb-1 pt-2">
+              <CheckpointRows channelId={channel.id} running={running} />
+              <ApprovalRows channelId={channel.id} faces={faces} />
+              <ProposalPanel channelId={channel.id} featureId={channel.featureId} faces={faces} />
+              <div ref={end} />
+            </div>
+          </div>
+          <div className="shrink-0 px-3.5 pb-5 pt-2 md:px-7">
+            <div className="mx-auto max-w-3xl">
               <Composer
                 channelId={channel.id}
                 running={running}
@@ -165,7 +170,6 @@ export function ChannelView({
                 working={working}
               />
             </div>
-            <div ref={end} />
           </div>
         </section>
         {!thread && (side || teamOpen) && (
@@ -206,7 +210,7 @@ export function ChannelView({
           {showTeam && (
             <div className="mb-5 flex items-center gap-2.5 md:hidden">
               <div className="min-w-0 flex-1">
-                <div className="truncate text-xl font-semibold"># {channel.name}</div>
+                <div className="truncate text-xl"># {channel.name}</div>
                 <div className="text-[13px] text-muted">Team · {channel.team}</div>
               </div>
               {channel.featureId !== null && (

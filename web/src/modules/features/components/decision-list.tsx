@@ -32,7 +32,7 @@ export function DecisionList({ decisions, faces }: Props) {
                 {d.author === 'user' ? (
                   <span
                     aria-hidden="true"
-                    className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-pill text-[11px] font-semibold text-pill-ink"
+                    className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-pill text-[11px] text-pill-ink"
                   >
                     {author[0]}
                   </span>

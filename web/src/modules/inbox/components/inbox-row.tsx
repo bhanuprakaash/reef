@@ -36,14 +36,14 @@ export function InboxRow({ item, channel }: { item: InboxItem; channel?: Channel
       />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-2 text-xs">
-          <span className={`font-semibold uppercase tracking-wider ${kindColors[item.kind]}`}>
+          <span className={`uppercase tracking-wider ${kindColors[item.kind]}`}>
             {kindLabels[item.kind]}
           </span>
           <span className="text-muted">
             # {channel?.name ?? `Channel ${channelId}`} · {age(item.at)}
           </span>
         </div>
-        <div className="mt-1 whitespace-pre-wrap text-[15px] font-medium">{item.text}</div>
+        <div className="mt-1 whitespace-pre-wrap text-[15px]">{item.text}</div>
         <div className="mt-3.5 flex flex-wrap items-center gap-2">
           {item.kind === 'approval' && approvalId !== undefined && (
             <>

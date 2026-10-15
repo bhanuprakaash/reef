@@ -9,7 +9,7 @@ export function JourneyBar({ stage }: { stage: string }) {
           <div
             className={`h-1 rounded-pill ${i === current ? 'bg-lead shadow-[0_0_12px_color-mix(in_srgb,var(--color-lead)_60%,transparent)]' : i < current ? 'bg-pill' : 'bg-track'}`}
           />
-          <div className={`mt-2 text-xs ${i === current ? 'font-semibold text-fg' : 'text-muted'}`}>
+          <div className={`mt-2 text-xs ${i === current ? 'text-fg' : 'text-muted'}`}>
             {s.label}
           </div>
         </li>

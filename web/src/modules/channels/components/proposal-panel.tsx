@@ -58,18 +58,18 @@ export function ProposalPanel({
         <span className="ml-auto text-[12.5px] text-muted">{summary}</span>
       </div>
       <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
-        <h3 className="text-xs font-medium text-muted uppercase">Brief</h3>
+        <h3 className="text-xs text-muted uppercase">Brief</h3>
         <pre className="font-sans whitespace-pre-wrap">{p.brief}</pre>
       </div>
       {p.notes && (
         <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
-          <h3 className="text-xs font-medium text-muted uppercase">Notes</h3>
+          <h3 className="text-xs text-muted uppercase">Notes</h3>
           <pre className="font-sans whitespace-pre-wrap">{p.notes}</pre>
         </div>
       )}
       {p.decisions.length > 0 && (
         <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
-          <h3 className="text-xs font-medium text-muted uppercase">Decisions</h3>
+          <h3 className="text-xs text-muted uppercase">Decisions</h3>
           <ul className="space-y-2">
             {p.decisions.map((d, i) => (
               <li key={i}>

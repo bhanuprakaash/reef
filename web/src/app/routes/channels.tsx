@@ -25,7 +25,7 @@ export function ChannelsPage() {
       {projects.data?.map((p) => (
         <div key={p.id}>
           <div className="flex items-center justify-between px-2.5">
-            <h2 className="text-[15px] font-medium">{p.name}</h2>
+            <h2 className="text-[15px]">{p.name}</h2>
             <button
               type="button"
               aria-label={`New quick session in ${p.name}`}

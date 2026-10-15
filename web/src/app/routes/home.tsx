@@ -176,7 +176,7 @@ export function HomePage() {
       <QuickCapture />
 
       <section aria-labelledby="today-needs" className="flex flex-col gap-2.5">
-        <h2 id="today-needs" className="text-[15px] font-medium">
+        <h2 id="today-needs" className="text-[15px]">
           Needs you
           {waiting.length > 0 && (
             <span className="font-normal text-muted"> · {waiting.length}</span>
@@ -200,7 +200,7 @@ export function HomePage() {
       </section>
 
       <section aria-labelledby="today-features" className="flex flex-col gap-2.5">
-        <h2 id="today-features" className="text-[15px] font-medium">
+        <h2 id="today-features" className="text-[15px]">
           Features
         </h2>
         {projectFeatures?.length === 0 && (
@@ -220,7 +220,7 @@ export function HomePage() {
 
       {done.length > 0 && (
         <section aria-labelledby="today-done" className="flex flex-col gap-1">
-          <h2 id="today-done" className="mb-1.5 text-[15px] font-medium">
+          <h2 id="today-done" className="mb-1.5 text-[15px]">
             Since yesterday
           </h2>
           <ul>

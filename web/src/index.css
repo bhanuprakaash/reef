@@ -189,6 +189,28 @@
     outline: 2px solid var(--color-fg);
     outline-offset: 2px;
   }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+    border-radius: var(--radius-pill);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-asleep);
+    background-clip: padding-box;
+  }
 }
 
 .creature-live [class^='c-'] {
