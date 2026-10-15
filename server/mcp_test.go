@@ -336,6 +336,156 @@ func TestMCPProposeWrap(t *testing.T) {
 	}
 }
 
+func TestMCPListTasks(t *testing.T) {
+	st, tok := mcpFixture(t)
+	ctx := context.Background()
+	one, two := int64(1), int64(2)
+	for _, task := range []store.Task{
+		{ProjectID: 1, FeatureID: &one, Title: "login form"},
+		{ProjectID: 1, FeatureID: &two, Title: "invoice"},
+		{ProjectID: 1, FeatureID: &one, Title: "logout", Status: "done"},
+		{ProjectID: 1, Title: "no feature"},
+	} {
+		if _, err := st.CreateTask(ctx, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	call := callTool(t, st, tok)
+	tests := []struct {
+		name    string
+		give    map[string]any
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "only this feature's tasks",
+			want: `{"tasks":[{"body":"","createdAt":"T","featureId":1,"id":1,"projectId":1,` +
+				`"status":"todo","title":"login form","updatedAt":"T"},{"body":"","createdAt":"T",` +
+				`"featureId":1,"id":3,"projectId":1,"status":"done","title":"logout","updatedAt":"T"}]}`,
+		},
+		{
+			name: "status filter",
+			give: map[string]any{"status": "done"},
+			want: `{"tasks":[{"body":"","createdAt":"T","featureId":1,"id":3,"projectId":1,` +
+				`"status":"done","title":"logout","updatedAt":"T"}]}`,
+		},
+		{
+			name: "no match",
+			give: map[string]any{"status": "doing"},
+			want: `{"tasks":[]}`,
+		},
+		{
+			name:    "unknown status",
+			give:    map[string]any{"status": "later"},
+			want:    `invalid: unknown status "later"`,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, isErr := call("list_tasks", tt.give)
+			if got != tt.want || isErr != tt.wantErr {
+				t.Errorf("list_tasks = %q (error %v), want %q (error %v)", got, isErr, tt.want, tt.wantErr)
+			}
+		})
+	}
+}
+
+func TestMCPReadAndUpdateTask(t *testing.T) {
+	st, tok := mcpFixture(t)
+	ctx := context.Background()
+	one, two := int64(1), int64(2)
+	for _, task := range []store.Task{
+		{ProjectID: 1, FeatureID: &one, Title: "login form", Body: "email and password"},
+		{ProjectID: 1, FeatureID: &two, Title: "invoice"},
+	} {
+		if _, err := st.CreateTask(ctx, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	call := callTool(t, st, tok)
+	tests := []struct {
+		name    string
+		tool    string
+		give    map[string]any
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "read own task",
+			tool: "read_task",
+			give: map[string]any{"id": 1},
+			want: `{"body":"email and password","createdAt":"T","featureId":1,"id":1,"projectId":1,` +
+				`"status":"todo","title":"login form","updatedAt":"T"}`,
+		},
+		{
+			name:    "read another feature's task",
+			tool:    "read_task",
+			give:    map[string]any{"id": 2},
+			want:    "task 2: not found",
+			wantErr: true,
+		},
+		{
+			name:    "read a missing task",
+			tool:    "read_task",
+			give:    map[string]any{"id": 99},
+			want:    "task 99: not found",
+			wantErr: true,
+		},
+		{
+			name: "update only the status",
+			tool: "update_task",
+			give: map[string]any{"id": 1, "status": "done"},
+			want: `{"body":"email and password","createdAt":"T","featureId":1,"id":1,"projectId":1,` +
+				`"status":"done","title":"login form","updatedAt":"T"}`,
+		},
+		{
+			name: "update title and body",
+			tool: "update_task",
+			give: map[string]any{"id": 1, "title": "sign in form", "body": ""},
+			want: `{"body":"","createdAt":"T","featureId":1,"id":1,"projectId":1,` +
+				`"status":"done","title":"sign in form","updatedAt":"T"}`,
+		},
+		{
+			name:    "update with an unknown status",
+			tool:    "update_task",
+			give:    map[string]any{"id": 1, "status": "later"},
+			want:    `invalid: unknown status "later"`,
+			wantErr: true,
+		},
+		{
+			name:    "update with an empty title",
+			tool:    "update_task",
+			give:    map[string]any{"id": 1, "title": ""},
+			want:    "invalid: task title is required",
+			wantErr: true,
+		},
+		{
+			name:    "update another feature's task",
+			tool:    "update_task",
+			give:    map[string]any{"id": 2, "status": "done"},
+			want:    "task 2: not found",
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, isErr := call(tt.tool, tt.give)
+			if got != tt.want || isErr != tt.wantErr {
+				t.Errorf("%s = %q (error %v), want %q (error %v)",
+					tt.tool, got, isErr, tt.want, tt.wantErr)
+			}
+		})
+	}
+	other, err := st.Task(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if other.Status != "todo" {
+		t.Errorf("another feature's task status = %q, want todo", other.Status)
+	}
+}
+
 func TestMCPQuickSession(t *testing.T) {
 	st, _ := mcpFixture(t)
 	tok, err := st.CreateToken(context.Background(), 4, "architect")
@@ -350,6 +500,9 @@ func TestMCPQuickSession(t *testing.T) {
 		{"get_brief", nil},
 		{"record_decision", map[string]any{"body": "d"}},
 		{"add_task", map[string]any{"title": "t"}},
+		{"list_tasks", nil},
+		{"read_task", map[string]any{"id": 1}},
+		{"update_task", map[string]any{"id": 1, "status": "done"}},
 		{"search_sessions", map[string]any{"query": "q"}},
 		{"read_decision", map[string]any{"id": 1}},
 		{"read_thread", map[string]any{"channelId": 1}},
