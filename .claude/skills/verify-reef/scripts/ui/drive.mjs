@@ -108,7 +108,7 @@ async function addProject() {
 // same git repo, and a feature's branch can be checked out in one worktree only.
 async function addFeature(section, prefix, name) {
   const slug = `${prefix}-${Date.now().toString(36)}`;
-  await section.getByRole('button', { name: 'Add feature' }).click();
+  await section.getByRole('button', { name: 'New feature' }).click();
   await section.getByLabel('Feature slug').fill(slug);
   await section.getByLabel('Feature name').fill(name);
   await section.getByRole('button', { name: 'Add', exact: true }).click();

@@ -1,7 +1,6 @@
 import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { Button } from '@/components/button';
 import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { Row } from '@/components/row';
@@ -17,6 +16,39 @@ import { rowTime } from '@/utils/row-time';
 
 const oneLine = (m: NonNullable<ChannelPreview['lastMessage']>) =>
   `${m.author === 'user' ? 'you' : m.author}: ${m.body.replace(/\s+/g, ' ')}`;
+
+function AddButton({
+  label,
+  onClick,
+  reveal,
+}: {
+  label: string;
+  onClick: () => void;
+  reveal?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      aria-label={label}
+      title={label}
+      onClick={onClick}
+      className={`ml-auto flex size-6 flex-none items-center justify-center rounded-md text-muted hover:bg-hover hover:text-fg ${reveal ? 'opacity-0 group-hover/h:opacity-100 focus-visible:opacity-100' : ''}`}
+    >
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        strokeLinecap="round"
+        aria-hidden="true"
+      >
+        <path d="M12 4v16M4 12h16" />
+      </svg>
+    </button>
+  );
+}
 
 export function FeatureChannels({ project, query }: { project: Project; query: string }) {
   const { pathname } = useLocation();
@@ -72,33 +104,31 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
 
   return (
     <section aria-label={project.name} className="flex flex-col gap-0.5">
+      <div className="group/h flex items-center gap-2 pt-3.5 pr-1 pb-1 pl-2.5">
+        <h4 className="text-xs text-muted">Features</h4>
+        <AddButton label="New feature" onClick={() => setAddingFeature(true)} />
+      </div>
+      {groups.length === 0 && <p className="px-2.5 pb-1 text-[13px] text-faint">No features yet</p>}
       <ul className="flex flex-col gap-0.5">
         {groups.map(({ feature: f, channels: cs }) => (
           <li key={f.id}>
-            <div className="flex items-center gap-2 pt-3.5 pr-1 pb-1 pl-2.5">
-              <Link to={`/features/${f.id}`} className="truncate text-xs text-muted hover:text-fg">
-                {f.name}
-              </Link>
-              <span className="text-[11px] text-faint">{f.stage}</span>
-              <button
-                type="button"
-                aria-label={`New channel in ${f.name}`}
-                onClick={() => setChannelFeature(f)}
-                className="ml-auto flex size-6 flex-none items-center justify-center rounded-md text-muted hover:bg-hover/50 hover:text-fg"
+            <div
+              className={`group/h flex h-8 items-center gap-2 rounded-lg pr-1 pl-2.5 ${pathname === `/features/${f.id}` ? 'bg-active' : 'hover:bg-hover/50'}`}
+            >
+              <Link
+                to={`/features/${f.id}`}
+                className="flex min-w-0 flex-1 items-center gap-2 text-[13px] text-soft hover:text-fg"
               >
-                <svg
-                  width="14"
-                  height="14"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.8"
-                  strokeLinecap="round"
-                  aria-hidden="true"
-                >
-                  <path d="M12 4v16M4 12h16" />
-                </svg>
-              </button>
+                <span className="truncate">{f.name}</span>
+                <span className="flex-none rounded-pill border border-line px-1.5 text-[10.5px] leading-4 text-faint capitalize">
+                  {f.stage}
+                </span>
+              </Link>
+              <AddButton
+                reveal
+                label={`New channel in ${f.name}`}
+                onClick={() => setChannelFeature(f)}
+              />
             </div>
             <ul className="flex flex-col gap-0.5">
               {cs.map((c) => (
@@ -118,11 +148,6 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
           </ul>
         </>
       )}
-      <div className="px-2.5 pt-3">
-        <Button type="button" onClick={() => setAddingFeature(true)}>
-          Add feature
-        </Button>
-      </div>
       <Dialog open={addingFeature} onClose={() => setAddingFeature(false)} title="New feature">
         {addingFeature && (
           <AddFeatureForm
