@@ -5,6 +5,13 @@ export type Project = {
   createdAt: string;
 };
 
+export type Profile = {
+  name: string;
+  occupation: string;
+  style: string[];
+  updatedAt: string;
+};
+
 export type ProjectMemory = {
   projectId: number;
   body: string;
@@ -89,6 +96,7 @@ export type Turn = {
   wakeText: string;
   retried: boolean;
   checkpoint: string | null;
+  startedAt: string;
 };
 
 export type Role = {
@@ -101,6 +109,8 @@ export type Role = {
   skills: string;
   face?: string;
   tools: string[];
+  mcp: { name: string; label: string }[];
+  mcpRemove?: { name: string; label: string }[];
 };
 
 export type Gate = { from: string; to: string; on: boolean };

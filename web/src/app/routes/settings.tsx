@@ -1,5 +1,9 @@
 import { useState, type ReactNode } from 'react';
+import { ProfileFields } from '@/app/profile-fields';
 import { Button } from '@/components/button';
+import { TextField } from '@/components/text-field';
+import { useProfile } from '@/lib/api/get-profile';
+import { usePutProfile } from '@/lib/api/put-profile';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
 import { useNotificationPermission } from '@/lib/use-notification-permission';
 
@@ -42,13 +46,75 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
+function NameSection() {
+  const profile = useProfile();
+  const save = usePutProfile();
+  const [draft, setDraft] = useState<{ name: string; occupation: string; style: string[] } | null>(
+    null,
+  );
+  const saved = {
+    name: profile.data?.name ?? '',
+    occupation: profile.data?.occupation ?? '',
+    style: profile.data?.style ?? [],
+  };
+  const { name, occupation, style } = draft ?? saved;
+  const changed =
+    name.trim() !== saved.name ||
+    occupation !== saved.occupation ||
+    style.join('\n') !== saved.style.join('\n');
+
+  return (
+    <Section title="Profile">
+      <form
+        className="flex flex-col gap-3"
+        onSubmit={(e) => {
+          e.preventDefault();
+          save.mutate({ name, occupation, style }, { onSuccess: () => setDraft(null) });
+        }}
+      >
+        <div className="flex items-center gap-3">
+          <label htmlFor="profile-name" className="text-[13px] text-muted">
+            Your name
+          </label>
+          <TextField
+            id="profile-name"
+            className="min-w-0 flex-1"
+            value={name}
+            onChange={(e) => setDraft({ name: e.target.value, occupation, style })}
+          />
+        </div>
+        <ProfileFields
+          occupation={occupation}
+          style={style}
+          onOccupation={(o) => setDraft({ name, occupation: o, style })}
+          onStyle={(s) => setDraft({ name, occupation, style: s })}
+        />
+        <div className="flex justify-end">
+          <Button
+            variant="primary"
+            size="md"
+            type="submit"
+            loading={save.isPending}
+            disabled={name.trim() === '' || !changed}
+          >
+            Save
+          </Button>
+        </div>
+      </form>
+      {save.isError && <p className="text-sm text-danger">{save.error.message}</p>}
+    </Section>
+  );
+}
+
 export function SettingsPage() {
   const [theme, setChosen] = useState(getTheme);
   const { permission, request } = useNotificationPermission();
 
   return (
-    <div className="flex max-w-[720px] flex-col gap-[22px]">
+    <div className="mx-auto flex w-full max-w-[820px] flex-col gap-[22px] py-6">
       <h1 className="text-[32px] font-normal tracking-[-0.02em]">Settings</h1>
+
+      <NameSection />
 
       <Section title="Appearance">
         <div role="radiogroup" aria-label="Theme" className="grid grid-cols-3 gap-2.5">

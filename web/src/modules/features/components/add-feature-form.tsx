@@ -1,41 +1,31 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import { useCreateFeature } from '@/modules/features/api/create-feature';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
+import { isValidSlug, slugify } from '@/modules/features/utils/slugify';
+import type { Feature } from '@/types/api';
 
-type Props = { projectId: number; onClose?: () => void };
+type Props = { projectId: number; onClose: () => void; onCreated?: (feature: Feature) => void };
 
-export function AddFeatureForm({ projectId, onClose }: Props) {
-  const [open, setOpen] = useState(onClose !== undefined);
+export function AddFeatureForm({ projectId, onClose, onCreated }: Props) {
   const [slug, setSlug] = useState('');
   const [name, setName] = useState('');
+  const [slugEdited, setSlugEdited] = useState(false);
+  const hintId = useId();
+  const slugInvalid = slug !== '' && !isValidSlug(slug);
   const create = useCreateFeature();
-
-  function close() {
-    setOpen(false);
-    onClose?.();
-  }
-
-  if (!open) {
-    return (
-      <Button type="button" onClick={() => setOpen(true)}>
-        Add feature
-      </Button>
-    );
-  }
 
   return (
     <form
-      className="space-y-2"
+      className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
         create.mutate(
           { projectId, slug, name },
           {
-            onSuccess: () => {
-              setSlug('');
-              setName('');
-              close();
+            onSuccess: (feature) => {
+              onClose();
+              onCreated?.(feature);
             },
           },
         );
@@ -43,34 +33,46 @@ export function AddFeatureForm({ projectId, onClose }: Props) {
     >
       <TextField
         className="w-full"
-        placeholder="slug, e.g. login"
-        aria-label="Feature slug"
-        value={slug}
-        onChange={(e) => setSlug(e.target.value)}
-        required
-      />
-      <TextField
-        className="w-full"
         placeholder="Name"
         aria-label="Feature name"
         value={name}
-        onChange={(e) => setName(e.target.value)}
+        onChange={(e) => {
+          setName(e.target.value);
+          if (!slugEdited) setSlug(slugify(e.target.value));
+        }}
         required
       />
+      <div className="space-y-1">
+        <TextField
+          className="w-full"
+          placeholder="slug, e.g. login"
+          aria-label="Feature slug"
+          aria-describedby={hintId}
+          aria-invalid={slugInvalid || undefined}
+          value={slug}
+          onChange={(e) => {
+            setSlug(e.target.value);
+            setSlugEdited(true);
+          }}
+          required
+        />
+        <p id={hintId} className="text-sm text-muted">
+          Lower-case letters, numbers and dashes, with at least one letter or dash. Used for the
+          branch: feature/&lt;slug&gt;
+        </p>
+      </div>
       {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
-      <div className="flex gap-2">
-        <Button variant="primary" type="submit" loading={create.isPending}>
-          Add
+      <div className="flex justify-end gap-2">
+        <Button type="button" onClick={onClose}>
+          Cancel
         </Button>
         <Button
-          variant="ghost"
-          type="button"
-          onClick={() => {
-            create.reset();
-            close();
-          }}
+          variant="primary"
+          type="submit"
+          loading={create.isPending}
+          disabled={!isValidSlug(slug)}
         >
-          Cancel
+          Add
         </Button>
       </div>
     </form>

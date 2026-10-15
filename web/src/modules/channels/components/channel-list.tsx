@@ -1,9 +1,19 @@
 import { Link } from 'react-router';
 import type { Channel } from '@/types/api';
+import { EmptyState } from '@/components/empty-state';
 import { StatusDot } from '@/components/status-dot';
 
 export function ChannelList({ channels }: { channels: Channel[] }) {
-  if (channels.length === 0) return <p className="text-sm text-muted">No channels.</p>;
+  if (channels.length === 0) {
+    return (
+      <EmptyState
+        title="No channels yet"
+        body="Start one to talk to the team."
+        role="lead"
+        compact
+      />
+    );
+  }
 
   return (
     <ul className="text-[13px]">

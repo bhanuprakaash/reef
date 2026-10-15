@@ -1,6 +1,7 @@
 import type { Decision } from '@/types/api';
 import { Card } from '@/components/card';
 import { Creature } from '@/components/creature';
+import { EmptyState } from '@/components/empty-state';
 
 type Props = { decisions: Decision[]; faces: Record<string, string | undefined> };
 
@@ -12,7 +13,14 @@ export function DecisionList({ decisions, faces }: Props) {
       aside={<span className="ml-auto text-xs text-muted tabular-nums">{decisions.length}</span>}
     >
       {decisions.length === 0 ? (
-        <p className="px-6 pb-5 text-sm text-muted">No decisions yet.</p>
+        <div className="px-6 pb-5">
+          <EmptyState
+            title="No decisions yet"
+            body="Choices the team makes land here."
+            role="architect"
+            compact
+          />
+        </div>
       ) : (
         <ul>
           {[...decisions].reverse().map((d) => {
@@ -32,7 +40,7 @@ export function DecisionList({ decisions, faces }: Props) {
                 {d.author === 'user' ? (
                   <span
                     aria-hidden="true"
-                    className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-pill text-[11px] font-semibold text-pill-ink"
+                    className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-pill text-[11px] text-pill-ink"
                   >
                     {author[0]}
                   </span>

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme, shell } from 'electron';
 import { spawn } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
@@ -126,23 +126,44 @@ function stopServer() {
   });
 }
 
+// The panel is about 150px tall; the rest is transparent room for the project listbox to open into.
+const CAPTURE_HEIGHT = 400;
+
 let browser = null;
 let terminals = null;
 let captureWindow = null;
 
-function openCaptureWindow() {
+function placeCaptureWindow(main) {
+  if (main.isDestroyed() || !main.isVisible() || main.isMinimized()) return captureWindow.center();
+  const b = main.getBounds();
+  const [width] = captureWindow.getSize();
+  captureWindow.setPosition(
+    Math.round(b.x + (b.width - width) / 2),
+    Math.round(b.y + b.height * 0.18),
+  );
+}
+
+function openCaptureWindow(main) {
   if (captureWindow) {
+    placeCaptureWindow(main);
     captureWindow.show();
     captureWindow.focus();
     return;
   }
   captureWindow = new BrowserWindow({
     width: 600,
-    height: 200,
+    height: CAPTURE_HEIGHT,
+    frame: false,
+    transparent: true,
+    backgroundColor: '#00000000',
+    hasShadow: true,
+    resizable: false,
+    skipTaskbar: true,
     alwaysOnTop: true,
-    backgroundColor: windowBackground(),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
+  placeCaptureWindow(main);
+  captureWindow.on('blur', () => captureWindow.hide());
   captureWindow.on('closed', () => {
     captureWindow = null;
   });
@@ -159,6 +180,8 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 18, y: 26 },
     backgroundColor: windowBackground(),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
@@ -168,7 +191,10 @@ app.whenReady().then(async () => {
   if (win.isDestroyed()) return;
   const ok = await startServer(PATH);
   if (!ok) return;
-  win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https?:\/\//.test(url)) shell.openExternal(url);
+    return { action: 'deny' };
+  });
   win.webContents.on('will-navigate', (event, url) => {
     if (new URL(url).origin !== `http://${ADDR}`) event.preventDefault();
   });
@@ -184,8 +210,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('terminal:open', (_event, cwd, cols, rows) => terminals.open(cwd, cols, rows));
   ipcMain.on('terminal:write', (_event, cwd, data) => terminals.write(cwd, data));
   ipcMain.on('terminal:resize', (_event, cwd, cols, rows) => terminals.resize(cwd, cols, rows));
-  ipcMain.handle('capture:open', () => openCaptureWindow());
-  globalShortcut.register('CommandOrControl+Shift+Space', openCaptureWindow);
+  ipcMain.handle('capture:open', () => openCaptureWindow(win));
+  ipcMain.handle('folder:choose', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    return canceled ? null : filePaths[0];
+  });
+  globalShortcut.register('CommandOrControl+Shift+Space', () => openCaptureWindow(win));
   await new Promise((resolve) => setTimeout(resolve, Math.max(0, splashAt + SPLASH_MIN - Date.now())));
   if (win.isDestroyed()) return;
   await win.webContents.executeJavaScript("document.body.classList.add('leaving')");

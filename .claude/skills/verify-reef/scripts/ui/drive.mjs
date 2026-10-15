@@ -48,15 +48,21 @@ const shot = async (step) => {
   console.log(`shot ${file}`);
 };
 
+// Opens the custom select named `label` (inside `within`) and clicks the option named `option`.
+async function pick(label, option, within = page) {
+  await within.getByRole('combobox', { name: label, exact: true }).click();
+  await page.getByRole('listbox', { name: label, exact: true }).getByRole('option', { name: option, exact: true }).click();
+}
+
 async function send(text) {
   await page.getByLabel('Message').fill(text);
   await page.getByLabel('Message').press('Enter');
 }
 async function working() {
-  await page.getByText('is working...').waitFor({ timeout: 30000 });
+  await page.getByText('is working').waitFor({ timeout: 30000 });
 }
 async function idle() {
-  await page.getByText('is working...').waitFor({ state: 'hidden', timeout: 240000 });
+  await page.getByText('is working').waitFor({ state: 'hidden', timeout: 240000 });
   await page.getByRole('button', { name: 'Stop' }).waitFor({ state: 'hidden' });
 }
 async function exchange(text) {
@@ -67,6 +73,11 @@ async function exchange(text) {
 
 async function submitProject(name, folder) {
   const switcher = aside.getByRole('button', { name: 'Switch project' });
+  await page.getByLabel('Your name').or(page.getByLabel('Repo folder')).or(switcher).waitFor();
+  if (await page.getByLabel('Your name').count()) {
+    await page.getByLabel('Your name').fill('Tester');
+    await page.getByRole('button', { name: 'Continue' }).click();
+  }
   await page.getByLabel('Repo folder').or(switcher).waitFor();
   if (await page.getByLabel('Repo folder').count()) {
     await page.getByLabel('Repo folder').fill(folder);
@@ -75,10 +86,10 @@ async function submitProject(name, folder) {
     return;
   }
   await switcher.click();
+  await page.getByRole('menuitem', { name: 'New project…' }).click();
+  await page.getByLabel('Repo folder').fill(folder);
+  await page.getByLabel('Name', { exact: true }).fill(name);
   await page.getByRole('button', { name: 'Add project' }).click();
-  await page.getByLabel('Project name').fill(name);
-  await page.getByLabel('Project path').fill(folder);
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
 }
 
 // Adds a project through the form; returns its sidebar section.
@@ -102,37 +113,42 @@ async function addProject() {
 // same git repo, and a feature's branch can be checked out in one worktree only.
 async function addFeature(section, prefix, name) {
   const slug = `${prefix}-${Date.now().toString(36)}`;
-  await section.getByRole('button', { name: 'Add feature' }).click();
+  await section.getByRole('button', { name: 'New feature' }).click();
   await section.getByLabel('Feature slug').fill(slug);
   await section.getByLabel('Feature name').fill(name);
   await section.getByRole('button', { name: 'Add', exact: true }).click();
-  await section.getByRole('link', { name, exact: true }).click();
   await page.getByRole('heading', { name, level: 1 }).waitFor();
   return slug;
 }
 // Starts a claude channel from the form in `box` and returns its id.
 async function newChannel(box, openName, name, mode = 'acceptEdits') {
   await box.getByRole('button', { name: openName }).click();
-  await box.getByLabel('Backend', { exact: true }).selectOption('claude');
-  await box.getByLabel('Permission mode', { exact: true }).selectOption(mode);
-  await box.getByLabel('Channel name').fill(name);
+  await pick('Backend', 'claude', box);
+  if (mode) await pick('Permission mode', mode, box);
+  await box.getByLabel('Name', { exact: true }).fill(name);
   await box.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name, level: 1 }).waitFor();
   return sql(`select id from channel where name='${name}' order by id desc limit 1`);
 }
 
-// The label of the running turn names its role: `<role> is working...`.
-const liveLabel = main.getByText('is working...').locator('..');
+// The label of the running turn names its role: `<role> is working`.
+const liveLabel = main.getByText('is working').locator('..');
 async function workingAs(role, timeout = 240000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
     if ((await liveLabel.count()) > 0) {
       const text = (await liveLabel.first().textContent().catch(() => '')) ?? '';
-      if (text.replace('is working...', '').trim() === role) return true;
+      if (text.replace('is working', '').trim() === role) return true;
     }
     await page.waitForTimeout(250);
   }
   return false;
+}
+// The running turn is one compact row in the channel; clicking it opens the panel with the full stream.
+const turnPanel = page.getByRole('complementary', { name: 'Turn' });
+async function openTurn() {
+  await main.getByRole('button', { name: /is working/ }).click();
+  await turnPanel.waitFor();
 }
 // The top-level message rows of the main list that `author` wrote (they have the Reply button).
 const rootRow = (author) =>
@@ -140,11 +156,11 @@ const rootRow = (author) =>
 // Starts a channel on `team` from the form (backend and permission mode stay the team's).
 async function newTeamChannel(team, name, step) {
   await main.getByRole('button', { name: 'New channel' }).click();
-  const picker = main.getByLabel('Team', { exact: true });
-  await picker.locator('option', { hasText: team }).waitFor({ state: 'attached' });
-  const options = await picker.locator('option').allTextContents();
-  await picker.selectOption(team);
-  await main.getByLabel('Channel name').fill(name);
+  const card = page.getByRole('dialog', { name: 'New channel' }).getByRole('button', { name: team, exact: true });
+  await card.waitFor();
+  const options = await card.locator('xpath=..').getByRole('button').allTextContents();
+  await card.click();
+  await main.getByLabel('Name', { exact: true }).fill(name);
   if (step) await shot(step);
   await main.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name, level: 1 }).waitFor();
@@ -162,11 +178,16 @@ async function live() {
     'List the files in this directory with a tool, then read one of them with a tool, then summarize what you saw in two sentences.',
   );
   await working();
-  await main.locator('details summary').first().waitFor({ timeout: 120000 });
+  const row = main.getByRole('button', { name: /is working/ });
+  await row.getByText(/^(Bash|Read|Glob|Grep|LS|List)\b/).waitFor({ timeout: 120000 });
   await page.waitForTimeout(1500);
   await shot('midturn');
-  const rows = await main.locator('details summary').count();
-  check(rows >= 1, 'tool rows shown while the turn runs', `${rows} rows, first: ${await main.locator('details summary').first().innerText()}`);
+  check((await main.locator('details').count()) === 0, 'the channel shows one compact row, no inline tool rows', await row.innerText());
+  await openTurn();
+  await turnPanel.locator('details summary').first().waitFor({ timeout: 120000 });
+  await shot('turn-panel');
+  const rows = await turnPanel.locator('details summary').count();
+  check(rows >= 1, 'tool rows shown in the turn panel while the turn runs', `${rows} rows, first: ${await turnPanel.locator('details summary').first().innerText()}`);
   await idle();
   await shot('final');
   const lead = sql(`select count(*) from message where channel_id=${cid} and author='lead'`);
@@ -202,12 +223,12 @@ async function promote() {
   await exchange('I have an idea: a search bar for the shop that filters products as you type.');
   await exchange('Decision: search is client side only for now, because the catalog is small (under 200 items).');
   const quick = sql(`select id from turn where channel_id=${cid} and checkpoint is not null order by id`).split('\n');
-  const rows = main.getByRole('region', { name: 'Checkpoints' }).getByRole('listitem');
-  await rows.first().waitFor({ timeout: 15000 });
+  const checkpoints = main.getByRole('region', { name: 'Checkpoints' });
+  await checkpoints.getByText('2 checkpoints').waitFor({ timeout: 15000 });
   check(
-    quick.length === 2 && (await rows.count()) === 2,
+    quick.length === 2,
     'a quick session in a git repo lists its two checkpoints before the promote',
-    `turns with a checkpoint: ${quick.join(',')}; rows: ${await rows.count()}`,
+    `turns with a checkpoint: ${quick.join(',')}; row: ${await checkpoints.innerText()}`,
   );
   await shot('before-promote');
   await page.getByRole('button', { name: 'Promote to feature' }).click();
@@ -224,11 +245,11 @@ async function promote() {
   check(true, 'promote turn ends with a proposal panel');
   await page.waitForTimeout(1000);
   await shot('checkpoints-after-promote');
-  const left = await rows.allInnerTexts();
+  const left = await checkpoints.allInnerTexts();
   check(
-    !left.some((t) => quick.some((id) => t.includes(`before turn ${id} `))),
+    !left.some((t) => t.includes('2 checkpoints') || quick.some((id) => t.includes(`before turn ${id} `))),
     'the quick-session checkpoints, taken in another tree, have no Roll back button after the promote',
-    `rows: ${JSON.stringify(left)}; GET rollbackable: ${JSON.stringify((await getJson(`/turns?channel=${cid}&rollbackable=1`)).map((t) => t.id))}`,
+    `row: ${JSON.stringify(left)}; GET rollbackable: ${JSON.stringify((await getJson(`/turns?channel=${cid}&rollbackable=1`)).map((t) => t.id))}`,
   );
   const under = section
     .locator('li', { has: page.getByRole('link', { name: 'Search', exact: true }) })
@@ -292,23 +313,23 @@ async function pages() {
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
   const fid = page.url().split('/').pop();
-  await main.getByLabel('Stage').selectOption('live-testing');
+  await pick('Stage', 'Live testing', main);
   await main.locator('[aria-current="step"]', { hasText: 'Live testing' }).waitFor();
   await page.reload();
   const bar = await main.locator('[aria-current="step"]').innerText();
-  const stage = await main.getByLabel('Stage').inputValue();
-  check(stage === 'live-testing' && bar === 'Live testing', 'stage survives a reload', `select ${stage}, bar ${bar}, row ${sql(`select stage from feature where id=${fid}`)}`);
+  const stage = (await main.getByRole('combobox', { name: 'Stage' }).innerText()).replace('Stage: ', '');
+  check(stage === 'Live testing' && bar === 'Live testing', 'stage survives a reload', `select ${stage}, bar ${bar}, row ${sql(`select stage from feature where id=${fid}`)}`);
   await page.goto(base + '/tasks');
   const title = `ui task ${Date.now().toString(36)}`;
   await page.getByLabel('Task title').fill(title);
   const pid = sql(`select project_id from feature where id=${fid}`);
-  await page.getByLabel('Task project').selectOption(pid);
-  await page.getByLabel('Task feature').selectOption(fid);
+  await pick('Task project', sql(`select name from project where id=${pid}`));
+  await pick('Task feature', 'Login');
   await page.getByRole('button', { name: 'Add task' }).click();
   const row = main.locator('li', { hasText: title });
   await row.waitFor();
-  await page.getByLabel('Filter by project').selectOption(pid);
-  await page.getByLabel('Filter by feature').selectOption(fid);
+  await pick('Filter by project', sql(`select name from project where id=${pid}`));
+  await pick('Filter by feature', 'Login');
   await row.getByRole('checkbox').click();
   await row.getByRole('checkbox', { checked: true }).waitFor();
   await page.getByRole('button', { name: 'Done', exact: true }).click();
@@ -326,7 +347,7 @@ async function capture() {
   const name = (await section.getAttribute('aria-label')) ?? '';
   const pid = sql(`select id from project where name='${name}'`);
   await page.goto(base + '/capture');
-  await page.getByLabel('Capture project').selectOption({ label: name });
+  await pick('Capture project', name);
   const text = `ui capture ${Date.now().toString(36)}`;
   await page.getByLabel('Capture text').fill(text);
   await page.getByLabel('Capture text').press('Enter');
@@ -341,7 +362,7 @@ async function capture() {
   const name2 = (await section2.getAttribute('aria-label')) ?? '';
   const pid2 = sql(`select id from project where name='${name2}'`);
   await page.goto(base + '/capture');
-  await page.getByLabel('Capture project').selectOption({ label: name2 });
+  await pick('Capture project', name2);
   sql(`delete from project where id=${pid2}`, true);
   await page.getByLabel('Capture text').fill('should fail');
   await page.getByLabel('Capture text').press('Enter');
@@ -521,7 +542,7 @@ async function phone() {
   await page.getByRole('button', { name: 'Capture', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Captured' }).waitFor();
   await visit('channels', /^Channels/, page.getByRole('heading', { name: 'Channels', level: 1 }));
-  const row = main.getByRole('link', { name: /# phone room/ });
+  const row = main.getByRole('link', { name: /#phone room/ });
   check(await row.isVisible(), 'the Channels tab lists the channel under its feature', await main.innerText().then((t) => t.replace(/\s+/g, ' ').slice(0, 120)));
   await visit('needs-you', /^Needs you/, main.getByRole('button', { name: 'Approve' }));
   const badge = await tabs.getByLabel(/waiting$/).textContent();
@@ -546,7 +567,7 @@ async function phone() {
   writeFileSync(path.join(tree, 'auth.go'), ['package auth', '', 'func check(r *http.Request) error {', '\ttok := r.URL.Query().Get("token")', '\treturn verify(tok)', '}', ''].join('\n'));
 
   await tabs.getByRole('link', { name: /^Channels/ }).click();
-  await main.getByRole('link', { name: /# phone room/ }).click();
+  await main.getByRole('link', { name: /#phone room/ }).click();
   await page.getByRole('heading', { name: 'phone room', level: 1 }).waitFor();
   await main.getByRole('button', { name: 'Approve' }).waitFor();
   check(!(await tabs.isVisible()), 'the tab bar is hidden in a channel');
@@ -598,7 +619,8 @@ async function phone() {
   await page.getByRole('button', { name: 'Close sheet' }).click({ position: { x: 195, y: 40 } });
   await inspector.waitFor({ state: 'hidden' });
 
-  await main.getByRole('link', { name: /^Diff/ }).click();
+  await main.getByRole('button', { name: /^Diff/ }).click();
+  await main.getByRole('link', { name: 'Expand diff' }).click();
   const files = main.getByRole('navigation', { name: 'Files' });
   await files.getByText('auth.go').waitFor({ timeout: 15000 });
   check(!(await tabs.isVisible()), 'the tab bar is hidden on the review page');
@@ -627,14 +649,15 @@ async function stop() {
   const cid = await newChannel(main, 'New channel', 'stop chat');
   await send('Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
   await working();
-  await main.locator('div.items-start:has(span.normal-case) > div.bg-bubble:not([role])').first().waitFor({ timeout: 60000 });
+  await openTurn();
+  await turnPanel.locator('div.bg-bubble:not([role])').first().waitFor({ timeout: 60000 });
   await page.waitForTimeout(1000);
   await page.getByRole('button', { name: 'Stop' }).click();
-  await page.getByText(/Failed: interrupted/).waitFor({ timeout: 30000 });
+  await main.getByRole('button', { name: /Failed: interrupted/ }).waitFor({ timeout: 30000 });
   await shot('stopped');
   check(true, 'Stop shows the turn failed', sql(`select id,status,error from turn where channel_id=${cid}`));
   const partial = sql(`select substr(replace(body, char(10), ' '),1,40) from message where channel_id=${cid} and author='lead'`);
-  const shown = await main.getByText(partial, { exact: false }).count();
+  const shown = await main.getByText(partial.replace(/[*_`]/g, ''), { exact: false }).count();
   check(Boolean(partial) && shown === 1, 'the partial reply shows once, not as the message and as the live block', `partial: ${JSON.stringify(partial)}; shown ${shown} times`);
   await exchange('What was the secret word? Answer with the word only.');
   await shot('resumed');
@@ -696,11 +719,11 @@ async function rollback() {
   git(tree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'by the turn');
   const turnId = sql(`select id from turn where channel_id=${cid} order by id desc limit 1`);
   const list = main.getByRole('region', { name: 'Checkpoints' });
-  await list.getByText(`Checkpoint before turn ${turnId} by lead`).waitFor({ timeout: 15000 });
+  await list.getByText('2 checkpoints').waitFor({ timeout: 15000 });
   await shot('checkpoints');
   check(
-    git(tree, 'log', '--oneline').includes('by the turn') && (await list.getByRole('button', { name: 'Roll back' }).count()) === 2,
-    'two turns have a Roll back button and the turn left a commit and new.txt',
+    git(tree, 'log', '--oneline').includes('by the turn') && (await list.innerText()).includes('2 checkpoints'),
+    'the two turns fold into one checkpoint row and the turn left a commit and new.txt',
     `files: ${git(tree, 'ls-files')}; log:\n${git(tree, 'log', '--oneline')}`,
   );
   let asked = '';
@@ -708,7 +731,9 @@ async function rollback() {
     asked = d.message();
     d.accept();
   });
-  await list.getByRole('listitem').filter({ hasText: `before turn ${turnId} by` }).getByRole('button', { name: 'Roll back' }).click();
+  await list.getByRole('button', { name: 'Roll back…' }).click();
+  await shot('checkpoint-menu');
+  await page.getByRole('menuitem', { name: new RegExp(`^Before turn ${turnId} · lead`) }).click();
   await page.getByText(`Rolled back to before turn ${turnId}.`).waitFor({ timeout: 15000 });
   await shot('rolled-back');
   check(asked.includes(`Roll back to before turn ${turnId}?`), 'Roll back asks to confirm', asked);
@@ -742,7 +767,7 @@ async function diff() {
   const cid = await newChannel(main, 'New channel', 'diff chat');
 
   await page.goto(`${base}/features/${featureId}/review`);
-  await main.getByText('No changes.').waitFor({ timeout: 15000 });
+  await main.getByText('No changes yet').waitFor({ timeout: 15000 });
   await shot('empty');
   await fetch(`${base}/channels/${cid}/send`, {
     method: 'POST',
@@ -775,9 +800,17 @@ async function diff() {
     await card.innerText(),
   );
   await page.goto(`${base}/channels/${cid}`);
-  await page.getByRole('link', { name: /^Diff \+1/ }).click();
+  await page.getByRole('button', { name: /^Diff \+1/ }).click();
   await main.getByRole('heading', { name: 'Changes', level: 1 }).waitFor();
-  check(page.url().endsWith(`/features/${featureId}/review`), "the channel header's Diff button opens the review page", page.url());
+  await main.getByRole('navigation', { name: 'Files' }).getByText('new.txt').waitFor();
+  await shot('panel');
+  check(page.url().endsWith(`/channels/${cid}`), "the channel header's Diff button opens a side panel in the channel", page.url());
+  await main.getByRole('button', { name: 'Close diff' }).click();
+  await main.getByRole('heading', { name: 'Changes', level: 1 }).waitFor({ state: 'hidden' });
+  await page.getByRole('button', { name: /^Diff \+1/ }).click();
+  await main.getByRole('link', { name: 'Expand diff' }).click();
+  await page.waitForURL(`**/features/${featureId}/review`);
+  check(true, "the panel's expand button opens the full review page", page.url());
 }
 
 async function memory() {
@@ -810,23 +843,33 @@ async function memory() {
   const value = await editor.inputValue();
   check(value === 'Use Go, not Python.', 'the saved memory survives a reload', value);
 
-  const slug = `pp-${Date.now().toString(36)}`;
+  const id = Date.now().toString(36);
   await main.getByRole('button', { name: 'New feature' }).click();
   const featureDialog = page.getByRole('dialog', { name: 'New feature' });
-  await featureDialog.getByLabel('Feature slug').fill(slug);
-  await featureDialog.getByLabel('Feature name').fill('Project page feature');
+  await featureDialog.getByLabel('Feature name').fill(`Pp ${id}`);
   await featureDialog.getByRole('button', { name: 'Add', exact: true }).click();
-  await main.getByRole('link', { name: 'Project page feature' }).waitFor();
+  await main.getByRole('link', { name: `Pp ${id}` }).waitFor();
   await shot('feature-added');
+  const autoSlug = sql(`select slug from feature where project_id=${pid} and name='Pp ${id}'`);
   check(
-    sql(`select count(*) from feature where project_id=${pid} and slug='${slug}'`) === '1',
-    'New feature on the project page stores the feature and lists it',
+    autoSlug === `pp-${id}`,
+    'New feature on the project page fills the slug from the name, stores the feature and lists it',
+    autoSlug,
   );
+
+  await main.getByRole('button', { name: 'New feature' }).click();
+  await featureDialog.getByLabel('Feature name').fill(`Hand ${id}`);
+  await featureDialog.getByLabel('Feature slug').fill(`kept-${id}`);
+  await featureDialog.getByLabel('Feature name').fill(`Hand edited ${id}`);
+  await featureDialog.getByRole('button', { name: 'Add', exact: true }).click();
+  await main.getByRole('link', { name: `Hand edited ${id}` }).waitFor();
+  const handSlug = sql(`select slug from feature where project_id=${pid} and name='Hand edited ${id}'`);
+  check(handSlug === `kept-${id}`, 'a slug edited by hand stays when the name changes', handSlug);
 
   const session = `quick-${Date.now().toString(36)}`;
   await main.getByRole('button', { name: 'New quick session' }).click();
   const sessionDialog = page.getByRole('dialog', { name: 'New quick session' });
-  await sessionDialog.getByLabel('Channel name').fill(session);
+  await sessionDialog.getByLabel('Name', { exact: true }).fill(session);
   await sessionDialog.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name: session, level: 1 }).waitFor();
   check(
@@ -961,7 +1004,7 @@ async function review() {
   const before = Number(sql(`select count(*) from turn where channel_id=${cid} and role='developer'`));
   await sendButton.click();
   // The review message matches no recorded scenario, so the turn may error and end before
-  // the window ever shows "is working...": poll the turn row instead of workingAs/idle.
+  // the window ever shows "is working": poll the turn row instead of workingAs/idle.
   let after = before;
   for (let i = 0; i < 60 && after === before; i++) {
     await page.waitForTimeout(500);
@@ -1038,7 +1081,7 @@ async function inbox() {
   await shot('approval-row');
   const rowText = (await row.textContent()) ?? '';
   check(
-    /Approval/.test(rowText) && /# inbox room/.test(rowText) && (await row.getByRole('button', { name: 'Approve' }).count()) === 1 && (await row.getByRole('button', { name: 'Reject' }).count()) === 1,
+    /Approval/.test(rowText) && /#inbox room/.test(rowText) && (await row.getByRole('button', { name: 'Approve' }).count()) === 1 && (await row.getByRole('button', { name: 'Reject' }).count()) === 1,
     'a new approval of a channel that is not open shows in the inbox with Approve and Reject',
     rowText,
   );
@@ -1224,8 +1267,7 @@ async function dragCard(card, target) {
   await page.evaluate(
     ([c, t]) => {
       const data = new DataTransfer();
-      c.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));
-      t.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data }));
+      c.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: data }));      t.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: data }));
       t.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: data }));
     },
     [cardEl, targetEl],
@@ -1246,15 +1288,15 @@ async function board() {
   await page.goto(base + '/tasks');
   const title = `board task ${Date.now().toString(36)}`;
   await page.getByLabel('Task title').fill(title);
-  await page.getByLabel('Task project').selectOption(pid);
-  await page.getByLabel('Task feature').selectOption(fid);
+  await pick('Task project', sql(`select name from project where id=${pid}`));
+  await pick('Task feature', 'Board feature');
   await page.getByRole('button', { name: 'Add task' }).click();
   await page.getByText(title).waitFor();
 
   const otherTitle = `board other ${Date.now().toString(36)}`;
   await page.getByLabel('Task title').fill(otherTitle);
-  await page.getByLabel('Task project').selectOption(otherPid);
-  await page.getByLabel('Task feature').selectOption(otherFid);
+  await pick('Task project', sql(`select name from project where id=${otherPid}`));
+  await pick('Task feature', 'Other feature');
   await page.getByRole('button', { name: 'Add task' }).click();
   await page.getByText(otherTitle).waitFor();
 
@@ -1274,14 +1316,15 @@ async function board() {
     page.url().replace(base, ''),
   );
 
-  await page.getByLabel('Filter by project').selectOption(pid);
+  await pick('Filter by project', sql(`select name from project where id=${pid}`));
   await todo.getByText(otherTitle).waitFor({ state: 'hidden' });
   check(
     (await todo.getByText(title).count()) === 1 && (await todo.getByText(otherTitle).count()) === 0,
     'the project filter also filters the board',
     page.url().replace(base, ''),
   );
-  await page.getByLabel('Filter by feature').selectOption(fid);
+  await pick('Filter by feature', 'Board feature');
+  await page.waitForLoadState('networkidle');
   await todo.getByText(title).waitFor();
   check((await todo.getByText(title).count()) === 1, 'the feature filter also filters the board', page.url().replace(base, ''));
 
@@ -1295,12 +1338,12 @@ async function board() {
     sql(`select id,status from task where title='${title}'`),
   );
   await page.reload();
-  await page.getByLabel('Filter by project').selectOption(pid);
-  await page.getByLabel('Filter by feature').selectOption(fid);
+  await pick('Filter by project', sql(`select name from project where id=${pid}`));
+  await pick('Filter by feature', 'Board feature');
   await doing.getByText(title).waitFor();
   check((await doing.getByText(title).count()) === 1, 'a reload keeps the card in Doing', page.url().replace(base, ''));
 
-  await doing.getByLabel(`Move ${title}`).selectOption('done');
+  await pick(`Move ${title}`, 'Done', doing);
   await done.getByText(title).waitFor();
   await shot('moved-with-select');
   check(
@@ -1327,7 +1370,7 @@ async function workshop() {
     throw new Error('apply the team full first (teams/full.json, see features/teams.md)');
   }
   const mcpBefore = '[{"command":"true","env":{"API_KEY":"sk-verify-9911"}}]';
-  sql(`update role set mcp_servers = '${mcpBefore}' where team_id = (select id from team where name = 'full') and name = 'developer'`, true);
+  sql(`update role set mcp_servers = '${mcpBefore}', skills = '', tools = '["Read","Grep","Glob","Edit","Write","Bash"]' where team_id = (select id from team where name = 'full') and name = 'developer'`, true);
 
   const section = await addProject();
   await page.goto(`${base}/teams`);
@@ -1338,7 +1381,8 @@ async function workshop() {
   const marker = `WORKSHOP-MARKER-${Date.now().toString(36)}`;
   const persona = `${await personaBox.inputValue()} Always say ${marker} once.`;
   await personaBox.fill(persona);
-  await main.getByRole('button', { name: 'Creature: Otter' }).first().click();
+  await main.getByRole('button', { name: /^Change creature/ }).click();
+  await main.getByRole('button', { name: 'Otter', exact: true }).click();
   await shot('persona-edited');
   await main.getByRole('button', { name: 'Save' }).click();
   await page.getByText('Saved').waitFor();
@@ -1365,25 +1409,43 @@ async function workshop() {
   check(!!twoLeads, 'an invalid team (two leads) shows the reef team apply error', twoLeads ?? '(not shown)');
   await main.getByLabel('architect lead').uncheck();
 
-  // Unknown backend: the same error reef team apply gives.
-  await main.getByLabel('architect backend').fill('gemini');
+  // Unrestricted Bash on a role without write: the same error reef team apply gives.
+  await main.getByLabel('architect add tool').fill('Bash');
+  await main.getByLabel('architect add tool').press('Enter');
   await main.getByRole('button', { name: 'Save' }).click();
-  const badBackend = await errorText(/backend must be claude or codex/);
-  await shot('bad-backend-error');
-  check(!!badBackend, 'an invalid team (unknown backend) shows the reef team apply error', badBackend ?? '(not shown)');
-  await main.getByLabel('architect backend').fill('claude');
+  const badTool = await errorText(/cannot have unrestricted Bash/);
+  await shot('bad-tool-error');
+  check(!!badTool, 'an invalid team (unrestricted Bash without write) shows the reef team apply error', badTool ?? '(not shown)');
+  await main.getByRole('button', { name: 'Remove Bash', exact: true }).click();
   await main.getByRole('button', { name: 'Save' }).click();
   await page.getByText('Saved').waitFor();
 
-  // "Copy as new team" makes a new team `reef team list` (the same store) shows.
+  // Skills and allowed tools edit in the window and save; removing an MCP server removes it.
+  const row = (col) => sql(`select ${col} from role where team_id = (select id from team where name = 'full') and name = 'developer'`);
+  await main.getByRole('button', { name: /^developer/ }).click();
+  await main.getByLabel('developer skills').fill('Careful refactors.');
+  await main.getByLabel('developer add tool').fill('Bash(git log:*)');
+  await main.getByLabel('developer add tool').press('Enter');
+  await main.getByRole('button', { name: 'Remove Write', exact: true }).click();
+  await shot('role-skills-tools-mcp');
+  await main.getByRole('button', { name: 'Remove mcp1 · true' }).click();
+  await main.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+  check(row('skills') === 'Careful refactors.', "saving the developer's skills updates its role row", row('skills'));
+  check(row('tools').includes('Bash(git log:*)') && !row('tools').includes('"Write"'), "adding and removing allowed tools saves them to the role row", row('tools'));
+  check(row('mcp_servers') === '[]', "removing the developer's MCP server in the window removes it from its role row", row('mcp_servers'));
+
+  // Duplicate makes a new team `reef team list` (the same store) shows.
   const copyName = `workshop-copy-${Date.now().toString(36)}`;
-  await main.getByLabel('New team name').fill(copyName);
-  await main.getByRole('button', { name: 'Copy as new team' }).click();
+  await main.getByRole('button', { name: 'Duplicate' }).click();
+  const dup = page.getByRole('dialog', { name: 'New team' });
+  await dup.getByLabel('Name', { exact: true }).fill(copyName);
+  await dup.getByRole('button', { name: 'Create team' }).click();
   await main.getByRole('button', { name: copyName, exact: true }).waitFor({ timeout: 15000 });
   await shot('copied');
   check(
     sql(`select count(*) from team where name = '${copyName}'`) === '1',
-    '"Copy as new team" makes a new team',
+    'Duplicate makes a new team',
   );
 
   // The next developer wake uses the new persona.

@@ -67,7 +67,9 @@ function foldAgent(turn: LiveTurn, ev: AgentEvent): LiveTurn {
           items: [...items.slice(0, -1), { type: 'text', text: last.text + (ev.text ?? '') }],
         };
       }
-      return { ...turn, items: [...items, { type: 'text', text: ev.text ?? '' }] };
+      const text = (ev.text ?? '').trimStart();
+      if (text === '') return turn;
+      return { ...turn, items: [...items, { type: 'text', text }] };
     }
     case 'tool_call': {
       const tool: Tool = {

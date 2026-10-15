@@ -30,6 +30,18 @@ describe('ApprovalRows', () => {
     useDecideApproval.mockReturnValue({ isPending: false, isError: false });
   });
 
+  it('shows the handed-off message body without the wake header', () => {
+    useApprovals.mockReturnValue({
+      data: [{ ...approval, text: '[channel 2, message 3]\narchitect wrote: Build the plan' }],
+    });
+
+    const markup = renderToStaticMarkup(<ApprovalRows channelId={2} faces={{}} />);
+
+    expect(markup).toContain('Build the plan');
+    expect(markup).not.toContain('[channel 2');
+    expect(markup).not.toContain('architect wrote');
+  });
+
   it('shows the approval text', () => {
     const markup = renderToStaticMarkup(<ApprovalRows channelId={2} faces={{}} />);
 

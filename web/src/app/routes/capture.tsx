@@ -5,6 +5,7 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 import { Button } from '@/components/button';
 import { Logo } from '@/components/logo';
 import { SegmentedControl } from '@/components/segmented-control';
+import { Select } from '@/components/select';
 
 type Kind = 'idea' | 'todo' | 'bug';
 const KINDS: { value: Kind; label: string }[] = [
@@ -24,6 +25,12 @@ export function CapturePage() {
   const isDesktop = typeof window !== 'undefined' && window.reef != null;
 
   useEffect(() => {
+    const els = [document.documentElement, document.body];
+    els.forEach((el) => (el.style.background = 'transparent'));
+    return () => els.forEach((el) => (el.style.background = ''));
+  }, []);
+
+  useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
       if (e.key === 'Escape') window.close();
     }
@@ -34,7 +41,7 @@ export function CapturePage() {
   return (
     <form
       aria-label="Quick capture"
-      className="flex h-screen flex-col gap-3 bg-main p-4 text-sm"
+      className="app-drag flex flex-col gap-3 rounded-[22px] border border-line bg-main/92 p-4 text-sm"
       onSubmit={(e) => {
         e.preventDefault();
         create.mutate(
@@ -62,32 +69,36 @@ export function CapturePage() {
           required
         />
       </div>
-      <div className="flex flex-wrap items-center gap-2">
-        <SegmentedControl label="Capture kind" options={KINDS} value={kind} onChange={setKind} />
-        <div className="relative">
-          <select
-            className="h-[34px] appearance-none rounded-pill border border-line bg-transparent pr-7 pl-3 text-[13px] text-soft"
-            aria-label="Capture project"
-            value={project?.id ?? ''}
-            onChange={(e) => {
-              const picked = projects.data?.find((p) => String(p.id) === e.target.value);
-              if (picked) pickProject(picked);
-            }}
-            required
-          >
-            <option value="">Project</option>
-            {projects.data?.map((p) => (
-              <option key={p.id} value={p.id}>
-                {p.name}
-              </option>
-            ))}
-          </select>
-          <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-soft">
-            ▾
-          </span>
-        </div>
+      <div className="flex items-center gap-2">
+        <SegmentedControl
+          label="Capture kind"
+          options={KINDS}
+          value={kind}
+          onChange={setKind}
+          className="bg-bubble! [&_button]:h-7! [&_button]:px-3!"
+        />
+        <Select
+          variant="pill"
+          className="max-w-44 min-w-0 [&>button]:h-[34px]!"
+          aria-label="Capture project"
+          value={project ? String(project.id) : ''}
+          onChange={(id) => {
+            const picked = projects.data?.find((p) => String(p.id) === id);
+            if (picked) pickProject(picked);
+          }}
+          options={[
+            { value: '', label: 'Project', disabled: true },
+            ...(projects.data ?? []).map((p) => ({ value: String(p.id), label: p.name })),
+          ]}
+        />
         <span className="ml-auto text-xs text-muted">↵ save · esc close</span>
-        <Button type="submit" variant="primary" loading={create.isPending}>
+        <Button
+          type="submit"
+          variant="primary"
+          className="h-[34px]! text-[13.5px]!"
+          disabled={!project}
+          loading={create.isPending}
+        >
           Capture
         </Button>
       </div>

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Button } from '@/components/button';
-import { Creature } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 import { useChannels } from '@/lib/api/get-channels';
 import { useNotificationPermission } from '@/lib/use-notification-permission';
@@ -32,7 +31,7 @@ export function InboxList() {
   const shown = items.filter((i) => filter === 'all' || i.kind === filter);
 
   return (
-    <div className="flex max-w-[760px] flex-col gap-7">
+    <div className="mx-auto flex w-full max-w-[820px] flex-col gap-7 py-6">
       <header>
         <h1 className="text-4xl tracking-tight">Needs you</h1>
         {items.length > 0 && (
@@ -70,9 +69,7 @@ export function InboxList() {
         </div>
       )}
       {inbox.data?.length === 0 && (
-        <EmptyState title="Nothing needs you" body="Everything is moving on its own.">
-          <Creature role="lead" state="asleep" size={64} animate />
-        </EmptyState>
+        <EmptyState title="Nothing needs you" body="Everything is moving on its own." role="lead" />
       )}
       <ul className="flex flex-col gap-3">
         {shown.map((item) => (

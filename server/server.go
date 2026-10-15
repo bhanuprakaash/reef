@@ -17,6 +17,7 @@ import (
 
 	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 type server struct {
@@ -89,6 +90,7 @@ func newHandler(
 	mux.HandleFunc("/health", methodNotAllowed)
 	mux.HandleFunc("/", notFound)
 	s.projectRoutes(mux)
+	s.profileRoutes(mux)
 	s.featureRoutes(mux)
 	s.channelRoutes(mux)
 	s.teamRoutes(mux)
@@ -184,7 +186,7 @@ func writeError(w http.ResponseWriter, err error) {
 		status, msg = http.StatusBadRequest, err.Error()
 	case errors.Is(err, store.ErrNotFound):
 		status, msg = http.StatusNotFound, err.Error()
-	case errors.Is(err, store.ErrConflict):
+	case errors.Is(err, store.ErrConflict), errors.Is(err, worktree.ErrNoRepo):
 		status, msg = http.StatusConflict, err.Error()
 	default:
 		log.Print(err)

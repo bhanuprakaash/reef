@@ -13,6 +13,7 @@ const api = {
 
 const apiPaths = [
   'projects',
+  'profile',
   'features',
   'channels',
   'messages',

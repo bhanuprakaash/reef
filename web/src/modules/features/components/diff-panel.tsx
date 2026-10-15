@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { type ReactNode, useState } from 'react';
 import { Link } from 'react-router';
 import { type ReviewComment, useSendReview } from '@/modules/features/api/send-review';
 import { diffCounts } from '@/modules/features/utils/diff-counts';
 import type { DiffLine, FileDiff } from '@/types/api';
 import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
+import { EmptyState } from '@/components/empty-state';
 import { TextArea } from '@/components/text-area';
 
 const lineClass: Record<DiffLine['kind'], string> = {
@@ -40,9 +41,19 @@ type Props = {
   featureName: string;
   branch: string;
   developerFace?: string;
+  leading?: ReactNode;
+  actions?: (drafts: number) => ReactNode;
 };
 
-export function DiffPanel({ files, featureId, featureName, branch, developerFace }: Props) {
+export function DiffPanel({
+  files,
+  featureId,
+  featureName,
+  branch,
+  developerFace,
+  leading,
+  actions,
+}: Props) {
   const [comments, setComments] = useState<ReviewComment[]>([]);
   const [selected, setSelected] = useState('');
   const [active, setActive] = useState<Target | null>(null);
@@ -59,7 +70,10 @@ export function DiffPanel({ files, featureId, featureName, branch, developerFace
 
   return (
     <>
-      <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-3.5 pr-3.5 md:pl-[22px] md:pr-4">
+      <header
+        className={`flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-3.5 pr-3.5 md:pl-[22px] md:pr-4 ${actions ? '' : 'in-data-desktop:pr-[88px]!'}`}
+      >
+        {leading}
         <Link to={`/features/${featureId}`} className="text-[13px] text-muted hover:text-fg">
           {featureName}
         </Link>
@@ -93,11 +107,18 @@ export function DiffPanel({ files, featureId, featureName, branch, developerFace
           >
             Send to <Creature role="developer" face={developerFace} size={18} /> Developer
           </Button>
+          {actions?.(comments.length)}
         </div>
       </header>
       {send.isError && <p className="px-[22px] pt-3 text-sm text-danger">{send.error.message}</p>}
       {file === undefined ? (
-        <p className="p-5 text-sm text-muted">No changes.</p>
+        <div className="p-5">
+          <EmptyState
+            title="No changes yet"
+            body="Files the developer edits show up here."
+            role="developer"
+          />
+        </div>
       ) : (
         <div className="flex min-h-0 flex-1 max-md:flex-col">
           <nav
@@ -179,8 +200,53 @@ export function DiffPanel({ files, featureId, featureName, branch, developerFace
                             <span className="flex size-5 flex-none items-center justify-center rounded-full bg-line text-[9px] text-soft">
                               You
                             </span>
-                            <span className="flex-1">{c.text}</span>
+                            <span className="flex-1 whitespace-pre-wrap">{c.text}</span>
                             <span className="text-xs text-muted">draft</span>
+                            <button
+                              type="button"
+                              aria-label="Edit comment"
+                              title="Edit"
+                              onClick={() => {
+                                setComments((cs) => cs.filter((x) => x !== c));
+                                setActive(target);
+                                setDraft(c.text);
+                              }}
+                              className="-my-1 flex size-6 flex-none items-center justify-center rounded-md text-muted hover:bg-hover hover:text-fg max-md:size-11"
+                            >
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M4 20h4L19 9l-4-4L4 16z" />
+                              </svg>
+                            </button>
+                            <button
+                              type="button"
+                              aria-label="Delete comment"
+                              title="Delete"
+                              onClick={() => setComments((cs) => cs.filter((x) => x !== c))}
+                              className="-my-1 flex size-6 flex-none items-center justify-center rounded-md text-muted hover:bg-hover hover:text-danger max-md:size-11"
+                            >
+                              <svg
+                                width="13"
+                                height="13"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="1.8"
+                                strokeLinecap="round"
+                                aria-hidden="true"
+                              >
+                                <path d="M6 6l12 12M18 6L6 18" />
+                              </svg>
+                            </button>
                           </div>
                         ))}
                         {active && target && sameTarget(active, target) && (

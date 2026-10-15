@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { PullRequestIcon } from '@/modules/channels/components/pull-request-icon';
 import type { PullRequest } from '@/modules/channels/utils/pull-request';
@@ -8,23 +9,22 @@ import { GroupAvatar } from '@/components/creature';
 
 type Props = {
   channel: Channel;
-  scope: string;
+  scope: ReactNode;
   roles: string[];
   faces: Record<string, string | undefined>;
   pullRequest: PullRequest | null;
   diff?: { added: number; removed: number };
+  onDiff?: () => void;
+  diffOpen?: boolean;
   wrapDisabled: boolean;
   onWrap: () => void;
   promoteDisabled: boolean;
   onPromote: () => void;
   onInspector: () => void;
   onTeam: () => void;
-  onTerminal?: () => void;
   browserOpen?: boolean;
-  onBrowser?: () => void;
 };
 
-const iconButton = 'flex size-9 items-center justify-center rounded-field text-soft hover:bg-card';
 const phoneIcon = 'max-md:size-11 max-md:px-0';
 
 export function ChannelHeader({
@@ -34,18 +34,18 @@ export function ChannelHeader({
   faces,
   pullRequest,
   diff,
+  onDiff,
+  diffOpen,
   wrapDisabled,
   onWrap,
   promoteDisabled,
   onPromote,
   onInspector,
   onTeam,
-  onTerminal,
   browserOpen,
-  onBrowser,
 }: Props) {
   return (
-    <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-2 pr-2 md:pl-[22px] md:pr-4">
+    <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-2 pr-2 md:pl-[22px] md:pr-4 in-data-desktop:pr-[88px]!">
       <Link
         to="/channels"
         aria-label="Back"
@@ -68,14 +68,15 @@ export function ChannelHeader({
       <GroupAvatar roles={roles} faces={faces} size={26} />
       <div className="flex min-w-0 flex-1 flex-col md:flex-none md:flex-row md:items-center md:gap-2.5">
         <h1 className="truncate text-base font-normal">
-          <span aria-hidden="true">#</span> {channel.name}
+          <span aria-hidden="true">#</span>
+          {channel.name}
         </h1>
         {channel.featureId === null ? (
-          <span className="truncate text-[13px] text-muted">{scope}</span>
+          <span className="flex min-w-0 items-center gap-2 text-[13px] text-muted">{scope}</span>
         ) : (
           <Link
             to={`/features/${channel.featureId}`}
-            className="truncate text-[13px] text-muted hover:text-fg"
+            className="flex min-w-0 items-center gap-2 text-[13px] text-muted hover:text-fg"
           >
             {scope}
           </Link>
@@ -90,53 +91,13 @@ export function ChannelHeader({
         </a>
       )}
       <div className="flex items-center gap-0.5 md:ml-auto">
-        {onBrowser && (
+        {diff && onDiff && (
           <button
             type="button"
-            aria-label="Browser"
-            aria-pressed={browserOpen}
-            onClick={onBrowser}
-            className={`${iconButton} aria-pressed:bg-bubble aria-pressed:text-fg`}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <circle cx="12" cy="12" r="9" />
-              <path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" />
-            </svg>
-          </button>
-        )}
-        {onTerminal && (
-          <button type="button" aria-label="Terminal" onClick={onTerminal} className={iconButton}>
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden="true"
-            >
-              <rect x="3" y="4" width="18" height="16" rx="3" />
-              <path d="M7 9l3 3-3 3M13 15h4" />
-            </svg>
-          </button>
-        )}
-        {diff && channel.featureId !== null && (
-          <Link
-            to={`/features/${channel.featureId}/review`}
+            onClick={onDiff}
+            aria-pressed={diffOpen}
             aria-label={`Diff +${diff.added} -${diff.removed}`}
-            className="flex h-11 items-center gap-1.5 rounded-field px-2.5 text-[13px] text-soft hover:bg-card md:h-9"
+            className="flex h-11 items-center gap-1.5 rounded-field px-2.5 text-[13px] text-soft hover:bg-card aria-pressed:bg-bubble aria-pressed:text-fg md:h-9"
           >
             <svg
               width="18"
@@ -153,7 +114,7 @@ export function ChannelHeader({
             </svg>
             <span className="text-done max-md:hidden">+{diff.added}</span>
             <span className="text-failed max-md:hidden">−{diff.removed}</span>
-          </Link>
+          </button>
         )}
         <Button
           variant="ghost"

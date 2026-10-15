@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { TerminalPane } from '@/app/terminal-pane';
+import { FeatureTerminal } from '@/app/feature-terminal';
+import { useTerminal } from '@/app/use-terminal';
 import { ChannelList } from '@/modules/channels/components/channel-list';
 import { useChannels } from '@/lib/api/get-channels';
 import { useTeams } from '@/lib/api/get-teams';
@@ -8,7 +9,6 @@ import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDecisions } from '@/modules/features/api/get-decisions';
 import { useDiff } from '@/modules/features/api/get-diff';
-import { useEnsureWorktree } from '@/modules/features/api/ensure-worktree';
 import { useFeature } from '@/modules/features/api/get-feature';
 import { BriefPanel } from '@/modules/features/components/brief-panel';
 import { DecisionList } from '@/modules/features/components/decision-list';
@@ -20,8 +20,11 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 import { useTasks } from '@/modules/tasks/api/get-tasks';
 import { TaskList } from '@/modules/tasks/components/task-list';
 import { roleFaces } from '@/utils/role-faces';
+import { BackButton } from '@/components/back-button';
 import { Button, buttonClass } from '@/components/button';
 import { Card } from '@/components/card';
+import { Dialog } from '@/components/dialog';
+import { EmptyState } from '@/components/empty-state';
 
 export function FeaturePage() {
   const id = Number(useParams().id);
@@ -33,9 +36,8 @@ export function FeaturePage() {
   const tasks = useTasks({ feature: id });
   const channels = useChannels();
   const teams = useTeams();
-  const hasTerminal = typeof window !== 'undefined' && window.reef != null;
-  const worktree = useEnsureWorktree(id);
-  const [editing, setEditing] = useState(false);
+  const terminal = useTerminal(true);
+  const [dialog, setDialog] = useState<'edit' | 'channel' | null>(null);
 
   if (feature.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (feature.isError) return <p className="text-sm text-danger">{feature.error.message}</p>;
@@ -49,18 +51,16 @@ export function FeaturePage() {
     <div className="space-y-7">
       <header className="flex flex-wrap items-end gap-4">
         <div className="flex-1 md:min-w-[360px]">
-          <div className="mb-2 text-xs text-muted">{project?.name} · feature</div>
+          <div className="-ml-2 mb-2 flex items-center gap-1 text-xs text-muted">
+            <BackButton fallback="/" />
+            {project?.name} · feature
+          </div>
           <h1 className="text-[40px] leading-[1.05] font-normal tracking-[-0.02em]">{f.name}</h1>
           {f.goal && <p className="mt-2 max-w-xl text-sm text-muted">{f.goal}</p>}
         </div>
         <div className="flex gap-2">
           <StagePicker feature={f} />
-          {hasTerminal && !worktree.data && (
-            <Button type="button" onClick={() => worktree.mutate()} disabled={worktree.isPending}>
-              Open terminal
-            </Button>
-          )}
-          <Button type="button" onClick={() => setEditing(!editing)}>
+          <Button type="button" onClick={() => setDialog('edit')}>
             Edit
           </Button>
           {latestChannel && (
@@ -70,8 +70,6 @@ export function FeaturePage() {
           )}
         </div>
       </header>
-      {worktree.isError && <p className="text-sm text-danger">{worktree.error.message}</p>}
-      {editing && <FeatureForm key={f.id} feature={f} onDone={() => setEditing(false)} />}
       <JourneyBar stage={f.stage} />
       <div className="flex flex-wrap items-start gap-5">
         <div className="flex flex-[999_1_460px] flex-col gap-5 md:min-w-[460px]">
@@ -103,7 +101,7 @@ export function FeaturePage() {
                       <span className="text-failed">−{diffCounts(diff.data).removed}</span>
                     </>
                   ) : (
-                    <span className="text-muted">No changes.</span>
+                    <EmptyState title="No changes yet" role="developer" compact />
                   ))}
                 <Link to={`/features/${id}/review`} className={`${buttonClass()} ml-auto`}>
                   Review changes
@@ -119,9 +117,9 @@ export function FeaturePage() {
             ) : (
               <ChannelList channels={featureChannels} />
             )}
-            <div className="mt-3 max-w-xs">
-              <NewChannelForm projectId={f.projectId} featureId={id} />
-            </div>
+            <Button type="button" className="mt-3" onClick={() => setDialog('channel')}>
+              New channel
+            </Button>
           </Card>
           <Card title="Tasks">
             {tasks.isError ? (
@@ -135,9 +133,17 @@ export function FeaturePage() {
           </Card>
         </div>
       </div>
-      {worktree.data && (
-        <div className="overflow-hidden rounded-card border border-hairline">
-          <TerminalPane cwd={worktree.data.path} />
+      <Dialog open={dialog === 'edit'} onClose={() => setDialog(null)} title="Edit feature">
+        {dialog === 'edit' && <FeatureForm feature={f} onDone={() => setDialog(null)} />}
+      </Dialog>
+      <Dialog open={dialog === 'channel'} onClose={() => setDialog(null)} title="New channel">
+        {dialog === 'channel' && (
+          <NewChannelForm projectId={f.projectId} featureId={id} onClose={() => setDialog(null)} />
+        )}
+      </Dialog>
+      {terminal.open && (
+        <div className="sticky bottom-0 z-10 overflow-hidden rounded-card border border-hairline">
+          <FeatureTerminal key={id} featureId={id} onHide={terminal.hide} />
         </div>
       )}
     </div>

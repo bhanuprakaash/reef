@@ -30,9 +30,15 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 		return "", err
 	}
 
+	who, err := profileLine(ctx, st)
+	if err != nil {
+		return "", err
+	}
+
 	var b strings.Builder
 	fmt.Fprintf(&b, "You are the %s on feature %q (%s) in project %q.\n",
 		role, f.Name, f.Slug, p.Name)
+	b.WriteString(who)
 	if f.Goal != "" {
 		fmt.Fprintf(&b, "Goal: %s\n", f.Goal)
 	}
@@ -147,10 +153,30 @@ func teamIntro(team store.Team, r store.Role) string {
 	return s
 }
 
-func projectContext(p store.Project, role, memory string) string {
+// profileLine says who the agent works with, or is empty before a profile exists.
+func profileLine(ctx context.Context, st *store.Store) (string, error) {
+	p, err := st.Profile(ctx)
+	if errors.Is(err, store.ErrNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	s := "You work with " + p.Name
+	if o := strings.ToLower(p.Occupation); o != "" && o != "other" {
+		s += ", a " + o
+	}
+	s += "."
+	if len(p.Style) > 0 {
+		s += " They like: " + strings.ToLower(strings.Join(p.Style, ", ")) + "."
+	}
+	return s + "\n", nil
+}
+
+func projectContext(p store.Project, role, memory, who string) string {
 	s := fmt.Sprintf("You are the %s in project %q (%s).\n"+
 		"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n",
-		role, p.Name, p.Path)
+		role, p.Name, p.Path) + who
 	if memory != "" {
 		var b strings.Builder
 		b.WriteString(s)

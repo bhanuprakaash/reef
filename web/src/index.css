@@ -185,9 +185,36 @@
     text-rendering: optimizeLegibility;
   }
 
+  a,
+  img {
+    -webkit-user-drag: none;
+  }
+
   :focus-visible {
     outline: 2px solid var(--color-fg);
     outline-offset: 2px;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+
+  ::-webkit-scrollbar-track,
+  ::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  ::-webkit-scrollbar-thumb {
+    background: var(--color-line);
+    background-clip: padding-box;
+    border: 2px solid transparent;
+    border-radius: var(--radius-pill);
+  }
+
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--color-asleep);
+    background-clip: padding-box;
   }
 }
 
@@ -356,12 +383,6 @@
   transform-origin: 50% 0;
   animation: c-sway 2.4s ease-in-out infinite;
 }
-.creature-loop .c-sway-1 {
-  animation-delay: -0.4s;
-}
-.creature-loop .c-sway-2 {
-  animation-delay: -0.8s;
-}
 .creature-loop .c-blink {
   transform-origin: 50% 50%;
   animation: c-blink 4.5s infinite;
@@ -383,9 +404,6 @@
   transform-origin: 50% 0;
   animation: c-flap 1.4s ease-in-out infinite;
 }
-.creature-loop .c-flap-1 {
-  animation-delay: -0.7s;
-}
 .creature-loop .c-swim {
   transform-origin: 50% 50%;
   animation: c-swim 2.6s ease-in-out infinite;
@@ -398,9 +416,6 @@
 .creature-loop .c-paddle-1 {
   transform-origin: 50% 50%;
   animation: c-paddle 1.8s ease-in-out infinite;
-}
-.creature-loop .c-paddle-1 {
-  animation-delay: -0.9s;
 }
 .creature-loop .c-peek {
   animation: c-peek 3s ease-in-out infinite;
@@ -428,6 +443,21 @@
 .creature-loop .c-tailwave {
   transform-origin: 0% 0%;
   animation: c-flick 2s ease-in-out infinite;
+}
+.creature-loop [class^='c-'] {
+  animation-delay: var(--c-delay, 0s);
+}
+.creature-loop .c-sway-1 {
+  animation-delay: calc(-0.4s + var(--c-delay, 0s));
+}
+.creature-loop .c-sway-2 {
+  animation-delay: calc(-0.8s + var(--c-delay, 0s));
+}
+.creature-loop .c-flap-1 {
+  animation-delay: calc(-0.7s + var(--c-delay, 0s));
+}
+.creature-loop .c-paddle-1 {
+  animation-delay: calc(-0.9s + var(--c-delay, 0s));
 }
 .creature-live .c-dart {
   animation: c-dart 2.2s ease-in-out infinite;
@@ -460,4 +490,11 @@
   #root:not(:empty) {
     animation: none;
   }
+}
+
+.app-drag {
+  -webkit-app-region: drag;
+}
+:is(button, input, textarea, select, a, [role='listbox'], [role='separator']) {
+  -webkit-app-region: no-drag;
 }

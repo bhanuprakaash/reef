@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { Button } from '@/components/button';
-import { Creature, GroupAvatar } from '@/components/creature';
+import { GroupAvatar } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 import { useChannels } from '@/lib/api/get-channels';
 import { useTeams } from '@/lib/api/get-teams';
@@ -176,16 +176,18 @@ export function HomePage() {
       <QuickCapture />
 
       <section aria-labelledby="today-needs" className="flex flex-col gap-2.5">
-        <h2 id="today-needs" className="text-[15px] font-medium">
+        <h2 id="today-needs" className="text-[15px]">
           Needs you
           {waiting.length > 0 && (
             <span className="font-normal text-muted"> · {waiting.length}</span>
           )}
         </h2>
         {waiting.length === 0 ? (
-          <EmptyState title="Nothing needs you" body="Everything is moving on its own.">
-            <Creature role="lead" state="asleep" size={48} animate />
-          </EmptyState>
+          <EmptyState
+            title="Nothing needs you"
+            body="Everything is moving on its own."
+            role="lead"
+          />
         ) : (
           <ul className="flex flex-col gap-3">
             {waiting.map((item) => (
@@ -200,7 +202,7 @@ export function HomePage() {
       </section>
 
       <section aria-labelledby="today-features" className="flex flex-col gap-2.5">
-        <h2 id="today-features" className="text-[15px] font-medium">
+        <h2 id="today-features" className="text-[15px]">
           Features
         </h2>
         {projectFeatures?.length === 0 && (
@@ -220,7 +222,7 @@ export function HomePage() {
 
       {done.length > 0 && (
         <section aria-labelledby="today-done" className="flex flex-col gap-1">
-          <h2 id="today-done" className="mb-1.5 text-[15px] font-medium">
+          <h2 id="today-done" className="mb-1.5 text-[15px]">
             Since yesterday
           </h2>
           <ul>

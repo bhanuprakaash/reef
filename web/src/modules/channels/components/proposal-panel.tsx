@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useDecideProposal } from '@/modules/channels/api/decide-proposal';
 import { useProposal } from '@/modules/channels/api/get-proposal';
 import { Button } from '@/components/button';
+import { Markdown } from '@/components/markdown';
 import { Creature } from '@/components/creature';
 
 export function ProposalPanel({
@@ -58,18 +59,18 @@ export function ProposalPanel({
         <span className="ml-auto text-[12.5px] text-muted">{summary}</span>
       </div>
       <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
-        <h3 className="text-xs font-medium text-muted uppercase">Brief</h3>
-        <pre className="font-sans whitespace-pre-wrap">{p.brief}</pre>
+        <h3 className="text-xs text-muted uppercase">Brief</h3>
+        <Markdown>{p.brief}</Markdown>
       </div>
       {p.notes && (
         <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
-          <h3 className="text-xs font-medium text-muted uppercase">Notes</h3>
-          <pre className="font-sans whitespace-pre-wrap">{p.notes}</pre>
+          <h3 className="text-xs text-muted uppercase">Notes</h3>
+          <Markdown>{p.notes}</Markdown>
         </div>
       )}
       {p.decisions.length > 0 && (
         <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
-          <h3 className="text-xs font-medium text-muted uppercase">Decisions</h3>
+          <h3 className="text-xs text-muted uppercase">Decisions</h3>
           <ul className="space-y-2">
             {p.decisions.map((d, i) => (
               <li key={i}>

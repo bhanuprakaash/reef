@@ -16,6 +16,9 @@ import (
 // whose HEAD has no commit yet, or one with an unmerged index mid-merge.
 var ErrNoCommit = errors.New("no commit to snapshot")
 
+// ErrNoRepo is returned by Ensure when the project folder is not a git repo with a commit.
+var ErrNoRepo = errors.New("features need the project folder to be a git repo with a commit")
+
 // ErrDirty is returned by Remove for a worktree with uncommitted changes.
 var ErrDirty = errors.New("uncommitted changes")
 
@@ -39,7 +42,7 @@ func Ensure(ctx context.Context, repo, dir, branch string) error {
 		return finishHalfAdd(ctx, dir)
 	}
 	if _, err := git(ctx, repo, "rev-parse", "--verify", "HEAD"); err != nil {
-		return fmt.Errorf("features need the project folder to be a git repo with a commit: %s: %w", repo, err)
+		return fmt.Errorf("%w: %s: %w", ErrNoRepo, repo, err)
 	}
 	if _, err := git(ctx, repo, "worktree", "prune"); err != nil {
 		return err

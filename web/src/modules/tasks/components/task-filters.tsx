@@ -1,4 +1,5 @@
 import type { Feature, Project } from '@/types/api';
+import { Select } from '@/components/select';
 
 type Props = {
   projects: Project[];
@@ -9,41 +10,32 @@ type Props = {
   onChange: (name: 'project' | 'feature' | 'status', value: string) => void;
 };
 
-const selectClass =
-  'h-11 rounded-pill bg-bubble px-3 text-[13px] text-fg outline-none focus-visible:ring-3 focus-visible:ring-ring md:h-[30px]';
-
 export function TaskFilters({ projects, features, project, feature, status, onChange }: Props) {
   const shownFeatures =
     project === '' ? features : features.filter((f) => String(f.projectId) === project);
 
   return (
     <div className="flex flex-wrap gap-2">
-      <select
-        className={selectClass}
+      <Select
+        variant="pill"
         aria-label="Filter by project"
         value={project}
-        onChange={(e) => onChange('project', e.target.value)}
-      >
-        <option value="">All projects</option>
-        {projects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
-      <select
-        className={selectClass}
+        onChange={(v) => onChange('project', v)}
+        options={[
+          { value: '', label: 'All projects' },
+          ...projects.map((p) => ({ value: String(p.id), label: p.name })),
+        ]}
+      />
+      <Select
+        variant="pill"
         aria-label="Filter by feature"
         value={feature}
-        onChange={(e) => onChange('feature', e.target.value)}
-      >
-        <option value="">All features</option>
-        {shownFeatures.map((f) => (
-          <option key={f.id} value={f.id}>
-            {f.name}
-          </option>
-        ))}
-      </select>
+        onChange={(v) => onChange('feature', v)}
+        options={[
+          { value: '', label: 'All features' },
+          ...shownFeatures.map((f) => ({ value: String(f.id), label: f.name })),
+        ]}
+      />
       {(
         [
           ['open', 'Open'],

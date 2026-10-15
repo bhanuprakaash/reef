@@ -380,6 +380,7 @@ func (s *Session) member(
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.OnPrompt = s.onPrompt
+	m.run.Uncapped = r.Write
 	if r.Write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
 		m.run.CheckpointDir = cwd
 	}
@@ -509,7 +510,11 @@ func startPrompt(
 		if err != nil {
 			return "", err
 		}
-		return roleIntro(r) + projectContext(p, r.Name, mem.Body) + teamIntro(team, r), nil
+		who, err := profileLine(ctx, st)
+		if err != nil {
+			return "", err
+		}
+		return roleIntro(r) + projectContext(p, r.Name, mem.Body, who) + teamIntro(team, r), nil
 	}
 	body, err := Context(ctx, st, *ch.FeatureID, r.Name)
 	return roleIntro(r) + body + teamIntro(team, r), err

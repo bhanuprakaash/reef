@@ -2,9 +2,7 @@ import { useState } from 'react';
 import { useCreateTask } from '@/modules/tasks/api/create-task';
 import type { Feature, Project } from '@/types/api';
 import { Button } from '@/components/button';
-
-const selectClass =
-  'h-11 rounded-pill border border-line bg-transparent px-3 text-[13px] text-soft outline-none focus-visible:ring-3 focus-visible:ring-ring md:h-8';
+import { Select } from '@/components/select';
 
 type Props = {
   projects: Project[];
@@ -41,37 +39,36 @@ export function AddTaskForm({ projects, features }: Props) {
         onChange={(e) => setTitle(e.target.value)}
         required
       />
-      <select
-        className={selectClass}
+      <Select
+        variant="pill"
         aria-label="Task project"
         value={projectId}
-        onChange={(e) => {
-          setProjectId(e.target.value);
+        onChange={(v) => {
+          setProjectId(v);
           setFeatureId('');
         }}
-        required
-      >
-        <option value="">Project</option>
-        {projects.map((p) => (
-          <option key={p.id} value={p.id}>
-            {p.name}
-          </option>
-        ))}
-      </select>
-      <select
-        className={selectClass}
+        options={[
+          { value: '', label: 'Project', disabled: true },
+          ...projects.map((p) => ({ value: String(p.id), label: p.name })),
+        ]}
+      />
+      <Select
+        variant="pill"
         aria-label="Task feature"
         value={featureId}
-        onChange={(e) => setFeatureId(e.target.value)}
+        onChange={setFeatureId}
+        options={[
+          { value: '', label: 'No feature' },
+          ...projectFeatures.map((f) => ({ value: String(f.id), label: f.name })),
+        ]}
+      />
+      <Button
+        variant="primary"
+        type="submit"
+        aria-label="Add task"
+        disabled={projectId === ''}
+        loading={create.isPending}
       >
-        <option value="">No feature</option>
-        {projectFeatures.map((f) => (
-          <option key={f.id} value={f.id}>
-            {f.name}
-          </option>
-        ))}
-      </select>
-      <Button variant="primary" type="submit" aria-label="Add task" loading={create.isPending}>
         Add
       </Button>
       {create.isError && <p className="basis-full text-sm text-danger">{create.error.message}</p>}

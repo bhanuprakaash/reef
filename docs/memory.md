@@ -238,8 +238,10 @@ holds a message body. Its shape:
    add this before part 1. `reef context` does not print it. A role that wakes with a
    persona or skills that differ from what its session last got, whether it is starting or
    resuming, gets this part again, marked `Your persona or skills changed:`.
-1. One line: role, feature name and slug, project name. Then the goal (if set) and the
-   stage.
+1. One line: role, feature name and slug, project name. Then, when a profile exists,
+   `You work with Ada, a developer. They like: short answers, ask before big changes.` (occupation
+   and style only when set, lower-cased; `Other` is left out). Then the goal (if set) and the stage. A quick session
+   adds the same line after its second line.
 2. `## Project memory`: the project's memory (see [server.md](server.md#project_memory)), only
    when it is not empty.
 3. `## Brief`: the latest brief, or `No brief yet.`

@@ -8,6 +8,7 @@ import { checkResult, pullRequestNote } from '@/modules/channels/utils/pull-requ
 import { latestMessageAnchor } from '@/utils/anchors';
 import { Button } from '@/components/button';
 import { Creature, GroupAvatar } from '@/components/creature';
+import { EmptyState } from '@/components/empty-state';
 import { StatusDot } from '@/components/status-dot';
 
 type Props = {
@@ -20,7 +21,17 @@ type Props = {
 const isTeammate = (author: string) => author !== 'user' && author !== 'reef';
 
 export function MessageList({ threads, faces, openId, onOpen }: Props) {
-  if (threads.length === 0) return <p className="text-sm text-muted">No messages yet.</p>;
+  if (threads.length === 0) {
+    return (
+      <div className="py-16">
+        <EmptyState
+          title="Quiet water"
+          body="Say what you want to build. Lead answers first."
+          role="lead"
+        />
+      </div>
+    );
+  }
 
   const newest = Math.max(...threads.map(({ root, replies }) => (replies.at(-1) ?? root).id));
   const firstId = new Map<string, number>();

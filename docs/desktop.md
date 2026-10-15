@@ -44,13 +44,21 @@ packaged app the `reef` binary ships inside the app's resources instead.
   and quits, instead of loading or continuing to show a foreign server. The child's stderr is
   also forwarded to the app's own stderr, so it is not lost.
 
+## Title bar
+
+The main window has no native title bar (`titleBarStyle: 'hidden'`): the traffic lights sit in the
+sidebar's top row. Dragging that row, a thin top strip or the browser pane's top row moves the
+window (`app-drag` in the web app; buttons and inputs inside stay clickable). The New project
+dialog's Choose button opens the native folder picker (`folder:choose`).
+
 ## Browser pane
 
 One `WebContentsView` ([`desktop/browser.js`](../desktop/browser.js)), for the whole window,
 shared by every channel. It sits to the right of the main area with Back, Forward and Reload
 buttons and an address bar; a preload script reports the pane's size to the main process so the
-native view stays lined up with it. The Browser button in a channel's header shows or hides the
-pane (open at start); a hidden pane reports a zero size, which hides the view. Back, Forward and
+native view stays lined up with it. The Browser toggle at the window's top right (every page)
+shows or hides the pane, as does the pane's own close button; the choice is remembered and the
+pane starts closed, and opens by itself while an agent drives it (the stored choice does not change). A hidden pane reports a zero size, which hides the view. Back, Forward and
 Reload go over IPC (`browser:back`, `browser:forward`, `browser:reload`) to the view's navigation
 history; every navigation sends the renderer the URL and whether Back and Forward have anywhere
 to go, and the buttons are disabled when they do not.
@@ -103,14 +111,18 @@ take-over back off, so the button and the main process agree.
 ## Terminal pane
 
 One shell per working tree ([`desktop/terminal.js`](../desktop/terminal.js)): a feature's
-worktree, or a project checkout for a quick session. A quick session's pane shows on its channel
-page right away, in the project path. A feature's worktree is not made just by viewing the
-feature page: an "Open terminal" button calls `POST /features/{id}/worktree` (making the
-worktree the same way a first wake would, or reusing it), then shows the pane in the returned
-path; a failed call shows its error under the button. The button asks again on every visit to
-the feature page in this window session; it does not remember that a tree was already opened.
-On a channel page the terminal is a drawer under the messages, with a header (folder, Clear,
-hide); the Terminal button in the channel header, or the hide button, toggles it.
+worktree, or a project checkout for a quick session. Neither the toggle nor viewing a page ever
+makes a worktree. With the toggle on, a feature page or feature channel reads
+`GET /features/{id}/worktree`: when the feature has one, the pane opens the shell there; when it
+has none, the pane shows "No worktree yet" and an Open terminal button, and only that button
+calls `POST /features/{id}/worktree` (making the worktree the same way a first wake would), then
+opens the shell in the returned path; a failed call shows its error in the pane. A quick session
+opens in the project path. The pane is keyed by feature, so moving to another feature never keeps
+the previous one's shell.
+The Terminal toggle sits next to the Browser toggle at the window's top right, only on a channel or
+feature page (a page with a folder); one on/off choice for the window (default off, quick sessions included), remembered. On a channel
+page the terminal is a drawer under the messages, on a feature page a panel pinned to the bottom,
+with a header (folder, Clear, hide); the toggle or the hide button turns it off.
 The pane renders nothing in a plain browser. `node-pty` spawns the login shell with the `PATH`
 the app already resolved at start, sized to xterm's own columns and rows so the shell's first
 output isn't wrapped to the wrong width. The shell's output is buffered in the main process per
@@ -118,6 +130,12 @@ directory, so a pane that closes and reopens on the same directory sees what it 
 that exits (the user typed `exit`, or it crashed) is dropped from that buffer, so reopening the
 same directory starts a fresh one instead of replaying a dead shell's last output; otherwise it
 keeps running until the app quits.
+
+## Back and forward
+
+The window has no browser toolbar, so detail pages (feature, review, project) start with a Back
+button: it goes back one page, or to the page's parent when the window has no earlier page.
+`Cmd+[` goes back and `Cmd+]` forward, except while a text field is focused.
 
 ## Quick capture
 
@@ -128,9 +146,11 @@ over IPC, so capture also works where the global shortcut does not reach, and in
 browser (no `window.reef`) the button just navigates to `/capture`. The capture window has a
 project picker (the project chosen last time, kept in `localStorage`, is the default), a kind
 (idea, todo, bug) and a text box. Enter creates a task with no feature, titled `<kind>: <text>`,
-through `POST /tasks`, and closes the window; Escape closes it without creating a task. The
-shortcut is unregistered when the app quits. The window has the app's main colour as its
-background, so closing it (or opening it) never flashes white.
+through `POST /tasks`, and closes the window; Escape closes it without creating a task. The window also hides when it loses focus, so its transparent room never blocks the app below. It is placed on the main window that opened it, by its own width. The
+shortcut is unregistered when the app quits. The window is frameless and transparent: the
+rounded translucent panel on `/capture` is the window (the OS draws its shadow), and you drag it
+by the panel. It is 400px tall, about 150px of panel and transparent room below for the project
+listbox to open into; there is no blur (vibrancy would paint the transparent corners and room).
 
 ## Quit
 

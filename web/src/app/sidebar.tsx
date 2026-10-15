@@ -4,8 +4,10 @@ import { FeatureChannels } from '@/app/feature-channels';
 import { ProjectSwitcher } from '@/app/project-switcher';
 import { CountBadge } from '@/components/count-badge';
 import { Dialog } from '@/components/dialog';
+import { Logo } from '@/components/logo';
 import { Row } from '@/components/row';
 import { useChannels } from '@/lib/api/get-channels';
+import { useProfile } from '@/lib/api/get-profile';
 import { useCurrentProject } from '@/lib/current-project';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
@@ -13,6 +15,7 @@ import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { useInboxEvents } from '@/modules/inbox/hooks/use-inbox-events';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { itemPath } from '@/utils/anchors';
+import { initials } from '@/utils/initials';
 
 function IconCircle({ children, dot }: { children: ReactNode; dot?: boolean }) {
   return (
@@ -72,9 +75,10 @@ function BarLink({
 }
 
 export function Sidebar() {
-  const { pathname, search } = useLocation();
+  const { pathname } = useLocation();
   const navigate = useNavigate();
   const projects = useProjects();
+  const profileName = useProfile().data?.name ?? '';
   const features = useFeatures();
   const channels = useChannels();
   const inbox = useInbox();
@@ -86,14 +90,14 @@ export function Sidebar() {
   const error = projects.error ?? features.error ?? channels.error;
   const waiting = inbox.data ?? [];
   const projectFeatures = features.data?.filter((f) => f.projectId === current?.id).length ?? 0;
-  const isBoard = pathname === '/tasks' && search.includes('view=board');
 
   return (
-    <nav
-      aria-label="Channels"
-      className="flex h-full flex-col overflow-y-auto px-3 pt-4 pb-3 text-sm"
-    >
-      <div className="flex justify-end pb-3.5">
+    <nav aria-label="Channels" className="flex h-full flex-col px-3 pt-4 pb-3 text-sm">
+      <div className="app-drag box-content flex h-8 items-center justify-end gap-1 pb-3.5">
+        <span className="flex items-center gap-1.5 pr-1">
+          <Logo size={18} />
+          <span className="text-[15px] tracking-[-0.03em]">reef</span>
+        </span>
         <button
           type="button"
           aria-label="New channel"
@@ -142,7 +146,7 @@ export function Sidebar() {
 
       {projects.data && current && <ProjectSwitcher projects={projects.data} />}
 
-      <div className="flex flex-col gap-0.5">
+      <div className="-mx-3 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3">
         <Row
           to="/"
           active={pathname === '/'}
@@ -177,20 +181,15 @@ export function Sidebar() {
         {current && <FeatureChannels project={current} query={query} />}
       </div>
 
-      <div className="mt-auto flex items-center gap-2.5 px-1.5 pt-3">
+      <div className="flex shrink-0 items-center gap-2.5 px-1.5 pt-3">
         <span className="flex size-[30px] flex-none items-center justify-center rounded-full bg-bubble text-[11.5px] text-soft">
-          Y
+          {initials(profileName)}
         </span>
-        <span className="text-sm">You</span>
+        <span className="min-w-0 truncate text-sm">{profileName}</span>
         <div className="ml-auto flex gap-0.5">
-          <BarLink to="/tasks" label="Tasks" active={pathname === '/tasks' && !isBoard}>
+          <BarLink to="/tasks" label="Tasks" active={pathname === '/tasks'}>
             <path d="M9 11l3 3 8-8" />
             <path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9" />
-          </BarLink>
-          <BarLink to="/tasks?view=board" label="Board" active={isBoard}>
-            <rect x="3" y="4" width="5" height="16" rx="1.5" />
-            <rect x="10" y="4" width="5" height="10" rx="1.5" />
-            <rect x="17" y="4" width="4" height="13" rx="1.5" />
           </BarLink>
           <BarLink to="/teams" label="Teams" active={pathname === '/teams'}>
             <circle cx="9" cy="9" r="4" />

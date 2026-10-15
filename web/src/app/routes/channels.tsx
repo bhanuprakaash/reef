@@ -12,7 +12,7 @@ export function ChannelsPage() {
   const [creating, setCreating] = useState<Project | null>(null);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-[820px] flex-col gap-4 py-6">
       <h1 className="text-[32px] font-normal tracking-[-0.02em]">Channels</h1>
       <TextField
         type="search"
@@ -25,7 +25,7 @@ export function ChannelsPage() {
       {projects.data?.map((p) => (
         <div key={p.id}>
           <div className="flex items-center justify-between px-2.5">
-            <h2 className="text-[15px] font-medium">{p.name}</h2>
+            <h2 className="text-[15px]">{p.name}</h2>
             <button
               type="button"
               aria-label={`New quick session in ${p.name}`}

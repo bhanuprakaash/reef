@@ -26,6 +26,7 @@ const team = (name: string, roles: string[]): Team => ({
     persona: '',
     skills: '',
     tools: [],
+    mcp: [],
   })),
 });
 

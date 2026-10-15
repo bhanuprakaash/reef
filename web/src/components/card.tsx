@@ -10,7 +10,7 @@ export function Card({ title, aside, flush, children }: Props) {
       className="overflow-hidden rounded-card border border-hairline bg-card"
     >
       <div className="flex items-center gap-2.5 px-6 pt-[18px] pb-2.5">
-        <h2 id={id} className="text-[15px] font-medium">
+        <h2 id={id} className="text-[15px]">
           {title}
         </h2>
         {aside}

@@ -1,51 +1,72 @@
+import { useEffect, useState } from 'react';
 import { Creature } from '@/components/creature';
-import { Bubble } from '@/modules/channels/components/bubble';
-import { ToolRow } from '@/modules/channels/components/tool-row';
 import type { LiveTurn as LiveTurnState } from '@/modules/channels/utils/fold-events';
+import { liveStatus, toolCount } from '@/modules/channels/utils/turn-status';
 
-type Props = { turn: LiveTurnState; role: string; face?: string };
+type Props = {
+  turn: LiveTurnState;
+  role: string;
+  face?: string;
+  open?: boolean;
+  onOpen?: () => void;
+};
 
-export function LiveTurn({ turn, role, face }: Props) {
+function Elapsed() {
+  const [start] = useState(Date.now);
+  const [now, setNow] = useState(start);
+
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  const seconds = Math.floor((now - start) / 1000);
+  return <>{seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`}</>;
+}
+
+export function LiveTurn({ turn, role, face, open, onOpen }: Props) {
   if (turn.status === 'idle') return null;
 
+  const running = turn.status === 'running';
+  const tools = toolCount(turn);
+
   return (
-    <div className="flex flex-col items-start gap-2.5">
-      <div className="mt-2.5 flex items-center gap-2 text-[13px] capitalize text-muted">
-        <Creature
-          role={role}
-          face={face}
-          size={20}
-          state={turn.status === 'running' ? 'working' : 'failed'}
-        />
-        <span>
-          {role} {turn.status === 'running' && <span className="normal-case">is working...</span>}
+    <button
+      type="button"
+      aria-expanded={open}
+      onClick={onOpen}
+      className="flex w-full items-center gap-3 rounded-card border border-line bg-card px-4 py-3 text-left hover:bg-hover [--creature-ring:var(--color-card)]"
+    >
+      <Creature role={role} face={face} size={24} state={running ? 'working' : 'failed'} />
+      <span className="min-w-0 flex-1">
+        <span className="block text-[14.5px] capitalize">
+          {role} {running && <span className="normal-case">is working</span>}
         </span>
-      </div>
-      {turn.items.map((item, i) =>
-        item.type === 'text' ? (
-          turn.status !== 'failed' && <Bubble key={i}>{item.text}</Bubble>
+        {running ? (
+          <span className="block truncate text-[13px] text-muted">{liveStatus(turn)}</span>
         ) : (
-          <div key={item.tool.id} className="w-full pl-7">
-            <ToolRow tool={item.tool} />
-          </div>
-        ),
+          <span className="block truncate text-[13px] text-danger">Failed: {turn.error}</span>
+        )}
+      </span>
+      {running && (
+        <span className="shrink-0 text-[13px] tabular-nums text-muted">
+          <Elapsed key={role} /> · {tools} {tools === 1 ? 'tool' : 'tools'}
+        </span>
       )}
-      {turn.status === 'running' && turn.items.length === 0 && (
-        <div
-          role="status"
-          aria-label="Waiting for the agent"
-          className="flex gap-1.5 rounded-[22px] bg-bubble px-[18px] py-3.5"
-        >
-          {['0s', '0.2s', '0.4s'].map((delay) => (
-            <span
-              key={delay}
-              style={{ animationDelay: delay }}
-              className="size-[7px] animate-pulse rounded-full bg-soft motion-reduce:animate-none"
-            />
-          ))}
-        </div>
-      )}
-      {turn.status === 'failed' && <p className="text-sm text-danger">Failed: {turn.error}</p>}
-    </div>
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        aria-hidden="true"
+        className="shrink-0 text-muted"
+      >
+        <path d="M9 5l7 7-7 7" />
+      </svg>
+    </button>
   );
 }

@@ -57,13 +57,17 @@ Then open `http://127.0.0.1:7700`. Build the web app before `go build`, because 
 embeds `web/dist` as it was at build time. A channel's agent is the `claude` or `codex` CLI,
 logged in and on `PATH`.
 
-- Sidebar: the project switcher, then Today, Needs you and one row per channel of the project
-  (teammate creatures, name, a preview of the newest message from `lastMessage`, its time),
-  with Tasks, Board, Teams and Settings links at the foot. Below 768 px the sidebar is a
+- Sidebar: a top row with the brand and a New channel button, search, the project switcher,
+  then Today, Needs you and a Features section: its header has a button to add a feature, and
+  each feature is a group with its stage chip, collapsible, over one row per channel
+  (teammate creatures, name, a preview of the newest message from `lastMessage`, its time);
+  quick sessions are listed after the features. The list scrolls; the foot is fixed and shows your name beside the Tasks, Teams and
+  Settings links. Below 768 px the sidebar is a
   bottom tab bar (Today, Channels, Needs you, Tasks, Teams) and a channel opens full screen.
 - Today (`/`): what waits on you, the project's features and recent done tasks, and capture.
 - Channel: bubbles with each author's creature, replies folded under their thread root with a
-  count, and a side panel for the team, a thread or the inspector. The running turn names its
+  count, and a side panel for the team, a thread, the inspector or the diff (its expand button opens
+  the review page). The running turn names its
   teammate. A wake held at a gate shows Approve and Reject; a pause from the hop cap shows in
   the cap banner. A channel with rollbackable turns (`GET /turns?channel=ID&rollbackable=1`)
   lists Checkpoints; Roll back on a row asks to confirm, then does `POST /turns/{id}/rollback`.
@@ -77,10 +81,17 @@ logged in and on `PATH`.
   on a click, to show desktop notifications and then shows one for each item that is new
   since the page loaded.
 - Teams (`/teams`): lists teams and edits one's roles, faces and gates, saving with
-  `PUT /teams/{name}`; "Copy as new team" applies the same roles, gates and MCP servers
-  under a new name with `?from=`, rejected if that name is taken.
-- Settings (`/settings`): theme (dark, light or Match macOS, kept in `localStorage`) and
-  notifications.
+  `PUT /teams/{name}`. An opened role shows its persona, skills, allowed tools, permission
+  mode and MCP servers; a server can be removed there, not added (use `reef team apply`).
+  Duplicate applies the same roles, gates and MCP servers under a new name with `?from=`,
+  rejected if that name is taken. "New team" asks for a name and a team to start from and
+  sends the same `?from=` request. The hop, turn and token caps are not team fields, so the
+  page has no Caps section.
+- Settings (`/settings`): your name, occupation and working preferences (chips), theme (dark, light or Match macOS, kept in `localStorage`)
+  and notifications.
+- First run: one page with two steps. Your name with an optional occupation and working preferences (saved with `PUT /profile`), then the first
+  project. A name with no project starts at the project step; a project with no name asks only
+  for the name.
 
 Client routes such as `/features/3`, `/tasks` and `/inbox` have the same paths as the REST API. In the Go server, `GET /` and `HEAD /` always get the app's `index.html`; other `GET` or `HEAD` requests get it when the `Accept` header includes `text/html`. Every other request goes to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`) are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
 
@@ -121,7 +132,8 @@ migration 8 [`008_approval.sql`](../store/migrations/008_approval.sql) (`gate`, 
 migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql) (`approval.kind`) and
 migration 10 [`010_role_write.sql`](../store/migrations/010_role_write.sql) (`role.write`) and
 migration 11 [`011_turn_wake.sql`](../store/migrations/011_turn_wake.sql) (`turn.wake_text`, `turn.wake_parent`, `turn.retried`) and
-migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`).
+migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`) and
+migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`).
 Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 
 ### project
@@ -132,6 +144,20 @@ Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 | `name` | string | required |
 | `path` | string | required; the repo folder, stored as an absolute path with symlinks resolved |
 | `createdAt` | string | |
+
+### profile
+
+The person using Reef: one row, no id. The window asks for the name on first run and shows it
+in the sidebar.
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `name` | string | required; trimmed |
+| `occupation` | string | default `""`; trimmed. The window offers Developer, Designer, Product manager, Founder, Student and Other |
+| `style` | string array | default `[]`; trimmed, empty entries dropped, kept as one newline-joined column. The window offers six working preferences |
+| `updatedAt` | string | |
+
+The server stores `occupation` and `style` as given, but a line break in `name`, `occupation` or a style entry is 400 (the context prompt is built from them); the window owns the option lists. The context prompt names the person and, when set, the occupation (except `Other`) and style (see [memory.md](memory.md#the-context-prompt)).
 
 ### project_memory
 
@@ -397,6 +423,8 @@ tool calls.
 | `DELETE /projects/{id}` | | 204; the worktrees of its features and the checkpoint refs of the turns of all its channels are removed, its branches are kept | 404, 409 a feature's worktree has uncommitted changes (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200 | 404 |
+| `GET /profile` | | 200 | 404 no name set yet |
+| `PUT /profile` | `name`, `occupation`, `style`; replaces the old profile | 200 | 400 empty name or a line break in a field |
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |
@@ -408,11 +436,12 @@ tool calls.
 | `GET /features/{id}/notes/{role}` | | 200 | 404 no feature, or no notes for the role |
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
+| `GET /features/{id}/worktree` | | 200 `{"path": "..."}`; the path of the feature's worktree, or `""` when it has none yet. Never makes one | 404 |
 | `POST /features/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the feature's worktree the same way the first wake of one of its channels would, reusing it when it already exists | 404 |
 | `GET /features/{id}/diff` | | 200 the worktree's changes against the commit its branch and the project's HEAD last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
-| `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has no `mcpServers`, whose `args` and `url` may hold API keys | |
-| `GET /teams/{name}` | | 200, without `mcpServers` as above; each role shows `write` | 404 |
-| `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists |
+| `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
+| `GET /teams/{name}` | | 200, with `mcp` instead of `mcpServers` as above; each role shows `write` | 404 |
+| `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; a role may also list `mcpRemove`, the `{name, label}` of each stored MCP server to drop, as `GET` showed it; servers it does not list are kept); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones, minus those in its `mcpRemove`; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists, or a server in `mcpRemove` no longer matches a stored one by name and label (the team changed since it was loaded; nothing is applied) |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 each channel also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
 | `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
@@ -758,8 +787,9 @@ its turn is stored `failed`, `interrupted`.
 
 Three caps pause a channel. All are constants in the code, not settings.
 
-- Tool calls per wake: one turn (one wake, or the turn that answers one user message) may
-  make 25 tool calls, subagent calls included. The 26th interrupts the agent, ends the turn
+- Tool calls per wake: one turn (one wake, or the turn that answers one user message) of a
+  role without `write` may make 25 tool calls, subagent calls included; a writing role has no
+  tool call cap. The 26th interrupts the agent, ends the turn
   `failed` with the error `capped: more than 25 tool calls` and pauses the channel with that
   text as `paused`. The agent stops like after a failed turn; the next send resumes it by
   session id. The wakes still waiting in the chain are dropped.

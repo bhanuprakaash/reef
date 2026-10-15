@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Logo } from '@/components/logo';
+import { Dialog } from '@/components/dialog';
 import { Menu, MenuItem, MenuSeparator } from '@/components/menu';
 import { useCurrentProject } from '@/lib/current-project';
 import { AddProjectForm } from '@/modules/projects/components/add-project-form';
@@ -9,6 +9,7 @@ import type { Project } from '@/types/api';
 export function ProjectSwitcher({ projects }: { projects: Project[] }) {
   const [current, onPick] = useCurrentProject(projects);
   const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -45,7 +46,19 @@ export function ProjectSwitcher({ projects }: { projects: Project[] }) {
         onClick={() => setOpen(!open)}
         className="flex h-[30px] w-full items-center gap-2 rounded-lg px-2 text-left text-[13px] hover:bg-hover"
       >
-        <Logo size={18} />
+        <svg
+          width="16"
+          height="16"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinejoin="round"
+          aria-hidden="true"
+          className="flex-none text-muted"
+        >
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+        </svg>
         {current.name}
         <svg
           width="12"
@@ -77,11 +90,19 @@ export function ProjectSwitcher({ projects }: { projects: Project[] }) {
           >
             Open project
           </MenuItem>
-          <div className="p-1.5">
-            <AddProjectForm onCreated={pick} />
-          </div>
+          <MenuItem
+            onClick={() => {
+              setAdding(true);
+              setOpen(false);
+            }}
+          >
+            New project…
+          </MenuItem>
         </Menu>
       )}
+      <Dialog open={adding} onClose={() => setAdding(false)} title="New project">
+        {adding && <AddProjectForm onClose={() => setAdding(false)} onCreated={pick} />}
+      </Dialog>
     </div>
   );
 }
