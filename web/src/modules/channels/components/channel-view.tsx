@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useEffect, useState } from 'react';
 import { Dialog } from '@/components/dialog';
 import { useApprovals } from '@/modules/channels/api/get-approvals';
 import { useFailedTurns } from '@/modules/channels/api/get-failed-turns';
@@ -18,8 +18,10 @@ import { PromoteForm } from '@/modules/channels/components/promote-form';
 import { ProposalPanel } from '@/modules/channels/components/proposal-panel';
 import { TeamPanel } from '@/modules/channels/components/team-panel';
 import { ThreadPane } from '@/modules/channels/components/thread-pane';
+import { TurnPanel } from '@/modules/channels/components/turn-panel';
 import { useLiveTurn } from '@/modules/channels/hooks/use-live-turn';
 import { useScrollToHash } from '@/modules/channels/hooks/use-scroll-to-hash';
+import { useStickToBottom } from '@/modules/channels/hooks/use-stick-to-bottom';
 import { blocksUser } from '@/modules/channels/utils/blocks-user';
 import { browserAction } from '@/modules/channels/utils/browser-action';
 import { groupThreads } from '@/modules/channels/utils/group-threads';
@@ -38,7 +40,12 @@ type Props = {
   onBrowserDriver?: (driver: { role: string; face?: string; action: string } | null) => void;
 };
 
-type Side = { kind: 'thread'; rootId: number } | { kind: 'inspector' } | { kind: 'diff' } | null;
+type Side =
+  | { kind: 'thread'; rootId: number }
+  | { kind: 'turn' }
+  | { kind: 'inspector' }
+  | { kind: 'diff' }
+  | null;
 
 export function ChannelView({
   channel,
@@ -55,7 +62,6 @@ export function ChannelView({
   const failedTurns = useFailedTurns(channel.id);
   const turn = useLiveTurn(channel.id);
   const wrap = useWrapChannel(channel.id);
-  const end = useRef<HTMLDivElement>(null);
   const running = turn.status === 'running';
   const [side, setSide] = useState<Side>(null);
   const [teamOpen, setTeamOpen] = useState(false);
@@ -69,15 +75,15 @@ export function ChannelView({
   const working = turn.role || channel.role || 'agent';
   const face = faces[working];
   const action = browserAction(turn);
+  const last = messages.data?.at(-1);
+  const { box, onScroll } = useStickToBottom(last?.author === 'user' ? last.id : undefined);
+  const turnOpen = side?.kind === 'turn' && turn.status !== 'idle';
+  if (side?.kind === 'turn' && turn.status === 'idle') setSide(null);
 
   useEffect(() => {
     onBrowserDriver?.(action ? { role: working, face, action } : null);
     return () => onBrowserDriver?.(null);
   }, [onBrowserDriver, action, working, face]);
-
-  useEffect(() => {
-    end.current?.scrollIntoView({ block: 'end' });
-  }, [messages.data, turn]);
 
   useScrollToHash(
     messages.isSuccess && ![messages, approvals, failedTurns].some((q) => q.isFetching),
@@ -89,8 +95,8 @@ export function ChannelView({
     setTeamOpen(false);
   };
   const wide = side?.kind === 'diff';
-  const fullSheet = thread !== undefined || wide;
-  const showTeam = !thread && side?.kind !== 'inspector' && !wide;
+  const fullSheet = thread !== undefined || wide || turnOpen;
+  const showTeam = !thread && side?.kind !== 'inspector' && !wide && !turnOpen;
   const wrapDisabled = running || wrap.isPending || blocksUser(channel.paused);
 
   return (
@@ -128,7 +134,11 @@ export function ChannelView({
       )}
       <div className="relative flex min-h-0 flex-1">
         <section className="flex min-w-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-y-auto px-3.5 pt-4 md:px-7">
+          <div
+            ref={box}
+            onScroll={onScroll}
+            className="min-h-0 flex-1 overflow-y-auto px-3.5 pt-4 md:px-7"
+          >
             <div className="mx-auto max-w-3xl space-y-4">
               {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
               {messages.isPending && <p className="text-sm text-muted">Loading...</p>}
@@ -141,7 +151,13 @@ export function ChannelView({
                   onOpen={(rootId) => openSide({ kind: 'thread', rootId })}
                 />
               )}
-              <LiveTurn turn={turn} role={working} face={face} />
+              <LiveTurn
+                turn={turn}
+                role={working}
+                face={face}
+                open={turnOpen}
+                onOpen={() => openSide(turnOpen ? null : { kind: 'turn' })}
+              />
               {turn.note && <p className="text-sm text-muted">{turn.note}</p>}
               <FailedTurnRows
                 channelId={channel.id}
@@ -152,7 +168,6 @@ export function ChannelView({
               <CheckpointRows channelId={channel.id} running={running} />
               <ApprovalRows channelId={channel.id} faces={faces} />
               <ProposalPanel channelId={channel.id} featureId={channel.featureId} faces={faces} />
-              <div ref={end} />
             </div>
           </div>
           <div className="shrink-0 px-3.5 pb-5 pt-2 md:px-7">
@@ -204,6 +219,7 @@ export function ChannelView({
               onClose={closeSide}
             />
           )}
+          {turnOpen && <TurnPanel turn={turn} role={working} face={face} onClose={closeSide} />}
           {wide && diffPanel?.(closeSide)}
           {side?.kind === 'inspector' && (
             <InspectorPanel channelId={channel.id} faces={faces} onClose={closeSide} />

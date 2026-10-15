@@ -5,7 +5,7 @@ import { confirmRollback } from '@/modules/channels/utils/confirm-rollback';
 export function CheckpointRows({ channelId, running }: { channelId: number; running: boolean }) {
   const turns = useTurns(channelId);
   const rollback = useRollbackTurn(channelId);
-  const checkpoints = [...(turns.data ?? [])].reverse();
+  const checkpoints = turns.data ?? [];
 
   if (checkpoints.length === 0) return null;
 

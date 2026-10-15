@@ -17,7 +17,7 @@ describe('CheckpointRows', () => {
     useRollbackTurn.mockReturnValue({ isPending: false, isError: false });
   });
 
-  it('lists the rollbackable turns, newest first, each with a Roll back button', () => {
+  it('lists the rollbackable turns, oldest first, each with a Roll back button', () => {
     useTurns.mockReturnValue({
       data: [turn, { ...turn, id: 9 }],
     });
@@ -25,7 +25,7 @@ describe('CheckpointRows', () => {
     const markup = renderToStaticMarkup(<CheckpointRows channelId={2} running={false} />);
 
     expect(markup).toContain('Checkpoints');
-    expect(markup.indexOf('before turn 9')).toBeLessThan(markup.indexOf('before turn 7'));
+    expect(markup.indexOf('before turn 7')).toBeLessThan(markup.indexOf('before turn 9'));
     expect(markup.match(/Roll back/g)).toHaveLength(2);
   });
 

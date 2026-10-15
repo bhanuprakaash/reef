@@ -59,10 +59,10 @@ async function send(text) {
   await page.getByLabel('Message').press('Enter');
 }
 async function working() {
-  await page.getByText('is working...').waitFor({ timeout: 30000 });
+  await page.getByText('is working').waitFor({ timeout: 30000 });
 }
 async function idle() {
-  await page.getByText('is working...').waitFor({ state: 'hidden', timeout: 240000 });
+  await page.getByText('is working').waitFor({ state: 'hidden', timeout: 240000 });
   await page.getByRole('button', { name: 'Stop' }).waitFor({ state: 'hidden' });
 }
 async function exchange(text) {
@@ -131,18 +131,24 @@ async function newChannel(box, openName, name, mode = 'acceptEdits') {
   return sql(`select id from channel where name='${name}' order by id desc limit 1`);
 }
 
-// The label of the running turn names its role: `<role> is working...`.
-const liveLabel = main.getByText('is working...').locator('..');
+// The label of the running turn names its role: `<role> is working`.
+const liveLabel = main.getByText('is working').locator('..');
 async function workingAs(role, timeout = 240000) {
   const end = Date.now() + timeout;
   while (Date.now() < end) {
     if ((await liveLabel.count()) > 0) {
       const text = (await liveLabel.first().textContent().catch(() => '')) ?? '';
-      if (text.replace('is working...', '').trim() === role) return true;
+      if (text.replace('is working', '').trim() === role) return true;
     }
     await page.waitForTimeout(250);
   }
   return false;
+}
+// The running turn is one compact row in the channel; clicking it opens the panel with the full stream.
+const turnPanel = page.getByRole('complementary', { name: 'Turn' });
+async function openTurn() {
+  await main.getByRole('button', { name: /is working/ }).click();
+  await turnPanel.waitFor();
 }
 // The top-level message rows of the main list that `author` wrote (they have the Reply button).
 const rootRow = (author) =>
@@ -172,11 +178,16 @@ async function live() {
     'List the files in this directory with a tool, then read one of them with a tool, then summarize what you saw in two sentences.',
   );
   await working();
-  await main.locator('details summary').first().waitFor({ timeout: 120000 });
+  const row = main.getByRole('button', { name: /is working/ });
+  await row.getByText(/^(Bash|Read|Glob|Grep|LS|List)\b/).waitFor({ timeout: 120000 });
   await page.waitForTimeout(1500);
   await shot('midturn');
-  const rows = await main.locator('details summary').count();
-  check(rows >= 1, 'tool rows shown while the turn runs', `${rows} rows, first: ${await main.locator('details summary').first().innerText()}`);
+  check((await main.locator('details').count()) === 0, 'the channel shows one compact row, no inline tool rows', await row.innerText());
+  await openTurn();
+  await turnPanel.locator('details summary').first().waitFor({ timeout: 120000 });
+  await shot('turn-panel');
+  const rows = await turnPanel.locator('details summary').count();
+  check(rows >= 1, 'tool rows shown in the turn panel while the turn runs', `${rows} rows, first: ${await turnPanel.locator('details summary').first().innerText()}`);
   await idle();
   await shot('final');
   const lead = sql(`select count(*) from message where channel_id=${cid} and author='lead'`);
@@ -638,10 +649,11 @@ async function stop() {
   const cid = await newChannel(main, 'New channel', 'stop chat');
   await send('Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
   await working();
-  await main.locator('div.items-start:has(span.normal-case) > div.bg-bubble:not([role])').first().waitFor({ timeout: 60000 });
+  await openTurn();
+  await turnPanel.locator('div.bg-bubble:not([role])').first().waitFor({ timeout: 60000 });
   await page.waitForTimeout(1000);
   await page.getByRole('button', { name: 'Stop' }).click();
-  await page.getByText(/Failed: interrupted/).waitFor({ timeout: 30000 });
+  await main.getByRole('button', { name: /Failed: interrupted/ }).waitFor({ timeout: 30000 });
   await shot('stopped');
   check(true, 'Stop shows the turn failed', sql(`select id,status,error from turn where channel_id=${cid}`));
   const partial = sql(`select substr(replace(body, char(10), ' '),1,40) from message where channel_id=${cid} and author='lead'`);
@@ -980,7 +992,7 @@ async function review() {
   const before = Number(sql(`select count(*) from turn where channel_id=${cid} and role='developer'`));
   await sendButton.click();
   // The review message matches no recorded scenario, so the turn may error and end before
-  // the window ever shows "is working...": poll the turn row instead of workingAs/idle.
+  // the window ever shows "is working": poll the turn row instead of workingAs/idle.
   let after = before;
   for (let i = 0; i < 60 && after === before; i++) {
     await page.waitForTimeout(500);

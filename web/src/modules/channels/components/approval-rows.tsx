@@ -1,8 +1,42 @@
+import { useLayoutEffect, useRef, useState } from 'react';
 import { useDecideApproval } from '@/lib/api/decide-approval';
 import { useApprovals } from '@/modules/channels/api/get-approvals';
+import { handoffBody } from '@/modules/channels/utils/handoff-body';
 import { approvalAnchor } from '@/utils/anchors';
 import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
+
+function Summary({ text }: { text: string }) {
+  const ref = useRef<HTMLParagraphElement>(null);
+  const [open, setOpen] = useState(false);
+  const [clamped, setClamped] = useState(false);
+
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (el && !open) setClamped(el.scrollHeight > el.clientHeight);
+  }, [text, open]);
+
+  return (
+    <>
+      <p
+        ref={ref}
+        className={`text-[13px] text-soft ${open ? 'whitespace-pre-wrap' : 'line-clamp-2'}`}
+      >
+        {text}
+      </p>
+      {(clamped || open) && (
+        <button
+          type="button"
+          aria-expanded={open}
+          className="border-b border-line text-[13px] text-fg"
+          onClick={() => setOpen(!open)}
+        >
+          {open ? 'Show less' : 'Show more'}
+        </button>
+      )}
+    </>
+  );
+}
 
 export function ApprovalRows({
   channelId,
@@ -23,7 +57,7 @@ export function ApprovalRows({
           <li
             key={a.id}
             id={approvalAnchor(a.id)}
-            className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-card px-4 py-3.5 [--creature-ring:var(--color-card)]"
+            className="flex flex-wrap items-start gap-3 rounded-card border border-line bg-card px-4 py-3.5 [--creature-ring:var(--color-card)]"
           >
             <span className="flex items-center gap-1">
               <Creature role={a.from} face={faces[a.from]} size={26} />
@@ -44,24 +78,26 @@ export function ApprovalRows({
               <Creature role={a.to} face={faces[a.to]} state="needs-you" size={26} />
             </span>
             <div className="min-w-0 flex-1 basis-48">
-              <p className="text-[14.5px] whitespace-pre-wrap">{a.text}</p>
-              <p className="text-[13px] text-muted capitalize">{`${a.from} → ${a.to}`}</p>
+              <p className="text-[14.5px] capitalize">{`${a.from} → ${a.to}`}</p>
+              <Summary text={handoffBody(a.text)} />
             </div>
-            <Button
-              type="button"
-              disabled={decide.isPending}
-              onClick={() => decide.mutate({ channelId, id: a.id, approve: false })}
-            >
-              Reject
-            </Button>
-            <Button
-              variant="primary"
-              type="button"
-              disabled={decide.isPending}
-              onClick={() => decide.mutate({ channelId, id: a.id, approve: true })}
-            >
-              Approve
-            </Button>
+            <div className="flex gap-3">
+              <Button
+                type="button"
+                disabled={decide.isPending}
+                onClick={() => decide.mutate({ channelId, id: a.id, approve: false })}
+              >
+                Reject
+              </Button>
+              <Button
+                variant="primary"
+                type="button"
+                disabled={decide.isPending}
+                onClick={() => decide.mutate({ channelId, id: a.id, approve: true })}
+              >
+                Approve
+              </Button>
+            </div>
           </li>
         ))}
       </ul>
