@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { useUpdateTask } from '@/modules/tasks/api/update-task';
 import type { Feature, Project, Task } from '@/types/api';
 import { EmptyState } from '@/components/empty-state';
@@ -57,19 +58,25 @@ export function TaskList({ tasks, projects = [], features, compact }: Props) {
                 const done = task.status === 'done';
                 return (
                   <li key={task.id} className={compact ? '' : 'border-t border-hairline'}>
-                    <label
+                    <div
                       className={`flex items-center ${compact ? 'min-h-9 gap-2.5 text-[13px]' : 'min-h-[52px] gap-3.5 px-[18px]'} ${done ? 'text-faint' : ''}`}
                     >
                       <input
                         type="checkbox"
+                        aria-label={task.title}
                         className={`accent-pill ${compact ? 'size-4' : 'size-[18px]'}`}
                         checked={done}
                         disabled={done || update.isPending}
                         onChange={() => update.mutate({ task, status: 'done' })}
                       />
-                      <span className="flex flex-1 gap-1.5">
-                        <span className="text-muted">#{task.id}</span>
-                        <span className={done ? 'line-through' : ''}>{task.title}</span>
+                      <span className="flex min-w-0 flex-1 flex-col py-1.5">
+                        <Link to={`/tasks/${task.id}`} className="flex gap-1.5 hover:underline">
+                          <span className="text-muted">#{task.id}</span>
+                          <span className={done ? 'line-through' : ''}>{task.title}</span>
+                        </Link>
+                        {task.body && (
+                          <span className="line-clamp-2 text-xs text-muted">{task.body}</span>
+                        )}
                       </span>
                       {!done && (
                         <span
@@ -78,7 +85,7 @@ export function TaskList({ tasks, projects = [], features, compact }: Props) {
                           {task.status}
                         </span>
                       )}
-                    </label>
+                    </div>
                   </li>
                 );
               })}
