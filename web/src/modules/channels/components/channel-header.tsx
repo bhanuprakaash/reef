@@ -13,6 +13,8 @@ type Props = {
   roles: string[];
   faces: Record<string, string | undefined>;
   pullRequest: PullRequest | null;
+  onPullRequest: () => void;
+  pullRequestOpen: boolean;
   diff?: { added: number; removed: number };
   onDiff?: () => void;
   diffOpen?: boolean;
@@ -33,6 +35,8 @@ export function ChannelHeader({
   roles,
   faces,
   pullRequest,
+  onPullRequest,
+  pullRequestOpen,
   diff,
   onDiff,
   diffOpen,
@@ -83,12 +87,12 @@ export function ChannelHeader({
         )}
       </div>
       {pullRequest && (
-        <a href={pullRequest.url} target="_blank" rel="noreferrer">
+        <button type="button" onClick={onPullRequest} aria-pressed={pullRequestOpen}>
           <Chip>
             <PullRequestIcon className="text-done" />
             PR #{pullRequest.number} {pullRequest.state}
           </Chip>
-        </a>
+        </button>
       )}
       <div className="flex items-center gap-0.5 md:ml-auto">
         {diff && onDiff && (

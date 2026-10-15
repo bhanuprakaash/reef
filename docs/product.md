@@ -224,6 +224,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 63 | The user can dismiss a `waiting` item in Needs you; an approval, a pause and a failed turn have no dismiss | Waiting asks for no action and can pile up; the others block work until the user acts. Dismiss hides only the message it was pressed on, so a new agent message brings the item back |
 | 64 | A feature has a kind, `journey` (default) or `fixes`; a `fixes` feature carries the state of each fix in its tasks and shows `N of M done` instead of the stage bar and chip. Stage stays a label (decision 2) | Some features are a mix of small fixes, not one piece of work through the eight stages; the task store already has the states |
 | 65 | A role may name the `model` its agent runs on, passed to the backend as `--model` (claude) or the thread `model` (codex); empty is the backend's default | The lead can think on Opus while the developer writes on Sonnet, without changing the user's global default |
+| 66 | A feature's PR shows in a channel side panel, opened from the header's PR chip, with a Merge button that runs `gh pr merge --merge` (a merge commit) only when gh calls the PR mergeable; Azure DevOps is a later ticket | The user sees checks and reviews where the work happens and merges without leaving Reef; gh decides whether a merge is allowed and its message is shown when it refuses |
 
 ## Open questions
 

@@ -15,6 +15,7 @@ import { InspectorPanel } from '@/modules/channels/components/inspector-panel';
 import { LiveTurn } from '@/modules/channels/components/live-turn';
 import { MessageList } from '@/modules/channels/components/message-list';
 import { PausedBanner } from '@/modules/channels/components/paused-banner';
+import { PrPanel } from '@/modules/channels/components/pr-panel';
 import { PromoteForm } from '@/modules/channels/components/promote-form';
 import { ProposalPanel } from '@/modules/channels/components/proposal-panel';
 import { TeamPanel } from '@/modules/channels/components/team-panel';
@@ -46,6 +47,7 @@ type Side =
   | { kind: 'turn' }
   | { kind: 'inspector' }
   | { kind: 'diff' }
+  | { kind: 'pr' }
   | null;
 
 export function ChannelView({
@@ -99,7 +101,8 @@ export function ChannelView({
   };
   const wide = side?.kind === 'diff';
   const fullSheet = thread !== undefined || wide || turnOpen;
-  const showTeam = !thread && side?.kind !== 'inspector' && !wide && !turnOpen;
+  const showTeam =
+    !thread && side?.kind !== 'inspector' && side?.kind !== 'pr' && !wide && !turnOpen;
   const wrapDisabled = running || wrap.isPending || blocksUser(channel.paused);
 
   return (
@@ -110,6 +113,8 @@ export function ChannelView({
         roles={roles.length > 0 ? roles.map((r) => r.name) : [channel.role]}
         faces={faces}
         pullRequest={latestPullRequest(messages.data ?? [])}
+        onPullRequest={() => openSide(side?.kind === 'pr' ? null : { kind: 'pr' })}
+        pullRequestOpen={side?.kind === 'pr'}
         diff={diff}
         onDiff={diffPanel ? () => openSide(wide ? null : { kind: 'diff' }) : undefined}
         diffOpen={wide}
@@ -239,6 +244,9 @@ export function ChannelView({
           {wide && diffPanel?.(closeSide)}
           {side?.kind === 'inspector' && (
             <InspectorPanel channelId={channel.id} faces={faces} onClose={closeSide} />
+          )}
+          {side?.kind === 'pr' && channel.featureId !== null && (
+            <PrPanel featureId={channel.featureId} onClose={closeSide} />
           )}
           {showTeam && (
             <div className="mb-5 flex items-center gap-2.5 md:hidden">
