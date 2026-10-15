@@ -426,17 +426,24 @@ async function diff() {
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
   const featureId = page.url().split('/').pop();
-  await newChannel(main, 'New channel', 'diff chat');
-  await send('Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.');
-  await working();
-  await idle();
+  const cid = await newChannel(main, 'New channel', 'diff chat');
+
+  // Open the diff panel before the turn runs, and leave it open: a turn started through the
+  // API (not the channel page) should still land on this still-mounted panel with no reload.
   await page.goto(`${base}/features/${featureId}`);
   const panel = main.locator('section', { has: page.getByRole('heading', { name: 'Diff', level: 2 }) });
-  await panel.getByText('new.txt').waitFor({ timeout: 15000 });
+  await panel.getByText('No changes.').waitFor({ timeout: 15000 });
+  await shot('empty');
+  await fetch(`${base}/channels/${cid}/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.' }),
+  });
+  await panel.getByText('new.txt').waitFor({ timeout: 30000 });
   await shot('diff');
   check(
     (await panel.getByText('added').count()) === 1 && (await panel.getByText('hi').count()) === 1,
-    'the diff panel shows new.txt as added with its line',
+    'the diff panel shows new.txt as added with its line, open since before the turn and never reloaded',
     await panel.innerText(),
   );
   const json = await getJson(`/features/${featureId}/diff`);
