@@ -290,12 +290,12 @@ async function pages() {
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
   const fid = page.url().split('/').pop();
-  await main.getByRole('combobox').first().selectOption('live-testing');
-  await main.getByRole('button', { name: 'Save' }).click();
-  await page.getByText('Saved').waitFor();
+  await main.getByLabel('Stage').selectOption('live-testing');
+  await main.locator('[aria-current="step"]', { hasText: 'Live testing' }).waitFor();
   await page.reload();
-  const stage = await main.getByRole('combobox').first().inputValue();
-  check(stage === 'live-testing', 'stage survives a reload', `select ${stage}, row ${sql(`select stage from feature where id=${fid}`)}`);
+  const bar = await main.locator('[aria-current="step"]').innerText();
+  const stage = await main.getByLabel('Stage').inputValue();
+  check(stage === 'live-testing' && bar === 'Live testing', 'stage survives a reload', `select ${stage}, bar ${bar}, row ${sql(`select stage from feature where id=${fid}`)}`);
   await page.goto(base + '/tasks');
   const title = `ui task ${Date.now().toString(36)}`;
   await page.getByLabel('Task title').fill(title);

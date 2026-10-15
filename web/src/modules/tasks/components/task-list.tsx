@@ -6,12 +6,19 @@ type Props = {
   tasks: Task[];
   projects?: Project[];
   features?: Feature[];
+  compact?: boolean;
 };
 
-export function TaskList({ tasks, projects = [], features }: Props) {
+export function TaskList({ tasks, projects = [], features, compact }: Props) {
   const update = useUpdateTask();
 
-  if (tasks.length === 0) return <EmptyState title="No tasks" />;
+  if (tasks.length === 0) {
+    return compact ? (
+      <p className="text-sm text-muted">No tasks</p>
+    ) : (
+      <EmptyState title="No tasks" />
+    );
+  }
 
   const groups = new Map<string, Task[]>();
   for (const task of tasks) {
@@ -28,7 +35,11 @@ export function TaskList({ tasks, projects = [], features }: Props) {
   return (
     <div className="space-y-2">
       {update.isError && <p className="text-sm text-danger">{update.error.message}</p>}
-      <div className="divide-y divide-hairline overflow-hidden rounded-card bg-sidebar">
+      <div
+        className={
+          compact ? '' : 'divide-y divide-hairline overflow-hidden rounded-card bg-sidebar'
+        }
+      >
         {[...groups.entries()].map(([key, group]) => (
           <section key={key}>
             {features && (
@@ -40,13 +51,13 @@ export function TaskList({ tasks, projects = [], features }: Props) {
               {group.map((task) => {
                 const done = task.status === 'done';
                 return (
-                  <li key={task.id} className="border-t border-hairline">
+                  <li key={task.id} className={compact ? '' : 'border-t border-hairline'}>
                     <label
-                      className={`flex min-h-[52px] items-center gap-3.5 px-[18px] ${done ? 'text-faint' : ''}`}
+                      className={`flex items-center ${compact ? 'min-h-9 gap-2.5 text-[13px]' : 'min-h-[52px] gap-3.5 px-[18px]'} ${done ? 'text-faint' : ''}`}
                     >
                       <input
                         type="checkbox"
-                        className="size-[18px] accent-pill"
+                        className={`accent-pill ${compact ? 'size-4' : 'size-[18px]'}`}
                         checked={done}
                         disabled={done || update.isPending}
                         onChange={() => update.mutate({ task, status: 'done' })}
