@@ -32,7 +32,7 @@ function AddButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`ml-auto flex size-6 flex-none items-center justify-center rounded-md text-muted hover:bg-hover hover:text-fg ${reveal ? 'opacity-0 group-hover/h:opacity-100 focus-visible:opacity-100' : ''}`}
+      className={`flex h-6 flex-none items-center justify-center overflow-hidden rounded-md text-muted hover:bg-hover hover:text-fg ${reveal ? 'w-0 opacity-0 group-hover/h:w-6 group-hover/h:opacity-100 focus-visible:w-6 focus-visible:opacity-100' : 'ml-auto w-6'}`}
     >
       <svg
         width="14"
@@ -113,14 +113,14 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
         {groups.map(({ feature: f, channels: cs }) => (
           <li key={f.id}>
             <div
-              className={`group/h flex h-8 items-center gap-2 rounded-lg pr-1 pl-2.5 ${pathname === `/features/${f.id}` ? 'bg-active' : 'hover:bg-hover/50'}`}
+              className={`group/h mt-1.5 mb-0.5 flex h-9 items-center gap-1 rounded-xl pr-1.5 pl-2.5 ${pathname === `/features/${f.id}` ? 'bg-active' : 'hover:bg-hover/50'}`}
             >
               <Link
                 to={`/features/${f.id}`}
-                className="flex min-w-0 flex-1 items-center gap-2 text-[13px] text-soft hover:text-fg"
+                className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-[13px] text-soft hover:text-fg"
               >
                 <span className="truncate">{f.name}</span>
-                <span className="flex-none rounded-pill border border-line px-1.5 text-[10.5px] leading-4 text-faint capitalize">
+                <span className="ml-auto flex-none rounded-pill border border-line px-2 text-[11px] leading-[18px] text-muted capitalize">
                   {f.stage}
                 </span>
               </Link>
