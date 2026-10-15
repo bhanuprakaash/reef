@@ -3,13 +3,17 @@ import { useNavigate } from 'react-router';
 import { useCreateChannel } from '@/modules/channels/api/create-channel';
 import { useTeams } from '@/lib/api/get-teams';
 import { BACKENDS, PERMISSION_MODES } from '@/modules/channels/utils/backends';
-import { buttonClass, errorClass, inputClass, mutedClass } from '@/utils/classes';
+import type { Role } from '@/types/api';
+import { Button } from '@/components/button';
+import { GroupAvatar } from '@/components/creature';
+import { Select } from '@/components/select';
+import { TextField } from '@/components/text-field';
 
-type Props = { projectId: number; featureId: number | null };
+type Props = { projectId: number; featureId: number | null; onClose?: () => void };
 
-export function NewChannelForm({ projectId, featureId }: Props) {
+export function NewChannelForm({ projectId, featureId, onClose }: Props) {
   const label = featureId === null ? 'New quick session' : 'New channel';
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(onClose !== undefined);
   const [backend, setBackend] = useState('');
   const [permissionMode, setPermissionMode] = useState('');
   const [team, setTeam] = useState('solo');
@@ -18,13 +22,21 @@ export function NewChannelForm({ projectId, featureId }: Props) {
   const teams = useTeams();
   const navigate = useNavigate();
 
+  function close() {
+    setOpen(false);
+    onClose?.();
+  }
+
   if (!open) {
     return (
-      <button type="button" className={buttonClass} onClick={() => setOpen(true)}>
+      <Button type="button" onClick={() => setOpen(true)}>
         {label}
-      </button>
+      </Button>
     );
   }
+
+  const teamRoles: Pick<Role, 'name' | 'face'>[] = teams.data?.find((t) => t.name === team)
+    ?.roles ?? [{ name: 'lead' }];
 
   return (
     <form
@@ -44,7 +56,7 @@ export function NewChannelForm({ projectId, featureId }: Props) {
           {
             onSuccess: (channel) => {
               setName('');
-              setOpen(false);
+              close();
               void navigate(`/channels/${channel.id}`);
             },
           },
@@ -52,9 +64,9 @@ export function NewChannelForm({ projectId, featureId }: Props) {
       }}
     >
       <label className="block space-y-1">
-        <span className={mutedClass}>Backend</span>
-        <select
-          className={`${inputClass} w-full`}
+        <span className="text-sm text-muted">Backend</span>
+        <Select
+          className="w-full"
           aria-label="Backend"
           value={backend}
           onChange={(e) => {
@@ -68,13 +80,13 @@ export function NewChannelForm({ projectId, featureId }: Props) {
               {b}
             </option>
           ))}
-        </select>
+        </Select>
       </label>
       {backend && (
         <label className="block space-y-1">
-          <span className={mutedClass}>Permission mode</span>
-          <select
-            className={`${inputClass} w-full`}
+          <span className="text-sm text-muted">Permission mode</span>
+          <Select
+            className="w-full"
             aria-label="Permission mode"
             value={permissionMode}
             onChange={(e) => setPermissionMode(e.target.value)}
@@ -85,46 +97,53 @@ export function NewChannelForm({ projectId, featureId }: Props) {
                 {m}
               </option>
             ))}
-          </select>
+          </Select>
         </label>
       )}
       <label className="block space-y-1">
-        <span className={mutedClass}>Team</span>
-        <select
-          className={`${inputClass} w-full`}
-          aria-label="Team"
-          value={team}
-          onChange={(e) => setTeam(e.target.value)}
-        >
-          {(teams.data ?? [{ name: 'solo' }]).map((t) => (
-            <option key={t.name} value={t.name}>
-              {t.name}
-            </option>
-          ))}
-        </select>
+        <span className="text-sm text-muted">Team</span>
+        <div className="flex items-center gap-2">
+          <GroupAvatar
+            roles={teamRoles.map((r) => r.name)}
+            faces={Object.fromEntries(teamRoles.map((r) => [r.name, r.face]))}
+            size={30}
+          />
+          <Select
+            className="w-full"
+            aria-label="Team"
+            value={team}
+            onChange={(e) => setTeam(e.target.value)}
+          >
+            {(teams.data ?? [{ name: 'solo' }]).map((t) => (
+              <option key={t.name} value={t.name}>
+                {t.name}
+              </option>
+            ))}
+          </Select>
+        </div>
       </label>
-      <input
-        className={`${inputClass} w-full`}
+      <TextField
+        className="w-full"
         placeholder="Name (optional)"
         aria-label="Channel name"
         value={name}
         onChange={(e) => setName(e.target.value)}
       />
-      {create.isError && <p className={errorClass}>{create.error.message}</p>}
+      {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
       <div className="flex gap-2">
-        <button type="submit" className={buttonClass} disabled={create.isPending}>
+        <Button variant="primary" type="submit" loading={create.isPending}>
           Start
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
           type="button"
-          className={buttonClass}
           onClick={() => {
             create.reset();
-            setOpen(false);
+            close();
           }}
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

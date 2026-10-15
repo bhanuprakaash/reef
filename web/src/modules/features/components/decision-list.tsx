@@ -1,20 +1,49 @@
 import type { Decision } from '@/types/api';
-import { mutedClass } from '@/utils/classes';
+import { Card } from '@/components/card';
+import { Creature } from '@/components/creature';
 
-export function DecisionList({ decisions }: { decisions: Decision[] }) {
-  if (decisions.length === 0) return <p className={mutedClass}>No decisions yet.</p>;
+type Props = { decisions: Decision[]; faces: Record<string, string | undefined> };
 
+export function DecisionList({ decisions, faces }: Props) {
   return (
-    <ul className="space-y-2 text-sm">
-      {decisions.map((d) => (
-        <li key={d.id}>
-          <p>{d.body}</p>
-          {d.why && <p className={mutedClass}>Why: {d.why}</p>}
-          <p className="text-xs text-neutral-500">
-            {d.author}, {new Date(d.createdAt).toLocaleString()}
-          </p>
-        </li>
-      ))}
-    </ul>
+    <Card
+      title="Decisions"
+      flush
+      aside={<span className="ml-auto text-xs text-muted tabular-nums">{decisions.length}</span>}
+    >
+      {decisions.length === 0 ? (
+        <p className="px-6 pb-5 text-sm text-muted">No decisions yet.</p>
+      ) : (
+        <ul>
+          {[...decisions].reverse().map((d) => {
+            const author = d.author === 'user' ? 'You' : d.author;
+            return (
+              <li key={d.id} className="flex gap-3.5 border-t border-hairline px-6 py-3.5">
+                <span className="w-7 pt-0.5 font-mono text-xs text-muted">{d.id}</span>
+                <div className="min-w-0 flex-1">
+                  <div className="text-sm">{d.body}</div>
+                  <div className="mt-0.5 text-xs text-muted">
+                    {d.why && `${d.why} · `}
+                    <span className="capitalize">{author}</span>
+                    {' · '}
+                    {new Date(d.createdAt).toLocaleString()}
+                  </div>
+                </div>
+                {d.author === 'user' ? (
+                  <span
+                    aria-hidden="true"
+                    className="flex size-[22px] shrink-0 items-center justify-center rounded-full bg-pill text-[11px] font-semibold text-pill-ink"
+                  >
+                    {author[0]}
+                  </span>
+                ) : (
+                  <Creature role={d.author} face={faces[d.author]} size={22} />
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
   );
 }

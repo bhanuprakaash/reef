@@ -7,7 +7,10 @@ around Reef areas.
 ## Stack
 
 - Vite, React, TypeScript with `strict: true`, React Router and TanStack Query.
-- Tailwind v4 with plain utility classes. Use the system font and `dark:` variants for dark mode.
+- Tailwind v4 with plain utility classes. Colours, radii and fonts are tokens in the `@theme` block of
+  `src/index.css` (dark by default; a theme redefines the variables). Use token classes (`bg-card`,
+  `text-muted`), never hex values or `dark:` variants, and the pieces in `components/` (`Button`,
+  `TextField`, ...) rather than hand-rolled controls.
 - npm for packages and scripts.
 - No Zod, form library or global store library. Use React state and URL state as described below.
 

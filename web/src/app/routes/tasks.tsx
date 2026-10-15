@@ -6,8 +6,7 @@ import { AddTaskForm } from '@/modules/tasks/components/add-task-form';
 import { TaskBoard } from '@/modules/tasks/components/task-board';
 import { TaskFilters } from '@/modules/tasks/components/task-filters';
 import { TaskList } from '@/modules/tasks/components/task-list';
-import type { Task } from '@/types/api';
-import { buttonClass, errorClass } from '@/utils/classes';
+import { SegmentedControl } from '@/components/segmented-control';
 
 export function TasksPage() {
   const [params, setParams] = useSearchParams();
@@ -42,49 +41,40 @@ export function TasksPage() {
     setParams(nextParams);
   }
 
-  function context(t: Task) {
-    const p = projects.data?.find((x) => x.id === t.projectId);
-    const f = features.data?.find((x) => x.id === t.featureId);
-    return [p?.name, f?.name].filter(Boolean).join(' / ');
-  }
-
   return (
-    <div className="max-w-3xl space-y-6">
-      <h1 className="text-xl font-semibold">Tasks</h1>
+    <div className="flex flex-col gap-5">
+      <header className="flex flex-wrap items-center gap-3">
+        <h1 className="text-[32px] font-normal tracking-[-0.02em]">Tasks</h1>
+        <div className="ml-auto">
+          <SegmentedControl
+            label="View"
+            options={[
+              { value: 'list', label: 'List' },
+              { value: 'board', label: 'Board' },
+            ]}
+            value={view}
+            onChange={onView}
+          />
+        </div>
+      </header>
       <AddTaskForm projects={projects.data ?? []} features={features.data ?? []} />
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <TaskFilters
+      <TaskFilters
+        projects={projects.data ?? []}
+        features={features.data ?? []}
+        project={project}
+        feature={feature}
+        status={status}
+        onChange={onFilter}
+      />
+      {tasks.isError && <p className="text-sm text-danger">{tasks.error.message}</p>}
+      {view === 'board' ? (
+        <TaskBoard tasks={shown ?? []} features={features.data ?? []} />
+      ) : (
+        <TaskList
+          tasks={shown ?? []}
           projects={projects.data ?? []}
           features={features.data ?? []}
-          project={project}
-          feature={feature}
-          status={status}
-          onChange={onFilter}
         />
-        <div className="flex gap-2">
-          <button
-            type="button"
-            className={buttonClass}
-            aria-pressed={view === 'list'}
-            onClick={() => onView('list')}
-          >
-            List
-          </button>
-          <button
-            type="button"
-            className={buttonClass}
-            aria-pressed={view === 'board'}
-            onClick={() => onView('board')}
-          >
-            Board
-          </button>
-        </div>
-      </div>
-      {tasks.isError && <p className={errorClass}>{tasks.error.message}</p>}
-      {view === 'board' ? (
-        <TaskBoard tasks={shown ?? []} context={context} />
-      ) : (
-        <TaskList tasks={shown ?? []} context={context} />
       )}
     </div>
   );

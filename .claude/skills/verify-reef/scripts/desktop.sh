@@ -352,8 +352,7 @@ check capture-button "$([ -n "$title" ] && nonzero "$sd" && echo 1)" \
 # a project chosen (set directly; the select itself is not under test here) and "bug: login fails" typed, then Enter
 cdp "document.querySelector('[aria-label=\"Capture project\"]').value = '$proj';
 document.querySelector('[aria-label=\"Capture project\"]').dispatchEvent(new Event('change', { bubbles: true }));
-document.querySelector('[aria-label=\"Capture kind\"]').value = 'bug';
-document.querySelector('[aria-label=\"Capture kind\"]').dispatchEvent(new Event('change', { bubbles: true }))" capture >/dev/null
+[...document.querySelectorAll('[aria-label=\"Capture kind\"] button')].find((b) => b.textContent === 'Bug').click()" capture >/dev/null
 xdo type -- 'login fails'
 xdo key Return
 closed=$(wait_capture_closed && echo 1 || echo 0)

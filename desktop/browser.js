@@ -139,7 +139,12 @@ export function createBrowser(win, reefPort) {
   let refs = new Map();
   view.webContents.on('did-navigate', (_event, url) => {
     refs.clear();
-    win.webContents.send('browser:navigated', url);
+    const history = view.webContents.navigationHistory;
+    win.webContents.send('browser:navigated', {
+      url,
+      canGoBack: history.canGoBack(),
+      canGoForward: history.canGoForward(),
+    });
   });
   // A page can carry an agent to Reef's own origin by a link or a redirect,
   // not only a navigate call, so those paths need the same check.
@@ -170,6 +175,11 @@ export function createBrowser(win, reefPort) {
       view.webContents.debugger.on('message', onMessage);
     });
     const { errorText } = await view.webContents.debugger.sendCommand('Page.navigate', { url });
+    // Chromium reports ERR_ABORTED when another navigation replaced this one or the response
+    // was not a page (204, a download); no load event may follow, so do not wait for one.
+    if (errorText === 'net::ERR_ABORTED') {
+      return { text: `navigation to ${url} was aborted: another navigation replaced it, or it was not a page` };
+    }
     if (errorText) throw new Error(errorText);
     await loaded;
     return { text: `navigated to ${url}` };
@@ -344,5 +354,9 @@ export function createBrowser(win, reefPort) {
     });
   }
 
-  return { listen, close, setBounds, navigate, screenshot, setTakenOver };
+  const back = () => view.webContents.navigationHistory.goBack();
+  const forward = () => view.webContents.navigationHistory.goForward();
+  const reload = () => view.webContents.reload();
+
+  return { listen, close, setBounds, navigate, screenshot, setTakenOver, back, forward, reload };
 }

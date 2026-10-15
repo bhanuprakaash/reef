@@ -1,1 +1,463 @@
 @import 'tailwindcss';
+
+@theme {
+  --color-sidebar: #1a1a1a;
+  --color-main: #212121;
+  --color-card: #2a2a2a;
+  --color-bubble: #2e2e2e;
+  --color-hairline: #2e2e2e;
+  --color-line: #3a3a3a;
+  --color-field: #262626;
+  --color-raised: #3e3e3e;
+  --color-hover: #383838;
+  --color-active: #2c2c2c;
+  --color-search: #232323;
+  --color-search-line: #333333;
+  --color-track: #333333;
+  --color-scrim: #0f0f0f;
+  --color-fg: #ececec;
+  --color-soft: #cfcfcf;
+  --color-muted: #9b9b9b;
+  --color-faint: #909095;
+  --color-ring: rgb(236 236 236 / 0.15);
+
+  --color-pill: #ececec;
+  --color-pill-ink: #161616;
+
+  --color-working: #5b9bff;
+  --color-needs-you: #ff453a;
+  --color-paused: #f2b33d;
+  --color-paused-bg: #2b2410;
+  --color-paused-line: #4a3d16;
+  --color-paused-fg: #f7d58a;
+  --color-paused-ink: #1a1206;
+  --color-done: #4cc38a;
+  --color-failed: #ff6b60;
+  --color-failed-bg: #2d1a19;
+  --color-failed-line: #4d2522;
+  --color-failed-fg: #ffb4ac;
+  --color-failed-soft: #c99a95;
+  --color-asleep: #6f6f74;
+  --color-danger: #ff8a80;
+  --color-danger-bg: #3a1716;
+  --color-badge: #d92f26;
+  --color-banner-bg: #1f2a3d;
+  --color-banner-line: #2e3a52;
+  --color-banner-fg: #cfe0ff;
+  --color-terminal: #161616;
+
+  --color-lead: #f26b2e;
+  --color-mark-ink: #1c1c1e;
+  --color-architect: #8b5cf6;
+  --color-developer: #3fbfa0;
+  --color-tester: #3b82f6;
+
+  --radius-pill: 999px;
+  --radius-card: 20px;
+  --radius-menu: 14px;
+  --radius-field: 10px;
+
+  --shadow-menu: 0 16px 40px rgb(0 0 0 / 0.45);
+  --shadow-dialog: 0 24px 60px rgb(0 0 0 / 0.5);
+
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
+  --font-mono: 'SF Mono', ui-monospace, Menlo, monospace;
+}
+
+[data-theme='light'] {
+  color-scheme: light;
+  --color-sidebar: #f4f4f5;
+  --color-main: #ffffff;
+  --color-card: #f4f4f5;
+  --color-bubble: #ececee;
+  --color-hairline: #eeeef0;
+  --color-line: #d9d9dc;
+  --color-field: #f4f4f5;
+  --color-raised: #e2e2e5;
+  --color-hover: #e4e4e7;
+  --color-active: #e4e4e7;
+  --color-search: #ebebed;
+  --color-search-line: #e2e2e5;
+  --color-track: #e2e2e5;
+  --color-fg: #1c1c1e;
+  --color-soft: #4a4a4e;
+  --color-muted: #626267;
+  --color-faint: #68686d;
+  --color-ring: rgb(28 28 30 / 0.15);
+
+  --color-pill: #1c1c1e;
+  --color-pill-ink: #ffffff;
+
+  --color-working: #1a62c9;
+  --color-needs-you: #d70015;
+  --color-paused: #8a5a00;
+  --color-paused-bg: #fff6db;
+  --color-paused-line: #f0dda0;
+  --color-paused-fg: #7a5200;
+  --color-paused-ink: #ffffff;
+  --color-done: #126b42;
+  --color-failed: #c4281c;
+  --color-failed-bg: #fdecea;
+  --color-failed-line: #f3c5c0;
+  --color-failed-fg: #8f1a12;
+  --color-failed-soft: #9c3a32;
+  --color-asleep: #a1a1a6;
+  --color-danger: #c4281c;
+  --color-danger-bg: #fde3e1;
+  --color-badge: #d70015;
+  --color-banner-bg: #e8f0ff;
+  --color-banner-line: #c5d6f5;
+  --color-banner-fg: #1a4a99;
+  --color-terminal: #f7f7f8;
+
+  --shadow-menu: 0 16px 40px rgb(0 0 0 / 0.12);
+  --shadow-dialog: 0 24px 60px rgb(0 0 0 / 0.18);
+}
+
+@media (prefers-color-scheme: light) {
+  [data-theme='system'] {
+    color-scheme: light;
+    --color-sidebar: #f4f4f5;
+    --color-main: #ffffff;
+    --color-card: #f4f4f5;
+    --color-bubble: #ececee;
+    --color-hairline: #eeeef0;
+    --color-line: #d9d9dc;
+    --color-field: #f4f4f5;
+    --color-raised: #e2e2e5;
+    --color-hover: #e4e4e7;
+    --color-active: #e4e4e7;
+    --color-search: #ebebed;
+    --color-search-line: #e2e2e5;
+    --color-track: #e2e2e5;
+    --color-fg: #1c1c1e;
+    --color-soft: #4a4a4e;
+    --color-muted: #626267;
+    --color-faint: #68686d;
+    --color-ring: rgb(28 28 30 / 0.15);
+
+    --color-pill: #1c1c1e;
+    --color-pill-ink: #ffffff;
+
+    --color-working: #1a62c9;
+    --color-needs-you: #d70015;
+    --color-paused: #8a5a00;
+    --color-paused-bg: #fff6db;
+    --color-paused-line: #f0dda0;
+    --color-paused-fg: #7a5200;
+    --color-paused-ink: #ffffff;
+    --color-done: #126b42;
+    --color-failed: #c4281c;
+    --color-failed-bg: #fdecea;
+    --color-failed-line: #f3c5c0;
+    --color-failed-fg: #8f1a12;
+    --color-failed-soft: #9c3a32;
+    --color-asleep: #a1a1a6;
+    --color-danger: #c4281c;
+    --color-danger-bg: #fde3e1;
+    --color-badge: #d70015;
+    --color-banner-bg: #e8f0ff;
+    --color-banner-line: #c5d6f5;
+    --color-banner-fg: #1a4a99;
+    --color-terminal: #f7f7f8;
+
+    --shadow-menu: 0 16px 40px rgb(0 0 0 / 0.12);
+    --shadow-dialog: 0 24px 60px rgb(0 0 0 / 0.18);
+  }
+}
+
+@layer base {
+  :root {
+    color-scheme: dark;
+    --creature-ring: var(--color-main);
+  }
+
+  body {
+    background: var(--color-main);
+    color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: 14.5px;
+    line-height: 1.45;
+    letter-spacing: -0.005em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-fg);
+    outline-offset: 2px;
+  }
+}
+
+.creature-live [class^='c-'] {
+  transform-box: fill-box;
+}
+
+@keyframes c-bob {
+  50% {
+    transform: translateY(-3px);
+  }
+}
+@keyframes c-sway {
+  0%,
+  100% {
+    transform: rotate(-9deg);
+  }
+  50% {
+    transform: rotate(9deg);
+  }
+}
+@keyframes c-blink {
+  0%,
+  92%,
+  100% {
+    transform: scaleY(1);
+  }
+  95% {
+    transform: scaleY(0.1);
+  }
+}
+@keyframes c-puff {
+  0%,
+  55% {
+    transform: scale(0.2);
+    opacity: 0;
+  }
+  70% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1.15) translateY(-2px);
+    opacity: 0;
+  }
+}
+@keyframes c-flick {
+  0%,
+  100% {
+    transform: rotate(-7deg);
+  }
+  50% {
+    transform: rotate(7deg);
+  }
+}
+@keyframes c-waddle {
+  0%,
+  100% {
+    transform: rotate(-5deg);
+  }
+  50% {
+    transform: rotate(5deg);
+  }
+}
+@keyframes c-flap {
+  50% {
+    transform: rotate(-14deg);
+  }
+}
+@keyframes c-swim {
+  0%,
+  100% {
+    transform: translateX(-2px) rotate(-1.5deg);
+  }
+  50% {
+    transform: translateX(2px) rotate(1.5deg);
+  }
+}
+@keyframes c-dart {
+  0%,
+  40%,
+  100% {
+    transform: translateX(-5px);
+  }
+  50%,
+  90% {
+    transform: translateX(0);
+  }
+}
+@keyframes c-pulse {
+  50% {
+    transform: scale(1.25);
+  }
+}
+@keyframes c-rise {
+  0% {
+    transform: translateY(6px);
+    opacity: 0;
+  }
+  25% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateY(-14px);
+    opacity: 0;
+  }
+}
+@keyframes c-paddle {
+  0%,
+  100% {
+    transform: rotate(-14deg);
+  }
+  50% {
+    transform: rotate(14deg);
+  }
+}
+@keyframes c-peek {
+  50% {
+    transform: translateY(-2.5px);
+  }
+}
+@keyframes c-hover {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-3deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(3deg);
+  }
+}
+@keyframes c-flutter {
+  50% {
+    transform: scaleX(0.55);
+  }
+}
+@keyframes c-rock {
+  0%,
+  100% {
+    transform: rotate(-4deg);
+  }
+  50% {
+    transform: rotate(4deg);
+  }
+}
+@keyframes c-glide {
+  0%,
+  100% {
+    transform: translateY(0) rotate(-2deg);
+  }
+  50% {
+    transform: translateY(-3px) rotate(2deg);
+  }
+}
+@keyframes c-wing {
+  50% {
+    transform: scaleY(0.8);
+  }
+}
+
+.creature-loop .c-bob {
+  animation: c-bob 3.2s ease-in-out infinite;
+}
+.creature-loop .c-sway,
+.creature-loop .c-sway-1,
+.creature-loop .c-sway-2 {
+  transform-origin: 50% 0;
+  animation: c-sway 2.4s ease-in-out infinite;
+}
+.creature-loop .c-sway-1 {
+  animation-delay: -0.4s;
+}
+.creature-loop .c-sway-2 {
+  animation-delay: -0.8s;
+}
+.creature-loop .c-blink {
+  transform-origin: 50% 50%;
+  animation: c-blink 4.5s infinite;
+}
+.creature-loop .c-puff {
+  transform-origin: 50% 100%;
+  animation: c-puff 3s ease-out infinite;
+}
+.creature-loop .c-flick {
+  transform-origin: 0% 50%;
+  animation: c-flick 1.6s ease-in-out infinite;
+}
+.creature-loop .c-waddle {
+  transform-origin: 50% 100%;
+  animation: c-waddle 1.4s ease-in-out infinite;
+}
+.creature-loop .c-flap,
+.creature-loop .c-flap-1 {
+  transform-origin: 50% 0;
+  animation: c-flap 1.4s ease-in-out infinite;
+}
+.creature-loop .c-flap-1 {
+  animation-delay: -0.7s;
+}
+.creature-loop .c-swim {
+  transform-origin: 50% 50%;
+  animation: c-swim 2.6s ease-in-out infinite;
+}
+.creature-loop .c-tail {
+  transform-origin: 100% 50%;
+  animation: c-flick 1.3s ease-in-out infinite;
+}
+.creature-loop .c-paddle,
+.creature-loop .c-paddle-1 {
+  transform-origin: 50% 50%;
+  animation: c-paddle 1.8s ease-in-out infinite;
+}
+.creature-loop .c-paddle-1 {
+  animation-delay: -0.9s;
+}
+.creature-loop .c-peek {
+  animation: c-peek 3s ease-in-out infinite;
+}
+.creature-loop .c-hover {
+  transform-origin: 50% 50%;
+  animation: c-hover 3.4s ease-in-out infinite;
+}
+.creature-loop .c-flutter {
+  transform-origin: 100% 50%;
+  animation: c-flutter 0.5s ease-in-out infinite;
+}
+.creature-loop .c-rock {
+  transform-origin: 50% 100%;
+  animation: c-rock 3s ease-in-out infinite;
+}
+.creature-loop .c-glide {
+  transform-origin: 50% 50%;
+  animation: c-glide 3.6s ease-in-out infinite;
+}
+.creature-loop .c-wing {
+  transform-origin: 50% 40%;
+  animation: c-wing 1.8s ease-in-out infinite;
+}
+.creature-loop .c-tailwave {
+  transform-origin: 0% 0%;
+  animation: c-flick 2s ease-in-out infinite;
+}
+.creature-live .c-dart {
+  animation: c-dart 2.2s ease-in-out infinite;
+}
+.creature-live .c-pulse {
+  transform-origin: 50% 50%;
+  animation: c-pulse 1.2s ease-in-out 3;
+}
+.creature-live .c-rise,
+.creature-live .c-rise-1 {
+  animation: c-rise 2.8s ease-out infinite;
+}
+.creature-live .c-rise-1 {
+  animation-delay: -1.4s;
+}
+
+@keyframes app-in {
+  from {
+    opacity: 0;
+  }
+}
+#root:not(:empty) {
+  animation: app-in 0.25s ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .creature-live * {
+    animation: none !important;
+  }
+  #root:not(:empty) {
+    animation: none;
+  }
+}

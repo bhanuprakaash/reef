@@ -31,10 +31,18 @@ describe('ApprovalRows', () => {
   });
 
   it('shows the approval text', () => {
-    const markup = renderToStaticMarkup(<ApprovalRows channelId={2} />);
+    const markup = renderToStaticMarkup(<ApprovalRows channelId={2} faces={{}} />);
 
     expect(approval.text).not.toBe(sourceMessage.body);
     expect(markup).toContain(approval.text);
     expect(markup).not.toContain(sourceMessage.body);
+  });
+
+  it('shows who hands to whom with Approve and Reject', () => {
+    const markup = renderToStaticMarkup(<ApprovalRows channelId={2} faces={{}} />);
+
+    expect(markup).toContain('architect → developer');
+    expect(markup).toContain('Approve');
+    expect(markup).toContain('Reject');
   });
 });

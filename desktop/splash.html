@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'">
+<title>Reef</title>
+<style>
+:root { --bg: #212121; --fg: #ECECEC; --muted: #8E8E93; --bubble: #333; }
+@media (prefers-color-scheme: light) {
+  :root { --bg: #FFFFFF; --fg: #1C1C1E; --muted: #626267; --bubble: #D9D9DC; }
+}
+html, body { margin: 0; height: 100%; background: var(--bg); overflow: hidden; }
+body {
+  color: var(--fg);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+#stage { height: 100%; transition: opacity 0.25s ease-out; }
+body.leaving #stage { opacity: 0; }
+main {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 22px;
+}
+svg { overflow: visible; }
+svg g, svg path, svg line { transform-box: fill-box; }
+h1 { margin: 0; font-size: 64px; font-weight: 400; letter-spacing: -0.04em; }
+p { margin: 0; display: flex; align-items: center; gap: 6px; font-size: 14px; color: var(--muted); }
+p span { width: 4px; height: 4px; border-radius: 50%; background: var(--muted); }
+
+.bubble { position: absolute; bottom: 0; border-radius: 50%; border: 2px solid var(--bubble); }
+.b1 { left: 22%; width: 14px; height: 14px; animation: rise 6s linear infinite; }
+.b2 { left: 70%; width: 9px; height: 9px; animation: rise 6s linear -2s infinite; }
+.b3 { left: 58%; width: 18px; height: 18px; animation: rise 6s linear -4s infinite; }
+
+.arrive { animation: arrive 0.7s cubic-bezier(.2, .8, .2, 1) both; }
+.bob { animation: bob 3.2s ease-in-out infinite; }
+.sway { transform-origin: 50% 0; animation: sway 2.4s ease-in-out infinite; }
+.d1 { animation-delay: -0.4s; }
+.d2 { animation-delay: -0.8s; }
+.blink { transform-origin: 50% 50%; animation: blink 4.5s infinite; }
+h1 { animation: word 0.6s 0.2s ease-out both; }
+p { animation: word 0.6s 0.4s ease-out both; }
+p span { animation: dot 1.2s infinite; }
+p span:nth-child(2) { animation-delay: 0.2s; }
+p span:nth-child(3) { animation-delay: 0.4s; }
+
+@keyframes arrive { from { transform: translateY(60px) scale(0.85); opacity: 0; } }
+@keyframes bob { 50% { transform: translateY(-3px); } }
+@keyframes sway { 0%, 100% { transform: rotate(-9deg); } 50% { transform: rotate(9deg); } }
+@keyframes blink { 0%, 92%, 100% { transform: scaleY(1); } 95% { transform: scaleY(0.1); } }
+@keyframes word { from { opacity: 0; transform: translateY(8px); } }
+@keyframes dot { 0%, 100% { opacity: 0.25; } 50% { opacity: 1; } }
+@keyframes rise { 0% { transform: translateY(0); opacity: 0; } 20% { opacity: 0.8; } 100% { transform: translateY(-880px); opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, body { animation: none !important; transition: none !important; }
+  .bubble, p span { display: none; }
+}
+</style>
+</head>
+<body>
+<div id="stage">
+<span class="bubble b1"></span>
+<span class="bubble b2"></span>
+<span class="bubble b3"></span>
+<main>
+  <div class="arrive">
+    <svg width="170" height="170" viewBox="0 0 64 64" role="img" aria-label="Reef jelly">
+      <g class="bob">
+        <path d="M8 34 a24 24 0 0 1 48 0 q0 6 -6 6 H14 q-6 0 -6 -6 z" fill="#F26B2E"/>
+        <g class="blink">
+          <line x1="36" y1="19" x2="37.5" y2="26" stroke="#1C1C1E" stroke-width="4" stroke-linecap="round"/>
+          <line x1="44" y1="18" x2="45.5" y2="25" stroke="#1C1C1E" stroke-width="4" stroke-linecap="round"/>
+        </g>
+        <path class="sway" d="M18 44 q-4 6 0 13" fill="none" stroke="#F26B2E" stroke-width="5.5" stroke-linecap="round"/>
+        <path class="sway d1" d="M32 44 q4 6 0 13" fill="none" stroke="#F26B2E" stroke-width="5.5" stroke-linecap="round"/>
+        <path class="sway d2" d="M46 44 q-4 6 0 13" fill="none" stroke="#F26B2E" stroke-width="5.5" stroke-linecap="round"/>
+      </g>
+    </svg>
+  </div>
+  <h1>reef</h1>
+  <p role="status">Starting reef serve<span></span><span></span><span></span></p>
+</main>
+</div>
+</body>
+</html>

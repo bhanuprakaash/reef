@@ -43,7 +43,7 @@ Acceptance lines of the quick capture ticket: "the shortcut opens the capture wi
 
 - Open the app (`cd desktop && npm start`, the `.deb`'s `reef-desktop`, or Reef.app).
 - An agent in a channel calls the `mcp__reef__browser_*` tools; the pane on the right follows.
-- Take over / Hand back is the button next to the pane's address bar.
+- Take over / Hand back is the button in the banner under the address bar while an agent drives, else next to it. The channel header's Browser button shows or hides the pane; Back, Forward and Reload sit left of the address bar.
 - A feature's page shows the Terminal section at the bottom, with an Open terminal button.
 - `CommandOrControl+Shift+Space`, or the sidebar's Capture link, opens the quick capture window.
 - Quit from the menu, Cmd+Q, closing the window, or a signal.

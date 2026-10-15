@@ -1,5 +1,6 @@
-import { app, BrowserWindow, dialog, globalShortcut, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain, nativeTheme } from 'electron';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createBrowser } from './browser.js';
@@ -11,11 +12,38 @@ const ADDR = `127.0.0.1:${PORT}`;
 const SERVER_STOP_TIMEOUT = 5000;
 const LOGIN_SHELL_TIMEOUT = 5000;
 const STDERR_TAIL = 64 * 1024;
+const SPLASH_MIN = 1200;
+const SPLASH_FADE = 250;
 
 // The same default data folder reef serve uses: os.UserConfigDir()/Reef in
 // Go is app.getPath('appData') + '/Reef' in Electron on both Mac and Linux.
 function dataDir() {
   return path.join(app.getPath('appData'), 'Reef');
+}
+
+// The web app's own colours, so a window is never another colour while the page loads.
+const BACKGROUNDS = { dark: '#212121', light: '#ffffff' };
+const THEMES = ['dark', 'light', 'system'];
+
+function themeFile() {
+  return path.join(app.getPath('userData'), 'theme');
+}
+
+// The app's theme choice lives in the page's localStorage, which the main process cannot
+// read before the page loads; the page reports it (theme:set) and the main process keeps it,
+// so the splash and every window start in the right colour.
+function restoreTheme() {
+  try {
+    const theme = fs.readFileSync(themeFile(), 'utf8');
+    if (THEMES.includes(theme)) return theme;
+  } catch {
+    // no choice kept yet
+  }
+  return 'dark';
+}
+
+function windowBackground() {
+  return BACKGROUNDS[nativeTheme.shouldUseDarkColors ? 'dark' : 'light'];
 }
 
 function reefPath() {
@@ -109,9 +137,10 @@ function openCaptureWindow() {
     return;
   }
   captureWindow = new BrowserWindow({
-    width: 480,
+    width: 600,
     height: 200,
     alwaysOnTop: true,
+    backgroundColor: windowBackground(),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
   captureWindow.on('closed', () => {
@@ -121,14 +150,24 @@ function openCaptureWindow() {
 }
 
 app.whenReady().then(async () => {
-  const PATH = await loginShellPath();
-  const ok = await startServer(PATH);
-  if (!ok) return;
+  nativeTheme.themeSource = restoreTheme();
+  ipcMain.on('theme:set', (_event, theme) => {
+    if (!THEMES.includes(theme)) return;
+    nativeTheme.themeSource = theme;
+    fs.writeFileSync(themeFile(), theme);
+  });
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    backgroundColor: windowBackground(),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
+  win.loadFile(path.join(__dirname, 'splash.html'));
+  const splashAt = Date.now();
+  const PATH = await loginShellPath();
+  if (win.isDestroyed()) return;
+  const ok = await startServer(PATH);
+  if (!ok) return;
   win.webContents.setWindowOpenHandler(() => ({ action: 'deny' }));
   win.webContents.on('will-navigate', (event, url) => {
     if (new URL(url).origin !== `http://${ADDR}`) event.preventDefault();
@@ -137,6 +176,9 @@ app.whenReady().then(async () => {
   browser.listen(dataDir());
   ipcMain.on('browser:bounds', (_event, rect) => browser.setBounds(rect));
   ipcMain.handle('browser:navigate', (_event, url) => browser.navigate(url));
+  ipcMain.on('browser:back', () => browser.back());
+  ipcMain.on('browser:forward', () => browser.forward());
+  ipcMain.on('browser:reload', () => browser.reload());
   ipcMain.handle('browser:take-over', (_event, value) => browser.setTakenOver(value));
   terminals = createTerminals(win, PATH);
   ipcMain.handle('terminal:open', (_event, cwd, cols, rows) => terminals.open(cwd, cols, rows));
@@ -144,6 +186,11 @@ app.whenReady().then(async () => {
   ipcMain.on('terminal:resize', (_event, cwd, cols, rows) => terminals.resize(cwd, cols, rows));
   ipcMain.handle('capture:open', () => openCaptureWindow());
   globalShortcut.register('CommandOrControl+Shift+Space', openCaptureWindow);
+  await new Promise((resolve) => setTimeout(resolve, Math.max(0, splashAt + SPLASH_MIN - Date.now())));
+  if (win.isDestroyed()) return;
+  await win.webContents.executeJavaScript("document.body.classList.add('leaving')");
+  await new Promise((resolve) => setTimeout(resolve, SPLASH_FADE));
+  if (win.isDestroyed()) return;
   win.loadURL(`http://${ADDR}`);
 });
 

@@ -1,10 +1,13 @@
 package main
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bhanuprakaash/reef/store"
 )
 
 func writeTeam(t *testing.T, body string) string {
@@ -35,6 +38,34 @@ func TestTeam_ApplyAndList(t *testing.T) {
 	}
 }
 
+func TestTeam_ApplyKeepsFace(t *testing.T) {
+	dir := t.TempDir()
+	mustReef(t, dir, "team", "apply", writeTeam(t, `{"name":"core","roles":[
+		{"name":"lead","lead":true,"backend":"claude","face":"otter"},
+		{"name":"architect","backend":"codex"}]}`))
+
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	teams, err := st.Teams(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var faces []string
+	for _, tm := range teams {
+		if tm.Name == "core" {
+			for _, r := range tm.Roles {
+				faces = append(faces, r.Name+"="+r.Face)
+			}
+		}
+	}
+	if got, want := strings.Join(faces, " "), "lead=otter architect="; got != want {
+		t.Errorf("faces = %q, want %q", got, want)
+	}
+}
+
 func TestTeam_ApplyErrors(t *testing.T) {
 	tests := []struct {
 		name string
@@ -53,6 +84,9 @@ func TestTeam_ApplyErrors(t *testing.T) {
 		{"gate on unknown role", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude"}],` +
 			`"gates":[{"from":"x","to":"y","on":true}]}`,
 			"gate x to y names a role team a does not have"},
+		{"unknown face", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude","face":"dragon"}]}`,
+			`role x: face "dragon" must be one of jellyfish, whale, penguin, shark, octopus, turtle, ` +
+				"seahorse, otter, clownfish, manta-ray, pebble"},
 		{"read-only claude role with Bash", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude"},` +
 			`{"name":"tester","backend":"claude","tools":["Bash"]}]}`,
 			"role tester has no write, so it cannot have unrestricted Bash; " +

@@ -1,6 +1,6 @@
 import { useTurns } from '@/modules/channels/api/get-turns';
 import { useRollbackTurn } from '@/modules/channels/api/rollback-turn';
-import { buttonClass, errorClass } from '@/utils/classes';
+import { confirmRollback } from '@/modules/channels/utils/confirm-rollback';
 
 export function CheckpointRows({ channelId, running }: { channelId: number; running: boolean }) {
   const turns = useTurns(channelId);
@@ -11,36 +11,39 @@ export function CheckpointRows({ channelId, running }: { channelId: number; runn
 
   return (
     <section aria-label="Checkpoints" className="space-y-2 text-sm">
-      <h2 className="font-medium">Checkpoints</h2>
-      <ul className="max-h-48 space-y-2 overflow-y-auto">
+      <ul className="max-h-48 space-y-3 overflow-y-auto">
         {checkpoints.map((t) => (
-          <li
-            key={t.id}
-            className="flex items-center justify-between gap-3 rounded border border-neutral-300 p-3 dark:border-neutral-700"
-          >
-            <p>
-              Before turn {t.id} by {t.role}
-            </p>
-            <button
-              type="button"
-              className={buttonClass}
-              disabled={running || rollback.isPending}
-              onClick={() => {
-                if (
-                  window.confirm(
-                    `Roll back to before turn ${t.id}? The files and the branch go back to that point, and later commits are dropped. The agent's session is not rewound.`,
-                  )
-                ) {
-                  rollback.mutate(t.id);
-                }
-              }}
+          <li key={t.id} className="flex items-center gap-2.5 text-[13px] text-muted">
+            <span className="h-px flex-1 bg-track" />
+            <svg
+              width="14"
+              height="14"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.8"
+              strokeLinecap="round"
+              aria-hidden="true"
             >
-              Rollback
-            </button>
+              <circle cx="12" cy="12" r="4" />
+              <path d="M12 2v6M12 16v6" />
+            </svg>
+            <span>
+              Checkpoint before turn {t.id} by {t.role} ·{' '}
+              <button
+                type="button"
+                className="border-b border-line text-fg disabled:cursor-not-allowed disabled:text-faint"
+                disabled={running || rollback.isPending}
+                onClick={() => confirmRollback(t.id) && rollback.mutate(t.id)}
+              >
+                Roll back
+              </button>
+            </span>
+            <span className="h-px flex-1 bg-track" />
           </li>
         ))}
       </ul>
-      {rollback.isError && <p className={errorClass}>{rollback.error.message}</p>}
+      {rollback.isError && <p className="text-sm text-danger">{rollback.error.message}</p>}
     </section>
   );
 }

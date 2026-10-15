@@ -1,18 +1,26 @@
 import { useState } from 'react';
 import { useCreateFeature } from '@/modules/features/api/create-feature';
-import { buttonClass, errorClass, inputClass } from '@/utils/classes';
+import { Button } from '@/components/button';
+import { TextField } from '@/components/text-field';
 
-export function AddFeatureForm({ projectId }: { projectId: number }) {
-  const [open, setOpen] = useState(false);
+type Props = { projectId: number; onClose?: () => void };
+
+export function AddFeatureForm({ projectId, onClose }: Props) {
+  const [open, setOpen] = useState(onClose !== undefined);
   const [slug, setSlug] = useState('');
   const [name, setName] = useState('');
   const create = useCreateFeature();
 
+  function close() {
+    setOpen(false);
+    onClose?.();
+  }
+
   if (!open) {
     return (
-      <button type="button" className={buttonClass} onClick={() => setOpen(true)}>
+      <Button type="button" onClick={() => setOpen(true)}>
         Add feature
-      </button>
+      </Button>
     );
   }
 
@@ -27,43 +35,43 @@ export function AddFeatureForm({ projectId }: { projectId: number }) {
             onSuccess: () => {
               setSlug('');
               setName('');
-              setOpen(false);
+              close();
             },
           },
         );
       }}
     >
-      <input
-        className={`${inputClass} w-full`}
+      <TextField
+        className="w-full"
         placeholder="slug, e.g. login"
         aria-label="Feature slug"
         value={slug}
         onChange={(e) => setSlug(e.target.value)}
         required
       />
-      <input
-        className={`${inputClass} w-full`}
+      <TextField
+        className="w-full"
         placeholder="Name"
         aria-label="Feature name"
         value={name}
         onChange={(e) => setName(e.target.value)}
         required
       />
-      {create.isError && <p className={errorClass}>{create.error.message}</p>}
+      {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
       <div className="flex gap-2">
-        <button type="submit" className={buttonClass} disabled={create.isPending}>
+        <Button variant="primary" type="submit" loading={create.isPending}>
           Add
-        </button>
-        <button
+        </Button>
+        <Button
+          variant="ghost"
           type="button"
-          className={buttonClass}
           onClick={() => {
             create.reset();
-            setOpen(false);
+            close();
           }}
         >
           Cancel
-        </button>
+        </Button>
       </div>
     </form>
   );

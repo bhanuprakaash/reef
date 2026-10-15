@@ -1,79 +1,98 @@
 import { Link } from 'react-router';
+import { Button, buttonClass } from '@/components/button';
+import { Creature } from '@/components/creature';
 import { useContinueChannel } from '@/lib/api/continue-channel';
 import { useDecideApproval } from '@/lib/api/decide-approval';
 import { useRetryTurn } from '@/lib/api/retry-turn';
+import { useTeams } from '@/lib/api/get-teams';
+import { age } from '@/modules/inbox/utils/age';
 import { kindLabels } from '@/modules/inbox/utils/new-items';
-import type { InboxItem } from '@/types/api';
+import type { Channel, InboxItem } from '@/types/api';
 import { itemPath } from '@/utils/anchors';
-import { buttonClass, errorClass, mutedClass } from '@/utils/classes';
+import { roleFaces } from '@/utils/role-faces';
 
-export function InboxRow({ item, channelName }: { item: InboxItem; channelName: string }) {
+const kindColors: Record<InboxItem['kind'], string> = {
+  approval: 'text-paused',
+  paused: 'text-failed',
+  failed: 'text-failed',
+  waiting: 'text-working',
+};
+
+export function InboxRow({ item, channel }: { item: InboxItem; channel?: Channel }) {
   const decide = useDecideApproval();
   const cont = useContinueChannel();
   const retry = useRetryTurn();
+  const teams = useTeams();
   const pending = decide.isPending || cont.isPending || retry.isPending;
   const error = decide.error ?? cont.error ?? retry.error;
   const { channelId, approvalId, turnId } = item;
 
   return (
-    <li className="rounded border border-neutral-300 p-3 text-sm dark:border-neutral-700">
-      <div className="flex items-center justify-between gap-3">
-        <Link to={itemPath(item)} className="min-w-0 flex-1 hover:underline">
-          <span className="font-medium">
-            {kindLabels[item.kind]}: {channelName}
-          </span>{' '}
-          <span className={mutedClass}>{new Date(item.at).toLocaleString()}</span>
-          <span className="block whitespace-pre-wrap">{item.text}</span>
-        </Link>
-        <div className="flex gap-2">
+    <li className="flex gap-4 rounded-card border border-line bg-card px-5 py-[18px]">
+      <Creature
+        role={channel?.role ?? ''}
+        face={roleFaces(teams.data, channel?.team)[channel?.role ?? '']}
+        size={40}
+      />
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-baseline gap-2 text-xs">
+          <span className={`font-semibold uppercase tracking-wider ${kindColors[item.kind]}`}>
+            {kindLabels[item.kind]}
+          </span>
+          <span className="text-muted">
+            # {channel?.name ?? `Channel ${channelId}`} · {age(item.at)}
+          </span>
+        </div>
+        <div className="mt-1 whitespace-pre-wrap text-[15px] font-medium">{item.text}</div>
+        <div className="mt-3.5 flex flex-wrap items-center gap-2">
           {item.kind === 'approval' && approvalId !== undefined && (
             <>
-              <button
+              <Button
                 type="button"
-                className={buttonClass}
+                variant="primary"
                 disabled={pending}
                 onClick={() => decide.mutate({ channelId, id: approvalId, approve: true })}
               >
                 Approve
-              </button>
-              <button
+              </Button>
+              <Button
                 type="button"
-                className={buttonClass}
                 disabled={pending}
                 onClick={() => decide.mutate({ channelId, id: approvalId, approve: false })}
               >
                 Reject
-              </button>
+              </Button>
             </>
           )}
           {item.kind === 'paused' && (
-            <button
+            <Button
               type="button"
-              className={buttonClass}
+              variant="primary"
               disabled={pending}
               onClick={() => cont.mutate(channelId)}
             >
               Continue
-            </button>
+            </Button>
           )}
           {item.kind === 'failed' && turnId !== undefined && (
-            <button
+            <Button
               type="button"
-              className={buttonClass}
+              variant="primary"
               disabled={pending}
               onClick={() => retry.mutate(turnId)}
             >
               Retry
-            </button>
+            </Button>
           )}
-          {item.kind === 'waiting' && (
-            <Link to={itemPath(item)} className={buttonClass}>
-              Open
-            </Link>
-          )}
+          <Link
+            to={itemPath(item)}
+            className={buttonClass(item.kind === 'waiting' ? 'primary' : 'ghost')}
+          >
+            {item.kind === 'waiting' ? 'Open' : 'Open channel'}
+          </Link>
         </div>
+        {error && <p className="mt-2 text-sm text-danger">{error.message}</p>}
       </div>
-      {error && <p className={errorClass}>{error.message}</p>}
     </li>
   );
 }

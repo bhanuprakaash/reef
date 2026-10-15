@@ -51,6 +51,10 @@ export type Channel = {
   createdAt: string;
 };
 
+export type ChannelPreview = Channel & {
+  lastMessage: { author: string; body: string; createdAt: string } | null;
+};
+
 export type ProposedDecision = {
   body: string;
   why: string;
@@ -95,6 +99,7 @@ export type Role = {
   permissionMode: string;
   persona: string;
   skills: string;
+  face?: string;
   tools: string[];
 };
 

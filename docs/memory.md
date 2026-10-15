@@ -126,7 +126,7 @@ read-only `git` commands. Apply it with `reef team apply teams/full.json`.
 
 - `name` and `roles` are required. A role needs `name` and `backend` (`claude` or `codex`). The
   other role fields are optional: `lead` (default `false`), `write` (default `false`), `permissionMode`, `persona`,
-  `skills`, `tools` and `mcpServers`. What each does is in [server.md](server.md#role).
+  `skills`, `face`, `tools` and `mcpServers`. What each does is in [server.md](server.md#role).
   Exactly one role has `"lead": true`. A role name can appear once, uses only letters, digits,
   `_` and `-` (so an `@mention` can name it), and is not `user`.
 - `gates` is optional. A gate `{"from","to","on"}` names two roles of the team. An edge the

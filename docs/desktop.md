@@ -22,12 +22,19 @@ packaged app the `reef` binary ships inside the app's resources instead.
   takes more than 5 seconds (an rc file waiting on stdin), falls back to the PATH Electron
   already has.
 - Starts its own `reef serve` on `127.0.0.1:7700` with that `PATH`, in the dev binary
-  (`desktop/bin/reef`) or, once packaged, the bundled one. It opens the window only after
+  (`desktop/bin/reef`) or, once packaged, the bundled one. It loads the app only after
   that server logs `listening on 127.0.0.1:7700`, so it never trusts another process that
   already holds the port. `REEF_PORT` sets another port, so a second app (a test run) can run
   beside the first with its own `HOME`; the pane refuses that port instead of 7700.
-- Opens a window on `http://127.0.0.1:7700`, which serves the same UI as a browser pointed at
-  a `reef serve` started by hand (see [server.md](server.md#web-ui)).
+- Opens the window at once on a local splash page ([`desktop/splash.html`](../desktop/splash.html),
+  no server needed: the jelly, "reef" and "Starting reef serve..."). When the server is
+  listening and the splash has shown for at least 1.2 s, the jelly and text fade out and the
+  window loads `http://127.0.0.1:7700`, which serves the same UI as a browser pointed at
+  a `reef serve` started by hand (see [server.md](server.md#web-ui)). The splash, the window and
+  the app share one background colour (the app's main colour for its theme), and the app fades
+  in on its first paint, so the handoff has no jump in colour. The web app reports its theme
+  (dark, light or system) to the main process (`theme:set`); the main process keeps it in
+  `theme` in Electron's user data folder and applies it before the first window opens.
 - If the data folder is already in use by another `reef serve`, the server exits with
   `data folder ... is in use by another reef` on stderr. The app shows that error in a dialog,
   then quits.
@@ -40,8 +47,13 @@ packaged app the `reef` binary ships inside the app's resources instead.
 ## Browser pane
 
 One `WebContentsView` ([`desktop/browser.js`](../desktop/browser.js)), for the whole window,
-shared by every channel. It sits to the right of the main area with an address bar; a preload
-script reports the pane's size to the main process so the native view stays lined up with it.
+shared by every channel. It sits to the right of the main area with Back, Forward and Reload
+buttons and an address bar; a preload script reports the pane's size to the main process so the
+native view stays lined up with it. The Browser button in a channel's header shows or hides the
+pane (open at start); a hidden pane reports a zero size, which hides the view. Back, Forward and
+Reload go over IPC (`browser:back`, `browser:forward`, `browser:reload`) to the view's navigation
+history; every navigation sends the renderer the URL and whether Back and Forward have anywhere
+to go, and the buttons are disabled when they do not.
 The main process drives the view over the Chrome DevTools Protocol
 (`webContents.debugger`), and listens on `browser.sock` in the data folder (mode 0600 from the
 moment it is created) for calls from `reef mcp` (see [memory.md](memory.md#reef-mcp)): one JSON
@@ -56,6 +68,11 @@ Reef itself`: otherwise an agent could open Reef's own UI and approve its own pr
 check blocks a link or a redirect inside the page that targets Reef's origin, and denies any
 `window.open`, opening the URL in the pane itself instead of a new window. The main window has
 its own, simpler guard: no new windows, and navigation stays on Reef's own origin.
+
+A `navigate` that ends with CDP `net::ERR_ABORTED` is not an error and does not wait for a load:
+another navigation replaced it (a second `navigate`, a page redirect), or the response was not a
+page (204, a download, a redirect to Reef's own origin that the pane blocks). It answers that it
+was aborted. Real failures (DNS, refused) still fail.
 
 `snapshot` reads the page's accessibility tree (CDP `Accessibility.getFullAXTree`) and renders
 it as text, one line per element, indented to match the tree, each with a ref such as `e12`
@@ -74,9 +91,12 @@ one entry per call with its level (`log`, `error`, ...); `Network.requestWillBeS
 method, URL and status. Both lists are cleared on `Page.frameStartedLoading` for the page's main
 frame, so a new navigation starts them empty, and each is capped at the last 500 entries.
 
-A "Take over" button next to the address bar flips a boolean in the main process. While it is on,
-every tool call over `browser.sock` fails with `the user has the browser`, and the button reads
-"Hand back" to release it. The button's own address-bar navigation goes over IPC, not the socket,
+While a browser tool call (`mcp__reef__browser_*`) runs in the open channel's live turn, a banner
+under the address bar shows that role's creature and `<Role> is driving · <what it is doing>`.
+The banner comes from the channel's live events, not from the socket, and goes when the call
+ends. A "Take over" button (in the banner, else next to the address bar) flips a boolean in the
+main process. While it is on, every tool call over `browser.sock` fails with `the user has the
+browser`, the banner reads "You have the browser", and the button reads "Hand back" to release it. The button's own address-bar navigation goes over IPC, not the socket,
 so it still works while taken over. Reloading the main window (for example after an update) turns
 take-over back off, so the button and the main process agree.
 
@@ -89,6 +109,8 @@ feature page: an "Open terminal" button calls `POST /features/{id}/worktree` (ma
 worktree the same way a first wake would, or reusing it), then shows the pane in the returned
 path; a failed call shows its error under the button. The button asks again on every visit to
 the feature page in this window session; it does not remember that a tree was already opened.
+On a channel page the terminal is a drawer under the messages, with a header (folder, Clear,
+hide); the Terminal button in the channel header, or the hide button, toggles it.
 The pane renders nothing in a plain browser. `node-pty` spawns the login shell with the `PATH`
 the app already resolved at start, sized to xterm's own columns and rows so the shell's first
 output isn't wrapped to the wrong width. The shell's output is buffered in the main process per
@@ -107,7 +129,8 @@ browser (no `window.reef`) the button just navigates to `/capture`. The capture 
 project picker (the project chosen last time, kept in `localStorage`, is the default), a kind
 (idea, todo, bug) and a text box. Enter creates a task with no feature, titled `<kind>: <text>`,
 through `POST /tasks`, and closes the window; Escape closes it without creating a task. The
-shortcut is unregistered when the app quits.
+shortcut is unregistered when the app quits. The window has the app's main colour as its
+background, so closing it (or opening it) never flashes white.
 
 ## Quit
 

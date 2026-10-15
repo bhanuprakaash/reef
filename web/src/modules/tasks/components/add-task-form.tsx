@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { useCreateTask } from '@/modules/tasks/api/create-task';
 import type { Feature, Project } from '@/types/api';
-import { buttonClass, errorClass, inputClass } from '@/utils/classes';
+import { Button } from '@/components/button';
+
+const selectClass =
+  'h-11 rounded-pill border border-line bg-transparent px-3 text-[13px] text-soft outline-none focus-visible:ring-3 focus-visible:ring-ring md:h-8';
 
 type Props = {
   projects: Project[];
@@ -17,7 +20,7 @@ export function AddTaskForm({ projects, features }: Props) {
 
   return (
     <form
-      className="flex flex-wrap items-start gap-2"
+      className="flex flex-wrap items-center gap-2 rounded-2xl border border-line bg-field py-1.5 pr-1.5 pl-4"
       onSubmit={(e) => {
         e.preventDefault();
         create.mutate(
@@ -31,7 +34,7 @@ export function AddTaskForm({ projects, features }: Props) {
       }}
     >
       <input
-        className={`${inputClass} w-64`}
+        className="h-11 min-w-0 flex-1 basis-60 md:h-[38px] bg-transparent text-[15px] text-fg outline-none placeholder:text-muted"
         placeholder="New task"
         aria-label="Task title"
         value={title}
@@ -39,7 +42,7 @@ export function AddTaskForm({ projects, features }: Props) {
         required
       />
       <select
-        className={inputClass}
+        className={selectClass}
         aria-label="Task project"
         value={projectId}
         onChange={(e) => {
@@ -56,7 +59,7 @@ export function AddTaskForm({ projects, features }: Props) {
         ))}
       </select>
       <select
-        className={inputClass}
+        className={selectClass}
         aria-label="Task feature"
         value={featureId}
         onChange={(e) => setFeatureId(e.target.value)}
@@ -68,10 +71,10 @@ export function AddTaskForm({ projects, features }: Props) {
           </option>
         ))}
       </select>
-      <button type="submit" className={buttonClass} disabled={create.isPending}>
-        Add task
-      </button>
-      {create.isError && <p className={errorClass}>{create.error.message}</p>}
+      <Button variant="primary" type="submit" aria-label="Add task" loading={create.isPending}>
+        Add
+      </Button>
+      {create.isError && <p className="basis-full text-sm text-danger">{create.error.message}</p>}
     </form>
   );
 }

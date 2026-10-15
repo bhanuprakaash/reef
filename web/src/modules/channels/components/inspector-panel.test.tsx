@@ -18,29 +18,69 @@ describe('InspectorPanel', () => {
   it('shows cost to 4 decimals instead of rounding to $0.00', () => {
     useInspector.mockReturnValue({ isPending: false, isError: false, data });
 
-    const markup = renderToStaticMarkup(<InspectorPanel channelId={1} onClose={() => {}} />);
+    const markup = renderToStaticMarkup(
+      <InspectorPanel channelId={1} faces={{}} onClose={() => {}} />,
+    );
 
     expect(markup).toContain('$0.0034');
   });
 
-  it('shows — when cost is null', () => {
+  it('shows n/a when cost is null', () => {
     useInspector.mockReturnValue({
       isPending: false,
       isError: false,
       data: { roles: [{ role: 'lead', turns: 2, usage, costUsd: null }], turns: [] },
     });
 
-    const markup = renderToStaticMarkup(<InspectorPanel channelId={1} onClose={() => {}} />);
+    const markup = renderToStaticMarkup(
+      <InspectorPanel channelId={1} faces={{}} onClose={() => {}} />,
+    );
 
-    expect(markup).toContain('—');
+    expect(markup).toContain('n/a');
+    expect(markup).toContain('Codex does not report cost');
+  });
+
+  it('sums known costs and marks the total when a role has none', () => {
+    useInspector.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: {
+        roles: [
+          {
+            role: 'lead',
+            turns: 4,
+            usage: { ...usage, inputTokens: 1500, outputTokens: 500 },
+            costUsd: 0.25,
+          },
+          {
+            role: 'developer',
+            turns: 8,
+            usage: { ...usage, inputTokens: 2000, outputTokens: 0 },
+            costUsd: 0.5,
+          },
+          { role: 'tester', turns: 2, usage, costUsd: null },
+        ],
+        turns: [],
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      <InspectorPanel channelId={1} faces={{}} onClose={() => {}} />,
+    );
+
+    expect(markup).toContain('>$0.7500 + n/a<');
+    expect(markup).toContain('4.0k');
+    expect(markup).toContain('>14<');
   });
 
   it('shows "1 turn" for a single turn, not "1 turns"', () => {
     useInspector.mockReturnValue({ isPending: false, isError: false, data });
 
-    const markup = renderToStaticMarkup(<InspectorPanel channelId={1} onClose={() => {}} />);
+    const markup = renderToStaticMarkup(
+      <InspectorPanel channelId={1} faces={{}} onClose={() => {}} />,
+    );
 
-    expect(markup).toContain('1 turn ');
+    expect(markup).toContain('1 turn<');
     expect(markup).not.toContain('1 turns');
   });
 
@@ -51,7 +91,9 @@ describe('InspectorPanel', () => {
       data: { roles: [{ role: 'lead', turns: 2, usage, costUsd: 0.0034 }], turns: [] },
     });
 
-    const markup = renderToStaticMarkup(<InspectorPanel channelId={1} onClose={() => {}} />);
+    const markup = renderToStaticMarkup(
+      <InspectorPanel channelId={1} faces={{}} onClose={() => {}} />,
+    );
 
     expect(markup).toContain('2 turns');
   });

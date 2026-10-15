@@ -207,6 +207,12 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 46 | Diff review comments go as one user message to the developer's latest thread, or a top-level message starting `@developer` when it has none | Routing wakes the developer by the thread-owner rule without a new routing path |
 | 47 | The `/teams` page edits a team's roles and gates and saves with `PUT /teams/{name}`, which applies like `reef team apply`; a role's body that omits `mcpServers` keeps the ones already stored. "Copy as new team" sends `?from=<source>`: `name` must not exist yet, and an omitted `mcpServers` takes `source`'s role instead | The window never sees a role's `mcpServers`, since they may carry keys; a copy must not silently overwrite a team or lose the source's servers |
 | 48 | Failed CI wakes the developer in the feature's most recent channel, as author `reef` so the wake counts as a hop like any agent turn | The developer is who acts on a broken build; the channel already carries the PR and check notes, and a wake with no user behind it must still respect the hop cap |
+| 49 | A role in the team file may set `face` (one of eleven creatures); empty means the default for its name | A team of two developers or a custom role should not all look alike, and the file stays the one place a team is set up |
+| 50 | The window has a light theme and a Match macOS option, kept in `localStorage` | It is a per-device look, not project data, so the server stores nothing |
+| 51 | Below 768 px the same app becomes the phone layout (bottom tab bar, full-screen channel), not a second app | One codebase and one set of routes; a narrow window and a phone need the same screens |
+| 52 | Today replaces Home as the landing page | One place for what waits on you and what moved, instead of a list of projects |
+| 53 | The desktop window opens on a local splash page and loads the app once `reef serve` listens | The window shows something at once instead of a blank page while the server starts |
+| 54 | Project memory (decision 45) is edited on the project page, not on Today | It belongs to the project, and Today is about what moved |
 
 ## Open questions
 
