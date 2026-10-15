@@ -126,7 +126,7 @@ export function ChannelView({
           )}
         </Dialog>
       )}
-      <div className="flex min-h-0 flex-1">
+      <div className="relative flex min-h-0 flex-1">
         <section className="min-w-0 flex-1 overflow-y-auto px-3.5 pt-4 md:px-7">
           <div className="mx-auto max-w-3xl space-y-4">
             {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
@@ -180,7 +180,7 @@ export function ChannelView({
           />
         )}
         <div
-          className={`shrink-0 overflow-y-auto md:w-[400px] md:border-l md:border-hairline ${thread ? 'flex flex-col max-md:fixed max-md:inset-0 max-md:z-30 max-md:bg-main' : 'p-4 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-20 max-md:max-h-[85dvh] max-md:rounded-t-[28px] max-md:bg-field max-md:pb-8'} ${showTeam && !teamOpen ? (browserOpen ? 'hidden min-[1540px]:block' : 'hidden min-[1100px]:block') : ''}`}
+          className={`shrink-0 overflow-y-auto md:w-[400px] md:border-l md:border-hairline ${browserOpen ? 'md:max-[1539px]:absolute md:max-[1539px]:inset-y-0 md:max-[1539px]:right-0 md:max-[1539px]:z-20 md:max-[1539px]:bg-main' : 'md:max-[1099px]:absolute md:max-[1099px]:inset-y-0 md:max-[1099px]:right-0 md:max-[1099px]:z-20 md:max-[1099px]:bg-main'} ${thread ? 'flex flex-col max-md:fixed max-md:inset-0 max-md:z-30 max-md:bg-main' : 'p-4 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-20 max-md:max-h-[85dvh] max-md:rounded-t-[28px] max-md:bg-field max-md:pb-8'} ${showTeam && !teamOpen ? (browserOpen ? 'hidden min-[1540px]:block' : 'hidden min-[1100px]:block') : ''}`}
         >
           {!thread && (
             <div className="mx-auto mb-4 h-[5px] w-[38px] rounded-pill bg-raised md:hidden" />
