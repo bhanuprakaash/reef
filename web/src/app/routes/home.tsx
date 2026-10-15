@@ -48,7 +48,7 @@ function QuickCapture() {
       <input
         aria-label="Quick capture"
         placeholder="Drop an idea, todo or bug"
-        className="min-w-0 flex-1 bg-transparent text-[15px] text-fg outline-none placeholder:text-muted"
+        className="h-11 min-w-0 flex-1 bg-transparent text-[15px] text-fg outline-none placeholder:text-muted"
         value={text}
         onChange={(e) => {
           setText(e.target.value);

@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
@@ -10,9 +10,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -475,6 +475,69 @@ async function theme() {
   await page.getByRole('radio', { name: 'Dark' }).check();
   await system('light');
   check((await bodyBg()) === 'rgb(33, 33, 33)', 'Dark stays dark while the system is light', await bodyBg());
+}
+
+async function phone() {
+  if ((await fetch(`${base}/teams/gated`)).status !== 200) throw new Error('apply the team gated first (see features/teams.md)');
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  await newTeamChannel('gated', 'phone room');
+  await send('DESIGN a short plan for a login form.');
+  const end = Date.now() + 120000;
+  while ((await getJson('/inbox')).length === 0 && Date.now() < end) await page.waitForTimeout(1000);
+
+  await page.evaluate(() => {
+    window.__marker = 'kept';
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  const tabs = page.getByRole('navigation', { name: 'Tabs' });
+  const overflow = () =>
+    page.evaluate(() => {
+      const m = document.querySelector('main');
+      return { page: document.documentElement.scrollWidth - innerWidth, main: m.scrollWidth - m.clientWidth };
+    });
+  const small = () =>
+    page.evaluate(() =>
+      [...document.querySelectorAll('nav[aria-label="Tabs"] a, main button, main select, main input:not([type=checkbox])')]
+        .map((el) => [el, (getComputedStyle(el, '::after').position === 'absolute' ? el.parentElement : el).getBoundingClientRect()])
+        .filter(([, r]) => r.width > 0 && r.height > 0 && r.height < 44)
+        .map(([el, r]) => `${el.tagName.toLowerCase()} "${(el.getAttribute('aria-label') ?? el.textContent ?? '').trim().slice(0, 24)}" ${Math.round(r.height)}px`),
+    );
+  const visit = async (step, tab, ready) => {
+    await tabs.getByRole('link', { name: tab }).click();
+    await ready.waitFor();
+    await shot(step);
+    const o = await overflow();
+    check(o.page <= 0 && o.main <= 0, `${step} has no horizontal scroll at 390 px`, `page ${o.page}, main ${o.main}`);
+    const s = await small();
+    check(s.length === 0, `${step} has 44 px tap targets`, s.join(', '));
+  };
+
+  check(await tabs.isVisible(), 'the tab bar shows below 768 px');
+  check(!(await page.locator('aside:not([aria-label])').isVisible()), 'the sidebar is hidden below 768 px');
+  await visit('today', /^Today/, page.getByLabel('Quick capture'));
+  await page.getByLabel('Quick capture').fill('phone check');
+  await page.getByRole('button', { name: 'Capture', exact: true }).click();
+  await page.getByRole('status').filter({ hasText: 'Captured' }).waitFor();
+  await visit('channels', /^Channels/, page.getByRole('heading', { name: 'Channels', level: 1 }));
+  const row = main.getByRole('link', { name: /# phone room/ });
+  check(await row.isVisible(), 'the Channels tab lists the channel under its feature', await main.innerText().then((t) => t.replace(/\s+/g, ' ').slice(0, 120)));
+  await visit('needs-you', /^Needs you/, main.getByRole('button', { name: 'Approve' }));
+  const badge = await tabs.getByLabel(/waiting$/).textContent();
+  check(badge === '1', 'the Needs you tab shows a count badge of 1', badge);
+  await visit('tasks', /^Tasks/, main.getByText('todo: phone check'));
+  await main.getByRole('button', { name: 'Board' }).click();
+  await main.getByRole('group', { name: 'Todo' }).waitFor();
+  await shot('tasks-board');
+  const ob = await overflow();
+  check(ob.page <= 0 && ob.main <= 0, 'the task board has no horizontal scroll at 390 px', `page ${ob.page}, main ${ob.main}`);
+  await visit('teams', /^Teams/, page.getByRole('heading', { name: 'Teams', level: 1 }));
+
+  await page.setViewportSize({ width: 1024, height: 800 });
+  await aside.getByRole('link', { name: /^Today/ }).waitFor();
+  check(!(await tabs.isVisible()), 'the tab bar goes away at 1024 px');
+  check(await page.evaluate(() => window.__marker === 'kept'), 'widening keeps the same page, no reload');
+  await shot('widened');
 }
 
 async function stop() {

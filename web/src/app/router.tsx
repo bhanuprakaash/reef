@@ -2,6 +2,7 @@ import { createBrowserRouter } from 'react-router';
 import { Layout } from '@/app/layout';
 import { CapturePage } from '@/app/routes/capture';
 import { ChannelPage } from '@/app/routes/channel';
+import { ChannelsPage } from '@/app/routes/channels';
 import { FeaturePage } from '@/app/routes/feature';
 import { HomePage } from '@/app/routes/home';
 import { InboxPage } from '@/app/routes/inbox';
@@ -19,6 +20,7 @@ export const router = createBrowserRouter([
       { path: '/', element: <HomePage /> },
       { path: '/features/:id', element: <FeaturePage /> },
       { path: '/features/:id/review', element: <ReviewPage /> },
+      { path: '/channels', element: <ChannelsPage /> },
       { path: '/channels/:id', element: <ChannelPage /> },
       { path: '/projects/:id', element: <ProjectPage /> },
       { path: '/inbox', element: <InboxPage /> },

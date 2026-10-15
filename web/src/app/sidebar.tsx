@@ -1,47 +1,17 @@
-import { useQuery } from '@tanstack/react-query';
 import { useCallback, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
+import { ChannelList, Row } from '@/app/channel-list';
 import { ProjectSwitcher } from '@/app/project-switcher';
-import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
-import { channelsQuery } from '@/lib/api/get-channels';
-import { useTeams } from '@/lib/api/get-teams';
+import { useChannels } from '@/lib/api/get-channels';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
-import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { useInboxEvents } from '@/modules/inbox/hooks/use-inbox-events';
 import { useProjects } from '@/modules/projects/api/get-projects';
-import type { ChannelPreview } from '@/types/api';
 import { itemPath } from '@/utils/anchors';
-import { rowTime } from '@/utils/row-time';
 
 const PROJECT_KEY = 'reef.sidebar.projectId';
-
-function Row(props: {
-  to: string;
-  active: boolean;
-  avatar: ReactNode;
-  title: string;
-  aside?: ReactNode;
-  preview: string;
-}) {
-  return (
-    <Link
-      to={props.to}
-      className={`flex items-center gap-3 rounded-xl px-2.5 py-[9px] ${props.active ? 'bg-active' : 'hover:bg-hover/50'}`}
-    >
-      {props.avatar}
-      <span className="min-w-0 flex-1">
-        <span className="flex items-baseline gap-2">
-          <span className="truncate text-[14.5px]">{props.title}</span>
-          <span className="ml-auto shrink-0 text-xs text-muted">{props.aside}</span>
-        </span>
-        <span className="block truncate text-[13px] text-muted">{props.preview}</span>
-      </span>
-    </Link>
-  );
-}
 
 function IconCircle({ children, dot }: { children: ReactNode; dot?: boolean }) {
   return (
@@ -100,16 +70,12 @@ function BarLink({
   );
 }
 
-const oneLine = (m: NonNullable<ChannelPreview['lastMessage']>) =>
-  `${m.author === 'user' ? 'you' : m.author}: ${m.body.replace(/\s+/g, ' ')}`;
-
 export function Sidebar() {
   const { pathname, search } = useLocation();
   const navigate = useNavigate();
   const projects = useProjects();
   const features = useFeatures();
-  const channels = useQuery({ ...channelsQuery, refetchInterval: 5000 });
-  const teams = useTeams();
+  const channels = useChannels();
   const inbox = useInbox();
   useInboxEvents(useCallback((item) => void navigate(itemPath(item)), [navigate]));
   const [picked, setPicked] = useState(() => Number(localStorage.getItem(PROJECT_KEY)));
@@ -119,46 +85,7 @@ export function Sidebar() {
   const current = projects.data?.find((p) => p.id === picked) ?? projects.data?.[0];
   const error = projects.error ?? features.error ?? channels.error;
   const waiting = inbox.data ?? [];
-  const q = query.trim().toLowerCase();
-  const matches = (name: string) => name.toLowerCase().includes(q);
-
-  const projectChannels = channels.data?.filter((c) => c.projectId === current?.id) ?? [];
-  const groups = (features.data ?? [])
-    .filter((f) => f.projectId === current?.id)
-    .map((f) => ({
-      feature: f,
-      channels: projectChannels.filter(
-        (c) => c.featureId === f.id && (matches(f.name) || matches(c.name)),
-      ),
-    }))
-    .filter((g) => matches(g.feature.name) || g.channels.length > 0);
-  const quick = projectChannels.filter((c) => c.featureId === null && matches(c.name));
   const isBoard = pathname === '/tasks' && search.includes('view=board');
-
-  function channelRow(c: ChannelPreview, named: string) {
-    const roles = teams.data?.find((t) => t.name === c.team)?.roles.map((r) => r.name);
-    return (
-      <Row
-        to={`/channels/${c.id}`}
-        active={pathname === `/channels/${c.id}`}
-        avatar={
-          <span className="relative flex-none">
-            <GroupAvatar roles={roles ?? [c.role]} size={30} />
-            {waiting.some((i) => i.channelId === c.id) && (
-              <span
-                role="img"
-                aria-label="needs you"
-                className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-sidebar bg-needs-you"
-              />
-            )}
-          </span>
-        }
-        title={named}
-        aside={c.lastMessage && rowTime(c.lastMessage.createdAt)}
-        preview={c.lastMessage ? oneLine(c.lastMessage) : 'No messages yet'}
-      />
-    );
-  }
 
   return (
     <nav
@@ -255,45 +182,7 @@ export function Sidebar() {
         />
 
         {error && <p className="px-2.5 pt-3 text-sm text-danger">{error.message}</p>}
-        {current && (
-          <section aria-label={current.name} className="flex flex-col gap-0.5">
-            <ul className="flex flex-col gap-0.5">
-              {groups.map(({ feature: f, channels: cs }) => (
-                <li key={f.id}>
-                  <div className="flex items-baseline gap-2 px-2.5 pt-3.5 pb-1">
-                    <Link
-                      to={`/features/${f.id}`}
-                      className="truncate text-xs font-medium text-muted hover:text-fg"
-                    >
-                      {f.name}
-                    </Link>
-                    <span className="text-[11px] text-faint">{f.stage}</span>
-                  </div>
-                  <ul className="flex flex-col gap-0.5">
-                    {cs.map((c) => (
-                      <li key={c.id}>{channelRow(c, `# ${c.name}`)}</li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ul>
-            {quick.length > 0 && (
-              <>
-                <h4 className="px-2.5 pt-3.5 pb-1 text-xs font-medium text-muted">
-                  Quick sessions
-                </h4>
-                <ul className="flex flex-col gap-0.5">
-                  {quick.map((c) => (
-                    <li key={c.id}>{channelRow(c, c.name)}</li>
-                  ))}
-                </ul>
-              </>
-            )}
-            <div className="px-2.5 pt-3">
-              <AddFeatureForm projectId={current.id} />
-            </div>
-          </section>
-        )}
+        {current && <ChannelList project={current} query={query} />}
       </div>
 
       <div className="mt-auto flex items-center gap-2.5 px-1.5 pt-3">

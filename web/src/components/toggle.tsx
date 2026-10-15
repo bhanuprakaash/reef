@@ -8,11 +8,13 @@ export function Toggle({ checked, onChange, label }: Props) {
       aria-checked={checked}
       aria-label={label}
       onClick={() => onChange(!checked)}
-      className={`relative h-6 w-10 shrink-0 rounded-pill ${checked ? 'bg-done' : 'bg-line'}`}
+      className="-my-2.5 flex h-11 shrink-0 items-center"
     >
-      <span
-        className={`absolute top-[3px] size-[18px] rounded-full transition-[left] ${checked ? 'left-[19px] bg-fg' : 'left-[3px] bg-soft'}`}
-      />
+      <span className={`relative h-6 w-10 rounded-pill ${checked ? 'bg-done' : 'bg-line'}`}>
+        <span
+          className={`absolute top-[3px] size-[18px] rounded-full transition-[left] ${checked ? 'left-[19px] bg-fg' : 'left-[3px] bg-soft'}`}
+        />
+      </span>
     </button>
   );
 }

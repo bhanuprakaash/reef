@@ -4,7 +4,7 @@ import type { Feature, Project } from '@/types/api';
 import { Button } from '@/components/button';
 
 const selectClass =
-  'h-8 rounded-pill border border-line bg-transparent px-3 text-[13px] text-soft outline-none focus-visible:ring-3 focus-visible:ring-ring';
+  'h-11 rounded-pill border border-line bg-transparent px-3 text-[13px] text-soft outline-none focus-visible:ring-3 focus-visible:ring-ring md:h-8';
 
 type Props = {
   projects: Project[];
@@ -34,7 +34,7 @@ export function AddTaskForm({ projects, features }: Props) {
       }}
     >
       <input
-        className="h-[38px] min-w-0 flex-1 basis-60 bg-transparent text-[15px] text-fg outline-none placeholder:text-muted"
+        className="h-11 min-w-0 flex-1 basis-60 md:h-[38px] bg-transparent text-[15px] text-fg outline-none placeholder:text-muted"
         placeholder="New task"
         aria-label="Task title"
         value={title}

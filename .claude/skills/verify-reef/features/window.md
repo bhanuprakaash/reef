@@ -27,6 +27,7 @@ feature, and a channel that hits a cap pauses and says why. A channel on a team 
 - `window-workshop` the `/teams` page edits a role's persona and picks its creature (`face`) and saves both to the role row, its `mcpServers` unchanged; an invalid team (two leads, an unknown backend) shows the same error as `reef team apply`; "Copy as new team" makes a new team; the next developer wake's prompt carries the new persona.
 - `window-capture` the `/capture` window picks a project and takes a kind and text; a successful capture shows "Captured", clears the text box and stores a task; a failing request (a deleted project) shows its error.
 - `window-theme` Settings shows Appearance (Dark, Light, Match macOS) and Notifications; picking Light restyles the open page at once and survives a reload; Match macOS follows `prefers-color-scheme` (emulated over CDP) both ways; text on the channel, inbox and feature page is at least 4.5:1 against its background in dark and light.
+- `window-phone` below 768 px the sidebar is replaced by a bottom tab bar (Today, Channels, Needs you, Tasks, Teams); each tab is one column with no horizontal scroll and 44 px tap targets, and widening past 768 px brings the sidebar back on the same page.
 
 Acceptance lines of the slice: "start a channel, chat, see streamed tool calls and text live" is
 `window-live`; "a new channel of the same feature starts from the brief" is `window-brief`;
@@ -52,6 +53,7 @@ Preconditions:
 - `ui review` needs the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.
 - `ui theme` needs the team `gated` applied (like `ui inbox`) and leaves an approval waiting for the inbox screen.
 - `ui workshop` needs the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.
+- `ui phone` needs `gated` applied to the `ui` folder, and reads the Needs you badge as `1`, so run it first or on its own folder, like `ui inbox`.
 
 Each scenario adds its own project through the form (`ui-<scenario>-<suffix>`, folder = the run's scratch cwd), so they run in any order on one server.
 
@@ -75,6 +77,7 @@ REEF_VERIFY_RUN=<id> $H ui board
 REEF_VERIFY_RUN=<id> $H ui workshop
 REEF_VERIFY_RUN=<id> $H ui capture
 REEF_VERIFY_RUN=<id> $H ui theme
+REEF_VERIFY_RUN=<id> $H ui phone
 ```
 
 - **live.** Prints a `PASS live:` line for the tool rows seen mid-turn (the first row's tool name and input), the one stored `lead` message (with the message rows) and the cleared live view. Screenshots `live-midturn.png` (tool rows under `Lead is working...`; the label is the running role, capitalised, `Architect is working...` in a team) and `live-final.png`.
@@ -101,6 +104,7 @@ REEF_VERIFY_RUN=<id> $H ui theme
 - **capture.** Adds a project, opens `/capture`, picks it, types text and presses Enter: waits for "Captured", checks the text box is empty and reads back a `task` row titled `todo: <text>`. Adds a second project, opens `/capture` again, picks it, deletes that project row in SQLite, then types and presses Enter: the server's `unknown project` error shows on the page. Screenshots `capture-captured.png`, `capture-error.png`.
 
 - **theme.** Needs the team `gated`. Adds a project, feature, a task, a decision and a `gated` channel, sends `DESIGN a short plan for a login form.` and leaves the approval waiting. Opens `/settings` (Dark checked, dark main colour, Notifications section), then for the channel, the inbox and the feature page screenshots them and prints a table of every text colour against its background, named by token, with `LOW` below 4.5:1 (3:1 for large text). Picks Light: the body is white at once; after a reload it still is, and the three pages are shot and audited again. Picks Match macOS and sets `prefers-color-scheme` through `Emulation.setEmulatedMedia`: the body follows light and dark without a reload and after one. Picks Dark with the system light: it stays dark. Screenshots `theme-settings-dark.png`, `theme-channel-dark.png`, `theme-inbox-dark.png`, `theme-feature-dark.png`, `theme-settings-light.png`, `theme-channel-light.png`, `theme-inbox-light.png`, `theme-feature-light.png`, `theme-settings-system-light.png`.
+- **phone.** Needs the team `gated` (see `ui teams`). At 1200 px adds a project and feature, starts a `gated` channel and sends `DESIGN a short plan for a login form.` so an approval waits. Resizes the same page to 390x844 and sets `window.__marker`. Checks the tab bar shows and the sidebar is hidden; then clicks each tab (Today, Channels, Needs you, Tasks, Teams) and, for each, screenshots it, checks `scrollWidth <= innerWidth` for the document and for `main`, and that every button, select, text input and tab link is at least 44 px tall. Captures a todo from Today, finds the channel under its feature on Channels, reads the badge `1` on Needs you, and checks the Tasks board too. Resizes to 1024x800: the sidebar is back, the tab bar is gone and `window.__marker` is still set (no reload). Screenshots `phone-today.png`, `phone-channels.png`, `phone-needs-you.png`, `phone-tasks.png`, `phone-tasks-board.png`, `phone-teams.png`, `phone-widened.png`.
 
 Each line is `PASS <scenario>: <what> | <what it saw>` or `FAIL ...`. The command exits 1 on any `FAIL`; an error inside a scenario is a `FAIL scenario aborted` line and an `error.png`.
 

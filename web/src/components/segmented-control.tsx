@@ -14,7 +14,7 @@ export function SegmentedControl<T extends string>({ label, options, value, onCh
           type="button"
           aria-pressed={o.value === value}
           onClick={() => onChange(o.value)}
-          className={`h-[30px] rounded-lg px-3.5 text-[13px] ${o.value === value ? 'bg-raised text-fg' : 'text-muted'}`}
+          className={`h-11 md:h-[30px] rounded-lg px-3.5 text-[13px] ${o.value === value ? 'bg-raised text-fg' : 'text-muted'}`}
         >
           {o.label}
         </button>

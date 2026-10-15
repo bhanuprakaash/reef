@@ -30,7 +30,7 @@ export function TaskBoard({ tasks, features }: Props) {
   return (
     <div className="space-y-2">
       {update.isError && <p className="text-sm text-danger">{update.error.message}</p>}
-      <div className="grid grid-cols-3 items-start gap-4 overflow-x-auto">
+      <div className="grid grid-cols-1 items-start gap-4 md:grid-cols-3 md:overflow-x-auto">
         {COLUMNS.map((col) => {
           const inColumn = tasks.filter((t) => t.status === col.status);
           const hidden = col.status === 'done' && !allDone ? inColumn.length - DONE_SHOWN : 0;
@@ -70,7 +70,7 @@ export function TaskBoard({ tasks, features }: Props) {
                         onChange={(e) =>
                           update.mutate({ task, status: e.target.value as TaskStatus })
                         }
-                        className="ml-auto h-6 rounded-field bg-transparent px-1 text-xs text-muted outline-none focus-visible:ring-3 focus-visible:ring-ring"
+                        className="ml-auto h-11 rounded-field md:h-6 bg-transparent px-1 text-xs text-muted outline-none focus-visible:ring-3 focus-visible:ring-ring"
                       >
                         {COLUMNS.map((c) => (
                           <option key={c.status} value={c.status}>
@@ -90,7 +90,7 @@ export function TaskBoard({ tasks, features }: Props) {
               {hidden > 0 && (
                 <button
                   type="button"
-                  className="self-start p-1 text-[12.5px] text-muted"
+                  className="min-h-11 self-start p-1 text-[12.5px] text-muted"
                   onClick={() => setAllDone(true)}
                 >
                   Show {hidden} more

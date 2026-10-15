@@ -10,7 +10,7 @@ type Props = {
 };
 
 const selectClass =
-  'h-[30px] rounded-pill bg-bubble px-3 text-[13px] text-fg outline-none focus-visible:ring-3 focus-visible:ring-ring';
+  'h-11 rounded-pill bg-bubble px-3 text-[13px] text-fg outline-none focus-visible:ring-3 focus-visible:ring-ring md:h-[30px]';
 
 export function TaskFilters({ projects, features, project, feature, status, onChange }: Props) {
   const shownFeatures =
@@ -55,7 +55,7 @@ export function TaskFilters({ projects, features, project, feature, status, onCh
           type="button"
           aria-pressed={status === value}
           onClick={() => onChange('status', status === value ? '' : value)}
-          className={`h-[30px] rounded-pill px-3 text-[13px] ${status === value ? 'bg-pill text-pill-ink' : 'border border-line text-muted'}`}
+          className={`h-11 rounded-pill px-3 md:h-[30px] text-[13px] ${status === value ? 'bg-pill text-pill-ink' : 'border border-line text-muted'}`}
         >
           {label}
         </button>
