@@ -41,6 +41,9 @@ type member struct {
 	// write and dir say which tree the role's turns hold, one at a time.
 	write bool
 	dir   string
+	// intro is the roleIntro this member's session has, so a later persona or skills
+	// change can be told apart from one already sent.
+	intro string
 }
 
 // TokenEnv carries the token to the channel's reef mcp. WrapCommand is the text that asks
@@ -276,15 +279,6 @@ func (s *Session) closeMembers() error {
 func (s *Session) member(
 	ctx context.Context, role, text string, parent *int64,
 ) (_ *member, err error) {
-	if m, ok := s.members[role]; ok {
-		if _, err := os.Stat(m.dir); !errors.Is(err, os.ErrNotExist) {
-			return m, nil
-		}
-		delete(s.members, role)
-		if err := m.close(s.st); err != nil {
-			log.Printf("close %s of channel %d: %v", role, s.ch.ID, err)
-		}
-	}
 	wctx := context.WithoutCancel(ctx)
 	team, err := s.st.Team(wctx, s.ch.Team)
 	if err != nil {
@@ -293,6 +287,18 @@ func (s *Session) member(
 	r, err := s.roleSetup(team, role)
 	if err != nil {
 		return nil, err
+	}
+	if m, ok := s.members[role]; ok {
+		if _, err := os.Stat(m.dir); !errors.Is(err, os.ErrNotExist) {
+			if intro := roleIntro(r); intro != "" && intro != m.intro {
+				m.run.preamble, m.intro = updatedRoleIntro(r), intro
+			}
+			return m, nil
+		}
+		delete(s.members, role)
+		if err := m.close(s.st); err != nil {
+			log.Printf("close %s of channel %d: %v", role, s.ch.ID, err)
+		}
 	}
 	ag, err := s.mk(r.Backend)
 	if err != nil {
@@ -344,6 +350,9 @@ func (s *Session) member(
 	case ctx.Err() != nil:
 		err = ctx.Err()
 	case last.SessionID != "":
+		if intro := roleIntro(r); intro != "" && !strings.HasPrefix(last.Prompt, intro) {
+			preamble = updatedRoleIntro(r)
+		}
 		err = ag.Resume(ctx, cfg, last.SessionID)
 	default:
 		if preamble, err = startPrompt(wctx, s.st, s.ch.ID, s.project, team, r); err != nil {
@@ -360,6 +369,7 @@ func (s *Session) member(
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.OnPrompt = s.onPrompt
+	m.intro = roleIntro(r)
 	if r.Write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
 		m.run.CheckpointDir = cwd
 	}
