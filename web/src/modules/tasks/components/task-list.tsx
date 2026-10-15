@@ -16,7 +16,9 @@ export function TaskList({ tasks, projects = [], features, compact }: Props) {
     return (
       <EmptyState
         title="No tasks yet"
-        body="Drop an idea, todo or bug with ⌘⇧Space."
+        body={
+          features && window.reef != null ? 'Drop an idea, todo or bug with ⌘⇧Space.' : undefined
+        }
         role="developer"
         compact={compact}
       />

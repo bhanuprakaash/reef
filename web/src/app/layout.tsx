@@ -71,7 +71,11 @@ export function Layout() {
           />
         )}
       </div>
-      <BrowserPane open={browserOpen} driver={browserDriver} onClose={toggleBrowser} />
+      <BrowserPane
+        open={browserOpen || browserDriver !== null}
+        driver={browserDriver}
+        onClose={toggleBrowser}
+      />
       <TabBar />
       {projects.error instanceof TypeError && <Unreachable />}
     </div>

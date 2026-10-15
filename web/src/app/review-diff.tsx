@@ -9,6 +9,9 @@ import { roleFaces } from '@/utils/role-faces';
 
 const iconButton = 'flex size-9 items-center justify-center rounded-field text-soft hover:bg-card';
 
+const confirmDiscard = (drafts: number) =>
+  drafts === 0 || confirm(`Discard ${drafts} draft comment${drafts === 1 ? '' : 's'}?`);
+
 export function ReviewDiff({ id, onClose }: { id: number; onClose?: () => void }) {
   const feature = useFeature(id);
   const diff = useDiff(id);
@@ -30,9 +33,17 @@ export function ReviewDiff({ id, onClose }: { id: number; onClose?: () => void }
       developerFace={roleFaces(teams.data, latestTeam).developer}
       leading={!onClose && <BackButton fallback={`/features/${id}`} />}
       actions={
-        onClose && (
+        onClose &&
+        ((drafts) => (
           <>
-            <Link to={`/features/${id}/review`} aria-label="Expand diff" className={iconButton}>
+            <Link
+              to={`/features/${id}/review`}
+              aria-label="Expand diff"
+              className={iconButton}
+              onClick={(e) => {
+                if (!confirmDiscard(drafts)) e.preventDefault();
+              }}
+            >
               <svg
                 width="16"
                 height="16"
@@ -47,7 +58,12 @@ export function ReviewDiff({ id, onClose }: { id: number; onClose?: () => void }
                 <path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7" />
               </svg>
             </Link>
-            <button type="button" aria-label="Close diff" onClick={onClose} className={iconButton}>
+            <button
+              type="button"
+              aria-label="Close diff"
+              onClick={() => confirmDiscard(drafts) && onClose()}
+              className={iconButton}
+            >
               <svg
                 width="16"
                 height="16"
@@ -62,7 +78,7 @@ export function ReviewDiff({ id, onClose }: { id: number; onClose?: () => void }
               </svg>
             </button>
           </>
-        )
+        ))
       }
     />
   );
