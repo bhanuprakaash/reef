@@ -808,6 +808,14 @@ poll with the same answer posts nothing. No `gh` on `PATH`: nothing is posted, l
 `gh` erroring (not logged in, no PR for the branch): nothing is posted, logged once per
 feature for that cause; logged again once the cause changes.
 
+A check run that finished failed also wakes the `developer` role in that channel, once per
+run, also across restarts (`feature_github_check.woken`): the text names the PR and the
+failed check, plus the last 50 lines of `gh run view <run id> --log-failed` when the run id
+can be read from the `CheckRun`'s `detailsUrl` (`/actions/runs/<id>/`); no run id, no log. A
+channel whose team has no `developer` role gets the note only. The wake runs as its own
+chain, the way a retried turn does (decision 39): no gate holds it, since no role sent it,
+but the channel's own caps (pause, token budget, hop count) still apply.
+
 ## Append-only
 
 The API has no way to change or remove these rows.

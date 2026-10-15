@@ -206,6 +206,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 45 | Project memory is one body per project, written by the user, loaded whole into every fresh session | Conventions and architecture notes apply to every feature and quick session, not one brief |
 | 46 | Diff review comments go as one user message to the developer's latest thread, or a top-level message starting `@developer` when it has none | Routing wakes the developer by the thread-owner rule without a new routing path |
 | 47 | The `/teams` page edits a team's roles and gates and saves with `PUT /teams/{name}`, which applies like `reef team apply`; a role's body that omits `mcpServers` keeps the ones already stored | The window never sees a role's `mcpServers`, since they may carry keys |
+| 48 | Failed CI wakes the developer in the feature's most recent channel | The developer is who acts on a broken build; the channel already carries the PR and check notes |
 
 ## Open questions
 

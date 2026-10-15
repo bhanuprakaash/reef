@@ -11,16 +11,19 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
 )
 
 // writeFakeGh writes a fake `gh` that answers `pr view` with the content of
 // $GH_FAKE_RESPONSE, and fails unless it ran in dir, the project's folder. When $GH_FAKE_ERR
 // is set it writes that to stderr and exits nonzero instead, as gh does for a cause such as
-// no PR for the branch or not being logged in.
+// no PR for the branch or not being logged in. `gh run view <id> --log-failed` answers with
+// the content of $GH_FAKE_LOG.
 func writeFakeGh(t *testing.T, binDir, dir string) {
 	t.Helper()
 	script := "#!/bin/sh\n" +
+		"if [ \"$1\" = run ] && [ \"$2\" = view ]; then cat \"$GH_FAKE_LOG\"; exit 0; fi\n" +
 		"if [ \"$1\" != pr ] || [ \"$2\" != view ]; then exit 1; fi\n" +
 		"[ \"$PWD\" = \"" + dir + "\" ] || { echo \"wrong dir: $PWD\" >&2; exit 1; }\n" +
 		"if [ -n \"$GH_FAKE_ERR\" ]; then echo \"$GH_FAKE_ERR\" >&2; exit 1; fi\n" +
@@ -234,5 +237,154 @@ func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
 	h.s.pollGitHub(context.Background())
 	if got := strings.Count(buf.String(), "not logged in"); got != 1 {
 		t.Errorf("log lines for second cause = %d, want 1; log:\n%s", got, buf.String())
+	}
+}
+
+// ghFeatureSetup creates a git repo project, a feature with a worktree, and a channel of
+// team on it, via h. It returns the repo path.
+func ghFeatureSetup(t *testing.T, url, team string) string {
+	t.Helper()
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-b", "main")
+	writeIn(t, repo, "a.txt", "a")
+	gitIn(t, repo, "add", ".")
+	gitIn(t, repo, "commit", "-m", "first")
+	do(t, http.MethodPost, url+"/projects", `{"name":"app","path":"`+repo+`"}`)
+	do(t, http.MethodPost, url+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
+	do(t, http.MethodPost, url+"/features/1/worktree", "")
+	do(t, http.MethodPost, url+"/channels",
+		`{"projectId":1,"featureId":1,"name":"main","team":"`+team+`","backend":"claude"}`)
+	return repo
+}
+
+const _ghFailedCheck = `{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN",` +
+	`"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED",` +
+	`"conclusion":"FAILURE","detailsUrl":"https://github.com/x/y/actions/runs/9/job/9"}]}`
+
+func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Backend: "claude", Write: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
+	h := newHandler(st, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+		fake.channelID.Store(id)
+		return fake, nil
+	})
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	repo := ghFeatureSetup(t, ts.URL, "crew")
+
+	binDir := t.TempDir()
+	writeFakeGh(t, binDir, repo)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	respFile := filepath.Join(t.TempDir(), "resp.json")
+	t.Setenv("GH_FAKE_RESPONSE", respFile)
+	logFile := filepath.Join(t.TempDir(), "log.txt")
+	t.Setenv("GH_FAKE_LOG", logFile)
+	if err := os.WriteFile(logFile, []byte("line1\nassertion failed: want 2 got 1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	setGhResponse(t, respFile, _ghFailedCheck)
+	sub := subscribeTo(t, ts.URL, 1)
+	h.s.pollGitHub(ctx)
+	sub.want(t, _idleFrame, `turn {"role":"developer","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
+
+	fake.mu.Lock()
+	texts := append([]string(nil), fake.ran...)
+	fake.mu.Unlock()
+	if len(texts) != 1 || !strings.Contains(texts[0], "build") || !strings.Contains(texts[0], "PR #12") ||
+		!strings.Contains(texts[0], "assertion failed: want 2 got 1") {
+		t.Fatalf("wake text = %q, want the check name, PR and log tail", texts)
+	}
+
+	msgs, err := st.Messages(ctx, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 || msgs[1].Body != "build failed" {
+		t.Fatalf("messages = %+v, want a PR note and a failed check note", msgs)
+	}
+
+	// Same run again: no repeat note and no repeat wake.
+	h.s.pollGitHub(ctx)
+	fake.mu.Lock()
+	again := len(fake.ran)
+	fake.mu.Unlock()
+	if again != 1 {
+		t.Fatalf("turns run after repeat poll = %d, want 1", again)
+	}
+
+	// Restart: a fresh store and server on the same data must not wake again either.
+	h.Close()
+	ts.Close()
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	st2, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st2.Close() })
+	fake2 := &fakeSession{st: st2, started: make(chan struct{}, 1), release: make(chan struct{})}
+	h2 := newHandler(st2, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+		fake2.channelID.Store(id)
+		return fake2, nil
+	})
+	t.Cleanup(h2.Close)
+	h2.s.pollGitHub(ctx)
+	fake2.mu.Lock()
+	afterRestart := len(fake2.ran)
+	fake2.mu.Unlock()
+	if afterRestart != 0 {
+		t.Fatalf("turns run after restart poll = %d, want 0 (no repeat wake)", afterRestart)
+	}
+}
+
+func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	dataDir := t.TempDir()
+	h := New(st, dataDir, "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	repo := ghFeatureSetup(t, ts.URL, store.SoloTeam)
+
+	binDir := t.TempDir()
+	writeFakeGh(t, binDir, repo)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	respFile := filepath.Join(t.TempDir(), "resp.json")
+	t.Setenv("GH_FAKE_RESPONSE", respFile)
+	setGhResponse(t, respFile, _ghFailedCheck)
+
+	h.s.pollGitHub(ctx)
+	msgs, err := st.Messages(ctx, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 || msgs[1].Body != "build failed" {
+		t.Fatalf("messages = %+v, want a PR note and a failed check note", msgs)
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 0 {
+		t.Fatalf("turns = %+v, want none: a solo team has no developer to wake", turns)
 	}
 }

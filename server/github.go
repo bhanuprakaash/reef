@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 
@@ -182,7 +183,7 @@ func (s *server) pollFeatureGitHub(ctx context.Context, ghPath string, f store.F
 	if err := s.notePRState(ctx, f, pr); err != nil {
 		return err
 	}
-	return s.noteFinishedChecks(ctx, f, pr)
+	return s.noteFinishedChecks(ctx, f, pr, ghPath, p.Path)
 }
 
 // logGhErrOnce logs a gh error for the feature once, and again only once its text changes,
@@ -237,8 +238,8 @@ func (s *server) notePRState(ctx context.Context, f store.Feature, pr ghPR) erro
 
 // noteFinishedChecks posts a reef note for each check run that finished since it was last
 // notified, once per run: the same check name run again, such as a rerun on a later push,
-// is noted again.
-func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghPR) error {
+// is noted again. A run that finished failed also wakes the developer.
+func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghPR, ghPath, dir string) error {
 	for _, c := range pr.StatusCheckRollup {
 		finished, word := c.outcome()
 		if !finished {
@@ -258,6 +259,11 @@ func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghP
 		if err := s.st.MarkGitHubCheckNotified(ctx, f.ID, name, key); err != nil {
 			return err
 		}
+		if word == "failed" {
+			if err := s.wakeDeveloper(ctx, f, pr, c, key, ghPath, dir); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
@@ -275,4 +281,80 @@ func (s *server) noteFeature(ctx context.Context, featureID int64, body string) 
 		ChannelID: ch.ID, Author: store.ReefAuthor, Body: body,
 	})
 	return err
+}
+
+// wakeDeveloper wakes the developer role in the feature's most recent channel when a check
+// run finishes failed, once per run, also across restarts. A channel whose team has no
+// developer gets the note only. The wake runs as a new chain of its own, the way a retried
+// turn does (decision 39): no gate applies, since no role sent it, but the channel's caps
+// still do.
+func (s *server) wakeDeveloper(
+	ctx context.Context, f store.Feature, pr ghPR, c ghCheck, key, ghPath, dir string,
+) error {
+	name := c.checkName()
+	woken, err := s.st.WokenGitHubCheck(ctx, f.ID, name, key)
+	if err != nil || woken {
+		return err
+	}
+	ch, err := s.st.FeatureLatestChannel(ctx, f.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	team, err := s.st.Team(ctx, ch.Team)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(team.Roles, func(r store.Role) bool { return r.Name == "developer" }) {
+		return nil
+	}
+	chain, ch, err := s.claim(ctx, ch.ID)
+	if err != nil {
+		return err
+	}
+	text := s.ghWakeText(ctx, pr, c, ghPath, dir)
+	w := wake{from: _userAuthor, role: "developer", text: text}
+	if err := chain.resume(ctx, ch, []wake{w}); err != nil {
+		return err
+	}
+	return s.st.MarkGitHubCheckWoken(ctx, f.ID, name, key)
+}
+
+// ghWakeText is the wake text for a failed check run: the check name and the PR, plus the
+// last 50 lines of the run's failed log when the run id can be read from the check.
+func (s *server) ghWakeText(ctx context.Context, pr ghPR, c ghCheck, ghPath, dir string) string {
+	text := fmt.Sprintf("%s failed on PR #%d: %s", c.checkName(), pr.Number, pr.URL)
+	runID := c.runID()
+	if runID == "" {
+		return text
+	}
+	tail, err := ghLogTail(ctx, ghPath, dir, runID)
+	if err != nil {
+		log.Printf("github poll: run %s log: %v", runID, err)
+		return text
+	}
+	return text + "\n\n" + tail
+}
+
+// ghLogTail is the last n lines of `gh run view id --log-failed`, run in dir.
+func ghLogTail(ctx context.Context, ghPath, dir, runID string) (string, error) {
+	cctx, cancel := context.WithTimeout(ctx, _ghTimeout)
+	defer cancel()
+	cmd := exec.CommandContext(cctx, ghPath, "run", "view", runID, "--log-failed")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return "", fmt.Errorf("gh run view: %w", err)
+	}
+	return lastLines(string(out), 50), nil
+}
+
+func lastLines(s string, n int) string {
+	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
 }
