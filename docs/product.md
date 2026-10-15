@@ -219,6 +219,8 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 58 | One Terminal toggle for the whole window, default off, remembered. It never creates a worktree: a feature without one shows an Open terminal button, and only that button makes it | Looking at a feature must not change the user's git repo |
 | 59 | A role with `write` has no tool call cap; the other roles keep 25 per turn | The writer does the long work (tests first, installs, checks), and the cap paused it mid-change; read-only roles stay capped so a looping reader stops |
 | 60 | A feature's worktree branches from the repo's default branch (the local branch `origin/HEAD` names, else `main`, else `master`, else HEAD), not from the checkout's HEAD; the feature diff is against the same ref. Replaces the HEAD part of 33 | A feature must not inherit the commits of whatever unrelated branch the checkout is on |
+| 61 | Approving a wrap-up closes the channel: the server refuses its turns with 409 until the user reopens it, and the sidebar folds it under Wrapped | Decision 16 ends a channel with wrap-up, but nothing stopped a message after it; "record and close" recorded the decisions twice |
+| 62 | A feature can be closed: closing it closes all its channels (409 while a turn runs) and moves it under Closed in the sidebar; reopening restores the feature only, each channel is reopened by hand. Stage stays a label (decision 2) | A finished feature should leave the working list without being deleted, and its channels must stop taking turns with it |
 
 ## Open questions
 

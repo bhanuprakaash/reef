@@ -360,12 +360,15 @@ func (s *server) runOne(
 	return end, pause, err == nil
 }
 
-// checkChannel refuses a turn the channel may not run: a wrap on a quick session, and any
-// turn while the channel is paused or over its token budget. It returns the channel's lead
-// role, the role a wrap or promote runs for.
+// checkChannel refuses a turn the channel may not run: any turn on a closed channel, a wrap
+// on a quick session, and any turn while the channel is paused or over its token budget. It
+// returns the channel's lead role, the role a wrap or promote runs for.
 func (s *server) checkChannel(
 	ctx context.Context, l *live, kind turnKind, ch store.Channel,
 ) (string, error) {
+	if ch.ClosedAt != nil {
+		return "", fmt.Errorf("channel %d is closed: %w", ch.ID, store.ErrConflict)
+	}
 	if kind == _wrap && ch.FeatureID == nil {
 		return "", fmt.Errorf("%w: channel %d is a quick session, promote it before wrapping up",
 			store.ErrInvalid, ch.ID)

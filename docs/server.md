@@ -61,7 +61,7 @@ logged in and on `PATH`.
   then Today, Needs you and a Features section: its header has a button to add a feature, and
   each feature is a group with its stage chip, collapsible, over one row per channel
   (teammate creatures, name, a preview of the newest message from `lastMessage`, its time);
-  quick sessions are listed after the features. The list scrolls; the foot is fixed and shows your name beside the Tasks, Teams and
+  quick sessions are listed after the features. A feature's closed channels are folded under "Wrapped (N)" below its open ones, and closed features under "Closed (N)" at the bottom. The list scrolls; the foot is fixed and shows your name beside the Tasks, Teams and
   Settings links. Below 768 px the sidebar is a
   bottom tab bar (Today, Channels, Needs you, Tasks, Teams) and a channel opens full screen.
 - Today (`/`): what waits on you, the project's features and recent done tasks, and capture.
@@ -74,7 +74,8 @@ logged in and on `PATH`.
   A checkpoint taken in another tree, such as a quick session's turn after a promote, is not
   listed. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
   reply is the stored message, so the live block does not repeat it.
-- Feature page (`/features/{id}`) and its diff review page (`/features/{id}/review`); project
+- A closed channel shows "Wrapped" and Reopen where the Wrap up button and composer were.
+- Feature page (`/features/{id}`), with Close feature (asks to confirm) or Reopen, and its diff review page (`/features/{id}/review`); project
   page (`/projects/{id}`) with project memory and its features.
 - Needs you (`/inbox`): what waits on you from [`/inbox/events`](#inbox), with a count and
   the action of each item (Approve or Reject, Continue, Retry, Open). The window asks once,
@@ -181,6 +182,7 @@ is loaded into every fresh session's context prompt (see [memory.md](memory.md#t
 | `goal` | string | default `""` |
 | `stage` | string | default `ideation`; not checked against a list |
 | `createdAt` | string | |
+| `closedAt` | string? | `null` while the feature is open. Set by `POST /features/{id}/close`, cleared by `/reopen`; never set by a client. Stage stays a label: a closed feature is not gated |
 
 ### feature_github
 
@@ -229,6 +231,7 @@ One row per feature and role.
 | `tokenBudget` | number | tokens the channel may use before it pauses. Starts at 1,000,000. Set by the server only |
 | `team` | string | the name of the channel's [team](#team). `solo` when none is given, and for every channel from before teams. Set on create, never changes |
 | `createdAt` | string | |
+| `closedAt` | string? | `null` while the channel is open. Set when its wrap-up is approved and when its feature is closed, cleared by `POST /channels/{id}/reopen`. A closed channel takes no turn (409) |
 
 ### message
 
@@ -429,6 +432,8 @@ tool calls.
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |
 | `PUT /features/{id}` | `name`, `goal`, `stage` | 200 | 400, 404 |
+| `POST /features/{id}/close` | no body needed | 204; sets `closedAt` on the feature and on each of its channels, and stops their agents | 404, 409 a channel has a turn running (nothing is closed) |
+| `POST /features/{id}/reopen` | no body needed | 204; clears the feature's `closedAt` only, its channels stay closed | 404 |
 | `DELETE /features/{id}` | | 204; the feature's worktree and the checkpoint refs of its turns are removed, its branch is kept | 404, 409 the worktree has uncommitted changes (nothing is removed) |
 | `GET /features/{id}/brief` | | 200 latest version | 404 no feature, or no brief yet |
 | `PUT /features/{id}/brief` | `body`, `author` | 201 new version | 400, 404 |
@@ -447,9 +452,10 @@ tool calls.
 | `GET /channels/{id}` | | 200 | 404 |
 | `PUT /channels/{id}` | `name` (required), `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the channel's backend and applies the next time its agent starts | 200 | 400 bad JSON or permission mode, 404 |
 | `DELETE /channels/{id}` | stops the channel first if it is live; a send during the delete is 404 | 204 | 404 |
-| `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 turn running, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
+| `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 turn running, channel closed, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
 | `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `toolCalls` (`name`, `input`, `result`) | 404 |
+| `POST /channels/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
 | `GET /channels/{id}/approvals` | | 200 the channel's pending gate approvals, oldest first; `[]` when none | 404 |
@@ -457,7 +463,7 @@ tool calls.
 | `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
 | `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
 | `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
-| `POST /proposals/{id}/approve` | no body needed | 200 the proposal and `decisionsAdded` | 400 already decided, 404 |
+| `POST /proposals/{id}/approve` | no body needed | 200 the proposal and `decisionsAdded`; the proposal's channel is closed and its agent stopped | 400 already decided, 404 |
 | `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
 | `GET /messages` | `?channel=ID` (required), `?after=ID` (only newer ids) | 200, each with `parentId` | 400 no channel, 404 unknown channel |
 | `POST /messages` | `channelId`, `parentId`, `author`, `body` | 201 | 400 unknown channel, missing field, or a `parentId` that is not a top-level message of that channel |
@@ -757,7 +763,7 @@ turn of [`Session.Wrap`](../channel/session.go) (see [memory.md](memory.md#wrap-
 agent calls `propose_wrap`; when the turn is done, `GET /channels/{id}/proposal` returns the
 pending proposal, or 404 when the agent made none. `POST /proposals/{id}/approve` and
 `/reject` decide it with the same effect as `reef wrap approve` and `reject`. Approve
-also returns `decisionsAdded`, the decisions it saved. A proposal that is already decided is
+also returns `decisionsAdded`, the decisions it saved, closes the channel (`closedAt`) and stops its agent; a closed channel refuses sends, wraps and wakes with 409 until `POST /channels/{id}/reopen`. A proposal that is already decided is
 400, like `invalid: proposal 1 is already approved` in the CLI.
 
 `POST /channels/{id}/promote` turns a quick session into a feature. It takes `{"slug":
@@ -937,7 +943,7 @@ $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/projects -d
 {"id":1,"name":"shop","path":"/tmp","createdAt":"2026-10-13T09:00:00.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Login"}'
-{"id":1,"projectId":1,"slug":"login","name":"Login","goal":"","stage":"ideation","createdAt":"2026-10-13T09:00:01.123456Z"}
+{"id":1,"projectId":1,"slug":"login","name":"Login","goal":"","stage":"ideation","createdAt":"2026-10-13T09:00:01.123456Z","closedAt":null}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Again"}'
 {"error":"feature slug \"login\" is taken in its project: conflict"}
@@ -946,7 +952,7 @@ $ curl -s -X PUT -H 'Content-Type: application/json' localhost:7700/features/1/b
 {"id":1,"featureId":1,"body":"Email and password login","author":"user","createdAt":"2026-10-13T09:00:02.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/channels -d '{"projectId":1,"featureId":1,"name":"build","backend":"claude"}'
-{"id":1,"projectId":1,"featureId":1,"name":"build","role":"lead","backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"team":"solo","createdAt":"2026-10-13T09:00:03.123456Z"}
+{"id":1,"projectId":1,"featureId":1,"name":"build","role":"lead","backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"team":"solo","createdAt":"2026-10-13T09:00:03.123456Z","closedAt":null}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/messages -d '{"channelId":1,"author":"user","body":"Start with the form"}'
 {"id":1,"channelId":1,"parentId":null,"author":"user","body":"Start with the form","createdAt":"2026-10-13T09:00:04.123456Z"}
