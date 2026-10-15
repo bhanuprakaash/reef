@@ -128,7 +128,11 @@ export function TeamEditor({ team, onSaved }: Props) {
           disabled={update.isPending || copyName.trim() === ''}
           onClick={() =>
             update.mutate(
-              { name: copyName.trim(), team: { name: copyName.trim(), roles, gates } },
+              {
+                name: copyName.trim(),
+                team: { name: copyName.trim(), roles, gates },
+                from: team.name,
+              },
               {
                 onSuccess: (saved) => {
                   setCopyName('');
@@ -141,6 +145,7 @@ export function TeamEditor({ team, onSaved }: Props) {
           Copy as new team
         </button>
         {update.isSuccess && <span className={mutedClass}>Saved</span>}
+        {update.isError && <span className={errorClass}>{update.error.message}</span>}
       </div>
     </div>
   );

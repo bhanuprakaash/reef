@@ -58,9 +58,12 @@ func (s *server) getTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 // putTeam applies the body like `reef team apply`. A role whose body omits mcpServers keeps
-// the server's stored ones, since the window never sees them.
+// the server's stored ones, since the window never sees them. With a `from` query param it
+// instead copies the team named by `from`: `name` must not exist yet, and a role's stored
+// mcpServers come from `from`'s role of the same name.
 func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
+	from := r.URL.Query().Get("from")
 	var t store.Team
 	if err := readJSON(r, &t); err != nil {
 		writeError(w, err)
@@ -72,7 +75,18 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: body name %q does not match %q", store.ErrInvalid, t.Name, name))
 		return
 	}
-	existing, err := s.st.Team(r.Context(), name)
+	source := name
+	if from != "" {
+		if _, err := s.st.Team(r.Context(), name); err == nil {
+			writeError(w, fmt.Errorf("%w: a team named %q already exists", store.ErrConflict, name))
+			return
+		} else if !errors.Is(err, store.ErrNotFound) {
+			writeError(w, err)
+			return
+		}
+		source = from
+	}
+	existing, err := s.st.Team(r.Context(), source)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		writeError(w, err)
 		return

@@ -58,7 +58,8 @@ embeds `web/dist` as it was at build time. Add a project (an absolute path to an
 folder), then a feature, then a channel. A channel's agent is the `claude` or `codex` CLI,
 logged in and on `PATH`. The new channel form picks a team from `GET /teams`. The `/teams`
 page lists teams and edits one's roles and gates, saving with `PUT /teams/{name}`; "Copy as
-new team" applies the same roles and gates under a new name. Each message
+new team" applies the same roles, gates and MCP servers under a new name with `?from=`,
+rejected if that name is taken. Each message
 shows its author, replies are folded under their thread root with a count, and a thread
 opens in a pane where you can reply. The running turn names its teammate. A wake held at a gate
 shows Approve and Reject, and a pause from the hop cap shows in the cap banner. A channel
@@ -396,7 +397,7 @@ tool calls.
 | `GET /features/{id}/diff` | | 200 the worktree's changes against the commit its branch and the project's HEAD last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has no `mcpServers`, whose `args` and `url` may hold API keys | |
 | `GET /teams/{name}` | | 200, without `mcpServers` as above; each role shows `write` | 404 |
-| `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path); applies it the same way, with the same validation | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones |
+| `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones; 409 `?from=` names a team that already exists |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
 | `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
