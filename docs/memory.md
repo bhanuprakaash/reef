@@ -79,8 +79,8 @@ Rules for every command:
 | `reef decide <feature> "<body>" [--why W]` | Records a decision with no source message | `1  Use sessions, not JWT` |
 | `reef task add [<feature>] "<title>"` | Adds a `todo` task. With a feature, the task is in the feature's project and tagged with it. Without one, it is in the current folder's project, with no feature | `1  todo  Build the login form` |
 | `reef task list [<feature>] [--status S]` | Lists the feature's tasks, or all tasks of the current folder's project. `S` is `todo`, `doing` or `done` | one task per line, as for `task add` |
-| `reef memory show [--project P]` | Prints the current project's memory, or the memory of project `P` (an id) | the memory body, or an empty line when none is set |
-| `reef memory set FILE\|- [--project P]` | Sets the project's memory from a file, or from stdin with `-`, replacing any before | `saved memory for project shop` |
+| `reef memory [--project P] [show]` | Prints the current project's memory, or the memory of project `P` (an id); bare `reef memory` means `show`. `--project` may come before or after `show` | the memory body exactly as stored, or nothing when none is set |
+| `reef memory [--project P] set FILE\|-` | Sets the project's memory from a file, or from stdin with `-`, replacing any before | `saved memory for project shop` |
 | `reef team apply FILE.json` | Creates a team from a file, or replaces the roles and gates of the team with that name (see Teams) | `applied team duo: lead*(claude) architect(claude)` |
 | `reef team list` | Lists the teams by name, each with its roles | `duo  lead*(claude) architect(claude)`: the lead has a `*` |
 | `reef context <feature> --role R` | Prints the context prompt for role `R` (see below) | the prompt |
