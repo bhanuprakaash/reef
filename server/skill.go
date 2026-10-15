@@ -33,15 +33,7 @@ func (s *server) listSkills(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("find home folder: %w", err))
 		return
 	}
-	claude, err := skill.Claude(home, p.Path)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	codex, err := skill.Codex(home, p.Path)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string][]skill.Skill{"claude": claude, "codex": codex})
+	writeJSON(w, http.StatusOK, map[string][]skill.Skill{
+		"claude": skill.Claude(home, p.Path), "codex": skill.Codex(home, p.Path),
+	})
 }

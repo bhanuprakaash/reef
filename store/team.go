@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/skill"
 )
 
 // SoloTeam is the lead-only team a channel gets when none is named.
@@ -54,8 +55,6 @@ type Role struct {
 }
 
 var _roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-
-var _skillName = regexp.MustCompile(`^[A-Za-z0-9:_-]+$`)
 
 // UnrestrictedBash reports whether a claude tool entry allows every shell command.
 func UnrestrictedBash(tool string) bool {
@@ -281,7 +280,7 @@ func cleanSkills(r Role) ([]string, error) {
 		switch {
 		case name == "":
 			return nil, fmt.Errorf("%w: role %s has an empty skill name", ErrInvalid, r.Name)
-		case !_skillName.MatchString(name):
+		case !skill.ValidName(name):
 			return nil, fmt.Errorf("%w: role %s: skill %q must be letters, digits, :, _ or -",
 				ErrInvalid, r.Name, name)
 		case slices.Contains(names, name):

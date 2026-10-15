@@ -4,10 +4,11 @@ package skill
 import (
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io/fs"
+	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -20,36 +21,29 @@ type Skill struct {
 	Description string `json:"description"`
 }
 
+var _name = regexp.MustCompile(`^[A-Za-z0-9:_-]+$`)
+
+// ValidName reports whether name is safe to put in a skill permission rule: letters, digits,
+// ":", "_" and "-".
+func ValidName(name string) bool { return _name.MatchString(name) }
+
 // Claude lists the skills claude finds when it runs in dir: the user's, the folder's and
 // those of the plugins installed for the user or for dir. A plugin's skill is named
 // "plugin:skill". When two skills share a name the first found wins, in that order.
-func Claude(home, dir string) ([]Skill, error) {
-	found, err := scan(filepath.Join(home, ".claude", "skills"), "")
-	if err != nil {
-		return nil, err
-	}
-	repo, err := scan(filepath.Join(dir, ".claude", "skills"), "")
-	if err != nil {
-		return nil, err
-	}
-	plugins, err := pluginSkills(home, dir)
-	if err != nil {
-		return nil, err
-	}
-	return unique(slices.Concat(found, repo, plugins)), nil
+func Claude(home, dir string) []Skill {
+	return unique(slices.Concat(
+		scan(filepath.Join(home, ".claude", "skills"), ""),
+		scan(filepath.Join(dir, ".claude", "skills"), ""),
+		pluginSkills(home, dir),
+	))
 }
 
 // Codex lists the skills codex finds when it runs in dir: the user's and the folder's.
-func Codex(home, dir string) ([]Skill, error) {
-	found, err := scan(filepath.Join(home, ".agents", "skills"), "")
-	if err != nil {
-		return nil, err
-	}
-	repo, err := scan(filepath.Join(dir, ".agents", "skills"), "")
-	if err != nil {
-		return nil, err
-	}
-	return unique(slices.Concat(found, repo)), nil
+func Codex(home, dir string) []Skill {
+	return unique(slices.Concat(
+		scan(filepath.Join(home, ".agents", "skills"), ""),
+		scan(filepath.Join(dir, ".agents", "skills"), ""),
+	))
 }
 
 type installedPlugins struct {
@@ -60,18 +54,19 @@ type installedPlugins struct {
 	} `json:"plugins"`
 }
 
-func pluginSkills(home, dir string) ([]Skill, error) {
+func pluginSkills(home, dir string) []Skill {
 	path := filepath.Join(home, ".claude", "plugins", "installed_plugins.json")
 	body, err := os.ReadFile(path)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read installed_plugins.json: %w", err)
+		return nil
 	}
 	var installed installedPlugins
-	if err := json.Unmarshal(body, &installed); err != nil {
-		return nil, fmt.Errorf("parse installed_plugins.json: %w", err)
+	if err == nil {
+		err = json.Unmarshal(body, &installed)
+	}
+	if err != nil {
+		log.Printf("skip plugin skills: installed_plugins.json: %v", err)
+		return nil
 	}
 	var found []Skill
 	for key, entries := range installed.Plugins {
@@ -80,23 +75,20 @@ func pluginSkills(home, dir string) ([]Skill, error) {
 			if e.Scope != "user" && (e.ProjectPath == "" || filepath.Clean(e.ProjectPath) != filepath.Clean(dir)) {
 				continue
 			}
-			skills, err := scan(filepath.Join(e.InstallPath, "skills"), plugin+":")
-			if err != nil {
-				return nil, err
-			}
-			found = append(found, skills...)
+			found = append(found, scan(filepath.Join(e.InstallPath, "skills"), plugin+":")...)
 		}
 	}
-	return found, nil
+	return found
 }
 
-func scan(root, prefix string) ([]Skill, error) {
+func scan(root, prefix string) []Skill {
 	entries, err := os.ReadDir(root)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
+		return nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", root, err)
+		log.Printf("skip skills in %s: %v", root, err)
+		return nil
 	}
 	var found []Skill
 	for _, e := range entries {
@@ -105,15 +97,20 @@ func scan(root, prefix string) ([]Skill, error) {
 			continue
 		}
 		if err != nil {
-			return nil, fmt.Errorf("read skill %s: %w", e.Name(), err)
+			log.Printf("skip skill %s in %s: %v", e.Name(), root, err)
+			continue
 		}
 		name, description := frontmatter(string(body))
 		if name == "" {
 			name = e.Name()
 		}
+		if !ValidName(prefix + name) {
+			log.Printf("skip skill %s in %s: %q is not a valid skill name", e.Name(), root, prefix+name)
+			continue
+		}
 		found = append(found, Skill{Name: prefix + name, Description: description})
 	}
-	return found, nil
+	return found
 }
 
 func unique(skills []Skill) []Skill {
