@@ -10,6 +10,7 @@ import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDecisions } from '@/modules/features/api/get-decisions';
 import { useDiff } from '@/modules/features/api/get-diff';
 import { useFeature } from '@/modules/features/api/get-feature';
+import { useSetFeatureClosed } from '@/modules/features/api/set-feature-closed';
 import { BriefPanel } from '@/modules/features/components/brief-panel';
 import { DecisionList } from '@/modules/features/components/decision-list';
 import { FeatureForm } from '@/modules/features/components/feature-form';
@@ -37,7 +38,8 @@ export function FeaturePage() {
   const channels = useChannels();
   const teams = useTeams();
   const terminal = useTerminal(true);
-  const [dialog, setDialog] = useState<'edit' | 'channel' | null>(null);
+  const setClosed = useSetFeatureClosed(id);
+  const [dialog, setDialog] = useState<'edit' | 'channel' | 'close' | null>(null);
 
   if (feature.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (feature.isError) return <p className="text-sm text-danger">{feature.error.message}</p>;
@@ -57,11 +59,21 @@ export function FeaturePage() {
           </div>
           <h1 className="text-[40px] leading-[1.05] font-normal tracking-[-0.02em]">{f.name}</h1>
           {f.goal && <p className="mt-2 max-w-xl text-sm text-muted">{f.goal}</p>}
+          {setClosed.isError && (
+            <p className="mt-2 text-sm text-danger">{setClosed.error.message}</p>
+          )}
         </div>
         <div className="flex gap-2">
           <StagePicker feature={f} />
           <Button type="button" onClick={() => setDialog('edit')}>
             Edit
+          </Button>
+          <Button
+            type="button"
+            disabled={setClosed.isPending}
+            onClick={() => (f.closedAt === null ? setDialog('close') : setClosed.mutate(false))}
+          >
+            {f.closedAt === null ? 'Close feature' : 'Reopen'}
           </Button>
           {latestChannel && (
             <Link to={`/channels/${latestChannel.id}`} className={buttonClass('primary')}>
@@ -140,6 +152,26 @@ export function FeaturePage() {
         {dialog === 'channel' && (
           <NewChannelForm projectId={f.projectId} featureId={id} onClose={() => setDialog(null)} />
         )}
+      </Dialog>
+      <Dialog open={dialog === 'close'} onClose={() => setDialog(null)} title="Close feature">
+        <p className="mb-5 text-sm text-muted">
+          Close {f.name}? Its channels close too and their agents stop. You can reopen it later.
+        </p>
+        <div className="flex justify-end gap-2">
+          <Button type="button" onClick={() => setDialog(null)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="primary"
+            onClick={() => {
+              setClosed.mutate(true);
+              setDialog(null);
+            }}
+          >
+            Close feature
+          </Button>
+        </div>
       </Dialog>
       {terminal.open && (
         <div className="sticky bottom-0 z-10 overflow-hidden rounded-card border border-hairline">

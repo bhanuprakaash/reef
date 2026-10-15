@@ -16,22 +16,23 @@ const HopCap = 6
 
 const _channelCols = "channel.id, channel.project_id, channel.feature_id, channel.name, " +
 	"channel.role, channel.backend, channel.permission_mode, channel.paused, " +
-	"channel.token_budget, channel.created_at, " +
+	"channel.token_budget, channel.created_at, channel.closed_at, " +
 	"COALESCE((SELECT name FROM team WHERE id = channel.team_id), '" + SoloTeam + "')"
 
 // Channel with a nil FeatureID is a quick session.
 type Channel struct {
-	ID             int64     `json:"id"`
-	ProjectID      int64     `json:"projectId"`
-	FeatureID      *int64    `json:"featureId"`
-	Name           string    `json:"name"`
-	Role           string    `json:"role"`
-	Backend        string    `json:"backend"`
-	PermissionMode string    `json:"permissionMode"`
-	Paused         string    `json:"paused"`
-	TokenBudget    int64     `json:"tokenBudget"`
-	Team           string    `json:"team"`
-	CreatedAt      time.Time `json:"createdAt"`
+	ID             int64      `json:"id"`
+	ProjectID      int64      `json:"projectId"`
+	FeatureID      *int64     `json:"featureId"`
+	Name           string     `json:"name"`
+	Role           string     `json:"role"`
+	Backend        string     `json:"backend"`
+	PermissionMode string     `json:"permissionMode"`
+	Paused         string     `json:"paused"`
+	TokenBudget    int64      `json:"tokenBudget"`
+	Team           string     `json:"team"`
+	CreatedAt      time.Time  `json:"createdAt"`
+	ClosedAt       *time.Time `json:"closedAt"`
 }
 
 // ChannelPreview is a Channel with its newest message, nil when it has none.
@@ -122,7 +123,7 @@ func (s *Store) Channel(ctx context.Context, id int64) (Channel, error) {
 func (s *Store) FeatureLatestChannel(ctx context.Context, featureID int64) (Channel, error) {
 	row := s.db.QueryRowContext(ctx,
 		`SELECT c.id, c.project_id, c.feature_id, c.name, c.role, c.backend, c.permission_mode,
-		  c.paused, c.token_budget, c.created_at,
+		  c.paused, c.token_budget, c.created_at, c.closed_at,
 		  COALESCE((SELECT name FROM team WHERE id = c.team_id), '`+SoloTeam+`')
 		 FROM channel c LEFT JOIN message m ON m.channel_id = c.id
 		 WHERE c.feature_id = ?
@@ -298,6 +299,11 @@ func (s *Store) ContinueChannel(ctx context.Context, id, budget int64) error {
 	return tx.Commit()
 }
 
+// ReopenChannel clears the channel's closed_at.
+func (s *Store) ReopenChannel(ctx context.Context, id int64) error {
+	return s.setChannel(ctx, id, "closed_at = NULL")
+}
+
 // ChannelTokens sums input, output and cache write tokens; cache reads are not counted.
 func (s *Store) ChannelTokens(ctx context.Context, id int64) (int64, error) {
 	var n int64
@@ -351,9 +357,9 @@ func (c Channel) validate() error {
 func scanChannelPreview(r interface{ Scan(...any) error }) (ChannelPreview, error) {
 	var p ChannelPreview
 	var created string
-	var author, body, lastCreated sql.NullString
+	var author, body, lastCreated, closed sql.NullString
 	if err := r.Scan(&p.ID, &p.ProjectID, &p.FeatureID, &p.Name, &p.Role, &p.Backend,
-		&p.PermissionMode, &p.Paused, &p.TokenBudget, &created, &p.Team,
+		&p.PermissionMode, &p.Paused, &p.TokenBudget, &created, &closed, &p.Team,
 		&author, &body, &lastCreated); err != nil {
 		return ChannelPreview{}, err
 	}
@@ -362,6 +368,9 @@ func scanChannelPreview(r interface{ Scan(...any) error }) (ChannelPreview, erro
 		return ChannelPreview{}, fmt.Errorf("channel %d: bad created_at: %w", p.ID, err)
 	}
 	p.CreatedAt = t
+	if p.ClosedAt, err = parseClosed(closed); err != nil {
+		return ChannelPreview{}, fmt.Errorf("channel %d: %w", p.ID, err)
+	}
 	if !lastCreated.Valid {
 		return p, nil
 	}
@@ -376,8 +385,9 @@ func scanChannelPreview(r interface{ Scan(...any) error }) (ChannelPreview, erro
 func scanChannel(r interface{ Scan(...any) error }) (Channel, error) {
 	var c Channel
 	var created string
+	var closed sql.NullString
 	if err := r.Scan(&c.ID, &c.ProjectID, &c.FeatureID, &c.Name, &c.Role, &c.Backend,
-		&c.PermissionMode, &c.Paused, &c.TokenBudget, &created, &c.Team); err != nil {
+		&c.PermissionMode, &c.Paused, &c.TokenBudget, &created, &closed, &c.Team); err != nil {
 		return Channel{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)
@@ -385,5 +395,8 @@ func scanChannel(r interface{ Scan(...any) error }) (Channel, error) {
 		return Channel{}, fmt.Errorf("channel %d: bad created_at: %w", c.ID, err)
 	}
 	c.CreatedAt = t
+	if c.ClosedAt, err = parseClosed(closed); err != nil {
+		return Channel{}, fmt.Errorf("channel %d: %w", c.ID, err)
+	}
 	return c, nil
 }

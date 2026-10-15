@@ -2,8 +2,42 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
+
+func TestCloseFeatureClosesItsChannelsAndReopenKeepsThemClosed(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+	if err := s.CloseFeature(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := s.Feature(ctx, 1)
+	if err != nil || f.ClosedAt == nil {
+		t.Fatalf("feature 1 closedAt = %v, err = %v, want set", f.ClosedAt, err)
+	}
+	c, err := s.Channel(ctx, 1)
+	if err != nil || c.ClosedAt == nil {
+		t.Errorf("channel 1 closedAt = %v, err = %v, want set", c.ClosedAt, err)
+	}
+	if q, err := s.Channel(ctx, 2); err != nil || q.ClosedAt != nil {
+		t.Errorf("quick session closedAt = %v, err = %v, want nil", q.ClosedAt, err)
+	}
+
+	if err := s.ReopenFeature(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if f, err = s.Feature(ctx, 1); err != nil || f.ClosedAt != nil {
+		t.Errorf("feature 1 closedAt after reopen = %v, err = %v, want nil", f.ClosedAt, err)
+	}
+	if c, err = s.Channel(ctx, 1); err != nil || c.ClosedAt == nil {
+		t.Errorf("channel 1 closedAt after feature reopen = %v, err = %v, want still set", c.ClosedAt, err)
+	}
+	if err := s.CloseFeature(ctx, 99); !errors.Is(err, ErrNotFound) {
+		t.Errorf("close feature 99 = %v, want ErrNotFound", err)
+	}
+}
 
 func TestUpdateFeatureKeepsSlug(t *testing.T) {
 	ctx := context.Background()

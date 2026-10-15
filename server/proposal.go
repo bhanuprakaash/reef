@@ -116,6 +116,9 @@ func (s *server) approveProposal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if l := s.lookup(p.ChannelID); l != nil {
+		s.stopLive(l)
+	}
 	writeJSON(w, http.StatusOK, struct {
 		store.Proposal
 		DecisionsAdded int `json:"decisionsAdded"`

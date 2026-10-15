@@ -162,15 +162,17 @@ export function ChannelHeader({
           <span className="max-md:hidden">Team</span>
         </Button>
         {channel.featureId !== null ? (
-          <Button
-            variant="primary"
-            type="button"
-            className="ml-1.5 max-md:hidden"
-            disabled={wrapDisabled}
-            onClick={onWrap}
-          >
-            Wrap up
-          </Button>
+          channel.closedAt === null && (
+            <Button
+              variant="primary"
+              type="button"
+              className="ml-1.5 max-md:hidden"
+              disabled={wrapDisabled}
+              onClick={onWrap}
+            >
+              Wrap up
+            </Button>
+          )
         ) : (
           <Button type="button" className="ml-1.5" disabled={promoteDisabled} onClick={onPromote}>
             Promote to feature

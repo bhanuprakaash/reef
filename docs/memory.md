@@ -418,7 +418,8 @@ Approve applies everything in one transaction:
 - each proposed decision, with the role as author and no source message. A decision whose
   body is exactly the body of one the feature already has is skipped, so a decision the
   agent recorded live is not saved twice. A repeat inside the proposal is skipped too,
-- the proposal marked `approved`, with `decidedAt`.
+- the proposal marked `approved`, with `decidedAt`,
+- the proposal's channel closed (`closedAt`). The server then stops its agent and refuses new turns on it until `POST /channels/{id}/reopen`.
 
 If any step fails, nothing is applied. It prints `approved: brief, notes and 1 decisions
 saved`, counting only the decisions it added.

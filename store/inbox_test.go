@@ -221,6 +221,22 @@ func TestInbox_Waiting(t *testing.T) {
 	e.want("paused 1 capped: more than 25 tool calls")
 }
 
+func TestInbox_ClosedChannelIsNotAnItem(t *testing.T) {
+	e := newInboxEnv(t)
+	e.say(1, "lead", "Wrap proposed.")
+	e.want("waiting 1 Wrap proposed.")
+
+	if _, err := e.s.db.ExecContext(e.ctx, "UPDATE channel SET closed_at = ? WHERE id = 1", "2026-01-01T00:00:00Z"); err != nil {
+		t.Fatal(err)
+	}
+	e.want()
+
+	if err := e.s.ReopenChannel(e.ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	e.want("waiting 1 Wrap proposed.")
+}
+
 func TestInbox_NewestFirst(t *testing.T) {
 	e := newInboxEnv(t)
 	e.turn(2, "lead", "a", "failed")

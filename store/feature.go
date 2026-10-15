@@ -13,20 +13,21 @@ import (
 
 const (
 	_defaultStage = "ideation"
-	_featureCols  = "id, project_id, slug, name, goal, stage, created_at"
+	_featureCols  = "id, project_id, slug, name, goal, stage, created_at, closed_at"
 )
 
 var _slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
 
 // Feature is a unit of work in a project. Its slug names its branch and folder.
 type Feature struct {
-	ID        int64     `json:"id"`
-	ProjectID int64     `json:"projectId"`
-	Slug      string    `json:"slug"`
-	Name      string    `json:"name"`
-	Goal      string    `json:"goal"`
-	Stage     string    `json:"stage"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID        int64      `json:"id"`
+	ProjectID int64      `json:"projectId"`
+	Slug      string     `json:"slug"`
+	Name      string     `json:"name"`
+	Goal      string     `json:"goal"`
+	Stage     string     `json:"stage"`
+	CreatedAt time.Time  `json:"createdAt"`
+	ClosedAt  *time.Time `json:"closedAt"`
 }
 
 // CreateFeature adds f. The slug must be unique within the project.
@@ -148,6 +149,49 @@ func (s *Store) UpdateFeature(ctx context.Context, f Feature) (Feature, error) {
 	return s.Feature(ctx, f.ID)
 }
 
+// CloseFeature sets closed_at on the feature and on each of its channels still open, in one
+// transaction.
+func (s *Store) CloseFeature(ctx context.Context, id int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin close feature: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	at := time.Now().UTC().Format(time.RFC3339Nano)
+	res, err := tx.ExecContext(ctx, "UPDATE feature SET closed_at = ? WHERE id = ?", at, id)
+	if err != nil {
+		return fmt.Errorf("close feature: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("close feature: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("feature %d: %w", id, ErrNotFound)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE channel SET closed_at = ? WHERE feature_id = ? AND closed_at IS NULL", at, id); err != nil {
+		return fmt.Errorf("close channels: %w", err)
+	}
+	return tx.Commit()
+}
+
+// ReopenFeature clears the feature's closed_at; its channels stay as they are.
+func (s *Store) ReopenFeature(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx, "UPDATE feature SET closed_at = NULL WHERE id = ?", id)
+	if err != nil {
+		return fmt.Errorf("reopen feature: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("reopen feature: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("feature %d: %w", id, ErrNotFound)
+	}
+	return nil
+}
+
 // DeleteFeature removes the feature and, by cascade, its briefs, notes,
 // decisions and channels.
 func (s *Store) DeleteFeature(ctx context.Context, id int64) error {
@@ -192,8 +236,9 @@ func (f *Feature) validate() error {
 func scanFeature(r interface{ Scan(...any) error }) (Feature, error) {
 	var f Feature
 	var created string
+	var closed sql.NullString
 	if err := r.Scan(
-		&f.ID, &f.ProjectID, &f.Slug, &f.Name, &f.Goal, &f.Stage, &created,
+		&f.ID, &f.ProjectID, &f.Slug, &f.Name, &f.Goal, &f.Stage, &created, &closed,
 	); err != nil {
 		return Feature{}, err
 	}
@@ -202,5 +247,8 @@ func scanFeature(r interface{ Scan(...any) error }) (Feature, error) {
 		return Feature{}, fmt.Errorf("feature %d: bad created_at: %w", f.ID, err)
 	}
 	f.CreatedAt = t
+	if f.ClosedAt, err = parseClosed(closed); err != nil {
+		return Feature{}, fmt.Errorf("feature %d: %w", f.ID, err)
+	}
 	return f, nil
 }
