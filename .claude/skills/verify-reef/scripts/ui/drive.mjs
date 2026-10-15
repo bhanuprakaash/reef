@@ -65,6 +65,21 @@ async function exchange(text) {
   await idle();
 }
 
+// Fills the add-project form: the first-run screen when the server has no project, else the sidebar's.
+async function submitProject(name, folder) {
+  await page.getByRole('button', { name: 'Add project' }).waitFor();
+  if (await page.getByLabel('Repo folder').count()) {
+    await page.getByLabel('Repo folder').fill(folder);
+    await page.getByLabel('Name', { exact: true }).fill(name);
+    await page.getByRole('button', { name: 'Add project' }).click();
+    return;
+  }
+  await page.getByRole('button', { name: 'Add project' }).click();
+  await page.getByLabel('Project name').fill(name);
+  await page.getByLabel('Project path').fill(folder);
+  await page.getByRole('button', { name: 'Add', exact: true }).click();
+}
+
 // Adds a project through the form; returns its sidebar section.
 async function addProject() {
   const name = `ui-${scenario}-${Date.now().toString(36)}`;
@@ -77,10 +92,7 @@ async function addProject() {
     git('commit', '-q', '--allow-empty', '-m', 'init');
   }
   await page.goto(base + '/');
-  await page.getByRole('button', { name: 'Add project' }).click();
-  await page.getByLabel('Project name').fill(name);
-  await page.getByLabel('Project path').fill(projectDir);
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await submitProject(name, projectDir);
   const section = aside.locator('section', { has: page.getByRole('heading', { name, level: 3 }) });
   await section.waitFor();
   return section;
@@ -269,10 +281,7 @@ async function cap() {
 
 async function pages() {
   await page.goto(base + '/');
-  await page.getByRole('button', { name: 'Add project' }).click();
-  await page.getByLabel('Project name').fill('bad path');
-  await page.getByLabel('Project path').fill('/nonexistent-reef-ui');
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
+  await submitProject('bad path', '/nonexistent-reef-ui');
   const err = page.getByText(/not a directory/);
   await err.waitFor({ timeout: 10000 });
   await shot('bad-path');
