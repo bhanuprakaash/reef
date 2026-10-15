@@ -20,7 +20,7 @@ stops everything it started. Contract: `docs/desktop.md`.
 - `browser-network` `browser_network` lists `GET <url> 200` and `GET <url>missing.json 404`.
 - `browser-take-over` with `window.reef.setTakeOver(true)` (what Take over does) `browser_snapshot` fails with `the user has the browser`; after `setTakeOver(false)` it works again.
 - `browser-stale-ref` after a new navigation, `browser_click` on a ref of the old snapshot fails with `ref eM is not on the page; take a new snapshot`.
-- `terminal-feature` opening `/features/<id>` and turning on the window's Terminal toggle (viewing the page alone makes no worktree) starts a login shell, a child of the app, whose cwd is the feature's worktree `<data>/worktrees/<project id>/term`; after `pwd; git branch --show-current` the pane shows that path then `feature/term`.
+- `terminal-feature` opening `/features/<id>` and turning on the window's Terminal toggle shows "No worktree yet" (neither viewing the page nor the toggle makes a worktree), and its Open terminal button starts a login shell, a child of the app, whose cwd is the feature's worktree `<data>/worktrees/<project id>/term`; after `pwd; git branch --show-current` the pane shows that path then `feature/term`.
 - `desktop-quit` after SIGTERM to the app, xvfb-run, the app and every process it had (Electron helpers, `reef serve`, the shell) are gone, and so is `browser.sock`.
 - `browser-unavailable` with the app closed, `browser_snapshot` fails with `browser unavailable: the Reef app is not open`.
 - `capture-shortcut` `CommandOrControl+Shift+Space`, sent for real with `xdotool key`, opens the capture window (a screenshot of it is not blank). Skipped on a Mac (user check) or noted when `xdotool` is not installed.

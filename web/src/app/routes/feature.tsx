@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { TerminalPane } from '@/app/terminal-pane';
+import { FeatureTerminal } from '@/app/feature-terminal';
 import { useTerminal } from '@/app/use-terminal';
 import { ChannelList } from '@/modules/channels/components/channel-list';
 import { useChannels } from '@/lib/api/get-channels';
@@ -9,7 +9,6 @@ import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDecisions } from '@/modules/features/api/get-decisions';
 import { useDiff } from '@/modules/features/api/get-diff';
-import { useEnsureWorktree } from '@/modules/features/api/ensure-worktree';
 import { useFeature } from '@/modules/features/api/get-feature';
 import { BriefPanel } from '@/modules/features/components/brief-panel';
 import { DecisionList } from '@/modules/features/components/decision-list';
@@ -38,11 +37,6 @@ export function FeaturePage() {
   const channels = useChannels();
   const teams = useTeams();
   const terminal = useTerminal(true);
-  const worktree = useEnsureWorktree(id);
-  const { mutate: ensureWorktree } = worktree;
-  useEffect(() => {
-    if (terminal.open) ensureWorktree();
-  }, [terminal.open, ensureWorktree]);
   const [dialog, setDialog] = useState<'edit' | 'channel' | null>(null);
 
   if (feature.isPending) return <p className="text-sm text-muted">Loading...</p>;
@@ -76,7 +70,6 @@ export function FeaturePage() {
           )}
         </div>
       </header>
-      {worktree.isError && <p className="text-sm text-danger">{worktree.error.message}</p>}
       <JourneyBar stage={f.stage} />
       <div className="flex flex-wrap items-start gap-5">
         <div className="flex flex-[999_1_460px] flex-col gap-5 md:min-w-[460px]">
@@ -148,9 +141,9 @@ export function FeaturePage() {
           <NewChannelForm projectId={f.projectId} featureId={id} onClose={() => setDialog(null)} />
         )}
       </Dialog>
-      {terminal.open && worktree.data && (
+      {terminal.open && (
         <div className="sticky bottom-0 z-10 overflow-hidden rounded-card border border-hairline">
-          <TerminalPane cwd={worktree.data.path} onHide={terminal.hide} />
+          <FeatureTerminal key={id} featureId={id} onHide={terminal.hide} />
         </div>
       )}
     </div>

@@ -1,6 +1,7 @@
-import { type ComponentProps, useEffect } from 'react';
+import type { ComponentProps } from 'react';
 import { useOutletContext, useParams } from 'react-router';
 import type { LayoutContext } from '@/app/layout';
+import { FeatureTerminal } from '@/app/feature-terminal';
 import { ReviewDiff } from '@/app/review-diff';
 import { TerminalPane } from '@/app/terminal-pane';
 import { useTerminal } from '@/app/use-terminal';
@@ -9,7 +10,6 @@ import { StageChip } from '@/components/stage-chip';
 import { ChannelView } from '@/modules/channels/components/channel-view';
 import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDiff } from '@/modules/features/api/get-diff';
-import { useEnsureWorktree } from '@/modules/features/api/ensure-worktree';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { diffCounts } from '@/modules/features/utils/diff-counts';
 import { STAGES } from '@/modules/features/utils/stages';
@@ -28,12 +28,6 @@ function FeatureChannelView({ featureId, ...props }: ViewProps & { featureId: nu
       brief={briefs.data?.at(-1)?.body}
     />
   );
-}
-
-function FeatureTerminal({ featureId, onHide }: { featureId: number; onHide: () => void }) {
-  const { mutate, data } = useEnsureWorktree(featureId);
-  useEffect(() => mutate(), [mutate]);
-  return data ? <TerminalPane cwd={data.path} onHide={onHide} /> : null;
 }
 
 export function ChannelPage() {
@@ -82,7 +76,7 @@ export function ChannelPage() {
           {featureId === null ? (
             project && <TerminalPane cwd={project.path} onHide={terminal.hide} />
           ) : (
-            <FeatureTerminal featureId={featureId} onHide={terminal.hide} />
+            <FeatureTerminal key={featureId} featureId={featureId} onHide={terminal.hide} />
           )}
         </div>
       )}

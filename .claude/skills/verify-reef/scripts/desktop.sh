@@ -278,11 +278,11 @@ js_wt=$(python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$WT")
 rows='(document.querySelector(".xterm")?.scrollIntoView(),
   [...document.querySelectorAll(".xterm-rows > div")].map((r) => r.textContent.trimEnd()).join("\n").trim())'
 cdp "history.pushState({}, '', '/features/$fid'); dispatchEvent(new PopStateEvent('popstate')); location.pathname" >/dev/null
-# Viewing a feature makes no worktree; turning the window's Terminal toggle on does.
+# Neither viewing a feature nor the Terminal toggle makes a worktree; the pane's Open terminal button does.
 opened=""
 for _ in $(seq 25); do
-	opened=$(cdp "(() => { const b = document.querySelector('button[aria-label=Terminal]'); if (!b) return 'no button'; if (b.ariaPressed === 'true') return 'clicked'; b.click(); return 'clicked'; })()" 2>&1)
-	[ "$opened" = '"clicked"' ] && break
+	opened=$(cdp "(() => { const b = document.querySelector('button[aria-label=Terminal]'); if (!b) return 'no button'; if (b.ariaPressed !== 'true') b.click(); const o = [...document.querySelectorAll('button')].find((x) => x.textContent === 'Open terminal'); if (o) { o.click(); return 'opened'; } return document.querySelector('.xterm') ? 'opened' : 'waiting'; })()" 2>&1)
+	[ "$opened" = '"opened"' ] && break
 	sleep 0.2
 done
 shell="" before='""'

@@ -30,6 +30,7 @@ func (s *server) featureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /features/{id}/notes/{role}", s.putRoleNotes)
 	mux.HandleFunc("DELETE /features/{id}/notes/{role}", s.deleteRoleNotes)
 	mux.HandleFunc("/features/{id}/notes/{role}", methodNotAllowed)
+	mux.HandleFunc("GET /features/{id}/worktree", s.getFeatureWorktree)
 	mux.HandleFunc("POST /features/{id}/worktree", s.ensureFeatureWorktree)
 	mux.HandleFunc("/features/{id}/worktree", methodNotAllowed)
 	mux.HandleFunc("GET /features/{id}/diff", s.getFeatureDiff)
@@ -234,6 +235,31 @@ func treeConflict(f store.Feature, dir string, err error) error {
 			store.ErrConflict, f.Slug, dir)
 	}
 	return err
+}
+
+// getFeatureWorktree returns the path of the feature's worktree, or an empty path when it
+// has none yet. It never makes one.
+func (s *server) getFeatureWorktree(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	f, err := s.st.Feature(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	p, err := s.st.Project(r.Context(), f.ProjectID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
+		dir = ""
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"path": dir})
 }
 
 // ensureFeatureWorktree makes the feature's worktree, the same way the first wake of one of

@@ -32,12 +32,19 @@ func TestEnsureFeatureWorktree_MakesItAndReusesIt(t *testing.T) {
 	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
 
 	want := worktree.Path(dataDir, 1, "demo")
+	if status, body := do(t, http.MethodGet, ts.URL+"/features/1/worktree", ""); status != 200 || body != `{"path":""}` {
+		t.Fatalf("get worktree before = %d %s, want 200 {\"path\":\"\"}", status, body)
+	}
 	status, body := do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
 	if wantBody := fmt.Sprintf(`{"path":%q}`, want); status != 200 || body != wantBody {
 		t.Fatalf("ensure worktree = %d %s, want 200 %s", status, body, wantBody)
 	}
 	if got := gitIn(t, want, "branch", "--show-current"); got != "feature/demo" {
 		t.Errorf("branch = %q, want feature/demo", got)
+	}
+
+	if status, body := do(t, http.MethodGet, ts.URL+"/features/1/worktree", ""); status != 200 || body != fmt.Sprintf(`{"path":%q}`, want) {
+		t.Fatalf("get worktree after = %d %s, want 200 path %s", status, body, want)
 	}
 
 	// A second call reuses the same tree.
