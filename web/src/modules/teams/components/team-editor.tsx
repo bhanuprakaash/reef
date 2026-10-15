@@ -11,11 +11,12 @@ import { Toggle } from '@/components/toggle';
 type Props = {
   team: Team;
   skills?: Skills;
+  noProject?: boolean;
   onSaved: (name: string) => void;
   onDuplicate: () => void;
 };
 
-export function TeamEditor({ team, skills, onSaved, onDuplicate }: Props) {
+export function TeamEditor({ team, skills, noProject, onSaved, onDuplicate }: Props) {
   const [loaded, setLoaded] = useState(team);
   const [roles, setRoles] = useState<Role[]>(team.roles);
   const [keys, setKeys] = useState(() => team.roles.map((_, i) => i));
@@ -66,6 +67,7 @@ export function TeamEditor({ team, skills, onSaved, onDuplicate }: Props) {
             key={keys[i]}
             role={role}
             skills={skills}
+            noProject={noProject}
             open={open === i}
             onToggle={() => setOpen(open === i ? null : i)}
             onChange={(r) => updateRole(i, r)}

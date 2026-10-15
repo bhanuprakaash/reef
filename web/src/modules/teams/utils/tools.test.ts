@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { builtinTools, customTools, mcpTool, toggleTool } from './tools';
+import { builtinTools, customTools, mcpTool, toggleTool, unrestrictedBashBlocked } from './tools';
 
 describe('tools', () => {
   it('lists the built-in tools in a fixed order', () => {
@@ -42,5 +42,15 @@ describe('tools', () => {
         ['mcp1'],
       ),
     ).toEqual(['Bash(git log:*)', 'mcp__other__*', 'Skill(how)']);
+  });
+
+  it('blocks ticking plain Bash on a role that cannot write', () => {
+    expect(unrestrictedBashBlocked('Bash', false, ['Read'])).toBe(true);
+    expect(unrestrictedBashBlocked('Bash', true, ['Read'])).toBe(false);
+    expect(unrestrictedBashBlocked('Read', false, [])).toBe(false);
+  });
+
+  it('lets a Bash that is already ticked be unticked', () => {
+    expect(unrestrictedBashBlocked('Bash', false, ['Read', 'Bash'])).toBe(false);
   });
 });

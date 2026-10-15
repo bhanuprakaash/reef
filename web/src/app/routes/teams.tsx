@@ -61,6 +61,7 @@ export function TeamsPage() {
             key={team.name}
             team={team}
             skills={skills.data}
+            noProject={!project}
             onSaved={(n) => setParams({ team: n })}
             onDuplicate={() => setCreating({ from: team.name })}
           />

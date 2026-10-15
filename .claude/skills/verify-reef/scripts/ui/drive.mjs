@@ -1544,12 +1544,15 @@ async function workshop() {
   await main.getByLabel('architect lead').uncheck();
 
   // Unrestricted Bash on a role without write: the same error reef team apply gives.
-  await main.getByLabel('architect tool Bash').check();
+  const bashBox = main.getByLabel('architect tool Bash');
+  check(await bashBox.isDisabled(), 'the Bash checkbox of a read-only role is disabled', await bashBox.locator('..').getAttribute('title'));
+  await main.getByLabel('architect add tool').fill('Bash(*)');
+  await main.getByLabel('architect add tool').press('Enter');
   await main.getByRole('button', { name: 'Save' }).click();
   const badTool = await errorText(/cannot have unrestricted Bash/);
   await shot('bad-tool-error');
   check(!!badTool, 'an invalid team (unrestricted Bash without write) shows the reef team apply error', badTool ?? '(not shown)');
-  await main.getByLabel('architect tool Bash').uncheck();
+  await main.getByRole('button', { name: 'Remove Bash(*)', exact: true }).click();
   await main.getByRole('button', { name: 'Save' }).click();
   await page.getByText('Saved').waitFor();
 

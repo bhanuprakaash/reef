@@ -13,6 +13,7 @@ import { TextField } from '@/components/text-field';
 type Props = {
   role: Role;
   skills?: Skills;
+  noProject?: boolean;
   open: boolean;
   onToggle: () => void;
   onChange: (role: Role) => void;
@@ -45,7 +46,7 @@ function claudeModelOptions(model: string) {
 
 const badge = 'inline-flex h-[30px] items-center rounded-pill border px-3 text-xs';
 
-export function RoleEditor({ role, skills, open, onToggle, onChange, onRemove }: Props) {
+export function RoleEditor({ role, skills, noProject, open, onToggle, onChange, onRemove }: Props) {
   const label = role.name || 'role';
   return (
     <fieldset className="min-w-0 overflow-hidden rounded-2xl border border-line bg-card">
@@ -140,12 +141,14 @@ export function RoleEditor({ role, skills, open, onToggle, onChange, onRemove }:
               label={label}
               picked={role.skills}
               available={role.backend === 'codex' ? skills?.codex : skills?.claude}
+              noProject={noProject}
               onChange={(next) => onChange({ ...role, skills: next })}
             />
             {role.backend === 'claude' && (
               <ToolPicker
                 label={label}
                 tools={role.tools}
+                write={role.write}
                 servers={role.mcp}
                 onChange={(tools) => onChange({ ...role, tools })}
               />

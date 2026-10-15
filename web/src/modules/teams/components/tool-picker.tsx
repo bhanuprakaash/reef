@@ -1,14 +1,21 @@
 import { ChipList } from '@/modules/teams/components/chip-list';
-import { builtinTools, customTools, mcpTool, toggleTool } from '@/modules/teams/utils/tools';
+import {
+  builtinTools,
+  customTools,
+  mcpTool,
+  toggleTool,
+  unrestrictedBashBlocked,
+} from '@/modules/teams/utils/tools';
 
 type Props = {
   label: string;
   tools: string[];
+  write: boolean;
   servers: { name: string; label: string }[];
   onChange: (tools: string[]) => void;
 };
 
-export function ToolPicker({ label, tools, servers, onChange }: Props) {
+export function ToolPicker({ label, tools, write, servers, onChange }: Props) {
   const entries = [
     ...builtinTools.map((tool) => ({ tool, text: tool })),
     ...servers.map((s) => ({
@@ -24,17 +31,29 @@ export function ToolPicker({ label, tools, servers, onChange }: Props) {
     <div className="min-w-0 basis-full">
       <div className="mb-2 text-xs text-muted">Allowed tools</div>
       <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1">
-        {entries.map(({ tool, text }) => (
-          <label key={tool} className="flex items-center gap-x-1.5 text-sm">
-            <input
-              type="checkbox"
-              aria-label={`${label} tool ${tool}`}
-              checked={tools.includes(tool)}
-              onChange={(e) => onChange(toggleTool(tools, tool, e.target.checked))}
-            />
-            {text}
-          </label>
-        ))}
+        {entries.map(({ tool, text }) => {
+          const blocked = unrestrictedBashBlocked(tool, write, tools);
+          return (
+            <label
+              key={tool}
+              className="flex items-center gap-x-1.5 text-sm"
+              title={
+                blocked
+                  ? "Read-only roles can't run any command. Add a pattern like Bash(git log:*)."
+                  : undefined
+              }
+            >
+              <input
+                type="checkbox"
+                aria-label={`${label} tool ${tool}`}
+                disabled={blocked}
+                checked={tools.includes(tool)}
+                onChange={(e) => onChange(toggleTool(tools, tool, e.target.checked))}
+              />
+              {text}
+            </label>
+          );
+        })}
       </div>
       <ChipList
         label="Custom tools"
