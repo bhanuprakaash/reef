@@ -1245,6 +1245,10 @@ async function wrap() {
   const panel = page.getByRole('region', { name: 'Proposal' });
   await panel.waitFor({ timeout: 240000 });
   await shot('proposal');
+  check(
+    await page.getByRole('button', { name: 'Wrap up' }).isDisabled(),
+    'Wrap up is disabled while a wrap-up waits for approval',
+  );
   await panel.getByRole('button', { name: 'Reject' }).click();
   await page.getByText('rejected', { exact: true }).waitFor();
   const fid = sql(`select feature_id from channel where id=${cid}`);
