@@ -144,8 +144,8 @@ func (s *Store) PendingProposals(
 
 // ApproveProposal applies the pending proposal in one transaction: a new brief
 // version and the role's notes, both authored by the proposal's role, and each
-// proposed decision whose body the feature does not have yet. It also returns how
-// many decisions it added. Nothing is applied if any step fails.
+// proposed decision whose body the feature does not have yet. It closes the channel and
+// returns how many decisions it added. Nothing is applied if any step fails.
 func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, int, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -182,6 +182,10 @@ func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, int, e
 			return Proposal{}, 0, fmt.Errorf("insert decision: %w", err)
 		}
 		added += int(n)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE channel SET closed_at = ? WHERE id = ?", at, p.ChannelID); err != nil {
+		return Proposal{}, 0, fmt.Errorf("close channel: %w", err)
 	}
 	p, err = decideProposal(ctx, tx, p, ProposalApproved, now)
 	return p, added, err
