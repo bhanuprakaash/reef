@@ -77,6 +77,7 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 - [Live channels](./live-channels.md): send, the event stream, stop and resume, `/wrap` and `/promote` text, wrap-up, promote, approve and reject, caps and continue, delete a live channel. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [Teams](./teams.md): `reef team apply` and `list`, a channel on a team, threads, one agent session per teammate, routing by thread, `@mention` and `post_to_channel`, the hop cap, approval gates, wrap wakes nobody, restart, a codex teammate on the test fixture. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [Full team](./full-team.md): `write` per role on claude and codex, `teams/full.json`, one worktree per feature, one writer per tree, checkpoints, rollback, retry, the inbox and its stream, the window's Retry, Rollback and Inbox, and the Google login run end to end with gates. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
+- [GitHub poll](./github.md): a fake `gh` on `PATH`, a PR note and its dedupe, a finished check's note, a failed check's note and developer wake keyed by run, a restart, a solo-team channel (note only) and no `gh` on `PATH`. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
 
 ### Memory loop
 
