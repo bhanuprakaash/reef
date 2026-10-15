@@ -133,7 +133,6 @@ let browser = null;
 let terminals = null;
 let captureWindow = null;
 
-// Over the Reef window when one is showing, else the OS centres it on the screen.
 function placeCaptureWindow() {
   const main = BrowserWindow.getAllWindows().find(
     (w) => w !== captureWindow && w.isVisible() && !w.isMinimized(),
