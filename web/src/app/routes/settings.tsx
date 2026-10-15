@@ -49,16 +49,18 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 function NameSection() {
   const profile = useProfile();
   const save = usePutProfile();
-  const [draft, setDraft] = useState<{ name: string; role: string; style: string[] } | null>(null);
+  const [draft, setDraft] = useState<{ name: string; occupation: string; style: string[] } | null>(
+    null,
+  );
   const saved = {
     name: profile.data?.name ?? '',
-    role: profile.data?.role ?? '',
+    occupation: profile.data?.occupation ?? '',
     style: profile.data?.style ?? [],
   };
-  const { name, role, style } = draft ?? saved;
+  const { name, occupation, style } = draft ?? saved;
   const changed =
     name.trim() !== saved.name ||
-    role !== saved.role ||
+    occupation !== saved.occupation ||
     style.join('\n') !== saved.style.join('\n');
 
   return (
@@ -67,7 +69,7 @@ function NameSection() {
         className="flex flex-col gap-3"
         onSubmit={(e) => {
           e.preventDefault();
-          save.mutate({ name, role, style }, { onSuccess: () => setDraft(null) });
+          save.mutate({ name, occupation, style }, { onSuccess: () => setDraft(null) });
         }}
       >
         <div className="flex items-center gap-3">
@@ -78,14 +80,14 @@ function NameSection() {
             id="profile-name"
             className="min-w-0 flex-1"
             value={name}
-            onChange={(e) => setDraft({ name: e.target.value, role, style })}
+            onChange={(e) => setDraft({ name: e.target.value, occupation, style })}
           />
         </div>
         <ProfileFields
-          role={role}
+          occupation={occupation}
           style={style}
-          onRole={(r) => setDraft({ name, role: r, style })}
-          onStyle={(s) => setDraft({ name, role, style: s })}
+          onOccupation={(o) => setDraft({ name, occupation: o, style })}
+          onStyle={(s) => setDraft({ name, occupation, style: s })}
         />
         <div className="flex justify-end">
           <Button

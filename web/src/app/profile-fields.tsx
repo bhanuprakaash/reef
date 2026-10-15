@@ -1,4 +1,4 @@
-const roles = ['Developer', 'Designer', 'Product manager', 'Founder', 'Student', 'Other'];
+const occupations = ['Developer', 'Designer', 'Product manager', 'Founder', 'Student', 'Other'];
 const styles = [
   'Short answers',
   'Detailed explanations',
@@ -40,20 +40,20 @@ function ChipGroup({ label, options, selected, onToggle }: ChipGroupProps) {
 }
 
 type ProfileFieldsProps = {
-  role: string;
+  occupation: string;
   style: string[];
-  onRole: (role: string) => void;
+  onOccupation: (occupation: string) => void;
   onStyle: (style: string[]) => void;
 };
 
-export function ProfileFields({ role, style, onRole, onStyle }: ProfileFieldsProps) {
+export function ProfileFields({ occupation, style, onOccupation, onStyle }: ProfileFieldsProps) {
   return (
     <>
       <ChipGroup
         label="You are"
-        options={roles}
-        selected={[role]}
-        onToggle={(option) => onRole(option === role ? '' : option)}
+        options={occupations}
+        selected={[occupation]}
+        onToggle={(option) => onOccupation(option === occupation ? '' : option)}
       />
       <ChipGroup
         label="You like"

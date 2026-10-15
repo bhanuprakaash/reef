@@ -11,7 +11,7 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 
 function NameStep() {
   const [name, setName] = useState('');
-  const [role, setRole] = useState('');
+  const [occupation, setOccupation] = useState('');
   const [style, setStyle] = useState<string[]>([]);
   const save = usePutProfile();
 
@@ -20,7 +20,7 @@ function NameStep() {
       className="flex w-full flex-col gap-3 rounded-[22px] bg-card p-[18px] text-left"
       onSubmit={(e) => {
         e.preventDefault();
-        save.mutate({ name, role, style });
+        save.mutate({ name, occupation, style });
       }}
     >
       <div className="space-y-1.5">
@@ -37,7 +37,12 @@ function NameStep() {
           required
         />
       </div>
-      <ProfileFields role={role} style={style} onRole={setRole} onStyle={setStyle} />
+      <ProfileFields
+        occupation={occupation}
+        style={style}
+        onOccupation={setOccupation}
+        onStyle={setStyle}
+      />
       {save.isError && <p className="text-sm text-danger">{save.error.message}</p>}
       <div className="flex justify-end">
         <Button variant="primary" type="submit" loading={save.isPending}>

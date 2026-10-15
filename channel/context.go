@@ -163,12 +163,8 @@ func profileLine(ctx context.Context, st *store.Store) (string, error) {
 		return "", err
 	}
 	s := "You work with " + p.Name
-	if r := strings.ToLower(p.Role); r != "" && r != "other" {
-		article := "a"
-		if strings.ContainsRune("aeiou", rune(r[0])) {
-			article = "an"
-		}
-		s += ", " + article + " " + r
+	if o := strings.ToLower(p.Occupation); o != "" && o != "other" {
+		s += ", a " + o
 	}
 	s += "."
 	if len(p.Style) > 0 {

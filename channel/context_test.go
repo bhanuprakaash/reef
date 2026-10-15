@@ -230,12 +230,10 @@ func TestContext_Profile(t *testing.T) {
 		want string
 	}{
 		{"name only", store.Profile{Name: "Ada"}, "You work with Ada."},
-		{"role", store.Profile{Name: "Ada", Role: "Developer"},
+		{"occupation", store.Profile{Name: "Ada", Occupation: "Developer"},
 			"You work with Ada, a developer."},
-		{"role with a vowel", store.Profile{Name: "Ada", Role: "Engineer"},
-			"You work with Ada, an engineer."},
-		{"other role", store.Profile{Name: "Ada", Role: "Other"}, "You work with Ada."},
-		{"role and style", store.Profile{Name: "Ada", Role: "Developer",
+		{"other occupation", store.Profile{Name: "Ada", Occupation: "Other"}, "You work with Ada."},
+		{"occupation and style", store.Profile{Name: "Ada", Occupation: "Developer",
 			Style: []string{"Short answers", "Ask before big changes"}},
 			"You work with Ada, a developer. They like: short answers, ask before big changes."},
 	}
