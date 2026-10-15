@@ -52,6 +52,52 @@ func TestGhInterval_ZeroOrNegativeDefaults(t *testing.T) {
 	}
 }
 
+// TestStartGitHubPoll_PollsOnceAtStart covers a restart: the first poll must run right away,
+// not after a full REEF_GH_INTERVAL (60s by default), so a restart does not sit on a stale PR
+// note for a minute.
+func TestStartGitHubPoll_PollsOnceAtStart(t *testing.T) {
+	storeDir, dataDir := t.TempDir(), t.TempDir()
+	st, err := store.Open(storeDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	h1 := New(st, dataDir, "/bin/reef")
+	ts := httptest.NewServer(h1)
+
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-b", "main")
+	writeIn(t, repo, "a.txt", "a")
+	gitIn(t, repo, "add", ".")
+	gitIn(t, repo, "commit", "-m", "first")
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
+	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	ts.Close()
+	h1.Close()
+
+	binDir := t.TempDir()
+	writeFakeGh(t, binDir, repo)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	respFile := filepath.Join(t.TempDir(), "resp.json")
+	t.Setenv("GH_FAKE_RESPONSE", respFile)
+	setGhResponse(t, respFile, `{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN",`+
+		`"statusCheckRollup":[]}`)
+
+	// REEF_GH_INTERVAL is left at its 60s default: the note below must appear without the
+	// test waiting anywhere near that long.
+	h2 := New(st, dataDir, "/bin/reef")
+	t.Cleanup(h2.Close)
+	msgs, err := st.Messages(context.Background(), 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 1 || msgs[0].Body != "PR #12 open: https://github.com/x/y/pull/12" {
+		t.Fatalf("messages right after New() = %+v, want the PR note already posted", msgs)
+	}
+}
+
 func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 	storeDir, dataDir := t.TempDir(), t.TempDir()
 	st, err := store.Open(storeDir)

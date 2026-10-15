@@ -122,9 +122,13 @@ func ghInterval() time.Duration {
 	return 60 * time.Second
 }
 
-// startGitHubPoll polls every feature with a worktree for its PR and CI status every
-// ghInterval, until the server closes.
+// startGitHubPoll polls every feature with a worktree for its PR and CI status once right
+// away, then every ghInterval until the server closes, so a restart does not sit on a stale
+// note for a whole interval. The first poll runs on the caller's goroutine, before any other
+// code can reach the server's state, so it never races a caller that polls or inspects it
+// right after construction.
 func (s *server) startGitHubPoll() {
+	s.pollGitHub(s.ctx)
 	s.wg.Add(1)
 	go func() {
 		defer s.wg.Done()
