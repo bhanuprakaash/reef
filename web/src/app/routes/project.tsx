@@ -35,7 +35,7 @@ export function ProjectPage() {
   const quick = projectChannels.filter((c) => c.featureId === null);
 
   return (
-    <div className="space-y-6">
+    <div className="mx-auto w-full max-w-[820px] space-y-6 py-6">
       <header className="flex flex-wrap items-end gap-3.5">
         <div className="min-w-[300px] flex-1">
           <div className="font-mono text-[12.5px] text-muted">{project.path}</div>

@@ -12,7 +12,7 @@ export function ChannelsPage() {
   const [creating, setCreating] = useState<Project | null>(null);
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="mx-auto flex w-full max-w-[820px] flex-col gap-4 py-6">
       <h1 className="text-[32px] font-normal tracking-[-0.02em]">Channels</h1>
       <TextField
         type="search"

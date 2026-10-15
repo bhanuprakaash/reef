@@ -32,7 +32,7 @@ export function InboxList() {
   const shown = items.filter((i) => filter === 'all' || i.kind === filter);
 
   return (
-    <div className="flex max-w-[760px] flex-col gap-7">
+    <div className="mx-auto flex w-full max-w-[820px] flex-col gap-7 py-6">
       <header>
         <h1 className="text-4xl tracking-tight">Needs you</h1>
         {items.length > 0 && (

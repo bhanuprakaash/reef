@@ -47,7 +47,7 @@ export function SettingsPage() {
   const { permission, request } = useNotificationPermission();
 
   return (
-    <div className="flex max-w-[720px] flex-col gap-[22px]">
+    <div className="mx-auto flex w-full max-w-[820px] flex-col gap-[22px] py-6">
       <h1 className="text-[32px] font-normal tracking-[-0.02em]">Settings</h1>
 
       <Section title="Appearance">

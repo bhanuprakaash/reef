@@ -42,7 +42,7 @@ export function TasksPage() {
   }
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="mx-auto flex w-full max-w-[1100px] flex-col gap-5 py-6">
       <header className="flex flex-wrap items-center gap-3">
         <h1 className="text-[32px] font-normal tracking-[-0.02em]">Tasks</h1>
         <div className="ml-auto">
