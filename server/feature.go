@@ -35,6 +35,10 @@ func (s *server) featureRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/features/{id}/worktree", methodNotAllowed)
 	mux.HandleFunc("GET /features/{id}/diff", s.getFeatureDiff)
 	mux.HandleFunc("/features/{id}/diff", methodNotAllowed)
+	mux.HandleFunc("GET /features/{id}/pr", s.getFeaturePR)
+	mux.HandleFunc("/features/{id}/pr", methodNotAllowed)
+	mux.HandleFunc("POST /features/{id}/pr/merge", s.mergeFeaturePR)
+	mux.HandleFunc("/features/{id}/pr/merge", methodNotAllowed)
 }
 
 func (s *server) listFeatures(w http.ResponseWriter, r *http.Request) {

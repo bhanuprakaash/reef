@@ -66,8 +66,9 @@ logged in and on `PATH`.
   bottom tab bar (Today, Channels, Needs you, Tasks, Teams) and a channel opens full screen.
 - Today (`/`): what waits on you, the project's features and recent done tasks, and capture.
 - Channel: bubbles with each author's creature, replies folded under their thread root with a
-  count, and a side panel for the team, a thread, the inspector or the diff (its expand button opens
-  the review page). The running turn names its
+  count, and a side panel for the team, a thread, the inspector, the pull request or the diff (its expand button opens
+  the review page). The header's `PR #N` chip opens the pull request panel: title, state, base and head, review, checks and
+  Open on GitHub; Merge asks to confirm, then does `POST /features/{id}/pr/merge`. The running turn names its
   teammate. A wake held at a gate shows Approve and Reject; a pause from the hop cap shows in
   the cap banner. A channel with rollbackable turns (`GET /turns?channel=ID&rollbackable=1`)
   lists Checkpoints; Roll back on a row asks to confirm, then does `POST /turns/{id}/rollback`.
@@ -439,6 +440,8 @@ tool calls.
 | `GET /features/{id}/worktree` | | 200 `{"path": "..."}`; the path of the feature's worktree, or `""` when it has none yet. Never makes one | 404 |
 | `POST /features/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the feature's worktree the same way the first wake of one of its channels would, reusing it when it already exists | 404 |
 | `GET /features/{id}/diff` | | 200 the worktree's changes against the commit its branch and the project's default branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
+| `GET /features/{id}/pr` | | 200 `{"pr": {"number", "title", "state": "OPEN"\|"MERGED"\|"CLOSED", "url", "isDraft", "reviewDecision", "base", "head", "canMerge", "checks": [{"name", "state": "pass"\|"fail"\|"pending"}]}}`, from `gh pr view feature/<slug>` run in the project's folder; `canMerge` is true only when `state` is `OPEN` and gh calls it `MERGEABLE`; `{"pr": null}` when the branch has no PR | 404, 502 gh is not on `PATH` or failed, with its text |
+| `POST /features/{id}/pr/merge` | no body needed | 200 the same body as `GET /features/{id}/pr`, after `gh pr merge <number> --merge` (a merge commit) | 404 no feature or no PR, 409 gh refused, with its text, 502 |
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
 | `GET /teams/{name}` | | 200, with `mcp` instead of `mcpServers` as above; each role shows `write` | 404 |
 | `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; a role may also list `mcpRemove`, the `{name, label}` of each stored MCP server to drop, as `GET` showed it; servers it does not list are kept); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones, minus those in its `mcpRemove`; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists, or a server in `mcpRemove` no longer matches a stored one by name and label (the team changed since it was loaded; nothing is applied) |
@@ -836,7 +839,7 @@ exist in `reef chat`: it wakes nobody.
 
 `reef serve` polls GitHub for each feature that has a worktree, every `REEF_GH_INTERVAL`
 (default 60s), once right away and then on that interval until the server closes: `gh pr
-view feature/<slug> --json number,url,state,statusCheckRollup`, run in the project's
+view feature/<slug> --json number,title,url,state,isDraft,mergeable,reviewDecision,headRefName,baseRefName,statusCheckRollup`, run in the project's
 folder. `statusCheckRollup` items are either a `CheckRun` (`name`, `status`, `conclusion`,
 `detailsUrl`, `completedAt`) or a `StatusContext` (`context`, `state`, `targetUrl`,
 `startedAt`); both are read.

@@ -219,6 +219,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 58 | One Terminal toggle for the whole window, default off, remembered. It never creates a worktree: a feature without one shows an Open terminal button, and only that button makes it | Looking at a feature must not change the user's git repo |
 | 59 | A role with `write` has no tool call cap; the other roles keep 25 per turn | The writer does the long work (tests first, installs, checks), and the cap paused it mid-change; read-only roles stay capped so a looping reader stops |
 | 60 | A feature's worktree branches from the repo's default branch (the local branch `origin/HEAD` names, else `main`, else `master`, else HEAD), not from the checkout's HEAD; the feature diff is against the same ref. Replaces the HEAD part of 33 | A feature must not inherit the commits of whatever unrelated branch the checkout is on |
+| 64 | A feature's PR shows in a channel side panel, opened from the header's PR chip, with a Merge button that runs `gh pr merge --merge` (a merge commit) only when gh calls the PR mergeable; Azure DevOps is a later ticket | The user sees checks and reviews where the work happens and merges without leaving Reef; gh decides whether a merge is allowed and its message is shown when it refuses |
 
 ## Open questions
 
