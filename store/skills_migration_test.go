@@ -23,6 +23,7 @@ func TestMigrateSkillsToList(t *testing.T) {
 		{"dot inside a name", "", "v1.2-skill, how. Be brief.", `[]`, "v1.2-skill, how. Be brief."},
 		{"repeated name", "", "how, how", `["how"]`, ""},
 		{"odd character", "", "a/b, how", `[]`, "a/b, how"},
+		{"bad name among good ones", "You lead.", "how, a*b. Be brief.", `[]`, "You lead.\n\nhow, a*b. Be brief."},
 		{"empty names dropped", "", "how,, why", `["how","why"]`, ""},
 		{"prose only", "You design.", "Sketch first.", `[]`, "You design.\n\nSketch first."},
 		{"prose without a period", "", "Sketch first", `[]`, "Sketch first"},
