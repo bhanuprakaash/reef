@@ -52,6 +52,31 @@ func TestEnsure_NewBranch(t *testing.T) {
 	}
 }
 
+func TestEnsure_BranchesFromMainNotCheckout(t *testing.T) {
+	repo := newRepo(t)
+	main := run(t, repo, "rev-parse", "main")
+	run(t, repo, "checkout", "-b", "other")
+	if err := os.WriteFile(filepath.Join(repo, "other.txt"), []byte("o"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, repo, "add", ".")
+	run(t, repo, "commit", "-m", "other")
+	dir := Path(t.TempDir(), 1, "login")
+
+	if err := Ensure(context.Background(), repo, dir, "feature/login"); err != nil {
+		t.Fatal(err)
+	}
+	if got := run(t, dir, "rev-parse", "HEAD"); got != main {
+		t.Errorf("HEAD = %q, want main's %q", got, main)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "other.txt")); !os.IsNotExist(err) {
+		t.Errorf("other.txt in the feature worktree, err = %v; want it absent", err)
+	}
+	if got, err := Base(context.Background(), repo, dir); err != nil || got != main {
+		t.Errorf("Base = %q, %v; want main's %q", got, err, main)
+	}
+}
+
 func TestEnsure_ReusesWorktree(t *testing.T) {
 	repo := newRepo(t)
 	dir := Path(t.TempDir(), 1, "login")
