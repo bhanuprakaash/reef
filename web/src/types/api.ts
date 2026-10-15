@@ -199,6 +199,19 @@ export type Inspector = {
   turns: InspectorTurn[];
 };
 
+export type FeaturePR = {
+  number: number;
+  title: string;
+  state: 'OPEN' | 'MERGED' | 'CLOSED';
+  url: string;
+  isDraft: boolean;
+  reviewDecision: string;
+  base: string;
+  head: string;
+  canMerge: boolean;
+  checks: { name: string; state: 'pass' | 'fail' | 'pending' }[];
+};
+
 export type TaskStatus = 'todo' | 'doing' | 'done';
 
 export type Task = {
