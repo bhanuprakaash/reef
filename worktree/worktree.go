@@ -32,11 +32,11 @@ func Branch(slug string) string { return "feature/" + slug }
 
 // Ensure makes dir a worktree of repo on branch. It does nothing when dir already is one,
 // after finishing an add that was cut short: its folder was made and registered but the
-// checkout into it never ran. The branch is made from the HEAD of repo, or reused when it
-// exists. A worktree whose folder is gone is made again. A repo with no commit has no HEAD to
-// make a branch from, and fails, as does a branch that another worktree has checked out. The
-// add itself runs under context.WithoutCancel, so a ctx cancelled while it is in flight does
-// not leave another half-made tree.
+// checkout into it never ran. The branch is made from the base branch of repo (see baseRef),
+// or reused when it exists. A worktree whose folder is gone is made again. A repo with no
+// commit has no HEAD to make a branch from, and fails, as does a branch that another worktree
+// has checked out. The add itself runs under context.WithoutCancel, so a ctx cancelled while it
+// is in flight does not leave another half-made tree.
 func Ensure(ctx context.Context, repo, dir, branch string) error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
 		return finishHalfAdd(ctx, dir)
@@ -47,7 +47,7 @@ func Ensure(ctx context.Context, repo, dir, branch string) error {
 	if _, err := git(ctx, repo, "worktree", "prune"); err != nil {
 		return err
 	}
-	args := []string{"worktree", "add", "-b", branch, dir, "HEAD"}
+	args := []string{"worktree", "add", "-b", branch, dir, baseRef(ctx, repo)}
 	_, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
 	var exit *exec.ExitError
 	switch {
@@ -65,6 +65,22 @@ func Ensure(ctx context.Context, repo, dir, branch string) error {
 	}
 	_, err = git(context.WithoutCancel(ctx), repo, args...)
 	return err
+}
+
+// baseRef is the ref a feature branch starts from, so it does not inherit the commits of
+// whatever branch repo has checked out: the local branch origin/HEAD names, else local main,
+// else master, else HEAD.
+func baseRef(ctx context.Context, repo string) string {
+	var names []string
+	if ref, err := git(ctx, repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
+		names = append(names, strings.TrimPrefix(ref, "origin/"))
+	}
+	for _, name := range append(names, "main", "master") {
+		if _, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+name); err == nil {
+			return "refs/heads/" + name
+		}
+	}
+	return "HEAD"
 }
 
 // finishHalfAdd repairs dir when a worktree add was cut short before the checkout ran: dir's

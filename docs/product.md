@@ -218,6 +218,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 57 | The browser pane starts closed and the window remembers the choice; it also shows while an agent drives it, without changing the remembered choice | A pane that opens at every launch is noise, but an agent's browser work must be seen |
 | 58 | One Terminal toggle for the whole window, default off, remembered. It never creates a worktree: a feature without one shows an Open terminal button, and only that button makes it | Looking at a feature must not change the user's git repo |
 | 59 | A role with `write` has no tool call cap; the other roles keep 25 per turn | The writer does the long work (tests first, installs, checks), and the cap paused it mid-change; read-only roles stay capped so a looping reader stops |
+| 60 | A feature's worktree branches from the repo's default branch (the local branch `origin/HEAD` names, else `main`, else `master`, else HEAD), not from the checkout's HEAD; the feature diff is against the same ref. Replaces the HEAD part of 33 | A feature must not inherit the commits of whatever unrelated branch the checkout is on |
 
 ## Open questions
 
