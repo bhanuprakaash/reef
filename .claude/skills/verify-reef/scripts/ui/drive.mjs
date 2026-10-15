@@ -674,14 +674,14 @@ async function inbox() {
   await send('DESIGN a short plan for a login form.');
   await workingAs('lead', 60000);
   await aside.getByRole('link', { name: /^Inbox/ }).click();
-  await page.getByRole('heading', { name: 'Inbox', level: 1 }).waitFor();
+  await page.getByRole('heading', { name: 'Needs you', level: 1 }).waitFor();
   check(page.url().endsWith('/inbox'), 'the Inbox link opens /inbox', page.url());
   const row = main.getByRole('listitem').filter({ hasText: 'lead wants to wake architect' });
   await row.waitFor({ timeout: 240000 });
   await shot('approval-row');
   const rowText = (await row.textContent()) ?? '';
   check(
-    /Approval: inbox room/.test(rowText) && (await row.getByRole('button', { name: 'Approve' }).count()) === 1 && (await row.getByRole('button', { name: 'Reject' }).count()) === 1,
+    /Approval/.test(rowText) && /# inbox room/.test(rowText) && (await row.getByRole('button', { name: 'Approve' }).count()) === 1 && (await row.getByRole('button', { name: 'Reject' }).count()) === 1,
     'a new approval of a channel that is not open shows in the inbox with Approve and Reject',
     rowText,
   );
@@ -698,7 +698,7 @@ async function inbox() {
   let landed = await landedOn(`approval-${aid}`);
   check(page.url().endsWith(`/channels/${cid}#approval-${aid}`) && landed.inView && landed.ringed, 'clicking the notification opens the channel at the approval row, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
   await aside.getByRole('link', { name: /^Inbox/ }).click();
-  await row.getByRole('link', { name: /Approval: inbox room/ }).click();
+  await row.getByRole('link', { name: 'Open channel' }).click();
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
   landed = await landedOn(`approval-${aid}`);
   check(page.url().endsWith(`/channels/${cid}#approval-${aid}`) && landed.inView && landed.ringed, 'clicking an inbox item opens its channel at the approval row, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
@@ -717,7 +717,7 @@ async function inbox() {
     'Approve ran the wake: the approval is approved and the architect turn is done',
     `approvals: ${sql(`select id,status from approval where channel_id=${cid}`)}; turns: ${sql(`select group_concat(role||' '||status) from (select role,status from turn where channel_id=${cid} order by id)`)}`,
   );
-  const waiting = main.getByRole('listitem').filter({ hasText: 'Waiting: inbox room' });
+  const waiting = main.getByRole('listitem').filter({ hasText: /Waiting.*inbox room/ });
   await waiting.waitFor({ timeout: 30000 });
   await shot('after-wake');
   check((await waiting.getByRole('link', { name: 'Open' }).count()) === 1, 'the architect answer then shows as a waiting item with Open', await waiting.textContent());
