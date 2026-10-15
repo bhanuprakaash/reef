@@ -10,7 +10,7 @@ A personal Mac app where every feature keeps its own memory, and a team of AI ag
 
 ## Plan
 
-Eight slices, tracked as GitHub issues labeled `slice`. Each slice is split into small sub-issues before work starts. Order:
+Nine slices, tracked as GitHub issues labeled `slice`. Each slice is split into small sub-issues before work starts. Order:
 
 | Slice | Issue | Outcome |
 | --- | --- | --- |
@@ -22,6 +22,7 @@ Eight slices, tracked as GitHub issues labeled `slice`. Each slice is split into
 | 6 Full team | #6 | Developer, tester, permissions, worktrees, gates, checkpoints, inbox |
 | 7 Mac app | #7 | Electron shell, browser pane with agent control, terminal |
 | 8 Polish | #8 | Board, GitHub, inspector, diff review, project memory, workshop |
+| 9 Window redesign | #199 | The design canvas in code: tokens, creatures, sidebar, channel, every screen, phone layout, light theme ([docs/design.md](docs/design.md)) |
 
 Memory first: 1, 2, 3 before any UI. 1 and 2 have no dependency on each other.
 
