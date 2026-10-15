@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -731,5 +732,91 @@ func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
 	}
 	if len(turns) != 0 {
 		t.Fatalf("turns = %+v, want none: a solo team has no developer to wake", turns)
+	}
+}
+
+// failedCheckJSON is a gh pr view response with one failed CheckRun, its run (and so its run
+// key) identified by n.
+func failedCheckJSON(n int) string {
+	return fmt.Sprintf(`{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN",`+
+		`"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED",`+
+		`"conclusion":"FAILURE","detailsUrl":"https://github.com/x/y/actions/runs/%d/job/1"}]}`, n)
+}
+
+// TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap covers the CI wake's hop accounting: it
+// is attributed to an author other than the user, so it counts toward the hop cap like any
+// agent-originated wake instead of resetting it, and a run of failing checks, the way a
+// developer pushing fixes into a broken build would produce, pauses the channel once the cap
+// is hit rather than waking the developer forever.
+func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Backend: "claude", Write: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
+	h := newHandler(st, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+		fake.channelID.Store(id)
+		return fake, nil
+	})
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	repo := ghFeatureSetup(t, ts.URL, "crew")
+
+	binDir := t.TempDir()
+	writeFakeGh(t, binDir, repo)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	respFile := filepath.Join(t.TempDir(), "resp.json")
+	t.Setenv("GH_FAKE_RESPONSE", respFile)
+	logFile := filepath.Join(t.TempDir(), "log.txt")
+	t.Setenv("GH_FAKE_LOG", logFile)
+	if err := os.WriteFile(logFile, []byte("line1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sub := subscribeTo(t, ts.URL, 1)
+	sub.want(t, _idleFrame)
+
+	for run := 1; run <= store.HopCap; run++ {
+		setGhResponse(t, respFile, failedCheckJSON(run))
+		h.s.pollGitHub(ctx)
+		want := []string{"note {}"}
+		if run == 1 {
+			want = []string{"note {}", "note {}"} // the PR note, then the check note
+		}
+		want = append(want, `turn {"role":"developer","status":"running"}`,
+			`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
+		sub.want(t, want...)
+	}
+	fake.mu.Lock()
+	ran := len(fake.ran)
+	fake.mu.Unlock()
+	if ran != store.HopCap {
+		t.Fatalf("turns run after %d failed checks = %d, want %d", store.HopCap, ran, store.HopCap)
+	}
+
+	// The next failed check is still noted, but the hop cap pauses the channel instead of
+	// waking the developer again: were the wake still attributed to the user, it would reset
+	// the count instead of hitting the cap.
+	setGhResponse(t, respFile, failedCheckJSON(store.HopCap+1))
+	h.s.pollGitHub(ctx)
+	sub.want(t, "note {}", `pause {"reason":"`+_hopPause+`"}`)
+
+	fake.mu.Lock()
+	ran = len(fake.ran)
+	fake.mu.Unlock()
+	if ran != store.HopCap {
+		t.Fatalf("turns run after the capped check = %d, want still %d: no developer turn ran", ran, store.HopCap)
+	}
+	if ch, err := st.Channel(ctx, 1); err != nil || ch.Paused != _hopPause {
+		t.Fatalf("channel = %+v, %v, want paused with the hop cap reason", ch, err)
 	}
 }

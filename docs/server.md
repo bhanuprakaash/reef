@@ -818,11 +818,13 @@ run, also across restarts (`feature_github_check.woken`): the text names the PR 
 failed check, plus the last 50 lines of `gh run view <run id> --log-failed` when the run id
 can be read from the `CheckRun`'s `detailsUrl` (`/actions/runs/<id>/`); no run id, no log. A
 channel whose team has no `developer` role gets the note only. The wake runs as its own
-chain, the way a retried turn does (decision 39): no gate holds it, since no role sent it,
-but the channel's own caps (pause, token budget, hop count) still apply. A channel with a
-turn running, or paused, cannot take the wake on that poll; the note still posts, the wake is
-retried on a later poll once the channel is idle, and the busy cause is logged once, not
-every poll.
+chain, the way a retried turn does (decision 39), attributed to author `reef` rather than
+`user`: no gate holds it, since no role sent it, but it counts as a hop like any
+agent-originated wake, so a run of failing checks still pauses at the hop cap instead of
+resetting the count every time; the channel's other caps (pause, token budget) also still
+apply. A channel with a turn running, or paused (including by the hop cap), cannot take the
+wake on that poll; the note still posts, the wake is retried on a later poll once the channel
+is idle, and the busy cause is logged once, not every poll.
 
 ## Append-only
 
