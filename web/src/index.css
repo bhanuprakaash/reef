@@ -176,6 +176,13 @@
   body {
     background: var(--color-main);
     color: var(--color-fg);
+    font-family: var(--font-sans);
+    font-size: 14.5px;
+    line-height: 1.45;
+    letter-spacing: -0.005em;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
   :focus-visible {
