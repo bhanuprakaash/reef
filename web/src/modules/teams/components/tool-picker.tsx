@@ -25,7 +25,7 @@ export function ToolPicker({ label, tools, servers, onChange }: Props) {
       <div className="mb-2 text-xs text-muted">Allowed tools</div>
       <div className="mb-3 flex flex-wrap gap-x-4 gap-y-1">
         {entries.map(({ tool, text }) => (
-          <label key={tool} className="flex items-center gap-1.5 text-sm">
+          <label key={tool} className="flex items-center gap-x-1.5 text-sm">
             <input
               type="checkbox"
               aria-label={`${label} tool ${tool}`}
