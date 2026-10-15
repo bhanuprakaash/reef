@@ -80,7 +80,7 @@ export function ChannelHeader({
         )}
         {diff && channel.featureId !== null && (
           <Link
-            to={`/features/${channel.featureId}`}
+            to={`/features/${channel.featureId}/review`}
             aria-label={`Diff +${diff.added} -${diff.removed}`}
             className="flex h-9 items-center gap-1.5 rounded-field px-2.5 text-[13px] text-soft hover:bg-card"
           >

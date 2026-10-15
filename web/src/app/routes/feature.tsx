@@ -11,10 +11,10 @@ import { useEnsureWorktree } from '@/modules/features/api/ensure-worktree';
 import { useFeature } from '@/modules/features/api/get-feature';
 import { BriefPanel } from '@/modules/features/components/brief-panel';
 import { DecisionList } from '@/modules/features/components/decision-list';
-import { DiffPanel } from '@/modules/features/components/diff-panel';
 import { FeatureForm } from '@/modules/features/components/feature-form';
 import { JourneyBar } from '@/modules/features/components/journey-bar';
 import { StagePicker } from '@/modules/features/components/stage-picker';
+import { diffCounts } from '@/modules/features/utils/diff-counts';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { useTasks } from '@/modules/tasks/api/get-tasks';
 import { TaskList } from '@/modules/tasks/components/task-list';
@@ -86,7 +86,23 @@ export function FeaturePage() {
             {diff.isError ? (
               <p className="text-sm text-danger">{diff.error.message}</p>
             ) : (
-              <DiffPanel files={diff.data ?? []} featureId={id} />
+              <div className="flex items-center gap-3 text-sm">
+                {diff.data &&
+                  (diff.data.length ? (
+                    <>
+                      <span className="text-muted">
+                        {diff.data.length} file{diff.data.length === 1 ? '' : 's'}
+                      </span>
+                      <span className="text-done">+{diffCounts(diff.data).added}</span>
+                      <span className="text-failed">−{diffCounts(diff.data).removed}</span>
+                    </>
+                  ) : (
+                    <span className="text-muted">No changes.</span>
+                  ))}
+                <Link to={`/features/${id}/review`} className={`${buttonClass()} ml-auto`}>
+                  Review changes
+                </Link>
+              </div>
             )}
           </Card>
         </div>

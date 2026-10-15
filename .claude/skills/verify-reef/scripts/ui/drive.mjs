@@ -400,6 +400,8 @@ function ensureRepo() {
     git(projectDir, 'rev-parse', 'HEAD');
   } catch {
     git(projectDir, 'init', '-q', '-b', 'main');
+  }
+  if (!git(projectDir, 'ls-files', 'README.md')) {
     writeFileSync(path.join(projectDir, 'README.md'), 'hello\n');
     git(projectDir, 'add', '.');
     git(projectDir, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'first');
@@ -469,23 +471,24 @@ async function diff() {
   const featureId = page.url().split('/').pop();
   const cid = await newChannel(main, 'New channel', 'diff chat');
 
-  // Open the diff panel before the turn runs, and leave it open: a turn started through the
-  // API (not the channel page) should still land on this still-mounted panel with no reload.
-  await page.goto(`${base}/features/${featureId}`);
-  const panel = main.locator('section', { has: page.getByRole('heading', { name: 'Diff', level: 2 }) });
-  await panel.getByText('No changes.').waitFor({ timeout: 15000 });
+  // Open the review page before the turn runs, and leave it open: a turn started through the
+  // API (not the channel page) should still land on this still-mounted view with no reload.
+  await page.goto(`${base}/features/${featureId}/review`);
+  await main.getByText('No changes.').waitFor({ timeout: 15000 });
   await shot('empty');
   await fetch(`${base}/channels/${cid}/send`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: 'Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.' }),
   });
-  await panel.getByText('new.txt').waitFor({ timeout: 30000 });
+  const files = main.getByRole('navigation', { name: 'Files' });
+  await files.getByText('new.txt').waitFor({ timeout: 30000 });
   await shot('diff');
   check(
-    (await panel.getByText('added').count()) === 1 && (await panel.getByText('hi').count()) === 1,
-    'the diff panel shows new.txt as added with its line, open since before the turn and never reloaded',
-    await panel.innerText(),
+    (await files.innerText()).replace(/\s+/g, ' ') === 'A new.txt' &&
+      (await main.locator('[data-path="new.txt"][data-line="1"]').innerText()).includes('hi'),
+    'the review page lists new.txt as A with its line, open since before the turn and never reloaded',
+    await main.innerText(),
   );
   const json = await getJson(`/features/${featureId}/diff`);
   check(
@@ -493,6 +496,20 @@ async function diff() {
     'GET /features/{id}/diff returns the file with its added line',
     JSON.stringify(json),
   );
+
+  await page.goto(`${base}/features/${featureId}`);
+  const card = main.locator('section', { has: page.getByRole('heading', { name: 'Diff', level: 2 }) });
+  await card.getByText('1 file').waitFor();
+  await shot('summary');
+  check(
+    (await card.innerText()).replace(/\s+/g, ' ').includes('1 file +1 −0'),
+    'the feature page Diff card sums the changes and links to the review page',
+    await card.innerText(),
+  );
+  await page.goto(`${base}/channels/${cid}`);
+  await page.getByRole('link', { name: /^Diff \+1/ }).click();
+  await main.getByRole('heading', { name: 'Changes', level: 1 }).waitFor();
+  check(page.url().endsWith(`/features/${featureId}/review`), "the channel header's Diff button opens the review page", page.url());
 }
 
 async function memory() {
@@ -588,9 +605,10 @@ async function review() {
   }
   ensureRepo();
   const section = await addProject();
-  await addFeature(section, 'login', 'Login');
+  const slug = await addFeature(section, 'login', 'Login');
   const featureId = page.url().split('/').pop();
   const { id: cid } = await newTeamChannel('full', 'review room');
+  const tree = path.join(data, 'worktrees', sql(`select project_id from channel where id=${cid}`), slug);
   await send('@developer Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.');
   await workingAs('developer', 60000);
   await idle();
@@ -605,22 +623,40 @@ async function review() {
     .at(-1);
   check(!!root, 'the developer posted a third top-level message, its latest thread root', root && `message ${root.id}`);
 
-  await page.goto(`${base}/features/${featureId}`);
-  const panel = main.locator('section', { has: page.getByRole('heading', { name: 'Diff', level: 2 }) });
-  await panel.getByText('README.md').waitFor({ timeout: 15000 });
+  // A binary file has no hunks.
+  writeFileSync(path.join(tree, 'blob.bin'), Buffer.from([0, 1, 2, 0]));
+  await page.goto(`${base}/features/${featureId}/review`);
+  const files = main.getByRole('navigation', { name: 'Files' });
+  const diffView = main.getByRole('region', { name: 'Diff' });
+  const sendButton = main.getByRole('button', { name: /^Send to/ });
+  await files.getByText('README.md').waitFor({ timeout: 15000 });
+  const rows = (await files.getByRole('button').allInnerTexts()).map((r) => r.replace(/\s+/g, ' ')).join(', ');
+  check(rows === 'D README.md, A blob.bin, A d.txt, A new.txt', 'the files are listed with A, M or D', rows);
+  check(
+    (await files.getByText('README.md').evaluate((el) => getComputedStyle(el).textDecorationLine)) === 'line-through',
+    'the deleted file is struck through',
+  );
+  await files.getByText('blob.bin').click();
+  check((await diffView.innerText()).includes('No text changes.'), 'a file without hunks shows No text changes', await diffView.innerText());
+  await files.getByText('README.md').click();
   await shot('diff');
-  await panel.locator('[data-path="new.txt"][data-line="1"]').click();
-  await panel.getByLabel('Comment on new.txt:1').fill('nice start');
-  await panel.getByRole('button', { name: 'Add comment' }).click();
-  await panel.locator('[data-path="d.txt"][data-line="1"]').click();
-  await panel.getByLabel('Comment on d.txt:1').fill('rename this');
-  await panel.getByRole('button', { name: 'Add comment' }).click();
-  await panel.locator('[data-path="README.md"][data-line="1"]').click();
-  await panel.getByLabel('Comment on README.md:1 (removed)').fill('was this needed?');
-  await panel.getByRole('button', { name: 'Add comment' }).click();
+  const comment = async (file, line, label, text) => {
+    await files.getByText(file).click();
+    await diffView.locator(`[data-path="${file}"][data-line="${line}"]`).click();
+    await main.getByLabel(label).fill(text);
+    await main.getByRole('button', { name: 'Add comment' }).click();
+  };
+  await comment('new.txt', 1, 'Comment on new.txt:1', 'nice start');
+  await comment('d.txt', 1, 'Comment on d.txt:1', 'rename this');
+  await comment('README.md', 1, 'Comment on README.md:1 (removed)', 'was this needed?');
+  check(
+    (await main.getByText('3 comments').count()) === 1 && (await files.getByText('README.md').locator('xpath=..').innerText()).trim().endsWith('1'),
+    'three drafts are counted in the header and per file',
+    await main.innerText(),
+  );
   await shot('comments');
   const before = Number(sql(`select count(*) from turn where channel_id=${cid} and role='developer'`));
-  await panel.getByRole('button', { name: 'Send to developer' }).click();
+  await sendButton.click();
   // The review message matches no recorded scenario, so the turn may error and end before
   // the window ever shows "is working...": poll the turn row instead of workingAs/idle.
   let after = before;
@@ -643,7 +679,7 @@ async function review() {
   check(sent.parentId === root.id, "the message's parent is the developer's latest thread root", `parentId ${sent.parentId}, root ${root.id}`);
   check(after > before, 'a developer turn started for the review message', `turns before ${before}, after ${after}`);
   check(
-    (await panel.getByRole('button', { name: 'Send to developer' }).count()) === 0,
+    (await main.getByText('0 comments').count()) === 1 && (await sendButton.isDisabled()),
     'comments clear after a successful send',
   );
 }
