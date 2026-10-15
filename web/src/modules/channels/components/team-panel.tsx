@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 import { useInspector } from '@/modules/channels/api/get-inspector';
 import { formatTokens } from '@/modules/channels/utils/format-tokens';
 import type { Role } from '@/types/api';
+import { Markdown } from '@/components/markdown';
 import { Creature, type CreatureState } from '@/components/creature';
 
 type Props = {
@@ -71,7 +72,9 @@ export function TeamPanel({ channelId, featureId, roles, working, waiting, brief
       {featureId !== null && (
         <div>
           <h2 className="mb-1.5 text-[13px] text-muted">Brief</h2>
-          <p className="whitespace-pre-wrap text-[13.5px] text-soft">{brief || 'No brief yet.'}</p>
+          <div className="text-[13.5px] text-soft">
+            <Markdown>{brief || 'No brief yet.'}</Markdown>
+          </div>
           <Link
             to={`/features/${featureId}`}
             className="mt-2 inline-block border-b border-line text-[13px]"

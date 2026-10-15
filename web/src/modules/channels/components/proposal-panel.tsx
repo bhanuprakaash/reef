@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useDecideProposal } from '@/modules/channels/api/decide-proposal';
 import { useProposal } from '@/modules/channels/api/get-proposal';
 import { Button } from '@/components/button';
+import { Markdown } from '@/components/markdown';
 import { Creature } from '@/components/creature';
 
 export function ProposalPanel({
@@ -59,12 +60,12 @@ export function ProposalPanel({
       </div>
       <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
         <h3 className="text-xs text-muted uppercase">Brief</h3>
-        <pre className="font-sans whitespace-pre-wrap">{p.brief}</pre>
+        <Markdown>{p.brief}</Markdown>
       </div>
       {p.notes && (
         <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
           <h3 className="text-xs text-muted uppercase">Notes</h3>
-          <pre className="font-sans whitespace-pre-wrap">{p.notes}</pre>
+          <Markdown>{p.notes}</Markdown>
         </div>
       )}
       {p.decisions.length > 0 && (
