@@ -3,7 +3,11 @@ import type { InspectorRole, InspectorTurn } from '@/types/api';
 import { buttonClass, errorClass, mutedClass } from '@/utils/classes';
 
 function cost(costUsd: number | null) {
-  return costUsd === null ? '—' : `$${costUsd.toFixed(2)}`;
+  return costUsd === null ? '—' : `$${costUsd.toFixed(4)}`;
+}
+
+function turnsLabel(n: number) {
+  return `${n} turn${n === 1 ? '' : 's'}`;
 }
 
 function tokens(usage: InspectorRole['usage']) {
@@ -47,7 +51,7 @@ function RoleBlock({ role, turns }: { role: InspectorRole; turns: InspectorTurn[
       <summary className="flex cursor-pointer gap-2 px-2 py-1">
         <span className="font-medium">{role.role}</span>
         <span className={mutedClass}>
-          {role.turns} turns · {tokens(role.usage)} · {cost(role.costUsd)}
+          {turnsLabel(role.turns)} · {tokens(role.usage)} · {cost(role.costUsd)}
         </span>
       </summary>
       <div className="space-y-2 border-t border-neutral-200 p-2 dark:border-neutral-800">
