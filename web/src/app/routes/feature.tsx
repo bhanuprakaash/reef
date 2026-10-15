@@ -10,6 +10,7 @@ import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDecisions } from '@/modules/features/api/get-decisions';
 import { useDiff } from '@/modules/features/api/get-diff';
 import { useFeature } from '@/modules/features/api/get-feature';
+import { useSetFeatureClosed } from '@/modules/features/api/set-feature-closed';
 import { BriefPanel } from '@/modules/features/components/brief-panel';
 import { DecisionList } from '@/modules/features/components/decision-list';
 import { FeatureForm } from '@/modules/features/components/feature-form';
@@ -37,6 +38,7 @@ export function FeaturePage() {
   const channels = useChannels();
   const teams = useTeams();
   const terminal = useTerminal(true);
+  const setClosed = useSetFeatureClosed(id);
   const [dialog, setDialog] = useState<'edit' | 'channel' | null>(null);
 
   if (feature.isPending) return <p className="text-sm text-muted">Loading...</p>;
@@ -57,11 +59,29 @@ export function FeaturePage() {
           </div>
           <h1 className="text-[40px] leading-[1.05] font-normal tracking-[-0.02em]">{f.name}</h1>
           {f.goal && <p className="mt-2 max-w-xl text-sm text-muted">{f.goal}</p>}
+          {setClosed.isError && (
+            <p className="mt-2 text-sm text-danger">{setClosed.error.message}</p>
+          )}
         </div>
         <div className="flex gap-2">
           <StagePicker feature={f} />
           <Button type="button" onClick={() => setDialog('edit')}>
             Edit
+          </Button>
+          <Button
+            type="button"
+            disabled={setClosed.isPending}
+            onClick={() => {
+              if (f.closedAt !== null) setClosed.mutate(false);
+              else if (
+                window.confirm(
+                  `Close ${f.name}? Its channels close too and their agents stop. You can reopen it later.`,
+                )
+              )
+                setClosed.mutate(true);
+            }}
+          >
+            {f.closedAt === null ? 'Close feature' : 'Reopen'}
           </Button>
           {latestChannel && (
             <Link to={`/channels/${latestChannel.id}`} className={buttonClass('primary')}>

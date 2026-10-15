@@ -16,6 +16,7 @@ export function useDecideProposal(channelId: number, featureId: number | null) {
       }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['proposal', channelId] });
+      void queryClient.invalidateQueries({ queryKey: ['channels'] });
       if (featureId === null) return;
       void queryClient.invalidateQueries({ queryKey: briefsKey(featureId) });
       void queryClient.invalidateQueries({ queryKey: decisionsKey(featureId) });

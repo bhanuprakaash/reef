@@ -25,6 +25,7 @@ export type Feature = {
   goal: string;
   stage: string;
   createdAt: string;
+  closedAt: string | null;
 };
 
 export type Brief = {
@@ -56,6 +57,7 @@ export type Channel = {
   permissionMode: string;
   paused: string;
   createdAt: string;
+  closedAt: string | null;
 };
 
 export type ChannelPreview = Channel & {
