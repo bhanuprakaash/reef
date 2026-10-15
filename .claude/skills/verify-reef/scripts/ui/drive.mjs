@@ -491,15 +491,16 @@ async function inspector() {
   const devRole = json.roles.find((r) => r.role === 'developer');
   check(!!leadRole && !!devRole, 'the API lists a lead role and a developer role', JSON.stringify(json.roles));
 
+  const turnsLabel = (n) => `${n} turn${n === 1 ? '' : 's'}`;
   const leadText = await panel.locator('summary', { hasText: 'lead' }).innerText();
   const devText = await devSummary.innerText();
   check(
-    leadText.includes(`${leadRole.turns} turns`) && leadText.includes(`${leadRole.usage.inputTokens} in`),
+    leadText.includes(turnsLabel(leadRole.turns)) && leadText.includes(`${leadRole.usage.inputTokens} in`),
     'the lead block shows turn count and tokens from the API',
     leadText,
   );
   check(
-    devText.includes(`${devRole.turns} turns`) && devText.includes(`${devRole.usage.inputTokens} in`),
+    devText.includes(turnsLabel(devRole.turns)) && devText.includes(`${devRole.usage.inputTokens} in`),
     'the developer block shows turn count and tokens from the API',
     devText,
   );
