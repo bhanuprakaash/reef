@@ -20,6 +20,7 @@ import { diffCounts } from '@/modules/features/utils/diff-counts';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { useTasks } from '@/modules/tasks/api/get-tasks';
 import { TaskList } from '@/modules/tasks/components/task-list';
+import { TaskProgress } from '@/modules/tasks/components/task-progress';
 import { roleFaces } from '@/utils/role-faces';
 import { BackButton } from '@/components/back-button';
 import { Button, buttonClass } from '@/components/button';
@@ -64,7 +65,7 @@ export function FeaturePage() {
           )}
         </div>
         <div className="flex gap-2">
-          <StagePicker feature={f} />
+          {f.kind === 'journey' && <StagePicker feature={f} />}
           <Button type="button" onClick={() => setDialog('edit')}>
             Edit
           </Button>
@@ -82,7 +83,11 @@ export function FeaturePage() {
           )}
         </div>
       </header>
-      <JourneyBar stage={f.stage} />
+      {f.kind === 'journey' ? (
+        <JourneyBar stage={f.stage} />
+      ) : (
+        <TaskProgress tasks={tasks.data ?? []} />
+      )}
       <div className="flex flex-wrap items-start gap-5">
         <div className="flex flex-[999_1_460px] flex-col gap-5 md:min-w-[460px]">
           {briefs.isError ? (

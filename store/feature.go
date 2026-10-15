@@ -13,7 +13,8 @@ import (
 
 const (
 	_defaultStage = "ideation"
-	_featureCols  = "id, project_id, slug, name, goal, stage, created_at, closed_at"
+	_defaultKind  = "journey"
+	_featureCols  = "id, project_id, slug, name, goal, stage, kind, created_at, closed_at"
 )
 
 var _slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
@@ -26,6 +27,7 @@ type Feature struct {
 	Name      string     `json:"name"`
 	Goal      string     `json:"goal"`
 	Stage     string     `json:"stage"`
+	Kind      string     `json:"kind"`
 	CreatedAt time.Time  `json:"createdAt"`
 	ClosedAt  *time.Time `json:"closedAt"`
 }
@@ -57,10 +59,13 @@ var (
 
 func insertFeature(ctx context.Context, x execer, f Feature) (Feature, error) {
 	now := time.Now().UTC()
+	if f.Kind == "" {
+		f.Kind = _defaultKind
+	}
 	res, err := x.ExecContext(ctx,
-		"INSERT INTO feature (project_id, slug, name, goal, stage, created_at) "+
-			"VALUES (?, ?, ?, ?, ?, ?)",
-		f.ProjectID, f.Slug, f.Name, f.Goal, f.Stage, now.Format(time.RFC3339Nano))
+		"INSERT INTO feature (project_id, slug, name, goal, stage, kind, created_at) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?)",
+		f.ProjectID, f.Slug, f.Name, f.Goal, f.Stage, f.Kind, now.Format(time.RFC3339Nano))
 	if isUnique(err) {
 		return f, fmt.Errorf("feature slug %q is taken in its project: %w", f.Slug, ErrConflict)
 	}
@@ -127,15 +132,16 @@ func (s *Store) Features(ctx context.Context, projectID *int64) ([]Feature, erro
 	return scanAll(rows, scanFeature)
 }
 
-// UpdateFeature sets the name, goal and stage of f.ID. A feature never changes
-// project or slug: the slug names its branch.
+// UpdateFeature sets the name, goal and stage of f.ID, and its kind when f.Kind is not empty. A
+// feature never changes project or slug: the slug names its branch.
 func (s *Store) UpdateFeature(ctx context.Context, f Feature) (Feature, error) {
 	if err := f.validate(); err != nil {
 		return Feature{}, err
 	}
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE feature SET name = ?, goal = ?, stage = ? WHERE id = ?",
-		f.Name, f.Goal, f.Stage, f.ID)
+		"UPDATE feature SET name = ?, goal = ?, stage = ?, kind = COALESCE(NULLIF(?, ''), kind) "+
+			"WHERE id = ?",
+		f.Name, f.Goal, f.Stage, f.Kind, f.ID)
 	if err != nil {
 		return Feature{}, fmt.Errorf("update feature: %w", err)
 	}
@@ -222,10 +228,14 @@ func (f *Feature) validateSlug() error {
 	return nil
 }
 
-// validate also fills the default stage.
+// validate also fills the default stage. An empty kind is valid: a create defaults it and an
+// update keeps the old one.
 func (f *Feature) validate() error {
 	if f.Name == "" {
 		return fmt.Errorf("%w: feature name is required", ErrInvalid)
+	}
+	if f.Kind != "" && f.Kind != _defaultKind && f.Kind != "fixes" {
+		return fmt.Errorf("%w: feature kind %q must be %s or fixes", ErrInvalid, f.Kind, _defaultKind)
 	}
 	if f.Stage == "" {
 		f.Stage = _defaultStage
@@ -238,7 +248,7 @@ func scanFeature(r interface{ Scan(...any) error }) (Feature, error) {
 	var created string
 	var closed sql.NullString
 	if err := r.Scan(
-		&f.ID, &f.ProjectID, &f.Slug, &f.Name, &f.Goal, &f.Stage, &created, &closed,
+		&f.ID, &f.ProjectID, &f.Slug, &f.Name, &f.Goal, &f.Stage, &f.Kind, &created, &closed,
 	); err != nil {
 		return Feature{}, err
 	}

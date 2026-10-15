@@ -1,0 +1,1 @@
+ALTER TABLE feature ADD COLUMN kind TEXT NOT NULL DEFAULT 'journey';

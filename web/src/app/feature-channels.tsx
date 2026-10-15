@@ -1,17 +1,17 @@
 import { useQuery } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
+import { FeatureStageChip } from '@/app/feature-stage';
 import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { Row } from '@/components/row';
-import { StageChip } from '@/components/stage-chip';
 import { channelsQuery } from '@/lib/api/get-channels';
 import { useTeams } from '@/lib/api/get-teams';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
-import { STAGES } from '@/modules/features/utils/stages';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
+import { useTasks } from '@/modules/tasks/api/get-tasks';
 import type { ChannelPreview, Feature, Project } from '@/types/api';
 import { roleFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
@@ -24,15 +24,6 @@ function storedCollapsed(): number[] {
   } catch {
     return [];
   }
-}
-
-function FeatureStage({ stage }: { stage: string }) {
-  const s = STAGES.find((x) => x.value === stage);
-  return (
-    <span className="ml-auto">
-      <StageChip label={s?.label ?? stage} color={s?.color ?? 'var(--color-muted)'} />
-    </span>
-  );
 }
 
 const oneLine = (m: NonNullable<ChannelPreview['lastMessage']>) =>
@@ -142,6 +133,7 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
   const channels = useQuery({ ...channelsQuery, refetchInterval: 5000 });
   const teams = useTeams();
   const inbox = useInbox();
+  const tasks = useTasks();
 
   const waiting = inbox.data ?? [];
   const q = query.trim().toLowerCase();
@@ -220,7 +212,7 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
           </button>
           <Link
             to={`/features/${f.id}`}
-            title={`${f.name} · ${f.stage}`}
+            title={f.kind === 'fixes' ? f.name : `${f.name} · ${f.stage}`}
             aria-label={f.name}
             className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-[13px] text-soft hover:text-fg"
           >
@@ -228,7 +220,9 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
             {!open && cs.length > 0 && (
               <span className="flex-none text-[11px] text-faint">{cs.length}</span>
             )}
-            <FeatureStage stage={f.stage} />
+            <span className="ml-auto">
+              <FeatureStageChip feature={f} tasks={tasks.data ?? []} />
+            </span>
           </Link>
           <AddButton
             reveal

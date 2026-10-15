@@ -3,7 +3,8 @@ import { useCreateFeature } from '@/modules/features/api/create-feature';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import { isValidSlug, slugify } from '@/modules/features/utils/slugify';
-import type { Feature } from '@/types/api';
+import { KindControl } from '@/modules/features/components/kind-control';
+import type { Feature, FeatureKind } from '@/types/api';
 
 type Props = { projectId: number; onClose: () => void; onCreated?: (feature: Feature) => void };
 
@@ -11,6 +12,7 @@ export function AddFeatureForm({ projectId, onClose, onCreated }: Props) {
   const [slug, setSlug] = useState('');
   const [name, setName] = useState('');
   const [slugEdited, setSlugEdited] = useState(false);
+  const [kind, setKind] = useState<FeatureKind>('journey');
   const hintId = useId();
   const slugInvalid = slug !== '' && !isValidSlug(slug);
   const create = useCreateFeature();
@@ -21,7 +23,7 @@ export function AddFeatureForm({ projectId, onClose, onCreated }: Props) {
       onSubmit={(e) => {
         e.preventDefault();
         create.mutate(
-          { projectId, slug, name },
+          { projectId, slug, name, kind },
           {
             onSuccess: (feature) => {
               onClose();
@@ -61,6 +63,7 @@ export function AddFeatureForm({ projectId, onClose, onCreated }: Props) {
           branch: feature/&lt;slug&gt;
         </p>
       </div>
+      <KindControl value={kind} onChange={setKind} />
       {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
       <div className="flex justify-end gap-2">
         <Button type="button" onClick={onClose}>

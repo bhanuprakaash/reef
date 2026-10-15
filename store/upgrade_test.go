@@ -36,8 +36,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 20 {
-		t.Errorf("user_version = %d, want 20", version)
+	if version != 21 {
+		t.Errorf("user_version = %d, want 21", version)
 	}
 
 	at := func(h, m, sec, ns int) time.Time {
@@ -53,7 +53,7 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 			Project{ID: 1, Name: "shop", Path: "/work/shop", CreatedAt: at(3, 4, 5, 123456789)}},
 		{"feature", func() (any, error) { return s.Feature(ctx, 1) },
 			Feature{ID: 1, ProjectID: 1, Slug: "login", Name: "Login", Goal: "sign in",
-				Stage: "design", CreatedAt: at(3, 5, 0, 0)}},
+				Stage: "design", Kind: "journey", CreatedAt: at(3, 5, 0, 0)}},
 		{"brief", func() (any, error) { return s.Brief(ctx, 1) },
 			Brief{ID: 1, FeatureID: 1, Body: "sign in with sessions", Author: "user",
 				CreatedAt: at(3, 6, 0, 0)}},
@@ -144,8 +144,8 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 20 {
-		t.Errorf("user_version = %d, want 20", version)
+	if version != 21 {
+		t.Errorf("user_version = %d, want 21", version)
 	}
 	as, err := s.PendingApprovals(ctx, 1)
 	if err != nil {

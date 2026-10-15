@@ -307,6 +307,7 @@ REEF_VERIFY_RUN=<id> $H ui memory    # project page editor saves a project's mem
 REEF_VERIFY_RUN=<id> $H ui inspector # full team: lead then developer turns, Inspector panel role blocks match the API, a developer turn expands to its prompt and a tool call
 REEF_VERIFY_RUN=<id> $H ui review    # review page: A/M/D list, struck-through deletion, No text changes, drafts sent as one message to the developer's latest thread
 REEF_VERIFY_RUN=<id> $H ui board      # tasks page board view, drag a card between columns, project and feature filters apply
+REEF_VERIFY_RUN=<id> $H ui fixes     # Fixes feature: no stage bar, two tasks, one done shows "1 of 2 done" on the page and the Today card, "1/2" in the sidebar and the channel header
 REEF_VERIFY_RUN=<id> $H ui workshop  # /teams page edits a role's persona, keeps its mcpServers, shows reef team apply's errors, copies a team, next developer wake uses the new persona
 REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, types, Enter shows Captured and clears the box, a task row is stored; a failing request shows its error
 ```

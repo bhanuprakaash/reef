@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
+import { featureStage } from '@/app/feature-stage';
 import { BackButton } from '@/components/back-button';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
@@ -11,9 +12,9 @@ import { useTeams } from '@/lib/api/get-teams';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
-import { STAGES } from '@/modules/features/utils/stages';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { ProjectMemoryForm } from '@/modules/projects/components/project-memory-form';
+import { useTasks } from '@/modules/tasks/api/get-tasks';
 import { roleFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
 
@@ -25,6 +26,7 @@ export function ProjectPage() {
   const features = useFeatures();
   const channels = useChannels();
   const teams = useTeams();
+  const tasks = useTasks();
   const [dialog, setDialog] = useState<'feature' | 'session' | null>(null);
 
   if (projects.isPending) return <p className="text-sm text-muted">Loading...</p>;
@@ -78,7 +80,7 @@ export function ProjectPage() {
                       <span className="ml-auto text-[12.5px] text-paused">paused</span>
                     ) : (
                       <span className="ml-auto text-[12.5px] text-muted">
-                        {STAGES.find((s) => s.value === f.stage)?.label ?? f.stage}
+                        {featureStage(f, tasks.data ?? []).label}
                       </span>
                     )}
                   </Link>

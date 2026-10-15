@@ -42,7 +42,11 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 	if f.Goal != "" {
 		fmt.Fprintf(&b, "Goal: %s\n", f.Goal)
 	}
-	fmt.Fprintf(&b, "Stage: %s\n", f.Stage)
+	if f.Kind == "fixes" {
+		b.WriteString("This feature is a list of fixes tracked as tasks, not one piece of work with stages.\n")
+	} else {
+		fmt.Fprintf(&b, "Stage: %s\n", f.Stage)
+	}
 
 	mem, err := st.ProjectMemory(ctx, f.ProjectID)
 	if err != nil {
