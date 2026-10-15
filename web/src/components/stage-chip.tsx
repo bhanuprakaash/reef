@@ -2,7 +2,7 @@ export function StageChip({ label, color }: { label: string; color: string }) {
   return (
     <span
       style={{
-        color,
+        color: `color-mix(in srgb, ${color} 45%, var(--color-fg))`,
         borderColor: `color-mix(in srgb, ${color} 35%, transparent)`,
         background: `color-mix(in srgb, ${color} 10%, transparent)`,
       }}

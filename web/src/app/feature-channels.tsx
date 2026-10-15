@@ -53,7 +53,7 @@ function AddButton({
       aria-label={label}
       title={label}
       onClick={onClick}
-      className={`flex h-6 flex-none items-center justify-center overflow-hidden rounded-md text-muted hover:bg-hover hover:text-fg ${reveal ? 'w-0 opacity-0 group-hover/h:w-6 group-hover/h:opacity-100 focus-visible:w-6 focus-visible:opacity-100' : 'ml-auto w-6'}`}
+      className={`flex h-6 flex-none items-center justify-center overflow-hidden rounded-md text-muted hover:bg-hover hover:text-fg max-md:size-11 ${reveal ? 'md:w-0 md:opacity-0 md:group-hover/h:w-6 md:group-hover/h:opacity-100 md:focus-visible:w-6 md:focus-visible:opacity-100' : 'ml-auto md:w-6'}`}
     >
       <svg
         width="14"
@@ -154,7 +154,7 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
                   aria-label={`${open ? 'Collapse' : 'Expand'} ${f.name}`}
                   aria-expanded={open}
                   onClick={() => toggle(f.id)}
-                  className="flex size-6 flex-none items-center justify-center rounded-md text-faint hover:bg-hover hover:text-fg"
+                  className="flex size-6 flex-none items-center justify-center rounded-md text-faint hover:bg-hover hover:text-fg max-md:size-11"
                 >
                   <svg
                     width="12"
