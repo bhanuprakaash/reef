@@ -37,8 +37,8 @@ export function ThreadPane({
   });
 
   return (
-    <aside aria-label="Thread" className="flex min-h-0 flex-1 flex-col bg-sidebar">
-      <div className="flex min-h-14 items-center gap-2 border-b border-hairline py-2 pl-[18px] pr-3">
+    <aside aria-label="Thread" className="flex min-h-0 flex-1 flex-col bg-sidebar max-md:bg-main">
+      <div className="flex min-h-14 items-center gap-2 border-b border-hairline py-2 pl-[18px] pr-3 max-md:pl-2">
         <h2 className="text-[15px] font-normal">Thread</h2>
         <span className="text-[12.5px] text-muted">
           owned by <span className="capitalize">{owner}</span>
@@ -47,7 +47,7 @@ export function ThreadPane({
           variant="ghost"
           type="button"
           aria-label="Close thread"
-          className="ml-auto size-9 px-0"
+          className="ml-auto size-9 px-0 max-md:order-first max-md:ml-0 max-md:size-11"
           onClick={onClose}
         >
           <svg
@@ -60,7 +60,8 @@ export function ThreadPane({
             strokeLinecap="round"
             aria-hidden="true"
           >
-            <path d="M6 6l12 12M18 6L6 18" />
+            <path className="max-md:hidden" d="M6 6l12 12M18 6L6 18" />
+            <path className="md:hidden" d="M15 5l-7 7 7 7" />
           </svg>
         </Button>
       </div>

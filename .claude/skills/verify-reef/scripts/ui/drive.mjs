@@ -481,8 +481,9 @@ async function theme() {
 async function phone() {
   if ((await fetch(`${base}/teams/gated`)).status !== 200) throw new Error('apply the team gated first (see features/teams.md)');
   const section = await addProject();
-  await addFeature(section, 'login', 'Login');
-  await newTeamChannel('gated', 'phone room');
+  const slug = await addFeature(section, 'login', 'Login');
+  const featureId = page.url().split('/').pop();
+  const { id: cid } = await newTeamChannel('gated', 'phone room');
   await send('DESIGN a short plan for a login form.');
   const end = Date.now() + 120000;
   while ((await getJson('/inbox')).length === 0 && Date.now() < end) await page.waitForTimeout(1000);
@@ -514,6 +515,8 @@ async function phone() {
     check(s.length === 0, `${step} has 44 px tap targets`, s.join(', '));
   };
 
+  await page.getByRole('link', { name: 'Back' }).click();
+  await page.getByRole('heading', { name: 'Channels', level: 1 }).waitFor();
   check(await tabs.isVisible(), 'the tab bar shows below 768 px');
   check(!(await page.locator('aside:not([aria-label])').isVisible()), 'the sidebar is hidden below 768 px');
   await visit('today', /^Today/, page.getByLabel('Quick capture'));
@@ -533,6 +536,86 @@ async function phone() {
   const ob = await overflow();
   check(ob.page <= 0 && ob.main <= 0, 'the task board has no horizontal scroll at 390 px', `page ${ob.page}, main ${ob.main}`);
   await visit('teams', /^Teams/, page.getByRole('heading', { name: 'Teams', level: 1 }));
+
+  const noScroll = async (step) => {
+    const o = await overflow();
+    check(o.page <= 0 && o.main <= 0, `${step} has no horizontal scroll at 390 px`, `page ${o.page}, main ${o.main}`);
+  };
+  const box = (loc) => loc.evaluate((el) => {
+    const r = el.getBoundingClientRect();
+    return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right) };
+  });
+  const tree = path.join(data, 'worktrees', sql(`select project_id from channel where id=${cid}`), slug);
+  writeFileSync(path.join(tree, 'auth.go'), ['package auth', '', 'func check(r *http.Request) error {', '\ttok := r.URL.Query().Get("token")', '\treturn verify(tok)', '}', ''].join('\n'));
+
+  await tabs.getByRole('link', { name: /^Channels/ }).click();
+  await main.getByRole('link', { name: /# phone room/ }).click();
+  await page.getByRole('heading', { name: 'phone room', level: 1 }).waitFor();
+  await main.getByRole('button', { name: 'Approve' }).waitFor();
+  check(!(await tabs.isVisible()), 'the tab bar is hidden in a channel');
+  const back = main.getByRole('link', { name: 'Back' });
+  const backBox = await box(back);
+  check((await back.getAttribute('href')) === '/channels' && backBox.bottom - backBox.top >= 44, 'the channel has a 44 px Back link to /channels', JSON.stringify(backBox));
+  await shot('channel');
+  await noScroll('channel');
+  const tiny = await small();
+  check(tiny.length === 0, 'channel has 44 px tap targets', tiny.join(', '));
+
+  await main.getByRole('button', { name: 'Approve' }).click();
+  const woke = Date.now() + 120000;
+  const architectTurns = () => Number(sql(`select count(*) from turn where channel_id=${cid} and role='architect' and status='done'`));
+  while (architectTurns() === 0 && Date.now() < woke) await page.waitForTimeout(1000);
+  check(architectTurns() === 1, 'Approve at phone width runs the architect wake', sql(`select role, status from turn where channel_id=${cid} order by id`));
+  await main.getByRole('button', { name: 'Approve' }).waitFor({ state: 'hidden' });
+  check((await getJson('/inbox')).every((i) => i.kind !== 'approval'), 'the approval left the inbox');
+  await idle();
+  await shot('approved');
+
+  await main.getByRole('button', { name: /reply in thread|replies in thread|^Reply$/ }).first().click();
+  const thread = page.getByRole('complementary', { name: 'Thread' });
+  await thread.waitFor();
+  const tb = await box(thread);
+  check(tb.top === 0 && tb.left === 0 && tb.right === 390 && tb.bottom === 844, 'a thread opens as its own full screen', JSON.stringify(tb));
+  await shot('thread');
+  await noScroll('thread');
+  await thread.getByRole('button', { name: 'Close thread' }).click();
+  await thread.waitFor({ state: 'hidden' });
+
+  await main.getByRole('button', { name: 'Team', exact: true }).click();
+  const team = page.getByRole('complementary', { name: 'Team' });
+  await team.waitFor();
+  const sb = await box(team.locator('xpath=..'));
+  check(sb.bottom === 844 && sb.top > 100 && sb.left === 0 && sb.right === 390, 'the team opens as a bottom sheet', JSON.stringify(sb));
+  await shot('team-sheet');
+  await noScroll('team sheet');
+  await page.getByRole('button', { name: 'Close sheet' }).click({ position: { x: 195, y: 40 } });
+  await team.waitFor({ state: 'hidden' });
+
+  await main.getByRole('button', { name: 'Inspector', exact: true }).click();
+  const inspector = page.getByRole('complementary', { name: 'Inspector' });
+  await inspector.getByText('By role').waitFor();
+  const ib = await box(inspector.locator('xpath=..'));
+  check(ib.bottom === 844 && ib.top > 100 && ib.left === 0 && ib.right === 390, 'the inspector opens as a bottom sheet', JSON.stringify(ib));
+  await shot('inspector-sheet');
+  await noScroll('inspector sheet');
+  await page.getByRole('button', { name: 'Close sheet' }).click({ position: { x: 195, y: 40 } });
+  await inspector.waitFor({ state: 'hidden' });
+
+  await main.getByRole('link', { name: /^Diff/ }).click();
+  const files = main.getByRole('navigation', { name: 'Files' });
+  await files.getByText('auth.go').waitFor({ timeout: 15000 });
+  check(!(await tabs.isVisible()), 'the tab bar is hidden on the review page');
+  const fb = await box(files);
+  const sideBySide = await files.evaluate((el) => getComputedStyle(el).flexDirection);
+  check(sideBySide === 'row' && fb.right - fb.left === 390, 'the files show as chips above the diff, not a side list', `${sideBySide} ${JSON.stringify(fb)}`);
+  await main.getByRole('region', { name: 'Diff' }).locator('[data-line="4"]').click();
+  await main.getByLabel('Comment on auth.go:4').fill('Log the bad token first.');
+  await main.getByRole('button', { name: 'Add comment' }).click();
+  await shot('review');
+  await noScroll('review');
+  const sendButtons = main.getByRole('button', { name: /^Send to/ });
+  const sendBox = await box(sendButtons.first());
+  check((await sendButtons.count()) === 1 && (await sendButtons.first().isEnabled()) && sendBox.bottom <= 844 && sendBox.right - sendBox.left >= 340, 'review has one Send button, full width at the bottom', JSON.stringify(sendBox));
 
   await page.setViewportSize({ width: 1024, height: 800 });
   await aside.getByRole('link', { name: /^Today/ }).waitFor();

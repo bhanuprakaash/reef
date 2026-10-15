@@ -25,6 +25,7 @@ import { browserAction } from '@/modules/channels/utils/browser-action';
 import { groupThreads } from '@/modules/channels/utils/group-threads';
 import { latestPullRequest } from '@/modules/channels/utils/pull-request';
 import type { Channel, Feature } from '@/types/api';
+import { Button } from '@/components/button';
 
 type Props = {
   channel: Channel;
@@ -85,7 +86,12 @@ export function ChannelView({
   );
 
   const closeSide = () => setSide(null);
+  const openSide = (next: Side) => {
+    setSide(next);
+    setTeamOpen(false);
+  };
   const showTeam = !thread && side?.kind !== 'inspector';
+  const wrapDisabled = running || wrap.isPending || blocksUser(channel.paused);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -96,11 +102,11 @@ export function ChannelView({
         faces={faces}
         pullRequest={latestPullRequest(messages.data ?? [])}
         diff={diff}
-        wrapDisabled={running || wrap.isPending || blocksUser(channel.paused)}
+        wrapDisabled={wrapDisabled}
         onWrap={() => wrap.mutate()}
         promoteDisabled={running}
         onPromote={() => setPromoting(true)}
-        onInspector={() => setSide(side?.kind === 'inspector' ? null : { kind: 'inspector' })}
+        onInspector={() => openSide(side?.kind === 'inspector' ? null : { kind: 'inspector' })}
         onTeam={() => {
           setTeamOpen(!showTeam || !teamOpen);
           closeSide();
@@ -121,7 +127,7 @@ export function ChannelView({
         </Dialog>
       )}
       <div className="flex min-h-0 flex-1">
-        <section className="min-w-0 flex-1 overflow-y-auto px-7 pt-4">
+        <section className="min-w-0 flex-1 overflow-y-auto px-3.5 pt-4 md:px-7">
           <div className="mx-auto max-w-3xl space-y-4">
             {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
             {channel.paused !== '' && (
@@ -134,7 +140,7 @@ export function ChannelView({
                 threads={threads}
                 faces={faces}
                 openId={thread?.root.id}
-                onOpen={(rootId) => setSide({ kind: 'thread', rootId })}
+                onOpen={(rootId) => openSide({ kind: 'thread', rootId })}
               />
             )}
             <LiveTurn turn={turn} role={working} face={face} />
@@ -161,9 +167,23 @@ export function ChannelView({
             <div ref={end} />
           </div>
         </section>
+        {!thread && (side || teamOpen) && (
+          <button
+            type="button"
+            aria-label="Close sheet"
+            className="fixed inset-0 z-10 bg-scrim/70 md:hidden"
+            onClick={() => {
+              closeSide();
+              setTeamOpen(false);
+            }}
+          />
+        )}
         <div
-          className={`w-[400px] shrink-0 overflow-y-auto border-l border-hairline ${thread ? 'flex flex-col' : 'p-4'} ${showTeam && !teamOpen ? 'hidden min-[1100px]:block' : ''}`}
+          className={`shrink-0 overflow-y-auto md:w-[400px] md:border-l md:border-hairline ${thread ? 'flex flex-col max-md:fixed max-md:inset-0 max-md:z-30 max-md:bg-main' : 'p-4 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-20 max-md:max-h-[85dvh] max-md:rounded-t-[28px] max-md:bg-field max-md:pb-8'} ${showTeam && !teamOpen ? 'hidden min-[1100px]:block' : ''}`}
         >
+          {!thread && (
+            <div className="mx-auto mb-4 h-[5px] w-[38px] rounded-pill bg-raised md:hidden" />
+          )}
           {thread && (
             <ThreadPane
               key={thread.root.id}
@@ -181,6 +201,24 @@ export function ChannelView({
           )}
           {side?.kind === 'inspector' && (
             <InspectorPanel channelId={channel.id} onClose={closeSide} />
+          )}
+          {showTeam && (
+            <div className="mb-5 flex items-center gap-2.5 md:hidden">
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-xl font-semibold"># {channel.name}</div>
+                <div className="text-[13px] text-muted">Team · {channel.team}</div>
+              </div>
+              {channel.featureId !== null && (
+                <Button
+                  variant="primary"
+                  type="button"
+                  disabled={wrapDisabled}
+                  onClick={() => wrap.mutate()}
+                >
+                  Wrap up
+                </Button>
+              )}
+            </div>
           )}
           {showTeam && (
             <TeamPanel

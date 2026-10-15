@@ -13,7 +13,7 @@ export function ReviewPage() {
   if (diff.isError) return <p className="text-sm text-danger">{diff.error.message}</p>;
 
   return (
-    <div className="-m-6 flex h-screen flex-col">
+    <div className="-m-4 flex h-screen flex-col md:-m-6">
       <DiffPanel
         files={diff.data}
         featureId={id}

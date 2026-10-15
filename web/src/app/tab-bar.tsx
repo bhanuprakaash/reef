@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { NavLink } from 'react-router';
+import { NavLink, useMatch } from 'react-router';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 
 function Tab({
@@ -49,6 +49,9 @@ function Tab({
 
 export function TabBar() {
   const inbox = useInbox();
+  const inChannel = useMatch('/channels/:id');
+  const inReview = useMatch('/features/:id/review');
+  if (inChannel || inReview) return null;
 
   return (
     <nav

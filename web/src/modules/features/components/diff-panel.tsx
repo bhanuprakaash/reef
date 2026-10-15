@@ -53,7 +53,7 @@ export function DiffPanel({ files, featureId, featureName, branch }: Props) {
 
   return (
     <>
-      <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-[22px] pr-4">
+      <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-3.5 pr-3.5 md:pl-[22px] md:pr-4">
         <Link to={`/features/${featureId}`} className="text-[13px] text-muted hover:text-fg">
           {featureName}
         </Link>
@@ -70,7 +70,7 @@ export function DiffPanel({ files, featureId, featureName, branch }: Props) {
           <path d="M9 6l6 6-6 6" />
         </svg>
         <h1 className="text-base font-normal">Changes</h1>
-        <span className="font-mono text-[12.5px] text-muted">{branch} vs main</span>
+        <span className="font-mono text-[12.5px] text-muted max-md:hidden">{branch} vs main</span>
         <span className="flex gap-2.5 text-[12.5px]">
           <Counts files={files} />
         </span>
@@ -81,6 +81,7 @@ export function DiffPanel({ files, featureId, featureName, branch }: Props) {
           <Button
             type="button"
             variant="primary"
+            className="max-md:fixed max-md:bottom-7 max-md:left-3.5 max-md:z-10 max-md:w-[calc(100%-1.75rem)]"
             disabled={comments.length === 0 || send.isPending}
             onClick={() => send.mutate(comments, { onSuccess: () => setComments([]) })}
           >
@@ -92,10 +93,10 @@ export function DiffPanel({ files, featureId, featureName, branch }: Props) {
       {file === undefined ? (
         <p className="p-5 text-sm text-muted">No changes.</p>
       ) : (
-        <div className="flex min-h-0 flex-1">
+        <div className="flex min-h-0 flex-1 max-md:flex-col">
           <nav
             aria-label="Files"
-            className="flex w-60 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-hairline px-2 py-3 text-[13px]"
+            className="flex w-60 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-hairline px-2 py-3 text-[13px] max-md:w-auto max-md:flex-row max-md:gap-1.5 max-md:overflow-x-auto max-md:border-r-0 max-md:px-3.5"
           >
             {files.map((f) => {
               const drafts = comments.filter((c) => c.path === f.path).length;
@@ -106,7 +107,7 @@ export function DiffPanel({ files, featureId, featureName, branch }: Props) {
                   type="button"
                   onClick={() => setSelected(f.path)}
                   aria-current={f === file}
-                  className={`flex h-8 items-center gap-2 rounded-lg px-2.5 text-left ${f === file ? 'bg-card' : 'hover:bg-card'} ${f.status === 'deleted' ? 'text-muted' : 'text-soft'}`}
+                  className={`flex h-8 items-center gap-2 rounded-lg px-2.5 text-left max-md:shrink-0 max-md:whitespace-nowrap max-md:rounded-pill ${f === file ? 'bg-card max-md:bg-pill max-md:text-pill-ink' : 'hover:bg-card max-md:bg-card'} ${f.status === 'deleted' ? 'text-muted' : 'text-soft'}`}
                 >
                   <span className={`w-4 font-mono text-[11px] ${color}`}>{letter}</span>
                   <span
@@ -125,7 +126,7 @@ export function DiffPanel({ files, featureId, featureName, branch }: Props) {
           </nav>
           <section
             aria-label="Diff"
-            className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-5"
+            className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3.5 max-md:pb-24 md:p-5"
           >
             <div className="overflow-hidden rounded-2xl border border-hairline bg-sidebar font-mono text-[12.5px] leading-[1.8]">
               <div className="flex items-center gap-2 border-b border-hairline px-3.5 py-2 font-sans text-[13px]">
@@ -153,10 +154,10 @@ export function DiffPanel({ files, featureId, featureName, branch }: Props) {
                           onClick={target ? () => setActive(target) : undefined}
                           className={`flex ${lineClass[l.kind]} ${target ? 'cursor-pointer hover:brightness-125' : ''} ${active && target && sameTarget(active, target) ? 'ring-1 ring-fg ring-inset' : ''}`}
                         >
-                          <span className="w-11 shrink-0 select-none pr-2 text-right text-faint">
+                          <span className="w-8 shrink-0 select-none pr-2 text-right md:w-11 text-faint">
                             {l.old}
                           </span>
-                          <span className="w-11 shrink-0 select-none pr-3 text-right text-faint">
+                          <span className="w-8 shrink-0 select-none pr-3 text-right md:w-11 text-faint">
                             {l.new}
                           </span>
                           <span className="whitespace-pre-wrap">
@@ -167,7 +168,7 @@ export function DiffPanel({ files, featureId, featureName, branch }: Props) {
                         {here?.map((c, n) => (
                           <div
                             key={n}
-                            className="mt-1.5 mr-3.5 mb-2.5 ml-[100px] flex items-start gap-2 rounded-xl bg-field px-3 py-2.5 font-sans text-[13.5px] leading-normal text-fg"
+                            className="mt-1.5 mr-3.5 mb-2.5 ml-3.5 md:ml-[100px] flex items-start gap-2 rounded-xl bg-field px-3 py-2.5 font-sans text-[13.5px] leading-normal text-fg"
                           >
                             <span className="flex size-5 flex-none items-center justify-center rounded-full bg-line text-[9px] text-soft">
                               You
@@ -177,7 +178,7 @@ export function DiffPanel({ files, featureId, featureName, branch }: Props) {
                           </div>
                         ))}
                         {active && target && sameTarget(active, target) && (
-                          <div className="mt-1.5 mr-3.5 mb-2.5 ml-[100px] flex flex-col gap-2 rounded-xl bg-card px-3 py-2.5 font-sans text-[13.5px] leading-normal">
+                          <div className="mt-1.5 mr-3.5 mb-2.5 ml-3.5 md:ml-[100px] flex flex-col gap-2 rounded-xl bg-card px-3 py-2.5 font-sans text-[13.5px] leading-normal">
                             <label htmlFor="review-comment" className="text-xs text-muted">
                               Comment on {file.path}:{num}
                               {removed ? ' (removed)' : ''}

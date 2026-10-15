@@ -25,6 +25,7 @@ type Props = {
 };
 
 const iconButton = 'flex size-9 items-center justify-center rounded-field text-soft hover:bg-card';
+const phoneIcon = 'max-md:size-11 max-md:px-0';
 
 export function ChannelHeader({
   channel,
@@ -44,21 +45,42 @@ export function ChannelHeader({
   onBrowser,
 }: Props) {
   return (
-    <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-[22px] pr-4">
-      <GroupAvatar roles={roles} faces={faces} size={26} />
-      <h1 className="text-base font-normal">
-        <span aria-hidden="true">#</span> {channel.name}
-      </h1>
-      {channel.featureId === null ? (
-        <span className="text-[13px] text-muted">{scope}</span>
-      ) : (
-        <Link
-          to={`/features/${channel.featureId}`}
-          className="text-[13px] text-muted hover:text-fg"
+    <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-2 pr-2 md:pl-[22px] md:pr-4">
+      <Link
+        to="/channels"
+        aria-label="Back"
+        className="flex size-11 items-center justify-center rounded-field text-soft md:hidden"
+      >
+        <svg
+          width="22"
+          height="22"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
         >
-          {scope}
-        </Link>
-      )}
+          <path d="M15 5l-7 7 7 7" />
+        </svg>
+      </Link>
+      <GroupAvatar roles={roles} faces={faces} size={26} />
+      <div className="flex min-w-0 flex-1 flex-col md:flex-none md:flex-row md:items-center md:gap-2.5">
+        <h1 className="truncate text-base font-normal">
+          <span aria-hidden="true">#</span> {channel.name}
+        </h1>
+        {channel.featureId === null ? (
+          <span className="truncate text-[13px] text-muted">{scope}</span>
+        ) : (
+          <Link
+            to={`/features/${channel.featureId}`}
+            className="truncate text-[13px] text-muted hover:text-fg"
+          >
+            {scope}
+          </Link>
+        )}
+      </div>
       {pullRequest && (
         <a href={pullRequest.url} target="_blank" rel="noreferrer">
           <Chip>
@@ -67,7 +89,7 @@ export function ChannelHeader({
           </Chip>
         </a>
       )}
-      <div className="ml-auto flex items-center gap-0.5">
+      <div className="flex items-center gap-0.5 md:ml-auto">
         {onBrowser && (
           <button
             type="button"
@@ -114,7 +136,7 @@ export function ChannelHeader({
           <Link
             to={`/features/${channel.featureId}/review`}
             aria-label={`Diff +${diff.added} -${diff.removed}`}
-            className="flex h-9 items-center gap-1.5 rounded-field px-2.5 text-[13px] text-soft hover:bg-card"
+            className="flex h-11 items-center gap-1.5 rounded-field px-2.5 text-[13px] text-soft hover:bg-card md:h-9"
           >
             <svg
               width="18"
@@ -129,21 +151,60 @@ export function ChannelHeader({
               <path d="M12 6v6M9 9h6M9 17h6" />
               <rect x="3" y="3" width="18" height="18" rx="4" />
             </svg>
-            <span className="text-done">+{diff.added}</span>
-            <span className="text-failed">−{diff.removed}</span>
+            <span className="text-done max-md:hidden">+{diff.added}</span>
+            <span className="text-failed max-md:hidden">−{diff.removed}</span>
           </Link>
         )}
-        <Button variant="ghost" type="button" onClick={onInspector}>
-          Inspector
+        <Button
+          variant="ghost"
+          type="button"
+          onClick={onInspector}
+          aria-label="Inspector"
+          className={phoneIcon}
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            aria-hidden="true"
+            className="md:hidden"
+          >
+            <path d="M5 20V10M12 20V4M19 20v-7" />
+          </svg>
+          <span className="max-md:hidden">Inspector</span>
         </Button>
-        <Button variant="ghost" type="button" onClick={onTeam} className="min-[1100px]:hidden">
-          Team
+        <Button
+          variant="ghost"
+          type="button"
+          onClick={onTeam}
+          aria-label="Team"
+          className={`min-[1100px]:hidden ${phoneIcon}`}
+        >
+          <svg
+            width="20"
+            height="20"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            aria-hidden="true"
+            className="md:hidden"
+          >
+            <circle cx="12" cy="12" r="9" />
+            <path d="M12 11v6M12 7.5v.5" />
+          </svg>
+          <span className="max-md:hidden">Team</span>
         </Button>
         {channel.featureId !== null ? (
           <Button
             variant="primary"
             type="button"
-            className="ml-1.5"
+            className="ml-1.5 max-md:hidden"
             disabled={wrapDisabled}
             onClick={onWrap}
           >

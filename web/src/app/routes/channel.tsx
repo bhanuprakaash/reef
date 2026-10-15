@@ -61,7 +61,7 @@ export function ChannelPage() {
     onBrowserDriver: setBrowserDriver,
   };
   return (
-    <div className="-m-6 flex h-screen flex-col">
+    <div className="-m-4 flex h-screen flex-col md:-m-6">
       {featureId === null ? (
         <ChannelView key={id} {...props} />
       ) : (
