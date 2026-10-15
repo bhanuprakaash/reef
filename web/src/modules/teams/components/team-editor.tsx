@@ -1,7 +1,7 @@
 import { useRef, useState } from 'react';
 import { useUpdateTeam } from '@/modules/teams/api/update-team';
 import { AddGateRow } from '@/modules/teams/components/add-gate-row';
-import { AddRoleCard } from '@/modules/teams/components/add-role-card';
+import { AddRoleRow } from '@/modules/teams/components/add-role-row';
 import { RoleEditor } from '@/modules/teams/components/role-editor';
 import type { Gate, Role, Team } from '@/types/api';
 import { Button } from '@/components/button';
@@ -56,7 +56,7 @@ export function TeamEditor({ team, onSaved, onDuplicate }: Props) {
             onRemove={() => removeRole(i)}
           />
         ))}
-        <AddRoleCard
+        <AddRoleRow
           onAdd={(role) => {
             setRoles([...roles, role]);
             setKeys([...keys, nextKey.current++]);

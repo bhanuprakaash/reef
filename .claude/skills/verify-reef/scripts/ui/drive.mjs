@@ -1357,7 +1357,8 @@ async function workshop() {
   const marker = `WORKSHOP-MARKER-${Date.now().toString(36)}`;
   const persona = `${await personaBox.inputValue()} Always say ${marker} once.`;
   await personaBox.fill(persona);
-  await main.getByRole('button', { name: 'Creature: Otter' }).first().click();
+  await main.getByRole('button', { name: /^Change creature/ }).click();
+  await main.getByRole('button', { name: 'Otter', exact: true }).click();
   await shot('persona-edited');
   await main.getByRole('button', { name: 'Save' }).click();
   await page.getByText('Saved').waitFor();

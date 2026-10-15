@@ -61,6 +61,10 @@ export function RoleEditor({ role, open, onToggle, onChange, onRemove }: Props) 
       {open && (
         <div className="space-y-3.5 border-t border-hairline bg-field p-4">
           <div className="flex flex-wrap items-center gap-3">
+            <CreaturePicker
+              value={creatureName(role.name, role.face)}
+              onChange={(face) => onChange({ ...role, face })}
+            />
             <TextField
               className="flex-1 basis-40"
               aria-label={`${label} name`}
@@ -103,13 +107,6 @@ export function RoleEditor({ role, open, onToggle, onChange, onRemove }: Props) 
             <Button variant="ghost" type="button" onClick={onRemove}>
               Remove
             </Button>
-          </div>
-          <div className="space-y-1.5">
-            <span className="text-xs text-muted">Creature</span>
-            <CreaturePicker
-              value={creatureName(role.name, role.face)}
-              onChange={(face) => onChange({ ...role, face })}
-            />
           </div>
           <label className="block space-y-1.5">
             <span className="text-xs text-muted">Persona</span>
