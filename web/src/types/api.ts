@@ -217,6 +217,10 @@ export type FeaturePR = {
   head: string;
   canMerge: boolean;
   checks: { name: string; state: 'pass' | 'fail' | 'pending' }[];
+  body: string;
+  additions: number;
+  deletions: number;
+  files: { path: string; additions: number; deletions: number }[];
 };
 
 export type TaskStatus = 'todo' | 'doing' | 'done';
