@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { LiveTurn, Tool } from './fold-events';
-import { liveStatus, toolCount } from './turn-status';
+import { recentTools, toolCount } from './turn-status';
 
 const tool = (id: string, name: string, input: unknown, children: Tool[] = []): Tool => ({
   id,
@@ -13,15 +13,17 @@ const tool = (id: string, name: string, input: unknown, children: Tool[] = []): 
 });
 const turn = (items: LiveTurn['items']): LiveTurn => ({ status: 'running', items });
 
-describe('liveStatus', () => {
-  it('shows the latest tool call, down into its sub-agent calls', () => {
-    const agent = tool('a', 'Agent', { prompt: 'p' }, [tool('b', 'Bash', { command: 'npm test' })]);
-    expect(liveStatus(turn([{ type: 'tool', tool: agent }]))).toBe('Bash npm test');
-  });
-
-  it('says writing while text streams and starting before any event', () => {
-    expect(liveStatus(turn([{ type: 'text', text: 'Hi' }]))).toBe('writing…');
-    expect(liveStatus(turn([]))).toBe('starting…');
+describe('recentTools', () => {
+  it('keeps the last n top-level calls in order, skipping text', () => {
+    const items: LiveTurn['items'] = [
+      { type: 'tool', tool: tool('a', 'Read', {}) },
+      { type: 'tool', tool: tool('b', 'Grep', {}) },
+      { type: 'text', text: 'x' },
+      { type: 'tool', tool: tool('c', 'Bash', {}) },
+      { type: 'tool', tool: tool('d', 'Edit', {}) },
+    ];
+    expect(recentTools(turn(items), 3).map((t) => t.id)).toEqual(['b', 'c', 'd']);
+    expect(recentTools(turn(items.slice(0, 1)), 3).map((t) => t.id)).toEqual(['a']);
   });
 });
 
