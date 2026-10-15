@@ -131,9 +131,6 @@ export function ChannelView({
           <div className="min-h-0 flex-1 overflow-y-auto px-3.5 pt-4 md:px-7">
             <div className="mx-auto max-w-3xl space-y-4">
               {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
-              {channel.paused !== '' && (
-                <PausedBanner channelId={channel.id} reason={channel.paused} />
-              )}
               {messages.isPending && <p className="text-sm text-muted">Loading...</p>}
               {messages.isError && <p className="text-sm text-danger">{messages.error.message}</p>}
               {messages.data && (
@@ -159,7 +156,10 @@ export function ChannelView({
             </div>
           </div>
           <div className="shrink-0 px-3.5 pb-5 pt-2 md:px-7">
-            <div className="mx-auto max-w-3xl">
+            <div className="mx-auto max-w-3xl space-y-2">
+              {channel.paused !== '' && (
+                <PausedBanner channelId={channel.id} reason={channel.paused} />
+              )}
               <Composer
                 channelId={channel.id}
                 running={running}
