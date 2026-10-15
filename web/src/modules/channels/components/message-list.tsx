@@ -1,4 +1,5 @@
 import type { Thread } from '@/modules/channels/utils/group-threads';
+import { Author } from '@/modules/channels/components/author';
 import { latestMessageAnchor } from '@/utils/anchors';
 import { Button } from '@/components/button';
 
@@ -16,7 +17,7 @@ export function MessageList({ threads, onOpen }: Props) {
           key={root.id}
           id={(replies.at(-1) ?? root).id === newest ? latestMessageAnchor : undefined}
         >
-          <div className="text-xs font-medium uppercase text-muted">{root.author}</div>
+          <Author name={root.author} />
           <p className="whitespace-pre-wrap text-sm">{root.body}</p>
           <Button type="button" className="mt-1" onClick={() => onOpen(root.id)}>
             {replies.length === 0

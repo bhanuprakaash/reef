@@ -4,6 +4,7 @@ import { useCreateChannel } from '@/modules/channels/api/create-channel';
 import { useTeams } from '@/lib/api/get-teams';
 import { BACKENDS, PERMISSION_MODES } from '@/modules/channels/utils/backends';
 import { Button } from '@/components/button';
+import { GroupAvatar } from '@/components/creature';
 import { Select } from '@/components/select';
 import { TextField } from '@/components/text-field';
 
@@ -92,18 +93,24 @@ export function NewChannelForm({ projectId, featureId }: Props) {
       )}
       <label className="block space-y-1">
         <span className="text-sm text-muted">Team</span>
-        <Select
-          className="w-full"
-          aria-label="Team"
-          value={team}
-          onChange={(e) => setTeam(e.target.value)}
-        >
-          {(teams.data ?? [{ name: 'solo' }]).map((t) => (
-            <option key={t.name} value={t.name}>
-              {t.name}
-            </option>
-          ))}
-        </Select>
+        <div className="flex items-center gap-2">
+          <GroupAvatar
+            roles={teams.data?.find((t) => t.name === team)?.roles.map((r) => r.name) ?? ['lead']}
+            size={30}
+          />
+          <Select
+            className="w-full"
+            aria-label="Team"
+            value={team}
+            onChange={(e) => setTeam(e.target.value)}
+          >
+            {(teams.data ?? [{ name: 'solo' }]).map((t) => (
+              <option key={t.name} value={t.name}>
+                {t.name}
+              </option>
+            ))}
+          </Select>
+        </div>
       </label>
       <TextField
         className="w-full"

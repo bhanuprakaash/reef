@@ -1,3 +1,4 @@
+import { Author } from '@/modules/channels/components/author';
 import { Composer } from '@/modules/channels/components/composer';
 import type { Thread } from '@/modules/channels/utils/group-threads';
 import { Button } from '@/components/button';
@@ -25,7 +26,7 @@ export function ThreadPane({ channelId, thread, running, paused, onClose }: Prop
       <ul className="space-y-3">
         {[thread.root, ...thread.replies].map((m) => (
           <li key={m.id}>
-            <div className="text-xs font-medium uppercase text-muted">{m.author}</div>
+            <Author name={m.author} />
             <p className="whitespace-pre-wrap text-sm">{m.body}</p>
           </li>
         ))}

@@ -1,3 +1,4 @@
+import { Creature } from '@/components/creature';
 import { ToolRow } from '@/modules/channels/components/tool-row';
 import type { LiveTurn as LiveTurnState } from '@/modules/channels/utils/fold-events';
 
@@ -6,7 +7,8 @@ export function LiveTurn({ turn, role }: { turn: LiveTurnState; role: string }) 
 
   return (
     <div className="space-y-2 rounded border border-dashed border-line p-3">
-      <div className="text-xs font-medium uppercase text-muted">
+      <div className="flex items-center gap-1.5 text-xs font-medium uppercase text-muted">
+        <Creature role={role} size={20} state={turn.status === 'running' ? 'working' : 'failed'} />
         {role} {turn.status === 'running' && <span className="normal-case">is working...</span>}
       </div>
       {turn.items.map((item, i) =>

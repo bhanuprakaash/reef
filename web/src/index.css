@@ -52,6 +52,7 @@
 @layer base {
   :root {
     color-scheme: dark;
+    --creature-ring: var(--color-main);
   }
 
   body {

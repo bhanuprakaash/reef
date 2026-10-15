@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { useApprovals } from '@/modules/channels/api/get-approvals';
 import { useFailedTurns } from '@/modules/channels/api/get-failed-turns';
 import { useMessages } from '@/lib/api/get-messages';
+import { useTeams } from '@/lib/api/get-teams';
 import { useWrapChannel } from '@/modules/channels/api/wrap-channel';
 import { ApprovalRows } from '@/modules/channels/components/approval-rows';
 import { CheckpointRows } from '@/modules/channels/components/checkpoint-rows';
@@ -20,6 +21,7 @@ import { blocksUser } from '@/modules/channels/utils/blocks-user';
 import { groupThreads } from '@/modules/channels/utils/group-threads';
 import type { Channel, Feature } from '@/types/api';
 import { Button } from '@/components/button';
+import { Creature } from '@/components/creature';
 
 type Props = { channel: Channel; scope: string; features: Feature[] };
 
@@ -35,6 +37,13 @@ export function ChannelView({ channel, scope, features }: Props) {
   const [showInspector, setShowInspector] = useState(false);
   const threads = groupThreads(messages.data ?? []);
   const thread = threads.find((t) => t.root.id === threadId);
+  const teams = useTeams();
+  const working = turn.role || channel.role || 'agent';
+  const sleeping =
+    teams.data
+      ?.find((t) => t.name === channel.team)
+      ?.roles.map((r) => r.name)
+      .filter((name) => name !== working) ?? [];
 
   useEffect(() => {
     end.current?.scrollIntoView({ block: 'end' });
@@ -78,7 +87,14 @@ export function ChannelView({ channel, scope, features }: Props) {
         {messages.isPending && <p className="text-sm text-muted">Loading...</p>}
         {messages.isError && <p className="text-sm text-danger">{messages.error.message}</p>}
         {messages.data && <MessageList threads={threads} onOpen={setThreadId} />}
-        <LiveTurn turn={turn} role={turn.role || channel.role || 'agent'} />
+        <LiveTurn turn={turn} role={working} />
+        {running &&
+          sleeping.map((role) => (
+            <div key={role} className="flex items-center gap-2 text-sm text-muted">
+              <Creature role={role} size={20} state="asleep" />
+              {role} is asleep · wakes on @{role}
+            </div>
+          ))}
         {turn.note && <p className="text-sm text-muted">{turn.note}</p>}
         <FailedTurnRows channelId={channel.id} running={running} paused={channel.paused !== ''} />
         <CheckpointRows channelId={channel.id} running={running} />
