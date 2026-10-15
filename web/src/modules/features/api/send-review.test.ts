@@ -47,6 +47,12 @@ describe('reviewText', () => {
       ]),
     ).toBe('a.go:3\nfix typo\n\nb.go:10\nadd null check');
   });
+
+  it('marks a comment on a deleted line as removed', () => {
+    expect(reviewText([{ path: 'a.go', line: 3, text: 'was this needed?', removed: true }])).toBe(
+      'a.go:3 (removed)\nwas this needed?',
+    );
+  });
 });
 
 describe('pickChannel', () => {

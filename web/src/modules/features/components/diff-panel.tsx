@@ -11,13 +11,18 @@ const lineClass: Record<DiffLine['kind'], string> = {
 
 export function DiffPanel({ files, featureId }: { files: FileDiff[]; featureId: number }) {
   const [comments, setComments] = useState<ReviewComment[]>([]);
-  const [active, setActive] = useState<{ path: string; line: number } | null>(null);
+  const [active, setActive] = useState<{ path: string; line: number; removed: boolean } | null>(
+    null,
+  );
   const [draft, setDraft] = useState('');
   const send = useSendReview(featureId);
 
   function addComment() {
     if (!active || draft.trim() === '') return;
-    setComments((cs) => [...cs, { path: active.path, line: active.line, text: draft.trim() }]);
+    setComments((cs) => [
+      ...cs,
+      { path: active.path, line: active.line, text: draft.trim(), removed: active.removed },
+    ]);
     setActive(null);
     setDraft('');
   }
@@ -41,39 +46,45 @@ export function DiffPanel({ files, featureId }: { files: FileDiff[]; featureId: 
               {f.hunks.map((h) => (
                 <div key={h.header}>
                   <div className={mutedClass + ' px-2'}>{h.header}</div>
-                  {h.lines.map((l, i) => (
-                    <div key={i}>
-                      <div
-                        data-path={f.path}
-                        data-line={l.new}
-                        onClick={
-                          l.new === undefined
-                            ? undefined
-                            : () => setActive({ path: f.path, line: l.new! })
-                        }
-                        className={`flex gap-2 px-2 ${lineClass[l.kind]} ${l.new === undefined ? '' : 'cursor-pointer'}`}
-                      >
-                        <span className="w-4 select-none">
-                          {l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ' '}
-                        </span>
-                        <span className="whitespace-pre-wrap">{l.text}</span>
-                      </div>
-                      {active?.path === f.path && active.line === l.new && (
-                        <div className="flex gap-2 px-2 py-1">
-                          <input
-                            className={`${inputClass} flex-1`}
-                            aria-label={`Comment on ${f.path}:${l.new}`}
-                            value={draft}
-                            onChange={(e) => setDraft(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && addComment()}
-                          />
-                          <button type="button" className={buttonClass} onClick={addComment}>
-                            Add comment
-                          </button>
+                  {h.lines.map((l, i) => {
+                    const num = l.new ?? l.old;
+                    const removed = l.kind === 'del';
+                    return (
+                      <div key={i}>
+                        <div
+                          data-path={f.path}
+                          data-line={num}
+                          onClick={
+                            num === undefined
+                              ? undefined
+                              : () => setActive({ path: f.path, line: num, removed })
+                          }
+                          className={`flex gap-2 px-2 ${lineClass[l.kind]} ${num === undefined ? '' : 'cursor-pointer'}`}
+                        >
+                          <span className="w-4 select-none">
+                            {l.kind === 'add' ? '+' : l.kind === 'del' ? '-' : ' '}
+                          </span>
+                          <span className="whitespace-pre-wrap">{l.text}</span>
                         </div>
-                      )}
-                    </div>
-                  ))}
+                        {active?.path === f.path &&
+                          active.line === num &&
+                          active.removed === removed && (
+                            <div className="flex gap-2 px-2 py-1">
+                              <input
+                                className={`${inputClass} flex-1`}
+                                aria-label={`Comment on ${f.path}:${num}${removed ? ' (removed)' : ''}`}
+                                value={draft}
+                                onChange={(e) => setDraft(e.target.value)}
+                                onKeyDown={(e) => e.key === 'Enter' && addComment()}
+                              />
+                              <button type="button" className={buttonClass} onClick={addComment}>
+                                Add comment
+                              </button>
+                            </div>
+                          )}
+                      </div>
+                    );
+                  })}
                 </div>
               ))}
             </pre>
@@ -85,7 +96,8 @@ export function DiffPanel({ files, featureId }: { files: FileDiff[]; featureId: 
           <ul className="space-y-1 text-sm">
             {comments.map((c, i) => (
               <li key={i}>
-                {c.path}:{c.line} — {c.text}
+                {c.path}:{c.line}
+                {c.removed ? ' (removed)' : ''} — {c.text}
               </li>
             ))}
           </ul>
