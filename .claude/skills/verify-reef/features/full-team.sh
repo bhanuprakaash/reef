@@ -12,7 +12,7 @@ check() { # check ID OK DETAIL
 }
 not_run() { echo "FAIL $1: not run: $2"; failed=1; }
 
-wait_done() { for i in $(seq 60); do [ "$(curl -s "http://$A/turns?channel=$1&status=done" | grep -o '"id"' | wc -l)" = "$2" ] && { sleep 1; return 0; }; sleep 3; done; echo "timeout: channel $1 never had $2 done turns" >&2; return 1; }
+wait_done() { for i in $(seq 60); do [ "$(curl -s "http://$A/turns?channel=$1&status=done" | grep -o '"id"' | wc -l | tr -d ' ')" = "$2" ] && { sleep 1; return 0; }; sleep 3; done; echo "timeout: channel $1 never had $2 done turns" >&2; return 1; }
 wait_for() { for i in $(seq 60); do curl -s "http://$A$1" | grep -q "$2" && return 0; sleep 2; done; echo "timeout: $1 never had $2" >&2; return 1; }
 
 # api_call METHOD PATH [JSON]: sets STATUS and BODY from one $H api call.
@@ -387,8 +387,8 @@ sess6=$(echo "$turns6" | tail -n +2 | awk -F'|' '{print $4}' | sort -u)
 promote_ok=1
 [ "$promote_status" = 202 ] || promote_ok=0
 [ "$promote_msg_ok" = 1 ] || promote_ok=0
-[ "$(echo "$turns6" | tail -n +2 | wc -l)" = 3 ] || promote_ok=0
-[ "$(echo "$sess6" | wc -l)" = 1 ] || promote_ok=0
+[ "$(echo "$turns6" | tail -n +2 | wc -l | tr -d ' ')" = 3 ] || promote_ok=0
+[ "$(echo "$sess6" | wc -l | tr -d ' ')" = 1 ] || promote_ok=0
 sess6_id=$(echo "$sess6" | head -1)
 sess6_file=$(session_file "$sess6_id")
 grep -q "\"cwd\":\"$S/cwd\"" "$sess6_file" 2>/dev/null || promote_ok=0
@@ -729,14 +729,14 @@ idle
 dev_turn_g=$("$H" sql "select id from turn where channel_id = 1 and role = 'developer' order by id desc limit 1" | tail -1)
 [ "$(turn_col "$dev_turn_g" status)" = done ] || { google_ok=0; google_bad+=" $LINENO"; }
 [ "$(turn_col "$dev_turn_g" checkpoint)" = "refs/reef/checkpoints/$dev_turn_g" ] || { google_ok=0; google_bad+=" $LINENO"; }
-[ "$(git -C "$S/google-app" log --oneline main..feature/google-login | wc -l)" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
+[ "$(git -C "$S/google-app" log --oneline main..feature/google-login | wc -l | tr -d ' ')" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
 git -C "$S/google-app" worktree list | grep -q "^$S/google/worktrees/1/google-login .*\[feature/google-login\]" || { google_ok=0; google_bad+=" $LINENO"; }
 [ -z "$(git -C "$S/google-app" status --porcelain)" ] || { google_ok=0; google_bad+=" $LINENO"; }
-[ "$(git -C "$S/google-app" log --oneline main | wc -l)" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
+[ "$(git -C "$S/google-app" log --oneline main | wc -l | tr -d ' ')" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
 appr2=$("$H" sql "select id, from_role, to_role, kind, status from approval where id = 2")
 echo "$appr2" | grep -qF '2|developer|tester|gate|pending' || { google_ok=0; google_bad+=" $LINENO"; }
 api_call GET /inbox
-[ "$(echo "$BODY" | grep -o '"kind"' | wc -l)" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
+[ "$(echo "$BODY" | grep -o '"kind"' | wc -l | tr -d ' ')" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
 echo "$BODY" | grep -q '"kind":"approval".*"channelId":1' || { google_ok=0; google_bad+=" $LINENO"; }
 
 api_call POST /channels/1/approvals/2 '{"approve":true}'
@@ -749,7 +749,7 @@ lead_turn_g=$("$H" sql "select id from turn where channel_id = 1 and role = 'lea
 [ "$(turn_col "$lead_turn_g" status)" = done ] || { google_ok=0; google_bad+=" $LINENO"; }
 [ -z "$(echo "$("$H" sql "select paused from channel")" | tail -n +2 | tr -d '[:space:]')" ] || { google_ok=0; google_bad+=" $LINENO"; }
 api_call GET /inbox
-[ "$(echo "$BODY" | grep -o '"kind"' | wc -l)" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
+[ "$(echo "$BODY" | grep -o '"kind"' | wc -l | tr -d ' ')" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
 echo "$BODY" | grep -q '"kind":"waiting"' || { google_ok=0; google_bad+=" $LINENO"; }
 
 api_call GET '/messages?channel=1'
