@@ -133,8 +133,22 @@ let browser = null;
 let terminals = null;
 let captureWindow = null;
 
+// Over the Reef window when one is showing, else the OS centres it on the screen.
+function placeCaptureWindow() {
+  const main = BrowserWindow.getAllWindows().find(
+    (w) => w !== captureWindow && w.isVisible() && !w.isMinimized(),
+  );
+  if (!main) return captureWindow.center();
+  const b = main.getBounds();
+  captureWindow.setPosition(
+    Math.round(b.x + (b.width - 600) / 2),
+    Math.round(b.y + b.height * 0.18),
+  );
+}
+
 function openCaptureWindow() {
   if (captureWindow) {
+    placeCaptureWindow();
     captureWindow.show();
     captureWindow.focus();
     return;
@@ -142,7 +156,6 @@ function openCaptureWindow() {
   captureWindow = new BrowserWindow({
     width: 600,
     height: CAPTURE_HEIGHT,
-    center: true,
     frame: false,
     transparent: true,
     backgroundColor: '#00000000',
@@ -152,6 +165,7 @@ function openCaptureWindow() {
     alwaysOnTop: true,
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
+  placeCaptureWindow();
   captureWindow.on('closed', () => {
     captureWindow = null;
   });
