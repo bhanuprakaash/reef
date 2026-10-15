@@ -22,6 +22,11 @@ in logs. Contract: `docs/server.md` (GitHub poll) and `docs/product.md` (decisio
   any agent-originated wake: a run of distinct failed checks, one per poll, wakes the developer
   up to `store.HopCap` times, then the next one is noted but pauses the channel at the hop cap
   instead of waking it again.
+- `lost-note-no-channel` a PR that opens while the feature has a worktree but no channel yet is
+  not recorded as posted (no `feature_github` row), so it is not lost; once the first channel
+  exists, the next poll posts it, once.
+- `many-failed-checks-one-wake` a rollup with two failed checks posts one developer wake whose
+  `wake_text` names both, not one turn per check.
 
 ## How to get to it (user POV)
 

@@ -245,7 +245,8 @@ func (s *server) notePRState(ctx context.Context, f store.Feature, pr ghPR) erro
 		return nil
 	}
 	body := fmt.Sprintf("PR #%d %s: %s", pr.Number, strings.ToLower(pr.State), pr.URL)
-	if err := s.noteFeature(ctx, f.ID, body); err != nil {
+	posted, err := s.noteFeature(ctx, f.ID, body)
+	if err != nil || !posted {
 		return err
 	}
 	return s.st.SetFeatureGitHub(ctx, store.FeatureGitHub{
@@ -255,69 +256,91 @@ func (s *server) notePRState(ctx context.Context, f store.Feature, pr ghPR) erro
 
 // noteFinishedChecks posts a reef note for each check run that finished and was not yet
 // noted, once per run: the same check name run again, such as a rerun on a later push, is its
-// own run, noted on its own. A run that finished failed also wakes the developer; noting and
-// waking are independent, so a wake that could not run (the channel is busy or paused) is
-// retried on a later poll even though the run was already noted.
+// own run, noted on its own. A check run is recorded as noted only once its note was actually
+// posted, so a feature with no channel yet, or a failed CreateMessage, is retried on a later
+// poll instead of losing the note. Every failed run in the rollup wakes the developer in one
+// wake; noting and waking are independent, so a wake that could not run (the channel is busy
+// or paused) is retried on a later poll even though the run was already noted.
 func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghPR, ghPath, dir string) error {
+	var failed []ghCheck
 	for _, c := range pr.StatusCheckRollup {
 		finished, word := c.outcome()
 		if !finished {
 			continue
 		}
 		name, key := c.checkName(), c.runKey()
-		alreadyNoted, err := s.st.NoteGitHubCheck(ctx, f.ID, name, key)
+		noted, err := s.st.GitHubCheckNoted(ctx, f.ID, name, key)
 		if err != nil {
 			return err
 		}
-		if !alreadyNoted {
-			if err := s.noteFeature(ctx, f.ID, fmt.Sprintf("%s %s", name, word)); err != nil {
+		if !noted {
+			posted, err := s.noteFeature(ctx, f.ID, fmt.Sprintf("%s %s", name, word))
+			if err != nil {
 				return err
 			}
+			if posted {
+				if err := s.st.RecordGitHubCheck(ctx, f.ID, name, key); err != nil {
+					return err
+				}
+			}
 		}
-		if word != "failed" {
-			continue
-		}
-		if err := s.wakeDeveloper(ctx, f, pr, c, key, ghPath, dir); err != nil {
-			return err
+		if word == "failed" {
+			failed = append(failed, c)
 		}
 	}
-	return nil
+	if len(failed) == 0 {
+		return nil
+	}
+	return s.wakeDeveloper(ctx, f, pr, failed, ghPath, dir)
 }
 
 // noteFeature posts a reef note in the feature's most recent channel, and tells an open
-// stream on it that a message arrived, so the window refreshes without a reload.
-func (s *server) noteFeature(ctx context.Context, featureID int64, body string) error {
+// stream on it that a message arrived, so the window refreshes without a reload. It reports
+// posted = false, without error, when the feature has no channel yet, so the caller does not
+// record the note as sent.
+func (s *server) noteFeature(ctx context.Context, featureID int64, body string) (posted bool, err error) {
 	ch, err := s.st.FeatureLatestChannel(ctx, featureID)
 	if errors.Is(err, store.ErrNotFound) {
-		return nil
+		return false, nil
 	}
 	if err != nil {
-		return err
+		return false, err
 	}
 	if _, err = s.st.CreateMessage(ctx, store.Message{
 		ChannelID: ch.ID, Author: store.ReefAuthor, Body: body,
 	}); err != nil {
-		return err
+		return false, err
 	}
 	s.notifyMessage(ch.ID)
-	return nil
+	return true, nil
 }
 
-// wakeDeveloper wakes the developer role in the feature's most recent channel when a check
-// run finishes failed, once per run, also across restarts. A channel whose team has no
-// developer gets the note only. A channel with a turn running, or paused, cannot take the
-// wake now; that is logged once and retried on a later poll, once the channel is idle. The
-// wake runs as a new chain of its own, the way a retried turn does (decision 39), attributed
-// to store.ReefAuthor rather than the user: no gate applies, since no role sent it, but it
-// counts as a hop like any agent-originated wake, so a loop of failing checks still pauses
-// at the hop cap instead of resetting it every time.
+// wakeDeveloper wakes the developer role in the feature's most recent channel with one wake
+// naming every run in checks not already woken, each with its log tail, once per run, also
+// across restarts. Several failed runs in the same rollup are one wake, not one each. A
+// channel whose team has no developer gets the note only. The wake text is built, including
+// any log fetch, before the channel is claimed, so a user send during that fetch is not held
+// to a 409. A channel with a turn running, or paused, cannot take the wake now; that is logged
+// once and retried on a later poll, once the channel is idle. The wake runs as a new chain of
+// its own, the way a retried turn does (decision 39), attributed to store.ReefAuthor rather
+// than the user: no gate applies, since no role sent it, but it counts as a hop like any
+// agent-originated wake, so a loop of failing checks still pauses at the hop cap instead of
+// resetting it every time.
 func (s *server) wakeDeveloper(
-	ctx context.Context, f store.Feature, pr ghPR, c ghCheck, key, ghPath, dir string,
+	ctx context.Context, f store.Feature, pr ghPR, checks []ghCheck, ghPath, dir string,
 ) error {
-	name := c.checkName()
-	woken, err := s.st.WokenGitHubCheck(ctx, f.ID, name, key)
-	if err != nil || woken {
-		return err
+	var unwoken []ghCheck
+	for _, c := range checks {
+		woken, err := s.st.WokenGitHubCheck(ctx, f.ID, c.checkName(), c.runKey())
+		if err != nil {
+			return err
+		}
+		if !woken {
+			unwoken = append(unwoken, c)
+		}
+	}
+	if len(unwoken) == 0 {
+		return nil
 	}
 	ch, err := s.st.FeatureLatestChannel(ctx, f.ID)
 	if errors.Is(err, store.ErrNotFound) {
@@ -333,6 +356,7 @@ func (s *server) wakeDeveloper(
 	if !slices.ContainsFunc(team.Roles, func(r store.Role) bool { return r.Name == "developer" }) {
 		return nil
 	}
+	text := s.ghWakeText(ctx, pr, unwoken, ghPath, dir)
 	chain, ch, err := s.claim(ctx, ch.ID)
 	if err != nil {
 		if errors.Is(err, store.ErrConflict) {
@@ -341,7 +365,6 @@ func (s *server) wakeDeveloper(
 		}
 		return err
 	}
-	text := s.ghWakeText(ctx, pr, c, ghPath, dir)
 	w := wake{from: store.ReefAuthor, role: "developer", text: text}
 	if err := chain.resume(ctx, ch, []wake{w}); err != nil {
 		if errors.Is(err, store.ErrConflict) {
@@ -350,12 +373,28 @@ func (s *server) wakeDeveloper(
 		}
 		return err
 	}
-	return s.st.MarkGitHubCheckWoken(ctx, f.ID, name, key)
+	for _, c := range unwoken {
+		if err := s.st.MarkGitHubCheckWoken(ctx, f.ID, c.checkName(), c.runKey()); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
-// ghWakeText is the wake text for a failed check run: the check name and the PR, plus the
-// last 50 lines of the run's failed log when the run id can be read from the check.
-func (s *server) ghWakeText(ctx context.Context, pr ghPR, c ghCheck, ghPath, dir string) string {
+// ghWakeText is the wake text for one or more failed check runs, joined with a blank line:
+// each run's check name and the PR, plus the last 50 lines of its failed log when the run id
+// can be read from the check.
+func (s *server) ghWakeText(ctx context.Context, pr ghPR, checks []ghCheck, ghPath, dir string) string {
+	parts := make([]string, len(checks))
+	for i, c := range checks {
+		parts[i] = ghCheckWakeText(ctx, pr, c, ghPath, dir)
+	}
+	return strings.Join(parts, "\n\n")
+}
+
+// ghCheckWakeText is the wake text for one failed check run: the check name and the PR, plus
+// the last 50 lines of the run's failed log when the run id can be read from the check.
+func ghCheckWakeText(ctx context.Context, pr ghPR, c ghCheck, ghPath, dir string) string {
 	text := fmt.Sprintf("%s failed on PR #%d: %s", c.checkName(), pr.Number, pr.URL)
 	runID := c.runID()
 	if runID == "" {

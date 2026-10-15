@@ -45,22 +45,32 @@ func (s *Store) SetFeatureGitHub(ctx context.Context, g FeatureGitHub) error {
 	return nil
 }
 
-// NoteGitHubCheck records that the check run identified by name and key was posted about,
-// and reports whether it already was. A check of the same name with a different key is a
-// different run, its own row, noted on its own.
-func (s *Store) NoteGitHubCheck(ctx context.Context, featureID int64, name, key string) (alreadyNoted bool, err error) {
-	res, err := s.db.ExecContext(ctx,
+// GitHubCheckNoted reports whether the check run identified by name and key was already
+// posted about. A check of the same name with a different key is a different run, its own
+// row, noted on its own.
+func (s *Store) GitHubCheckNoted(ctx context.Context, featureID int64, name, key string) (bool, error) {
+	var noted bool
+	err := s.db.QueryRowContext(ctx,
+		"SELECT EXISTS(SELECT 1 FROM feature_github_check WHERE feature_id = ? AND name = ? AND run_key = ?)",
+		featureID, name, key).Scan(&noted)
+	if err != nil {
+		return false, fmt.Errorf("read github check: %w", err)
+	}
+	return noted, nil
+}
+
+// RecordGitHubCheck records that the check run identified by name and key was posted about.
+// Call it only once the note was actually posted, so a note that could not be posted (no
+// channel yet, or a failed write) is retried on a later poll instead of recorded as done.
+func (s *Store) RecordGitHubCheck(ctx context.Context, featureID int64, name, key string) error {
+	_, err := s.db.ExecContext(ctx,
 		"INSERT INTO feature_github_check (feature_id, name, run_key) VALUES (?, ?, ?) "+
 			"ON CONFLICT(feature_id, name, run_key) DO NOTHING",
 		featureID, name, key)
 	if err != nil {
-		return false, fmt.Errorf("write github check: %w", err)
+		return fmt.Errorf("write github check: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return false, fmt.Errorf("write github check: %w", err)
-	}
-	return n == 0, nil
+	return nil
 }
 
 // WokenGitHubCheck reports whether the check run identified by name and key already woke the

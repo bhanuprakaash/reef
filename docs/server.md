@@ -811,20 +811,27 @@ is stored one row per `(feature, name, run key)` (migration 16
 `feature_github` and `feature_github_check`), so a restart does not repeat it and a second
 poll with the same answer posts nothing. No `gh` on `PATH`: nothing is posted, logged once.
 `gh` erroring (not logged in, no PR for the branch): nothing is posted, logged once per
-feature for that cause; logged again once the cause changes.
+feature for that cause; logged again once the cause changes. A feature with a worktree but no
+channel yet has nowhere to post: the note is recorded as sent only once it is actually posted,
+so it is not lost and posts once the first channel exists.
 
-A check run that finished failed also wakes the `developer` role in that channel, once per
-run, also across restarts (`feature_github_check.woken`): the text names the PR and the
-failed check, plus the last 50 lines of `gh run view <run id> --log-failed` when the run id
-can be read from the `CheckRun`'s `detailsUrl` (`/actions/runs/<id>/`); no run id, no log. A
-channel whose team has no `developer` role gets the note only. The wake runs as its own
-chain, the way a retried turn does (decision 39), attributed to author `reef` rather than
-`user`: no gate holds it, since no role sent it, but it counts as a hop like any
-agent-originated wake, so a run of failing checks still pauses at the hop cap instead of
-resetting the count every time; the channel's other caps (pause, token budget) also still
-apply. A channel with a turn running, or paused (including by the hop cap), cannot take the
-wake on that poll; the note still posts, the wake is retried on a later poll once the channel
-is idle, and the busy cause is logged once, not every poll.
+Every failed run in a rollup (a `CheckRun` whose `conclusion` is `FAILURE`, `ERROR`,
+`TIMED_OUT` or `STARTUP_FAILURE`, or a `StatusContext` whose `state` is anything but
+`SUCCESS`/`PENDING`/`EXPECTED`) also wakes the `developer` role in that channel, once per run,
+also across restarts (`feature_github_check.woken`): several failed runs in the same rollup,
+not yet woken, are one wake, not one each, its text naming every one of them plus the last 50
+lines of `gh run view <run id> --log-failed` for each run whose id can be read from the
+`CheckRun`'s `detailsUrl` (`/actions/runs/<id>/`); no run id, no log for that run. A channel
+whose team has no `developer` role gets the note only. The wake text, including any log
+fetch, is built before the channel is claimed, so a user send that arrives during the fetch
+finds the channel still idle and is not refused. The wake runs as its own chain, the way a
+retried turn does (decision 39), attributed to author `reef` rather than `user`: no gate holds
+it, since no role sent it, but it counts as a hop like any agent-originated wake, so a run of
+failing checks still pauses at the hop cap instead of resetting the count every time; the
+channel's other caps (pause, token budget) also still apply. A channel with a turn running, or
+paused (including by the hop cap), cannot take the wake on that poll; the note still posts,
+the wake is retried on a later poll once the channel is idle, and the busy cause is logged
+once, not every poll.
 
 ## Append-only
 

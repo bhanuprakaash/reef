@@ -245,6 +245,52 @@ case "$paused5" in "hop cap:"*) ;; *) hop_ok=0 ;; esac
 check hop-cap "$hop_ok" \
 	"developer turns=$dev_turns_hop after 6 failed checks, still $dev_turns_after_cap after a 7th, channel 5 paused=$paused5"
 
+### A PR that opens before the feature has a channel: the note must not be lost. It is not
+### recorded as posted until a channel exists to post it in, then posts once, not twice.
+
+api_call POST /features '{"projectId":1,"slug":"lost-note-demo","name":"Lost Note Demo"}'
+api_call POST /features/6/worktree ""
+
+echo '{"number":77,"url":"https://github.com/x/y/pull/77","state":"OPEN","statusCheckRollup":[]}' >"$GH/resp.json"
+sleep 3
+stored_before=$("$H" sql "select count(*) from feature_github where feature_id = 6" | tail -1)
+
+api_call POST /channels '{"projectId":1,"featureId":6,"name":"main"}'
+wait_for '/messages?channel=6' 'PR #77 open' && lost_wait=0 || lost_wait=1
+sleep 3
+lost_count=$(msg_count 6)
+lost_ok=1
+[ "$stored_before" = 0 ] || lost_ok=0
+[ "$lost_wait" = 0 ] || lost_ok=0
+[ "$lost_count" = 1 ] || lost_ok=0
+check lost-note-no-channel "$lost_ok" \
+	"feature_github rows before a channel existed=$stored_before, PR note posted=$lost_wait, messages on channel 6=$lost_count"
+
+### Two failed checks in one rollup: one developer wake naming both, not one wake each.
+
+api_call POST /features '{"projectId":1,"slug":"two-fail-demo","name":"Two Fail Demo"}'
+api_call POST /features/7/worktree ""
+api_call POST /channels '{"projectId":1,"featureId":7,"name":"main","team":"full"}'
+
+printf 'line one\n' >"$GH/log.txt"
+echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","statusCheckRollup":[' \
+	'{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE",' \
+	'"detailsUrl":"https://github.com/x/y/actions/runs/201/job/1"},' \
+	'{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"FAILURE",' \
+	'"detailsUrl":"https://github.com/x/y/actions/runs/202/job/1"}]}' | tr -d '\n' >"$GH/resp.json"
+wait_for '/messages?channel=7' 'lint failed' && two_fail_wait=0 || two_fail_wait=1
+sleep 2
+dev_turns7=$("$H" sql "select count(*) from turn where channel_id = 7 and role = 'developer'" | tail -1)
+turn7=$("$H" sql "select id from turn where channel_id = 7 and role = 'developer' order by id limit 1" | tail -1)
+wake7=$(turn_col "$turn7" wake_text)
+two_fail_ok=1
+[ "$two_fail_wait" = 0 ] || two_fail_ok=0
+[ "$dev_turns7" = 1 ] || two_fail_ok=0
+echo "$wake7" | grep -q build || two_fail_ok=0
+echo "$wake7" | grep -q lint || two_fail_ok=0
+check many-failed-checks-one-wake "$two_fail_ok" \
+	"developer turns=$dev_turns7, turn $turn7 wake_text: $(echo "$wake7" | tr '\n' '|')"
+
 "$H" serve-stop
 
 ### No gh on PATH: the server runs, posts nothing, and logs the cause once
