@@ -53,6 +53,9 @@ func TestTeam_ApplyErrors(t *testing.T) {
 		{"gate on unknown role", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude"}],` +
 			`"gates":[{"from":"x","to":"y","on":true}]}`,
 			"gate x to y names a role team a does not have"},
+		{"unknown face", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude","face":"dragon"}]}`,
+			`role x: face "dragon" must be one of jellyfish, whale, penguin, shark, octopus, turtle, ` +
+				"seahorse, otter, clownfish, manta-ray, pebble"},
 		{"read-only claude role with Bash", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude"},` +
 			`{"name":"tester","backend":"claude","tools":["Bash"]}]}`,
 			"role tester has no write, so it cannot have unrestricted Bash; " +

@@ -99,6 +99,7 @@ export type Role = {
   permissionMode: string;
   persona: string;
   skills: string;
+  face?: string;
   tools: string[];
 };
 

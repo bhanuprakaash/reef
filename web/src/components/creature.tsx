@@ -254,6 +254,8 @@ const drawings = {
 
 type CreatureName = keyof typeof drawings;
 
+export const creatureNames = Object.keys(drawings) as CreatureName[];
+
 const byRole: Record<string, CreatureName> = {
   lead: 'jellyfish',
   architect: 'whale',
@@ -347,9 +349,17 @@ const stacks = [
   ],
 ];
 
-export function GroupAvatar({ roles, size }: { roles: string[]; size: number }) {
+type GroupAvatarProps = {
+  roles: string[];
+  faces?: Record<string, string | undefined>;
+  size: number;
+};
+
+export function GroupAvatar({ roles, faces, size }: GroupAvatarProps) {
   const shown = roles.slice(0, 3);
-  if (shown.length < 2) return <Creature role={shown[0] ?? ''} size={size} />;
+  if (shown.length < 2) {
+    return <Creature role={shown[0] ?? ''} face={faces?.[shown[0]]} size={size} />;
+  }
   return (
     <svg
       width={size}
@@ -364,7 +374,7 @@ export function GroupAvatar({ roles, size }: { roles: string[]; size: number }) 
           <g key={i}>
             <circle cx={s.cx} cy={s.cy} r={s.r} fill="var(--creature-ring)" />
             <g transform={`translate(${s.x} ${s.y}) scale(${s.scale})`}>
-              <Body role={role} state="idle" />
+              <Body role={role} face={faces?.[role]} state="idle" />
             </g>
           </g>
         );

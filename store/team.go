@@ -28,7 +28,14 @@ type Gate struct {
 	On   bool   `json:"on"`
 }
 
-// Role is one teammate's setup. Tools are the backend's allowed tools. Write says whether the
+// _faces are the creatures a role's face may name; the window draws them.
+var _faces = []string{
+	"jellyfish", "whale", "penguin", "shark", "octopus", "turtle", "seahorse", "otter",
+	"clownfish", "manta-ray", "pebble",
+}
+
+// Role is one teammate's setup. Face picks the creature the window draws for the role; empty
+// means the default for its name. Tools are the backend's allowed tools. Write says whether the
 // role may change files: without it the backend's tools and sandbox are held to read-only.
 type Role struct {
 	Name           string            `json:"name"`
@@ -38,6 +45,7 @@ type Role struct {
 	PermissionMode string            `json:"permissionMode"`
 	Persona        string            `json:"persona"`
 	Skills         string            `json:"skills"`
+	Face           string            `json:"face,omitempty"`
 	Tools          []string          `json:"tools"`
 	MCPServers     []agent.MCPServer `json:"mcpServers"`
 }
@@ -117,9 +125,9 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 			return Team{}, fmt.Errorf("encode mcp servers: %w", err)
 		}
 		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO role (team_id, name, persona, skills, tools, mcp_servers, backend, "+
-				"permission_mode, lead, write) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			id, r.Name, r.Persona, r.Skills, string(tools), string(servers), r.Backend,
+			"INSERT INTO role (team_id, name, persona, skills, face, tools, mcp_servers, backend, "+
+				"permission_mode, lead, write) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+			id, r.Name, r.Persona, r.Skills, r.Face, string(tools), string(servers), r.Backend,
 			r.PermissionMode, r.Lead, r.Write); err != nil {
 			return Team{}, fmt.Errorf("insert role %s: %w", r.Name, err)
 		}
@@ -133,7 +141,7 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 // Team returns the team with the name, lead first, or ErrNotFound.
 func (s *Store) Team(ctx context.Context, name string) (Team, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT role.name, lead, write, backend, permission_mode, persona, skills, tools, mcp_servers "+
+		"SELECT role.name, lead, write, backend, permission_mode, persona, skills, face, tools, mcp_servers "+
 			"FROM role JOIN team ON team.id = team_id WHERE team.name = ? ORDER BY lead DESC, role.id",
 		name)
 	if err != nil {
@@ -224,6 +232,10 @@ func (t Team) validate() error {
 		if err := ValidateAgent(r.Backend, r.PermissionMode); err != nil {
 			return fmt.Errorf("role %s: %w", r.Name, err)
 		}
+		if r.Face != "" && !slices.Contains(_faces, r.Face) {
+			return fmt.Errorf("%w: role %s: face %q must be one of %s",
+				ErrInvalid, r.Name, r.Face, strings.Join(_faces, ", "))
+		}
 		if r.Backend == "claude" && !r.Write && slices.ContainsFunc(r.Tools, UnrestrictedBash) {
 			return fmt.Errorf("%w: role %s has no write, so it cannot have unrestricted Bash; "+
 				"list command patterns such as Bash(go test:*)", ErrInvalid, r.Name)
@@ -267,7 +279,7 @@ func scanRole(r interface{ Scan(...any) error }) (Role, error) {
 	var ro Role
 	var tools, servers string
 	if err := r.Scan(&ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Persona,
-		&ro.Skills, &tools, &servers); err != nil {
+		&ro.Skills, &ro.Face, &tools, &servers); err != nil {
 		return Role{}, err
 	}
 	if err := json.Unmarshal([]byte(tools), &ro.Tools); err != nil {

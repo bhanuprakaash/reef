@@ -974,13 +974,16 @@ async function workshop() {
   const mcpBefore = '[{"command":"true","env":{"API_KEY":"sk-verify-9911"}}]';
   sql(`update role set mcp_servers = '${mcpBefore}' where team_id = (select id from team where name = 'full') and name = 'developer'`, true);
 
+  const section = await addProject();
   await page.goto(`${base}/teams`);
   await main.getByRole('button', { name: 'full', exact: true }).click();
+  await main.getByRole('button', { name: /^developer/ }).click();
   const personaBox = main.getByLabel('developer persona');
   await personaBox.waitFor();
   const marker = `WORKSHOP-MARKER-${Date.now().toString(36)}`;
   const persona = `${await personaBox.inputValue()} Always say ${marker} once.`;
   await personaBox.fill(persona);
+  await main.getByRole('button', { name: 'Creature: Otter' }).first().click();
   await shot('persona-edited');
   await main.getByRole('button', { name: 'Save' }).click();
   await page.getByText('Saved').waitFor();
@@ -990,11 +993,16 @@ async function workshop() {
     "saving the developer's persona in the window updates its role row",
   );
   check(
+    sql(`select face from role where team_id = (select id from team where name = 'full') and name = 'developer'`) === 'otter',
+    "picking a creature for the developer in the window saves it to its role row",
+  );
+  check(
     sql(`select mcp_servers from role where team_id = (select id from team where name = 'full') and name = 'developer'`) === mcpBefore,
     "the developer's mcpServers, left out of the window, are unchanged",
   );
 
   // Two leads: the same error reef team apply gives.
+  await main.getByRole('button', { name: /^architect/ }).click();
   await main.getByLabel('architect lead').check();
   await main.getByRole('button', { name: 'Save' }).click();
   const twoLeads = await errorText(/needs exactly one lead role, has 2/);
@@ -1024,7 +1032,6 @@ async function workshop() {
   );
 
   // The next developer wake uses the new persona.
-  const section = await addProject();
   await addFeature(section, 'login', 'Login');
   const { id: cid } = await newTeamChannel('full', 'workshop room');
   await send('@developer Say ok in one word.');

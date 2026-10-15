@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router';
 import { useCreateChannel } from '@/modules/channels/api/create-channel';
 import { useTeams } from '@/lib/api/get-teams';
 import { BACKENDS, PERMISSION_MODES } from '@/modules/channels/utils/backends';
+import type { Role } from '@/types/api';
 import { Button } from '@/components/button';
 import { GroupAvatar } from '@/components/creature';
 import { Select } from '@/components/select';
@@ -33,6 +34,9 @@ export function NewChannelForm({ projectId, featureId, onClose }: Props) {
       </Button>
     );
   }
+
+  const teamRoles: Pick<Role, 'name' | 'face'>[] = teams.data?.find((t) => t.name === team)
+    ?.roles ?? [{ name: 'lead' }];
 
   return (
     <form
@@ -100,7 +104,8 @@ export function NewChannelForm({ projectId, featureId, onClose }: Props) {
         <span className="text-sm text-muted">Team</span>
         <div className="flex items-center gap-2">
           <GroupAvatar
-            roles={teams.data?.find((t) => t.name === team)?.roles.map((r) => r.name) ?? ['lead']}
+            roles={teamRoles.map((r) => r.name)}
+            faces={Object.fromEntries(teamRoles.map((r) => [r.name, r.face]))}
             size={30}
           />
           <Select

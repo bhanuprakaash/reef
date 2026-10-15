@@ -45,6 +45,30 @@ func TestTeamsOmitMCPServers(t *testing.T) {
 	}
 }
 
+func TestTeamsReturnFace(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude", Face: "otter"},
+		{Name: "tester", Backend: "claude"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	_, body := do(t, http.MethodGet, ts.URL+"/teams/crew", "")
+	if !strings.Contains(body, `"face":"otter"`) || strings.Count(body, `"face"`) != 1 {
+		t.Errorf("GET /teams/crew = %s, want face otter on the lead only", body)
+	}
+}
+
 func TestChannelTeam(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
