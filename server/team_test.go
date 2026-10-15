@@ -168,3 +168,44 @@ func TestPutTeam(t *testing.T) {
 		t.Errorf("PUT /teams/crew with mismatched name = %d, want 400", status)
 	}
 }
+
+func TestPutTeamCopyFrom(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
+			{Command: "my-mcp", Args: []string{"--key", "sk-secret-789"}},
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	body := `{"roles":[{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"",` +
+		`"persona":"","skills":"","tools":[]}]}`
+	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew2?from=crew", body)
+	if status != 200 || strings.Contains(resBody, "mcpServers") {
+		t.Fatalf("PUT /teams/crew2?from=crew = %d %s, want 200 without mcpServers", status, resBody)
+	}
+	got, err := st.Team(context.Background(), "crew2")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Roles[0].MCPServers) != 1 || got.Roles[0].MCPServers[0].Args[1] != "sk-secret-789" {
+		t.Errorf("copy's lead mcpServers = %+v, want the source's kept", got.Roles[0].MCPServers)
+	}
+
+	// A copy over a name that already exists is a conflict, not a silent replace.
+	status, resBody = do(t, http.MethodPut, ts.URL+"/teams/crew2?from=crew", body)
+	want := `{"error":"conflict: a team named \"crew2\" already exists"}`
+	if status != 409 || resBody != want {
+		t.Errorf("PUT /teams/crew2?from=crew again = %d %s, want 409 %s", status, resBody, want)
+	}
+}
