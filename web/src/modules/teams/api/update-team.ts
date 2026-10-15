@@ -5,11 +5,13 @@ import type { Team } from '@/types/api';
 export function useUpdateTeam() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ name, team, from }: { name: string; team: Team; from?: string }) =>
-      api<Team>(`/teams/${name}${from ? `?from=${from}` : ''}`, {
+    mutationFn: ({ name, team, from }: { name: string; team: Team; from?: string }) => {
+      const query = from ? `?from=${encodeURIComponent(from)}` : '';
+      return api<Team>(`/teams/${encodeURIComponent(name)}${query}`, {
         method: 'PUT',
         body: JSON.stringify(team),
-      }),
+      });
+    },
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['teams'] }),
   });
 }
