@@ -97,3 +97,22 @@ func TestCloseFeature_ClosesChannelsAndRefusesARunningTurn(t *testing.T) {
 		t.Errorf("channel after feature reopen = %s, want closedAt still set", body)
 	}
 }
+
+func TestWrap_RefusedWhileProposalPending(t *testing.T) {
+	env := newLiveEnv(t)
+	id := env.featureChannel(t)
+	_, err := env.st.CreateProposal(context.Background(), store.Proposal{
+		ChannelID: int64(id), Role: "lead", Brief: "brief", Notes: "n",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	const want = `{"error":"channel 2 has a wrap-up waiting for approval: conflict"}`
+	if status, body := do(t, http.MethodPost, env.url+"/channels/2/wrap", ""); status != 409 || body != want {
+		t.Errorf("wrap = %d %s, want 409 %s", status, body, want)
+	}
+	if status, body := env.sendTo(t, id, "hi"); status != 202 {
+		t.Errorf("send = %d %s, want 202: only a wrap waits on the proposal", status, body)
+	}
+}

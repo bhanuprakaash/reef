@@ -5,6 +5,7 @@ import { useFailedTurns } from '@/modules/channels/api/get-failed-turns';
 import { useMessages } from '@/lib/api/get-messages';
 import { useTeams } from '@/lib/api/get-teams';
 import { useReopenChannel } from '@/modules/channels/api/reopen-channel';
+import { useProposal } from '@/modules/channels/api/get-proposal';
 import { useWrapChannel } from '@/modules/channels/api/wrap-channel';
 import { ApprovalRows } from '@/modules/channels/components/approval-rows';
 import { ChannelHeader } from '@/modules/channels/components/channel-header';
@@ -65,6 +66,7 @@ export function ChannelView({
   const failedTurns = useFailedTurns(channel.id);
   const turn = useLiveTurn(channel.id);
   const wrap = useWrapChannel(channel.id);
+  const proposal = useProposal(channel.id);
   const reopen = useReopenChannel(channel.id);
   const closed = channel.closedAt !== null;
   const running = turn.status === 'running';
@@ -103,7 +105,7 @@ export function ChannelView({
   const fullSheet = thread !== undefined || wide || turnOpen;
   const showTeam =
     !thread && side?.kind !== 'inspector' && side?.kind !== 'pr' && !wide && !turnOpen;
-  const wrapDisabled = running || wrap.isPending || blocksUser(channel.paused);
+  const wrapDisabled = running || wrap.isPending || !!proposal.data || blocksUser(channel.paused);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
