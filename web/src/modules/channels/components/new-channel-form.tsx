@@ -8,11 +8,11 @@ import { GroupAvatar } from '@/components/creature';
 import { Select } from '@/components/select';
 import { TextField } from '@/components/text-field';
 
-type Props = { projectId: number; featureId: number | null };
+type Props = { projectId: number; featureId: number | null; onClose?: () => void };
 
-export function NewChannelForm({ projectId, featureId }: Props) {
+export function NewChannelForm({ projectId, featureId, onClose }: Props) {
   const label = featureId === null ? 'New quick session' : 'New channel';
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(onClose !== undefined);
   const [backend, setBackend] = useState('');
   const [permissionMode, setPermissionMode] = useState('');
   const [team, setTeam] = useState('solo');
@@ -20,6 +20,11 @@ export function NewChannelForm({ projectId, featureId }: Props) {
   const create = useCreateChannel();
   const teams = useTeams();
   const navigate = useNavigate();
+
+  function close() {
+    setOpen(false);
+    onClose?.();
+  }
 
   if (!open) {
     return (
@@ -47,7 +52,7 @@ export function NewChannelForm({ projectId, featureId }: Props) {
           {
             onSuccess: (channel) => {
               setName('');
-              setOpen(false);
+              close();
               void navigate(`/channels/${channel.id}`);
             },
           },
@@ -129,7 +134,7 @@ export function NewChannelForm({ projectId, featureId }: Props) {
           type="button"
           onClick={() => {
             create.reset();
-            setOpen(false);
+            close();
           }}
         >
           Cancel

@@ -36,13 +36,13 @@ func (s *server) listChannels(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	cs, err := s.st.Channels(r.Context(), f)
+	cs, err := s.st.ChannelPreviews(r.Context(), f)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	if cs == nil {
-		cs = []store.Channel{}
+		cs = []store.ChannelPreview{}
 	}
 	writeJSON(w, http.StatusOK, cs)
 }

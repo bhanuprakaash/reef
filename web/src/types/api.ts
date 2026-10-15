@@ -51,6 +51,10 @@ export type Channel = {
   createdAt: string;
 };
 
+export type ChannelPreview = Channel & {
+  lastMessage: { author: string; body: string; createdAt: string } | null;
+};
+
 export type ProposedDecision = {
   body: string;
   why: string;

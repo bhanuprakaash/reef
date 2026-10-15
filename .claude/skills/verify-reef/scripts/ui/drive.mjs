@@ -65,15 +65,17 @@ async function exchange(text) {
   await idle();
 }
 
-// Fills the add-project form: the first-run screen when the server has no project, else the sidebar's.
+// Fills the add-project form: the first-run screen when the server has no project, else the project switcher's.
 async function submitProject(name, folder) {
-  await page.getByRole('button', { name: 'Add project' }).waitFor();
+  const switcher = aside.getByRole('button', { name: 'Switch project' });
+  await page.getByLabel('Repo folder').or(switcher).waitFor();
   if (await page.getByLabel('Repo folder').count()) {
     await page.getByLabel('Repo folder').fill(folder);
     await page.getByLabel('Name', { exact: true }).fill(name);
     await page.getByRole('button', { name: 'Add project' }).click();
     return;
   }
+  await switcher.click();
   await page.getByRole('button', { name: 'Add project' }).click();
   await page.getByLabel('Project name').fill(name);
   await page.getByLabel('Project path').fill(folder);
@@ -93,7 +95,7 @@ async function addProject() {
   }
   await page.goto(base + '/');
   await submitProject(name, projectDir);
-  const section = aside.locator('section', { has: page.getByRole('heading', { name, level: 3 }) });
+  const section = aside.getByRole('region', { name });
   await section.waitFor();
   return section;
 }
@@ -197,7 +199,7 @@ async function brief() {
 async function promote() {
   ensureRepo();
   const section = await addProject();
-  const cid = await newChannel(section, 'New quick session', 'idea chat');
+  const cid = await newChannel(aside, 'New channel', 'idea chat');
   await exchange('I have an idea: a search bar for the shop that filters products as you type.');
   await exchange('Decision: search is client side only for now, because the catalog is small (under 200 items).');
   const quick = sql(`select id from turn where channel_id=${cid} and checkpoint is not null order by id`).split('\n');
@@ -321,7 +323,7 @@ async function pages() {
 
 async function capture() {
   const section = await addProject();
-  const name = await section.getByRole('heading', { level: 3 }).innerText();
+  const name = (await section.getAttribute('aria-label')) ?? '';
   const pid = sql(`select id from project where name='${name}'`);
   await page.goto(base + '/capture');
   await page.getByLabel('Capture project').selectOption({ label: name });
@@ -336,7 +338,7 @@ async function capture() {
 
   // A failing request shows its error: the picked project is deleted before Enter.
   const section2 = await addProject();
-  const name2 = await section2.getByRole('heading', { level: 3 }).innerText();
+  const name2 = (await section2.getAttribute('aria-label')) ?? '';
   const pid2 = sql(`select id from project where name='${name2}'`);
   await page.goto(base + '/capture');
   await page.getByLabel('Capture project').selectOption({ label: name2 });
@@ -495,7 +497,7 @@ async function diff() {
 
 async function memory() {
   const section = await addProject();
-  const name = (await section.getByRole('heading', { level: 3 }).textContent()) ?? '';
+  const name = (await section.getAttribute('aria-label')) ?? '';
   const pid = sql(`select id from project where name='${name}'`);
   const home = main.locator('section', { has: page.getByRole('heading', { name, level: 2 }) });
   await home.getByLabel('Project memory').waitFor();
@@ -673,9 +675,9 @@ async function inbox() {
 
   await send('DESIGN a short plan for a login form.');
   await workingAs('lead', 60000);
-  await aside.getByRole('link', { name: /^Inbox/ }).click();
+  await aside.getByRole('link', { name: /^Needs you/ }).click();
   await page.getByRole('heading', { name: 'Needs you', level: 1 }).waitFor();
-  check(page.url().endsWith('/inbox'), 'the Inbox link opens /inbox', page.url());
+  check(page.url().endsWith('/inbox'), 'the Needs you link opens /inbox', page.url());
   const row = main.getByRole('listitem').filter({ hasText: 'lead wants to wake architect' });
   await row.waitFor({ timeout: 240000 });
   await shot('approval-row');
@@ -697,14 +699,14 @@ async function inbox() {
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
   let landed = await landedOn(`approval-${aid}`);
   check(page.url().endsWith(`/channels/${cid}#approval-${aid}`) && landed.inView && landed.ringed, 'clicking the notification opens the channel at the approval row, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
-  await aside.getByRole('link', { name: /^Inbox/ }).click();
+  await aside.getByRole('link', { name: /^Needs you/ }).click();
   await row.getByRole('link', { name: 'Open channel' }).click();
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
   landed = await landedOn(`approval-${aid}`);
   check(page.url().endsWith(`/channels/${cid}#approval-${aid}`) && landed.inView && landed.ringed, 'clicking an inbox item opens its channel at the approval row, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
   await shot('item-opened-channel');
 
-  await aside.getByRole('link', { name: /^Inbox/ }).click();
+  await aside.getByRole('link', { name: /^Needs you/ }).click();
   await row.getByRole('button', { name: 'Approve' }).click();
   await row.waitFor({ state: 'hidden', timeout: 30000 });
   await shot('approved');

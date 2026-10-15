@@ -14,9 +14,10 @@ const TokenBudget = 1_000_000
 // HopCap is how many turns woken by agent messages a channel runs between user messages.
 const HopCap = 6
 
-const _channelCols = "id, project_id, feature_id, name, role, backend, permission_mode, " +
-	"paused, token_budget, created_at, COALESCE((SELECT name FROM team WHERE id = channel.team_id), '" +
-	SoloTeam + "')"
+const _channelCols = "channel.id, channel.project_id, channel.feature_id, channel.name, " +
+	"channel.role, channel.backend, channel.permission_mode, channel.paused, " +
+	"channel.token_budget, channel.created_at, " +
+	"COALESCE((SELECT name FROM team WHERE id = channel.team_id), '" + SoloTeam + "')"
 
 // Channel with a nil FeatureID is a quick session.
 type Channel struct {
@@ -31,6 +32,19 @@ type Channel struct {
 	TokenBudget    int64     `json:"tokenBudget"`
 	Team           string    `json:"team"`
 	CreatedAt      time.Time `json:"createdAt"`
+}
+
+// ChannelPreview is a Channel with its newest message, nil when it has none.
+type ChannelPreview struct {
+	Channel
+	LastMessage *LastMessage `json:"lastMessage"`
+}
+
+// LastMessage is the author, body and time of a channel's newest message.
+type LastMessage struct {
+	Author    string    `json:"author"`
+	Body      string    `json:"body"`
+	CreatedAt time.Time `json:"createdAt"`
 }
 
 // ChannelFilter narrows Channels to one project and/or one feature when set.
@@ -109,18 +123,39 @@ func (s *Store) FeatureLatestChannel(ctx context.Context, featureID int64) (Chan
 
 // Channels lists channels by id, narrowed by the set fields of f.
 func (s *Store) Channels(ctx context.Context, f ChannelFilter) ([]Channel, error) {
-	q, args := "SELECT "+_channelCols+" FROM channel WHERE 1 = 1", []any{}
-	if f.ProjectID != nil {
-		q, args = q+" AND project_id = ?", append(args, *f.ProjectID)
-	}
-	if f.FeatureID != nil {
-		q, args = q+" AND feature_id = ?", append(args, *f.FeatureID)
-	}
-	rows, err := s.db.QueryContext(ctx, q+" ORDER BY id", args...)
+	where, args := f.where()
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT "+_channelCols+" FROM channel WHERE 1 = 1"+where+" ORDER BY channel.id", args...)
 	if err != nil {
 		return nil, fmt.Errorf("list channels: %w", err)
 	}
 	return scanAll(rows, scanChannel)
+}
+
+// ChannelPreviews is Channels with each channel's newest message, in one query.
+func (s *Store) ChannelPreviews(ctx context.Context, f ChannelFilter) ([]ChannelPreview, error) {
+	where, args := f.where()
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT "+_channelCols+", m.author, m.body, m.created_at FROM channel "+
+			"LEFT JOIN message m ON m.id = "+
+			"(SELECT MAX(id) FROM message WHERE channel_id = channel.id) "+
+			"WHERE 1 = 1"+where+" ORDER BY channel.id", args...)
+	if err != nil {
+		return nil, fmt.Errorf("list channel previews: %w", err)
+	}
+	return scanAll(rows, scanChannelPreview)
+}
+
+func (f ChannelFilter) where() (string, []any) {
+	var q string
+	args := []any{}
+	if f.ProjectID != nil {
+		q, args = q+" AND channel.project_id = ?", append(args, *f.ProjectID)
+	}
+	if f.FeatureID != nil {
+		q, args = q+" AND channel.feature_id = ?", append(args, *f.FeatureID)
+	}
+	return q, args
 }
 
 // UpdateChannel sets the name and permission mode of c.ID. A channel never changes
@@ -307,6 +342,31 @@ func (c Channel) validate() error {
 		return fmt.Errorf("%w: channel name is required", ErrInvalid)
 	}
 	return nil
+}
+
+type scanWith struct {
+	r    interface{ Scan(...any) error }
+	rest []any
+}
+
+func (s scanWith) Scan(dest ...any) error { return s.r.Scan(append(dest, s.rest...)...) }
+
+func scanChannelPreview(r interface{ Scan(...any) error }) (ChannelPreview, error) {
+	var author, body, created sql.NullString
+	c, err := scanChannel(scanWith{r, []any{&author, &body, &created}})
+	if err != nil {
+		return ChannelPreview{}, err
+	}
+	p := ChannelPreview{Channel: c}
+	if !created.Valid {
+		return p, nil
+	}
+	t, err := time.Parse(time.RFC3339Nano, created.String)
+	if err != nil {
+		return ChannelPreview{}, fmt.Errorf("channel %d: bad last message created_at: %w", c.ID, err)
+	}
+	p.LastMessage = &LastMessage{Author: author.String, Body: body.String, CreatedAt: t}
+	return p, nil
 }
 
 func scanChannel(r interface{ Scan(...any) error }) (Channel, error) {

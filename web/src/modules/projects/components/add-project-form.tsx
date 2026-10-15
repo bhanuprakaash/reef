@@ -2,8 +2,9 @@ import { useState } from 'react';
 import { useCreateProject } from '@/modules/projects/api/create-project';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
+import type { Project } from '@/types/api';
 
-export function AddProjectForm() {
+export function AddProjectForm({ onCreated }: { onCreated?: (project: Project) => void }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState('');
   const [path, setPath] = useState('');
@@ -25,10 +26,11 @@ export function AddProjectForm() {
         create.mutate(
           { name, path },
           {
-            onSuccess: () => {
+            onSuccess: (project) => {
               setName('');
               setPath('');
               setOpen(false);
+              onCreated?.(project);
             },
           },
         );

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
@@ -132,6 +133,46 @@ func TestChannelStatus(t *testing.T) {
 				t.Errorf("body = %s, want it to contain %s", body, tt.wantBody)
 			}
 		})
+	}
+}
+
+func TestListChannelsLastMessage(t *testing.T) {
+	ts := newTestServer(t)
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"talk","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"empty","backend":"claude"}`)
+	for _, m := range []string{
+		`{"channelId":1,"author":"user","body":"hi"}`,
+		`{"channelId":1,"author":"lead","body":"hello there"}`,
+	} {
+		if status, body := do(t, http.MethodPost, ts.URL+"/messages", m); status != 201 {
+			t.Fatalf("post message = %d %s", status, body)
+		}
+	}
+
+	status, body := do(t, http.MethodGet, ts.URL+"/channels", "")
+	if status != 200 {
+		t.Fatalf("list = %d %s", status, body)
+	}
+	var got []struct {
+		Name        string `json:"name"`
+		LastMessage *struct {
+			Author    string `json:"author"`
+			Body      string `json:"body"`
+			CreatedAt string `json:"createdAt"`
+		} `json:"lastMessage"`
+	}
+	if err := json.Unmarshal([]byte(body), &got); err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].Name != "talk" || got[1].Name != "empty" {
+		t.Fatalf("channels = %s", body)
+	}
+	if m := got[0].LastMessage; m == nil || m.Author != "lead" || m.Body != "hello there" || m.CreatedAt == "" {
+		t.Errorf("talk lastMessage = %+v, want lead: hello there", m)
+	}
+	if got[1].LastMessage != nil || !strings.Contains(body, `"lastMessage":null`) {
+		t.Errorf("empty lastMessage = %+v, want null in %s", got[1].LastMessage, body)
 	}
 }
 
