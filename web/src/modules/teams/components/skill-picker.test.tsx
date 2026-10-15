@@ -33,11 +33,25 @@ describe('SkillPicker', () => {
         label="dev"
         picked={['how']}
         available={[{ name: 'how', description: 'Explain.' }]}
+        limits
         onChange={() => {}}
       />,
     );
 
     expect(markup).toContain(onlyHint);
+  });
+
+  it('stays quiet about limits on a role whose backend does not enforce them', () => {
+    const markup = renderToStaticMarkup(
+      <SkillPicker
+        label="dev"
+        picked={['how']}
+        available={[{ name: 'how', description: 'Explain.' }]}
+        onChange={() => {}}
+      />,
+    );
+
+    expect(markup).not.toContain(onlyHint);
   });
 
   it('does not say it when nothing is picked', () => {
@@ -46,6 +60,7 @@ describe('SkillPicker', () => {
         label="dev"
         picked={[]}
         available={[{ name: 'how', description: 'Explain.' }]}
+        limits
         onChange={() => {}}
       />,
     );

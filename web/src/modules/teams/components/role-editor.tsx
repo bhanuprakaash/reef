@@ -142,6 +142,7 @@ export function RoleEditor({ role, skills, noProject, open, onToggle, onChange, 
               picked={role.skills}
               available={role.backend === 'codex' ? skills?.codex : skills?.claude}
               noProject={noProject}
+              limits={role.backend === 'claude'}
               onChange={(next) => onChange({ ...role, skills: next })}
             />
             {role.backend === 'claude' && (

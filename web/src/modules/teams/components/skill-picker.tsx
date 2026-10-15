@@ -8,10 +8,11 @@ type Props = {
   picked: string[];
   available: SkillInfo[] | undefined;
   noProject?: boolean;
+  limits?: boolean;
   onChange: (skills: string[]) => void;
 };
 
-export function SkillPicker({ label, picked, available, noProject, onChange }: Props) {
+export function SkillPicker({ label, picked, available, noProject, limits, onChange }: Props) {
   const addable = addableSkills(available, picked);
   return (
     <div className="min-w-0">
@@ -39,7 +40,7 @@ export function SkillPicker({ label, picked, available, noProject, onChange }: P
         ]}
         onChange={(name) => name && onChange([...picked, name])}
       />
-      {picked.length > 0 && (
+      {limits && picked.length > 0 && (
         <p className="mt-2 text-xs text-muted">Only these skills are available.</p>
       )}
       {noProject && <p className="mt-2 text-xs text-muted">Add a project to see its skills.</p>}
