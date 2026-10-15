@@ -143,6 +143,9 @@ app.whenReady().then(async () => {
   browser.listen(dataDir());
   ipcMain.on('browser:bounds', (_event, rect) => browser.setBounds(rect));
   ipcMain.handle('browser:navigate', (_event, url) => browser.navigate(url));
+  ipcMain.on('browser:back', () => browser.back());
+  ipcMain.on('browser:forward', () => browser.forward());
+  ipcMain.on('browser:reload', () => browser.reload());
   ipcMain.handle('browser:take-over', (_event, value) => browser.setTakenOver(value));
   terminals = createTerminals(win, PATH);
   ipcMain.handle('terminal:open', (_event, cwd, cols, rows) => terminals.open(cwd, cols, rows));

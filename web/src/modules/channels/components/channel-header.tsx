@@ -15,9 +15,13 @@ type Props = {
   diff?: { added: number; removed: number };
   wrapDisabled: boolean;
   onWrap: () => void;
+  promoteDisabled: boolean;
+  onPromote: () => void;
   onInspector: () => void;
   onTeam: () => void;
   onTerminal?: () => void;
+  browserOpen?: boolean;
+  onBrowser?: () => void;
 };
 
 const iconButton = 'flex size-9 items-center justify-center rounded-field text-soft hover:bg-card';
@@ -31,9 +35,13 @@ export function ChannelHeader({
   diff,
   wrapDisabled,
   onWrap,
+  promoteDisabled,
+  onPromote,
   onInspector,
   onTeam,
   onTerminal,
+  browserOpen,
+  onBrowser,
 }: Props) {
   return (
     <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-[22px] pr-4">
@@ -60,6 +68,30 @@ export function ChannelHeader({
         </a>
       )}
       <div className="ml-auto flex items-center gap-0.5">
+        {onBrowser && (
+          <button
+            type="button"
+            aria-label="Browser"
+            aria-pressed={browserOpen}
+            onClick={onBrowser}
+            className={`${iconButton} aria-pressed:bg-bubble aria-pressed:text-fg`}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.6"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <circle cx="12" cy="12" r="9" />
+              <path d="M3 12h18M12 3c3 3 3 15 0 18M12 3c-3 3-3 15 0 18" />
+            </svg>
+          </button>
+        )}
         {onTerminal && (
           <button type="button" aria-label="Terminal" onClick={onTerminal} className={iconButton}>
             <svg
@@ -107,7 +139,7 @@ export function ChannelHeader({
         <Button variant="ghost" type="button" onClick={onTeam} className="min-[1100px]:hidden">
           Team
         </Button>
-        {channel.featureId !== null && (
+        {channel.featureId !== null ? (
           <Button
             variant="primary"
             type="button"
@@ -116,6 +148,10 @@ export function ChannelHeader({
             onClick={onWrap}
           >
             Wrap up
+          </Button>
+        ) : (
+          <Button type="button" className="ml-1.5" disabled={promoteDisabled} onClick={onPromote}>
+            Promote to feature
           </Button>
         )}
       </div>

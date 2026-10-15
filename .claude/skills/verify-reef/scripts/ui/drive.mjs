@@ -211,11 +211,12 @@ async function promote() {
     `turns with a checkpoint: ${quick.join(',')}; rows: ${await rows.count()}`,
   );
   await shot('before-promote');
-  await page.getByRole('button', { name: 'Promote' }).click();
-  await page.getByLabel('Feature slug').fill('search');
-  await page.getByLabel('Feature name').fill('Search');
+  await page.getByRole('button', { name: 'Promote to feature' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Promote to a feature' });
+  await dialog.getByLabel('Slug').fill('search');
+  await dialog.getByLabel('Name').fill('Search');
   await shot('promote-form');
-  await page.getByRole('button', { name: 'Promote' }).last().click();
+  await dialog.getByRole('button', { name: 'Promote', exact: true }).click();
   await working();
   const panel = page.getByRole('region', { name: 'Proposal' });
   await panel.waitFor({ timeout: 240000 });

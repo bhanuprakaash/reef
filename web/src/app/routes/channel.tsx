@@ -1,5 +1,6 @@
 import { type ComponentProps, useEffect, useState } from 'react';
-import { useParams } from 'react-router';
+import { useOutletContext, useParams } from 'react-router';
+import type { LayoutContext } from '@/app/layout';
 import { TerminalPane } from '@/app/terminal-pane';
 import { useChannel } from '@/modules/channels/api/get-channel';
 import { ChannelView } from '@/modules/channels/components/channel-view';
@@ -25,10 +26,10 @@ function FeatureChannelView({ featureId, ...props }: ViewProps & { featureId: nu
   );
 }
 
-function FeatureTerminal({ featureId }: { featureId: number }) {
+function FeatureTerminal({ featureId, onHide }: { featureId: number; onHide: () => void }) {
   const { mutate, data } = useEnsureWorktree(featureId);
   useEffect(() => mutate(), [mutate]);
-  return data ? <TerminalPane cwd={data.path} /> : null;
+  return data ? <TerminalPane cwd={data.path} onHide={onHide} /> : null;
 }
 
 export function ChannelPage() {
@@ -37,6 +38,7 @@ export function ChannelPage() {
   const features = useFeatures();
   const projects = useProjects();
   const [terminalFlipped, setTerminalFlipped] = useState(false);
+  const { browserOpen, toggleBrowser, setBrowserDriver } = useOutletContext<LayoutContext>();
 
   if (channel.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (channel.isError) return <p className="text-sm text-danger">{channel.error.message}</p>;
@@ -45,6 +47,7 @@ export function ChannelPage() {
   const feature = features.data?.find((f) => f.id === featureId);
   const project = projects.data?.find((p) => p.id === channel.data.projectId);
   const hasTerminal = typeof window !== 'undefined' && window.reef != null;
+  const toggleTerminal = () => setTerminalFlipped((flipped) => !flipped);
   const terminalOpen = hasTerminal && (featureId === null) !== terminalFlipped;
   const props: ViewProps = {
     channel: channel.data,
@@ -52,7 +55,10 @@ export function ChannelPage() {
     scope: feature
       ? `${feature.name} · ${STAGES.find((s) => s.value === feature.stage)?.label ?? feature.stage}`
       : 'quick session',
-    onTerminal: hasTerminal ? () => setTerminalFlipped((flipped) => !flipped) : undefined,
+    onTerminal: hasTerminal ? toggleTerminal : undefined,
+    browserOpen,
+    onBrowser: hasTerminal ? toggleBrowser : undefined,
+    onBrowserDriver: setBrowserDriver,
   };
   return (
     <div className="-m-6 flex h-screen flex-col">
@@ -62,11 +68,11 @@ export function ChannelPage() {
         <FeatureChannelView key={id} featureId={featureId} {...props} />
       )}
       {terminalOpen && (
-        <div className="shrink-0 p-4">
+        <div className="shrink-0 border-t border-hairline">
           {featureId === null ? (
-            project && <TerminalPane cwd={project.path} />
+            project && <TerminalPane cwd={project.path} onHide={toggleTerminal} />
           ) : (
-            <FeatureTerminal featureId={featureId} />
+            <FeatureTerminal featureId={featureId} onHide={toggleTerminal} />
           )}
         </div>
       )}

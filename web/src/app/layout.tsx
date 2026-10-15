@@ -1,13 +1,22 @@
+import { useState } from 'react';
 import { Outlet } from 'react-router';
-import { BrowserPane } from '@/app/browser-pane';
+import { BrowserPane, type BrowserDriver } from '@/app/browser-pane';
 import { FirstRun } from '@/app/first-run';
 import { Sidebar } from '@/app/sidebar';
 import { TabBar } from '@/app/tab-bar';
 import { Unreachable } from '@/app/unreachable';
 import { useProjects } from '@/modules/projects/api/get-projects';
 
+export type LayoutContext = {
+  browserOpen: boolean;
+  toggleBrowser: () => void;
+  setBrowserDriver: (driver: BrowserDriver | null) => void;
+};
+
 export function Layout() {
   const projects = useProjects();
+  const [browserOpen, setBrowserOpen] = useState(true);
+  const [browserDriver, setBrowserDriver] = useState<BrowserDriver | null>(null);
   if (projects.error instanceof TypeError) return <Unreachable />;
   if (projects.isPending) return null;
   if (projects.data?.length === 0) return <FirstRun />;
@@ -18,9 +27,17 @@ export function Layout() {
         <Sidebar />
       </aside>
       <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 md:p-6">
-        <Outlet />
+        <Outlet
+          context={
+            {
+              browserOpen,
+              toggleBrowser: () => setBrowserOpen((open) => !open),
+              setBrowserDriver,
+            } satisfies LayoutContext
+          }
+        />
       </main>
-      <BrowserPane />
+      <BrowserPane open={browserOpen} driver={browserDriver} />
       <TabBar />
     </div>
   );

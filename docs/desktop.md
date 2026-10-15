@@ -43,8 +43,13 @@ packaged app the `reef` binary ships inside the app's resources instead.
 ## Browser pane
 
 One `WebContentsView` ([`desktop/browser.js`](../desktop/browser.js)), for the whole window,
-shared by every channel. It sits to the right of the main area with an address bar; a preload
-script reports the pane's size to the main process so the native view stays lined up with it.
+shared by every channel. It sits to the right of the main area with Back, Forward and Reload
+buttons and an address bar; a preload script reports the pane's size to the main process so the
+native view stays lined up with it. The Browser button in a channel's header shows or hides the
+pane (open at start); a hidden pane reports a zero size, which hides the view. Back, Forward and
+Reload go over IPC (`browser:back`, `browser:forward`, `browser:reload`) to the view's navigation
+history; every navigation sends the renderer the URL and whether Back and Forward have anywhere
+to go, and the buttons are disabled when they do not.
 The main process drives the view over the Chrome DevTools Protocol
 (`webContents.debugger`), and listens on `browser.sock` in the data folder (mode 0600 from the
 moment it is created) for calls from `reef mcp` (see [memory.md](memory.md#reef-mcp)): one JSON
@@ -77,9 +82,12 @@ one entry per call with its level (`log`, `error`, ...); `Network.requestWillBeS
 method, URL and status. Both lists are cleared on `Page.frameStartedLoading` for the page's main
 frame, so a new navigation starts them empty, and each is capped at the last 500 entries.
 
-A "Take over" button next to the address bar flips a boolean in the main process. While it is on,
-every tool call over `browser.sock` fails with `the user has the browser`, and the button reads
-"Hand back" to release it. The button's own address-bar navigation goes over IPC, not the socket,
+While a browser tool call (`mcp__reef__browser_*`) runs in the open channel's live turn, a banner
+under the address bar shows that role's creature and `<Role> is driving · <what it is doing>`.
+The banner comes from the channel's live events, not from the socket, and goes when the call
+ends. A "Take over" button (in the banner, else next to the address bar) flips a boolean in the
+main process. While it is on, every tool call over `browser.sock` fails with `the user has the
+browser`, the banner reads "You have the browser", and the button reads "Hand back" to release it. The button's own address-bar navigation goes over IPC, not the socket,
 so it still works while taken over. Reloading the main window (for example after an update) turns
 take-over back off, so the button and the main process agree.
 
@@ -92,6 +100,8 @@ feature page: an "Open terminal" button calls `POST /features/{id}/worktree` (ma
 worktree the same way a first wake would, or reusing it), then shows the pane in the returned
 path; a failed call shows its error under the button. The button asks again on every visit to
 the feature page in this window session; it does not remember that a tree was already opened.
+On a channel page the terminal is a drawer under the messages, with a header (folder, Clear,
+hide); the Terminal button in the channel header, or the hide button, toggles it.
 The pane renders nothing in a plain browser. `node-pty` spawns the login shell with the `PATH`
 the app already resolved at start, sized to xterm's own columns and rows so the shell's first
 output isn't wrapped to the wrong width. The shell's output is buffered in the main process per

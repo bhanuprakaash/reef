@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { Dialog } from '@/components/dialog';
 import { useApprovals } from '@/modules/channels/api/get-approvals';
 import { useFailedTurns } from '@/modules/channels/api/get-failed-turns';
 import { useMessages } from '@/lib/api/get-messages';
@@ -20,6 +21,7 @@ import { ThreadPane } from '@/modules/channels/components/thread-pane';
 import { useLiveTurn } from '@/modules/channels/hooks/use-live-turn';
 import { useScrollToHash } from '@/modules/channels/hooks/use-scroll-to-hash';
 import { blocksUser } from '@/modules/channels/utils/blocks-user';
+import { browserAction } from '@/modules/channels/utils/browser-action';
 import { groupThreads } from '@/modules/channels/utils/group-threads';
 import { latestPullRequest } from '@/modules/channels/utils/pull-request';
 import type { Channel, Feature } from '@/types/api';
@@ -31,11 +33,24 @@ type Props = {
   diff?: { added: number; removed: number };
   brief?: string;
   onTerminal?: () => void;
+  browserOpen?: boolean;
+  onBrowser?: () => void;
+  onBrowserDriver?: (driver: { role: string; face?: string; action: string } | null) => void;
 };
 
 type Side = { kind: 'thread'; rootId: number } | { kind: 'inspector' } | null;
 
-export function ChannelView({ channel, scope, features, diff, brief, onTerminal }: Props) {
+export function ChannelView({
+  channel,
+  scope,
+  features,
+  diff,
+  brief,
+  onTerminal,
+  browserOpen,
+  onBrowser,
+  onBrowserDriver,
+}: Props) {
   const messages = useMessages(channel.id);
   const approvals = useApprovals(channel.id);
   const failedTurns = useFailedTurns(channel.id);
@@ -45,6 +60,7 @@ export function ChannelView({ channel, scope, features, diff, brief, onTerminal 
   const running = turn.status === 'running';
   const [side, setSide] = useState<Side>(null);
   const [teamOpen, setTeamOpen] = useState(false);
+  const [promoting, setPromoting] = useState(false);
   const threads = groupThreads(messages.data ?? []);
   const thread =
     side?.kind === 'thread' ? threads.find((t) => t.root.id === side.rootId) : undefined;
@@ -52,6 +68,13 @@ export function ChannelView({ channel, scope, features, diff, brief, onTerminal 
   const roles = teams.data?.find((t) => t.name === channel.team)?.roles ?? [];
   const faces = Object.fromEntries(roles.map((r) => [r.name, r.face]));
   const working = turn.role || channel.role || 'agent';
+  const face = faces[working];
+  const action = browserAction(turn);
+
+  useEffect(() => {
+    onBrowserDriver?.(action ? { role: working, face, action } : null);
+    return () => onBrowserDriver?.(null);
+  }, [onBrowserDriver, action, working, face]);
 
   useEffect(() => {
     end.current?.scrollIntoView({ block: 'end' });
@@ -75,19 +98,31 @@ export function ChannelView({ channel, scope, features, diff, brief, onTerminal 
         diff={diff}
         wrapDisabled={running || wrap.isPending || blocksUser(channel.paused)}
         onWrap={() => wrap.mutate()}
+        promoteDisabled={running}
+        onPromote={() => setPromoting(true)}
         onInspector={() => setSide(side?.kind === 'inspector' ? null : { kind: 'inspector' })}
         onTeam={() => {
           setTeamOpen(!showTeam || !teamOpen);
           closeSide();
         }}
         onTerminal={onTerminal}
+        browserOpen={browserOpen}
+        onBrowser={onBrowser}
       />
+      {channel.featureId === null && (
+        <Dialog open={promoting} onClose={() => setPromoting(false)} title="Promote to a feature">
+          {promoting && (
+            <PromoteForm
+              channel={channel}
+              features={features}
+              onClose={() => setPromoting(false)}
+            />
+          )}
+        </Dialog>
+      )}
       <div className="flex min-h-0 flex-1">
         <section className="min-w-0 flex-1 overflow-y-auto px-7 pt-4">
           <div className="mx-auto max-w-3xl space-y-4">
-            {channel.featureId === null && (
-              <PromoteForm channel={channel} features={features} disabled={running} />
-            )}
             {wrap.isError && <p className="text-sm text-danger">{wrap.error.message}</p>}
             {channel.paused !== '' && (
               <PausedBanner channelId={channel.id} reason={channel.paused} />
@@ -102,7 +137,7 @@ export function ChannelView({ channel, scope, features, diff, brief, onTerminal 
                 onOpen={(rootId) => setSide({ kind: 'thread', rootId })}
               />
             )}
-            <LiveTurn turn={turn} role={working} face={faces[working]} />
+            <LiveTurn turn={turn} role={working} face={face} />
             {turn.note && <p className="text-sm text-muted">{turn.note}</p>}
             <FailedTurnRows
               channelId={channel.id}

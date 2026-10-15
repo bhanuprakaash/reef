@@ -130,9 +130,9 @@ export function FeaturePage() {
         </div>
       </div>
       {worktree.data && (
-        <Card title="Terminal">
+        <div className="overflow-hidden rounded-card border border-hairline">
           <TerminalPane cwd={worktree.data.path} />
-        </Card>
+        </div>
       )}
     </div>
   );

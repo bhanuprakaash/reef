@@ -9,9 +9,12 @@ contextBridge.exposeInMainWorld('reef', {
   capture: () => ipcRenderer.invoke('capture:open'),
   setBrowserBounds: (rect) => ipcRenderer.send('browser:bounds', rect),
   navigateBrowser: (url) => ipcRenderer.invoke('browser:navigate', url),
+  browserBack: () => ipcRenderer.send('browser:back'),
+  browserForward: () => ipcRenderer.send('browser:forward'),
+  browserReload: () => ipcRenderer.send('browser:reload'),
   setTakeOver: (value) => ipcRenderer.invoke('browser:take-over', value),
   onBrowserNavigated: (callback) => {
-    const listener = (_event, url) => callback(url);
+    const listener = (_event, state) => callback(state);
     ipcRenderer.on('browser:navigated', listener);
     return () => ipcRenderer.removeListener('browser:navigated', listener);
   },
