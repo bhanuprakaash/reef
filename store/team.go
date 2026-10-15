@@ -28,7 +28,6 @@ type Gate struct {
 	On   bool   `json:"on"`
 }
 
-// _faces are the creatures a role's face may name; the window draws them.
 var _faces = []string{
 	"jellyfish", "whale", "penguin", "shark", "octopus", "turtle", "seahorse", "otter",
 	"clownfish", "manta-ray", "pebble",

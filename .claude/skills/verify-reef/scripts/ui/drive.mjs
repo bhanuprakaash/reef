@@ -65,7 +65,6 @@ async function exchange(text) {
   await idle();
 }
 
-// Fills the add-project form: the first-run screen when the server has no project, else the project switcher's.
 async function submitProject(name, folder) {
   const switcher = aside.getByRole('button', { name: 'Switch project' });
   await page.getByLabel('Repo folder').or(switcher).waitFor();
@@ -352,8 +351,6 @@ async function capture() {
   check(true, 'a capture whose request fails shows the error', await err.innerText());
 }
 
-// Text colour against the background it sits on, for every visible text element, one row per
-// colour pair, named by theme token. Large text needs 3:1, the rest 4.5:1.
 async function contrast(screen) {
   const rows = await page.evaluate(() => {
     const cv = document.createElement('canvas');
@@ -744,8 +741,6 @@ async function diff() {
   const featureId = page.url().split('/').pop();
   const cid = await newChannel(main, 'New channel', 'diff chat');
 
-  // Open the review page before the turn runs, and leave it open: a turn started through the
-  // API (not the channel page) should still land on this still-mounted view with no reload.
   await page.goto(`${base}/features/${featureId}/review`);
   await main.getByText('No changes.').waitFor({ timeout: 15000 });
   await shot('empty');
@@ -932,7 +927,6 @@ async function review() {
     .at(-1);
   check(!!root, 'the developer posted a third top-level message, its latest thread root', root && `message ${root.id}`);
 
-  // A binary file has no hunks.
   writeFileSync(path.join(tree, 'blob.bin'), Buffer.from([0, 1, 2, 0]));
   await page.goto(`${base}/features/${featureId}/review`);
   const files = main.getByRole('navigation', { name: 'Files' });
