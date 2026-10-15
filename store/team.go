@@ -59,6 +59,17 @@ var _defaultGates = []Gate{
 
 // ApplyTeam creates team t, or replaces the roles of the team with that name.
 func (s *Store) ApplyTeam(ctx context.Context, t Team) (Team, error) {
+	return s.applyTeam(ctx, t, false)
+}
+
+// CreateTeam creates team t, failing with ErrConflict when a team with that name already
+// exists. The check and the insert are one statement, so two concurrent calls for the same
+// name cannot both succeed.
+func (s *Store) CreateTeam(ctx context.Context, t Team) (Team, error) {
+	return s.applyTeam(ctx, t, true)
+}
+
+func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, error) {
 	if err := t.validate(); err != nil {
 		return Team{}, err
 	}
@@ -67,7 +78,14 @@ func (s *Store) ApplyTeam(ctx context.Context, t Team) (Team, error) {
 		return Team{}, fmt.Errorf("begin apply team: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if _, err := tx.ExecContext(ctx,
+	if createOnly {
+		if _, err := tx.ExecContext(ctx, "INSERT INTO team (name) VALUES (?)", t.Name); err != nil {
+			if isUnique(err) {
+				return Team{}, fmt.Errorf("%w: a team named %q already exists", ErrConflict, t.Name)
+			}
+			return Team{}, fmt.Errorf("insert team: %w", err)
+		}
+	} else if _, err := tx.ExecContext(ctx,
 		"INSERT INTO team (name) VALUES (?) ON CONFLICT (name) DO NOTHING", t.Name); err != nil {
 		return Team{}, fmt.Errorf("insert team: %w", err)
 	}
@@ -182,6 +200,9 @@ func (t Team) Gated(from, to string) bool {
 func (t Team) validate() error {
 	if t.Name == "" {
 		return fmt.Errorf("%w: team name is required", ErrInvalid)
+	}
+	if !_roleName.MatchString(t.Name) {
+		return fmt.Errorf("%w: team name %q must be letters, digits, _ or -", ErrInvalid, t.Name)
 	}
 	if t.Name == SoloTeam && (len(t.Roles) != 1 || t.Roles[0].Name != "lead" || !t.Roles[0].Lead) {
 		return fmt.Errorf("%w: team %s must have exactly one lead role named lead",

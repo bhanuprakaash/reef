@@ -75,22 +75,42 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: body name %q does not match %q", store.ErrInvalid, t.Name, name))
 		return
 	}
-	source := name
-	if from != "" {
-		if _, err := s.st.Team(r.Context(), name); err == nil {
-			writeError(w, fmt.Errorf("%w: a team named %q already exists", store.ErrConflict, name))
-			return
-		} else if !errors.Is(err, store.ErrNotFound) {
+	if from == "" {
+		existing, err := s.st.Team(r.Context(), name)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			writeError(w, err)
 			return
 		}
-		source = from
+		fillMCPServers(t, existing)
+		applied, err := s.st.ApplyTeam(r.Context(), t)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, viewTeam(applied))
+		return
 	}
-	existing, err := s.st.Team(r.Context(), source)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
+	source, err := s.st.Team(r.Context(), from)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
+			writeError(w, fmt.Errorf("%w: team %q not found", store.ErrNotFound, from))
+		} else {
+			writeError(w, err)
+		}
+		return
+	}
+	fillMCPServers(t, source)
+	applied, err := s.st.CreateTeam(r.Context(), t)
+	if err != nil {
 		writeError(w, err)
 		return
 	}
+	writeJSON(w, http.StatusOK, viewTeam(applied))
+}
+
+// fillMCPServers gives each role of t that omits mcpServers the servers of existing's role of
+// the same name, since the window never sees them.
+func fillMCPServers(t store.Team, existing store.Team) {
 	for i, role := range t.Roles {
 		if role.MCPServers != nil {
 			continue
@@ -102,12 +122,6 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	applied, err := s.st.ApplyTeam(r.Context(), t)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, viewTeam(applied))
 }
 
 func viewTeam(t store.Team) teamView {

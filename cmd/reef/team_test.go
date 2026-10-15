@@ -43,6 +43,8 @@ func TestTeam_ApplyErrors(t *testing.T) {
 	}{
 		{"no lead", `{"name":"a","roles":[{"name":"x","backend":"claude"}]}`,
 			"invalid: team a needs exactly one lead role, has 0"},
+		{"bad name", `{"name":"a b","roles":[{"name":"x","lead":true,"backend":"claude"}]}`,
+			`invalid: team name "a b" must be letters, digits, _ or -`},
 		{"two leads", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude"},` +
 			`{"name":"y","lead":true,"backend":"claude"}]}`,
 			"invalid: team a needs exactly one lead role, has 2"},
