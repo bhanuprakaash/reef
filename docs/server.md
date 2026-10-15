@@ -817,7 +817,10 @@ failed check, plus the last 50 lines of `gh run view <run id> --log-failed` when
 can be read from the `CheckRun`'s `detailsUrl` (`/actions/runs/<id>/`); no run id, no log. A
 channel whose team has no `developer` role gets the note only. The wake runs as its own
 chain, the way a retried turn does (decision 39): no gate holds it, since no role sent it,
-but the channel's own caps (pause, token budget, hop count) still apply.
+but the channel's own caps (pause, token budget, hop count) still apply. A channel with a
+turn running, or paused, cannot take the wake on that poll; the note still posts, the wake is
+retried on a later poll once the channel is idle, and the busy cause is logged once, not
+every poll.
 
 ## Append-only
 

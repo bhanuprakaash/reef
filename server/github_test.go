@@ -400,6 +400,99 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 	}
 }
 
+// TestPollGitHub_FailedCheckWakeRetriesWhenChannelBusy covers a wake that cannot run because
+// the channel has a turn running: the note still posts, the wake is not lost, and is retried
+// once the channel goes idle, without re-logging the busy cause on every poll.
+func TestPollGitHub_FailedCheckWakeRetriesWhenChannelBusy(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Backend: "claude", Write: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
+	h := newHandler(st, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+		fake.channelID.Store(id)
+		return fake, nil
+	})
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	repo := ghFeatureSetup(t, ts.URL, "crew")
+
+	binDir := t.TempDir()
+	writeFakeGh(t, binDir, repo)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	respFile := filepath.Join(t.TempDir(), "resp.json")
+	t.Setenv("GH_FAKE_RESPONSE", respFile)
+	setGhResponse(t, respFile, _ghFailedCheck)
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	t.Cleanup(func() { log.SetOutput(os.Stderr) })
+
+	sub := subscribeTo(t, ts.URL, 1)
+	sub.want(t, _idleFrame)
+	if status, body := do(t, http.MethodPost, ts.URL+"/channels/1/send", `{"text":"block"}`); status != 202 {
+		t.Fatalf("send block = %d %s, want 202", status, body)
+	}
+	<-fake.started
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+
+	// The channel is busy: the check is still noted, but the wake cannot run.
+	h.s.pollGitHub(ctx)
+	h.s.pollGitHub(ctx)
+	msgs, err := st.Messages(ctx, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 3 || msgs[2].Body != "build failed" {
+		t.Fatalf("messages while busy = %+v, want the block message, a PR note and a failed check note", msgs)
+	}
+	fake.mu.Lock()
+	ran := len(fake.ran)
+	fake.mu.Unlock()
+	if ran != 1 {
+		t.Fatalf("turns run while busy = %d, want 1 (only the blocking turn)", ran)
+	}
+	if got := strings.Count(buf.String(), "has a turn running"); got != 1 {
+		t.Errorf("log lines for the busy channel = %d, want 1; log:\n%s", got, buf.String())
+	}
+
+	// The channel goes idle: the next poll wakes the developer, exactly once.
+	fake.release <- struct{}{}
+	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
+
+	h.s.pollGitHub(ctx)
+	sub.want(t, `turn {"role":"developer","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"developer","status":"done"}`)
+
+	fake.mu.Lock()
+	ran = len(fake.ran)
+	fake.mu.Unlock()
+	if ran != 2 {
+		t.Fatalf("turns run once idle = %d, want 2 (the blocking turn and the wake)", ran)
+	}
+	if msgs, _ = st.Messages(ctx, 1, 0); len(msgs) != 3 {
+		t.Fatalf("messages after the wake = %d, want 3 (no repeat note)", len(msgs))
+	}
+
+	// Once woken, a later poll does not wake it again.
+	h.s.pollGitHub(ctx)
+	fake.mu.Lock()
+	ran = len(fake.ran)
+	fake.mu.Unlock()
+	if ran != 2 {
+		t.Fatalf("turns run after repeat poll = %d, want 2 (no repeat wake)", ran)
+	}
+}
+
 func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
 	ctx := context.Background()
 	st, err := store.Open(t.TempDir())
