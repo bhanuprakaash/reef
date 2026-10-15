@@ -25,6 +25,7 @@ feature, and a channel that hits a cap pauses and says why. A channel on a team 
 - `window-review` clicking a Diff panel line opens a comment box; comments collect below the files; Send to developer posts them as one message, `path:line` per comment, to the developer's latest thread and clears the list.
 - `window-board` `/tasks?view=board` shows the Todo, Doing and Done columns from a task's `status`; the project and feature filters apply to it too; dragging a card to another column, or picking a column from its move select, sends `PUT /tasks/{id}` and the new column survives a reload.
 - `window-workshop` the `/teams` page edits a role's persona and saves it to the role row, its `mcpServers` unchanged; an invalid team (two leads, an unknown backend) shows the same error as `reef team apply`; "Copy as new team" makes a new team; the next developer wake's prompt carries the new persona.
+- `window-capture` the `/capture` window picks a project and takes a kind and text; a successful capture shows "Captured", clears the text box and stores a task; a failing request (a deleted project) shows its error.
 
 Acceptance lines of the slice: "start a channel, chat, see streamed tool calls and text live" is
 `window-live`; "a new channel of the same feature starts from the brief" is `window-brief`;
@@ -70,6 +71,7 @@ REEF_VERIFY_RUN=<id> $H ui inspector
 REEF_VERIFY_RUN=<id> $H ui review
 REEF_VERIFY_RUN=<id> $H ui board
 REEF_VERIFY_RUN=<id> $H ui workshop
+REEF_VERIFY_RUN=<id> $H ui capture
 ```
 
 - **live.** Prints a `PASS live:` line for the tool rows seen mid-turn (the first row's tool name and input), the one stored `lead` message (with the message rows) and the cleared live view. Screenshots `live-midturn.png` (tool rows under `LEAD is working...`; the label is the running role in capitals, `ARCHITECT is working...` in a team) and `live-final.png`.
@@ -92,6 +94,8 @@ REEF_VERIFY_RUN=<id> $H ui workshop
 - **board.** Adds two projects, each with a feature, and a task on the tasks page for each. Clicks Board, reads both tasks under Todo and the `view=board` URL, then filters by the first task's project and feature and checks the other task is gone from the board. Dispatches a native drag of the first task's card into the Doing column (`dragstart`/`dragover`/`drop` with a `DataTransfer`, since a simulated mouse gesture does not trigger the draggable attribute headless) and reads the task's `doing` status back from SQLite, then reloads and checks the card is still under Doing. Picks `done` from the card's move select and reads `done` back from SQLite. Screenshots `board-columns.png`, `board-dragged.png`, `board-moved-with-select.png`.
 
 - **inbox.** Needs the team `gated` (see `ui teams`). Grants the `notifications` permission and wraps `window.Notification` to record each `new Notification` (title and body). Adds a project and feature, starts a `gated` channel, sends `DESIGN a short plan for a login form.`, and clicks the Inbox link while the lead runs, so the channel is not open. Waits for the row `Approval: inbox room` (`lead wants to wake architect`) with Approve and Reject, reads the badge `1` and, after 3 s, exactly one notification titled `Approval: inbox room`; no architect turn yet. Calls the notification's `onclick` (opens `/channels/N#approval-M` with the row on screen and ringed), returns to the inbox and clicks the item (same), then Approve from the list: the row goes, the `approval` row is `approved` and the architect turn is `done`. The architect's answer then shows as a `Waiting: inbox room` item with Open and fires its own notification (two in all). Open on it lands on `#latest-message`, on screen and ringed. Two messages sent to that open channel through the API give new waiting items: the first, with the channel visible, fires no notification (still two); the second, with `document.visibilityState` forced to `hidden`, fires one (three). A fresh load of `/inbox` with the item listed fires none. Screenshots `inbox-approval-row`, `inbox-item-opened-channel`, `inbox-approved`, `inbox-after-wake`, `inbox-waiting-opened-channel`.
+
+- **capture.** Adds a project, opens `/capture`, picks it, types text and presses Enter: waits for "Captured", checks the text box is empty and reads back a `task` row titled `idea: <text>`. Adds a second project, opens `/capture` again, picks it, deletes that project row in SQLite, then types and presses Enter: the server's `unknown project` error shows on the page. Screenshots `capture-captured.png`, `capture-error.png`.
 
 Each line is `PASS <scenario>: <what> | <what it saw>` or `FAIL ...`. The command exits 1 on any `FAIL`; an error inside a scenario is a `FAIL scenario aborted` line and an `error.png`.
 

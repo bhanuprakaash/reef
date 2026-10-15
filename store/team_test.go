@@ -167,6 +167,38 @@ func TestApplyTeam_RoleName(t *testing.T) {
 	}
 }
 
+func TestApplyTeam_Name(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	tests := []struct {
+		name string
+		give string
+		want string
+	}{
+		{"space", "my team", `invalid: team name "my team" must be letters, digits, _ or -`},
+		{"slash", "a/b", `invalid: team name "a/b" must be letters, digits, _ or -`},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := s.ApplyTeam(ctx, Team{Name: tt.give, Roles: []Role{
+				{Name: "lead", Lead: true, Backend: "claude"},
+			}})
+			if err == nil || err.Error() != tt.want {
+				t.Errorf("ApplyTeam error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+	if _, err := s.ApplyTeam(ctx, Team{Name: "Team_2-b", Roles: []Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+	}}); err != nil {
+		t.Errorf("ApplyTeam with name Team_2-b error = %v, want nil", err)
+	}
+}
+
 func TestApplyTeam_Write(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())

@@ -225,8 +225,8 @@ One agent run in a channel.
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
 | `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<turn id>`. `null` for a turn of a role without `write`, for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
 | `model` | string | default `""`; the backend's model name, set from the agent's first event once the turn ends |
-| `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one |
-| `prompt` | string | default `""`; the full text sent to the agent (context preamble and notes included), set once the turn ends |
+| `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one. A failed turn gets one too, when claude reported one |
+| `prompt` | string | not in the turn's own JSON (`GET /turns`, `GET /turns/{id}`); the full text sent to the agent (context preamble and notes included), set once the turn ends. `GET /channels/{id}/inspector` has its own view of it |
 
 ### tool_call
 
@@ -277,7 +277,7 @@ through the same validation. Migration 6 seeds the team `solo`, with one role, `
 
 | Field | JSON | Notes |
 | --- | --- | --- |
-| `name` | string | required; unique. Applying a name that exists replaces that team's roles and gates in one transaction |
+| `name` | string | required; unique; letters, digits, `_` and `-` only. Applying a name that exists replaces that team's roles and gates in one transaction |
 | `roles` | array | [roles](#role), the lead first, then the others in the order of the file |
 | `gates` | array | [gates](#gate); left out when the team lists none |
 
@@ -290,7 +290,7 @@ through the same validation. Migration 6 seeds the team `solo`, with one role, `
 | `write` | boolean | default `false`. Only a role with `write` may change files; it gets a checkpoint and the tree's write lock. claude: without it the role never gets `Edit`, `Write`, `MultiEdit` or `NotebookEdit` (they are dropped from `tools` and passed as `--disallowedTools`, so an allow rule in the user's or project's `.claude/settings.json` cannot grant them) and runs in the `default` permission mode, so `Bash` runs only as `tools` lists it. A claude role without `write` cannot list plain `Bash`, `Bash(*)` or `Bash(:*)` in `tools`: it would still change files through the shell, so applying the team is `invalid`; list patterns such as `Bash(go test:*)` instead. A role saved before this check existed has it dropped from `tools` at session start too, the same as the edit tools. `Bash` patterns are trusted as given: `Bash(git diff:*)` also lets `git diff --output=file` write a file. With it the role keeps its `tools` and permission mode (it still needs `acceptEdits`, or `Edit` in `tools`, to edit unasked) and also gets `Task`. codex: without it the sandbox is `read-only`; with it `workspace-write` unless the role's `permissionMode` is set. The seeded `solo` lead has `write` |
 | `backend` | string | required; `claude` or `codex` |
 | `permissionMode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`. The same rule as a channel's `permissionMode` |
-| `persona` | string | goes at the start of the role's first prompt |
+| `persona` | string | goes at the start of the role's first prompt, and again, marked as changed, at its next wake once it or `skills` differs from what the role's session last got |
 | `skills` | string | goes after the persona, under `Your skills:` |
 | `tools` | array of strings | claude: passed as `--allowedTools` with `mcp__reef__*`, so these tools and the reef tools run without asking; the role's own `mcpServers` do not (list `mcp__mcp1__*` here to allow one). codex: ignored |
 | `mcpServers` | array | extra MCP servers for the role, each `command`, `args`, `env` (stdio) or `url` (HTTP). They are named `mcp1`, `mcp2`, ... next to the `reef` server |
@@ -398,7 +398,7 @@ tool calls.
 | `GET /features/{id}/diff` | | 200 the worktree's changes against the commit its branch and the project's HEAD last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has no `mcpServers`, whose `args` and `url` may hold API keys | |
 | `GET /teams/{name}` | | 200, without `mcpServers` as above; each role shows `write` | 404 |
-| `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones; 409 `?from=` names a team that already exists |
+| `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 | 400 bad id |
 | `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
@@ -811,18 +811,27 @@ is stored one row per `(feature, name, run key)` (migration 16
 `feature_github` and `feature_github_check`), so a restart does not repeat it and a second
 poll with the same answer posts nothing. No `gh` on `PATH`: nothing is posted, logged once.
 `gh` erroring (not logged in, no PR for the branch): nothing is posted, logged once per
-feature for that cause; logged again once the cause changes.
+feature for that cause; logged again once the cause changes. A feature with a worktree but no
+channel yet has nowhere to post: the note is recorded as sent only once it is actually posted,
+so it is not lost and posts once the first channel exists.
 
-A check run that finished failed also wakes the `developer` role in that channel, once per
-run, also across restarts (`feature_github_check.woken`): the text names the PR and the
-failed check, plus the last 50 lines of `gh run view <run id> --log-failed` when the run id
-can be read from the `CheckRun`'s `detailsUrl` (`/actions/runs/<id>/`); no run id, no log. A
-channel whose team has no `developer` role gets the note only. The wake runs as its own
-chain, the way a retried turn does (decision 39): no gate holds it, since no role sent it,
-but the channel's own caps (pause, token budget, hop count) still apply. A channel with a
-turn running, or paused, cannot take the wake on that poll; the note still posts, the wake is
-retried on a later poll once the channel is idle, and the busy cause is logged once, not
-every poll.
+Every failed run in a rollup (a `CheckRun` whose `conclusion` is `FAILURE`, `ERROR`,
+`TIMED_OUT` or `STARTUP_FAILURE`, or a `StatusContext` whose `state` is anything but
+`SUCCESS`/`PENDING`/`EXPECTED`) also wakes the `developer` role in that channel, once per run,
+also across restarts (`feature_github_check.woken`): several failed runs in the same rollup,
+not yet woken, are one wake, not one each, its text naming every one of them plus the last 50
+lines of `gh run view <run id> --log-failed` for each run whose id can be read from the
+`CheckRun`'s `detailsUrl` (`/actions/runs/<id>/`); no run id, no log for that run. A channel
+whose team has no `developer` role gets the note only. The wake text, including any log
+fetch, is built before the channel is claimed, so a user send that arrives during the fetch
+finds the channel still idle and is not refused. The wake runs as its own chain, the way a
+retried turn does (decision 39), attributed to author `reef` rather than `user`: no gate holds
+it, since no role sent it, but it counts as a hop like any agent-originated wake, so a run of
+failing checks still pauses at the hop cap instead of resetting the count every time; the
+channel's other caps (pause, token budget) also still apply. A channel with a turn running, or
+paused (including by the hop cap), cannot take the wake on that poll; the note still posts,
+the wake is retried on a later poll once the channel is idle, and the busy cause is logged
+once, not every poll.
 
 ## Append-only
 

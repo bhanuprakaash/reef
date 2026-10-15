@@ -200,6 +200,97 @@ echo "$wake3" | grep -qF 'want 5 got 6' || busy_ok=0
 check wake-retries-after-busy "$busy_ok" \
 	"turns while paused=$turns_while_paused, busy cause logged before=$log_before after=$log_after, turn=$turn3 wake_text: $(echo "$wake3" | tr '\n' '|')"
 
+### Hop cap: the wake is attributed to an author other than the user, so it counts as a hop
+### like any agent-originated wake. A run of distinct failed checks, one new run per poll,
+### wakes the developer up to store.HopCap times; the next one is still noted, but pauses the
+### channel at the cap instead of waking the developer again.
+
+api_call POST /features '{"projectId":1,"slug":"hopcap-demo","name":"Hopcap Demo"}'
+api_call POST /features/5/worktree ""
+api_call POST /channels '{"projectId":1,"featureId":5,"name":"hops","team":"full"}'
+
+hop_ok=1
+for n in $(seq 1 6); do
+	printf 'FAIL TestHop%s\nwant %s got 0\n' "$n" "$n" >"$GH/log.txt"
+	echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","statusCheckRollup":[' \
+		'{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE",' \
+		'"detailsUrl":"https://github.com/x/y/actions/runs/'"$((100 + n))"'/job/1"}]}' | tr -d '\n' >"$GH/resp.json"
+	ok=0
+	for i in $(seq 30); do
+		t=$("$H" sql "select count(*) from turn where channel_id = 5 and role = 'developer'" | tail -1)
+		[ "$t" = "$n" ] && { ok=1; break; }
+		sleep 1
+	done
+	[ "$ok" = 1 ] || hop_ok=0
+done
+dev_turns_hop=$("$H" sql "select count(*) from turn where channel_id = 5 and role = 'developer'" | tail -1)
+[ "$dev_turns_hop" = 6 ] || hop_ok=0
+
+notes_before_cap=$(msg_count 5)
+printf 'FAIL TestHop7\nwant 7 got 0\n' >"$GH/log.txt"
+echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","statusCheckRollup":[' \
+	'{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE",' \
+	'"detailsUrl":"https://github.com/x/y/actions/runs/107/job/1"}]}' | tr -d '\n' >"$GH/resp.json"
+hop_note_wait=1
+for i in $(seq 30); do
+	[ "$(msg_count 5)" -gt "$notes_before_cap" ] 2>/dev/null && { hop_note_wait=0; break; }
+	sleep 1
+done
+sleep 2
+dev_turns_after_cap=$("$H" sql "select count(*) from turn where channel_id = 5 and role = 'developer'" | tail -1)
+paused5=$("$H" sql "select paused from channel where id = 5" | tail -1)
+[ "$hop_note_wait" = 0 ] || hop_ok=0
+[ "$dev_turns_after_cap" = 6 ] || hop_ok=0
+case "$paused5" in "hop cap:"*) ;; *) hop_ok=0 ;; esac
+check hop-cap "$hop_ok" \
+	"developer turns=$dev_turns_hop after 6 failed checks, still $dev_turns_after_cap after a 7th, channel 5 paused=$paused5"
+
+### A PR that opens before the feature has a channel: the note must not be lost. It is not
+### recorded as posted until a channel exists to post it in, then posts once, not twice.
+
+api_call POST /features '{"projectId":1,"slug":"lost-note-demo","name":"Lost Note Demo"}'
+api_call POST /features/6/worktree ""
+
+echo '{"number":77,"url":"https://github.com/x/y/pull/77","state":"OPEN","statusCheckRollup":[]}' >"$GH/resp.json"
+sleep 3
+stored_before=$("$H" sql "select count(*) from feature_github where feature_id = 6" | tail -1)
+
+api_call POST /channels '{"projectId":1,"featureId":6,"name":"main"}'
+wait_for '/messages?channel=6' 'PR #77 open' && lost_wait=0 || lost_wait=1
+sleep 3
+lost_count=$(msg_count 6)
+lost_ok=1
+[ "$stored_before" = 0 ] || lost_ok=0
+[ "$lost_wait" = 0 ] || lost_ok=0
+[ "$lost_count" = 1 ] || lost_ok=0
+check lost-note-no-channel "$lost_ok" \
+	"feature_github rows before a channel existed=$stored_before, PR note posted=$lost_wait, messages on channel 6=$lost_count"
+
+### Two failed checks in one rollup: one developer wake naming both, not one wake each.
+
+api_call POST /features '{"projectId":1,"slug":"two-fail-demo","name":"Two Fail Demo"}'
+api_call POST /features/7/worktree ""
+api_call POST /channels '{"projectId":1,"featureId":7,"name":"main","team":"full"}'
+
+printf 'line one\n' >"$GH/log.txt"
+echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","statusCheckRollup":[' \
+	'{"__typename":"CheckRun","name":"build","status":"COMPLETED","conclusion":"FAILURE",' \
+	'"detailsUrl":"https://github.com/x/y/actions/runs/201/job/1"},' \
+	'{"__typename":"CheckRun","name":"lint","status":"COMPLETED","conclusion":"FAILURE",' \
+	'"detailsUrl":"https://github.com/x/y/actions/runs/202/job/1"}]}' | tr -d '\n' >"$GH/resp.json"
+wait_for '/messages?channel=7' 'lint failed' && two_fail_wait=0 || two_fail_wait=1
+sleep 2
+dev_turns7=$("$H" sql "select count(*) from turn where channel_id = 7 and role = 'developer'" | tail -1)
+turn7=$("$H" sql "select id from turn where channel_id = 7 and role = 'developer' order by id limit 1" | tail -1)
+wake7=$(turn_col "$turn7" wake_text)
+two_fail_ok=1
+[ "$two_fail_wait" = 0 ] || two_fail_ok=0
+[ "$dev_turns7" = 1 ] || two_fail_ok=0
+echo "$wake7" | grep -q build || two_fail_ok=0
+echo "$wake7" | grep -q lint || two_fail_ok=0
+check many-failed-checks-one-wake "$two_fail_ok" \
+	"developer turns=$dev_turns7, turn $turn7 wake_text: $(echo "$wake7" | tr '\n' '|')"
+
 "$H" serve-stop
 
 ### No gh on PATH: the server runs, posts nothing, and logs the cause once

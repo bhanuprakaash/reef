@@ -1,15 +1,18 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { api } from '@/lib/api-client';
 import { messagesQuery } from '@/lib/api/get-messages';
 import { channelsQuery } from '@/lib/api/get-channels';
+import { sendMessage } from '@/lib/api/send-message';
 import { teamsQuery } from '@/lib/api/get-teams';
 import type { Channel, Message, Team } from '@/types/api';
 
-export type ReviewComment = { path: string; line: number; text: string };
+export type ReviewComment = { path: string; line: number; text: string; removed?: boolean };
 
-// reviewText lists each comment as its path:line followed by its text.
+// reviewText lists each comment as its path:line (marked "(removed)" for a deleted line)
+// followed by its text.
 export function reviewText(comments: ReviewComment[]): string {
-  return comments.map((c) => `${c.path}:${c.line}\n${c.text}`).join('\n\n');
+  return comments
+    .map((c) => `${c.path}:${c.line}${c.removed ? ' (removed)' : ''}\n${c.text}`)
+    .join('\n\n');
 }
 
 // pickChannel returns the feature's channel whose team has a developer role, the most
@@ -45,10 +48,7 @@ export function useSendReview(featureId: number) {
       const messages = await queryClient.fetchQuery(messagesQuery(channel.id));
       const parent = pickRoot(messages);
       const text = reviewText(comments);
-      await api<void>(`/channels/${channel.id}/send`, {
-        method: 'POST',
-        body: JSON.stringify({ text: parent ? text : `@developer\n${text}`, parent }),
-      });
+      await sendMessage(channel.id, parent ? text : `@developer\n${text}`, parent);
       return channel.id;
     },
     onSuccess: (channelId) => queryClient.invalidateQueries({ queryKey: ['messages', channelId] }),

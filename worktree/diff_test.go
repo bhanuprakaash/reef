@@ -220,6 +220,62 @@ func TestDiff_RemovedCommentLine(t *testing.T) {
 	}
 }
 
+func TestDiff_TypeChangeThenEdit(t *testing.T) {
+	repo := newRepo(t)
+	if err := os.WriteFile(filepath.Join(repo, "link.txt"), []byte("hello\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(repo, "other.txt"), []byte("one\ntwo\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	run(t, repo, "add", "link.txt", "other.txt")
+	run(t, repo, "commit", "-m", "add files")
+
+	dir := filepath.Join(t.TempDir(), "demo")
+	if err := Ensure(context.Background(), repo, dir, "feature/demo"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(dir, "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("other.txt", filepath.Join(dir, "link.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "other.txt"), []byte("one\ntwo\nthree\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	base, err := Base(context.Background(), repo, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	diffs, err := Diff(context.Background(), dir, base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(diffs) != 3 {
+		t.Fatalf("len(diffs) = %d, want 3: %+v", len(diffs), diffs)
+	}
+	del, add, other := diffs[0], diffs[1], diffs[2]
+	if del.Path != "link.txt" || del.Status != "deleted" || len(del.Hunks) != 1 {
+		t.Fatalf("diffs[0] = %+v, want link.txt deleted with 1 hunk", del)
+	}
+	if add.Path != "link.txt" || add.Status != "added" || len(add.Hunks) != 1 {
+		t.Fatalf("diffs[1] = %+v, want link.txt added with 1 hunk", add)
+	}
+	if other.Path != "other.txt" || other.Status != "modified" {
+		t.Fatalf("diffs[2] = %+v, want other.txt modified", other)
+	}
+	want := Line{Kind: "add", New: 3, Text: "three"}
+	if len(other.Hunks) != 1 || len(other.Hunks[0].Lines) == 0 {
+		t.Fatalf("hunks = %+v", other.Hunks)
+	}
+	last := other.Hunks[0].Lines[len(other.Hunks[0].Lines)-1]
+	if last != want {
+		t.Fatalf("last line = %+v, want %+v", last, want)
+	}
+}
+
 func TestDiff_NoChanges(t *testing.T) {
 	repo := newRepo(t)
 	dir := filepath.Join(t.TempDir(), "demo")

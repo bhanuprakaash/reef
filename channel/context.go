@@ -115,6 +115,16 @@ func roleIntro(r store.Role) string {
 	return b.String()
 }
 
+// _introChangedPrefix marks roleIntro text as a change to a role whose session is already
+// running, so the agent knows this replaces what it was told before.
+const _introChangedPrefix = "Your persona or skills changed:\n\n"
+
+// updatedRoleIntro is roleIntro(r), marked as a change to a role whose session is already
+// running, so the agent knows this replaces what it was told before.
+func updatedRoleIntro(r store.Role) string {
+	return _introChangedPrefix + roleIntro(r)
+}
+
 // teamIntro tells a teammate who is on its team and that they talk through the channel. A
 // team of one gets none.
 func teamIntro(team store.Team, r store.Role) string {

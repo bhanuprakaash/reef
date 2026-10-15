@@ -2,9 +2,11 @@ package server
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/bhanuprakaash/reef/agent"
@@ -167,6 +169,15 @@ func TestPutTeam(t *testing.T) {
 	if status != 400 {
 		t.Errorf("PUT /teams/crew with mismatched name = %d, want 400", status)
 	}
+
+	// A name with a space or a slash, as the URL-encoded path sends it, is a clear invalid error.
+	roleBody := `{"roles":[{"name":"lead","lead":true,"backend":"claude"}]}`
+	for _, path := range []string{"/teams/a%20b", "/teams/a%2Fb"} {
+		status, resBody = do(t, http.MethodPut, ts.URL+path, roleBody)
+		if status != 400 || !strings.Contains(resBody, "must be letters, digits, _ or -") {
+			t.Errorf("PUT %s = %d %s, want 400 naming the allowed characters", path, status, resBody)
+		}
+	}
 }
 
 func TestPutTeamCopyFrom(t *testing.T) {
@@ -207,5 +218,79 @@ func TestPutTeamCopyFrom(t *testing.T) {
 	want := `{"error":"conflict: a team named \"crew2\" already exists"}`
 	if status != 409 || resBody != want {
 		t.Errorf("PUT /teams/crew2?from=crew again = %d %s, want 409 %s", status, resBody, want)
+	}
+
+	// Copying from a team that does not exist is not found, not a team made without servers.
+	status, resBody = do(t, http.MethodPut, ts.URL+"/teams/crew3?from=nope", body)
+	want = `{"error":"not found: team \"nope\" not found"}`
+	if status != 404 || resBody != want {
+		t.Errorf("PUT /teams/crew3?from=nope = %d %s, want 404 %s", status, resBody, want)
+	}
+	if _, err := st.Team(context.Background(), "crew3"); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("team crew3 = %v, want ErrNotFound (not created)", err)
+	}
+}
+
+// Two concurrent copies to the same new name must not both succeed: the loser gets 409.
+func TestPutTeamCopyFrom_Concurrent(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	body := `{"roles":[{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"",` +
+		`"persona":"","skills":"","tools":[]}]}`
+	put := func() (int, error) {
+		req, err := http.NewRequest(http.MethodPut, ts.URL+"/teams/race?from=crew", strings.NewReader(body))
+		if err != nil {
+			return 0, err
+		}
+		req.Header.Set("Content-Type", "application/json")
+		res, err := http.DefaultClient.Do(req)
+		if err != nil {
+			return 0, err
+		}
+		defer func() { _ = res.Body.Close() }()
+		return res.StatusCode, nil
+	}
+	statuses := make([]int, 2)
+	errs := make([]error, 2)
+	var wg sync.WaitGroup
+	for i := range statuses {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			statuses[i], errs[i] = put()
+		}(i)
+	}
+	wg.Wait()
+	for _, err := range errs {
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	oks, conflicts := 0, 0
+	for _, status := range statuses {
+		switch status {
+		case 200:
+			oks++
+		case 409:
+			conflicts++
+		}
+	}
+	if oks != 1 || conflicts != 1 {
+		t.Errorf("concurrent copy statuses = %v, want exactly one 200 and one 409", statuses)
 	}
 }

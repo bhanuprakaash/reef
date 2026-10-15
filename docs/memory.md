@@ -134,8 +134,8 @@ read-only `git` commands. Apply it with `reef team apply teams/full.json`.
   `tester`, off for the rest (see [server.md](server.md#gate)).
 - The file is read strictly: an unknown field is an error.
 - Applying a name that exists replaces its roles and gates in one transaction, and the
-  team keeps its channels. One failed check changes nothing. A new persona reaches a
-  session that starts after it. A session that resumes does not get its first prompt again.
+  team keeps its channels. One failed check changes nothing. A new persona or skills
+  reaches the role's next wake, whether that starts a session or resumes one (see below).
   A role applied with a new `backend` starts a new session; it does not resume the old one.
 - Errors print `reef: <message>` and exit 1: `reef: invalid: team bad needs exactly one
   lead role, has 0` (or `has 2`), `reef: role a: invalid: backend must be claude or codex`,
@@ -235,7 +235,9 @@ holds a message body. Its shape:
 
 0. When the role has a persona or skills (a team role, see Teams): the persona, then
    `Your skills:` and the skills, each followed by a blank line. `reef serve` and `reef chat`
-   add this before part 1. `reef context` does not print it.
+   add this before part 1. `reef context` does not print it. A role that wakes with a
+   persona or skills that differ from what its session last got, whether it is starting or
+   resuming, gets this part again, marked `Your persona or skills changed:`.
 1. One line: role, feature name and slug, project name. Then the goal (if set) and the
    stage.
 2. `## Project memory`: the project's memory (see [server.md](server.md#project_memory)), only
@@ -329,7 +331,8 @@ agent that does not start fails the command at the start. In `reef serve` the le
 its first turn: a first message that goes to a specialist starts no lead.
 
 - With a turn of the role that has a session id, the agent resumes the session of the newest
-  such turn, and the context prompt is not sent again.
+  such turn, and the context prompt is not sent again, unless the role's persona or skills
+  changed since that turn: then part 0 goes before the wake text, marked as changed.
 - Without one, the agent starts a new session and the context prompt goes before the
   first message, in the same prompt. A channel on a feature gets the prompt below. A
   quick session (no feature) gets two lines: the role, the project's name and folder, and

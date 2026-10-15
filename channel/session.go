@@ -276,15 +276,6 @@ func (s *Session) closeMembers() error {
 func (s *Session) member(
 	ctx context.Context, role, text string, parent *int64,
 ) (_ *member, err error) {
-	if m, ok := s.members[role]; ok {
-		if _, err := os.Stat(m.dir); !errors.Is(err, os.ErrNotExist) {
-			return m, nil
-		}
-		delete(s.members, role)
-		if err := m.close(s.st); err != nil {
-			log.Printf("close %s of channel %d: %v", role, s.ch.ID, err)
-		}
-	}
 	wctx := context.WithoutCancel(ctx)
 	team, err := s.st.Team(wctx, s.ch.Team)
 	if err != nil {
@@ -293,6 +284,26 @@ func (s *Session) member(
 	r, err := s.roleSetup(team, role)
 	if err != nil {
 		return nil, err
+	}
+	if m, ok := s.members[role]; ok {
+		if _, err := os.Stat(m.dir); !errors.Is(err, os.ErrNotExist) {
+			// Before its first turn, m's preamble already carries the current intro, set
+			// when it was started or resumed; nothing has been sent yet to compare against.
+			if intro := roleIntro(r); intro != "" && m.run.sessionID != "" {
+				sent, err := introSent(wctx, s.st, s.ch.ID, role, r.Backend, m.run.sessionID)
+				if err != nil {
+					return nil, err
+				}
+				if !strings.HasPrefix(sent, intro) {
+					m.run.preamble = updatedRoleIntro(r)
+				}
+			}
+			return m, nil
+		}
+		delete(s.members, role)
+		if err := m.close(s.st); err != nil {
+			log.Printf("close %s of channel %d: %v", role, s.ch.ID, err)
+		}
 	}
 	ag, err := s.mk(r.Backend)
 	if err != nil {
@@ -344,6 +355,15 @@ func (s *Session) member(
 	case ctx.Err() != nil:
 		err = ctx.Err()
 	case last.SessionID != "":
+		if intro := roleIntro(r); intro != "" {
+			sent, serr := introSent(wctx, s.st, s.ch.ID, role, r.Backend, last.SessionID)
+			if serr != nil {
+				return nil, serr
+			}
+			if !strings.HasPrefix(sent, intro) {
+				preamble = updatedRoleIntro(r)
+			}
+		}
 		err = ag.Resume(ctx, cfg, last.SessionID)
 	default:
 		if preamble, err = startPrompt(wctx, s.st, s.ch.ID, s.project, team, r); err != nil {
@@ -523,6 +543,34 @@ func newestSessionTurn(
 		}
 	}
 	return last, nil
+}
+
+// introSent is the role intro its session (same session id) in the channel was last given:
+// the session's first turn always carries one, from startPrompt, and a later turn carries one
+// when the role's persona or skills changed since, from updatedRoleIntro. Empty when neither
+// applies, so a prefix check against it never matches a non-empty roleIntro.
+func introSent(
+	ctx context.Context, st *store.Store, channelID int64, role, backend, sessionID string,
+) (string, error) {
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &channelID})
+	if err != nil {
+		return "", err
+	}
+	var sent string
+	first := true
+	for _, t := range turns {
+		if t.Role != role || t.Backend != backend || t.SessionID != sessionID {
+			continue
+		}
+		if first {
+			sent, first = t.Prompt, false
+			continue
+		}
+		if after, ok := strings.CutPrefix(t.Prompt, _introChangedPrefix); ok {
+			sent = after
+		}
+	}
+	return sent, nil
 }
 
 func newAgent(backend string) (agent.Agent, error) {

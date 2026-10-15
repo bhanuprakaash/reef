@@ -1,10 +1,13 @@
+import { useState } from 'react';
 import type { Role } from '@/types/api';
+import { parseTools } from '@/modules/teams/utils/parse-tools';
 import { buttonClass, inputClass, mutedClass } from '@/utils/classes';
 
 type Props = { role: Role; onChange: (role: Role) => void; onRemove: () => void };
 
 export function RoleEditor({ role, onChange, onRemove }: Props) {
   const label = role.name || 'role';
+  const [toolsText, setToolsText] = useState(role.tools.join('\n'));
   return (
     <fieldset className="space-y-2 rounded border border-neutral-300 p-3 dark:border-neutral-700">
       <div className="flex items-center gap-2">
@@ -77,16 +80,9 @@ export function RoleEditor({ role, onChange, onRemove }: Props) {
           className={`${inputClass} w-full`}
           rows={3}
           aria-label={`${label} tools`}
-          value={role.tools.join('\n')}
-          onChange={(e) =>
-            onChange({
-              ...role,
-              tools: e.target.value
-                .split('\n')
-                .map((t) => t.trim())
-                .filter(Boolean),
-            })
-          }
+          value={toolsText}
+          onChange={(e) => setToolsText(e.target.value)}
+          onBlur={() => onChange({ ...role, tools: parseTools(toolsText) })}
         />
       </label>
     </fieldset>

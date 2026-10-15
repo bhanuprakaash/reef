@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome).
@@ -10,9 +10,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -310,6 +310,36 @@ async function pages() {
   );
 }
 
+async function capture() {
+  const section = await addProject();
+  const name = await section.getByRole('heading', { level: 3 }).innerText();
+  const pid = sql(`select id from project where name='${name}'`);
+  await page.goto(base + '/capture');
+  await page.getByLabel('Capture project').selectOption({ label: name });
+  const text = `ui capture ${Date.now().toString(36)}`;
+  await page.getByLabel('Capture text').fill(text);
+  await page.getByLabel('Capture text').press('Enter');
+  await page.getByText('Captured').waitFor({ timeout: 15000 });
+  await shot('captured');
+  check((await page.getByLabel('Capture text').inputValue()) === '', 'the text box is empty after capture');
+  const row = sql(`select title from task where project_id=${pid} and title='idea: ${text}'`);
+  check(row === `idea: ${text}`, 'the captured text is stored as a task row', row);
+
+  // A failing request shows its error: the picked project is deleted before Enter.
+  const section2 = await addProject();
+  const name2 = await section2.getByRole('heading', { level: 3 }).innerText();
+  const pid2 = sql(`select id from project where name='${name2}'`);
+  await page.goto(base + '/capture');
+  await page.getByLabel('Capture project').selectOption({ label: name2 });
+  sql(`delete from project where id=${pid2}`, true);
+  await page.getByLabel('Capture text').fill('should fail');
+  await page.getByLabel('Capture text').press('Enter');
+  const err = page.getByText(/unknown project/);
+  await err.waitFor({ timeout: 15000 });
+  await shot('error');
+  check(true, 'a capture whose request fails shows the error', await err.innerText());
+}
+
 async function stop() {
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
@@ -426,17 +456,24 @@ async function diff() {
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
   const featureId = page.url().split('/').pop();
-  await newChannel(main, 'New channel', 'diff chat');
-  await send('Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.');
-  await working();
-  await idle();
+  const cid = await newChannel(main, 'New channel', 'diff chat');
+
+  // Open the diff panel before the turn runs, and leave it open: a turn started through the
+  // API (not the channel page) should still land on this still-mounted panel with no reload.
   await page.goto(`${base}/features/${featureId}`);
   const panel = main.locator('section', { has: page.getByRole('heading', { name: 'Diff', level: 2 }) });
-  await panel.getByText('new.txt').waitFor({ timeout: 15000 });
+  await panel.getByText('No changes.').waitFor({ timeout: 15000 });
+  await shot('empty');
+  await fetch(`${base}/channels/${cid}/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.' }),
+  });
+  await panel.getByText('new.txt').waitFor({ timeout: 30000 });
   await shot('diff');
   check(
     (await panel.getByText('added').count()) === 1 && (await panel.getByText('hi').count()) === 1,
-    'the diff panel shows new.txt as added with its line',
+    'the diff panel shows new.txt as added with its line, open since before the turn and never reloaded',
     await panel.innerText(),
   );
   const json = await getJson(`/features/${featureId}/diff`);
@@ -533,20 +570,26 @@ async function review() {
   await send('@developer Use the Write tool to create the file d.txt containing the word yes.');
   await workingAs('developer', 60000);
   await idle();
+  await send('@developer Use the Bash tool to delete README.md. Then reply done.');
+  await workingAs('developer', 60000);
+  await idle();
   const root = (await getJson(`/messages?channel=${cid}`))
     .filter((m) => m.author === 'developer' && m.parentId === null)
     .at(-1);
-  check(!!root, 'the developer posted a second top-level message, its latest thread root', root && `message ${root.id}`);
+  check(!!root, 'the developer posted a third top-level message, its latest thread root', root && `message ${root.id}`);
 
   await page.goto(`${base}/features/${featureId}`);
   const panel = main.locator('section', { has: page.getByRole('heading', { name: 'Diff', level: 2 }) });
-  await panel.getByText('d.txt').waitFor({ timeout: 15000 });
+  await panel.getByText('README.md').waitFor({ timeout: 15000 });
   await shot('diff');
   await panel.locator('[data-path="new.txt"][data-line="1"]').click();
   await panel.getByLabel('Comment on new.txt:1').fill('nice start');
   await panel.getByRole('button', { name: 'Add comment' }).click();
   await panel.locator('[data-path="d.txt"][data-line="1"]').click();
   await panel.getByLabel('Comment on d.txt:1').fill('rename this');
+  await panel.getByRole('button', { name: 'Add comment' }).click();
+  await panel.locator('[data-path="README.md"][data-line="1"]').click();
+  await panel.getByLabel('Comment on README.md:1 (removed)').fill('was this needed?');
   await panel.getByRole('button', { name: 'Add comment' }).click();
   await shot('comments');
   const before = Number(sql(`select count(*) from turn where channel_id=${cid} and role='developer'`));
@@ -563,8 +606,11 @@ async function review() {
 
   const sent = (await getJson(`/messages?channel=${cid}`)).at(-1);
   check(
-    sent.author === 'user' && sent.body.includes('new.txt:1') && sent.body.includes('d.txt:1'),
-    'the two comments made one user message with both path:line lines',
+    sent.author === 'user' &&
+      sent.body.includes('new.txt:1') &&
+      sent.body.includes('d.txt:1') &&
+      sent.body.includes('README.md:1 (removed)'),
+    'the three comments made one user message, the deleted line marked (removed)',
     JSON.stringify(sent),
   );
   check(sent.parentId === root.id, "the message's parent is the developer's latest thread root", `parentId ${sent.parentId}, root ${root.id}`);

@@ -36,4 +36,29 @@ describe('DiffPanel', () => {
     expect(markup).toContain('a.txt');
     expect(markup).toContain('b.txt');
   });
+
+  it('makes a deleted line clickable, keyed by its old line number', () => {
+    useSendReview.mockReturnValue({ isPending: false, isError: false });
+
+    const markup = renderToStaticMarkup(
+      <DiffPanel
+        files={[
+          {
+            path: 'gone.txt',
+            status: 'deleted',
+            hunks: [
+              {
+                header: '@@ -1 +0,0 @@',
+                lines: [{ kind: 'del', old: 1, text: 'bye' }],
+              },
+            ],
+          },
+        ]}
+        featureId={1}
+      />,
+    );
+
+    expect(markup).toContain('data-line="1"');
+    expect(markup).toContain('cursor-pointer');
+  });
 });

@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"log"
 	"net/http"
 	"net/http/httptest"
@@ -19,12 +20,16 @@ import (
 // writeFakeGh writes a fake `gh` that answers `pr view` with the content of
 // $GH_FAKE_RESPONSE, and fails unless it ran in dir, the project's folder. When $GH_FAKE_ERR
 // is set it writes that to stderr and exits nonzero instead, as gh does for a cause such as
-// no PR for the branch or not being logged in. `gh run view <id> --log-failed` answers with
-// the content of $GH_FAKE_LOG.
+// no PR for the branch or not being logged in. `gh run view <id> --log-failed` touches
+// $GH_FAKE_LOG_STARTED when set, sleeps $GH_FAKE_LOG_DELAY seconds when set, then answers
+// with the content of $GH_FAKE_LOG.
 func writeFakeGh(t *testing.T, binDir, dir string) {
 	t.Helper()
 	script := "#!/bin/sh\n" +
-		"if [ \"$1\" = run ] && [ \"$2\" = view ]; then cat \"$GH_FAKE_LOG\"; exit 0; fi\n" +
+		"if [ \"$1\" = run ] && [ \"$2\" = view ]; then " +
+		"[ -n \"$GH_FAKE_LOG_STARTED\" ] && touch \"$GH_FAKE_LOG_STARTED\"; " +
+		"[ -n \"$GH_FAKE_LOG_DELAY\" ] && sleep \"$GH_FAKE_LOG_DELAY\"; " +
+		"cat \"$GH_FAKE_LOG\"; exit 0; fi\n" +
 		"if [ \"$1\" != pr ] || [ \"$2\" != view ]; then exit 1; fi\n" +
 		"[ \"$PWD\" = \"" + dir + "\" ] || { echo \"wrong dir: $PWD\" >&2; exit 1; }\n" +
 		"if [ -n \"$GH_FAKE_ERR\" ]; then echo \"$GH_FAKE_ERR\" >&2; exit 1; fi\n" +
@@ -236,6 +241,61 @@ func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 	h2.s.pollGitHub(context.Background())
 	if msgs, _ = st2.Messages(context.Background(), 1, 0); len(msgs) != 2 {
 		t.Fatalf("messages after restart poll = %d, want 2 (no repeat)", len(msgs))
+	}
+}
+
+// TestPollGitHub_NoteNotLostBeforeFeatureHasChannel covers a PR and a finished check that
+// appear while the feature has a worktree but no channel yet: noteFeature cannot post, so
+// neither must be recorded as posted, or the note is lost for good. Once the first channel
+// exists, the next poll posts both notes, once.
+func TestPollGitHub_NoteNotLostBeforeFeatureHasChannel(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataDir := t.TempDir()
+	h := New(st, dataDir, "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-b", "main")
+	writeIn(t, repo, "a.txt", "a")
+	gitIn(t, repo, "add", ".")
+	gitIn(t, repo, "commit", "-m", "first")
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
+	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
+	// No channel yet: the feature's worktree exists, but noteFeature has nowhere to post.
+
+	binDir := t.TempDir()
+	writeFakeGh(t, binDir, repo)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	respFile := filepath.Join(t.TempDir(), "resp.json")
+	t.Setenv("GH_FAKE_RESPONSE", respFile)
+	setGhResponse(t, respFile, `{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN",`+
+		`"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED",`+
+		`"conclusion":"SUCCESS","detailsUrl":"https://github.com/x/y/actions/runs/1/job/1"}]}`)
+
+	h.s.pollGitHub(context.Background())
+	if _, ok, err := st.FeatureGitHub(context.Background(), 1); err != nil || ok {
+		t.Fatalf("feature github stored with no channel yet: ok=%v, err=%v, want not stored, so it is retried", ok, err)
+	}
+
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	h.s.pollGitHub(context.Background())
+	msgs, err := st.Messages(context.Background(), 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 || msgs[0].Body != "PR #12 open: https://github.com/x/y/pull/12" ||
+		msgs[1].Body != "build succeeded" {
+		t.Fatalf("messages once the first channel exists = %+v, want the PR note and the check note, once", msgs)
+	}
+
+	h.s.pollGitHub(context.Background()) // repeat poll: neither note repeats
+	if msgs, _ = st.Messages(context.Background(), 1, 0); len(msgs) != 2 {
+		t.Fatalf("messages after repeat poll = %d, want 2 (no repeat)", len(msgs))
 	}
 }
 
@@ -603,6 +663,76 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 	}
 }
 
+// TestPollGitHub_SendNotRefusedDuringLogFetch covers the wake text, including its log fetch,
+// being built before the channel is claimed: a user send that arrives while a slow `gh run
+// view --log-failed` is still running finds the channel idle, not claimed, and so is not
+// refused.
+func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Backend: "claude", Write: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
+	h := newHandler(st, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+		fake.channelID.Store(id)
+		return fake, nil
+	})
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	repo := ghFeatureSetup(t, ts.URL, "crew")
+
+	binDir := t.TempDir()
+	writeFakeGh(t, binDir, repo)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	respFile := filepath.Join(t.TempDir(), "resp.json")
+	t.Setenv("GH_FAKE_RESPONSE", respFile)
+	setGhResponse(t, respFile, _ghFailedCheck)
+	logFile := filepath.Join(t.TempDir(), "log.txt")
+	t.Setenv("GH_FAKE_LOG", logFile)
+	if err := os.WriteFile(logFile, []byte("line1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	started := filepath.Join(t.TempDir(), "started")
+	t.Setenv("GH_FAKE_LOG_STARTED", started)
+	t.Setenv("GH_FAKE_LOG_DELAY", "0.3")
+
+	sub := subscribeTo(t, ts.URL, 1)
+	sub.want(t, _idleFrame)
+
+	go h.s.pollGitHub(ctx)
+	sub.want(t, "note {}", "note {}") // the PR note and the failed check note, posted before the log fetch
+
+	for i := 0; i < 100; i++ {
+		if _, err := os.Stat(started); err == nil {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := os.Stat(started); err != nil {
+		t.Fatal("gh run view --log-failed did not start in time")
+	}
+
+	status, body := do(t, http.MethodPost, ts.URL+"/channels/1/send", `{"text":"hello"}`)
+	if status == http.StatusConflict {
+		t.Fatalf("send during the log fetch = %d %s, want not refused", status, body)
+	}
+
+	// Drain both turns so the wake's own chain, started once the log fetch returns, does not
+	// race the test's cleanup.
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`, `turn {"role":"developer","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
+}
+
 // TestPollGitHub_FailedCheckWakeRetriesWhenChannelBusy covers a wake that cannot run because
 // the channel has a turn running: the note still posts, the wake is not lost, and is retried
 // once the channel goes idle, without re-logging the busy cause on every poll.
@@ -731,5 +861,166 @@ func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
 	}
 	if len(turns) != 0 {
 		t.Fatalf("turns = %+v, want none: a solo team has no developer to wake", turns)
+	}
+}
+
+// TestPollGitHub_TwoFailedChecksOneWake covers a rollup with two failed checks: one developer
+// turn wakes, its text naming both, and both runs are marked woken so neither wakes again.
+func TestPollGitHub_TwoFailedChecksOneWake(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Backend: "claude", Write: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
+	h := newHandler(st, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+		fake.channelID.Store(id)
+		return fake, nil
+	})
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	repo := ghFeatureSetup(t, ts.URL, "crew")
+
+	binDir := t.TempDir()
+	writeFakeGh(t, binDir, repo)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	respFile := filepath.Join(t.TempDir(), "resp.json")
+	t.Setenv("GH_FAKE_RESPONSE", respFile)
+	logFile := filepath.Join(t.TempDir(), "log.txt")
+	t.Setenv("GH_FAKE_LOG", logFile)
+	if err := os.WriteFile(logFile, []byte("line1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	setGhResponse(t, respFile, `{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN",`+
+		`"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED",`+
+		`"conclusion":"FAILURE","detailsUrl":"https://github.com/x/y/actions/runs/1/job/1"},`+
+		`{"__typename":"CheckRun","name":"lint","status":"COMPLETED",`+
+		`"conclusion":"FAILURE","detailsUrl":"https://github.com/x/y/actions/runs/2/job/2"}]}`)
+
+	sub := subscribeTo(t, ts.URL, 1)
+	h.s.pollGitHub(ctx)
+	sub.want(t, _idleFrame, "note {}", "note {}", "note {}", `turn {"role":"developer","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
+
+	fake.mu.Lock()
+	texts := append([]string(nil), fake.ran...)
+	fake.mu.Unlock()
+	if len(texts) != 1 {
+		t.Fatalf("turns run = %d, want 1 (one wake naming both failures)", len(texts))
+	}
+	if !strings.Contains(texts[0], "build failed") || !strings.Contains(texts[0], "lint failed") {
+		t.Fatalf("wake text = %q, want it to name both build and lint", texts[0])
+	}
+
+	msgs, err := st.Messages(ctx, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 3 || msgs[1].Body != "build failed" || msgs[2].Body != "lint failed" {
+		t.Fatalf("messages = %+v, want a PR note and a failed note for each check", msgs)
+	}
+
+	// Neither run wakes again on a later poll.
+	h.s.pollGitHub(ctx)
+	fake.mu.Lock()
+	again := len(fake.ran)
+	fake.mu.Unlock()
+	if again != 1 {
+		t.Fatalf("turns run after repeat poll = %d, want 1 (no repeat wake)", again)
+	}
+}
+
+// failedCheckJSON is a gh pr view response with one failed CheckRun, its run (and so its run
+// key) identified by n.
+func failedCheckJSON(n int) string {
+	return fmt.Sprintf(`{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN",`+
+		`"statusCheckRollup":[{"__typename":"CheckRun","name":"build","status":"COMPLETED",`+
+		`"conclusion":"FAILURE","detailsUrl":"https://github.com/x/y/actions/runs/%d/job/1"}]}`, n)
+}
+
+// TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap covers the CI wake's hop accounting: it
+// is attributed to an author other than the user, so it counts toward the hop cap like any
+// agent-originated wake instead of resetting it, and a run of failing checks, the way a
+// developer pushing fixes into a broken build would produce, pauses the channel once the cap
+// is hit rather than waking the developer forever.
+func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Backend: "claude", Write: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
+	h := newHandler(st, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+		fake.channelID.Store(id)
+		return fake, nil
+	})
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	repo := ghFeatureSetup(t, ts.URL, "crew")
+
+	binDir := t.TempDir()
+	writeFakeGh(t, binDir, repo)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	respFile := filepath.Join(t.TempDir(), "resp.json")
+	t.Setenv("GH_FAKE_RESPONSE", respFile)
+	logFile := filepath.Join(t.TempDir(), "log.txt")
+	t.Setenv("GH_FAKE_LOG", logFile)
+	if err := os.WriteFile(logFile, []byte("line1\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	sub := subscribeTo(t, ts.URL, 1)
+	sub.want(t, _idleFrame)
+
+	for run := 1; run <= store.HopCap; run++ {
+		setGhResponse(t, respFile, failedCheckJSON(run))
+		h.s.pollGitHub(ctx)
+		want := []string{"note {}"}
+		if run == 1 {
+			want = []string{"note {}", "note {}"} // the PR note, then the check note
+		}
+		want = append(want, `turn {"role":"developer","status":"running"}`,
+			`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
+		sub.want(t, want...)
+	}
+	fake.mu.Lock()
+	ran := len(fake.ran)
+	fake.mu.Unlock()
+	if ran != store.HopCap {
+		t.Fatalf("turns run after %d failed checks = %d, want %d", store.HopCap, ran, store.HopCap)
+	}
+
+	// The next failed check is still noted, but the hop cap pauses the channel instead of
+	// waking the developer again: were the wake still attributed to the user, it would reset
+	// the count instead of hitting the cap.
+	setGhResponse(t, respFile, failedCheckJSON(store.HopCap+1))
+	h.s.pollGitHub(ctx)
+	sub.want(t, "note {}", `pause {"reason":"`+_hopPause+`"}`)
+
+	fake.mu.Lock()
+	ran = len(fake.ran)
+	fake.mu.Unlock()
+	if ran != store.HopCap {
+		t.Fatalf("turns run after the capped check = %d, want still %d: no developer turn ran", ran, store.HopCap)
+	}
+	if ch, err := st.Channel(ctx, 1); err != nil || ch.Paused != _hopPause {
+		t.Fatalf("channel = %+v, %v, want paused with the hop cap reason", ch, err)
 	}
 }

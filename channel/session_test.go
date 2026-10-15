@@ -378,6 +378,352 @@ func TestSession_RunAsRoleAppliedAfterOpen(t *testing.T) {
 	}
 }
 
+func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.RunAs(ctx, "developer", "build it", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+
+	developer.Persona = "You code in Go only."
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunAs(ctx, "developer", "build more", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(ags) != 2 || ags[1].resumed != "s1" || !strings.Contains(ags[1].prompts[0], "You code in Go only.") {
+		t.Errorf("second developer: resumed = %q, prompts = %q, want resumed with the new persona",
+			ags[1].resumed, ags[1].prompts)
+	}
+
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var last store.Turn
+	for _, turn := range turns {
+		if turn.Role == "developer" {
+			last = turn
+		}
+	}
+	if !strings.Contains(last.Prompt, "You code in Go only.") {
+		t.Errorf("stored turn.prompt = %q, want it to contain the new persona", last.Prompt)
+	}
+}
+
+func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Persona: "You lead."}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Run(ctx, "hi", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+
+	lead.Persona = "You lead with care."
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Run(ctx, "again", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(ags) != 1 || len(ags[0].prompts) != 2 || !strings.Contains(ags[0].prompts[1], "You lead with care.") {
+		t.Errorf("second lead prompt = %q, want the lead kept live with the new persona",
+			ags[0].prompts)
+	}
+}
+
+func TestSession_PersonaUnchangedNoRoleIntroOnResume(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.RunAs(ctx, "developer", "build it", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunAs(ctx, "developer", "build more", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(ags) != 2 || ags[1].resumed != "s1" || ags[1].prompts[0] != "build more" {
+		t.Errorf("second developer: resumed = %q, prompts = %q, want [build more] without a role intro",
+			ags[1].resumed, ags[1].prompts)
+	}
+}
+
+func TestSession_NoEditFourResumedWakesOnlyFirstHasIntro(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	for i, wake := range []string{"wake 1", "wake 2", "wake 3", "wake 4"} {
+		if err := s.RunAs(ctx, "developer", wake, nil, discard); err != nil {
+			t.Fatalf("wake %d: %v", i+1, err)
+		}
+	}
+	if len(ags) != 4 {
+		t.Fatalf("agents = %d, want 4", len(ags))
+	}
+	if len(ags[0].prompts) != 1 || !strings.Contains(ags[0].prompts[0], "You code.") ||
+		!strings.HasSuffix(ags[0].prompts[0], "wake 1") {
+		t.Errorf("wake 1: prompts = %q, want the persona and wake 1", ags[0].prompts)
+	}
+	want := []string{"wake 2", "wake 3", "wake 4"}
+	for i, ag := range ags[1:] {
+		if len(ag.prompts) != 1 || ag.prompts[0] != want[i] {
+			t.Errorf("wake %d: prompts = %q, want [%q] without a role intro", i+2, ag.prompts, want[i])
+		}
+	}
+}
+
+func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.RunAs(ctx, "developer", "wake 1", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunAs(ctx, "developer", "wake 2", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	developer.Persona = "You code in Go only."
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunAs(ctx, "developer", "wake 3", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunAs(ctx, "developer", "wake 4", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(ags) != 4 {
+		t.Fatalf("agents = %d, want 4", len(ags))
+	}
+	want3 := "Your persona or skills changed:\n\nYou code in Go only.\n\n\n\nwake 3"
+	if len(ags[2].prompts) != 1 || ags[2].prompts[0] != want3 {
+		t.Errorf("wake 3: prompts = %q, want [%q]", ags[2].prompts, want3)
+	}
+	if len(ags[3].prompts) != 1 || ags[3].prompts[0] != "wake 4" {
+		t.Errorf("wake 4: prompts = %q, want [wake 4]", ags[3].prompts)
+	}
+}
+
+func TestSession_NoEditFourLiveWakesOnlyFirstHasIntro(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Persona: "You lead."}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for i, wake := range []string{"wake 1", "wake 2", "wake 3", "wake 4"} {
+		if err := s.Run(ctx, wake, nil, discard); err != nil {
+			t.Fatalf("wake %d: %v", i+1, err)
+		}
+	}
+	if len(ags) != 1 {
+		t.Fatalf("agents = %d, want 1", len(ags))
+	}
+	if len(ags[0].prompts) != 4 {
+		t.Fatalf("prompts = %q, want 4", ags[0].prompts)
+	}
+	if !strings.Contains(ags[0].prompts[0], "You lead.") || !strings.HasSuffix(ags[0].prompts[0], "wake 1") {
+		t.Errorf("wake 1: prompt = %q, want the persona and wake 1", ags[0].prompts[0])
+	}
+	want := []string{"wake 2", "wake 3", "wake 4"}
+	for i, p := range ags[0].prompts[1:] {
+		if p != want[i] {
+			t.Errorf("wake %d: prompt = %q, want %q without a role intro", i+2, p, want[i])
+		}
+	}
+}
+
+func TestSession_EditAfterSecondLiveWakeUpdatesOnceThenNone(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Persona: "You lead."}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Start(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Run(ctx, "wake 1", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Run(ctx, "wake 2", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	lead.Persona = "You lead with care."
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Run(ctx, "wake 3", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Run(ctx, "wake 4", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(ags) != 1 || len(ags[0].prompts) != 4 {
+		t.Fatalf("agents = %d, prompts = %q, want 1 agent with 4 prompts", len(ags), ags[0].prompts)
+	}
+	want3 := "Your persona or skills changed:\n\nYou lead with care.\n\n\n\nwake 3"
+	if ags[0].prompts[2] != want3 {
+		t.Errorf("wake 3: prompt = %q, want %q", ags[0].prompts[2], want3)
+	}
+	if ags[0].prompts[3] != "wake 4" {
+		t.Errorf("wake 4: prompt = %q, want wake 4", ags[0].prompts[3])
+	}
+}
+
 func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
