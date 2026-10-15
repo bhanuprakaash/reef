@@ -9,10 +9,38 @@ import { useTeams } from '@/lib/api/get-teams';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
+import { STAGES } from '@/modules/features/utils/stages';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import type { ChannelPreview, Feature, Project } from '@/types/api';
 import { roleFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
+
+const COLLAPSED_KEY = 'reef.sidebar.collapsed';
+
+function storedCollapsed(): number[] {
+  try {
+    return JSON.parse(localStorage.getItem(COLLAPSED_KEY) ?? '[]') as number[];
+  } catch {
+    return [];
+  }
+}
+
+function StageChip({ stage }: { stage: string }) {
+  const s = STAGES.find((x) => x.value === stage);
+  const color = s?.color ?? 'var(--color-muted)';
+  return (
+    <span
+      style={{
+        color,
+        borderColor: `color-mix(in srgb, ${color} 35%, transparent)`,
+        background: `color-mix(in srgb, ${color} 10%, transparent)`,
+      }}
+      className="ml-auto flex-none rounded-pill border px-2 text-[11px] leading-[18px]"
+    >
+      {s?.label ?? stage}
+    </span>
+  );
+}
 
 const oneLine = (m: NonNullable<ChannelPreview['lastMessage']>) =>
   `${m.author === 'user' ? 'you' : m.author}: ${m.body.replace(/\s+/g, ' ')}`;
@@ -55,6 +83,17 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
   const navigate = useNavigate();
   const [addingFeature, setAddingFeature] = useState(false);
   const [channelFeature, setChannelFeature] = useState<Feature | null>(null);
+  const [collapsed, setCollapsed] = useState(storedCollapsed);
+
+  function toggle(id: number) {
+    const next = collapsed.includes(id) ? collapsed.filter((x) => x !== id) : [...collapsed, id];
+    setCollapsed(next);
+    try {
+      localStorage.setItem(COLLAPSED_KEY, JSON.stringify(next));
+    } catch {
+      // blocked storage only loses the remembered state
+    }
+  }
   const features = useFeatures();
   const channels = useQuery({ ...channelsQuery, refetchInterval: 5000 });
   const teams = useTeams();
@@ -110,33 +149,61 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
       </div>
       {groups.length === 0 && <p className="px-2.5 pb-1 text-[13px] text-faint">No features yet</p>}
       <ul className="flex flex-col gap-0.5">
-        {groups.map(({ feature: f, channels: cs }) => (
-          <li key={f.id}>
-            <div
-              className={`group/h mt-1.5 mb-0.5 flex h-9 items-center gap-1 rounded-xl pr-1.5 pl-2.5 ${pathname === `/features/${f.id}` ? 'bg-active' : 'hover:bg-hover/50'}`}
-            >
-              <Link
-                to={`/features/${f.id}`}
-                className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-[13px] text-soft hover:text-fg"
+        {groups.map(({ feature: f, channels: cs }) => {
+          const open = q !== '' || !collapsed.includes(f.id);
+          return (
+            <li key={f.id}>
+              <div
+                className={`group/h mt-1.5 mb-0.5 flex h-9 items-center gap-1 rounded-xl pr-1.5 pl-1 ${pathname === `/features/${f.id}` ? 'bg-active' : 'hover:bg-hover/50'}`}
               >
-                <span className="truncate">{f.name}</span>
-                <span className="ml-auto flex-none rounded-pill border border-line px-2 text-[11px] leading-[18px] text-muted capitalize">
-                  {f.stage}
-                </span>
-              </Link>
-              <AddButton
-                reveal
-                label={`New channel in ${f.name}`}
-                onClick={() => setChannelFeature(f)}
-              />
-            </div>
-            <ul className="flex flex-col gap-0.5">
-              {cs.map((c) => (
-                <li key={c.id}>{channelRow(c, `# ${c.name}`)}</li>
-              ))}
-            </ul>
-          </li>
-        ))}
+                <button
+                  type="button"
+                  aria-label={`${open ? 'Collapse' : 'Expand'} ${f.name}`}
+                  aria-expanded={open}
+                  onClick={() => toggle(f.id)}
+                  className="flex size-6 flex-none items-center justify-center rounded-md text-faint hover:bg-hover hover:text-fg"
+                >
+                  <svg
+                    width="12"
+                    height="12"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    aria-hidden="true"
+                    className={`transition-transform ${open ? 'rotate-90' : ''}`}
+                  >
+                    <path d="M9 6l6 6-6 6" />
+                  </svg>
+                </button>
+                <Link
+                  to={`/features/${f.id}`}
+                  className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-[13px] text-soft hover:text-fg"
+                >
+                  <span className="truncate">{f.name}</span>
+                  {!open && cs.length > 0 && (
+                    <span className="flex-none text-[11px] text-faint">{cs.length}</span>
+                  )}
+                  <StageChip stage={f.stage} />
+                </Link>
+                <AddButton
+                  reveal
+                  label={`New channel in ${f.name}`}
+                  onClick={() => setChannelFeature(f)}
+                />
+              </div>
+              {open && (
+                <ul className="flex flex-col gap-0.5">
+                  {cs.map((c) => (
+                    <li key={c.id}>{channelRow(c, `# ${c.name}`)}</li>
+                  ))}
+                </ul>
+              )}
+            </li>
+          );
+        })}
       </ul>
       {quick.length > 0 && (
         <>

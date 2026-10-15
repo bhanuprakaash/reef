@@ -4,6 +4,7 @@ import { FeatureChannels } from '@/app/feature-channels';
 import { ProjectSwitcher } from '@/app/project-switcher';
 import { CountBadge } from '@/components/count-badge';
 import { Dialog } from '@/components/dialog';
+import { Logo } from '@/components/logo';
 import { Row } from '@/components/row';
 import { useChannels } from '@/lib/api/get-channels';
 import { useCurrentProject } from '@/lib/current-project';
@@ -89,17 +90,18 @@ export function Sidebar() {
   const isBoard = pathname === '/tasks' && search.includes('view=board');
 
   return (
-    <nav
-      aria-label="Channels"
-      className="flex h-full flex-col overflow-y-auto px-3 pt-4 pb-3 text-sm"
-    >
-      <div className={`app-drag flex justify-end pb-3.5 ${window.reef ? 'pl-[70px]' : ''}`}>
+    <nav aria-label="Channels" className="flex h-full flex-col px-3 pt-4 pb-3 text-sm">
+      <div
+        className={`app-drag flex items-center gap-2 pb-3.5 ${window.reef ? 'pl-[70px]' : 'pl-1.5'}`}
+      >
+        <Logo size={20} />
+        <span className="text-[16px] tracking-[-0.03em]">reef</span>
         <button
           type="button"
           aria-label="New channel"
           disabled={!current}
           onClick={() => setCreating(true)}
-          className="flex size-8 items-center justify-center rounded-lg text-soft hover:bg-hover/50"
+          className="ml-auto flex size-8 items-center justify-center rounded-lg text-soft hover:bg-hover/50"
         >
           <svg
             width="18"
@@ -142,7 +144,7 @@ export function Sidebar() {
 
       {projects.data && current && <ProjectSwitcher projects={projects.data} />}
 
-      <div className="flex flex-col gap-0.5">
+      <div className="-mx-3 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3">
         <Row
           to="/"
           active={pathname === '/'}
@@ -177,7 +179,7 @@ export function Sidebar() {
         {current && <FeatureChannels project={current} query={query} />}
       </div>
 
-      <div className="mt-auto flex items-center gap-2.5 px-1.5 pt-3">
+      <div className="flex shrink-0 items-center gap-2.5 px-1.5 pt-3">
         <span className="flex size-[30px] flex-none items-center justify-center rounded-full bg-bubble text-[11.5px] text-soft">
           Y
         </span>
