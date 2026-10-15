@@ -307,8 +307,10 @@ func (s *server) noteFeature(ctx context.Context, featureID int64, body string) 
 // run finishes failed, once per run, also across restarts. A channel whose team has no
 // developer gets the note only. A channel with a turn running, or paused, cannot take the
 // wake now; that is logged once and retried on a later poll, once the channel is idle. The
-// wake runs as a new chain of its own, the way a retried turn does (decision 39): no gate
-// applies, since no role sent it, but the channel's caps still do.
+// wake runs as a new chain of its own, the way a retried turn does (decision 39), attributed
+// to store.ReefAuthor rather than the user: no gate applies, since no role sent it, but it
+// counts as a hop like any agent-originated wake, so a loop of failing checks still pauses
+// at the hop cap instead of resetting it every time.
 func (s *server) wakeDeveloper(
 	ctx context.Context, f store.Feature, pr ghPR, c ghCheck, key, ghPath, dir string,
 ) error {
@@ -340,7 +342,7 @@ func (s *server) wakeDeveloper(
 		return err
 	}
 	text := s.ghWakeText(ctx, pr, c, ghPath, dir)
-	w := wake{from: _userAuthor, role: "developer", text: text}
+	w := wake{from: store.ReefAuthor, role: "developer", text: text}
 	if err := chain.resume(ctx, ch, []wake{w}); err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			s.logGhErrOnce(f.ID, fmt.Errorf("wake developer: %w", err))
