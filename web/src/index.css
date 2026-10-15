@@ -24,8 +24,16 @@
   --color-working: #5b9bff;
   --color-needs-you: #ff453a;
   --color-paused: #f2b33d;
+  --color-paused-bg: #2b2410;
+  --color-paused-line: #4a3d16;
+  --color-paused-fg: #f7d58a;
+  --color-paused-ink: #1a1206;
   --color-done: #4cc38a;
   --color-failed: #ff6b60;
+  --color-failed-bg: #2d1a19;
+  --color-failed-line: #4d2522;
+  --color-failed-fg: #ffb4ac;
+  --color-failed-soft: #c99a95;
   --color-asleep: #6f6f74;
   --color-danger: #ff8a80;
   --color-danger-bg: #3a1716;

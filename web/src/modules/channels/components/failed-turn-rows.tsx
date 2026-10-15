@@ -1,7 +1,11 @@
 import { useFailedTurns } from '@/modules/channels/api/get-failed-turns';
+import { useTurns } from '@/modules/channels/api/get-turns';
+import { useRollbackTurn } from '@/modules/channels/api/rollback-turn';
 import { useRetryTurn } from '@/lib/api/retry-turn';
+import { confirmRollback } from '@/modules/channels/utils/confirm-rollback';
 import { failedTurnAnchor } from '@/utils/anchors';
 import { Button } from '@/components/button';
+import { Creature } from '@/components/creature';
 
 export function FailedTurnRows({
   channelId,
@@ -13,8 +17,11 @@ export function FailedTurnRows({
   paused: boolean;
 }) {
   const turns = useFailedTurns(channelId);
+  const checkpoints = useTurns(channelId);
   const retry = useRetryTurn();
+  const rollback = useRollbackTurn(channelId);
   const retryable = turns.data ?? [];
+  const rollbackable = new Set((checkpoints.data ?? []).map((t) => t.id));
 
   if (retryable.length === 0) return null;
 
@@ -25,13 +32,29 @@ export function FailedTurnRows({
           <li
             key={t.id}
             id={failedTurnAnchor(t.id)}
-            className="flex items-center justify-between gap-3 rounded border border-failed/50 p-3 text-sm"
+            className="flex flex-wrap items-center gap-3 rounded-card border border-failed-line bg-failed-bg px-4 py-3.5 [--creature-ring:var(--color-failed-bg)]"
           >
-            <p className="text-sm text-danger">
-              Turn {t.id} by {t.role} failed: {t.error}
-            </p>
+            <Creature role={t.role} state="failed" size={24} />
+            <div className="min-w-0 flex-1 basis-48">
+              <p className="text-failed-fg">
+                <span className="capitalize">{t.role}</span>
+                {`'s turn ${t.id} failed`}
+              </p>
+              <p className="text-[13px] text-failed-soft">{t.error}</p>
+            </div>
+            {rollbackable.has(t.id) && (
+              <Button
+                type="button"
+                className="border-failed-line! text-failed-fg! disabled:text-faint!"
+                disabled={running || rollback.isPending}
+                onClick={() => confirmRollback(t.id) && rollback.mutate(t.id)}
+              >
+                Roll back
+              </Button>
+            )}
             {!paused && (
               <Button
+                variant="primary"
                 type="button"
                 disabled={running || retry.isPending}
                 onClick={() => retry.mutate(t.id)}
@@ -43,6 +66,7 @@ export function FailedTurnRows({
         ))}
       </ul>
       {retry.isError && <p className="text-sm text-danger">{retry.error.message}</p>}
+      {rollback.isError && <p className="text-sm text-danger">{rollback.error.message}</p>}
     </div>
   );
 }

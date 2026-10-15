@@ -226,8 +226,8 @@ async function promote() {
   await shot('checkpoints-after-promote');
   const left = await rows.allInnerTexts();
   check(
-    !left.some((t) => quick.some((id) => t.includes(`Before turn ${id} `))),
-    'the quick-session checkpoints, taken in another tree, have no Rollback button after the promote',
+    !left.some((t) => quick.some((id) => t.includes(`before turn ${id} `))),
+    'the quick-session checkpoints, taken in another tree, have no Roll back button after the promote',
     `rows: ${JSON.stringify(left)}; GET rollbackable: ${JSON.stringify((await getJson(`/turns?channel=${cid}&rollbackable=1`)).map((t) => t.id))}`,
   );
   const under = section
@@ -380,7 +380,7 @@ async function retry() {
   await working();
   await page.waitForTimeout(4000);
   await page.getByRole('button', { name: 'Stop' }).click();
-  const row = page.getByRole('listitem').filter({ hasText: /Turn \d+ by lead failed: interrupted/ });
+  const row = page.getByRole('listitem').filter({ hasText: /lead's turn \d+ failed\s*interrupted/i });
   await row.waitFor({ timeout: 30000 });
   await shot('failed-row');
   await row.getByRole('button', { name: 'Retry' }).click();
@@ -424,11 +424,11 @@ async function rollback() {
   git(tree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'by the turn');
   const turnId = sql(`select id from turn where channel_id=${cid} order by id desc limit 1`);
   const list = main.getByRole('region', { name: 'Checkpoints' });
-  await list.getByText(`Before turn ${turnId} by lead`).waitFor({ timeout: 15000 });
+  await list.getByText(`Checkpoint before turn ${turnId} by lead`).waitFor({ timeout: 15000 });
   await shot('checkpoints');
   check(
-    git(tree, 'log', '--oneline').includes('by the turn') && (await list.getByRole('button', { name: 'Rollback' }).count()) === 2,
-    'two turns have a Rollback button and the turn left a commit and new.txt',
+    git(tree, 'log', '--oneline').includes('by the turn') && (await list.getByRole('button', { name: 'Roll back' }).count()) === 2,
+    'two turns have a Roll back button and the turn left a commit and new.txt',
     `files: ${git(tree, 'ls-files')}; log:\n${git(tree, 'log', '--oneline')}`,
   );
   let asked = '';
@@ -436,10 +436,10 @@ async function rollback() {
     asked = d.message();
     d.accept();
   });
-  await list.getByRole('listitem').filter({ hasText: `Before turn ${turnId} by` }).getByRole('button', { name: 'Rollback' }).click();
+  await list.getByRole('listitem').filter({ hasText: `before turn ${turnId} by` }).getByRole('button', { name: 'Roll back' }).click();
   await page.getByText(`Rolled back to before turn ${turnId}.`).waitFor({ timeout: 15000 });
   await shot('rolled-back');
-  check(asked.includes(`Roll back to before turn ${turnId}?`), 'Rollback asks to confirm', asked);
+  check(asked.includes(`Roll back to before turn ${turnId}?`), 'Roll back asks to confirm', asked);
   const after = state();
   check(after === before, 'HEAD, status, log and files are as before the turn', `before:\n${before}\nafter:\n${after}`);
   check(
@@ -855,7 +855,7 @@ async function teams() {
   await idle();
   const row = (await approve.locator('xpath=ancestor::li[1]').textContent()) ?? '';
   check(
-    /lead → architect:/.test(row) && (await main.getByRole('button', { name: 'Reject' }).count()) === 1,
+    /lead → architect/.test(row) && (await main.getByRole('button', { name: 'Reject' }).count()) === 1,
     'the gated channel shows a lead → architect row with Approve and Reject',
     row,
   );

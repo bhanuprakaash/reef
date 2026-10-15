@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useDecideProposal } from '@/modules/channels/api/decide-proposal';
 import { useProposal } from '@/modules/channels/api/get-proposal';
 import { Button } from '@/components/button';
+import { Creature } from '@/components/creature';
 
 export function ProposalPanel({
   channelId,
@@ -34,27 +35,40 @@ export function ProposalPanel({
     return null;
   }
 
+  const summary = [
+    'brief',
+    p.notes && 'role notes',
+    p.decisions.length > 0 &&
+      `${p.decisions.length} ${p.decisions.length === 1 ? 'decision' : 'decisions'}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <section
       ref={panel}
       aria-label="Proposal"
-      className="scroll-mb-44 space-y-3 rounded border border-line p-3"
+      className="flex scroll-mb-44 flex-col gap-2.5 rounded-card border border-line bg-card p-4 [--creature-ring:var(--color-card)]"
     >
-      <h2 className="text-sm font-medium">Proposal from {p.role}</h2>
-      <div>
-        <h3 className="text-xs font-medium uppercase text-muted">Brief</h3>
-        <pre className="font-sans text-sm whitespace-pre-wrap">{p.brief}</pre>
+      <div className="flex items-center gap-2">
+        <Creature role={p.role} size={22} />
+        <h2>Wrap-up proposal from {p.role}</h2>
+        <span className="ml-auto text-[12.5px] text-muted">{summary}</span>
+      </div>
+      <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
+        <h3 className="text-xs font-medium text-muted uppercase">Brief</h3>
+        <pre className="font-sans whitespace-pre-wrap">{p.brief}</pre>
       </div>
       {p.notes && (
-        <div>
-          <h3 className="text-xs font-medium uppercase text-muted">Notes</h3>
-          <pre className="font-sans text-sm whitespace-pre-wrap">{p.notes}</pre>
+        <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
+          <h3 className="text-xs font-medium text-muted uppercase">Notes</h3>
+          <pre className="font-sans whitespace-pre-wrap">{p.notes}</pre>
         </div>
       )}
       {p.decisions.length > 0 && (
-        <div>
-          <h3 className="text-xs font-medium uppercase text-muted">Decisions</h3>
-          <ul className="space-y-2 text-sm">
+        <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
+          <h3 className="text-xs font-medium text-muted uppercase">Decisions</h3>
+          <ul className="space-y-2">
             {p.decisions.map((d, i) => (
               <li key={i}>
                 <p>{d.body}</p>
@@ -65,7 +79,14 @@ export function ProposalPanel({
         </div>
       )}
       {decide.isError && <p className="text-sm text-danger">{decide.error.message}</p>}
-      <div className="flex gap-2">
+      <div className="flex justify-end gap-2">
+        <Button
+          type="button"
+          disabled={decide.isPending}
+          onClick={() => decide.mutate({ proposal: p, action: 'reject' })}
+        >
+          Reject
+        </Button>
         <Button
           variant="primary"
           type="button"
@@ -73,14 +94,6 @@ export function ProposalPanel({
           onClick={() => decide.mutate({ proposal: p, action: 'approve' })}
         >
           Approve
-        </Button>
-        <Button
-          variant="destructive"
-          type="button"
-          disabled={decide.isPending}
-          onClick={() => decide.mutate({ proposal: p, action: 'reject' })}
-        >
-          Reject
         </Button>
       </div>
     </section>
