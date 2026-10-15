@@ -1,5 +1,4 @@
 import type { Feature, Project } from '@/types/api';
-import { Select } from '@/components/select';
 
 type Props = {
   projects: Project[];
@@ -10,13 +9,17 @@ type Props = {
   onChange: (name: 'project' | 'feature' | 'status', value: string) => void;
 };
 
+const selectClass =
+  'h-[30px] rounded-pill bg-bubble px-3 text-[13px] text-fg outline-none focus-visible:ring-3 focus-visible:ring-ring';
+
 export function TaskFilters({ projects, features, project, feature, status, onChange }: Props) {
   const shownFeatures =
     project === '' ? features : features.filter((f) => String(f.projectId) === project);
 
   return (
     <div className="flex flex-wrap gap-2">
-      <Select
+      <select
+        className={selectClass}
         aria-label="Filter by project"
         value={project}
         onChange={(e) => onChange('project', e.target.value)}
@@ -27,8 +30,9 @@ export function TaskFilters({ projects, features, project, feature, status, onCh
             {p.name}
           </option>
         ))}
-      </Select>
-      <Select
+      </select>
+      <select
+        className={selectClass}
         aria-label="Filter by feature"
         value={feature}
         onChange={(e) => onChange('feature', e.target.value)}
@@ -39,16 +43,23 @@ export function TaskFilters({ projects, features, project, feature, status, onCh
             {f.name}
           </option>
         ))}
-      </Select>
-      <Select
-        aria-label="Filter by status"
-        value={status}
-        onChange={(e) => onChange('status', e.target.value)}
-      >
-        <option value="">Open and done</option>
-        <option value="open">Open</option>
-        <option value="done">Done</option>
-      </Select>
+      </select>
+      {(
+        [
+          ['open', 'Open'],
+          ['done', 'Done'],
+        ] as const
+      ).map(([value, label]) => (
+        <button
+          key={value}
+          type="button"
+          aria-pressed={status === value}
+          onClick={() => onChange('status', status === value ? '' : value)}
+          className={`h-[30px] rounded-pill px-3 text-[13px] ${status === value ? 'bg-pill text-pill-ink' : 'border border-line text-muted'}`}
+        >
+          {label}
+        </button>
+      ))}
     </div>
   );
 }

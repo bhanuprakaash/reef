@@ -1,44 +1,72 @@
 import { useUpdateTask } from '@/modules/tasks/api/update-task';
-import type { Task } from '@/types/api';
-import { Button } from '@/components/button';
+import type { Feature, Project, Task } from '@/types/api';
+import { EmptyState } from '@/components/empty-state';
 
 type Props = {
   tasks: Task[];
-  context?: (task: Task) => string;
+  projects?: Project[];
+  features?: Feature[];
 };
 
-export function TaskList({ tasks, context }: Props) {
+export function TaskList({ tasks, projects = [], features }: Props) {
   const update = useUpdateTask();
 
-  if (tasks.length === 0) return <p className="text-sm text-muted">No tasks.</p>;
+  if (tasks.length === 0) return <EmptyState title="No tasks" />;
+
+  const groups = new Map<string, Task[]>();
+  for (const task of tasks) {
+    const key = task.featureId === null ? `p${task.projectId}` : `f${task.featureId}`;
+    groups.set(key, [...(groups.get(key) ?? []), task]);
+  }
+
+  function groupName(task: Task) {
+    if (task.featureId !== null) return features?.find((f) => f.id === task.featureId)?.name;
+    const project = projects.find((p) => p.id === task.projectId)?.name;
+    return `${project ?? ''} · no feature`;
+  }
 
   return (
     <div className="space-y-2">
       {update.isError && <p className="text-sm text-danger">{update.error.message}</p>}
-      <ul className="divide-y divide-hairline text-sm">
-        {tasks.map((task) => (
-          <li key={task.id} className="flex items-center gap-3 py-2">
-            <span
-              className={`w-14 shrink-0 text-xs uppercase ${task.status === 'done' ? 'text-done' : 'text-muted'}`}
-            >
-              {task.status}
-            </span>
-            <span className={`flex-1 ${task.status === 'done' ? 'line-through opacity-60' : ''}`}>
-              {task.title}
-            </span>
-            {context && <span className="text-sm text-muted">{context(task)}</span>}
-            {task.status !== 'done' && (
-              <Button
-                type="button"
-                disabled={update.isPending}
-                onClick={() => update.mutate({ task, status: 'done' })}
-              >
-                Mark done
-              </Button>
+      <div className="divide-y divide-hairline overflow-hidden rounded-card bg-sidebar">
+        {[...groups.entries()].map(([key, group]) => (
+          <section key={key}>
+            {features && (
+              <h2 className="px-[18px] pt-3.5 pb-1.5 text-[12.5px] font-normal text-muted">
+                {groupName(group[0])}
+              </h2>
             )}
-          </li>
+            <ul>
+              {group.map((task) => {
+                const done = task.status === 'done';
+                return (
+                  <li key={task.id} className="border-t border-hairline">
+                    <label
+                      className={`flex min-h-[52px] items-center gap-3.5 px-[18px] ${done ? 'text-faint' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        className="size-[18px] accent-pill"
+                        checked={done}
+                        disabled={done || update.isPending}
+                        onChange={() => update.mutate({ task, status: 'done' })}
+                      />
+                      <span className={`flex-1 ${done ? 'line-through' : ''}`}>{task.title}</span>
+                      {!done && (
+                        <span
+                          className={`flex h-[22px] items-center rounded-pill px-[9px] text-xs ${task.status === 'doing' ? 'bg-working/15 text-working' : 'bg-bubble text-soft'}`}
+                        >
+                          {task.status}
+                        </span>
+                      )}
+                    </label>
+                  </li>
+                );
+              })}
+            </ul>
+          </section>
         ))}
-      </ul>
+      </div>
     </div>
   );
 }

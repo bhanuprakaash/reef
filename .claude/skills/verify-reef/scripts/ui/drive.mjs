@@ -298,9 +298,9 @@ async function pages() {
   await row.waitFor();
   await page.getByLabel('Filter by project').selectOption(pid);
   await page.getByLabel('Filter by feature').selectOption(fid);
-  await row.getByRole('button', { name: 'Mark done' }).click();
-  await row.getByRole('button', { name: 'Mark done' }).waitFor({ state: 'hidden' });
-  await page.getByLabel('Filter by status').selectOption('done');
+  await row.getByRole('checkbox').click();
+  await row.getByRole('checkbox', { checked: true }).waitFor();
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await row.waitFor();
   await shot('tasks-done');
   check(
@@ -919,7 +919,7 @@ async function board() {
   await todo.getByText(title).waitFor();
   check((await todo.getByText(title).count()) === 1, 'the feature filter also filters the board', page.url().replace(base, ''));
 
-  const card = todo.locator('div.space-y-1', { hasText: title });
+  const card = todo.locator('article', { hasText: title });
   await dragCard(card, doing);
   await doing.getByText(title).waitFor();
   await shot('dragged');
