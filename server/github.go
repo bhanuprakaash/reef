@@ -236,9 +236,11 @@ func (s *server) notePRState(ctx context.Context, f store.Feature, pr ghPR) erro
 	})
 }
 
-// noteFinishedChecks posts a reef note for each check run that finished since it was last
-// notified, once per run: the same check name run again, such as a rerun on a later push,
-// is noted again. A run that finished failed also wakes the developer.
+// noteFinishedChecks posts a reef note for each check run that finished and was not yet
+// noted, once per run: the same check name run again, such as a rerun on a later push, is its
+// own run, noted on its own. A run that finished failed also wakes the developer; noting and
+// waking are independent, so a wake that could not run (the channel is busy or paused) is
+// retried on a later poll even though the run was already noted.
 func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghPR, ghPath, dir string) error {
 	for _, c := range pr.StatusCheckRollup {
 		finished, word := c.outcome()
@@ -246,23 +248,20 @@ func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghP
 			continue
 		}
 		name, key := c.checkName(), c.runKey()
-		notified, err := s.st.NotifiedGitHubCheck(ctx, f.ID, name, key)
+		alreadyNoted, err := s.st.NoteGitHubCheck(ctx, f.ID, name, key)
 		if err != nil {
 			return err
 		}
-		if notified {
-			continue
-		}
-		if err := s.noteFeature(ctx, f.ID, fmt.Sprintf("%s %s", name, word)); err != nil {
-			return err
-		}
-		if err := s.st.MarkGitHubCheckNotified(ctx, f.ID, name, key); err != nil {
-			return err
-		}
-		if word == "failed" {
-			if err := s.wakeDeveloper(ctx, f, pr, c, key, ghPath, dir); err != nil {
+		if !alreadyNoted {
+			if err := s.noteFeature(ctx, f.ID, fmt.Sprintf("%s %s", name, word)); err != nil {
 				return err
 			}
+		}
+		if word != "failed" {
+			continue
+		}
+		if err := s.wakeDeveloper(ctx, f, pr, c, key, ghPath, dir); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -285,9 +284,10 @@ func (s *server) noteFeature(ctx context.Context, featureID int64, body string) 
 
 // wakeDeveloper wakes the developer role in the feature's most recent channel when a check
 // run finishes failed, once per run, also across restarts. A channel whose team has no
-// developer gets the note only. The wake runs as a new chain of its own, the way a retried
-// turn does (decision 39): no gate applies, since no role sent it, but the channel's caps
-// still do.
+// developer gets the note only. A channel with a turn running, or paused, cannot take the
+// wake now; that is logged once and retried on a later poll, once the channel is idle. The
+// wake runs as a new chain of its own, the way a retried turn does (decision 39): no gate
+// applies, since no role sent it, but the channel's caps still do.
 func (s *server) wakeDeveloper(
 	ctx context.Context, f store.Feature, pr ghPR, c ghCheck, key, ghPath, dir string,
 ) error {
@@ -312,11 +312,19 @@ func (s *server) wakeDeveloper(
 	}
 	chain, ch, err := s.claim(ctx, ch.ID)
 	if err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			s.logGhErrOnce(f.ID, fmt.Errorf("wake developer: %w", err))
+			return nil
+		}
 		return err
 	}
 	text := s.ghWakeText(ctx, pr, c, ghPath, dir)
 	w := wake{from: _userAuthor, role: "developer", text: text}
 	if err := chain.resume(ctx, ch, []wake{w}); err != nil {
+		if errors.Is(err, store.ErrConflict) {
+			s.logGhErrOnce(f.ID, fmt.Errorf("wake developer: %w", err))
+			return nil
+		}
 		return err
 	}
 	return s.st.MarkGitHubCheckWoken(ctx, f.ID, name, key)

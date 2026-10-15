@@ -196,6 +196,54 @@ func TestPollGitHub_NewCheckRunNotesAgain(t *testing.T) {
 	}
 }
 
+// TestPollGitHub_TwoRunsSameNameBothNoted covers a rollup that lists two check runs under the
+// same name, such as a matrix job or two workflows: each run is its own row, keyed by
+// (feature, name, run key), so both are noted once and neither is re-noted on a repeat poll.
+func TestPollGitHub_TwoRunsSameNameBothNoted(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataDir := t.TempDir()
+	h := New(st, dataDir, "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-b", "main")
+	writeIn(t, repo, "a.txt", "a")
+	gitIn(t, repo, "add", ".")
+	gitIn(t, repo, "commit", "-m", "first")
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
+	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+
+	binDir := t.TempDir()
+	writeFakeGh(t, binDir, repo)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	respFile := filepath.Join(t.TempDir(), "resp.json")
+	t.Setenv("GH_FAKE_RESPONSE", respFile)
+
+	setGhResponse(t, respFile, `{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN",`+
+		`"statusCheckRollup":[{"__typename":"CheckRun","name":"test","status":"COMPLETED",`+
+		`"conclusion":"SUCCESS","detailsUrl":"https://github.com/x/y/actions/runs/1/job/1"},`+
+		`{"__typename":"CheckRun","name":"test","status":"COMPLETED",`+
+		`"conclusion":"SUCCESS","detailsUrl":"https://github.com/x/y/actions/runs/2/job/2"}]}`)
+
+	for i := 0; i < 3; i++ {
+		h.s.pollGitHub(context.Background())
+	}
+	msgs, err := st.Messages(context.Background(), 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 3 || msgs[0].Body != "PR #12 open: https://github.com/x/y/pull/12" ||
+		msgs[1].Body != "test succeeded" || msgs[2].Body != "test succeeded" {
+		t.Fatalf("messages after 3 identical polls = %+v, want 1 PR note + 2 check notes", msgs)
+	}
+}
+
 func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {

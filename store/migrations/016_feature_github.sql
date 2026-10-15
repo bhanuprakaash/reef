@@ -8,6 +8,7 @@ CREATE TABLE feature_github_check (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   feature_id INTEGER NOT NULL REFERENCES feature(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
-  notified INTEGER NOT NULL DEFAULT 0,
-  UNIQUE(feature_id, name)
+  run_key TEXT NOT NULL,
+  woken INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(feature_id, name, run_key)
 );
