@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useCreateTask } from '@/modules/tasks/api/create-task';
 import { useProjects } from '@/modules/projects/api/get-projects';
-import { buttonClass, inputClass } from '@/utils/classes';
+import { buttonClass, errorClass, inputClass, mutedClass } from '@/utils/classes';
 
 const KINDS = ['idea', 'todo', 'bug'] as const;
 const LAST_PROJECT_KEY = 'reef.capture.lastProjectId';
@@ -12,6 +12,9 @@ export function CapturePage() {
   const [projectId, setProjectId] = useState(() => localStorage.getItem(LAST_PROJECT_KEY) ?? '');
   const [kind, setKind] = useState<(typeof KINDS)[number]>('idea');
   const [text, setText] = useState('');
+  // A plain browser tab's window.close() does nothing, so show a status instead there;
+  // the desktop capture window still closes on success.
+  const isDesktop = typeof window !== 'undefined' && window.reef != null;
 
   useEffect(() => {
     function onKeyDown(e: KeyboardEvent) {
@@ -30,7 +33,15 @@ export function CapturePage() {
           localStorage.setItem(LAST_PROJECT_KEY, projectId);
           create.mutate(
             { projectId: Number(projectId), featureId: null, title: `${kind}: ${text}` },
-            { onSuccess: () => window.close() },
+            {
+              onSuccess: () => {
+                if (isDesktop) {
+                  window.close();
+                } else {
+                  setText('');
+                }
+              },
+            },
           );
         }}
       >
@@ -71,6 +82,8 @@ export function CapturePage() {
         <button type="submit" className={buttonClass} disabled={create.isPending}>
           Capture
         </button>
+        {create.isError && <p className={errorClass}>{create.error.message}</p>}
+        {create.isSuccess && !isDesktop && <p className={mutedClass}>Captured</p>}
       </form>
     </div>
   );

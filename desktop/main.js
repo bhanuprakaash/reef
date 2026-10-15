@@ -108,7 +108,12 @@ function openCaptureWindow() {
     captureWindow.focus();
     return;
   }
-  captureWindow = new BrowserWindow({ width: 480, height: 200, alwaysOnTop: true });
+  captureWindow = new BrowserWindow({
+    width: 480,
+    height: 200,
+    alwaysOnTop: true,
+    webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
+  });
   captureWindow.on('closed', () => {
     captureWindow = null;
   });
