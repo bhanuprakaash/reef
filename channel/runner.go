@@ -152,6 +152,9 @@ func (r *Runner) Run(
 					turn.Usage.Add(*ev.Usage)
 				}
 			case agent.KindError:
+				if ev.CostUSD != nil {
+					turn.CostUSD = ev.CostUSD
+				}
 				return errors.Join(fmt.Errorf("agent: %s", ev.Text),
 					r.fail(wctx, turn, ev.Text, reply.String(), parent))
 			case agent.KindTurnEnd:

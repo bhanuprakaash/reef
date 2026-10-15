@@ -15,6 +15,7 @@ import (
 )
 
 var resultCost = 0.0123
+var errorCost = 0.0073
 
 func TestParse(t *testing.T) {
 	tests := []struct {
@@ -96,6 +97,13 @@ func TestParse(t *testing.T) {
 			give: `{"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"00000000-0000-0000-0000-000000000000","usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0},"errors":["No conversation found with session ID: 00000000-0000-0000-0000-000000000000"]}`,
 			want: []agent.Event{
 				{Kind: agent.KindError, Text: "No conversation found with session ID: 00000000-0000-0000-0000-000000000000"},
+			},
+		},
+		{
+			name: "error result with cost",
+			give: `{"type":"result","subtype":"error_during_execution","is_error":true,"session_id":"00000000-0000-0000-0000-000000000000","total_cost_usd":0.0073,"usage":{"input_tokens":0,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":0},"errors":["boom"]}`,
+			want: []agent.Event{
+				{Kind: agent.KindError, Text: "boom", CostUSD: &errorCost},
 			},
 		},
 		{
@@ -332,6 +340,33 @@ func TestParse_costIsPerTurnNotProcessTotal(t *testing.T) {
 		}
 	}
 	want := []float64{0.0477, 0.0113, 0.0073}
+	for i := range want {
+		if diff := got[i] - want[i]; diff > 1e-9 || diff < -1e-9 {
+			t.Errorf("turn %d cost = %v, want %v", i, got[i], want[i])
+		}
+	}
+}
+
+// TestParse_backgroundCostCarriesToNextTurn covers a background task-notification result:
+// its cost rides on no turn, so the next turn's delta must include it too.
+func TestParse_backgroundCostCarriesToNextTurn(t *testing.T) {
+	turn := func(cost float64) string {
+		return fmt.Sprintf(`{"type":"result","subtype":"success","is_error":false,"result":"done","total_cost_usd":%g}`, cost)
+	}
+	background := `{"type":"result","subtype":"success","is_error":false,"result":"","origin":{"kind":"task-notification"},"total_cost_usd":0.03}`
+	var st state
+	var got []float64
+	for _, line := range []string{turn(0.02), background, turn(0.05)} {
+		for _, ev := range parse([]byte(line), &st) {
+			if ev.Kind == agent.KindTurnEnd {
+				got = append(got, *ev.CostUSD)
+			}
+		}
+	}
+	want := []float64{0.02, 0.03}
+	if len(got) != len(want) {
+		t.Fatalf("turn costs = %v, want %v", got, want)
+	}
 	for i := range want {
 		if diff := got[i] - want[i]; diff > 1e-9 || diff < -1e-9 {
 			t.Errorf("turn %d cost = %v, want %v", i, got[i], want[i])

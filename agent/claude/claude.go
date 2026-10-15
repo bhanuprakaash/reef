@@ -455,8 +455,11 @@ func parseLine(line []byte, st *state) []agent.Event {
 		}
 		evs := st.held
 		lastCost := st.lastCost
+		// A background task's cost rides on no turn; its delta carries forward to the
+		// next turn's result instead of being counted here.
+		background := l.Origin.Kind == "task-notification"
 		var cost *float64
-		if l.TotalCostUSD != nil {
+		if l.TotalCostUSD != nil && !background {
 			delta := *l.TotalCostUSD - lastCost
 			cost, lastCost = &delta, *l.TotalCostUSD
 		}
@@ -465,12 +468,12 @@ func parseLine(line []byte, st *state) []agent.Event {
 			evs = append(evs, agent.Event{Kind: agent.KindUsage, Usage: &rest})
 		}
 		// A turn claude runs by itself for a background task is not the answer to a prompt.
-		if l.Origin.Kind == "task-notification" {
+		if background {
 			return evs
 		}
 		if l.IsError {
 			text := strings.Join(append([]string{l.Result}, l.Errors...), "\n")
-			return append(evs, agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text)})
+			return append(evs, agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text), CostUSD: cost})
 		}
 		return append(evs, agent.Event{Kind: agent.KindTurnEnd, CostUSD: cost})
 	}
