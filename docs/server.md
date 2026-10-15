@@ -54,20 +54,33 @@ cd .. && go build -o reef ./cmd/reef
 ```
 
 Then open `http://127.0.0.1:7700`. Build the web app before `go build`, because the binary
-embeds `web/dist` as it was at build time. Add a project (an absolute path to an existing
-folder), then a feature, then a channel. A channel's agent is the `claude` or `codex` CLI,
-logged in and on `PATH`. The new channel form picks a team from `GET /teams`. The `/teams`
-page lists teams and edits one's roles and gates, saving with `PUT /teams/{name}`; "Copy as
-new team" applies the same roles, gates and MCP servers under a new name with `?from=`,
-rejected if that name is taken. Each message
-shows its author, replies are folded under their thread root with a count, and a thread
-opens in a pane where you can reply. The running turn names its teammate. A wake held at a gate
-shows Approve and Reject, and a pause from the hop cap shows in the cap banner. A channel
-with rollbackable turns (`GET /turns?channel=ID&rollbackable=1`) has a Checkpoints list; Rollback on a row asks to confirm, then does
-`POST /turns/{id}/rollback`. A checkpoint taken in another tree, such as a quick session's turn after a promote, is not listed. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial reply is the stored message, so the live block does not repeat it.
-The Inbox link lists what waits on you from [`/inbox/events`](#inbox), with a count and the
-action of each item (Approve or Reject, Continue, Retry, Open). The window asks once, on a click,
-to show desktop notifications and then shows one for each item that is new since the page loaded.
+embeds `web/dist` as it was at build time. A channel's agent is the `claude` or `codex` CLI,
+logged in and on `PATH`.
+
+- Sidebar: the project switcher, then Today, Needs you and one row per channel of the project
+  (teammate creatures, name, a preview of the newest message from `lastMessage`, its time),
+  with Tasks, Board, Teams and Settings links at the foot. Below 768 px the sidebar is a
+  bottom tab bar (Today, Channels, Needs you, Tasks, Teams) and a channel opens full screen.
+- Today (`/`): what waits on you, the project's features and recent done tasks, and capture.
+- Channel: bubbles with each author's creature, replies folded under their thread root with a
+  count, and a side panel for the team, a thread or the inspector. The running turn names its
+  teammate. A wake held at a gate shows Approve and Reject; a pause from the hop cap shows in
+  the cap banner. A channel with rollbackable turns (`GET /turns?channel=ID&rollbackable=1`)
+  lists Checkpoints; Roll back on a row asks to confirm, then does `POST /turns/{id}/rollback`.
+  A checkpoint taken in another tree, such as a quick session's turn after a promote, is not
+  listed. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
+  reply is the stored message, so the live block does not repeat it.
+- Feature page (`/features/{id}`) and its diff review page (`/features/{id}/review`); project
+  page (`/projects/{id}`) with project memory and its features.
+- Needs you (`/inbox`): what waits on you from [`/inbox/events`](#inbox), with a count and
+  the action of each item (Approve or Reject, Continue, Retry, Open). The window asks once,
+  on a click, to show desktop notifications and then shows one for each item that is new
+  since the page loaded.
+- Teams (`/teams`): lists teams and edits one's roles, faces and gates, saving with
+  `PUT /teams/{name}`; "Copy as new team" applies the same roles, gates and MCP servers
+  under a new name with `?from=`, rejected if that name is taken.
+- Settings (`/settings`): theme (dark, light or Match macOS, kept in `localStorage`) and
+  notifications.
 
 Client routes such as `/features/3`, `/tasks` and `/inbox` have the same paths as the REST API. In the Go server, `GET /` and `HEAD /` always get the app's `index.html`; other `GET` or `HEAD` requests get it when the `Accept` header includes `text/html`. Every other request goes to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`) are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
 
@@ -400,7 +413,7 @@ tool calls.
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has no `mcpServers`, whose `args` and `url` may hold API keys | |
 | `GET /teams/{name}` | | 200, without `mcpServers` as above; each role shows `write` | 404 |
 | `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists |
-| `GET /channels` | `?project=ID`, `?feature=ID` | 200 each channel also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts), `null` when it has none | 400 bad id |
+| `GET /channels` | `?project=ID`, `?feature=ID` | 200 each channel also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
 | `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
 | `PUT /channels/{id}` | `name` (required), `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the channel's backend and applies the next time its agent starts | 200 | 400 bad JSON or permission mode, 404 |

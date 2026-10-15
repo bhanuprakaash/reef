@@ -8,4 +8,4 @@ Read the yellow "design language" note on the canvas first; each board has a not
 - Type: macOS system font, regular weight.
 - Colours: sidebar `#1A1A1A`, main `#212121`, cards `#2A2A2A`, bubbles `#2E2E2E`, text `#ECECEC`, muted `#9B9B9B`.
 - Bots are reef creatures with the same two eye ticks: lead jellyfish `#F26B2E` (also the logo), architect whale `#8B5CF6`, developer penguin `#3FBFA0`, tester shark `#3B82F6`. Added roles are pebbles.
-- Boards: channel, bots, logo, shared sidebar, teams, feature, needs-you inbox, and four mobile screens.
+- Boards: channel, bots, logo, shared sidebar, teams, feature, needs-you inbox, and four mobile screens; then settings, light theme, capture, promote, inspector, review, project, panes, tasks, motion and desktop launch.
