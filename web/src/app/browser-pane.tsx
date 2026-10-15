@@ -6,7 +6,7 @@ const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 const WIDTH_KEY = 'reef.browserPane.width';
 const DEFAULT_WIDTH = 440;
 const MIN_WIDTH = 320;
-const MAX_SHARE = 0.6;
+const MAX_SHARE = 0.5;
 
 function storedWidth() {
   try {
@@ -155,7 +155,7 @@ export function BrowserPane({ open, driver }: { open: boolean; driver: BrowserDr
     <aside
       aria-label="Browser"
       style={{ width }}
-      className={`${open ? 'flex' : 'hidden'} relative max-w-[60vw] min-w-[320px] shrink-0 flex-col border-l border-hairline bg-sidebar`}
+      className={`${open ? 'flex' : 'hidden'} relative max-w-[50vw] min-w-[320px] shrink-0 flex-col border-l border-hairline bg-sidebar`}
     >
       <div
         role="separator"

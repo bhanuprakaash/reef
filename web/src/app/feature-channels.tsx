@@ -76,10 +76,7 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
         {groups.map(({ feature: f, channels: cs }) => (
           <li key={f.id}>
             <div className="flex items-center gap-2 pt-3.5 pr-1 pb-1 pl-2.5">
-              <Link
-                to={`/features/${f.id}`}
-                className="truncate text-xs font-medium text-muted hover:text-fg"
-              >
+              <Link to={`/features/${f.id}`} className="truncate text-xs text-muted hover:text-fg">
                 {f.name}
               </Link>
               <span className="text-[11px] text-faint">{f.stage}</span>
@@ -113,7 +110,7 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
       </ul>
       {quick.length > 0 && (
         <>
-          <h4 className="px-2.5 pt-3.5 pb-1 text-xs font-medium text-muted">Quick sessions</h4>
+          <h4 className="px-2.5 pt-3.5 pb-1 text-xs text-muted">Quick sessions</h4>
           <ul className="flex flex-col gap-0.5">
             {quick.map((c) => (
               <li key={c.id}>{channelRow(c, c.name)}</li>
