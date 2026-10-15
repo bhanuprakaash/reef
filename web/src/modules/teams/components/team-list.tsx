@@ -16,14 +16,17 @@ export function TeamList({ teams, selected, onSelect }: Props) {
             key={t.name}
             className={`relative rounded-xl border p-3 ${current ? 'border-line bg-bubble' : 'border-transparent hover:bg-card'}`}
           >
-            <button
-              type="button"
-              aria-current={current || undefined}
-              onClick={() => onSelect(t.name)}
-              className={`text-sm after:absolute after:inset-0 after:rounded-xl ${current ? 'font-semibold' : 'font-medium text-soft'}`}
-            >
-              {t.name}
-            </button>
+            <div className="flex items-center justify-between">
+              <button
+                type="button"
+                aria-current={current || undefined}
+                onClick={() => onSelect(t.name)}
+                className={`min-h-11 text-sm after:absolute after:inset-0 after:rounded-xl md:min-h-0 ${current ? '' : 'text-soft'}`}
+              >
+                {t.name}
+              </button>
+              {t.name === 'solo' && <span className="text-[11px] text-muted">default</span>}
+            </div>
             <div className="mt-2.5 flex">
               {t.roles.map((r) => (
                 <Creature key={r.name} role={r.name} face={r.face} size={26} animate />

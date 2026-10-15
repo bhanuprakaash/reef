@@ -4,12 +4,16 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
+	"slices"
+	"strconv"
 
+	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// teamView is a team as REST shows it. A role's MCP servers are left out: their args and
-// url may carry keys.
+// teamView is a team as REST shows it. A role's MCP servers show only a name and a label:
+// their args, env and url may carry keys.
 type teamView struct {
 	Name  string       `json:"name"`
 	Roles []roleView   `json:"roles"`
@@ -17,16 +21,38 @@ type teamView struct {
 }
 
 type roleView struct {
-	Name           string   `json:"name"`
-	Lead           bool     `json:"lead"`
-	Write          bool     `json:"write"`
-	Backend        string   `json:"backend"`
-	PermissionMode string   `json:"permissionMode"`
-	Persona        string   `json:"persona"`
-	Skills         string   `json:"skills"`
-	Face           string   `json:"face,omitempty"`
-	Tools          []string `json:"tools"`
+	Name           string    `json:"name"`
+	Lead           bool      `json:"lead"`
+	Write          bool      `json:"write"`
+	Backend        string    `json:"backend"`
+	PermissionMode string    `json:"permissionMode"`
+	Persona        string    `json:"persona"`
+	Skills         string    `json:"skills"`
+	Face           string    `json:"face,omitempty"`
+	Tools          []string  `json:"tools"`
+	MCP            []mcpView `json:"mcp"`
 }
+
+// mcpView names one of a role's MCP servers as the agent sees it (mcp1, mcp2, ...) and labels it
+// by its command, or the host of its url.
+type mcpView struct {
+	Name  string `json:"name"`
+	Label string `json:"label"`
+}
+
+// putRole is a role in a PUT body. Its mcp lists the servers to keep, by name.
+type putRole struct {
+	store.Role
+	MCP []mcpView `json:"mcp"`
+}
+
+type putBody struct {
+	Name  string       `json:"name"`
+	Roles []putRole    `json:"roles"`
+	Gates []store.Gate `json:"gates,omitempty"`
+}
+
+func mcpName(i int) string { return "mcp" + strconv.Itoa(i+1) }
 
 func (s *server) teamRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /teams", s.listTeams)
@@ -59,16 +85,21 @@ func (s *server) getTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 // putTeam applies the body like `reef team apply`. A role whose body omits mcpServers keeps
-// the server's stored ones, since the window never sees them. With a `from` query param it
-// instead copies the team named by `from`: `name` must not exist yet, and a role's stored
-// mcpServers come from `from`'s role of the same name.
+// the server's stored ones, since the window never sees them; if it lists `mcp`, it keeps only
+// the stored servers with those names. With a `from` query param it instead copies the team
+// named by `from`: `name` must not exist yet, and a role's stored mcpServers come from
+// `from`'s role of the same name.
 func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	from := r.URL.Query().Get("from")
-	var t store.Team
-	if err := readJSON(r, &t); err != nil {
+	var body putBody
+	if err := readJSON(r, &body); err != nil {
 		writeError(w, err)
 		return
+	}
+	t := store.Team{Name: body.Name, Roles: make([]store.Role, len(body.Roles)), Gates: body.Gates}
+	for i, pr := range body.Roles {
+		t.Roles[i] = pr.Role
 	}
 	if t.Name == "" {
 		t.Name = name
@@ -82,7 +113,7 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
-		fillMCPServers(t, existing)
+		fillMCPServers(t, body, existing)
 		applied, err := s.st.ApplyTeam(r.Context(), t)
 		if err != nil {
 			writeError(w, err)
@@ -100,7 +131,7 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-	fillMCPServers(t, source)
+	fillMCPServers(t, body, source)
 	applied, err := s.st.CreateTeam(r.Context(), t)
 	if err != nil {
 		writeError(w, err)
@@ -110,19 +141,45 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 // fillMCPServers gives each role of t that omits mcpServers the servers of existing's role of
-// the same name, since the window never sees them.
-func fillMCPServers(t store.Team, existing store.Team) {
+// the same name, since the window never sees them. When the role's body lists mcp, only the
+// servers it names are kept.
+func fillMCPServers(t store.Team, body putBody, existing store.Team) {
 	for i, role := range t.Roles {
 		if role.MCPServers != nil {
 			continue
 		}
 		for _, er := range existing.Roles {
 			if er.Name == role.Name {
-				t.Roles[i].MCPServers = er.MCPServers
+				t.Roles[i].MCPServers = keepMCP(er.MCPServers, body.Roles[i].MCP)
 				break
 			}
 		}
 	}
+}
+
+func keepMCP(servers []agent.MCPServer, keep []mcpView) []agent.MCPServer {
+	if keep == nil {
+		return servers
+	}
+	kept := []agent.MCPServer{}
+	for i, srv := range servers {
+		if slices.ContainsFunc(keep, func(k mcpView) bool { return k.Name == mcpName(i) }) {
+			kept = append(kept, srv)
+		}
+	}
+	return kept
+}
+
+func viewMCP(servers []agent.MCPServer) []mcpView {
+	views := make([]mcpView, len(servers))
+	for i, srv := range servers {
+		label := srv.Command
+		if u, err := url.Parse(srv.URL); label == "" && err == nil {
+			label = u.Host
+		}
+		views[i] = mcpView{Name: mcpName(i), Label: label}
+	}
+	return views
 }
 
 func viewTeam(t store.Team) teamView {
@@ -130,7 +187,7 @@ func viewTeam(t store.Team) teamView {
 	for i, r := range t.Roles {
 		roles[i] = roleView{
 			Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend, PermissionMode: r.PermissionMode,
-			Persona: r.Persona, Skills: r.Skills, Face: r.Face, Tools: r.Tools,
+			Persona: r.Persona, Skills: r.Skills, Face: r.Face, Tools: r.Tools, MCP: viewMCP(r.MCPServers),
 		}
 	}
 	return teamView{Name: t.Name, Roles: roles, Gates: t.Gates}

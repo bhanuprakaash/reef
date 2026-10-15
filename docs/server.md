@@ -78,9 +78,12 @@ logged in and on `PATH`.
   on a click, to show desktop notifications and then shows one for each item that is new
   since the page loaded.
 - Teams (`/teams`): lists teams and edits one's roles, faces and gates, saving with
-  `PUT /teams/{name}`; "Copy as new team" applies the same roles, gates and MCP servers
-  under a new name with `?from=`, rejected if that name is taken. "New team" asks for a name
-  and a team to start from and sends the same `?from=` request.
+  `PUT /teams/{name}`. An opened role shows its persona, skills, allowed tools, permission
+  mode and MCP servers; a server can be removed there, not added (use `reef team apply`).
+  Duplicate applies the same roles, gates and MCP servers under a new name with `?from=`,
+  rejected if that name is taken. "New team" asks for a name and a team to start from and
+  sends the same `?from=` request. The hop, turn and token caps are not team fields, so the
+  page has no Caps section.
 - Settings (`/settings`): theme (dark, light or Match macOS, kept in `localStorage`) and
   notifications.
 
@@ -412,9 +415,9 @@ tool calls.
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
 | `POST /features/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the feature's worktree the same way the first wake of one of its channels would, reusing it when it already exists | 404 |
 | `GET /features/{id}/diff` | | 200 the worktree's changes against the commit its branch and the project's HEAD last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
-| `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has no `mcpServers`, whose `args` and `url` may hold API keys | |
-| `GET /teams/{name}` | | 200, without `mcpServers` as above; each role shows `write` | 404 |
-| `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists |
+| `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
+| `GET /teams/{name}` | | 200, with `mcp` instead of `mcpServers` as above; each role shows `write` | 404 |
+| `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; a role may also list `mcp`, the names of the stored MCP servers to keep, `[]` for none); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones, or only those named in its `mcp`; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 each channel also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
 | `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |

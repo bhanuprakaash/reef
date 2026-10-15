@@ -11,13 +11,16 @@ const teamNamePattern = /^[A-Za-z0-9_-]+$/;
 type Props = {
   open: boolean;
   teams: Team[];
+  from?: string;
   onClose: () => void;
   onCreated: (name: string) => void;
 };
 
-function NewTeamForm({ teams, onClose, onCreated }: Omit<Props, 'open'>) {
+function NewTeamForm({ teams, from: initial, onClose, onCreated }: Omit<Props, 'open'>) {
   const [name, setName] = useState('');
-  const [from, setFrom] = useState(() => (teams.find((t) => t.name === 'solo') ?? teams[0]).name);
+  const [from, setFrom] = useState(
+    () => (teams.find((t) => t.name === (initial ?? 'solo')) ?? teams[0]).name,
+  );
   const create = useUpdateTeam();
   const source = teams.find((t) => t.name === from);
 

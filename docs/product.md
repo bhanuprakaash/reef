@@ -213,6 +213,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 52 | Today replaces Home as the landing page | One place for what waits on you and what moved, instead of a list of projects |
 | 53 | The desktop window opens on a local splash page and loads the app once `reef serve` listens | The window shows something at once instead of a blank page while the server starts |
 | 54 | Project memory (decision 45) is edited on the project page, not on Today | It belongs to the project, and Today is about what moved |
+| 55 | A role in `GET /teams` lists its MCP servers as `mcp`, each only a name (`mcp1`, ...) and a label (the command, or the url's host); a `PUT` body that lists `mcp` keeps only the stored servers with those names. The window removes servers, `reef team apply` adds them | The window can show and drop a server without ever holding its `args`, `env` or `url`, which may carry keys |
 
 ## Open questions
 

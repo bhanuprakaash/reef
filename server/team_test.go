@@ -34,9 +34,9 @@ func TestTeamsOmitMCPServers(t *testing.T) {
 
 	for _, path := range []string{"/teams", "/teams/keys"} {
 		status, body := do(t, http.MethodGet, ts.URL+path, "")
-		if status != 200 || !strings.Contains(body, `"name":"lead"`) ||
+		if status != 200 || !strings.Contains(body, `"mcp":[{"name":"mcp1","label":"my-mcp"}]`) ||
 			strings.Contains(body, "mcpServers") || strings.Contains(body, "sk-secret-123") {
-			t.Errorf("GET %s = %d %s, want the lead without mcpServers", path, status, body)
+			t.Errorf("GET %s = %d %s, want the lead with an mcp label and no mcpServers", path, status, body)
 		}
 	}
 	if got, err := st.Team(context.Background(), "keys"); err != nil ||
@@ -123,9 +123,9 @@ func TestChannelTeam(t *testing.T) {
 
 	status, body := do(t, http.MethodGet, ts.URL+"/teams/core", "")
 	want := `{"name":"core","roles":[{"name":"lead","lead":true,"write":false,"backend":"codex",` +
-		`"permissionMode":"read-only","persona":"","skills":"","tools":[]},` +
+		`"permissionMode":"read-only","persona":"","skills":"","tools":[],"mcp":[]},` +
 		`{"name":"architect","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"",` +
-		`"skills":"","tools":[]}]}`
+		`"skills":"","tools":[],"mcp":[]}]}`
 	if status != 200 || body != want {
 		t.Errorf("GET /teams/core = %d %s, want %s", status, body, want)
 	}
@@ -201,6 +201,51 @@ func TestPutTeam(t *testing.T) {
 		if status != 400 || !strings.Contains(resBody, "must be letters, digits, _ or -") {
 			t.Errorf("PUT %s = %d %s, want 400 naming the allowed characters", path, status, resBody)
 		}
+	}
+}
+
+func TestPutTeamRemoveMCP(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
+			{Command: "first-mcp", Args: []string{"--key", "sk-secret-1"}},
+			{URL: "https://mcp.example.com/sse?key=sk-secret-2"},
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	// Naming only mcp2 drops the first server and keeps the second with its url.
+	body := `{"roles":[{"name":"lead","lead":true,"backend":"claude","mcp":[{"name":"mcp2","label":"x"}]}]}`
+	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew", body)
+	if status != 200 || !strings.Contains(resBody, `"mcp":[{"name":"mcp1","label":"mcp.example.com"}]`) ||
+		strings.Contains(resBody, "sk-secret") {
+		t.Fatalf("PUT /teams/crew = %d %s, want one mcp labelled mcp.example.com", status, resBody)
+	}
+	got, err := st.Team(context.Background(), "crew")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Roles[0].MCPServers) != 1 || got.Roles[0].MCPServers[0].URL != "https://mcp.example.com/sse?key=sk-secret-2" {
+		t.Errorf("lead mcpServers = %+v, want only the url server", got.Roles[0].MCPServers)
+	}
+
+	// An empty list removes the rest.
+	body = `{"roles":[{"name":"lead","lead":true,"backend":"claude","mcp":[]}]}`
+	if status, resBody = do(t, http.MethodPut, ts.URL+"/teams/crew", body); status != 200 || !strings.Contains(resBody, `"mcp":[]`) {
+		t.Fatalf("PUT /teams/crew = %d %s, want an empty mcp", status, resBody)
+	}
+	if got, _ = st.Team(context.Background(), "crew"); len(got.Roles[0].MCPServers) != 0 {
+		t.Errorf("lead mcpServers = %+v, want none", got.Roles[0].MCPServers)
 	}
 }
 

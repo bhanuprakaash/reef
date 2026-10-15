@@ -9,7 +9,7 @@ import { Button } from '@/components/button';
 export function TeamsPage() {
   const [params, setParams] = useSearchParams();
   const teams = useTeams();
-  const [creating, setCreating] = useState(false);
+  const [creating, setCreating] = useState<{ from?: string } | null>(null);
   const name = params.get('team') || (teams.data?.[0]?.name ?? '');
   const team = teams.data?.find((t) => t.name === name);
 
@@ -26,7 +26,7 @@ export function TeamsPage() {
           className="ml-auto"
           variant="primary"
           disabled={!teams.data?.length}
-          onClick={() => setCreating(true)}
+          onClick={() => setCreating({})}
         >
           <svg
             className="size-3.5"
@@ -50,14 +50,22 @@ export function TeamsPage() {
           selected={name}
           onSelect={(n) => setParams({ team: n })}
         />
-        {team && <TeamEditor key={team.name} team={team} onSaved={(n) => setParams({ team: n })} />}
+        {team && (
+          <TeamEditor
+            key={team.name}
+            team={team}
+            onSaved={(n) => setParams({ team: n })}
+            onDuplicate={() => setCreating({ from: team.name })}
+          />
+        )}
       </div>
       <NewTeamDialog
-        open={creating}
+        open={creating !== null}
+        from={creating?.from}
         teams={teams.data ?? []}
-        onClose={() => setCreating(false)}
+        onClose={() => setCreating(null)}
         onCreated={(n) => {
-          setCreating(false);
+          setCreating(null);
           setParams({ team: n });
         }}
       />

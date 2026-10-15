@@ -1,8 +1,9 @@
 import { useState } from 'react';
 import type { Role } from '@/types/api';
 import { CreaturePicker } from '@/modules/teams/components/creature-picker';
-import { backendLabel } from '@/modules/teams/utils/backend-label';
+import { backendOptions } from '@/modules/teams/utils/backend-label';
 import { Button } from '@/components/button';
+import { Select } from '@/components/select';
 import { TextField } from '@/components/text-field';
 
 const blankRole: Role = {
@@ -14,6 +15,7 @@ const blankRole: Role = {
   persona: '',
   skills: '',
   tools: [],
+  mcp: [],
 };
 
 export function AddRoleCard({ onAdd }: { onAdd: (role: Role) => void }) {
@@ -24,7 +26,7 @@ export function AddRoleCard({ onAdd }: { onAdd: (role: Role) => void }) {
   return (
     <div className="flex flex-col gap-3.5 rounded-2xl border border-dashed border-faint p-4">
       <div className="flex items-center justify-between">
-        <span className="font-semibold">Add a role</span>
+        <span>Add a role</span>
         <span className="text-xs text-muted">Pick a creature</span>
       </div>
       <CreaturePicker value={face} onChange={setFace} />
@@ -36,13 +38,13 @@ export function AddRoleCard({ onAdd }: { onAdd: (role: Role) => void }) {
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={() => setBackend(backend === 'claude' ? 'codex' : 'claude')}
-        >
-          {backendLabel(backend)}
-        </Button>
+        <Select
+          className="w-40"
+          aria-label="Role backend"
+          value={backend}
+          onChange={setBackend}
+          options={backendOptions}
+        />
         <Button
           type="button"
           variant="primary"

@@ -1341,7 +1341,7 @@ async function workshop() {
     throw new Error('apply the team full first (teams/full.json, see features/teams.md)');
   }
   const mcpBefore = '[{"command":"true","env":{"API_KEY":"sk-verify-9911"}}]';
-  sql(`update role set mcp_servers = '${mcpBefore}' where team_id = (select id from team where name = 'full') and name = 'developer'`, true);
+  sql(`update role set mcp_servers = '${mcpBefore}', skills = '', tools = '["Read","Grep","Glob","Edit","Write","Bash"]' where team_id = (select id from team where name = 'full') and name = 'developer'`, true);
 
   const section = await addProject();
   await page.goto(`${base}/teams`);
@@ -1379,25 +1379,43 @@ async function workshop() {
   check(!!twoLeads, 'an invalid team (two leads) shows the reef team apply error', twoLeads ?? '(not shown)');
   await main.getByLabel('architect lead').uncheck();
 
-  // Unknown backend: the same error reef team apply gives.
-  await main.getByLabel('architect backend').fill('gemini');
+  // Unrestricted Bash on a role without write: the same error reef team apply gives.
+  await main.getByLabel('architect add tool').fill('Bash');
+  await main.getByLabel('architect add tool').press('Enter');
   await main.getByRole('button', { name: 'Save' }).click();
-  const badBackend = await errorText(/backend must be claude or codex/);
-  await shot('bad-backend-error');
-  check(!!badBackend, 'an invalid team (unknown backend) shows the reef team apply error', badBackend ?? '(not shown)');
-  await main.getByLabel('architect backend').fill('claude');
+  const badTool = await errorText(/cannot have unrestricted Bash/);
+  await shot('bad-tool-error');
+  check(!!badTool, 'an invalid team (unrestricted Bash without write) shows the reef team apply error', badTool ?? '(not shown)');
+  await main.getByRole('button', { name: 'Remove Bash', exact: true }).click();
   await main.getByRole('button', { name: 'Save' }).click();
   await page.getByText('Saved').waitFor();
 
-  // "Copy as new team" makes a new team `reef team list` (the same store) shows.
+  // Skills and allowed tools edit in the window and save; removing an MCP server removes it.
+  const row = (col) => sql(`select ${col} from role where team_id = (select id from team where name = 'full') and name = 'developer'`);
+  await main.getByRole('button', { name: /^developer/ }).click();
+  await main.getByLabel('developer skills').fill('Careful refactors.');
+  await main.getByLabel('developer add tool').fill('Bash(git log:*)');
+  await main.getByLabel('developer add tool').press('Enter');
+  await main.getByRole('button', { name: 'Remove Write', exact: true }).click();
+  await shot('role-skills-tools-mcp');
+  await main.getByRole('button', { name: 'Remove mcp1 · true' }).click();
+  await main.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+  check(row('skills') === 'Careful refactors.', "saving the developer's skills updates its role row", row('skills'));
+  check(row('tools').includes('Bash(git log:*)') && !row('tools').includes('"Write"'), "adding and removing allowed tools saves them to the role row", row('tools'));
+  check(row('mcp_servers') === '[]', "removing the developer's MCP server in the window removes it from its role row", row('mcp_servers'));
+
+  // Duplicate makes a new team `reef team list` (the same store) shows.
   const copyName = `workshop-copy-${Date.now().toString(36)}`;
-  await main.getByLabel('New team name').fill(copyName);
-  await main.getByRole('button', { name: 'Copy as new team' }).click();
+  await main.getByRole('button', { name: 'Duplicate' }).click();
+  const dup = page.getByRole('dialog', { name: 'New team' });
+  await dup.getByLabel('Name', { exact: true }).fill(copyName);
+  await dup.getByRole('button', { name: 'Create team' }).click();
   await main.getByRole('button', { name: copyName, exact: true }).waitFor({ timeout: 15000 });
   await shot('copied');
   check(
     sql(`select count(*) from team where name = '${copyName}'`) === '1',
-    '"Copy as new team" makes a new team',
+    'Duplicate makes a new team',
   );
 
   // The next developer wake uses the new persona.

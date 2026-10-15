@@ -101,6 +101,7 @@ export type Role = {
   skills: string;
   face?: string;
   tools: string[];
+  mcp: { name: string; label: string }[];
 };
 
 export type Gate = { from: string; to: string; on: boolean };
