@@ -1500,7 +1500,7 @@ async function workshop() {
     throw new Error('apply the team full first (teams/full.json, see features/teams.md)');
   }
   const mcpBefore = '[{"command":"true","env":{"API_KEY":"sk-verify-9911"}}]';
-  sql(`update role set mcp_servers = '${mcpBefore}', skills = '', tools = '["Read","Grep","Glob","Edit","Write","Bash"]' where team_id = (select id from team where name = 'full') and name = 'developer'`, true);
+  sql(`update role set mcp_servers = '${mcpBefore}', skills = '[]', tools = '["Read","Grep","Glob","Edit","Write","Bash"]' where team_id = (select id from team where name = 'full') and name = 'developer'`, true);
 
   const section = await addProject();
   await page.goto(`${base}/teams`);
@@ -1553,7 +1553,8 @@ async function workshop() {
   // Skills and allowed tools edit in the window and save; removing an MCP server removes it.
   const row = (col) => sql(`select ${col} from role where team_id = (select id from team where name = 'full') and name = 'developer'`);
   await main.getByRole('button', { name: /^developer/ }).click();
-  await main.getByLabel('developer skills').fill('Careful refactors.');
+  await main.getByLabel('developer add skill').fill('careful-refactors');
+  await main.getByLabel('developer add skill').press('Enter');
   await main.getByLabel('developer add tool').fill('Bash(git log:*)');
   await main.getByLabel('developer add tool').press('Enter');
   await main.getByRole('button', { name: 'Remove Write', exact: true }).click();
@@ -1561,7 +1562,7 @@ async function workshop() {
   await main.getByRole('button', { name: 'Remove mcp1 · true' }).click();
   await main.getByRole('button', { name: 'Save' }).click();
   await page.getByText('Saved').waitFor();
-  check(row('skills') === 'Careful refactors.', "saving the developer's skills updates its role row", row('skills'));
+  check(row('skills') === '["careful-refactors"]', "saving the developer's skills updates its role row", row('skills'));
   check(row('tools').includes('Bash(git log:*)') && !row('tools').includes('"Write"'), "adding and removing allowed tools saves them to the role row", row('tools'));
   check(row('mcp_servers') === '[]', "removing the developer's MCP server in the window removes it from its role row", row('mcp_servers'));
 

@@ -17,7 +17,7 @@ const blankRole: Role = {
   backend: 'claude',
   permissionMode: '',
   persona: '',
-  skills: '',
+  skills: [],
   tools: [],
   mcp: [],
 };

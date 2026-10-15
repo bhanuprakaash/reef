@@ -146,9 +146,9 @@ func TestChannelTeam(t *testing.T) {
 
 	status, body := do(t, http.MethodGet, ts.URL+"/teams/core", "")
 	want := `{"name":"core","roles":[{"name":"lead","lead":true,"write":false,"backend":"codex",` +
-		`"permissionMode":"read-only","persona":"","skills":"","tools":[],"mcp":[]},` +
+		`"permissionMode":"read-only","persona":"","skills":[],"tools":[],"mcp":[]},` +
 		`{"name":"architect","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"",` +
-		`"skills":"","tools":[],"mcp":[]}]}`
+		`"skills":[],"tools":[],"mcp":[]}]}`
 	if status != 200 || body != want {
 		t.Errorf("GET /teams/core = %d %s, want %s", status, body, want)
 	}
@@ -179,8 +179,8 @@ func TestPutTeam(t *testing.T) {
 
 	// A body that omits mcpServers keeps the lead's stored one and updates the persona.
 	body := `{"name":"crew","roles":[` +
-		`{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"","persona":"new persona","skills":"","tools":[]},` +
-		`{"name":"developer","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"","skills":"","tools":[]}]}`
+		`{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"","persona":"new persona","skills":[],"tools":[]},` +
+		`{"name":"developer","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"","skills":[],"tools":[]}]}`
 	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew", body)
 	if status != 200 || strings.Contains(resBody, "mcpServers") {
 		t.Fatalf("PUT /teams/crew = %d %s, want 200 without mcpServers", status, resBody)
@@ -344,7 +344,7 @@ func TestPutTeamCopyFrom(t *testing.T) {
 	t.Cleanup(h.Close)
 
 	body := `{"roles":[{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"",` +
-		`"persona":"","skills":"","tools":[]}]}`
+		`"persona":"","skills":[],"tools":[]}]}`
 	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew2?from=crew", body)
 	if status != 200 || strings.Contains(resBody, "mcpServers") {
 		t.Fatalf("PUT /teams/crew2?from=crew = %d %s, want 200 without mcpServers", status, resBody)
@@ -394,7 +394,7 @@ func TestPutTeamCopyFrom_Concurrent(t *testing.T) {
 	t.Cleanup(h.Close)
 
 	body := `{"roles":[{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"",` +
-		`"persona":"","skills":"","tools":[]}]}`
+		`"persona":"","skills":[],"tools":[]}]}`
 	put := func() (int, error) {
 		req, err := http.NewRequest(http.MethodPut, ts.URL+"/teams/race?from=crew", strings.NewReader(body))
 		if err != nil {

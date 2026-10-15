@@ -132,17 +132,15 @@ export function RoleEditor({ role, open, onToggle, onChange, onRemove }: Props) 
               onChange={(e) => onChange({ ...role, persona: e.target.value })}
             />
           </label>
-          <label className="block space-y-1.5">
-            <span className="text-xs text-muted">Skills</span>
-            <TextArea
-              className="w-full leading-normal"
-              rows={2}
-              aria-label={`${label} skills`}
-              value={role.skills}
-              onChange={(e) => onChange({ ...role, skills: e.target.value })}
-            />
-          </label>
           <div className="flex flex-wrap gap-x-6 gap-y-3.5">
+            <ChipList
+              label="Skills"
+              mono
+              values={role.skills}
+              addLabel={`${label} add skill`}
+              onAdd={(skill) => onChange({ ...role, skills: [...role.skills, skill] })}
+              onRemove={(i) => onChange({ ...role, skills: role.skills.filter((_, j) => j !== i) })}
+            />
             <ChipList
               label="Allowed tools"
               hint="Claude only"

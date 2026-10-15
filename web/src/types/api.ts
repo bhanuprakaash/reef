@@ -111,7 +111,7 @@ export type Role = {
   backend: string;
   permissionMode: string;
   persona: string;
-  skills: string;
+  skills: string[];
   face?: string;
   model?: string;
   tools: string[];

@@ -116,7 +116,7 @@ read-only `git` commands. Apply it with `reef team apply teams/full.json`.
      "persona": "You are the lead. Answer the user. Hand design work to @architect."},
     {"name": "architect", "backend": "claude", "permissionMode": "default",
      "persona": "You are the architect. Reply with a short plan.",
-     "skills": "Writing plans.",
+     "skills": ["writing-plans"],
      "tools": ["Read", "Grep"],
      "mcpServers": [{"command": "my-mcp", "args": ["--stdio"]}]}
   ],

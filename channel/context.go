@@ -119,8 +119,8 @@ func roleIntro(r store.Role) string {
 	if r.Persona != "" {
 		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(r.Persona))
 	}
-	if r.Skills != "" {
-		fmt.Fprintf(&b, "Your skills:\n%s\n\n", strings.TrimSpace(r.Skills))
+	if len(r.Skills) > 0 {
+		fmt.Fprintf(&b, "Your skills:\n%s\n\n", strings.Join(r.Skills, ", "))
 	}
 	return b.String()
 }

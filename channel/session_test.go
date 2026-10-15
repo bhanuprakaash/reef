@@ -250,7 +250,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{
-			Name: "architect", Backend: "claude", Persona: "You design.", Skills: "Sketch first.",
+			Name: "architect", Backend: "claude", Persona: "You design.", Skills: []string{"sketch"},
 			Tools: []string{"Read", "Grep"}, MCPServers: []agent.MCPServer{{URL: "http://x"}},
 		},
 	}}); err != nil {
@@ -294,7 +294,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if err := s.RunAs(ctx, "architect", "plan it", &root.ID, whoAmI); err != nil {
 		t.Fatal(err)
 	}
-	want := "You design.\n\nYour skills:\nSketch first.\n\nYou are the architect on feature"
+	want := "You design.\n\nYour skills:\nsketch\n\nYou are the architect on feature"
 	if len(ags) != 1 || !strings.HasPrefix(ags[0].prompts[0], want) {
 		t.Errorf("prompts = %q, want one starting with %q", ags[0].prompts, want)
 	}

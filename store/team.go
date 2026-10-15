@@ -46,7 +46,7 @@ type Role struct {
 	Backend        string            `json:"backend"`
 	PermissionMode string            `json:"permissionMode"`
 	Persona        string            `json:"persona"`
-	Skills         string            `json:"skills"`
+	Skills         []string          `json:"skills"`
 	Face           string            `json:"face,omitempty"`
 	Model          string            `json:"model,omitempty"`
 	Tools          []string          `json:"tools"`
@@ -123,6 +123,10 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 		if err != nil {
 			return Team{}, fmt.Errorf("encode tools: %w", err)
 		}
+		skills, err := json.Marshal(nonNil(r.Skills))
+		if err != nil {
+			return Team{}, fmt.Errorf("encode skills: %w", err)
+		}
 		servers, err := json.Marshal(nonNil(r.MCPServers))
 		if err != nil {
 			return Team{}, fmt.Errorf("encode mcp servers: %w", err)
@@ -130,7 +134,7 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO role (team_id, name, persona, skills, face, tools, mcp_servers, backend, "+
 				"permission_mode, lead, write, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			id, r.Name, r.Persona, r.Skills, r.Face, string(tools), string(servers), r.Backend,
+			id, r.Name, r.Persona, string(skills), r.Face, string(tools), string(servers), r.Backend,
 			r.PermissionMode, r.Lead, r.Write, r.Model); err != nil {
 			return Team{}, fmt.Errorf("insert role %s: %w", r.Name, err)
 		}
@@ -280,10 +284,13 @@ func ValidateAgent(backend, permissionMode string) error {
 
 func scanRole(r interface{ Scan(...any) error }) (Role, error) {
 	var ro Role
-	var tools, servers string
+	var skills, tools, servers string
 	if err := r.Scan(&ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Persona,
-		&ro.Skills, &ro.Face, &ro.Model, &tools, &servers); err != nil {
+		&skills, &ro.Face, &ro.Model, &tools, &servers); err != nil {
 		return Role{}, err
+	}
+	if err := json.Unmarshal([]byte(skills), &ro.Skills); err != nil {
+		return Role{}, fmt.Errorf("role %s: bad skills: %w", ro.Name, err)
 	}
 	if err := json.Unmarshal([]byte(tools), &ro.Tools); err != nil {
 		return Role{}, fmt.Errorf("role %s: bad tools: %w", ro.Name, err)
