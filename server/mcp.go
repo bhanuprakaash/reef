@@ -39,6 +39,15 @@ type (
 	listTasksOut struct {
 		Tasks []store.Task `json:"tasks"`
 	}
+	readTaskIn struct {
+		ID int64 `json:"id" jsonschema:"task id"`
+	}
+	updateTaskIn struct {
+		ID     int64   `json:"id" jsonschema:"task id"`
+		Title  *string `json:"title,omitempty" jsonschema:"new title; omit to keep it"`
+		Body   *string `json:"body,omitempty" jsonschema:"new body; omit to keep it"`
+		Status *string `json:"status,omitempty" jsonschema:"new status: todo, doing or done; omit to keep it"`
+	}
 	searchIn struct {
 		Query string `json:"query" jsonschema:"text to find"`
 		Limit int    `json:"limit,omitempty" jsonschema:"most hits to return, default 20"`
@@ -109,6 +118,15 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 		Name:        "list_tasks",
 		Description: "List this feature's tasks by id, optionally only those with one status.",
 	}, m.listTasks)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "read_task",
+		Description: "Read one task of this feature in full.",
+	}, m.readTask)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "update_task",
+		Description: "Change the title, body or status of one of this feature's tasks; " +
+			"fields you omit stay as they are. Mark a task done with status done.",
+	}, m.updateTask)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "search_sessions",
 		Description: "Search messages in all of this feature's channels, newest first. " +
@@ -242,6 +260,48 @@ func (m *mcpServer) listTasks(
 		ts = []store.Task{}
 	}
 	return nil, listTasksOut{Tasks: ts}, nil
+}
+
+func (m *mcpServer) readTask(
+	ctx context.Context, _ *mcp.CallToolRequest, in readTaskIn,
+) (*mcp.CallToolResult, store.Task, error) {
+	t, err := m.featureTask(ctx, in.ID)
+	return nil, t, err
+}
+
+func (m *mcpServer) updateTask(
+	ctx context.Context, _ *mcp.CallToolRequest, in updateTaskIn,
+) (*mcp.CallToolResult, store.Task, error) {
+	t, err := m.featureTask(ctx, in.ID)
+	if err != nil {
+		return nil, store.Task{}, err
+	}
+	if in.Title != nil {
+		t.Title = *in.Title
+	}
+	if in.Body != nil {
+		t.Body = *in.Body
+	}
+	if in.Status != nil {
+		t.Status = *in.Status
+	}
+	t, err = m.st.UpdateTask(ctx, t)
+	return nil, t, err
+}
+
+func (m *mcpServer) featureTask(ctx context.Context, id int64) (store.Task, error) {
+	f, err := m.feature(ctx)
+	if err != nil {
+		return store.Task{}, err
+	}
+	t, err := m.st.Task(ctx, id)
+	if err != nil {
+		return store.Task{}, err
+	}
+	if t.FeatureID == nil || *t.FeatureID != f.ID {
+		return store.Task{}, fmt.Errorf("task %d: %w", id, store.ErrNotFound)
+	}
+	return t, nil
 }
 
 func (m *mcpServer) searchSessions(
