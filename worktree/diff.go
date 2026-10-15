@@ -102,6 +102,14 @@ func nameStatus(ctx context.Context, dir, base, tree string) ([]fileMeta, error)
 		if fields[i] == "" {
 			continue
 		}
+		// A type change (file <-> symlink) is one name-status record but two `diff --git`
+		// blocks in the patch: one deleting the old type, one adding the new.
+		if fields[i][:1] == "T" {
+			metas = append(metas,
+				fileMeta{path: fields[i+1], status: "deleted"},
+				fileMeta{path: fields[i+1], status: "added"})
+			continue
+		}
 		metas = append(metas, fileMeta{path: fields[i+1], status: statusWord(fields[i])})
 	}
 	return metas, nil
