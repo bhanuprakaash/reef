@@ -120,6 +120,44 @@ func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 	}
 }
 
+// TestPollGitHub_NotePublishesToOpenChannel covers a window already subscribed to the
+// channel: the poll's note must tell its stream a message arrived, so it refreshes without a
+// reload.
+func TestPollGitHub_NotePublishesToOpenChannel(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataDir := t.TempDir()
+	h := New(st, dataDir, "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+
+	repo := t.TempDir()
+	gitIn(t, repo, "init", "-b", "main")
+	writeIn(t, repo, "a.txt", "a")
+	gitIn(t, repo, "add", ".")
+	gitIn(t, repo, "commit", "-m", "first")
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
+	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+
+	binDir := t.TempDir()
+	writeFakeGh(t, binDir, repo)
+	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	respFile := filepath.Join(t.TempDir(), "resp.json")
+	t.Setenv("GH_FAKE_RESPONSE", respFile)
+
+	sub := subscribeTo(t, ts.URL, 1)
+	sub.want(t, _idleFrame)
+
+	setGhResponse(t, respFile, `{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN",`+
+		`"statusCheckRollup":[]}`)
+	h.s.pollGitHub(context.Background())
+	sub.want(t, "note {}")
+}
+
 func TestPollGitHub_NoGhOnPathLogsOnce(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -346,7 +384,7 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 	setGhResponse(t, respFile, _ghFailedCheck)
 	sub := subscribeTo(t, ts.URL, 1)
 	h.s.pollGitHub(ctx)
-	sub.want(t, _idleFrame, `turn {"role":"developer","status":"running"}`,
+	sub.want(t, _idleFrame, "note {}", "note {}", `turn {"role":"developer","status":"running"}`,
 		`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
 
 	fake.mu.Lock()
@@ -448,6 +486,7 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenChannelBusy(t *testing.T) {
 	// The channel is busy: the check is still noted, but the wake cannot run.
 	h.s.pollGitHub(ctx)
 	h.s.pollGitHub(ctx)
+	sub.want(t, "note {}", "note {}")
 	msgs, err := st.Messages(ctx, 1, 0)
 	if err != nil {
 		t.Fatal(err)

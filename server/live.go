@@ -171,6 +171,19 @@ func (s *server) lookup(id int64) *live {
 	return s.lives[id]
 }
 
+// notifyMessage tells an open stream on the channel that a message was posted outside a turn,
+// such as a github poll note, so the window refreshes without a reload. A channel nobody has
+// opened yet has no entry and is a no-op.
+func (s *server) notifyMessage(id int64) {
+	l := s.lookup(id)
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	l.publishLocked("note", struct{}{})
+	l.mu.Unlock()
+}
+
 func (s *server) begin() bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()

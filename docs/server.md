@@ -629,7 +629,7 @@ restart.
 ### Events
 
 `GET /channels/{id}/events` is a Server-Sent Events stream. It works for a channel that
-is not live: it waits. A `: keepalive` comment comes every 15 seconds. Four kinds of event:
+is not live: it waits. A `: keepalive` comment comes every 15 seconds. Five kinds of event:
 
 - `turn`: `{"role":"architect","status":"running"}` when a turn of that role starts, then
   `{"role":"architect","status":"done"}` or `{"role":"architect","status":"failed","error":"interrupted"}`
@@ -643,6 +643,8 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Four kind
   a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
 - `approval`: an [approval](#approval) as JSON, `pending` when a gate holds a wake, and again
   with `approved` or `rejected` when it is decided.
+- `note`: `{}`, sent when a message is posted outside a turn, such as a [GitHub
+  poll](#github-poll) note, so a subscriber knows to re-read `GET /messages`.
 
 A subscriber is brought up to date when it connects, so a reconnect needs no other
 request to know the state. The server keeps the events of the running chain in memory. A
