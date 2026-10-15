@@ -23,6 +23,10 @@ stops everything it started. Contract: `docs/desktop.md`.
 - `terminal-feature` opening `/features/<id>` and pressing Open terminal (viewing the page alone makes no worktree) starts a login shell, a child of the app, whose cwd is the feature's worktree `<data>/worktrees/<project id>/term`; after `pwd; git branch --show-current` the pane shows that path then `feature/term`.
 - `desktop-quit` after SIGTERM to the app, xvfb-run, the app and every process it had (Electron helpers, `reef serve`, the shell) are gone, and so is `browser.sock`.
 - `browser-unavailable` with the app closed, `browser_snapshot` fails with `browser unavailable: the Reef app is not open`.
+- `capture-shortcut` `CommandOrControl+Shift+Space`, sent for real with `xdotool key`, opens the capture window (a screenshot of it is not blank). Skipped on a Mac (user check) or noted when `xdotool` is not installed.
+- `capture-button` the sidebar's Capture link opens the same capture window (for environments and tests without the global shortcut).
+- `capture-enter` with a project and kind set and `login fails` typed and Return pressed (also real `xdotool` keys), the window closes and `task` gets a row `bug: login fails` with no feature.
+- `capture-escape` reopening the window and pressing Escape closes it with no new task row.
 
 Acceptance lines of the slice's verify-reef ticket: "starts the app, screenshots the window, and stops it with no process
 left" is `desktop-start`, `desktop-window`, `desktop-quit`; "drives each browser tool and the
@@ -31,18 +35,23 @@ any channel turn" is `desktop-fake-claude` (the run makes no channel turn). Not 
 Take over button's own click and label, the address bar, a quick session's terminal, the
 packaged `.deb` and the Mac app (open those by hand).
 
+Acceptance lines of the quick capture ticket: "the shortcut opens the capture window" is
+`capture-shortcut`; "typing ... and Enter makes a task row ... with no feature" is `capture-enter`;
+"Escape closes the window without a task" is `capture-escape`; the sidebar button is `capture-button`.
+
 ## How to get to it (user POV)
 
 - Open the app (`cd desktop && npm start`, the `.deb`'s `reef-desktop`, or Reef.app).
 - An agent in a channel calls the `mcp__reef__browser_*` tools; the pane on the right follows.
 - Take over / Hand back is the button next to the pane's address bar.
 - A feature's page shows the Terminal section at the bottom, with an Open terminal button.
+- `CommandOrControl+Shift+Space`, or the sidebar's Capture link, opens the quick capture window.
 - Quit from the menu, Cmd+Q, closing the window, or a signal.
 
 ## Driving it with verify-reef
 
 - `id=$($H build)`, `REEF_VERIFY_RUN=$id $H doctor`, then `REEF_VERIFY_RUN=$id $H desktop`. It prints one line per id above and exits 1 on any `FAIL`. Then `REEF_VERIFY_RUN=$id $H cleanup`.
-- Quote each `PASS`/`FAIL` line with its file: `desktop/start.txt`, the `reef-mcp.log` lines, `desktop/snapshot-*.txt`, `console.txt`, `network.txt`, `terminal.txt`, `quit.txt`; open `window.png`, `window-page.png` (the pane shows `hello reef-typed`), `terminal.png` and the `mcp-browser_screenshot-*.png`.
+- Quote each `PASS`/`FAIL` line with its file: `desktop/start.txt`, the `reef-mcp.log` lines, `desktop/snapshot-*.txt`, `console.txt`, `network.txt`, `terminal.txt`, `quit.txt`; open `window.png`, `window-page.png` (the pane shows `hello reef-typed`), `terminal.png`, `capture-shortcut.png`/`capture-button.png` and the `mcp-browser_screenshot-*.png`.
 - To see a `FAIL` is real, `kill -KILL` the app's pid (`app=` in `desktop/start.txt`) once `desktop-start` has passed: the browser lines fail with `browser unavailable`, `desktop-quit` lists the `reef serve` left alive and `browser.sock` still there. `cleanup` then kills that `reef serve`.
 
 ## Gotchas

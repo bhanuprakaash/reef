@@ -1,5 +1,6 @@
 import { createBrowserRouter } from 'react-router';
 import { Layout } from '@/app/layout';
+import { CapturePage } from '@/app/routes/capture';
 import { ChannelPage } from '@/app/routes/channel';
 import { FeaturePage } from '@/app/routes/feature';
 import { HomePage } from '@/app/routes/home';
@@ -8,6 +9,7 @@ import { TasksPage } from '@/app/routes/tasks';
 import { TeamsPage } from '@/app/routes/teams';
 
 export const router = createBrowserRouter([
+  { path: '/capture', element: <CapturePage /> },
   {
     element: <Layout />,
     children: [

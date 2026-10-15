@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain } from 'electron';
+import { app, BrowserWindow, dialog, globalShortcut, ipcMain } from 'electron';
 import { spawn } from 'node:child_process';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -100,6 +100,20 @@ function stopServer() {
 
 let browser = null;
 let terminals = null;
+let captureWindow = null;
+
+function openCaptureWindow() {
+  if (captureWindow) {
+    captureWindow.show();
+    captureWindow.focus();
+    return;
+  }
+  captureWindow = new BrowserWindow({ width: 480, height: 200, alwaysOnTop: true });
+  captureWindow.on('closed', () => {
+    captureWindow = null;
+  });
+  captureWindow.loadURL(`http://${ADDR}/capture`);
+}
 
 app.whenReady().then(async () => {
   const PATH = await loginShellPath();
@@ -123,10 +137,14 @@ app.whenReady().then(async () => {
   ipcMain.handle('terminal:open', (_event, cwd, cols, rows) => terminals.open(cwd, cols, rows));
   ipcMain.on('terminal:write', (_event, cwd, data) => terminals.write(cwd, data));
   ipcMain.on('terminal:resize', (_event, cwd, cols, rows) => terminals.resize(cwd, cols, rows));
+  ipcMain.handle('capture:open', () => openCaptureWindow());
+  globalShortcut.register('CommandOrControl+Shift+Space', openCaptureWindow);
   win.loadURL(`http://${ADDR}`);
 });
 
 app.on('window-all-closed', () => app.quit());
+
+app.on('will-quit', () => globalShortcut.unregisterAll());
 
 // Electron turns a quit request (menu, Cmd+Q, window close, SIGTERM) into
 // 'before-quit' without running Node's own signal handlers, so this is the

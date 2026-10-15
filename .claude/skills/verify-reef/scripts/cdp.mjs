@@ -1,17 +1,23 @@
-// node cdp.mjs PORT APP_PORT EXPRESSION: evaluate EXPRESSION (awaited) in the Reef app's main
-// window over Electron's --remote-debugging-port and print its value as JSON. The browser pane is
-// another page target, so the main window is picked by its http://127.0.0.1:APP_PORT URL. A hung
-// or dead window fails after 10 s instead of blocking the run.
-const [port, appPort, expression] = process.argv.slice(2);
+// node cdp.mjs PORT APP_PORT EXPRESSION [WINDOW]: evaluate EXPRESSION (awaited) in one of the Reef
+// app's windows over Electron's --remote-debugging-port and print its value as JSON. The browser
+// pane is another page target, so a window is picked by its http://127.0.0.1:APP_PORT URL; WINDOW
+// (e.g. "capture") picks the one at that path instead of the main window. A hung or dead window
+// fails after 10 s instead of blocking the run.
+const [port, appPort, expression, windowPath] = process.argv.slice(2);
 setTimeout(() => {
-  console.error(`no answer from the main window in 10 s: ${expression}`);
+  console.error(`no answer from the ${windowPath || 'main'} window in 10 s: ${expression}`);
   process.exit(1);
 }, 10_000).unref();
 
 const targets = await (await fetch(`http://127.0.0.1:${port}/json/list`, { signal: AbortSignal.timeout(10_000) })).json();
-const main = targets.find((t) => t.type === 'page' && t.url.startsWith(`http://127.0.0.1:${appPort}/`));
+const base = `http://127.0.0.1:${appPort}/`;
+const want = windowPath ? `${base}${windowPath}` : null;
+const main = targets.find((t) => {
+  if (t.type !== 'page' || !t.url.startsWith(base)) return false;
+  return want ? t.url === want : !t.url.startsWith(`${base}capture`);
+});
 if (!main) {
-  console.error(`no main window among: ${targets.map((t) => t.url).join(' ')}`);
+  console.error(`no ${windowPath || 'main'} window among: ${targets.map((t) => t.url).join(' ')}`);
   process.exit(1);
 }
 
