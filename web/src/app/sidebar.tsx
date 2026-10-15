@@ -91,7 +91,7 @@ export function Sidebar() {
   return (
     <nav aria-label="Channels" className="flex h-full flex-col px-3 pt-4 pb-3 text-sm">
       <div
-        className={`app-drag flex items-center gap-2 pb-3.5 ${window.reef ? 'pl-[70px]' : 'pl-1.5'}`}
+        className={`app-drag flex items-center gap-2 pb-3.5 ${window.reef ? 'pl-[78px]' : 'pl-1.5'}`}
       >
         <Logo size={20} />
         <span className="text-[16px] tracking-[-0.03em]">reef</span>
