@@ -180,6 +180,8 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
                 </button>
                 <Link
                   to={`/features/${f.id}`}
+                  title={`${f.name} · ${f.stage}`}
+                  aria-label={f.name}
                   className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-[13px] text-soft hover:text-fg"
                 >
                   <span className="truncate">{f.name}</span>
