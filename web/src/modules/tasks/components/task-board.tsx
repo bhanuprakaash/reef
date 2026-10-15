@@ -58,7 +58,10 @@ export function TaskBoard({ tasks, features }: Props) {
                     onDragStart={(e) => e.dataTransfer.setData('text/plain', String(task.id))}
                     className={`flex flex-col gap-2 rounded-menu px-3.5 py-3 ${done ? 'bg-main text-muted' : 'bg-card'}`}
                   >
-                    <p className={done ? 'line-through' : ''}>{task.title}</p>
+                    <p className="flex gap-1.5">
+                      <span className="text-muted">#{task.id}</span>
+                      <span className={done ? 'line-through' : ''}>{task.title}</span>
+                    </p>
                     <div className="flex items-center gap-2 text-xs text-muted">
                       {feature && (
                         <span className="flex h-5 items-center rounded-pill bg-track px-2">

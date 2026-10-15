@@ -33,6 +33,12 @@ type (
 		Title string `json:"title" jsonschema:"short task title"`
 		Body  string `json:"body,omitempty" jsonschema:"details"`
 	}
+	listTasksIn struct {
+		Status string `json:"status,omitempty" jsonschema:"only tasks with this status: todo, doing or done; omit for all"`
+	}
+	listTasksOut struct {
+		Tasks []store.Task `json:"tasks"`
+	}
 	searchIn struct {
 		Query string `json:"query" jsonschema:"text to find"`
 		Limit int    `json:"limit,omitempty" jsonschema:"most hits to return, default 20"`
@@ -99,6 +105,10 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 		Name:        "add_task",
 		Description: "Add a task to this feature's project.",
 	}, m.addTask)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_tasks",
+		Description: "List this feature's tasks by id, optionally only those with one status.",
+	}, m.listTasks)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "search_sessions",
 		Description: "Search messages in all of this feature's channels, newest first. " +
@@ -215,6 +225,23 @@ func (m *mcpServer) addTask(
 		ProjectID: f.ProjectID, FeatureID: &f.ID, Title: in.Title, Body: in.Body,
 	})
 	return nil, t, err
+}
+
+func (m *mcpServer) listTasks(
+	ctx context.Context, _ *mcp.CallToolRequest, in listTasksIn,
+) (*mcp.CallToolResult, listTasksOut, error) {
+	f, err := m.feature(ctx)
+	if err != nil {
+		return nil, listTasksOut{}, err
+	}
+	ts, err := m.st.Tasks(ctx, store.TaskFilter{FeatureID: &f.ID, Status: in.Status})
+	if err != nil {
+		return nil, listTasksOut{}, err
+	}
+	if ts == nil {
+		ts = []store.Task{}
+	}
+	return nil, listTasksOut{Tasks: ts}, nil
 }
 
 func (m *mcpServer) searchSessions(

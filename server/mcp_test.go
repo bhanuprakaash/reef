@@ -336,6 +336,61 @@ func TestMCPProposeWrap(t *testing.T) {
 	}
 }
 
+func TestMCPListTasks(t *testing.T) {
+	st, tok := mcpFixture(t)
+	ctx := context.Background()
+	one, two := int64(1), int64(2)
+	for _, task := range []store.Task{
+		{ProjectID: 1, FeatureID: &one, Title: "login form"},
+		{ProjectID: 1, FeatureID: &two, Title: "invoice"},
+		{ProjectID: 1, FeatureID: &one, Title: "logout", Status: "done"},
+		{ProjectID: 1, Title: "no feature"},
+	} {
+		if _, err := st.CreateTask(ctx, task); err != nil {
+			t.Fatal(err)
+		}
+	}
+	call := callTool(t, st, tok)
+	tests := []struct {
+		name    string
+		give    map[string]any
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "only this feature's tasks",
+			want: `{"tasks":[{"body":"","createdAt":"T","featureId":1,"id":1,"projectId":1,` +
+				`"status":"todo","title":"login form","updatedAt":"T"},{"body":"","createdAt":"T",` +
+				`"featureId":1,"id":3,"projectId":1,"status":"done","title":"logout","updatedAt":"T"}]}`,
+		},
+		{
+			name: "status filter",
+			give: map[string]any{"status": "done"},
+			want: `{"tasks":[{"body":"","createdAt":"T","featureId":1,"id":3,"projectId":1,` +
+				`"status":"done","title":"logout","updatedAt":"T"}]}`,
+		},
+		{
+			name: "no match",
+			give: map[string]any{"status": "doing"},
+			want: `{"tasks":[]}`,
+		},
+		{
+			name:    "unknown status",
+			give:    map[string]any{"status": "later"},
+			want:    `invalid: unknown status "later"`,
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, isErr := call("list_tasks", tt.give)
+			if got != tt.want || isErr != tt.wantErr {
+				t.Errorf("list_tasks = %q (error %v), want %q (error %v)", got, isErr, tt.want, tt.wantErr)
+			}
+		})
+	}
+}
+
 func TestMCPQuickSession(t *testing.T) {
 	st, _ := mcpFixture(t)
 	tok, err := st.CreateToken(context.Background(), 4, "architect")
@@ -350,6 +405,7 @@ func TestMCPQuickSession(t *testing.T) {
 		{"get_brief", nil},
 		{"record_decision", map[string]any{"body": "d"}},
 		{"add_task", map[string]any{"title": "t"}},
+		{"list_tasks", nil},
 		{"search_sessions", map[string]any{"query": "q"}},
 		{"read_decision", map[string]any{"id": 1}},
 		{"read_thread", map[string]any{"channelId": 1}},

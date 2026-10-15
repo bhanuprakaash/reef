@@ -67,7 +67,10 @@ export function TaskList({ tasks, projects = [], features, compact }: Props) {
                         disabled={done || update.isPending}
                         onChange={() => update.mutate({ task, status: 'done' })}
                       />
-                      <span className={`flex-1 ${done ? 'line-through' : ''}`}>{task.title}</span>
+                      <span className="flex flex-1 gap-1.5">
+                        <span className="text-muted">#{task.id}</span>
+                        <span className={done ? 'line-through' : ''}>{task.title}</span>
+                      </span>
                       {!done && (
                         <span
                           className={`flex h-[22px] items-center rounded-pill px-[9px] text-xs ${task.status === 'doing' ? 'bg-working/15 text-working' : 'bg-bubble text-soft'}`}
