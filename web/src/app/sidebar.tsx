@@ -90,17 +90,17 @@ export function Sidebar() {
 
   return (
     <nav aria-label="Channels" className="flex h-full flex-col px-3 pt-4 pb-3 text-sm">
-      <div
-        className={`app-drag flex items-center gap-2 pb-3.5 ${window.reef ? 'pl-[78px]' : 'pl-1.5'}`}
-      >
-        <Logo size={20} />
-        <span className="text-[16px] tracking-[-0.03em]">reef</span>
+      <div className="app-drag relative flex h-8 items-center justify-end pb-3.5 box-content">
+        <span className="pointer-events-none absolute inset-x-0 top-0 flex h-8 items-center justify-center gap-1.5">
+          <Logo size={18} />
+          <span className="text-[15px] tracking-[-0.03em]">reef</span>
+        </span>
         <button
           type="button"
           aria-label="New channel"
           disabled={!current}
           onClick={() => setCreating(true)}
-          className="ml-auto flex size-8 items-center justify-center rounded-lg text-soft hover:bg-hover/50"
+          className="relative flex size-8 items-center justify-center rounded-lg text-soft hover:bg-hover/50"
         >
           <svg
             width="18"
