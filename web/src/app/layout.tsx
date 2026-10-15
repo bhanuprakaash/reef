@@ -21,7 +21,8 @@ export function Layout() {
   if (projects.data?.length === 0) return <FirstRun />;
 
   return (
-    <div className="flex h-screen flex-col bg-main font-sans text-fg md:flex-row">
+    <div className="relative flex h-screen flex-col bg-main font-sans text-fg md:flex-row">
+      <div className="app-drag absolute inset-x-0 top-0 h-3" />
       <aside className="hidden w-[300px] shrink-0 border-r border-hairline bg-sidebar [--creature-ring:var(--color-sidebar)] md:block">
         <Sidebar />
       </aside>

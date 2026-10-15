@@ -13,6 +13,7 @@ export function FirstRun() {
 
   return (
     <div className="flex h-screen items-center justify-center overflow-y-auto bg-main px-4 py-10 font-sans text-fg">
+      <div className="app-drag fixed inset-x-0 top-0 h-8" />
       <div className="flex w-full max-w-[520px] flex-col items-center gap-[22px] text-center">
         <div className="flex items-end gap-2.5">
           <Creature role="architect" size={44} />

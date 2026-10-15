@@ -117,7 +117,7 @@ export function BrowserPane({ open, driver }: { open: boolean; driver: BrowserDr
     >
       <form
         onSubmit={navigate}
-        className="flex min-h-14 items-center gap-1.5 border-b border-hairline px-2.5 py-2"
+        className="app-drag flex min-h-14 items-center gap-1.5 border-b border-hairline px-2.5 py-2"
       >
         <NavButton label="Back" disabled={!canGo.back} onClick={() => window.reef?.browserBack()}>
           <path d="M15 5l-7 7 7 7" />

@@ -93,7 +93,7 @@ export function Sidebar() {
       aria-label="Channels"
       className="flex h-full flex-col overflow-y-auto px-3 pt-4 pb-3 text-sm"
     >
-      <div className="flex justify-end pb-3.5">
+      <div className={`app-drag flex justify-end pb-3.5 ${window.reef ? 'pl-[70px]' : ''}`}>
         <button
           type="button"
           aria-label="New channel"

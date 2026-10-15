@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
+import { Dialog } from '@/components/dialog';
 import { Logo } from '@/components/logo';
 import { Menu, MenuItem, MenuSeparator } from '@/components/menu';
 import { useCurrentProject } from '@/lib/current-project';
@@ -9,6 +10,7 @@ import type { Project } from '@/types/api';
 export function ProjectSwitcher({ projects }: { projects: Project[] }) {
   const [current, onPick] = useCurrentProject(projects);
   const [open, setOpen] = useState(false);
+  const [adding, setAdding] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
@@ -77,11 +79,19 @@ export function ProjectSwitcher({ projects }: { projects: Project[] }) {
           >
             Open project
           </MenuItem>
-          <div className="p-1.5">
-            <AddProjectForm onCreated={pick} />
-          </div>
+          <MenuItem
+            onClick={() => {
+              setAdding(true);
+              setOpen(false);
+            }}
+          >
+            New project…
+          </MenuItem>
         </Menu>
       )}
+      <Dialog open={adding} onClose={() => setAdding(false)} title="New project">
+        {adding && <AddProjectForm onClose={() => setAdding(false)} onCreated={pick} />}
+      </Dialog>
     </div>
   );
 }

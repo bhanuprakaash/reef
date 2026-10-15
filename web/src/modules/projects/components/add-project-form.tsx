@@ -4,68 +4,72 @@ import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
 import type { Project } from '@/types/api';
 
-export function AddProjectForm({ onCreated }: { onCreated?: (project: Project) => void }) {
-  const [open, setOpen] = useState(false);
+type Props = { onClose: () => void; onCreated?: (project: Project) => void };
+
+export function AddProjectForm({ onClose, onCreated }: Props) {
   const [name, setName] = useState('');
   const [path, setPath] = useState('');
   const create = useCreateProject();
 
-  if (!open) {
-    return (
-      <Button type="button" onClick={() => setOpen(true)}>
-        Add project
-      </Button>
-    );
-  }
-
   return (
     <form
-      className="space-y-2"
+      className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
         create.mutate(
           { name, path },
           {
             onSuccess: (project) => {
-              setName('');
-              setPath('');
-              setOpen(false);
+              onClose();
               onCreated?.(project);
             },
           },
         );
       }}
     >
-      <TextField
-        className="w-full"
-        placeholder="Name"
-        aria-label="Project name"
-        value={name}
-        onChange={(e) => setName(e.target.value)}
-        required
-      />
-      <TextField
-        className="w-full"
-        placeholder="/absolute/path/to/repo"
-        aria-label="Project path"
-        value={path}
-        onChange={(e) => setPath(e.target.value)}
-        required
-      />
+      <div className="space-y-1.5">
+        <label htmlFor="add-project-path" className="block text-[12.5px] text-muted">
+          Repo folder
+        </label>
+        <div className="flex gap-2">
+          <TextField
+            id="add-project-path"
+            className="min-w-0 flex-1 font-mono"
+            placeholder="/Users/you/code/project"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            required
+          />
+          {window.reef && (
+            <Button
+              type="button"
+              onClick={() => void window.reef?.chooseFolder().then((p) => p && setPath(p))}
+            >
+              Choose…
+            </Button>
+          )}
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <label htmlFor="add-project-name" className="block text-[12.5px] text-muted">
+          Name
+        </label>
+        <TextField
+          id="add-project-name"
+          className="w-full"
+          placeholder="project"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          required
+        />
+      </div>
       {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
-      <div className="flex gap-2">
-        <Button variant="primary" type="submit" loading={create.isPending}>
-          Add
-        </Button>
-        <Button
-          variant="ghost"
-          type="button"
-          onClick={() => {
-            create.reset();
-            setOpen(false);
-          }}
-        >
+      <div className="flex justify-end gap-2">
+        <Button type="button" onClick={onClose}>
           Cancel
+        </Button>
+        <Button variant="primary" type="submit" loading={create.isPending}>
+          Add project
         </Button>
       </div>
     </form>

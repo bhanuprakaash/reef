@@ -44,6 +44,13 @@ packaged app the `reef` binary ships inside the app's resources instead.
   and quits, instead of loading or continuing to show a foreign server. The child's stderr is
   also forwarded to the app's own stderr, so it is not lost.
 
+## Title bar
+
+The main window has no native title bar (`titleBarStyle: 'hidden'`): the traffic lights sit in the
+sidebar's top row. Dragging that row, a thin top strip or the browser pane's top row moves the
+window (`app-drag` in the web app; buttons and inputs inside stay clickable). The New project
+dialog's Choose button opens the native folder picker (`folder:choose`).
+
 ## Browser pane
 
 One `WebContentsView` ([`desktop/browser.js`](../desktop/browser.js)), for the whole window,

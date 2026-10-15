@@ -159,6 +159,8 @@ app.whenReady().then(async () => {
   const win = new BrowserWindow({
     width: 1200,
     height: 800,
+    titleBarStyle: 'hidden',
+    trafficLightPosition: { x: 18, y: 26 },
     backgroundColor: windowBackground(),
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
@@ -185,6 +187,12 @@ app.whenReady().then(async () => {
   ipcMain.on('terminal:write', (_event, cwd, data) => terminals.write(cwd, data));
   ipcMain.on('terminal:resize', (_event, cwd, cols, rows) => terminals.resize(cwd, cols, rows));
   ipcMain.handle('capture:open', () => openCaptureWindow());
+  ipcMain.handle('folder:choose', async () => {
+    const { canceled, filePaths } = await dialog.showOpenDialog(win, {
+      properties: ['openDirectory', 'createDirectory'],
+    });
+    return canceled ? null : filePaths[0];
+  });
   globalShortcut.register('CommandOrControl+Shift+Space', openCaptureWindow);
   await new Promise((resolve) => setTimeout(resolve, Math.max(0, splashAt + SPLASH_MIN - Date.now())));
   if (win.isDestroyed()) return;

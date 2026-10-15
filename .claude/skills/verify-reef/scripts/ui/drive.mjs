@@ -75,10 +75,10 @@ async function submitProject(name, folder) {
     return;
   }
   await switcher.click();
+  await page.getByRole('menuitem', { name: 'New project…' }).click();
+  await page.getByLabel('Repo folder').fill(folder);
+  await page.getByLabel('Name', { exact: true }).fill(name);
   await page.getByRole('button', { name: 'Add project' }).click();
-  await page.getByLabel('Project name').fill(name);
-  await page.getByLabel('Project path').fill(folder);
-  await page.getByRole('button', { name: 'Add', exact: true }).click();
 }
 
 // Adds a project through the form; returns its sidebar section.
@@ -106,7 +106,6 @@ async function addFeature(section, prefix, name) {
   await section.getByLabel('Feature slug').fill(slug);
   await section.getByLabel('Feature name').fill(name);
   await section.getByRole('button', { name: 'Add', exact: true }).click();
-  await section.getByRole('link', { name, exact: true }).click();
   await page.getByRole('heading', { name, level: 1 }).waitFor();
   return slug;
 }

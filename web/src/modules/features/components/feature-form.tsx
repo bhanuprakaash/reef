@@ -12,7 +12,7 @@ export function FeatureForm({ feature, onDone }: { feature: Feature; onDone: () 
 
   return (
     <form
-      className="max-w-xl space-y-3"
+      className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
         update.mutate({ name, goal, stage: feature.stage }, { onSuccess: onDone });
@@ -36,14 +36,14 @@ export function FeatureForm({ feature, onDone }: { feature: Feature; onDone: () 
           onChange={(e) => setGoal(e.target.value)}
         />
       </label>
-      <div className="flex items-center gap-3">
-        <Button variant="primary" type="submit" loading={update.isPending}>
-          Save
-        </Button>
+      {update.isError && <p className="text-sm text-danger">{update.error.message}</p>}
+      <div className="flex justify-end gap-2">
         <Button type="button" onClick={onDone}>
           Cancel
         </Button>
-        {update.isError && <span className="text-sm text-danger">{update.error.message}</span>}
+        <Button variant="primary" type="submit" loading={update.isPending}>
+          Save
+        </Button>
       </div>
     </form>
   );

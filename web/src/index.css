@@ -461,3 +461,10 @@
     animation: none;
   }
 }
+
+.app-drag {
+  -webkit-app-region: drag;
+}
+.app-drag :is(button, input, a) {
+  -webkit-app-region: no-drag;
+}

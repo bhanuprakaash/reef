@@ -7,6 +7,7 @@ export type BrowserState = { url: string; canGoBack: boolean; canGoForward: bool
 
 export type ReefBridge = {
   capture: () => Promise<void>;
+  chooseFolder: () => Promise<string | null>;
   setTheme: (theme: Theme) => void;
   setBrowserBounds: (rect: { x: number; y: number; width: number; height: number }) => void;
   navigateBrowser: (url: string) => Promise<void>;

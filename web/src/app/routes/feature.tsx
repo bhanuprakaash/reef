@@ -22,6 +22,7 @@ import { TaskList } from '@/modules/tasks/components/task-list';
 import { roleFaces } from '@/utils/role-faces';
 import { Button, buttonClass } from '@/components/button';
 import { Card } from '@/components/card';
+import { Dialog } from '@/components/dialog';
 
 export function FeaturePage() {
   const id = Number(useParams().id);
@@ -35,7 +36,7 @@ export function FeaturePage() {
   const teams = useTeams();
   const hasTerminal = typeof window !== 'undefined' && window.reef != null;
   const worktree = useEnsureWorktree(id);
-  const [editing, setEditing] = useState(false);
+  const [dialog, setDialog] = useState<'edit' | 'channel' | null>(null);
 
   if (feature.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (feature.isError) return <p className="text-sm text-danger">{feature.error.message}</p>;
@@ -60,7 +61,7 @@ export function FeaturePage() {
               Open terminal
             </Button>
           )}
-          <Button type="button" onClick={() => setEditing(!editing)}>
+          <Button type="button" onClick={() => setDialog('edit')}>
             Edit
           </Button>
           {latestChannel && (
@@ -71,7 +72,6 @@ export function FeaturePage() {
         </div>
       </header>
       {worktree.isError && <p className="text-sm text-danger">{worktree.error.message}</p>}
-      {editing && <FeatureForm key={f.id} feature={f} onDone={() => setEditing(false)} />}
       <JourneyBar stage={f.stage} />
       <div className="flex flex-wrap items-start gap-5">
         <div className="flex flex-[999_1_460px] flex-col gap-5 md:min-w-[460px]">
@@ -119,9 +119,9 @@ export function FeaturePage() {
             ) : (
               <ChannelList channels={featureChannels} />
             )}
-            <div className="mt-3 max-w-xs">
-              <NewChannelForm projectId={f.projectId} featureId={id} />
-            </div>
+            <Button type="button" className="mt-3" onClick={() => setDialog('channel')}>
+              New channel
+            </Button>
           </Card>
           <Card title="Tasks">
             {tasks.isError ? (
@@ -135,6 +135,14 @@ export function FeaturePage() {
           </Card>
         </div>
       </div>
+      <Dialog open={dialog === 'edit'} onClose={() => setDialog(null)} title="Edit feature">
+        {dialog === 'edit' && <FeatureForm feature={f} onDone={() => setDialog(null)} />}
+      </Dialog>
+      <Dialog open={dialog === 'channel'} onClose={() => setDialog(null)} title="New channel">
+        {dialog === 'channel' && (
+          <NewChannelForm projectId={f.projectId} featureId={id} onClose={() => setDialog(null)} />
+        )}
+      </Dialog>
       {worktree.data && (
         <div className="overflow-hidden rounded-card border border-hairline">
           <TerminalPane cwd={worktree.data.path} />
