@@ -5,6 +5,7 @@ import { diffCounts } from '@/modules/features/utils/diff-counts';
 import type { DiffLine, FileDiff } from '@/types/api';
 import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
+import { EmptyState } from '@/components/empty-state';
 import { TextArea } from '@/components/text-area';
 
 const lineClass: Record<DiffLine['kind'], string> = {
@@ -106,7 +107,13 @@ export function DiffPanel({
       </header>
       {send.isError && <p className="px-[22px] pt-3 text-sm text-danger">{send.error.message}</p>}
       {file === undefined ? (
-        <p className="p-5 text-sm text-muted">No changes.</p>
+        <div className="p-5">
+          <EmptyState
+            title="No changes yet"
+            body="Files the developer edits show up here."
+            role="developer"
+          />
+        </div>
       ) : (
         <div className="flex min-h-0 flex-1 max-md:flex-col">
           <nav

@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import type { Brief } from '@/types/api';
 import { Card } from '@/components/card';
+import { EmptyState } from '@/components/empty-state';
 
 export function BriefPanel({ versions }: { versions: Brief[] }) {
   const [showHistory, setShowHistory] = useState(false);
@@ -34,7 +35,12 @@ export function BriefPanel({ versions }: { versions: Brief[] }) {
       }
     >
       {!latest ? (
-        <p className="text-sm text-muted">No brief yet.</p>
+        <EmptyState
+          title="No brief yet"
+          body="What this feature is for goes here."
+          role="architect"
+          compact
+        />
       ) : (
         <div className="space-y-3">
           <pre className="font-sans text-[15px] leading-relaxed whitespace-pre-wrap text-soft">

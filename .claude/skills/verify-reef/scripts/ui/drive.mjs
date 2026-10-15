@@ -748,7 +748,7 @@ async function diff() {
   const cid = await newChannel(main, 'New channel', 'diff chat');
 
   await page.goto(`${base}/features/${featureId}/review`);
-  await main.getByText('No changes.').waitFor({ timeout: 15000 });
+  await main.getByText('No changes yet').waitFor({ timeout: 15000 });
   await shot('empty');
   await fetch(`${base}/channels/${cid}/send`, {
     method: 'POST',

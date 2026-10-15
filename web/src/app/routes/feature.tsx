@@ -23,6 +23,7 @@ import { roleFaces } from '@/utils/role-faces';
 import { Button, buttonClass } from '@/components/button';
 import { Card } from '@/components/card';
 import { Dialog } from '@/components/dialog';
+import { EmptyState } from '@/components/empty-state';
 
 export function FeaturePage() {
   const id = Number(useParams().id);
@@ -103,7 +104,7 @@ export function FeaturePage() {
                       <span className="text-failed">−{diffCounts(diff.data).removed}</span>
                     </>
                   ) : (
-                    <span className="text-muted">No changes.</span>
+                    <EmptyState title="No changes yet" role="developer" compact />
                   ))}
                 <Link to={`/features/${id}/review`} className={`${buttonClass()} ml-auto`}>
                   Review changes

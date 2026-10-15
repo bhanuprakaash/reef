@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { Button } from '@/components/button';
-import { Creature, GroupAvatar } from '@/components/creature';
+import { GroupAvatar } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 import { useChannels } from '@/lib/api/get-channels';
 import { useTeams } from '@/lib/api/get-teams';
@@ -183,9 +183,11 @@ export function HomePage() {
           )}
         </h2>
         {waiting.length === 0 ? (
-          <EmptyState title="Nothing needs you" body="Everything is moving on its own.">
-            <Creature role="lead" state="asleep" size={48} animate />
-          </EmptyState>
+          <EmptyState
+            title="Nothing needs you"
+            body="Everything is moving on its own."
+            role="lead"
+          />
         ) : (
           <ul className="flex flex-col gap-3">
             {waiting.map((item) => (

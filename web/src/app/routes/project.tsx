@@ -4,6 +4,7 @@ import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
+import { EmptyState } from '@/components/empty-state';
 import { useChannels } from '@/lib/api/get-channels';
 import { useTeams } from '@/lib/api/get-teams';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
@@ -56,7 +57,14 @@ export function ProjectPage() {
         <div className="flex min-w-[300px] flex-1 flex-col gap-4">
           <Card title="Features">
             {features.isError && <p className="text-sm text-danger">{features.error.message}</p>}
-            {projectFeatures.length === 0 && <p className="text-sm text-muted">No features.</p>}
+            {projectFeatures.length === 0 && (
+              <EmptyState
+                title="No features yet"
+                body="Add one with New feature."
+                role="architect"
+                compact
+              />
+            )}
             <ul>
               {projectFeatures.map((f) => (
                 <li key={f.id}>
@@ -76,7 +84,14 @@ export function ProjectPage() {
           </Card>
           <Card title="Quick sessions">
             {channels.isError && <p className="text-sm text-danger">{channels.error.message}</p>}
-            {quick.length === 0 && <p className="text-sm text-muted">No quick sessions.</p>}
+            {quick.length === 0 && (
+              <EmptyState
+                title="No quick sessions"
+                body="Start one for a chat outside a feature."
+                role="lead"
+                compact
+              />
+            )}
             <ul>
               {quick.map((c) => (
                 <li key={c.id}>

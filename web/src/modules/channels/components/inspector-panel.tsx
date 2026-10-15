@@ -2,6 +2,7 @@ import { useInspector } from '@/modules/channels/api/get-inspector';
 import { formatTokens } from '@/modules/channels/utils/format-tokens';
 import type { InspectorTurn, Usage } from '@/types/api';
 import { Creature } from '@/components/creature';
+import { EmptyState } from '@/components/empty-state';
 
 const NO_COST = 'n/a';
 
@@ -120,7 +121,14 @@ export function InspectorPanel({
       </div>
       {inspector.isPending && <p className="text-sm text-muted">Loading...</p>}
       {inspector.isError && <p className="text-sm text-danger">{inspector.error.message}</p>}
-      {data && roles.length === 0 && <p className="text-sm text-muted">No turns yet.</p>}
+      {data && roles.length === 0 && (
+        <EmptyState
+          title="No turns yet"
+          body="Tokens and tools show up after the first turn."
+          role="tester"
+          compact
+        />
+      )}
       {data && roles.length > 0 && (
         <>
           <div className="grid grid-cols-3 gap-2">

@@ -13,10 +13,13 @@ export function TaskList({ tasks, projects = [], features, compact }: Props) {
   const update = useUpdateTask();
 
   if (tasks.length === 0) {
-    return compact ? (
-      <p className="text-sm text-muted">No tasks</p>
-    ) : (
-      <EmptyState title="No tasks" />
+    return (
+      <EmptyState
+        title="No tasks yet"
+        body="Drop an idea, todo or bug with ⌘⇧Space."
+        role="developer"
+        compact={compact}
+      />
     );
   }
 
