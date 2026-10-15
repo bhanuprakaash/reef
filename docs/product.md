@@ -223,6 +223,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 62 | A feature can be closed: closing it closes all its channels (409 while a turn runs) and moves it under Closed in the sidebar; reopening restores the feature only, each channel is reopened by hand. Stage stays a label (decision 2) | A finished feature should leave the working list without being deleted, and its channels must stop taking turns with it |
 | 63 | The user can dismiss a `waiting` item in Needs you; an approval, a pause and a failed turn have no dismiss | Waiting asks for no action and can pile up; the others block work until the user acts. Dismiss hides only the message it was pressed on, so a new agent message brings the item back |
 | 64 | A feature has a kind, `journey` (default) or `fixes`; a `fixes` feature carries the state of each fix in its tasks and shows `N of M done` instead of the stage bar and chip. Stage stays a label (decision 2) | Some features are a mix of small fixes, not one piece of work through the eight stages; the task store already has the states |
+| 65 | A role may name the `model` its agent runs on, passed to the backend as `--model` (claude) or the thread `model` (codex); empty is the backend's default | The lead can think on Opus while the developer writes on Sonnet, without changing the user's global default |
 
 ## Open questions
 

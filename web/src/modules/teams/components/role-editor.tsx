@@ -27,6 +27,19 @@ function modeOptions(role: Role) {
   return values.map((value) => ({ value, label: value || 'Backend default' }));
 }
 
+const claudeModels = [
+  { value: '', label: 'Default' },
+  { value: 'opus', label: 'Opus' },
+  { value: 'sonnet', label: 'Sonnet' },
+  { value: 'haiku', label: 'Haiku' },
+];
+
+function claudeModelOptions(model: string) {
+  return claudeModels.some((o) => o.value === model)
+    ? claudeModels
+    : [...claudeModels, { value: model, label: model }];
+}
+
 const badge = 'inline-flex h-[30px] items-center rounded-pill border px-3 text-xs';
 
 export function RoleEditor({ role, open, onToggle, onChange, onRemove }: Props) {
@@ -83,6 +96,7 @@ export function RoleEditor({ role, open, onToggle, onChange, onRemove }: Props) 
                   permissionMode: (modes[backend] ?? []).includes(role.permissionMode)
                     ? role.permissionMode
                     : '',
+                  model: '',
                 })
               }
             />
@@ -147,6 +161,26 @@ export function RoleEditor({ role, open, onToggle, onChange, onRemove }: Props) 
                 options={modeOptions(role)}
                 onChange={(permissionMode) => onChange({ ...role, permissionMode })}
               />
+            </div>
+            <div className="min-w-0">
+              <div className="mb-2 text-xs text-muted">Model</div>
+              {role.backend === 'claude' ? (
+                <Select
+                  variant="pill"
+                  aria-label={`${label} model`}
+                  value={role.model ?? ''}
+                  options={claudeModelOptions(role.model ?? '')}
+                  onChange={(model) => onChange({ ...role, model })}
+                />
+              ) : (
+                <TextField
+                  className="w-40"
+                  aria-label={`${label} model`}
+                  placeholder="Default"
+                  value={role.model ?? ''}
+                  onChange={(e) => onChange({ ...role, model: e.target.value })}
+                />
+              )}
             </div>
             <ChipList
               label="MCP servers"

@@ -69,6 +69,29 @@ func TestTeamsReturnFace(t *testing.T) {
 	}
 }
 
+func TestPutTeamModel(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	h := New(st, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	code, body := do(t, http.MethodPut, ts.URL+"/teams/crew", `{"roles":[
+		{"name":"lead","lead":true,"backend":"claude","model":"opus"},
+		{"name":"developer","backend":"codex"}]}`)
+	if code != http.StatusOK || !strings.Contains(body, `"model":"opus"`) || strings.Count(body, `"model"`) != 1 {
+		t.Errorf("PUT /teams/crew = %d %s, want model opus on the lead only", code, body)
+	}
+	_, body = do(t, http.MethodGet, ts.URL+"/teams/crew", "")
+	if !strings.Contains(body, `"model":"opus"`) || strings.Count(body, `"model"`) != 1 {
+		t.Errorf("GET /teams/crew = %s, want model opus on the lead only", body)
+	}
+}
+
 func TestChannelTeam(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {

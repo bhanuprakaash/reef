@@ -113,6 +113,7 @@ export type Role = {
   persona: string;
   skills: string;
   face?: string;
+  model?: string;
   tools: string[];
   mcp: { name: string; label: string }[];
   mcpRemove?: { name: string; label: string }[];

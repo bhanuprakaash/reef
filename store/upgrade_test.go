@@ -36,8 +36,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 21 {
-		t.Errorf("user_version = %d, want 21", version)
+	if version != 22 {
+		t.Errorf("user_version = %d, want 22", version)
 	}
 
 	at := func(h, m, sec, ns int) time.Time {
@@ -144,8 +144,8 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 21 {
-		t.Errorf("user_version = %d, want 21", version)
+	if version != 22 {
+		t.Errorf("user_version = %d, want 22", version)
 	}
 	as, err := s.PendingApprovals(ctx, 1)
 	if err != nil {

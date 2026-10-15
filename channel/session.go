@@ -342,6 +342,7 @@ func (s *Session) member(
 	cfg := agent.Config{
 		Cwd:             cwd,
 		PermissionMode:  mode,
+		Model:           r.Model,
 		Tools:           append(tools, "mcp__reef__*"),
 		DisallowedTools: denied,
 		MCPServers:      servers,

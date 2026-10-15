@@ -29,7 +29,8 @@ Interrupt() error                     // stop the turn and the process
   leaves the usage of the turn it stopped in `Events` (see Codex below), so read it until it
   closes to count it. A second call is a no-op. Tool processes in their own process group
   may outlive a forced kill. To go on, `Resume` on a new `Agent` with the id from the last `session` event.
-- `Config`: `Cwd`, `PermissionMode` (backend-specific, passed through), `Tools` (tools allowed
+- `Config`: `Cwd`, `PermissionMode` (backend-specific, passed through), `Model` (a model name,
+  passed through; empty is the backend's default), `Tools` (tools allowed
   without asking; Codex ignores it), `DisallowedTools` (tools denied even when settings allow
   them; Codex ignores it, its sandbox decides), `MCPServers` (stdio `Command`/`Args`/`Env` or HTTP `URL`),
   `Env` (`KEY=value`, added to `os.Environ`).
@@ -64,7 +65,7 @@ Spawn, one long-lived process per session (in `cfg.Cwd`):
 
 ```
 claude -p --input-format stream-json --output-format stream-json --verbose \
-  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--mcp-config PATH] [--allowedTools LIST] [--disallowedTools LIST] [--resume ID]
+  --include-partial-messages --replay-user-messages [--permission-mode MODE] [--model NAME] [--mcp-config PATH] [--allowedTools LIST] [--disallowedTools LIST] [--resume ID]
 ```
 
 Input: one JSON line on stdin per `Send`. Keep stdin open for the whole session. Output is
@@ -159,7 +160,7 @@ object per line:
 <- {"id":2,"result":{"thread":{"id":"01a133d7-...","cwd":"/tmp/cx"},...}}
 ```
 
-`sandbox` and `config` are set only when `PermissionMode` / `MCPServers` are. One goroutine
+`sandbox`, `model` and `config` are set only when `PermissionMode` / `Model` / `MCPServers` are. One goroutine
 owns stdout: it waits for each response, skipping other lines, then emits `session` once and
 the events, then calls `Wait`, so a process that exits on its own is reaped. Then each `Send`:
 

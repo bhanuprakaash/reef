@@ -210,6 +210,15 @@ func TestThreadParams_Sandbox(t *testing.T) {
 	}
 }
 
+func TestThreadParams_Model(t *testing.T) {
+	if got := threadParams(agent.Config{Cwd: "/work", Model: "gpt-5"})["model"]; got != "gpt-5" {
+		t.Errorf("threadParams model = %v, want gpt-5", got)
+	}
+	if _, ok := threadParams(agent.Config{Cwd: "/work"})["model"]; ok {
+		t.Error("threadParams has a model key without a model")
+	}
+}
+
 func TestThreadParams_MCPApprovalMode(t *testing.T) {
 	params := threadParams(agent.Config{MCPServers: map[string]agent.MCPServer{
 		"reef": {Command: "reef-mcp"},
