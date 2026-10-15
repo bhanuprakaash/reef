@@ -185,6 +185,11 @@
     text-rendering: optimizeLegibility;
   }
 
+  a,
+  img {
+    -webkit-user-drag: none;
+  }
+
   :focus-visible {
     outline: 2px solid var(--color-fg);
     outline-offset: 2px;
