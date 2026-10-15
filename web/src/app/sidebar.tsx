@@ -1,4 +1,5 @@
 import { Link } from 'react-router';
+import { Logo } from '@/components/logo';
 import { useChannels } from '@/lib/api/get-channels';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
@@ -45,7 +46,8 @@ export function Sidebar() {
             channels.data?.filter((c) => c.projectId === p.id && c.featureId === null) ?? [];
           return (
             <section key={p.id} className="space-y-1">
-              <h3 className="font-medium" title={p.path}>
+              <h3 className="flex items-center gap-2 font-medium" title={p.path}>
+                <Logo size={16} />
                 {p.name}
               </h3>
               <ul className="space-y-1 pl-2">
