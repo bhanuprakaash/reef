@@ -69,7 +69,8 @@
   }
 
   --font-sans:
-    -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui, sans-serif;
+    'Geist Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui,
+    sans-serif;
   --font-mono: 'SF Mono', ui-monospace, Menlo, monospace;
 }
 
