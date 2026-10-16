@@ -1,6 +1,8 @@
 import { useEffect, useState, type ReactNode } from 'react';
+import { useSearchParams } from 'react-router';
 import { ProfileFields } from '@/app/profile-fields';
 import { Button } from '@/components/button';
+import { SegmentedControl } from '@/components/segmented-control';
 import { TextField } from '@/components/text-field';
 import { Toggle } from '@/components/toggle';
 import { useProfile } from '@/lib/api/get-profile';
@@ -139,14 +141,17 @@ function UpdateSection() {
 
 function SkillGroup({ title, skills }: { title: string; skills: SkillInfo[] }) {
   return (
-    <div aria-label={title} role="group" className="flex flex-col gap-y-1.5">
-      <h3 className="text-[11px] uppercase tracking-[0.08em] text-muted">{title}</h3>
+    <div aria-label={title} role="group">
       {skills.length === 0 && <p className="text-[13px] text-muted">None found.</p>}
-      <ul className="flex flex-col gap-y-1.5">
+      <ul className="flex flex-col divide-y divide-hairline">
         {skills.map((s) => (
-          <li key={s.name} className="text-[13px]">
-            <span className="font-mono">{s.name}</span>
-            {s.description && <span className="text-muted"> {s.description}</span>}
+          <li key={s.name} className="flex flex-col gap-0.5 py-2.5">
+            <span className="font-mono text-[13px]">{s.name}</span>
+            {s.description && (
+              <span title={s.description} className="line-clamp-1 text-[12.5px] text-muted">
+                {s.description}
+              </span>
+            )}
           </li>
         ))}
       </ul>
@@ -158,6 +163,17 @@ function SkillsSection() {
   const projects = useProjects();
   const [project] = useCurrentProject(projects.data);
   const skills = useSkills(project?.id);
+  const [backend, setBackend] = useState<'claude' | 'codex'>('claude');
+  const backends = [
+    { value: 'claude' as const, title: 'Claude Code' },
+    { value: 'codex' as const, title: 'Codex' },
+  ];
+  const shown = backends.find((b) => b.value === backend)!;
+  const [query, setQuery] = useState('');
+  const q = query.trim().toLowerCase();
+  const matching = (skills.data?.[backend] ?? []).filter(
+    (s) => s.name.toLowerCase().includes(q) || s.description.toLowerCase().includes(q),
+  );
 
   return (
     <Section title="Skills">
@@ -169,69 +185,125 @@ function SkillsSection() {
       {skills.isError && <p className="text-sm text-danger">{skills.error.message}</p>}
       {skills.data && (
         <>
-          <SkillGroup title="Claude Code" skills={skills.data.claude} />
-          <SkillGroup title="Codex" skills={skills.data.codex} />
+          <div className="flex flex-wrap items-center gap-3">
+            <SegmentedControl
+              label="Backend"
+              options={backends.map((b) => ({
+                value: b.value,
+                label: (
+                  <>
+                    {b.title} <span className="text-muted">{skills.data[b.value].length}</span>
+                  </>
+                ),
+              }))}
+              value={backend}
+              onChange={setBackend}
+            />
+            <TextField
+              type="search"
+              aria-label="Filter skills"
+              placeholder="Filter skills"
+              className="min-w-[200px] flex-1"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+            />
+          </div>
+          <SkillGroup title={shown.title} skills={matching} />
         </>
       )}
     </Section>
   );
 }
 
-export function SettingsPage() {
+function AppearanceSection() {
   const [theme, setChosen] = useState(getTheme);
+
+  return (
+    <Section title="Appearance">
+      <div role="radiogroup" aria-label="Theme" className="grid grid-cols-3 gap-2.5">
+        {themes.map((t) => (
+          <label key={t.value} className="flex flex-col gap-2 text-[13px]">
+            <span
+              className={`block h-[70px] overflow-hidden rounded-xl border-2 ${t.value === theme ? 'border-fg' : 'border-line'}`}
+            >
+              {t.preview}
+            </span>
+            <span className="flex items-center gap-1.5">
+              <input
+                type="radio"
+                name="theme"
+                checked={t.value === theme}
+                onChange={() => {
+                  setTheme(t.value);
+                  setChosen(t.value);
+                }}
+                className="accent-fg"
+              />
+              {t.label}
+            </span>
+          </label>
+        ))}
+      </div>
+    </Section>
+  );
+}
+
+function NotificationsSection() {
   const { permission, request } = useNotificationPermission();
+
+  return (
+    <Section title="Notifications">
+      <div className="flex min-h-9 items-center gap-3">
+        <span className="flex-1">Mac notification when something needs you</span>
+        {permission === 'default' && (
+          <Button type="button" size="sm" onClick={request}>
+            Turn on notifications
+          </Button>
+        )}
+        {permission === 'granted' && <span className="text-[13px] text-done">On</span>}
+        {permission === 'denied' && (
+          <span className="text-[13px] text-muted">Blocked in system settings</span>
+        )}
+      </div>
+    </Section>
+  );
+}
+
+const sections = [
+  { id: 'profile', title: 'Profile', pane: <NameSection /> },
+  { id: 'appearance', title: 'Appearance', pane: <AppearanceSection /> },
+  { id: 'notifications', title: 'Notifications', pane: <NotificationsSection /> },
+  { id: 'updates', title: 'Updates', pane: <UpdateSection />, desktopOnly: true },
+  { id: 'skills', title: 'Skills', pane: <SkillsSection /> },
+];
+
+export function SettingsPage() {
+  const [params, setParams] = useSearchParams();
+  const shown = sections.filter((s) => !s.desktopOnly || window.reef);
+  const current = shown.find((s) => s.id === params.get('section')) ?? shown[0];
 
   return (
     <div className="mx-auto flex w-full max-w-[820px] flex-col gap-[22px] py-6">
       <h1 className="text-[32px] font-normal tracking-[-0.02em]">Settings</h1>
-
-      <NameSection />
-
-      <Section title="Appearance">
-        <div role="radiogroup" aria-label="Theme" className="grid grid-cols-3 gap-2.5">
-          {themes.map((t) => (
-            <label key={t.value} className="flex flex-col gap-2 text-[13px]">
-              <span
-                className={`block h-[70px] overflow-hidden rounded-xl border-2 ${t.value === theme ? 'border-fg' : 'border-line'}`}
-              >
-                {t.preview}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <input
-                  type="radio"
-                  name="theme"
-                  checked={t.value === theme}
-                  onChange={() => {
-                    setTheme(t.value);
-                    setChosen(t.value);
-                  }}
-                  className="accent-fg"
-                />
-                {t.label}
-              </span>
-            </label>
+      <div className="flex flex-col gap-4 md:flex-row md:gap-6">
+        <nav
+          aria-label="Settings sections"
+          className="flex shrink-0 gap-1 overflow-x-auto md:w-[180px] md:flex-col"
+        >
+          {shown.map((s) => (
+            <button
+              key={s.id}
+              type="button"
+              aria-current={s.id === current.id ? 'page' : undefined}
+              onClick={() => setParams({ section: s.id }, { replace: true })}
+              className={`shrink-0 rounded-lg px-3 py-2 text-left text-[14px] ${s.id === current.id ? 'bg-active text-fg' : 'text-muted hover:bg-hover/50'}`}
+            >
+              {s.title}
+            </button>
           ))}
-        </div>
-      </Section>
-
-      {window.reef && <UpdateSection />}
-
-      <SkillsSection />
-
-      <Section title="Notifications">
-        <div className="flex min-h-9 items-center gap-3">
-          <span className="flex-1">Mac notification when something needs you</span>
-          {permission === 'default' && (
-            <Button type="button" size="sm" onClick={request}>
-              Turn on notifications
-            </Button>
-          )}
-          {permission === 'granted' && <span className="text-[13px] text-done">On</span>}
-          {permission === 'denied' && (
-            <span className="text-[13px] text-muted">Blocked in system settings</span>
-          )}
-        </div>
-      </Section>
+        </nav>
+        <div className="min-w-0 flex-1">{current.pane}</div>
+      </div>
     </div>
   );
 }
