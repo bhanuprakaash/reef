@@ -163,6 +163,31 @@ gets SIGTERM and the app waits for it to exit, about a second, before it finishe
 `reef serve` is left running after the app closes. It also closes the browser socket and
 removes `browser.sock`, and kills every shell the terminal pane started.
 
+## Updates
+
+Only the packaged app updates itself ([`desktop/updater.js`](../desktop/updater.js)). Once `reef serve`
+is listening, and then every hour, it reads `releases/latest` of the GitHub repo and compares the
+tag (`v0.1.N`) with `app.getVersion()`. A newer one is downloaded (`Reef-mac-arm64.zip`) to
+`update/` in the user data folder, unpacked with `ditto` into `update/staged/` and cleared of
+quarantine with `xattr -cr`. Any failure is logged to stderr and tried again at the next check.
+A staged update shows a bar at the top of the window, "Reef 0.1.N is ready" with a Restart
+button; the web app asks the main process for the staged version when it starts, so a reload
+shows the bar too.
+
+"Update when idle" (a toggle on the settings page, kept in `update-when-idle` in the user data
+folder) applies a staged update by itself: every minute the app reads `GET /status` of its
+`reef serve` and applies when `running` is 0.
+
+Applying (Restart, idle, or quitting with an update staged) starts a detached `/bin/sh` that waits
+for the app to exit, moves the running bundle to `update/previous.app` (replacing the old one: one
+backup only), moves the staged app into the bundle's path, writes `update/pending` (old and new
+version) and opens the bundle. Quitting applies the swap but does not open the app again.
+
+If the new app's `reef serve` exits before it listens while `pending` exists, the app starts a
+helper that puts `previous.app` back, writes `update/failed` and opens it, then exits; the old
+app shows "Update to 0.1.N failed to start; still on 0.1.M" and does not try that version again
+until it restarts. When the server does listen, `pending` is deleted.
+
 ## Package
 
 `electron-builder` (a `desktop/` devDependency, config in `desktop/package.json`'s `build`

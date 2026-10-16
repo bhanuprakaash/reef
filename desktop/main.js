@@ -5,6 +5,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createBrowser } from './browser.js';
 import { createTerminals } from './terminal.js';
+import { createUpdater } from './updater.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.REEF_PORT || (app.isPackaged ? '7700' : '7701');
@@ -87,6 +88,7 @@ function loginShellPath() {
 
 let server = null;
 let quitting = false;
+let updater = null;
 
 async function startServer(PATH) {
   server = spawn(reefPath(), ['serve', '--addr', ADDR, '--data', dataDir()], {
@@ -107,6 +109,10 @@ async function startServer(PATH) {
   });
   server.on('exit', (code) => {
     if (quitting) return;
+    if (updater.rollBack()) {
+      app.exit(0);
+      return;
+    }
     const message = stderr.trim() || `reef serve exited (code ${code})`;
     console.error(message);
     dialog.showErrorBox('Reef stopped unexpectedly', message);
@@ -187,11 +193,13 @@ app.whenReady().then(async () => {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
   win.loadFile(path.join(__dirname, 'splash.html'));
+  updater = createUpdater(win, ADDR);
   const splashAt = Date.now();
   const PATH = await loginShellPath();
   if (win.isDestroyed()) return;
   const ok = await startServer(PATH);
   if (!ok) return;
+  updater.start();
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
@@ -241,4 +249,5 @@ app.on('before-quit', (event) => {
   if (browser) browser.close();
   if (terminals) terminals.killAll();
   stopServer().then(() => app.quit());
+  if (updater) updater.applyOnQuit();
 });
