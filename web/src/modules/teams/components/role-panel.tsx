@@ -88,7 +88,7 @@ export function RolePanel({ role, skills, noProject, onChange, onRemove, onClose
   return (
     <aside
       aria-label="Role"
-      className="fixed inset-y-3 right-3 z-30 w-[calc(100%-24px)] max-w-[420px] space-y-[18px] overflow-y-auto rounded-card border border-line bg-card p-5 shadow-dialog motion-safe:animate-rise-in"
+      className="fixed inset-y-3 right-3 z-30 w-[calc(100%-24px)] max-w-[420px] space-y-[18px] overflow-y-auto rounded-card border border-line bg-card p-5 shadow-dialog"
     >
       <div className="space-y-3">
         <div className="flex items-center gap-3">
