@@ -168,11 +168,18 @@ removes `browser.sock`, and kills every shell the terminal pane started.
 Only the packaged app updates itself ([`desktop/updater.js`](../desktop/updater.js)). Once `reef serve`
 is listening, and then every hour, it reads `releases/latest` of the GitHub repo and compares the
 tag (`v0.1.N`) with `app.getVersion()`. A newer one is downloaded (`Reef-mac-arm64.zip`) to
-`update/` in the user data folder, unpacked with `ditto` into `update/staged/` and cleared of
-quarantine with `xattr -cr`. Any failure is logged to stderr and tried again at the next check.
-A staged update shows a bar at the top of the window, "Reef 0.1.N is ready" with a Restart
-button; the web app asks the main process for the staged version when it starts, so a reload
-shows the bar too.
+`update/` in the user data folder, unpacked with `ditto` into `update/incoming/`, cleared of
+quarantine with `xattr -cr`, and only then moved over `update/staged/`: a failed or unfinished
+download never removes an update that is already staged. Any failure is logged to stderr and
+tried again at the next check. The app skips updating, with one line on stderr and no card, when
+the folder that holds the app is not writable or the app runs from a Gatekeeper translocation
+path (`/AppTranslocation/`): it could not replace itself there.
+
+A staged update shows a card at the bottom of the sidebar: a dot, "Update ready", "Reef 0.1.N"
+and two buttons. Restart applies the update; Later hides the card for that version until the next
+launch, and a newer staged version shows it again. The web app asks the main process for the
+staged version when it starts, so a reload shows the card too. Restart does nothing while no
+update is staged (a download may still be running).
 
 "Update when idle" (a toggle on the settings page, kept in `update-when-idle` in the user data
 folder) applies a staged update by itself: every minute the app reads `GET /status` of its
@@ -182,6 +189,10 @@ Applying (Restart, idle, or quitting with an update staged) starts a detached `/
 for the app to exit, moves the running bundle to `update/previous.app` (replacing the old one: one
 backup only), moves the staged app into the bundle's path, writes `update/pending` (old and new
 version) and opens the bundle. Quitting applies the swap but does not open the app again.
+
+If a move fails (the bundle cannot be moved aside, or the staged app cannot be moved into
+place), the helper puts the old bundle back, writes the new version to `update/failed` and opens
+the old app, which shows the same failed dialog and skips that version until it restarts.
 
 If the new app's `reef serve` exits before it listens while `pending` exists, the app starts a
 helper that puts `previous.app` back, writes `update/failed` and opens it, then exits; the old
