@@ -7,7 +7,10 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 
 export function TeamList({ teams, selected, onSelect }: Props) {
   return (
-    <section aria-label="All teams" className="flex w-full flex-col gap-1.5 lg:w-60">
+    <section
+      aria-label="All teams"
+      className="flex w-full flex-col gap-1.5 md:group-has-[[aria-label=Role]]:hidden lg:w-60"
+    >
       {teams.map((t) => {
         const current = t.name === selected;
         const gates = t.gates?.length ?? 0;

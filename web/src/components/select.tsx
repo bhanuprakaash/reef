@@ -44,6 +44,7 @@ export function Select({
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const popover = useRef<HTMLDivElement>(null);
+  const origin = useRef({ top: 0, left: 0 });
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const selected = options.find((o) => o.value === value);
@@ -72,6 +73,7 @@ export function Select({
     const el = popover.current;
     if (!open || !t || !el) return;
     const r = t.getBoundingClientRect();
+    origin.current = { top: r.top, left: r.left };
     el.style.minWidth = `${Math.max(r.width, 150)}px`;
     el.style.maxHeight = '';
     const height = el.offsetHeight;
@@ -90,6 +92,11 @@ export function Select({
     if (!open) return;
     const close = (e: Event) => {
       if (e.target instanceof Node && popover.current?.contains(e.target)) return;
+      // A scroll event can arrive a frame after the scroll that already moved the trigger.
+      const r = trigger.current?.getBoundingClientRect();
+      if (e.type === 'scroll' && r?.top === origin.current.top && r.left === origin.current.left) {
+        return;
+      }
       setOpen(false);
     };
     window.addEventListener('resize', close);
@@ -101,7 +108,13 @@ export function Select({
   }, [open]);
 
   useEffect(() => {
-    if (open) popover.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' });
+    const list = popover.current;
+    const item = list?.querySelector<HTMLElement>('[data-active]');
+    if (!open || !list || !item) return;
+    const bottom = item.offsetTop + item.offsetHeight;
+    if (item.offsetTop < list.scrollTop) list.scrollTop = item.offsetTop;
+    else if (bottom > list.scrollTop + list.clientHeight)
+      list.scrollTop = bottom - list.clientHeight;
   }, [open, active]);
 
   function onKeyDown(e: KeyboardEvent) {
