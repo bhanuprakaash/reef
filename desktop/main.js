@@ -5,9 +5,10 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createBrowser } from './browser.js';
 import { createTerminals } from './terminal.js';
+import { createUpdater } from './updater.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.REEF_PORT || '7700';
+const PORT = process.env.REEF_PORT || (app.isPackaged ? '7700' : '7701');
 const ADDR = `127.0.0.1:${PORT}`;
 const SERVER_STOP_TIMEOUT = 5000;
 const LOGIN_SHELL_TIMEOUT = 5000;
@@ -15,10 +16,11 @@ const STDERR_TAIL = 64 * 1024;
 const SPLASH_MIN = 1200;
 const SPLASH_FADE = 250;
 
-// The same default data folder reef serve uses: os.UserConfigDir()/Reef in
-// Go is app.getPath('appData') + '/Reef' in Electron on both Mac and Linux.
+// The packaged app's default is the one reef serve uses: os.UserConfigDir()/Reef in Go is
+// app.getPath('appData') + '/Reef' in Electron on both Mac and Linux. The dev copy gets its own
+// folder so it never shares the installed app's data or lock.
 function dataDir() {
-  return path.join(app.getPath('appData'), 'Reef');
+  return process.env.REEF_DATA || path.join(app.getPath('appData'), app.isPackaged ? 'Reef' : 'Reef Dev');
 }
 
 // The web app's own colours, so a window is never another colour while the page loads.
@@ -86,9 +88,10 @@ function loginShellPath() {
 
 let server = null;
 let quitting = false;
+let updater = null;
 
 async function startServer(PATH) {
-  server = spawn(reefPath(), ['serve', '--addr', ADDR], {
+  server = spawn(reefPath(), ['serve', '--addr', ADDR, '--data', dataDir()], {
     env: { ...process.env, PATH },
     stdio: ['ignore', 'ignore', 'pipe'],
   });
@@ -106,6 +109,10 @@ async function startServer(PATH) {
   });
   server.on('exit', (code) => {
     if (quitting) return;
+    if (updater.rollBack()) {
+      app.exit(0);
+      return;
+    }
     const message = stderr.trim() || `reef serve exited (code ${code})`;
     console.error(message);
     dialog.showErrorBox('Reef stopped unexpectedly', message);
@@ -186,11 +193,13 @@ app.whenReady().then(async () => {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
   win.loadFile(path.join(__dirname, 'splash.html'));
+  updater = createUpdater(win, ADDR);
   const splashAt = Date.now();
   const PATH = await loginShellPath();
   if (win.isDestroyed()) return;
   const ok = await startServer(PATH);
   if (!ok) return;
+  updater.start();
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
@@ -240,4 +249,5 @@ app.on('before-quit', (event) => {
   if (browser) browser.close();
   if (terminals) terminals.killAll();
   stopServer().then(() => app.quit());
+  if (updater) updater.applyOnQuit();
 });

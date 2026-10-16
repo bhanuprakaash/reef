@@ -426,6 +426,7 @@ tool calls.
 | Route | Filters and body | OK | Notable errors |
 | --- | --- | --- | --- |
 | `GET /health` | | 200 `{"status":"ok"}` | |
+| `GET /status` | | 200 `{"running":N}`, N the channels whose live state is not idle (a turn is starting, running or stopping); the desktop app polls it to update when idle | |
 | `GET /projects` | | 200 | |
 | `POST /projects` | `name`, `path` | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |

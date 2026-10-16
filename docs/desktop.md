@@ -21,15 +21,19 @@ packaged app the `reef` binary ships inside the app's resources instead.
   found even when the app is opened from Finder, not a terminal. A shell that fails to run, or
   takes more than 5 seconds (an rc file waiting on stdin), falls back to the PATH Electron
   already has.
-- Starts its own `reef serve` on `127.0.0.1:7700` with that `PATH`, in the dev binary
-  (`desktop/bin/reef`) or, once packaged, the bundled one. It loads the app only after
-  that server logs `listening on 127.0.0.1:7700`, so it never trusts another process that
-  already holds the port. `REEF_PORT` sets another port, so a second app (a test run) can run
-  beside the first with its own `HOME`; the pane refuses that port instead of 7700.
+- Starts its own `reef serve` on `127.0.0.1:7700` (the installed app) or `127.0.0.1:7701` (the
+  dev copy, `npm start`) with that `PATH`, in the dev binary (`desktop/bin/reef`) or, once
+  packaged, the bundled one. It loads the app only after that server logs
+  `listening on 127.0.0.1:<port>`, so it never trusts another process that already holds the
+  port. `REEF_PORT` sets another port; the pane refuses that port instead of 7700.
+- Passes `--data` to `reef serve`: `REEF_DATA` if set, else `~/Library/Application Support/Reef`
+  (the installed app) or `~/Library/Application Support/Reef Dev` (the dev copy). So the dev copy
+  runs beside the installed app with its own port, data and lock, and a second app (a test run)
+  can run beside either one with its own `REEF_PORT` and `REEF_DATA`.
 - Opens the window at once on a local splash page ([`desktop/splash.html`](../desktop/splash.html),
   no server needed: the jelly, "reef" and "Starting reef serve..."). When the server is
   listening and the splash has shown for at least 1.2 s, the jelly and text fade out and the
-  window loads `http://127.0.0.1:7700`, which serves the same UI as a browser pointed at
+  window loads `http://127.0.0.1:<port>`, which serves the same UI as a browser pointed at
   a `reef serve` started by hand (see [server.md](server.md#web-ui)). The splash, the window and
   the app share one background colour (the app's main colour for its theme), and the app fades
   in on its first paint, so the handoff has no jump in colour. The web app reports its theme
@@ -71,7 +75,7 @@ directly, not through `reef serve`. A stale socket from a crash is unlinked befo
 listens again.
 
 `navigate` only opens `http:` and `https:` URLs, and refuses Reef's own server (host
-`127.0.0.1`, `localhost` or `[::1]`, port 7700), with `refused: the browser pane cannot open
+`127.0.0.1`, `localhost` or `[::1]`, Reef's own port: 7700, or 7701 in the dev copy), with `refused: the browser pane cannot open
 Reef itself`: otherwise an agent could open Reef's own UI and approve its own proposals. The same
 check blocks a link or a redirect inside the page that targets Reef's origin, and denies any
 `window.open`, opening the URL in the pane itself instead of a new window. The main window has
@@ -158,6 +162,42 @@ Quitting the app (the window, the menu, or a signal) stops its `reef serve` firs
 gets SIGTERM and the app waits for it to exit, about a second, before it finishes quitting. No
 `reef serve` is left running after the app closes. It also closes the browser socket and
 removes `browser.sock`, and kills every shell the terminal pane started.
+
+## Updates
+
+Only the packaged app updates itself ([`desktop/updater.js`](../desktop/updater.js)). Once `reef serve`
+is listening, and then every hour, it reads `releases/latest` of the GitHub repo and compares the
+tag (`v0.1.N`) with `app.getVersion()`. A newer one is downloaded (`Reef-mac-arm64.zip`) to
+`update/` in the user data folder, unpacked with `ditto` into `update/incoming/`, cleared of
+quarantine with `xattr -cr`, and only then moved over `update/staged/`: a failed or unfinished
+download never removes an update that is already staged. Any failure is logged to stderr and
+tried again at the next check. The app skips updating, with one line on stderr and no card, when
+the folder that holds the app is not writable or the app runs from a Gatekeeper translocation
+path (`/AppTranslocation/`): it could not replace itself there.
+
+A staged update shows a card at the bottom of the sidebar: a dot, "Update ready", "Reef 0.1.N"
+and two buttons. Restart applies the update; Later hides the card for that version until the next
+launch, and a newer staged version shows it again. The web app asks the main process for the
+staged version when it starts, so a reload shows the card too. Restart does nothing while no
+update is staged (a download may still be running).
+
+"Update when idle" (a toggle on the settings page, kept in `update-when-idle` in the user data
+folder) applies a staged update by itself: every minute the app reads `GET /status` of its
+`reef serve` and applies when `running` is 0.
+
+Applying (Restart, idle, or quitting with an update staged) starts a detached `/bin/sh` that waits
+for the app to exit, moves the running bundle to `update/previous.app` (replacing the old one: one
+backup only), moves the staged app into the bundle's path, writes `update/pending` (old and new
+version) and opens the bundle. Quitting applies the swap but does not open the app again.
+
+If a move fails (the bundle cannot be moved aside, or the staged app cannot be moved into
+place), the helper puts the old bundle back, writes the new version to `update/failed` and opens
+the old app, which shows the same failed dialog and skips that version until it restarts.
+
+If the new app's `reef serve` exits before it listens while `pending` exists, the app starts a
+helper that puts `previous.app` back, writes `update/failed` and opens it, then exits; the old
+app shows "Update to 0.1.N failed to start; still on 0.1.M" and does not try that version again
+until it restarts. When the server does listen, `pending` is deleted.
 
 ## Package
 

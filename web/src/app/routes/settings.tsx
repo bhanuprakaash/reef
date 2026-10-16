@@ -1,7 +1,8 @@
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { ProfileFields } from '@/app/profile-fields';
 import { Button } from '@/components/button';
 import { TextField } from '@/components/text-field';
+import { Toggle } from '@/components/toggle';
 import { useProfile } from '@/lib/api/get-profile';
 import { useSkills } from '@/lib/api/get-skills';
 import { useCurrentProject } from '@/lib/current-project';
@@ -110,6 +111,32 @@ function NameSection() {
   );
 }
 
+function UpdateSection() {
+  const [idle, setIdle] = useState(false);
+  useEffect(() => {
+    void window.reef?.getUpdateWhenIdle().then(setIdle);
+  }, []);
+
+  return (
+    <Section title="Updates">
+      <div className="flex min-h-9 items-center gap-3">
+        <span className="flex-1">Update when idle</span>
+        <Toggle
+          label="Update when idle"
+          checked={idle}
+          onChange={(value) => {
+            setIdle(value);
+            void window.reef?.setUpdateWhenIdle(value);
+          }}
+        />
+      </div>
+      <p className="text-[13px] text-muted">
+        Restart into a downloaded update once no agent turn is running.
+      </p>
+    </Section>
+  );
+}
+
 function SkillGroup({ title, skills }: { title: string; skills: SkillInfo[] }) {
   return (
     <div aria-label={title} role="group" className="flex flex-col gap-y-1.5">
@@ -186,6 +213,8 @@ export function SettingsPage() {
           ))}
         </div>
       </Section>
+
+      {window.reef && <UpdateSection />}
 
       <SkillsSection />
 
