@@ -29,7 +29,10 @@ packaged app the `reef` binary ships inside the app's resources instead.
 - Passes `--data` to `reef serve`: `REEF_DATA` if set, else `~/Library/Application Support/Reef`
   (the installed app) or `~/Library/Application Support/Reef Dev` (the dev copy). So the dev copy
   runs beside the installed app with its own port, data and lock, and a second app (a test run)
-  can run beside either one with its own `REEF_PORT` and `REEF_DATA`.
+  can run beside either one with its own `REEF_PORT` and `REEF_DATA`. Electron gives a package
+  one user data folder, and both copies are the same package, so the dev copy uses
+  `reef-desktop-dev` beside the installed app's `reef-desktop`: separate localStorage and
+  caches, and the dev copy's updater never touches the installed app's `update/` markers.
 - Opens the window at once on a local splash page ([`desktop/splash.html`](../desktop/splash.html),
   no server needed: the jelly, "reef" and "Starting reef serve..."). When the server is
   listening and the splash has shown for at least 1.2 s, the jelly and text fade out and the
@@ -176,19 +179,23 @@ the folder that holds the app is not writable or the app runs from a Gatekeeper 
 path (`/AppTranslocation/`): it could not replace itself there.
 
 A staged update shows a card at the bottom of the sidebar: a dot, "Update ready", "Reef 0.1.N"
-and two buttons. Restart applies the update; Later hides the card for that version until the next
-launch, and a newer staged version shows it again. The web app asks the main process for the
-staged version when it starts, so a reload shows the card too. Restart does nothing while no
-update is staged (a download may still be running).
+and two buttons. Restart applies the update; Later hides the card for that version in this window
+(`sessionStorage`, so it survives a reload but clears with the window session), and a newer staged
+version shows it again. The next app launch applies a staged update as described below. The web
+app asks the main process for the staged version when it starts,
+so a reload shows the card too, unless it was hidden for that version. Restart does nothing while
+no update is staged (a download may still be running).
 
 "Update when idle" (a toggle on the settings page, kept in `update-when-idle` in the user data
 folder) applies a staged update by itself: every minute the app reads `GET /status` of its
 `reef serve` and applies when `running` is 0.
 
-Applying (Restart, idle, or quitting with an update staged) starts a detached `/bin/sh` that waits
-for the app to exit, moves the running bundle to `update/previous.app` (replacing the old one: one
-backup only), moves the staged app into the bundle's path, writes `update/pending` (old and new
-version) and opens the bundle. Quitting applies the swap but does not open the app again.
+A staged update applies at the next launch, or at once through Restart or "Update when idle".
+Applying starts a detached `/bin/sh` that waits for the app to exit, moves the running bundle to
+`update/previous.app` (replacing the old one: one backup only), moves the staged app into the
+bundle's path, writes `update/pending` (old and new version) and opens the bundle. A quit leaves
+the update staged: the next launch, once its `reef serve` is listening, applies it by the same
+watched path as Restart, so a release whose main process throws still rolls back.
 
 Right after the app exits, so with `reef serve` stopped, the helper also copies `reef.db` (the
 folder `--data` points at, not the user data folder) to `update/previous.db` with

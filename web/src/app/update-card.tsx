@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Button } from '@/components/button';
 
+const DISMISSED_KEY = 'reef.update-dismissed';
+
 export function UpdateCard() {
   const [version, setVersion] = useState<string | null>(null);
-  const [dismissed, setDismissed] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState<string | null>(() =>
+    sessionStorage.getItem(DISMISSED_KEY),
+  );
   useEffect(() => window.reef?.onUpdateReady(setVersion), []);
   if (!version || dismissed === version) return null;
 
@@ -22,7 +26,14 @@ export function UpdateCard() {
         <Button variant="primary" size="sm" onClick={() => window.reef?.restartToUpdate()}>
           Restart
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => setDismissed(version)}>
+        <Button
+          variant="ghost"
+          size="sm"
+          onClick={() => {
+            sessionStorage.setItem(DISMISSED_KEY, version);
+            setDismissed(version);
+          }}
+        >
           Later
         </Button>
       </div>
