@@ -14,13 +14,23 @@ const run = promisify(execFile);
 
 // Both scripts run after this app has exited, in a helper that outlives it, because a running
 // app cannot replace its own bundle. Arguments: pid, bundle, previous.app, then the rest.
-const WAIT = String.raw`while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
+const WAIT = String.raw`trap '' HUP TERM
+while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
 `;
-// $4 staged app, $5 pending marker, $6 and $7 old and new version, $8 staged folder, $9 "open".
+// $4 staged app, $5 pending marker, $6 and $7 old and new version, $8 failed marker, $9 "open".
 const SWAP =
   WAIT +
-  String.raw`rm -rf "$3" && mv "$2" "$3" && { printf '%s %s\n' "$6" "$7" > "$5" && mv "$4" "$2" || mv "$3" "$2"; }
-rm -rf "$8"
+  String.raw`rm -rf "$3"
+if mv "$2" "$3"; then
+  if ! { printf '%s %s\n' "$6" "$7" > "$5" && mv "$4" "$2"; }; then
+    mv "$3" "$2"
+    rm -f "$5"
+    printf '%s\n' "$7" > "$8"
+  fi
+else
+  printf '%s\n' "$7" > "$8"
+fi
+rm -rf "$(dirname "$4")"
 [ "$9" = open ] && open "$2"
 `;
 // $4 failed marker, $5 the version that failed.
@@ -51,6 +61,7 @@ function read(file) {
 export function createUpdater(win, addr) {
   const dir = path.join(app.getPath('userData'), 'update');
   const stagedDir = path.join(dir, 'staged');
+  const incoming = path.join(dir, 'incoming');
   const previous = path.join(dir, 'previous.app');
   const pending = path.join(dir, 'pending');
   const failed = path.join(dir, 'failed');
@@ -59,6 +70,7 @@ export function createUpdater(win, addr) {
   let staged = null;
   let skipped = null;
   let checking = false;
+  let unwritableLogged = false;
   let swapping = false;
   let whenIdle = read(idleFile) === '1';
 
@@ -70,7 +82,21 @@ export function createUpdater(win, addr) {
   }
 
   function stagedApp() {
-    return path.join(stagedDir, fs.readdirSync(stagedDir).find((name) => name.endsWith('.app')));
+    try {
+      const name = fs.readdirSync(stagedDir).find((n) => n.endsWith('.app'));
+      return name && path.join(stagedDir, name);
+    } catch {
+      return null;
+    }
+  }
+
+  function canReplaceBundle() {
+    try {
+      fs.accessSync(path.dirname(bundle), fs.constants.W_OK);
+    } catch {
+      return false;
+    }
+    return !bundle.includes('/AppTranslocation/');
   }
 
   function notify() {
@@ -78,26 +104,29 @@ export function createUpdater(win, addr) {
   }
 
   function swap(open) {
-    if (!staged || swapping) return;
+    const stagedPath = stagedApp();
+    if (!staged || !stagedPath || swapping) return false;
     swapping = true;
-    helper(SWAP, [stagedApp(), pending, app.getVersion(), staged, stagedDir, open ? 'open' : '']);
+    helper(SWAP, [stagedPath, pending, app.getVersion(), staged, failed, open ? 'open' : '']);
+    return true;
   }
 
   function restart() {
-    swap(true);
-    app.quit();
+    if (swap(true)) app.quit();
   }
 
   async function stage(version, url) {
-    staged = null;
-    fs.rmSync(stagedDir, { recursive: true, force: true });
-    fs.mkdirSync(dir, { recursive: true });
+    fs.rmSync(incoming, { recursive: true, force: true });
+    fs.mkdirSync(incoming, { recursive: true });
     const zip = path.join(dir, ASSET);
     await run('curl', ['-fsSL', '--max-time', String(TIMEOUT / 1000), '-o', zip, url]);
-    await run('ditto', ['-x', '-k', zip, stagedDir]);
-    await run('xattr', ['-cr', stagedDir]);
+    await run('ditto', ['-x', '-k', zip, incoming]);
+    await run('xattr', ['-cr', incoming]);
     fs.rmSync(zip);
-    fs.writeFileSync(path.join(stagedDir, 'version'), version);
+    fs.writeFileSync(path.join(incoming, 'version'), version);
+    if (swapping) return;
+    fs.rmSync(stagedDir, { recursive: true, force: true });
+    fs.renameSync(incoming, stagedDir);
     staged = version;
   }
 
@@ -116,6 +145,11 @@ export function createUpdater(win, addr) {
       if (!latest || !asset) throw new Error(`release ${release.tag_name} has no usable ${ASSET}`);
       const version = latest.join('.');
       if (!isNewer(latest, parse(app.getVersion())) || version === staged || version === skipped) return;
+      if (!canReplaceBundle()) {
+        if (!unwritableLogged) console.error(`update skipped: ${bundle} cannot be replaced from here`);
+        unwritableLogged = true;
+        return;
+      }
       await stage(version, asset.browser_download_url);
       notify();
     } catch (err) {
@@ -145,7 +179,6 @@ export function createUpdater(win, addr) {
   });
 
   return {
-    // reef serve is listening: an update that was just applied works.
     start() {
       fs.rmSync(pending, { force: true });
       const failedVersion = read(failed);
@@ -160,13 +193,12 @@ export function createUpdater(win, addr) {
       if (!app.isPackaged) return;
       const version = read(path.join(stagedDir, 'version'));
       const parsed = parse(version);
-      if (parsed && isNewer(parsed, parse(app.getVersion()))) staged = version;
+      if (parsed && isNewer(parsed, parse(app.getVersion())) && stagedApp()) staged = version;
       else fs.rmSync(stagedDir, { recursive: true, force: true });
       check();
       setInterval(check, CHECK_EVERY);
       setInterval(applyWhenIdle, IDLE_EVERY);
     },
-    // reef serve exited before it listened. Returns true when the previous app is being put back.
     rollBack() {
       const versions = read(pending)?.split(' ');
       if (!versions || !fs.existsSync(previous)) return false;
