@@ -826,7 +826,7 @@ async function rollback() {
 async function diff() {
   ensureRepo();
   const section = await addProject();
-  await addFeature(section, 'login', 'Login');
+  const slugOf = await addFeature(section, 'login', 'Login');
   const featureId = page.url().split('/').pop();
   const cid = await newChannel(main, 'New channel', 'diff chat');
 
@@ -869,9 +869,39 @@ async function diff() {
   await main.getByRole('navigation', { name: 'Files' }).getByText('new.txt').waitFor();
   await shot('panel');
   check(page.url().endsWith(`/channels/${cid}`), "the channel header's Diff button opens a side panel in the channel", page.url());
+  const scope = main.getByRole('group', { name: 'Diff scope' });
+  check(
+    (await scope.getByRole('button', { name: 'Current changes' }).getAttribute('aria-pressed')) === 'true' &&
+      (await main.getByText('uncommitted', { exact: true }).isVisible()),
+    'the channel panel opens on Current changes',
+    await scope.innerText(),
+  );
+  const tree = path.join(data, 'worktrees', sql(`select project_id from channel where id=${cid}`), slugOf);
+  git(tree, 'add', '-A');
+  git(tree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'old work');
+  writeFileSync(path.join(tree, 'later.txt'), 'later\n');
+  const panelFiles = main.getByRole('navigation', { name: 'Files' });
+  await panelFiles.getByText('later.txt').waitFor({ timeout: 15000 });
+  await shot('panel-current');
+  check(
+    (await panelFiles.innerText()).replace(/\s+/g, ' ') === 'A later.txt',
+    'Current changes lists only the file written since the commit',
+    await panelFiles.innerText(),
+  );
+  await scope.getByRole('button', { name: 'Full diff' }).click();
+  await main.getByText('new.txt').first().waitFor({ timeout: 15000 });
+  await shot('panel-full');
+  check(
+    (await panelFiles.innerText()).replace(/\s+/g, ' ') === 'A later.txt A new.txt' &&
+      (await main.getByText('vs main').isVisible()),
+    'Full diff lists the committed and the new file against main',
+    await panelFiles.innerText(),
+  );
+  const current = await getJson(`/features/${featureId}/diff?scope=current`);
+  check(current.length === 1 && current[0].path === 'later.txt', 'GET /features/{id}/diff?scope=current returns only the uncommitted file', JSON.stringify(current));
   await main.getByRole('button', { name: 'Close diff' }).click();
   await main.getByRole('heading', { name: 'Changes', level: 1 }).waitFor({ state: 'hidden' });
-  await page.getByRole('button', { name: /^Diff \+1/ }).click();
+  await page.getByRole('button', { name: /^Diff \+2/ }).click();
   await main.getByRole('link', { name: 'Expand diff' }).click();
   await page.waitForURL(`**/features/${featureId}/review`);
   check(true, "the panel's expand button opens the full review page", page.url());

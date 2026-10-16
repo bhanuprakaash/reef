@@ -1,10 +1,12 @@
+import { useState } from 'react';
 import { Link } from 'react-router';
 import { BackButton } from '@/components/back-button';
 import { useChannels } from '@/lib/api/get-channels';
 import { useTeams } from '@/lib/api/get-teams';
-import { useDiff } from '@/modules/features/api/get-diff';
+import { type DiffScope, useDiff } from '@/modules/features/api/get-diff';
 import { useFeature } from '@/modules/features/api/get-feature';
 import { DiffPanel } from '@/modules/features/components/diff-panel';
+import { useProjects } from '@/modules/projects/api/get-projects';
 import { roleFaces } from '@/utils/role-faces';
 
 const iconButton = 'flex size-9 items-center justify-center rounded-field text-soft hover:bg-card';
@@ -12,11 +14,15 @@ const iconButton = 'flex size-9 items-center justify-center rounded-field text-s
 const confirmDiscard = (drafts: number) =>
   drafts === 0 || confirm(`Discard ${drafts} draft comment${drafts === 1 ? '' : 's'}?`);
 
-export function ReviewDiff({ id, onClose }: { id: number; onClose?: () => void }) {
+type Props = { id: number; onClose?: () => void; defaultScope?: DiffScope };
+
+export function ReviewDiff({ id, onClose, defaultScope = 'full' }: Props) {
+  const [scope, setScope] = useState(defaultScope);
   const feature = useFeature(id);
-  const diff = useDiff(id);
+  const diff = useDiff(id, scope);
   const channels = useChannels();
   const teams = useTeams();
+  const projects = useProjects();
 
   const latestTeam = channels.data?.filter((c) => c.featureId === id).at(-1)?.team;
 
@@ -30,6 +36,9 @@ export function ReviewDiff({ id, onClose }: { id: number; onClose?: () => void }
       featureId={id}
       featureName={feature.data.name}
       branch={`feature/${feature.data.slug}`}
+      baseBranch={projects.data?.find((p) => p.id === feature.data.projectId)?.baseBranch || 'main'}
+      scope={scope}
+      onScopeChange={setScope}
       developerFace={roleFaces(teams.data, latestTeam).developer}
       leading={!onClose && <BackButton fallback={`/features/${id}`} />}
       actions={
