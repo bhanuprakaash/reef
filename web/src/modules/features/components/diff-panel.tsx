@@ -129,7 +129,7 @@ export function DiffPanel({
               fill="none"
               stroke="currentColor"
               strokeWidth="2"
-              className={`shrink-0 text-faint ${open ? 'rotate-90' : ''}`}
+              className={`w-4 shrink-0 text-faint ${open ? 'rotate-90' : ''}`}
               aria-hidden="true"
             >
               <path d="M9 6l6 6-6 6" />
