@@ -679,8 +679,8 @@ its wakes (the approval's wake) run after the turn that is running, ahead of the
 chain has routed, in the order they arrived. A queued wake is checked, and counted as a hop,
 when it is about to run, like any other. If the chain ends before a queued wake runs, an
 approval is pending again, and a message stays stored but its wake is dropped, as the wakes
-still waiting are when a turn fails or is stopped. A chain that ends in a pause holds them
-with the rest. A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
+still waiting are when a turn fails or is stopped. A chain that ends in a pause holds the
+queued messages' wakes with the rest, and puts a queued approval back to pending. A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
 lead's reply says `@architect ...`; the architect runs and posts a plan, a new thread it
 owns; the chain ends because the plan names no one. The lead gets no turn after the plan.
 

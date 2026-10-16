@@ -406,6 +406,14 @@ func (s *server) reopenLocked(l *live, id int64, ws []wake) {
 	}
 }
 
+// reopenApprovalsLocked puts the approvals of the wakes ws back to pending, and returns the
+// other wakes. A message from the user drops the held wakes, and an approved approval whose
+// wake is held would be lost with them.
+func (s *server) reopenApprovalsLocked(l *live, id int64, ws []wake) []wake {
+	s.reopenLocked(l, id, ws)
+	return slices.DeleteFunc(slices.Clone(ws), func(w wake) bool { return w.approval != 0 })
+}
+
 // runOne runs the turn of w and returns the frame that ends it and whether it went well.
 func (s *server) runOne(
 	ctx context.Context, id int64, l *live, sess session, kind turnKind, w wake,
@@ -964,7 +972,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) 
 		}
 		l.publishLocked("turn", end)
 		if stall != nil && c.ctx.Err() == nil {
-			l.held, l.retry = queue, again
+			l.held, l.retry = s.reopenApprovalsLocked(l, c.id, queue), again
 			reason := stall.Error()
 			if err := s.st.PauseChannel(c.ctx, c.id, reason); err != nil {
 				log.Printf("pause channel %d: %v", c.id, err)
@@ -996,6 +1004,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) 
 			if c.ctx.Err() == nil {
 				dropped = nil
 				log.Printf("wake %s in channel %d: %v", queue[0].role, c.id, err)
+				queue = s.reopenApprovalsLocked(l, c.id, queue)
 				l.held = queue
 				if errors.Is(err, store.ErrConflict) {
 					var herr error

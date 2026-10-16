@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -129,5 +130,49 @@ func TestStop_PutsQueuedApprovalBackAndDropsQueuedMessage(t *testing.T) {
 		if len(l.queued) != 0 || len(l.held) != 0 {
 			t.Errorf("queued = %v, held = %v, want neither", l.queued, l.held)
 		}
+	}
+}
+
+func TestApproval_QueuedApproveStopsAtHopCapStaysPending(t *testing.T) {
+	env := newLiveEnv(t)
+	id, sub, approvals := env.gatedDeveloperChannel(t)
+	l := env.h.s.lookup(int64(id))
+	l.mu.Lock()
+	l.hops = 6
+	l.mu.Unlock()
+	if status, _ := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`); status != 204 {
+		t.Fatalf("approve = %d, want 204", status)
+	}
+	sub.next(t)
+	env.fake.release <- struct{}{}
+	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"architect","status":"done"}`)
+	var paused store.Channel
+	for range 50 {
+		paused, _ = env.st.Channel(context.Background(), int64(id))
+		if paused.Paused != "" {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if paused.Paused != _hopPause {
+		t.Fatalf("paused = %q, want the hop cap: the queued wake is over the cap", paused.Paused)
+	}
+
+	if status, _ := env.sendTo(t, id, "again"); status != 202 {
+		t.Fatalf("send = %d, want 202", status)
+	}
+	for range 50 {
+		if len(env.ranTexts()) >= 3 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	time.Sleep(200 * time.Millisecond)
+	status, body := do(t, http.MethodGet, approvals, "")
+	if status != 200 || !strings.Contains(body, `"id":1,`) || !strings.Contains(body, `"status":"pending"`) {
+		t.Errorf("approvals = %d %s, want approval 1 pending again: the user's message dropped its held wake", status, body)
+	}
+	if got := env.ranTexts(); len(got) != 3 || !strings.HasSuffix(got[2], "\nagain") {
+		t.Errorf("ran = %q, want the lead's answer to again, and no developer turn", got)
 	}
 }
