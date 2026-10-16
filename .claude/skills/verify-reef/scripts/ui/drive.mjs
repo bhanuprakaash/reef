@@ -924,6 +924,63 @@ async function diff() {
   );
   const filesTop = await wheel(panelFiles);
   check(filesTop > 0, 'the wheel scrolls the panel file list of 35 files on its own', `scrollTop=${filesTop}`);
+
+  mkdirSync(path.join(tree, 'web/src/modules/deep'), { recursive: true });
+  mkdirSync(path.join(tree, 'docs'));
+  for (const f of ['web/src/modules/deep/one.ts', 'web/src/modules/deep/two.ts', 'docs/x.md']) writeFileSync(path.join(tree, f), `${f}\n`);
+  const pressed = (name) => panelFiles.getByRole('button', { name, exact: true }).getAttribute('aria-pressed');
+  const rows = () => panelFiles.locator(':scope > button').evaluateAll((els) => els.map((el) => el.innerText.replace(/\s+/g, ' ').trim()));
+  const folder = panelFiles.getByRole('button', { name: 'web/src/modules/deep', exact: true });
+  const one = panelFiles.getByRole('button', { name: 'A one.ts', exact: true });
+  await panelFiles.getByText('web/src/modules/deep/one.ts', { exact: true }).waitFor({ timeout: 15000 });
+  check(
+    (await pressed('List view')) === 'true' && (await panelFiles.getByText('web/src/modules/deep/one.ts', { exact: true }).isVisible()),
+    'desktop: the file list opens as a flat list of full paths',
+    (await rows()).slice(0, 4).join(', '),
+  );
+  await panelFiles.getByRole('button', { name: 'Tree view', exact: true }).click();
+  await folder.waitFor();
+  await panelFiles.evaluate((el) => (el.scrollTop = 0));
+  check(
+    (await folder.getAttribute('aria-expanded')) === 'true' &&
+      (await rows()).slice(0, 6).join(', ') === 'docs, A x.md, web/src/modules/deep, A one.ts, A two.ts, A later.txt',
+    'Tree view: folders first, alphabetical, the single-child chain merged into web/src/modules/deep, open, files by basename',
+    (await rows()).slice(0, 6).join(', '),
+  );
+  await shot('tree-panel');
+  await folder.click();
+  const closed = (await folder.getAttribute('aria-expanded')) === 'false' && (await one.count()) === 0;
+  await folder.click();
+  check(closed && (await folder.getAttribute('aria-expanded')) === 'true' && (await one.isVisible()), 'clicking the folder row hides its files, clicking again shows them');
+  await one.click();
+  await diffView.getByText('web/src/modules/deep/one.ts', { exact: true }).waitFor();
+  check((await one.getAttribute('aria-current')) === 'true', 'clicking one.ts in the tree opens its diff', await diffView.locator('[data-line="1"]').innerText());
+
+  await page.goto(`${base}/channels/${cid}`);
+  await page.getByRole('button', { name: /^Diff \+/ }).click();
+  await folder.waitFor({ timeout: 15000 });
+  check((await pressed('Tree view')) === 'true', 'Tree view survives a reload of the channel');
+  await panelFiles.getByRole('button', { name: 'A long.txt', exact: true }).click();
+  await last.waitFor({ state: 'attached' });
+  const treeTop = await wheel(diffView);
+  check(treeTop > 0, 'in Tree view at 1280x800 the wheel still scrolls the panel diff', `scrollTop=${treeTop}`);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${base}/channels/${cid}`);
+  await page.getByRole('button', { name: /^Diff \+/ }).click();
+  await panelFiles.getByText('long.txt').waitFor({ timeout: 15000 });
+  check(
+    (await panelFiles.getByRole('group', { name: 'File list view' }).count()) === 0 &&
+      (await panelFiles.getByRole('button', { name: 'A web/src/modules/deep/one.ts', exact: true }).count()) === 1,
+    'phone: no list/tree toggle, the chips show full paths',
+    (await rows()).slice(0, 4).join(', '),
+  );
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${base}/features/${featureId}/review`);
+  await folder.waitFor({ timeout: 15000 });
+  check((await pressed('Tree view')) === 'true', 'the review page opens in Tree view too');
+  await shot('tree-review');
+  await page.goto(`${base}/channels/${cid}`);
+  await page.getByRole('button', { name: /^Diff \+/ }).click();
   await page.setViewportSize({ width: 1200, height: 1000 });
   await main.getByRole('button', { name: 'Close diff' }).click();
   await main.getByRole('heading', { name: 'Changes', level: 1 }).waitFor({ state: 'hidden' });
