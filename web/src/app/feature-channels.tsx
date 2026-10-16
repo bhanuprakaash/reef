@@ -5,8 +5,10 @@ import { FeatureStageChip } from '@/app/feature-stage';
 import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { Row } from '@/components/row';
+import { StatusDot } from '@/components/status-dot';
 import { channelsQuery } from '@/lib/api/get-channels';
 import { useTeams } from '@/lib/api/get-teams';
+import { useRunningTurns } from '@/modules/channels/api/get-turns';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
@@ -134,6 +136,7 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
   const teams = useTeams();
   const inbox = useInbox();
   const tasks = useTasks();
+  const running = useRunningTurns();
 
   const waiting = inbox.data ?? [];
   const q = query.trim().toLowerCase();
@@ -153,9 +156,12 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
   const closedGroups = groups.filter((g) => g.feature.closedAt !== null);
   const quick = projectChannels.filter((c) => c.featureId === null && matches(c.name));
 
+  const working = new Map((running.data ?? []).map((t) => [t.channelId, t.role]));
+
   function channelRow(c: ChannelPreview, named: string) {
     const faces = roleFaces(teams.data, c.team);
     const roles = Object.keys(faces);
+    const role = working.get(c.id);
     return (
       <Row
         to={`/channels/${c.id}`}
@@ -173,6 +179,7 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
           </span>
         }
         title={named}
+        live={role ? <StatusDot status="working" label={`${role} is working`} /> : undefined}
         aside={c.lastMessage && rowTime(c.lastMessage.createdAt)}
         preview={c.lastMessage ? oneLine(c.lastMessage) : 'No messages yet'}
       />

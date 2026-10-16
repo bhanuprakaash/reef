@@ -18,7 +18,7 @@ import { useTasks } from '@/modules/tasks/api/get-tasks';
 type ViewProps = ComponentProps<typeof ChannelView>;
 
 function FeatureChannelView({ featureId, ...props }: ViewProps & { featureId: number }) {
-  const diff = useDiff(featureId);
+  const diff = useDiff(featureId, 'current');
   const briefs = useBriefVersions(featureId);
   return (
     <ChannelView
