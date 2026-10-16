@@ -190,14 +190,30 @@ for the app to exit, moves the running bundle to `update/previous.app` (replacin
 backup only), moves the staged app into the bundle's path, writes `update/pending` (old and new
 version) and opens the bundle. Quitting applies the swap but does not open the app again.
 
+Right after the app exits, so with `reef serve` stopped, the helper also copies `reef.db` (the
+folder `--data` points at, not the user data folder) to `update/previous.db` with
+`/usr/bin/sqlite3 ".backup"`, and with `cp` of the db, `-wal` and `-shm` when that fails. A
+rollback, in the app or in the helper, puts `previous.db` back over `reef.db` (dropping `-wal`
+and `-shm`) before it opens the old app, so a release that migrated the database and then
+failed leaves the old schema and data. When the new server listens, `previous.db` is deleted.
+`reef serve` already refuses a database newer than it knows (`migrate`), which stops an old
+binary from running on a newer schema if the backup is ever missing.
+
 If a move fails (the bundle cannot be moved aside, or the staged app cannot be moved into
 place), the helper puts the old bundle back, writes the new version to `update/failed` and opens
 the old app, which shows the same failed dialog and skips that version until it restarts.
 
-If the new app's `reef serve` exits before it listens while `pending` exists, the app starts a
-helper that puts `previous.app` back, writes `update/failed` and opens it, then exits; the old
-app shows "Update to 0.1.N failed to start; still on 0.1.M" and does not try that version again
-until it restarts. When the server does listen, `pending` is deleted.
+If the new app's `reef serve` exits before it listens, or has not listened after 60 s, while
+`pending` exists, the app kills the server and starts a helper that puts `previous.app` back,
+writes `update/failed` and opens it, then exits; the old app shows "Update to 0.1.N failed to
+start; still on 0.1.M" and does not try that version again until it restarts. When the server
+does listen, `pending` is deleted.
+
+A new app that never gets that far (its main process throws at start) cannot roll itself back.
+After `open`, the swap helper waits up to 90 s for `pending` to disappear. If it stays and
+`previous.app` exists, the helper kills the processes whose command line starts with the new
+bundle's path and rolls back the same way. Both paths first claim the rollback with an atomic
+`mv pending pending.taken`, so only one of them runs.
 
 ## Package
 

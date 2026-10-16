@@ -11,6 +11,7 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.REEF_PORT || (app.isPackaged ? '7700' : '7701');
 const ADDR = `127.0.0.1:${PORT}`;
 const SERVER_STOP_TIMEOUT = 5000;
+const LISTEN_TIMEOUT = 60 * 1000;
 const LOGIN_SHELL_TIMEOUT = 5000;
 const STDERR_TAIL = 64 * 1024;
 const SPLASH_MIN = 1200;
@@ -99,13 +100,26 @@ async function startServer(PATH) {
   // reef serve logs "listening on" only after it bound ADDR itself, so the window never opens
   // on another process that already answers there.
   const listening = new Promise((resolve) => {
+    // A server that never listens ends a first launch after an update with the old version back.
+    const timer = setTimeout(() => {
+      if (!updater.rollBack()) return;
+      quitting = true;
+      server.kill('SIGKILL');
+      app.exit(0);
+    }, LISTEN_TIMEOUT);
     server.stderr.on('data', (chunk) => {
       const text = chunk.toString();
       process.stderr.write(text);
       stderr = (stderr + text).slice(-STDERR_TAIL);
-      if (stderr.includes(`listening on ${ADDR}`)) resolve(true);
+      if (stderr.includes(`listening on ${ADDR}`)) {
+        clearTimeout(timer);
+        resolve(true);
+      }
     });
-    server.once('exit', () => resolve(false));
+    server.once('exit', () => {
+      clearTimeout(timer);
+      resolve(false);
+    });
   });
   server.on('exit', (code) => {
     if (quitting) return;
@@ -193,7 +207,7 @@ app.whenReady().then(async () => {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
   win.loadFile(path.join(__dirname, 'splash.html'));
-  updater = createUpdater(win, ADDR);
+  updater = createUpdater(win, ADDR, dataDir());
   const splashAt = Date.now();
   const PATH = await loginShellPath();
   if (win.isDestroyed()) return;
