@@ -154,19 +154,31 @@ func TestProjectRoundTrip(t *testing.T) {
 	status, body := do(t, http.MethodPost, ts.URL+"/projects",
 		fmt.Sprintf(`{"name":"reef","path":%q}`, firstPath))
 	if status != 201 || !strings.HasPrefix(body,
-		fmt.Sprintf(`{"id":1,"name":"reef","path":%q,"createdAt":"`, firstPath)) {
+		fmt.Sprintf(`{"id":1,"name":"reef","path":%q,"baseBranch":"","createdAt":"`, firstPath)) {
 		t.Fatalf("create = %d %s", status, body)
 	}
 
 	status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
 		fmt.Sprintf(`{"name":"reef2","path":%q}`, secondPath))
 	if status != 200 || !strings.HasPrefix(body,
-		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"createdAt":"`, secondPath)) {
+		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"baseBranch":"","createdAt":"`, secondPath)) {
 		t.Fatalf("update = %d %s", status, body)
 	}
 
 	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1", `{"name":"reef2","path":"/no/such/dir"}`); status != 400 {
 		t.Fatalf("update with a bad path = %d %s", status, body)
+	}
+
+	status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q,"baseBranch":"dev"}`, secondPath))
+	if status != 200 || !strings.HasPrefix(body,
+		fmt.Sprintf(`{"id":1,"name":"reef2","path":%q,"baseBranch":"dev","createdAt":"`, secondPath)) {
+		t.Fatalf("update with a base branch = %d %s", status, body)
+	}
+
+	if status, body = do(t, http.MethodPut, ts.URL+"/projects/1",
+		fmt.Sprintf(`{"name":"reef2","path":%q,"baseBranch":"a b"}`, secondPath)); status != 400 {
+		t.Fatalf("update with a bad base branch = %d %s", status, body)
 	}
 
 	status, body = do(t, http.MethodGet, ts.URL+"/projects", "")

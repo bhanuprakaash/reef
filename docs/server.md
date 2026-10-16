@@ -431,7 +431,7 @@ tool calls.
 | `GET /projects` | | 200 | |
 | `POST /projects` | `name`, `path` | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |
-| `PUT /projects/{id}` | `name`, `path` | 200 | 400 (same `path` rule), 404 |
+| `PUT /projects/{id}` | `name`, `path`, `baseBranch` (optional; the branch a new feature starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
 | `DELETE /projects/{id}` | | 204; the worktrees of its features and the checkpoint refs of the turns of all its channels are removed, its branches are kept | 404, 409 a feature's worktree has uncommitted changes (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200 | 404 |
@@ -452,7 +452,7 @@ tool calls.
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
 | `GET /features/{id}/worktree` | | 200 `{"path": "..."}`; the path of the feature's worktree, or `""` when it has none yet. Never makes one | 404 |
 | `POST /features/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the feature's worktree the same way the first wake of one of its channels would, reusing it when it already exists | 404 |
-| `GET /features/{id}/diff` | | 200 the worktree's changes against the commit its branch and the project's default branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
+| `GET /features/{id}/diff` | | 200 the worktree's changes against the commit its branch and the project's base branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
 | `GET /features/{id}/pr` | | 200 `{"pr": {"number", "title", "state": "OPEN"\|"MERGED"\|"CLOSED", "url", "isDraft", "reviewDecision", "base", "head", "canMerge", "checks": [{"name", "state": "pass"\|"fail"\|"pending"}], "body", "additions", "deletions", "files": [{"path", "additions", "deletions"}]}}`, from `gh pr view feature/<slug>` run in the project's folder; `canMerge` is true only when `state` is `OPEN` and gh calls it `MERGEABLE`; `{"pr": null}` when the branch has no PR | 404, 502 gh is not on `PATH` or failed, with its text |
 | `POST /features/{id}/pr/merge` | no body needed | 200 the same body as `GET /features/{id}/pr`, after `gh pr merge <number> --merge` (a merge commit) | 404 no feature or no PR, 409 gh refused, with its text, 502 |
 | `GET /skills?project={id}` | `project` is required | 200 `{"claude":[...],"codex":[...]}`, each a list of `{name, description}` read from disk, never stored. claude: `~/.claude/skills`, the project's `.claude/skills` and the skills of the plugins in `~/.claude/plugins/installed_plugins.json` installed for the user or for the project path, named `plugin:skill`. codex: `~/.agents/skills` and the project's `.agents/skills`. A name found twice is listed once; each list is ordered by name. A skill whose name is not letters, digits, `:`, `_` or `-`, or whose file cannot be read, is left out, and a malformed `installed_plugins.json` gives no plugin skills; each is logged and the rest are listed | 400 `project` missing or not a number, 404 |
@@ -530,8 +530,9 @@ a message wakes them.
   start short. The server logs every failed turn.
 - An agent of a channel under a feature runs in the feature's worktree,
   `<data folder>/worktrees/<project id>/<slug>`, on branch `feature/<slug>`. It is made at
-  the first start of any agent of the feature, from the project's default branch, with `git worktree
-  add`; a worktree or branch that exists is reused, so every channel of the feature shares
+  the first start of any agent of the feature, from the project's base branch (fetched from
+  `origin` first, a failed fetch is only logged; `origin/<branch>` if it exists, else the local
+  branch) or the repo's default branch when none is set, with `git worktree add`; a worktree or branch that exists is reused, so every channel of the feature shares
   one tree. A branch that is checked out elsewhere (in the main checkout, or in the worktree
   of another project on the same repo) cannot be added: the start fails with `branch
   feature/<slug> is checked out at <path>; switch that checkout to another branch`. A
@@ -944,7 +945,7 @@ reef serve --data /tmp/reef-demo
 
 ```
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/projects -d '{"name":"shop","path":"/tmp"}'
-{"id":1,"name":"shop","path":"/tmp","createdAt":"2026-10-13T09:00:00.123456Z"}
+{"id":1,"name":"shop","path":"/tmp","baseBranch":"","createdAt":"2026-10-13T09:00:00.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Login"}'
 {"id":1,"projectId":1,"slug":"login","name":"Login","goal":"","stage":"ideation","kind":"journey","createdAt":"2026-10-13T09:00:01.123456Z","closedAt":null}

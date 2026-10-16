@@ -2,6 +2,7 @@ export type Project = {
   id: number;
   name: string;
   path: string;
+  baseBranch: string;
   createdAt: string;
 };
 

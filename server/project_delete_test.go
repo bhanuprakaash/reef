@@ -27,7 +27,7 @@ func projectTrees(t *testing.T, env *liveEnv, login string) (repo, signup string
 	do(t, http.MethodPost, env.url+"/channels", `{"projectId":2,"featureId":2,"name":"s","backend":"claude"}`)
 	do(t, http.MethodPost, env.url+"/channels", `{"projectId":2,"name":"quick","backend":"claude"}`)
 	signup = worktree.Path(env.dir, 2, "signup")
-	if err := worktree.Ensure(ctx, main, signup, worktree.Branch("signup")); err != nil {
+	if err := worktree.Ensure(ctx, main, signup, worktree.Branch("signup"), ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {

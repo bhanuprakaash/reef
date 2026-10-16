@@ -349,7 +349,10 @@ func (s *Session) member(
 	}
 	var preamble string
 	if ctx.Err() == nil && slug != "" {
-		err = EnsureWorktree(ctx, s.trees, s.project.Path, cwd, slug)
+		var p store.Project
+		if p, err = s.st.Project(wctx, s.project.ID); err == nil {
+			err = EnsureWorktree(ctx, s.trees, p, cwd, slug)
+		}
 	}
 	switch {
 	case err != nil:

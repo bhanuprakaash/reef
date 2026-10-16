@@ -34,9 +34,9 @@ type Line struct {
 var _hunkHeader = regexp.MustCompile(`^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@`)
 
 // Base is the commit dir's worktree was made from: where its branch and repo's base branch
-// (the one Ensure branches from) last shared history.
-func Base(ctx context.Context, repo, dir string) (string, error) {
-	head, err := git(ctx, repo, "rev-parse", baseRef(ctx, repo))
+// (the one Ensure branches from for base) last shared history.
+func Base(ctx context.Context, repo, dir, base string) (string, error) {
+	head, err := git(ctx, repo, "rev-parse", baseRef(ctx, repo, base))
 	if err != nil {
 		return "", err
 	}

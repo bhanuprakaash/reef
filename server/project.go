@@ -105,6 +105,10 @@ func (s *server) updateProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if in.BaseBranch != "" && !worktree.ValidBranch(r.Context(), in.BaseBranch) {
+		writeError(w, fmt.Errorf("%w: base branch %q: not a branch name", store.ErrInvalid, in.BaseBranch))
+		return
+	}
 	p, err := s.st.UpdateProject(r.Context(), in)
 	if err != nil {
 		writeError(w, err)

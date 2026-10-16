@@ -5,12 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
+	"time"
 )
+
+const _fetchTimeout = 30 * time.Second
 
 // ErrNoCommit is returned by Checkpoint when there is nothing it can cleanly snapshot: a repo
 // whose HEAD has no commit yet, or one with an unmerged index mid-merge.
@@ -30,14 +34,22 @@ func Path(dataDir string, projectID int64, slug string) string {
 // Branch is the branch a feature works on.
 func Branch(slug string) string { return "feature/" + slug }
 
+// ValidBranch reports whether name can be a branch name. A leading dash is refused: name is
+// passed to git fetch as an argument.
+func ValidBranch(ctx context.Context, name string) bool {
+	return !strings.HasPrefix(name, "-") &&
+		exec.CommandContext(ctx, "git", "check-ref-format", "refs/heads/"+name).Run() == nil
+}
+
 // Ensure makes dir a worktree of repo on branch. It does nothing when dir already is one,
 // after finishing an add that was cut short: its folder was made and registered but the
-// checkout into it never ran. The branch is made from the base branch of repo (see baseRef),
-// or reused when it exists. A worktree whose folder is gone is made again. A repo with no
-// commit has no HEAD to make a branch from, and fails, as does a branch that another worktree
-// has checked out. The add itself runs under context.WithoutCancel, so a ctx cancelled while it
+// checkout into it never ran. The branch is made from base, the project's base branch, or from
+// the default branch of repo when base is empty (see baseRef), or reused when it exists. A new
+// branch from a base first fetches it from origin; a failed fetch is logged, not fatal. A
+// worktree whose folder is gone is made again. A repo with no commit has no HEAD to make a
+// branch from, and fails, as does a branch that another worktree has checked out. The add itself runs under context.WithoutCancel, so a ctx cancelled while it
 // is in flight does not leave another half-made tree.
-func Ensure(ctx context.Context, repo, dir, branch string) error {
+func Ensure(ctx context.Context, repo, dir, branch, base string) error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
 		return finishHalfAdd(ctx, dir)
 	}
@@ -47,8 +59,8 @@ func Ensure(ctx context.Context, repo, dir, branch string) error {
 	if _, err := git(ctx, repo, "worktree", "prune"); err != nil {
 		return err
 	}
-	args := []string{"worktree", "add", "-b", branch, dir, baseRef(ctx, repo)}
 	_, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", "refs/heads/"+branch)
+	var args []string
 	var exit *exec.ExitError
 	switch {
 	case err == nil:
@@ -62,15 +74,38 @@ func Ensure(ctx context.Context, repo, dir, branch string) error {
 		args = []string{"worktree", "add", dir, branch}
 	case !errors.As(err, &exit) || exit.ExitCode() != 1:
 		return err
+	default:
+		if base != "" {
+			fetch(ctx, repo, base)
+		}
+		args = []string{"worktree", "add", "-b", branch, dir, baseRef(ctx, repo, base)}
 	}
 	_, err = git(context.WithoutCancel(ctx), repo, args...)
 	return err
 }
 
+// fetch updates origin/branch in repo.
+func fetch(ctx context.Context, repo, branch string) {
+	ctx, cancel := context.WithTimeout(ctx, _fetchTimeout)
+	defer cancel()
+	env := []string{"GIT_TERMINAL_PROMPT=0"}
+	if _, err := gitEnv(ctx, repo, env, "fetch", "origin", branch); err != nil {
+		log.Printf("fetch base branch: %v", err)
+	}
+}
+
 // baseRef is the ref a feature branch starts from, so it does not inherit the commits of
-// whatever branch repo has checked out: the local branch origin/HEAD names, else local main,
-// else master, else HEAD.
-func baseRef(ctx context.Context, repo string) string {
+// whatever branch repo has checked out: origin/branch when it exists, else the local branch.
+// An empty branch, or one that exists in neither form, gives the local branch origin/HEAD
+// names, else local main, else master, else HEAD.
+func baseRef(ctx context.Context, repo, branch string) string {
+	if branch != "" {
+		for _, ref := range []string{"refs/remotes/origin/" + branch, "refs/heads/" + branch} {
+			if _, err := git(ctx, repo, "rev-parse", "--verify", "--quiet", ref); err == nil {
+				return ref
+			}
+		}
+	}
 	var names []string
 	if ref, err := git(ctx, repo, "symbolic-ref", "--short", "refs/remotes/origin/HEAD"); err == nil {
 		names = append(names, strings.TrimPrefix(ref, "origin/"))

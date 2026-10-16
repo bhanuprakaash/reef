@@ -41,7 +41,7 @@ func TestEnsure_NewBranch(t *testing.T) {
 	repo := newRepo(t)
 	dir := Path(t.TempDir(), 1, "login")
 
-	if err := Ensure(context.Background(), repo, dir, "feature/login"); err != nil {
+	if err := Ensure(context.Background(), repo, dir, "feature/login", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := run(t, dir, "branch", "--show-current"); got != "feature/login" {
@@ -63,7 +63,7 @@ func TestEnsure_BranchesFromMainNotCheckout(t *testing.T) {
 	run(t, repo, "commit", "-m", "other")
 	dir := Path(t.TempDir(), 1, "login")
 
-	if err := Ensure(context.Background(), repo, dir, "feature/login"); err != nil {
+	if err := Ensure(context.Background(), repo, dir, "feature/login", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := run(t, dir, "rev-parse", "HEAD"); got != main {
@@ -72,7 +72,7 @@ func TestEnsure_BranchesFromMainNotCheckout(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(dir, "other.txt")); !os.IsNotExist(err) {
 		t.Errorf("other.txt in the feature worktree, err = %v; want it absent", err)
 	}
-	if got, err := Base(context.Background(), repo, dir); err != nil || got != main {
+	if got, err := Base(context.Background(), repo, dir, ""); err != nil || got != main {
 		t.Errorf("Base = %q, %v; want main's %q", got, err, main)
 	}
 }
@@ -81,7 +81,7 @@ func TestEnsure_ReusesWorktree(t *testing.T) {
 	repo := newRepo(t)
 	dir := Path(t.TempDir(), 1, "login")
 	for range 2 {
-		if err := Ensure(context.Background(), repo, dir, "feature/login"); err != nil {
+		if err := Ensure(context.Background(), repo, dir, "feature/login", ""); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -95,7 +95,7 @@ func TestEnsure_ReusesBranch(t *testing.T) {
 	run(t, repo, "branch", "feature/login")
 	dir := Path(t.TempDir(), 1, "login")
 
-	if err := Ensure(context.Background(), repo, dir, "feature/login"); err != nil {
+	if err := Ensure(context.Background(), repo, dir, "feature/login", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := run(t, dir, "branch", "--show-current"); got != "feature/login" {
@@ -105,7 +105,7 @@ func TestEnsure_ReusesBranch(t *testing.T) {
 
 func TestEnsure_NotARepo(t *testing.T) {
 	repo := t.TempDir()
-	err := Ensure(context.Background(), repo, filepath.Join(t.TempDir(), "w"), "feature/login")
+	err := Ensure(context.Background(), repo, filepath.Join(t.TempDir(), "w"), "feature/login", "")
 	want := "features need the project folder to be a git repo with a commit: " + repo + ": "
 	if err == nil || !strings.HasPrefix(err.Error(), want) || !strings.Contains(err.Error(), "not a git repository") {
 		t.Errorf("Ensure error = %v, want %q then git's error", err, want)
@@ -115,7 +115,7 @@ func TestEnsure_NotARepo(t *testing.T) {
 func TestEnsure_NoCommit(t *testing.T) {
 	repo := t.TempDir()
 	run(t, repo, "init", "-b", "main")
-	err := Ensure(context.Background(), repo, filepath.Join(t.TempDir(), "w"), "feature/login")
+	err := Ensure(context.Background(), repo, filepath.Join(t.TempDir(), "w"), "feature/login", "")
 	want := "features need the project folder to be a git repo with a commit: " + repo + ": "
 	if err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Errorf("Ensure error = %v, want one starting %q", err, want)
@@ -127,7 +127,7 @@ func TestEnsure_BranchCheckedOutInMainCheckout(t *testing.T) {
 	run(t, repo, "checkout", "-b", "feature/login")
 	dir := filepath.Join(t.TempDir(), "w")
 
-	err := Ensure(context.Background(), repo, dir, "feature/login")
+	err := Ensure(context.Background(), repo, dir, "feature/login", "")
 	want := "branch feature/login is checked out at " + repo + "; switch that checkout to another branch"
 	if err == nil || err.Error() != want {
 		t.Errorf("Ensure error = %v, want %q", err, want)
@@ -140,7 +140,7 @@ func TestEnsure_BranchCheckedOutInOtherWorktree(t *testing.T) {
 	run(t, repo, "worktree", "add", "-b", "feature/login", other)
 	dir := filepath.Join(t.TempDir(), "w")
 
-	err := Ensure(context.Background(), repo, dir, "feature/login")
+	err := Ensure(context.Background(), repo, dir, "feature/login", "")
 	want := "branch feature/login is checked out at " + other + "; switch that checkout to another branch"
 	if err == nil || err.Error() != want {
 		t.Errorf("Ensure error = %v, want %q", err, want)
@@ -150,7 +150,7 @@ func TestEnsure_BranchCheckedOutInOtherWorktree(t *testing.T) {
 func TestEnsure_RecreatesRemovedWorktree(t *testing.T) {
 	repo := newRepo(t)
 	dir := Path(t.TempDir(), 1, "login")
-	if err := Ensure(context.Background(), repo, dir, "feature/login"); err != nil {
+	if err := Ensure(context.Background(), repo, dir, "feature/login", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("b"), 0o644); err != nil {
@@ -163,7 +163,7 @@ func TestEnsure_RecreatesRemovedWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Ensure(context.Background(), repo, dir, "feature/login"); err != nil {
+	if err := Ensure(context.Background(), repo, dir, "feature/login", ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := run(t, dir, "rev-parse", "HEAD"); got != work {
@@ -177,7 +177,7 @@ func TestEnsure_RecreatesRemovedWorktree(t *testing.T) {
 func TestEnsure_RepairsHalfTree(t *testing.T) {
 	repo := newRepo(t)
 	dir := Path(t.TempDir(), 1, "login")
-	if err := Ensure(context.Background(), repo, dir, "feature/login"); err != nil {
+	if err := Ensure(context.Background(), repo, dir, "feature/login", ""); err != nil {
 		t.Fatal(err)
 	}
 	index := run(t, dir, "rev-parse", "--path-format=absolute", "--git-path", "index")
@@ -188,7 +188,7 @@ func TestEnsure_RepairsHalfTree(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := Ensure(context.Background(), repo, dir, "feature/login"); err != nil {
+	if err := Ensure(context.Background(), repo, dir, "feature/login", ""); err != nil {
 		t.Fatal(err)
 	}
 

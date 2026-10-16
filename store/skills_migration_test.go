@@ -42,6 +42,9 @@ func TestMigrateSkillsToList(t *testing.T) {
 			if _, err := s.db.Exec("PRAGMA user_version = 22"); err != nil {
 				t.Fatal(err)
 			}
+			if _, err := s.db.Exec("ALTER TABLE project DROP COLUMN base_branch"); err != nil {
+				t.Fatal(err)
+			}
 			if _, err := s.db.Exec("UPDATE role SET persona = ?, skills = ?", tt.persona, tt.skills); err != nil {
 				t.Fatal(err)
 			}
