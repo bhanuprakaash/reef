@@ -72,8 +72,8 @@ export function TaskList({ tasks, projects = [], features, compact, allProjects 
                         aria-label={task.title}
                         className={`accent-pill ${compact ? 'size-4' : 'size-[18px]'}`}
                         checked={done}
-                        disabled={done || update.isPending}
-                        onChange={() => update.mutate({ task, status: 'done' })}
+                        disabled={update.isPending}
+                        onChange={() => update.mutate({ task, status: done ? 'todo' : 'done' })}
                       />
                       <Link
                         to={`/tasks/${task.id}`}

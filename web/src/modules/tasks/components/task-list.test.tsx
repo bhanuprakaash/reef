@@ -42,6 +42,13 @@ describe('TaskList', () => {
     expect(markup).not.toMatch(/<label[^>]*>(?:(?!<\/label>).)*<a /s);
   });
 
+  it('shows a done task checked and enabled so it can be unticked', () => {
+    const markup = render([{ ...task, status: 'done' }]);
+
+    expect(markup).toMatch(/<input [^>]*checked=""/);
+    expect(markup).not.toMatch(/<input [^>]*disabled/);
+  });
+
   it('shows a status pill for doing only', () => {
     expect(render()).not.toContain('todo');
     expect(render([{ ...task, status: 'doing' }])).toContain('doing');

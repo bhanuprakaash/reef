@@ -48,16 +48,18 @@ export function TaskFilters({
           ...shownFeatures.map((f) => ({ value: String(f.id), label: f.name })),
         ]}
       />
-      <SegmentedControl
-        label="Status"
-        options={[
-          { value: 'open', label: 'Open' },
-          { value: 'done', label: 'Done' },
-          { value: 'all', label: 'All' },
-        ]}
-        value={status}
-        onChange={(v) => onChange('status', v === 'open' ? '' : v)}
-      />
+      {view === 'list' && (
+        <SegmentedControl
+          label="Status"
+          options={[
+            { value: 'open', label: 'Open' },
+            { value: 'done', label: 'Done' },
+            { value: 'all', label: 'All' },
+          ]}
+          value={status}
+          onChange={(v) => onChange('status', v === 'open' ? '' : v)}
+        />
+      )}
       <SegmentedControl
         className="ml-auto"
         label="View"

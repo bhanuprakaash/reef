@@ -64,7 +64,7 @@ export function TasksPage() {
       />
       {tasks.isError && <p className="text-sm text-danger">{tasks.error.message}</p>}
       {view === 'board' ? (
-        <TaskBoard tasks={shown ?? []} features={features.data ?? []} />
+        <TaskBoard tasks={tasks.data ?? []} features={features.data ?? []} />
       ) : (
         <TaskList
           tasks={shown ?? []}
