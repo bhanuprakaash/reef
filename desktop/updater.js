@@ -9,36 +9,48 @@ const ASSET = 'Reef-mac-arm64.zip';
 const CHECK_EVERY = 60 * 60 * 1000;
 const IDLE_EVERY = 60 * 1000;
 const TIMEOUT = 10 * 60 * 1000;
+const OPEN_WATCH = 90;
 
 const run = promisify(execFile);
 
-// Both scripts run after this app has exited, in a helper that outlives it, because a running
-// app cannot replace its own bundle. Arguments: pid, bundle, previous.app, then the rest.
+// The scripts run after this app has exited, in a helper that outlives it, because a running
+// app cannot replace its own bundle. Arguments: pid, bundle, previous.app, failed marker, the
+// version that failed, pending marker; the swap adds the staged app, the old version and "open".
 const WAIT = String.raw`trap '' HUP TERM
 while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
 `;
-// $4 staged app, $5 pending marker, $6 and $7 old and new version, $8 failed marker, $9 "open".
+// Whoever moved pending to pending.taken owns the rollback, so the app and the swap helper
+// never both run it.
+const RESTORE = String.raw`rm -rf "$2" && mv "$3" "$2" && printf '%s\n' "$5" > "$4"
+rm -f "$6.taken"
+open "$2"
+`;
 const SWAP =
   WAIT +
   String.raw`rm -rf "$3"
 if mv "$2" "$3"; then
-  if ! { printf '%s %s\n' "$6" "$7" > "$5" && mv "$4" "$2"; }; then
+  if ! { printf '%s %s\n' "$8" "$5" > "$6" && mv "$7" "$2"; }; then
     mv "$3" "$2"
-    rm -f "$5"
-    printf '%s\n' "$7" > "$8"
+    rm -f "$6"
+    printf '%s\n' "$5" > "$4"
   fi
 else
-  printf '%s\n' "$7" > "$8"
+  printf '%s\n' "$5" > "$4"
 fi
-rm -rf "$(dirname "$4")"
-[ "$9" = open ] && open "$2"
+rm -rf "$(dirname "$7")"
+if [ "$9" = open ]; then
+  open "$2"
+  i=0
+  while [ -e "$6" ] && [ "$i" -lt ${OPEN_WATCH} ]; do sleep 1; i=$((i+1)); done
+  if [ -d "$3" ] && mv "$6" "$6.taken" 2>/dev/null; then
+    pkill -KILL -f "^$(printf '%s/Contents/' "$2" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+    sleep 1
+    ` +
+  RESTORE +
+  String.raw`  fi
+fi
 `;
-// $4 failed marker, $5 the version that failed.
-const ROLLBACK =
-  WAIT +
-  String.raw`rm -rf "$2" && mv "$3" "$2" && printf '%s\n' "$5" > "$4"
-open "$2"
-`;
+const ROLLBACK = WAIT + RESTORE;
 
 function parse(version) {
   const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(version);
@@ -64,6 +76,7 @@ export function createUpdater(win, addr) {
   const incoming = path.join(dir, 'incoming');
   const previous = path.join(dir, 'previous.app');
   const pending = path.join(dir, 'pending');
+  const taken = `${pending}.taken`;
   const failed = path.join(dir, 'failed');
   const idleFile = path.join(app.getPath('userData'), 'update-when-idle');
   const bundle = path.resolve(process.execPath, '../../..');
@@ -107,7 +120,7 @@ export function createUpdater(win, addr) {
     const stagedPath = stagedApp();
     if (!staged || !stagedPath || swapping) return false;
     swapping = true;
-    helper(SWAP, [stagedPath, pending, app.getVersion(), staged, failed, open ? 'open' : '']);
+    helper(SWAP, [failed, staged, pending, stagedPath, app.getVersion(), open ? 'open' : '']);
     return true;
   }
 
@@ -202,8 +215,12 @@ export function createUpdater(win, addr) {
     rollBack() {
       const versions = read(pending)?.split(' ');
       if (!versions || !fs.existsSync(previous)) return false;
-      fs.rmSync(pending);
-      helper(ROLLBACK, [failed, versions[1]]);
+      try {
+        fs.renameSync(pending, taken);
+      } catch {
+        return false;
+      }
+      helper(ROLLBACK, [failed, versions[1], pending]);
       return true;
     },
     applyOnQuit() {

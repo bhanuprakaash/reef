@@ -194,10 +194,17 @@ If a move fails (the bundle cannot be moved aside, or the staged app cannot be m
 place), the helper puts the old bundle back, writes the new version to `update/failed` and opens
 the old app, which shows the same failed dialog and skips that version until it restarts.
 
-If the new app's `reef serve` exits before it listens while `pending` exists, the app starts a
-helper that puts `previous.app` back, writes `update/failed` and opens it, then exits; the old
-app shows "Update to 0.1.N failed to start; still on 0.1.M" and does not try that version again
-until it restarts. When the server does listen, `pending` is deleted.
+If the new app's `reef serve` exits before it listens, or has not listened after 60 s, while
+`pending` exists, the app kills the server and starts a helper that puts `previous.app` back,
+writes `update/failed` and opens it, then exits; the old app shows "Update to 0.1.N failed to
+start; still on 0.1.M" and does not try that version again until it restarts. When the server
+does listen, `pending` is deleted.
+
+A new app that never gets that far (its main process throws at start) cannot roll itself back.
+After `open`, the swap helper waits up to 90 s for `pending` to disappear. If it stays and
+`previous.app` exists, the helper kills the processes whose command line starts with the new
+bundle's path and rolls back the same way. Both paths first claim the rollback with an atomic
+`mv pending pending.taken`, so only one of them runs.
 
 ## Package
 
