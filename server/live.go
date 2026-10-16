@@ -83,7 +83,7 @@ type live struct {
 	hops  int
 	held  []wake
 	retry *retry
-	// queued is the wakes that arrived while a message chain runs; the chain runs them after
+	// queued is the wakes that arrived while a chain starts or runs; the chain runs them after
 	// its current turn, or gives them back when it ends first.
 	queued []wake
 	// dropped counts the frames of earlier chains of turns, cut from the front of frames.
@@ -786,12 +786,26 @@ func (s *server) close() {
 func (c *chain) release(err error) error {
 	c.cancel()
 	c.l.mu.Lock()
+	c.dropQueuedLocked()
 	c.l.state, c.l.cancel = _idle, nil
 	close(c.done)
 	c.l.mu.Unlock()
 	c.s.dropIdle(c.id, c.l, false)
 	c.s.wg.Done()
 	return err
+}
+
+// dropQueuedLocked empties the queue of a chain that ends: a queued approval goes back to
+// pending, a queued message wake to held.
+func (c *chain) dropQueuedLocked() {
+	for _, w := range c.l.queued {
+		if w.approval == 0 {
+			c.l.held = append(c.l.held, w)
+		} else if err := c.s.st.ReopenApproval(context.WithoutCancel(c.ctx), w.approval); err != nil {
+			log.Printf("reopen approval %d of channel %d: %v", w.approval, c.id, err)
+		}
+	}
+	c.l.queued = nil
 }
 
 // lift clears the pause in ch and sets its budget, and has start do the same in the store.
@@ -883,14 +897,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) 
 	defer s.wg.Done()
 	defer s.inboxChanged()
 	finishLocked := func() {
-		for _, w := range l.queued {
-			if w.approval == 0 {
-				l.held = append(l.held, w)
-			} else if err := s.st.ReopenApproval(context.WithoutCancel(c.ctx), w.approval); err != nil {
-				log.Printf("reopen approval %d of channel %d: %v", w.approval, c.id, err)
-			}
-		}
-		l.queued = nil
+		c.dropQueuedLocked()
 		l.cancel()
 		l.state, l.cancel = _idle, nil
 		close(c.done)
@@ -971,12 +978,12 @@ func (l *live) running() bool {
 	return l.state == _running && l.kind == _message
 }
 
-// queue adds w to the wakes the running message chain runs next. It reports false, adding
-// nothing, when no message chain is running.
+// queue adds w, an approved wake, to the wakes the starting or running chain runs next. It
+// reports false, adding nothing, when no chain is starting or running.
 func (l *live) queue(w wake) bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.state != _running || l.kind != _message {
+	if l.state != _starting && l.state != _running {
 		return false
 	}
 	l.queued = append(l.queued, w)
