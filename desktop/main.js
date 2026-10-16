@@ -218,6 +218,7 @@ app.whenReady().then(async () => {
   const ok = await startServer(PATH);
   if (!ok) return;
   updater.start();
+  if (quitting) return;
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
@@ -267,5 +268,4 @@ app.on('before-quit', (event) => {
   if (browser) browser.close();
   if (terminals) terminals.killAll();
   stopServer().then(() => app.quit());
-  if (updater) updater.applyOnQuit();
 });

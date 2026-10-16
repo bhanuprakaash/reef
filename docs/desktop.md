@@ -188,10 +188,12 @@ update is staged (a download may still be running).
 folder) applies a staged update by itself: every minute the app reads `GET /status` of its
 `reef serve` and applies when `running` is 0.
 
-Applying (Restart, idle, or quitting with an update staged) starts a detached `/bin/sh` that waits
-for the app to exit, moves the running bundle to `update/previous.app` (replacing the old one: one
-backup only), moves the staged app into the bundle's path, writes `update/pending` (old and new
-version) and opens the bundle. Quitting applies the swap but does not open the app again.
+A staged update applies at the next launch, or at once through Restart or "Update when idle".
+Applying starts a detached `/bin/sh` that waits for the app to exit, moves the running bundle to
+`update/previous.app` (replacing the old one: one backup only), moves the staged app into the
+bundle's path, writes `update/pending` (old and new version) and opens the bundle. A quit leaves
+the update staged: the next launch, once its `reef serve` is listening, applies it by the same
+watched path as Restart, so a release whose main process throws still rolls back.
 
 Right after the app exits, so with `reef serve` stopped, the helper also copies `reef.db` (the
 folder `--data` points at, not the user data folder) to `update/previous.db` with
