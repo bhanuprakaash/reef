@@ -53,10 +53,7 @@ export function TaskList({ tasks, projects = [], features, compact, allProjects 
           <section key={key}>
             {features && (
               <h2 className="px-[18px] pt-3.5 pb-1.5 text-[12.5px] font-normal text-muted">
-                {groupName(group[0])}{' '}
-                <span className="text-faint">
-                  {group.filter((t) => t.status !== 'done').length}
-                </span>
+                {groupName(group[0])} <span className="text-faint">{group.length}</span>
               </h2>
             )}
             <ul>
