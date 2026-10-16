@@ -889,7 +889,7 @@ async function diff() {
     await panelFiles.innerText(),
   );
   await scope.getByRole('button', { name: 'Full diff' }).click();
-  await main.getByText('new.txt').first().waitFor({ timeout: 15000 });
+  await panelFiles.getByText('new.txt').waitFor({ timeout: 15000 });
   await shot('panel-full');
   check(
     (await panelFiles.innerText()).replace(/\s+/g, ' ') === 'A later.txt A new.txt' &&
@@ -899,9 +899,35 @@ async function diff() {
   );
   const current = await getJson(`/features/${featureId}/diff?scope=current`);
   check(current.length === 1 && current[0].path === 'later.txt', 'GET /features/{id}/diff?scope=current returns only the uncommitted file', JSON.stringify(current));
+  await page.setViewportSize({ width: 1280, height: 800 });
+  for (let i = 0; i < 32; i++) writeFileSync(path.join(tree, `many-${String(i).padStart(2, '0')}.txt`), 'x\n');
+  writeFileSync(path.join(tree, 'long.txt'), Array.from({ length: 400 }, (_, i) => `line ${i + 1}\n`).join(''));
+  await panelFiles.getByText('long.txt').click({ timeout: 15000 });
+  const diffView = main.getByRole('region', { name: 'Diff' });
+  const last = diffView.locator('[data-path="long.txt"][data-line="400"]');
+  await last.waitFor({ state: 'attached' });
+  const wheel = async (box) => {
+    const b = await box.boundingBox();
+    await page.mouse.move(b.x + b.width / 2, b.y + Math.min(b.height, 800 - b.y) / 2);
+    await page.mouse.wheel(0, 20000);
+    await page.waitForTimeout(300);
+    return box.evaluate((e) => e.scrollTop);
+  };
+  const diffTop = await wheel(diffView);
+  const lastBox = await last.boundingBox();
+  const headerBox = await main.getByRole('heading', { name: 'Changes', level: 1 }).boundingBox();
+  await shot('panel-scroll');
+  check(
+    diffTop > 0 && lastBox.y + lastBox.height <= 800 && headerBox.y >= 0,
+    'at 1280x800 the wheel scrolls the panel diff to the last line of a 400-line file, header stays',
+    `scrollTop=${diffTop} last=${JSON.stringify(lastBox)} header=${JSON.stringify(headerBox)}`,
+  );
+  const filesTop = await wheel(panelFiles);
+  check(filesTop > 0, 'the wheel scrolls the panel file list of 35 files on its own', `scrollTop=${filesTop}`);
+  await page.setViewportSize({ width: 1200, height: 1000 });
   await main.getByRole('button', { name: 'Close diff' }).click();
   await main.getByRole('heading', { name: 'Changes', level: 1 }).waitFor({ state: 'hidden' });
-  await page.getByRole('button', { name: /^Diff \+2/ }).click();
+  await page.getByRole('button', { name: /^Diff \+/ }).click();
   await main.getByRole('link', { name: 'Expand diff' }).click();
   await page.waitForURL(`**/features/${featureId}/review`);
   check(true, "the panel's expand button opens the full review page", page.url());
