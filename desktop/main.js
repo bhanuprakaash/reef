@@ -9,6 +9,13 @@ import { createUpdater } from './updater.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+// app.quit(), not app.exit(), so before-quit still stops reef serve, the browser and the panes.
+process.on('uncaughtException', (error) => {
+  console.error(error);
+  dialog.showErrorBox('Reef stopped unexpectedly', error.stack || error.message);
+  app.quit();
+});
+
 // Both copies are the same package, so without this Electron gives them one user data folder.
 if (!app.isPackaged) app.setPath('userData', path.join(app.getPath('appData'), 'reef-desktop-dev'));
 
