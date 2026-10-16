@@ -16,17 +16,31 @@ const run = promisify(execFile);
 // The scripts run after this app has exited, in a helper that outlives it, because a running
 // app cannot replace its own bundle. Arguments: pid, bundle, previous.app, failed marker, the
 // version that failed, pending marker; the swap adds the staged app, the old version and "open".
+// REEF_DB and REEF_DB_BACKUP are the database and its copy from before the swap.
 const WAIT = String.raw`trap '' HUP TERM
 while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
+`;
+const BACKUP = String.raw`rm -f "$REEF_DB_BACKUP" "$REEF_DB_BACKUP-wal" "$REEF_DB_BACKUP-shm"
+if [ -f "$REEF_DB" ]; then
+  /usr/bin/sqlite3 "$REEF_DB" ".backup '$REEF_DB_BACKUP'" 2>/dev/null || {
+    rm -f "$REEF_DB_BACKUP"
+    for s in "" -wal -shm; do [ -f "$REEF_DB$s" ] && cp "$REEF_DB$s" "$REEF_DB_BACKUP$s"; done
+  }
+fi
 `;
 // Whoever moved pending to pending.taken owns the rollback, so the app and the swap helper
 // never both run it.
 const RESTORE = String.raw`rm -rf "$2" && mv "$3" "$2" && printf '%s\n' "$5" > "$4"
+if [ -f "$REEF_DB_BACKUP" ]; then
+  rm -f "$REEF_DB" "$REEF_DB-wal" "$REEF_DB-shm"
+  for s in "" -wal -shm; do [ -f "$REEF_DB_BACKUP$s" ] && mv "$REEF_DB_BACKUP$s" "$REEF_DB$s"; done
+fi
 rm -f "$6.taken"
 open "$2"
 `;
 const SWAP =
   WAIT +
+  BACKUP +
   String.raw`rm -rf "$3"
 if mv "$2" "$3"; then
   if ! { printf '%s %s\n' "$8" "$5" > "$6" && mv "$7" "$2"; }; then
@@ -70,13 +84,14 @@ function read(file) {
   }
 }
 
-export function createUpdater(win, addr) {
+export function createUpdater(win, addr, dataDir) {
   const dir = path.join(app.getPath('userData'), 'update');
   const stagedDir = path.join(dir, 'staged');
   const incoming = path.join(dir, 'incoming');
   const previous = path.join(dir, 'previous.app');
   const pending = path.join(dir, 'pending');
   const taken = `${pending}.taken`;
+  const backupDb = path.join(dir, 'previous.db');
   const failed = path.join(dir, 'failed');
   const idleFile = path.join(app.getPath('userData'), 'update-when-idle');
   const bundle = path.resolve(process.execPath, '../../..');
@@ -91,6 +106,7 @@ export function createUpdater(win, addr) {
     spawn('/bin/sh', ['-c', script, 'sh', String(process.pid), bundle, previous, ...args], {
       detached: true,
       stdio: 'ignore',
+      env: { ...process.env, REEF_DB: path.join(dataDir, 'reef.db'), REEF_DB_BACKUP: backupDb },
     }).unref();
   }
 
@@ -194,6 +210,9 @@ export function createUpdater(win, addr) {
   return {
     start() {
       fs.rmSync(pending, { force: true });
+      if (!fs.existsSync(taken)) {
+        for (const suffix of ['', '-wal', '-shm']) fs.rmSync(backupDb + suffix, { force: true });
+      }
       const failedVersion = read(failed);
       if (failedVersion) {
         fs.rmSync(failed);

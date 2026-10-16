@@ -207,7 +207,7 @@ app.whenReady().then(async () => {
     webPreferences: { preload: path.join(__dirname, 'preload.cjs') },
   });
   win.loadFile(path.join(__dirname, 'splash.html'));
-  updater = createUpdater(win, ADDR);
+  updater = createUpdater(win, ADDR, dataDir());
   const splashAt = Date.now();
   const PATH = await loginShellPath();
   if (win.isDestroyed()) return;

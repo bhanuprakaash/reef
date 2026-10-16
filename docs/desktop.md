@@ -190,6 +190,15 @@ for the app to exit, moves the running bundle to `update/previous.app` (replacin
 backup only), moves the staged app into the bundle's path, writes `update/pending` (old and new
 version) and opens the bundle. Quitting applies the swap but does not open the app again.
 
+Right after the app exits, so with `reef serve` stopped, the helper also copies `reef.db` (the
+folder `--data` points at, not the user data folder) to `update/previous.db` with
+`/usr/bin/sqlite3 ".backup"`, and with `cp` of the db, `-wal` and `-shm` when that fails. A
+rollback, in the app or in the helper, puts `previous.db` back over `reef.db` (dropping `-wal`
+and `-shm`) before it opens the old app, so a release that migrated the database and then
+failed leaves the old schema and data. When the new server listens, `previous.db` is deleted.
+`reef serve` already refuses a database newer than it knows (`migrate`), which stops an old
+binary from running on a newer schema if the backup is ever missing.
+
 If a move fails (the bundle cannot be moved aside, or the staged app cannot be moved into
 place), the helper puts the old bundle back, writes the new version to `update/failed` and opens
 the old app, which shows the same failed dialog and skips that version until it restarts.
