@@ -230,6 +230,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 69 | No role has a tool call cap; a turn runs until the agent ends it, Stop, or the token budget. Replaces 59 | The cap paused read-only roles mid-work as often as it stopped loops; Stop and the token budget already bound a turn |
 | 70 | A project may name a base branch, set on its page. A new feature worktree fetches it from `origin` and branches from `origin/<base>` (else the local branch); the feature diff and the agents' context use the same branch. Empty keeps decision 60. Existing feature branches are not moved. Extends 60 | sm2 work targets `dev`, not the default `main`, and a stale local branch gave stale features |
 | 71 | A message or an approval that arrives while a message chain runs joins that chain's queue and runs after the current turn; turns still run one at a time. A wrap or promote turn running still refuses both. Extends 26 | The user and the lead can talk while a teammate works, and a busy channel must not lose an approval |
+| 72 | An approval that arrives while any chain starts or runs, a wrap or promote one included, joins that chain's queue and runs after its turn; if the chain ends or never starts, the approval is pending again. Messages keep decision 71. Extends 71 | Approving a gated wake while the channel was starting or wrapping up was 409 for no reason the user could act on |
 
 ## Open questions
 
