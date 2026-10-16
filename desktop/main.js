@@ -7,7 +7,7 @@ import { createBrowser } from './browser.js';
 import { createTerminals } from './terminal.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PORT = process.env.REEF_PORT || '7700';
+const PORT = process.env.REEF_PORT || (app.isPackaged ? '7700' : '7701');
 const ADDR = `127.0.0.1:${PORT}`;
 const SERVER_STOP_TIMEOUT = 5000;
 const LOGIN_SHELL_TIMEOUT = 5000;
@@ -15,10 +15,11 @@ const STDERR_TAIL = 64 * 1024;
 const SPLASH_MIN = 1200;
 const SPLASH_FADE = 250;
 
-// The same default data folder reef serve uses: os.UserConfigDir()/Reef in
-// Go is app.getPath('appData') + '/Reef' in Electron on both Mac and Linux.
+// The packaged app's default is the one reef serve uses: os.UserConfigDir()/Reef in Go is
+// app.getPath('appData') + '/Reef' in Electron on both Mac and Linux. The dev copy gets its own
+// folder so it never shares the installed app's data or lock.
 function dataDir() {
-  return path.join(app.getPath('appData'), 'Reef');
+  return process.env.REEF_DATA || path.join(app.getPath('appData'), app.isPackaged ? 'Reef' : 'Reef Dev');
 }
 
 // The web app's own colours, so a window is never another colour while the page loads.
@@ -88,7 +89,7 @@ let server = null;
 let quitting = false;
 
 async function startServer(PATH) {
-  server = spawn(reefPath(), ['serve', '--addr', ADDR], {
+  server = spawn(reefPath(), ['serve', '--addr', ADDR, '--data', dataDir()], {
     env: { ...process.env, PATH },
     stdio: ['ignore', 'ignore', 'pipe'],
   });

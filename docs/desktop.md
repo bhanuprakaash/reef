@@ -21,15 +21,19 @@ packaged app the `reef` binary ships inside the app's resources instead.
   found even when the app is opened from Finder, not a terminal. A shell that fails to run, or
   takes more than 5 seconds (an rc file waiting on stdin), falls back to the PATH Electron
   already has.
-- Starts its own `reef serve` on `127.0.0.1:7700` with that `PATH`, in the dev binary
-  (`desktop/bin/reef`) or, once packaged, the bundled one. It loads the app only after
-  that server logs `listening on 127.0.0.1:7700`, so it never trusts another process that
-  already holds the port. `REEF_PORT` sets another port, so a second app (a test run) can run
-  beside the first with its own `HOME`; the pane refuses that port instead of 7700.
+- Starts its own `reef serve` on `127.0.0.1:7700` (the installed app) or `127.0.0.1:7701` (the
+  dev copy, `npm start`) with that `PATH`, in the dev binary (`desktop/bin/reef`) or, once
+  packaged, the bundled one. It loads the app only after that server logs
+  `listening on 127.0.0.1:<port>`, so it never trusts another process that already holds the
+  port. `REEF_PORT` sets another port; the pane refuses that port instead of 7700.
+- Passes `--data` to `reef serve`: `REEF_DATA` if set, else `~/Library/Application Support/Reef`
+  (the installed app) or `~/Library/Application Support/Reef Dev` (the dev copy). So the dev copy
+  runs beside the installed app with its own port, data and lock, and a second app (a test run)
+  can run beside either one with its own `REEF_PORT` and `REEF_DATA`.
 - Opens the window at once on a local splash page ([`desktop/splash.html`](../desktop/splash.html),
   no server needed: the jelly, "reef" and "Starting reef serve..."). When the server is
   listening and the splash has shown for at least 1.2 s, the jelly and text fade out and the
-  window loads `http://127.0.0.1:7700`, which serves the same UI as a browser pointed at
+  window loads `http://127.0.0.1:<port>`, which serves the same UI as a browser pointed at
   a `reef serve` started by hand (see [server.md](server.md#web-ui)). The splash, the window and
   the app share one background colour (the app's main colour for its theme), and the app fades
   in on its first paint, so the handoff has no jump in colour. The web app reports its theme
@@ -71,7 +75,7 @@ directly, not through `reef serve`. A stale socket from a crash is unlinked befo
 listens again.
 
 `navigate` only opens `http:` and `https:` URLs, and refuses Reef's own server (host
-`127.0.0.1`, `localhost` or `[::1]`, port 7700), with `refused: the browser pane cannot open
+`127.0.0.1`, `localhost` or `[::1]`, Reef's own port: 7700, or 7701 in the dev copy), with `refused: the browser pane cannot open
 Reef itself`: otherwise an agent could open Reef's own UI and approve its own proposals. The same
 check blocks a link or a redirect inside the page that targets Reef's origin, and denies any
 `window.open`, opening the URL in the pane itself instead of a new window. The main window has
