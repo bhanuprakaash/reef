@@ -29,7 +29,10 @@ packaged app the `reef` binary ships inside the app's resources instead.
 - Passes `--data` to `reef serve`: `REEF_DATA` if set, else `~/Library/Application Support/Reef`
   (the installed app) or `~/Library/Application Support/Reef Dev` (the dev copy). So the dev copy
   runs beside the installed app with its own port, data and lock, and a second app (a test run)
-  can run beside either one with its own `REEF_PORT` and `REEF_DATA`.
+  can run beside either one with its own `REEF_PORT` and `REEF_DATA`. Electron gives a package
+  one user data folder, and both copies are the same package, so the dev copy uses
+  `reef-desktop-dev` beside the installed app's `reef-desktop`: separate localStorage and
+  caches, and the dev copy's updater never touches the installed app's `update/` markers.
 - Opens the window at once on a local splash page ([`desktop/splash.html`](../desktop/splash.html),
   no server needed: the jelly, "reef" and "Starting reef serve..."). When the server is
   listening and the splash has shown for at least 1.2 s, the jelly and text fade out and the

@@ -8,6 +8,10 @@ import { createTerminals } from './terminal.js';
 import { createUpdater } from './updater.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// Both copies are the same package, so without this Electron gives them one user data folder.
+if (!app.isPackaged) app.setPath('userData', path.join(app.getPath('appData'), 'reef-desktop-dev'));
+
 const PORT = process.env.REEF_PORT || (app.isPackaged ? '7700' : '7701');
 const ADDR = `127.0.0.1:${PORT}`;
 const SERVER_STOP_TIMEOUT = 5000;

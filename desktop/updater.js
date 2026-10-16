@@ -209,6 +209,7 @@ export function createUpdater(win, addr, dataDir) {
 
   return {
     start() {
+      if (!app.isPackaged) return;
       fs.rmSync(pending, { force: true });
       if (!fs.existsSync(taken)) {
         for (const suffix of ['', '-wal', '-shm']) fs.rmSync(backupDb + suffix, { force: true });
@@ -222,7 +223,6 @@ export function createUpdater(win, addr, dataDir) {
           message: `Update to ${failedVersion} failed to start; still on ${app.getVersion()}`,
         });
       }
-      if (!app.isPackaged) return;
       const version = read(path.join(stagedDir, 'version'));
       const parsed = parse(version);
       if (parsed && isNewer(parsed, parse(app.getVersion())) && stagedApp()) staged = version;
