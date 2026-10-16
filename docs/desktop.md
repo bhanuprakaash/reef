@@ -180,8 +180,9 @@ path (`/AppTranslocation/`): it could not replace itself there.
 
 A staged update shows a card at the bottom of the sidebar: a dot, "Update ready", "Reef 0.1.N"
 and two buttons. Restart applies the update; Later hides the card for that version in this window
-(`sessionStorage`, so it survives a reload and returns at the next launch), and a newer staged
-version shows it again. The web app asks the main process for the staged version when it starts,
+(`sessionStorage`, so it survives a reload but clears with the window session), and a newer staged
+version shows it again. The next app launch applies a staged update as described below. The web
+app asks the main process for the staged version when it starts,
 so a reload shows the card too, unless it was hidden for that version. Restart does nothing while
 no update is staged (a download may still be running).
 

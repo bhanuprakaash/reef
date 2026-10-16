@@ -221,9 +221,9 @@ app.whenReady().then(async () => {
   updater = createUpdater(win, ADDR, dataDir());
   const splashAt = Date.now();
   const PATH = await loginShellPath();
-  if (win.isDestroyed()) return;
+  if (quitting || win.isDestroyed()) return;
   const ok = await startServer(PATH);
-  if (!ok) return;
+  if (!ok || quitting) return;
   updater.start();
   if (quitting) return;
   win.webContents.setWindowOpenHandler(({ url }) => {
