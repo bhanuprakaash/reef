@@ -75,7 +75,7 @@ export function Composer({
 
   function submit() {
     const trimmed = text.trim();
-    if (trimmed === '' || running || paused || send.isPending) return;
+    if (trimmed === '' || paused || send.isPending) return;
     send.mutate(trimmed, { onSuccess: () => setText('') });
   }
 
@@ -94,7 +94,7 @@ export function Composer({
       ? `Paused: ${reason}`
       : 'Paused'
     : running
-      ? `${working ? working[0].toUpperCase() + working.slice(1) : 'Agent'} is working…`
+      ? `${working ? working[0].toUpperCase() + working.slice(1) : 'Agent'} is working… your message runs next`
       : parent !== undefined
         ? 'Reply in thread'
         : roles
@@ -214,9 +214,9 @@ export function Composer({
             }}
           />
         </div>
-        {running ? (
+        {running && (
           <Button
-            variant="primary"
+            variant="secondary"
             type="button"
             size="icon"
             aria-label="Stop"
@@ -228,20 +228,19 @@ export function Composer({
               <rect x="5" y="5" width="14" height="14" rx="3" fill="currentColor" stroke="none" />
             </svg>
           </Button>
-        ) : (
-          <Button
-            variant="primary"
-            type="submit"
-            size="icon"
-            aria-label="Send"
-            className="shrink-0"
-            disabled={text.trim() === '' || paused || send.isPending}
-          >
-            <svg {...icon} width={16} height={16} strokeWidth={2.2}>
-              <path d="M12 19V5M5 12l7-7 7 7" />
-            </svg>
-          </Button>
         )}
+        <Button
+          variant="primary"
+          type="submit"
+          size="icon"
+          aria-label="Send"
+          className="shrink-0"
+          disabled={text.trim() === '' || paused || send.isPending}
+        >
+          <svg {...icon} width={16} height={16} strokeWidth={2.2}>
+            <path d="M12 19V5M5 12l7-7 7 7" />
+          </svg>
+        </Button>
       </div>
     </form>
   );
