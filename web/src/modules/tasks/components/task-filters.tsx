@@ -1,4 +1,5 @@
 import type { Feature, Project } from '@/types/api';
+import { SegmentedControl } from '@/components/segmented-control';
 import { Select } from '@/components/select';
 
 type Props = {
@@ -7,22 +8,33 @@ type Props = {
   project: string;
   feature: string;
   status: string;
+  view: 'list' | 'board';
   onChange: (name: 'project' | 'feature' | 'status', value: string) => void;
+  onView: (view: 'list' | 'board') => void;
 };
 
-export function TaskFilters({ projects, features, project, feature, status, onChange }: Props) {
+export function TaskFilters({
+  projects,
+  features,
+  project,
+  feature,
+  status,
+  view,
+  onChange,
+  onView,
+}: Props) {
   const shownFeatures =
-    project === '' ? features : features.filter((f) => String(f.projectId) === project);
+    project === 'all' ? features : features.filter((f) => String(f.projectId) === project);
 
   return (
-    <div className="flex flex-wrap gap-2">
+    <div className="flex flex-wrap items-center gap-2">
       <Select
         variant="pill"
         aria-label="Filter by project"
         value={project}
         onChange={(v) => onChange('project', v)}
         options={[
-          { value: '', label: 'All projects' },
+          { value: 'all', label: 'All projects' },
           ...projects.map((p) => ({ value: String(p.id), label: p.name })),
         ]}
       />
@@ -36,22 +48,26 @@ export function TaskFilters({ projects, features, project, feature, status, onCh
           ...shownFeatures.map((f) => ({ value: String(f.id), label: f.name })),
         ]}
       />
-      {(
-        [
-          ['open', 'Open'],
-          ['done', 'Done'],
-        ] as const
-      ).map(([value, label]) => (
-        <button
-          key={value}
-          type="button"
-          aria-pressed={status === value}
-          onClick={() => onChange('status', status === value ? '' : value)}
-          className={`h-11 rounded-pill px-3 md:h-[30px] text-[13px] ${status === value ? 'bg-pill text-pill-ink' : 'border border-line text-muted'}`}
-        >
-          {label}
-        </button>
-      ))}
+      <SegmentedControl
+        label="Status"
+        options={[
+          { value: 'open', label: 'Open' },
+          { value: 'done', label: 'Done' },
+          { value: 'all', label: 'All' },
+        ]}
+        value={status}
+        onChange={(v) => onChange('status', v === 'open' ? '' : v)}
+      />
+      <SegmentedControl
+        className="ml-auto"
+        label="View"
+        options={[
+          { value: 'list', label: 'List' },
+          { value: 'board', label: 'Board' },
+        ]}
+        value={view}
+        onChange={onView}
+      />
     </div>
   );
 }

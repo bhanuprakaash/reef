@@ -8,9 +8,10 @@ type Props = {
   projects?: Project[];
   features?: Feature[];
   compact?: boolean;
+  allProjects?: boolean;
 };
 
-export function TaskList({ tasks, projects = [], features, compact }: Props) {
+export function TaskList({ tasks, projects = [], features, compact, allProjects }: Props) {
   const update = useUpdateTask();
 
   if (tasks.length === 0) {
@@ -26,14 +27,16 @@ export function TaskList({ tasks, projects = [], features, compact }: Props) {
     );
   }
 
+  const rank = { doing: 0, todo: 1, done: 2 };
   const groups = new Map<string, Task[]>();
-  for (const task of tasks) {
+  for (const task of [...tasks].sort((a, b) => rank[a.status] - rank[b.status])) {
     const key = task.featureId === null ? `p${task.projectId}` : `f${task.featureId}`;
     groups.set(key, [...(groups.get(key) ?? []), task]);
   }
 
   function groupName(task: Task) {
     if (task.featureId !== null) return features?.find((f) => f.id === task.featureId)?.name;
+    if (!allProjects) return 'No feature';
     const project = projects.find((p) => p.id === task.projectId)?.name;
     return `${project ?? ''} · no feature`;
   }
@@ -50,7 +53,10 @@ export function TaskList({ tasks, projects = [], features, compact }: Props) {
           <section key={key}>
             {features && (
               <h2 className="px-[18px] pt-3.5 pb-1.5 text-[12.5px] font-normal text-muted">
-                {groupName(group[0])}
+                {groupName(group[0])}{' '}
+                <span className="text-faint">
+                  {group.filter((t) => t.status !== 'done').length}
+                </span>
               </h2>
             )}
             <ul>
@@ -59,7 +65,7 @@ export function TaskList({ tasks, projects = [], features, compact }: Props) {
                 return (
                   <li key={task.id} className={compact ? '' : 'border-t border-hairline'}>
                     <div
-                      className={`flex items-center ${compact ? 'min-h-9 gap-2.5 text-[13px]' : 'min-h-[52px] gap-3.5 px-[18px]'} ${done ? 'text-faint' : ''}`}
+                      className={`flex items-center ${compact ? 'min-h-9 gap-2.5 text-[13px]' : 'min-h-11 gap-3.5 px-[18px]'} ${done ? 'text-faint' : ''}`}
                     >
                       <input
                         type="checkbox"
@@ -69,20 +75,18 @@ export function TaskList({ tasks, projects = [], features, compact }: Props) {
                         disabled={done || update.isPending}
                         onChange={() => update.mutate({ task, status: 'done' })}
                       />
-                      <span className="flex min-w-0 flex-1 flex-col py-1.5">
-                        <Link to={`/tasks/${task.id}`} className="flex gap-1.5 hover:underline">
-                          <span className="text-muted">#{task.id}</span>
-                          <span className={done ? 'line-through' : ''}>{task.title}</span>
-                        </Link>
-                        {task.body && (
-                          <span className="line-clamp-2 text-xs text-muted">{task.body}</span>
-                        )}
-                      </span>
-                      {!done && (
-                        <span
-                          className={`flex h-[22px] items-center rounded-pill px-[9px] text-xs ${task.status === 'doing' ? 'bg-working/15 text-working' : 'bg-bubble text-soft'}`}
-                        >
-                          {task.status}
+                      <Link
+                        to={`/tasks/${task.id}`}
+                        className="flex min-w-0 flex-1 gap-1.5 py-1.5 hover:underline"
+                      >
+                        <span className="shrink-0 text-muted">#{task.id}</span>
+                        <span className={`truncate ${done ? 'line-through' : ''}`}>
+                          {task.title}
+                        </span>
+                      </Link>
+                      {task.status === 'doing' && (
+                        <span className="flex h-[22px] items-center rounded-pill bg-working/15 px-[9px] text-xs text-working">
+                          doing
                         </span>
                       )}
                     </div>
