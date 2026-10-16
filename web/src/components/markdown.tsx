@@ -1,10 +1,50 @@
 import type { ReactNode } from 'react';
+import type { Parent, PhrasingContent, Root } from 'mdast';
 import type { Components } from 'react-markdown';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
+import { splitMentions } from '@/utils/split-mentions';
 
-const plugins = [remarkGfm, remarkBreaks];
+function mentions(nodes: PhrasingContent[]): PhrasingContent[] {
+  return nodes.flatMap((node): PhrasingContent[] => {
+    if (node.type === 'text') {
+      const pieces = splitMentions(node.value);
+      if (!pieces.some((piece) => piece.mention)) return [node];
+      return pieces.map((piece): PhrasingContent =>
+        piece.mention
+          ? {
+              type: 'text',
+              value: piece.value,
+              data: { hName: 'span', hProperties: { className: ['mention'] } },
+            }
+          : { type: 'text', value: piece.value },
+      );
+    }
+    if ('children' in node && node.type !== 'link') {
+      (node as Parent).children = mentions((node as Parent).children as PhrasingContent[]);
+    }
+    return [node];
+  });
+}
+
+function remarkMentions() {
+  return (tree: Root) => {
+    const walk = (parent: Parent) => {
+      parent.children = parent.children.flatMap((child) => {
+        if (child.type === 'paragraph' || child.type === 'heading' || child.type === 'tableCell') {
+          child.children = mentions(child.children);
+        } else if ('children' in child) {
+          walk(child as Parent);
+        }
+        return [child];
+      });
+    };
+    walk(tree);
+  };
+}
+
+const plugins = [remarkGfm, remarkBreaks, remarkMentions];
 
 const style = [
   'flex flex-col gap-[0.7em] break-words leading-[1.62]',
@@ -18,6 +58,7 @@ const style = [
   '[&_h6]:mt-[0.5em] [&_h6]:text-[14.5px] [&_h6]:font-medium [&_h6]:text-muted',
 
   '[&_strong]:font-semibold',
+  '[&_.mention]:text-[color:var(--mention,var(--color-mention))]',
   '[&_p]:my-0 [&_li>p]:my-0',
 
   '[&_ul]:list-disc [&_ol]:list-decimal [&_ul]:pl-5 [&_ol]:pl-5',

@@ -1,6 +1,10 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { useSendMessage } from '@/modules/channels/api/send-message';
 import { useStopChannel } from '@/modules/channels/api/stop-channel';
+import { useMessages } from '@/lib/api/get-messages';
+import { useDraft } from '@/modules/channels/hooks/use-draft';
+import { stepHistory } from '@/modules/channels/utils/history-step';
+import { splitMentions } from '@/utils/split-mentions';
 import { findMention, insertMention } from '@/modules/channels/utils/mention';
 import { Button } from '@/components/button';
 import { Creature, type CreatureState } from '@/components/creature';
@@ -39,11 +43,14 @@ export function Composer({
   faces,
   working,
 }: Props) {
-  const [text, setText] = useState('');
+  const [text, setText] = useDraft(`reef.draft.${channelId}.${parent ?? 'main'}`);
+  const messages = useMessages(channelId);
+  const recalled = useRef<number | null>(null);
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [closed, setClosed] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
+  const mirror = useRef<HTMLDivElement>(null);
   const picked = useRef<number | null>(null);
   const send = useSendMessage(channelId, parent);
   const stop = useStopChannel(channelId);
@@ -54,6 +61,11 @@ export function Composer({
     : [];
   const open = mention !== null && matches.length > 0;
   const highlighted = Math.min(active, matches.length - 1);
+
+  const history = (messages.data ?? [])
+    .filter((m) => m.author === 'user' && (m.parentId ?? undefined) === parent)
+    .map((m) => m.body)
+    .reverse();
 
   useLayoutEffect(() => {
     if (picked.current === null) return;
@@ -129,47 +141,79 @@ export function Composer({
             <path d="M12 5v14M5 12h14" />
           </svg>
         </Button>
-        <textarea
-          ref={field}
-          rows={1}
-          className="field-sizing-content max-h-40 min-w-0 flex-1 resize-none bg-transparent text-[15.5px] text-fg outline-none placeholder:text-muted disabled:cursor-not-allowed disabled:text-faint"
-          placeholder={placeholder}
-          aria-label={parent === undefined ? 'Message' : 'Reply'}
-          disabled={paused}
-          value={paused ? '' : text}
-          onChange={(e) => {
-            setText(e.target.value);
-            setCaret(e.target.selectionStart);
-            setActive(0);
-            setClosed(false);
-          }}
-          onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
-          onKeyDown={(e) => {
-            if (e.nativeEvent.isComposing) return;
-            if (open) {
-              if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
-                e.preventDefault();
-                const step = e.key === 'ArrowDown' ? 1 : -1;
-                setActive((highlighted + step + matches.length) % matches.length);
-                return;
+        <div className="grid min-w-0 flex-1">
+          <div
+            ref={mirror}
+            aria-hidden
+            className={`col-start-1 row-start-1 max-h-40 min-w-0 overflow-hidden whitespace-pre-wrap break-words text-[15.5px] ${paused ? 'text-faint' : 'text-fg'}`}
+          >
+            {splitMentions(paused ? '' : text).map((piece, i) =>
+              piece.mention ? (
+                <span key={i} className="text-mention">
+                  {piece.value}
+                </span>
+              ) : (
+                piece.value
+              ),
+            )}
+            {'\u200b'}
+          </div>
+          <textarea
+            ref={field}
+            rows={1}
+            className="field-sizing-content col-start-1 row-start-1 max-h-40 w-full min-w-0 resize-none bg-transparent text-[15.5px] text-transparent caret-fg outline-none placeholder:text-muted disabled:cursor-not-allowed disabled:text-transparent"
+            placeholder={placeholder}
+            aria-label={parent === undefined ? 'Message' : 'Reply'}
+            disabled={paused}
+            value={paused ? '' : text}
+            onChange={(e) => {
+              setText(e.target.value);
+              setCaret(e.target.selectionStart);
+              setActive(0);
+              setClosed(false);
+            }}
+            onScroll={(e) => {
+              if (mirror.current) mirror.current.scrollTop = e.currentTarget.scrollTop;
+            }}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+            onKeyDown={(e) => {
+              if (e.nativeEvent.isComposing) return;
+              if (open) {
+                if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  const step = e.key === 'ArrowDown' ? 1 : -1;
+                  setActive((highlighted + step + matches.length) % matches.length);
+                  return;
+                }
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  e.preventDefault();
+                  pick(matches[highlighted]);
+                  return;
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  setClosed(true);
+                  return;
+                }
               }
-              if (e.key === 'Enter' || e.key === 'Tab') {
-                e.preventDefault();
-                pick(matches[highlighted]);
-                return;
+              if (e.key === 'ArrowUp' || e.key === 'ArrowDown') {
+                const step = stepHistory(history, recalled.current, text, e.key);
+                if (step) {
+                  e.preventDefault();
+                  recalled.current = step.index;
+                  setText(step.text);
+                  setCaret(step.text.length);
+                  picked.current = step.text.length;
+                  return;
+                }
               }
-              if (e.key === 'Escape') {
+              if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
-                setClosed(true);
-                return;
+                submit();
               }
-            }
-            if (e.key === 'Enter' && !e.shiftKey) {
-              e.preventDefault();
-              submit();
-            }
-          }}
-        />
+            }}
+          />
+        </div>
         {running ? (
           <Button
             variant="primary"

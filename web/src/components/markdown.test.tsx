@@ -49,3 +49,21 @@ describe('Markdown', () => {
     expect(html).not.toContain('<b>');
   });
 });
+
+describe('Markdown mentions', () => {
+  it('wraps each @mention in a mention span, but not emails, code or links', () => {
+    const html = renderToStaticMarkup(
+      <Markdown>
+        {'@architect and **@dev-1** mail me@x.io `@code` [@l](https://e.co)\n@tester'}
+      </Markdown>,
+    );
+
+    expect(html).toContain('<span class="mention">@architect</span> and');
+    expect(html).toContain('<strong><span class="mention">@dev-1</span></strong>');
+    expect(html).toContain('<br/>\n<span class="mention">@tester</span>');
+    expect(html).toContain('me@x.io');
+    expect(html).toContain('<code>@code</code>');
+    expect(html).not.toContain('mention">@l');
+    expect(html).not.toContain('mention">@x');
+  });
+});
