@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useEffect, type ReactNode } from 'react';
 import type { Role, Skills } from '@/types/api';
 import { ChipList } from '@/modules/teams/components/chip-list';
 import { CreaturePicker } from '@/modules/teams/components/creature-picker';
@@ -76,10 +76,19 @@ function SettingRow({
 
 export function RolePanel({ role, skills, noProject, onChange, onRemove, onClose }: Props) {
   const label = role.name || 'role';
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => document.removeEventListener('keydown', onKeyDown);
+  }, [onClose]);
+
   return (
     <aside
       aria-label="Role"
-      className="w-full space-y-[18px] rounded-card border border-line bg-card p-5 motion-safe:animate-rise-in lg:sticky lg:top-6 lg:max-h-[calc(100vh-48px)] lg:w-[400px] lg:overflow-y-auto"
+      className="fixed inset-y-3 right-3 z-30 w-[calc(100%-24px)] max-w-[420px] space-y-[18px] overflow-y-auto rounded-card border border-line bg-card p-5 shadow-dialog motion-safe:animate-rise-in"
     >
       <div className="space-y-3">
         <div className="flex items-center gap-3">
