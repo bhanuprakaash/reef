@@ -143,7 +143,7 @@ function SkillGroup({ title, skills }: { title: string; skills: SkillInfo[] }) {
   return (
     <div aria-label={title} role="group">
       {skills.length === 0 && <p className="text-[13px] text-muted">None found.</p>}
-      <ul className="flex flex-col divide-y divide-hairline">
+      <ul className="flex max-h-[min(480px,60vh)] flex-col divide-y divide-hairline overflow-y-auto">
         {skills.map((s) => (
           <li key={s.name} className="flex flex-col gap-0.5 py-2.5">
             <span className="font-mono text-[13px]">{s.name}</span>
