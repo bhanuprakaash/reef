@@ -6,6 +6,7 @@ import { PaneToggles } from '@/app/pane-toggles';
 import { Sidebar } from '@/app/sidebar';
 import { TabBar } from '@/app/tab-bar';
 import { Unreachable } from '@/app/unreachable';
+import { UpdateBar } from '@/app/update-bar';
 import { useProfile } from '@/lib/api/get-profile';
 import { useStoredFlag } from '@/lib/use-stored-flag';
 import { useProjects } from '@/modules/projects/api/get-projects';
@@ -48,7 +49,11 @@ export function Layout() {
       <aside className="hidden w-[300px] shrink-0 border-r border-hairline bg-sidebar [--creature-ring:var(--color-sidebar)] md:block">
         <Sidebar />
       </aside>
-      <div data-desktop={desktop || undefined} className="relative flex min-h-0 min-w-0 flex-1">
+      <div
+        data-desktop={desktop || undefined}
+        className="relative flex min-h-0 min-w-0 flex-1 flex-col"
+      >
+        <UpdateBar />
         <main className="min-h-0 min-w-0 flex-1 overflow-y-auto p-4 md:p-6">
           <Outlet
             context={
