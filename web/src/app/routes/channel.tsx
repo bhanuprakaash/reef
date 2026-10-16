@@ -24,7 +24,9 @@ function FeatureChannelView({ featureId, ...props }: ViewProps & { featureId: nu
     <ChannelView
       {...props}
       diff={diff.data && diffCounts(diff.data)}
-      diffPanel={(onClose) => <ReviewDiff id={featureId} onClose={onClose} />}
+      diffPanel={(onClose) => (
+        <ReviewDiff id={featureId} onClose={onClose} defaultScope="current" />
+      )}
       brief={briefs.data?.at(-1)?.body}
     />
   );

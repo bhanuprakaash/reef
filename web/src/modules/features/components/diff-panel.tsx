@@ -1,11 +1,13 @@
 import { type ReactNode, useState } from 'react';
 import { Link } from 'react-router';
+import { type DiffScope } from '@/modules/features/api/get-diff';
 import { type ReviewComment, useSendReview } from '@/modules/features/api/send-review';
 import { diffCounts } from '@/modules/features/utils/diff-counts';
 import type { DiffLine, FileDiff } from '@/types/api';
 import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
+import { SegmentedControl } from '@/components/segmented-control';
 import { TextArea } from '@/components/text-area';
 
 const lineClass: Record<DiffLine['kind'], string> = {
@@ -40,6 +42,8 @@ type Props = {
   featureId: number;
   featureName: string;
   branch: string;
+  scope: DiffScope;
+  onScopeChange: (scope: DiffScope) => void;
   developerFace?: string;
   leading?: ReactNode;
   actions?: (drafts: number) => ReactNode;
@@ -50,6 +54,8 @@ export function DiffPanel({
   featureId,
   featureName,
   branch,
+  scope,
+  onScopeChange,
   developerFace,
   leading,
   actions,
@@ -90,7 +96,18 @@ export function DiffPanel({
           <path d="M9 6l6 6-6 6" />
         </svg>
         <h1 className="text-base font-normal">Changes</h1>
-        <span className="font-mono text-[12.5px] text-muted max-md:hidden">{branch} vs main</span>
+        <span className="font-mono text-[12.5px] text-muted max-md:hidden">
+          {scope === 'full' ? `${branch} vs main` : 'uncommitted'}
+        </span>
+        <SegmentedControl
+          label="Diff scope"
+          options={[
+            { value: 'current', label: 'Current changes' },
+            { value: 'full', label: 'Full diff' },
+          ]}
+          value={scope}
+          onChange={onScopeChange}
+        />
         <span className="flex gap-2.5 text-[12.5px]">
           <Counts files={files} />
         </span>
