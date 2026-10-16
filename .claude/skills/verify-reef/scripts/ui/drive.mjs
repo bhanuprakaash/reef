@@ -524,16 +524,17 @@ async function theme() {
     await contrast('feature page');
   };
 
-  await page.goto(base + '/settings');
+  await page.goto(base + '/settings?section=notifications');
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor();
-  const dark = await bodyBg();
-  check((await page.getByRole('radio', { name: 'Dark' }).isChecked()) && dark === 'rgb(33, 33, 33)', 'Settings opens on Dark with the dark main colour', dark);
   const notify = await main.getByRole('region', { name: 'Notifications' }).innerText();
   check(/Turn on notifications|On|Blocked/.test(notify), 'the Notifications section has the permission control', notify.replace(/\s+/g, ' '));
+  await main.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Appearance' }).click();
+  const dark = await bodyBg();
+  check((await page.getByRole('radio', { name: 'Dark' }).isChecked()) && dark === 'rgb(33, 33, 33)', 'Settings opens on Dark with the dark main colour', dark);
   await shot('settings-dark');
   await screens('dark');
 
-  await page.goto(base + '/settings');
+  await page.goto(base + '/settings?section=appearance');
   await page.getByRole('radio', { name: 'Light' }).check();
   const light = await bodyBg();
   check(light === 'rgb(255, 255, 255)' && (await page.evaluate(() => document.documentElement.dataset.theme)) === 'light', 'picking Light restyles the open page at once', light);
@@ -543,7 +544,7 @@ async function theme() {
   check(reloaded === 'rgb(255, 255, 255)' && (await page.getByRole('radio', { name: 'Light' }).isChecked()), 'Light survives a reload', `${reloaded}; localStorage ${await page.evaluate(() => localStorage.getItem('reef.theme'))}`);
   await screens('light');
 
-  await page.goto(base + '/settings');
+  await page.goto(base + '/settings?section=appearance');
   await page.getByRole('radio', { name: 'Match macOS' }).check();
   await system('light');
   const followsLight = await bodyBg();
@@ -1746,14 +1747,20 @@ async function workshop() {
   const prompt = sql(`select prompt from turn where channel_id = ${cid} and role = 'developer' order by id limit 1`);
   check(prompt.includes(marker), "the next developer wake's prompt carries the new persona", prompt.slice(0, 200));
 
-  await page.goto(`${base}/settings`);
+  await page.goto(`${base}/settings?section=skills`);
   const skills = main.getByRole('region', { name: 'Skills' });
   await skills.getByRole('group', { name: 'Claude Code' }).waitFor();
   const claudeGroup = await skills.getByRole('group', { name: 'Claude Code' }).innerText();
-  const codexGroup = await skills.getByRole('group', { name: 'Codex' }).innerText();
   await shot('settings-skills');
+  await skills.getByRole('button', { name: 'Codex' }).click();
+  const codexGroup = await skills.getByRole('group', { name: 'Codex' }).innerText();
   check(claudeGroup.includes('workshop-skill') && claudeGroup.includes('Picked in the workshop scenario.'), 'Settings lists the project\'s Claude skill with its description', claudeGroup.replace(/\s+/g, ' ').slice(0, 160));
   check(!codexGroup.includes('workshop-skill'), 'Settings keeps the Claude skill out of the Codex group', codexGroup.replace(/\s+/g, ' ').slice(0, 160));
+  await skills.getByRole('button', { name: 'Claude Code' }).click();
+  await skills.getByLabel('Filter skills').fill('workshop');
+  const filtered = await skills.getByRole('group', { name: 'Claude Code' }).getByRole('listitem').allInnerTexts();
+  await shot('settings-skills-filter');
+  check(filtered.length === 1 && filtered[0].includes('workshop-skill'), 'the skills filter keeps only the matching skill', filtered.join(' | '));
 }
 
 async function pr() {
