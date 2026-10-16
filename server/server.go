@@ -88,6 +88,12 @@ func newHandler(
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
 	mux.HandleFunc("/health", methodNotAllowed)
+	mux.HandleFunc("GET /status", func(w http.ResponseWriter, _ *http.Request) {
+		running := map[int64]bool{}
+		s.markRunning(running)
+		writeJSON(w, http.StatusOK, map[string]int{"running": len(running)})
+	})
+	mux.HandleFunc("/status", methodNotAllowed)
 	mux.HandleFunc("/", notFound)
 	s.projectRoutes(mux)
 	s.profileRoutes(mux)
