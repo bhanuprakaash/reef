@@ -281,23 +281,91 @@ func TestApproval_ApproveAtHopCapPausesAndStaysPending(t *testing.T) {
 	}
 }
 
-func TestApproval_ApproveWhileBusyStaysPending(t *testing.T) {
+// TestApproval_ApproveWhileBusyRunsAfter: the lead wakes the architect and, gated, the
+// developer; approving the developer while the architect runs queues it behind that turn.
+func TestApproval_ApproveWhileBusyRunsAfter(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	roles := []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
+		{Name: "developer", Backend: "claude"},
+	}
+	_, err := env.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: roles,
+		Gates: []store.Gate{{From: "lead", To: "developer", On: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@developer build it", nil)
+			post("lead", "@architect block", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+
+	env.sendTo(t, id, "go")
+	<-env.fake.started
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
+	sub.next(t)
+	sub.want(t, `turn {"role":"lead","status":"done"}`,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+
+	if status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`); status != 204 || body != "" {
+		t.Fatalf("approve while busy = %d %q, want 204", status, body)
+	}
+	if got := sub.next(t); !strings.Contains(got, `"id":1,`) || !strings.Contains(got, `"status":"approved"`) {
+		t.Errorf("frame = %s, want the approved approval", got)
+	}
+	if got := len(env.ranTexts()); got != 2 {
+		t.Errorf("turns run = %d, want 2: the developer waits for the architect", got)
+	}
+	env.fake.release <- struct{}{}
+	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"architect","status":"done"}`)
+	sub.wantTurns(t, "developer")
+	want := []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 3]\nlead wrote: @architect block",
+		"[channel 2, message 2]\nlead wrote: @developer build it",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
+	}
+	if a, err := env.st.Approval(context.Background(), int64(id), 1); err != nil || a.Status != store.ApprovalApproved {
+		t.Errorf("approval = %+v, %v, want approved", a, err)
+	}
+}
+
+func TestApproval_StopReturnsQueuedWakes(t *testing.T) {
 	env := newLiveEnv(t)
 	id, sub, approvals := env.gatedChannel(t)
 	env.sendTo(t, id, "block")
 	<-env.fake.started
 	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	if status, _ := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`); status != 204 {
+		t.Fatalf("approve while busy = %d, want 204", status)
+	}
+	if status, _ := env.sendTo(t, id, "again"); status != 202 {
+		t.Fatalf("send while busy = %d, want 202", status)
+	}
 
-	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
-	if status != 409 || body != `{"error":"channel 2 has a turn running: conflict"}` {
-		t.Errorf("approve while busy = %d %s, want 409 turn running", status, body)
-	}
-	status, body = do(t, http.MethodGet, approvals, "")
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+
+	status, body := do(t, http.MethodGet, approvals, "")
 	if status != 200 || !strings.Contains(body, `"id":1,`) || !strings.Contains(body, `"status":"pending"`) {
-		t.Errorf("approvals = %d %s, want approval 1 pending", status, body)
+		t.Errorf("approvals = %d %s, want approval 1 pending again", status, body)
 	}
-	env.fake.release <- struct{}{}
-	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
+	l := env.h.s.lookup(int64(id))
+	l.mu.Lock()
+	held := slices.Clone(l.held)
+	l.mu.Unlock()
+	if len(held) != 1 || held[0].text != "[channel 2, message 4]\nagain" {
+		t.Errorf("held = %+v, want the wake of again", held)
+	}
+	if got := len(env.ranTexts()); got != 2 {
+		t.Errorf("turns run = %d, want 2: go and block only", got)
+	}
 }
 
 func TestApproval_DefaultTeamHasNoGateToArchitect(t *testing.T) {

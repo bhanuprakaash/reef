@@ -619,8 +619,8 @@ func TestSend_MentionsWakeEachRole(t *testing.T) {
 func TestSend_WhileWakeChainRuns(t *testing.T) {
 	env := newLiveEnv(t)
 	id, post := env.teamChannel(t)
-	env.fake.onRun = func(role, _ string, _ *int64) {
-		if role == "lead" {
+	env.fake.onRun = func(role, text string, _ *int64) {
+		if role == "lead" && strings.HasSuffix(text, "\ngo") {
 			post("lead", "@architect block", nil)
 		}
 	}
@@ -632,12 +632,20 @@ func TestSend_WhileWakeChainRuns(t *testing.T) {
 		`turn {"role":"lead","status":"done"}`,
 		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
-	status, body := env.sendTo(t, id, "again")
-	if status != 409 || body != `{"error":"channel 2 has a turn running: conflict"}` {
-		t.Errorf("send during the wake = %d %s, want 409 turn running", status, body)
+	if status, body := env.sendTo(t, id, "again"); status != 202 || body != "" {
+		t.Fatalf("send during the wake = %d %q, want 202", status, body)
 	}
 	env.fake.release <- struct{}{}
 	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"architect","status":"done"}`)
+	sub.wantTurns(t, "lead")
+	want := []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect block",
+		"[channel 2, message 3]\nagain",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
+	}
 }
 
 func TestSend_Wrap(t *testing.T) {
@@ -673,14 +681,28 @@ func TestSubscribe_ReplaysRunningTurn(t *testing.T) {
 
 func TestSend_WhileRunning(t *testing.T) {
 	env := newLiveEnv(t)
+	sub := subscribe(t, env.url)
 	env.send(t, "block")
 	<-env.fake.started
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
 	status, body := env.send(t, "again")
-	if status != 409 || body != `{"error":"channel 1 has a turn running: conflict"}` {
-		t.Errorf("send = %d %s, want 409 turn running", status, body)
+	if status != 202 || body != "" {
+		t.Fatalf("send = %d %q, want 202", status, body)
+	}
+	if _, body := do(t, http.MethodGet, env.url+"/messages?channel=1", ""); !strings.Contains(body, `"body":"again"`) {
+		t.Errorf("messages = %s, want again stored before the turn ends", body)
+	}
+	if got := env.ranTexts(); len(got) != 1 {
+		t.Errorf("ran = %q, want only block: again waits for the turn", got)
 	}
 	env.fake.release <- struct{}{}
+	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
+	sub.wantTurns(t, "lead")
+	want := []string{"[channel 1, message 1]\nblock", "[channel 1, message 2]\nagain"}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
+	}
 }
 
 func TestSend_WrapWakesNobody(t *testing.T) {
