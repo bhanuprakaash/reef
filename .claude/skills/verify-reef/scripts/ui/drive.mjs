@@ -905,6 +905,50 @@ async function diff() {
   await main.getByRole('link', { name: 'Expand diff' }).click();
   await page.waitForURL(`**/features/${featureId}/review`);
   check(true, "the panel's expand button opens the full review page", page.url());
+
+  writeFileSync(path.join(tree, 'long.txt'), Array.from({ length: 400 }, (_, i) => `line ${i + 1}`).join('\n') + '\n');
+  for (let i = 0; i < 35; i++) writeFileSync(path.join(tree, `file-${String(i).padStart(2, '0')}.txt`), `f${i}\n`);
+  const diffScrolls = async (step, size) => {
+    await page.setViewportSize(size);
+    const list = main.getByRole('navigation', { name: 'Files' });
+    await list.getByRole('button', { name: /long\.txt/ }).click();
+    const pane = main.locator('section[aria-label="Diff"]');
+    await main.locator('[data-path="long.txt"][data-line="400"]').waitFor({ state: 'attached' });
+    const box = await pane.boundingBox();
+    await page.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height, size.height) / 2);
+    await page.mouse.wheel(0, 20000);
+    await page.waitForTimeout(300);
+    const dims = await pane.evaluate((el) => ({ client: el.clientHeight, scroll: el.scrollHeight, top: el.scrollTop }));
+    const last = await main.locator('[data-path="long.txt"][data-line="400"]').boundingBox();
+    const head = await main.getByRole('heading', { name: 'Changes', level: 1 }).boundingBox();
+    await shot(`scroll-${step}`);
+    check(
+      dims.top > 0 && last.y + last.height <= size.height && head.y >= 0 && head.y + head.height <= size.height,
+      `${step}: the diff scrolls to its last line and the header stays in view`,
+      `diff client ${dims.client} scroll ${dims.scroll} top ${dims.top}; last line bottom ${last.y + last.height}; header top ${head.y}`,
+    );
+    if (size.width < 768) return;
+    const nb = await list.boundingBox();
+    await page.mouse.move(nb.x + nb.width / 2, nb.y + Math.min(nb.height, size.height) / 2);
+    await page.mouse.wheel(0, 20000);
+    await page.waitForTimeout(300);
+    const nav = await list.evaluate((el) => ({ client: el.clientHeight, scroll: el.scrollHeight, top: el.scrollTop }));
+    const lastFile = await list.getByRole('button', { name: /long\.txt/ }).boundingBox();
+    check(
+      nav.scroll > nav.client && nav.top > 0 && lastFile.y + lastFile.height <= size.height,
+      `${step}: the file list scrolls to its last file`,
+      `files client ${nav.client} scroll ${nav.scroll} top ${nav.top}; last file bottom ${lastFile.y + lastFile.height}`,
+    );
+  };
+  await page.goto(`${base}/channels/${cid}`);
+  await page.getByRole('button', { name: /^Diff/ }).click();
+  await diffScrolls('channel panel', { width: 1280, height: 800 });
+  await page.goto(`${base}/features/${featureId}/review`);
+  await diffScrolls('review page', { width: 1280, height: 800 });
+  await diffScrolls('review page on a phone', { width: 390, height: 844 });
+  await page.goto(`${base}/channels/${cid}`);
+  await page.getByRole('button', { name: /^Diff/ }).click();
+  await diffScrolls('channel panel on a phone', { width: 390, height: 844 });
 }
 
 async function memory() {

@@ -174,7 +174,7 @@ export function DiffPanel({
             aria-label="Diff"
             className="flex min-w-0 flex-1 flex-col gap-3 overflow-y-auto p-3.5 max-md:pb-24 md:p-5"
           >
-            <div className="overflow-hidden rounded-2xl border border-hairline bg-sidebar font-mono text-[12.5px] leading-[1.8]">
+            <div className="shrink-0 overflow-hidden rounded-2xl border border-hairline bg-sidebar font-mono text-[12.5px] leading-[1.8]">
               <div className="flex items-center gap-2 border-b border-hairline px-3.5 py-2 font-sans text-[13px]">
                 <span>{file.path}</span>
                 <Counts files={[file]} />
