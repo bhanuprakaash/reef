@@ -11,6 +11,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
@@ -78,13 +79,13 @@ func (t *Trees) Lock(ctx context.Context, key string) (func(), error) {
 // EnsureWorktree makes the feature's worktree at dir, so that two channels of the feature do
 // not add it at once. It holds a lock of its own: a read-only role must not wait for the
 // write turn that holds the tree.
-func EnsureWorktree(ctx context.Context, trees *Trees, projectPath, dir, slug string) error {
+func EnsureWorktree(ctx context.Context, trees *Trees, p store.Project, dir, slug string) error {
 	unlock, err := trees.Lock(ctx, "add "+dir)
 	if err != nil {
 		return err
 	}
 	defer unlock()
-	return worktree.Ensure(ctx, projectPath, dir, worktree.Branch(slug))
+	return worktree.Ensure(ctx, p.Path, dir, worktree.Branch(slug), p.BaseBranch)
 }
 
 // flock opens the lock file of key with extension ext and takes it as how says. Closing the

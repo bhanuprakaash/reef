@@ -39,7 +39,7 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 		t.Fatal(err)
 	}
 	other := worktree.Path(env.dir, 2, "search")
-	if err := worktree.Ensure(ctx, p.Path, other, worktree.Branch("search")); err != nil {
+	if err := worktree.Ensure(ctx, p.Path, other, worktree.Branch("search"), ""); err != nil {
 		t.Fatal(err)
 	}
 	writeIn(t, other, "work.txt", "w")

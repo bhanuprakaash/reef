@@ -1,0 +1,1 @@
+ALTER TABLE project ADD COLUMN base_branch TEXT NOT NULL DEFAULT '';

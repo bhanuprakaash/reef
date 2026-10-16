@@ -47,7 +47,7 @@ func rollbackEnv(t *testing.T) (env *liveEnv, tree string) {
 	do(t, http.MethodPost, env.url+"/features", `{"projectId":2,"slug":"login","name":"Login"}`)
 	do(t, http.MethodPost, env.url+"/channels", `{"projectId":2,"featureId":1,"name":"c","backend":"claude"}`)
 	tree = worktree.Path(env.dir, 2, "login")
-	if err := worktree.Ensure(ctx, repo, tree, worktree.Branch("login")); err != nil {
+	if err := worktree.Ensure(ctx, repo, tree, worktree.Branch("login"), ""); err != nil {
 		t.Fatal(err)
 	}
 	writeIn(t, tree, "a.txt", "a edited")

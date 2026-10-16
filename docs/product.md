@@ -228,6 +228,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 67 | Every merge to `main` that passes tests is a numbered release `v0.1.N`; the everyday app is a release build, not the checkout | Reef builds Reef, so the app in use must not change while agents edit the repo |
 | 68 | Geist is the font everywhere in the web UI, self-hosted in the build | The user finds it easier to read than the system font; bundling it keeps it working offline and makes the window, the desktop app and a browser match |
 | 69 | No role has a tool call cap; a turn runs until the agent ends it, Stop, or the token budget. Replaces 59 | The cap paused read-only roles mid-work as often as it stopped loops; Stop and the token budget already bound a turn |
+| 70 | A project may name a base branch, set on its page. A new feature worktree fetches it from `origin` and branches from `origin/<base>` (else the local branch); the feature diff and the agents' context use the same branch. Empty keeps decision 60. Existing feature branches are not moved. Extends 60 | sm2 work targets `dev`, not the default `main`, and a stale local branch gave stale features |
 
 ## Open questions
 

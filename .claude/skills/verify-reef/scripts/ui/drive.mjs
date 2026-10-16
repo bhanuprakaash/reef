@@ -895,7 +895,7 @@ async function memory() {
     'Preview shows the text instead of the editor',
   );
   await main.getByRole('button', { name: 'Write' }).click();
-  await main.getByRole('button', { name: 'Save' }).click();
+  await main.getByRole('region', { name: 'Project memory' }).getByRole('button', { name: 'Save' }).click();
   await page.getByText('Saved').waitFor();
   await shot('saved');
   check(
@@ -906,6 +906,24 @@ async function memory() {
   await page.reload();
   const value = await editor.inputValue();
   check(value === 'Use Go, not Python.', 'the saved memory survives a reload', value);
+
+  const baseField = main.getByRole('textbox', { name: 'Base branch' });
+  const baseCard = main.getByRole('region', { name: 'Base branch' });
+  check((await baseField.getAttribute('placeholder')) === 'default (origin HEAD)', 'the Base branch field shows the default as its placeholder');
+  await baseField.fill('a b');
+  await baseCard.getByRole('button', { name: 'Save' }).click();
+  await baseCard.getByText('not a branch name').waitFor();
+  check(sql(`select base_branch from project where id=${pid}`) === '', 'a base branch that is not a branch name is refused and not stored');
+  await baseField.fill('dev');
+  await baseCard.getByRole('button', { name: 'Save' }).click();
+  await baseCard.getByText('Saved').waitFor();
+  check(sql(`select base_branch from project where id=${pid}`) === 'dev', 'saving the Base branch stores it', sql(`select id,base_branch from project where id=${pid}`));
+  await page.reload();
+  await baseField.waitFor();
+  await page.waitForTimeout(500);
+  await shot('base-branch');
+  const baseValue = await baseField.inputValue();
+  check(baseValue === 'dev', 'the saved base branch survives a reload', baseValue);
 
   const id = Date.now().toString(36);
   await main.getByRole('button', { name: 'New feature' }).click();
