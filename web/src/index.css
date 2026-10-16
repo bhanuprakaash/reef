@@ -25,6 +25,8 @@
   --color-pill-ink: #161616;
 
   --color-working: #5b9bff;
+  --color-mention: #5b9bff;
+  --color-mention-on-pill: #1a62c9;
   --color-needs-you: #ff453a;
   --color-paused: #f2b33d;
   --color-paused-bg: #2b2410;
@@ -99,6 +101,8 @@
   --color-pill-ink: #ffffff;
 
   --color-working: #1a62c9;
+  --color-mention: #1a62c9;
+  --color-mention-on-pill: #5b9bff;
   --color-needs-you: #d70015;
   --color-paused: #8a5a00;
   --color-paused-bg: #fff6db;
@@ -150,6 +154,8 @@
     --color-pill-ink: #ffffff;
 
     --color-working: #1a62c9;
+    --color-mention: #1a62c9;
+    --color-mention-on-pill: #5b9bff;
     --color-needs-you: #d70015;
     --color-paused: #8a5a00;
     --color-paused-bg: #fff6db;
