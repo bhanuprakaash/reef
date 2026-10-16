@@ -108,7 +108,13 @@ export function Select({
   }, [open]);
 
   useEffect(() => {
-    if (open) popover.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' });
+    const list = popover.current;
+    const item = list?.querySelector<HTMLElement>('[data-active]');
+    if (!open || !list || !item) return;
+    const bottom = item.offsetTop + item.offsetHeight;
+    if (item.offsetTop < list.scrollTop) list.scrollTop = item.offsetTop;
+    else if (bottom > list.scrollTop + list.clientHeight)
+      list.scrollTop = bottom - list.clientHeight;
   }, [open, active]);
 
   function onKeyDown(e: KeyboardEvent) {
