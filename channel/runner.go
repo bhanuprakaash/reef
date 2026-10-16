@@ -11,13 +11,7 @@ import (
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
-const (
-	_userAuthor = "user"
-	_toolCap    = 25
-)
-
-// ErrCapped is returned by Run when a turn exceeds the tool call cap.
-var ErrCapped = errors.New("capped")
+const _userAuthor = "user"
 
 // Runner records one role's exchanges with a started agent in one channel: the
 // user messages, the agent's replies and a turn for each exchange.
@@ -30,8 +24,6 @@ type Runner struct {
 	CheckpointDir string
 	// NoWake, when set, keeps no wake on the turns it stores, so they cannot be retried.
 	NoWake bool
-	// Uncapped, when set, lets a turn make any number of tool calls.
-	Uncapped bool
 
 	st        *store.Store
 	ag        agent.Agent
@@ -41,7 +33,6 @@ type Runner struct {
 	preamble  string
 	sessionID string
 	model     string
-	toolCap   int
 }
 
 // NewRunner returns a Runner for ag, which must already be started or resumed.
@@ -51,14 +42,12 @@ func NewRunner(
 ) *Runner {
 	return &Runner{
 		st: st, ag: ag, channelID: channelID, role: role, backend: backend, preamble: preamble,
-		toolCap: _toolCap,
 	}
 }
 
 // Run runs one turn with text. The reply is a reply in the thread of parent when it is
 // set. A cancelled ctx wraps ctx.Err(), and a ctx cancelled before the prompt is sent
-// stores the turn failed without sending it; a turn over the tool call cap pauses the
-// channel and wraps ErrCapped.
+// stores the turn failed without sending it.
 func (r *Runner) Run(
 	ctx context.Context, text string, parent *int64, onEvent func(agent.Event),
 ) error {
@@ -108,7 +97,6 @@ func (r *Runner) Run(
 	}
 
 	var reply strings.Builder
-	calls := 0
 	toolRows := map[string]int64{}
 	for {
 		select {
@@ -132,12 +120,6 @@ func (r *Runner) Run(
 			case agent.KindText:
 				reply.WriteString(ev.Text)
 			case agent.KindToolCall:
-				if calls++; !r.Uncapped && calls > r.toolCap {
-					capped := fmt.Errorf("%w: more than %d tool calls", ErrCapped, r.toolCap)
-					return errors.Join(
-						r.abort(wctx, turn, capped, capped.Error(), reply.String(), parent),
-						r.st.PauseChannel(wctx, r.channelID, capped.Error()))
-				}
 				tc, err := r.st.CreateToolCall(wctx, turn.ID, ev.ToolName, string(ev.Input))
 				if err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)

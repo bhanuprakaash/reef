@@ -12,6 +12,5 @@ describe('blocksUser', () => {
 
   it('blocks on other pauses', () => {
     expect(blocksUser('token budget of 1000000 used: 1000000 tokens')).toBe(true);
-    expect(blocksUser('capped: more than 25 tool calls')).toBe(true);
   });
 });

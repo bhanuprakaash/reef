@@ -13,7 +13,7 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-const _capReason = "capped: more than 25 tool calls"
+const _pauseReason = "token budget of 1000000 used: 1000312 tokens"
 
 func describe(items []store.InboxItem) []string {
 	out := []string{}
@@ -107,7 +107,7 @@ func TestInbox_ListsEachKindAndSurvivesRestart(t *testing.T) {
 		`agent {"kind":"text","text":"hi"}`)
 	sub.next(t)
 	sub.want(t, `turn {"role":"lead","status":"done"}`)
-	if err := env.st.PauseChannel(ctx, 3, _capReason); err != nil {
+	if err := env.st.PauseChannel(ctx, 3, _pauseReason); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := env.st.CreateMessage(ctx,
@@ -117,7 +117,7 @@ func TestInbox_ListsEachKindAndSurvivesRestart(t *testing.T) {
 
 	want := []string{
 		"waiting 4 which database?", "approval 2 lead wants to wake architect",
-		"failed 1 lead failed: server restarted", "paused 3 " + _capReason,
+		"failed 1 lead failed: server restarted", "paused 3 " + _pauseReason,
 	}
 	env.wantInbox(t, want...)
 	_, body := do(t, http.MethodGet, env.url+"/inbox", "")
@@ -160,11 +160,9 @@ func TestInbox_ApproveClearsAndRuns(t *testing.T) {
 func TestInbox_ContinueClearsAndRuns(t *testing.T) {
 	env := newLiveEnv(t)
 	sub := subscribe(t, env.url)
-	env.send(t, "cap")
-	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
-		`turn {"role":"lead","status":"failed","error":"capped: more than 25 tool calls"}`,
-		`pause {"reason":"`+_capReason+`"}`)
-	env.wantInbox(t, "paused 1 "+_capReason)
+	reason := env.overBudget(t)
+	sub.want(t, _idleFrame, `pause {"reason":"`+reason+`"}`)
+	env.wantInbox(t, "paused 1 "+reason)
 
 	if status, _ := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
@@ -249,22 +247,20 @@ func TestInboxEvents_AcrossChannels(t *testing.T) {
 	inbox.wantInbox(t)
 	lead := subscribe(t, env.url)
 
-	env.send(t, "cap")
-	lead.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
-		`turn {"role":"lead","status":"failed","error":"`+_capReason+`"}`,
-		`pause {"reason":"`+_capReason+`"}`)
-	inbox.wantInbox(t, "paused 1 "+_capReason)
+	reason := env.overBudget(t)
+	lead.want(t, _idleFrame, `pause {"reason":"`+reason+`"}`)
+	inbox.wantInbox(t, "paused 1 "+reason)
 	env.sendTo(t, id, "go")
-	inbox.wantInbox(t, "approval 2 lead wants to wake architect", "paused 1 "+_capReason)
+	inbox.wantInbox(t, "approval 2 lead wants to wake architect", "paused 1 "+reason)
 
 	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/approvals/1", env.url, id), `{"approve":true}`)
 	<-env.fake.started
-	inbox.wantInbox(t, "paused 1 "+_capReason)
+	inbox.wantInbox(t, "paused 1 "+reason)
 	env.fake.release <- struct{}{}
-	inbox.wantInbox(t, "waiting 2 the plan", "paused 1 "+_capReason)
+	inbox.wantInbox(t, "waiting 2 the plan", "paused 1 "+reason)
 
 	env.sendTo(t, id, "thanks")
-	inbox.wantInbox(t, "paused 1 "+_capReason)
+	inbox.wantInbox(t, "paused 1 "+reason)
 	if status, _ := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
@@ -277,8 +273,8 @@ func TestInboxEvents_PausedOnlyOnceIdle(t *testing.T) {
 	inbox.wantInbox(t)
 
 	for range 20 {
-		env.send(t, "cap")
-		inbox.wantInbox(t, "paused 1 "+_capReason)
+		reason := env.overBudget(t)
+		inbox.wantInbox(t, "paused 1 "+reason)
 		if status, _ := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 {
 			t.Fatalf("continue on the first paused frame = %d, want 204", status)
 		}

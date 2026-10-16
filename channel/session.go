@@ -131,9 +131,8 @@ func (s *Session) Say(ctx context.Context, body string, parent *int64) (store.Me
 	})
 }
 
-// Run runs one turn of the lead with text. A cancelled ctx wraps ctx.Err(); a turn over
-// the tool call cap pauses the channel and wraps ErrCapped. The reply is a reply in the
-// thread of parent when it is set.
+// Run runs one turn of the lead with text. A cancelled ctx wraps ctx.Err(). The reply is a
+// reply in the thread of parent when it is set.
 func (s *Session) Run(
 	ctx context.Context, text string, parent *int64, onEvent func(agent.Event),
 ) error {
@@ -382,7 +381,6 @@ func (s *Session) member(
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.OnPrompt = s.onPrompt
-	m.run.Uncapped = r.Write
 	if r.Write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
 		m.run.CheckpointDir = cwd
 	}

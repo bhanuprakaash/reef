@@ -164,10 +164,10 @@ func TestInbox_Failed(t *testing.T) {
 func TestInbox_FailedTurnThatPausedItsChannelIsNotAlsoListedAsFailed(t *testing.T) {
 	e := newInboxEnv(t)
 	e.turn(1, "lead", "build it", "failed")
-	if err := e.s.PauseChannel(e.ctx, 1, "capped: more than 25 tool calls"); err != nil {
+	if err := e.s.PauseChannel(e.ctx, 1, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
-	e.want("paused 1 capped: more than 25 tool calls")
+	e.want("paused 1 token budget of 1000000 used: 1000312 tokens")
 
 	if err := e.s.ContinueChannel(e.ctx, 1, TokenBudget); err != nil {
 		t.Fatal(err)
@@ -216,10 +216,10 @@ func TestInbox_Waiting(t *testing.T) {
 	}
 	e.want("waiting 1 shipped")
 
-	if err := e.s.PauseChannel(e.ctx, 1, "capped: more than 25 tool calls"); err != nil {
+	if err := e.s.PauseChannel(e.ctx, 1, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
-	e.want("paused 1 capped: more than 25 tool calls")
+	e.want("paused 1 token budget of 1000000 used: 1000312 tokens")
 }
 
 func TestInbox_ClosedChannelIsNotAnItem(t *testing.T) {
@@ -242,10 +242,10 @@ func TestInbox_NewestFirst(t *testing.T) {
 	e := newInboxEnv(t)
 	e.turn(2, "lead", "a", "failed")
 	e.say(1, "lead", "hello")
-	if err := e.s.PauseChannel(e.ctx, 2, "capped: more than 25 tool calls"); err != nil {
+	if err := e.s.PauseChannel(e.ctx, 2, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
-	e.want("waiting 1 hello", "paused 2 capped: more than 25 tool calls")
+	e.want("waiting 1 hello", "paused 2 token budget of 1000000 used: 1000312 tokens")
 }
 
 func TestInbox_DismissWaiting(t *testing.T) {

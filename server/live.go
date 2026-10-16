@@ -314,11 +314,10 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 	return c.start(ctx, sess, t.kind, queue, msg.ID)
 }
 
-// runOne runs the turn of w and returns the frame that ends it, the pause it caused, if
-// any, and whether it went well.
+// runOne runs the turn of w and returns the frame that ends it and whether it went well.
 func (s *server) runOne(
 	ctx context.Context, id int64, l *live, sess session, kind turnKind, w wake,
-) (end turnState, pause *pauseState, ok bool) {
+) (end turnState, ok bool) {
 	onEvent := func(ev agent.Event) {
 		l.mu.Lock()
 		l.publishLocked("agent", ev)
@@ -348,16 +347,7 @@ func (s *server) runOne(
 			log.Printf("close session: %v", err)
 		}
 	}
-	if errors.Is(err, channel.ErrCapped) {
-		pause = &pauseState{Reason: err.Error()}
-		ch, err := s.st.Channel(context.WithoutCancel(ctx), id)
-		if err != nil {
-			log.Printf("read channel %d: %v", id, err)
-		} else {
-			pause.Reason = ch.Paused
-		}
-	}
-	return end, pause, err == nil
+	return end, err == nil
 }
 
 // checkChannel refuses a turn the channel may not run: any turn on a closed channel, a wrap
@@ -853,7 +843,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) 
 	for {
 		var w wake
 		w, queue = queue[0], queue[1:]
-		end, pause, ok := s.runOne(c.ctx, c.id, l, sess, kind, w)
+		end, ok := s.runOne(c.ctx, c.id, l, sess, kind, w)
 		var stall error
 		var again *retry
 		if ok && kind == _message && c.ctx.Err() == nil {
@@ -871,9 +861,6 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) 
 			l.sess = nil
 		}
 		l.publishLocked("turn", end)
-		if pause != nil {
-			l.publishLocked("pause", *pause)
-		}
 		if stall != nil && c.ctx.Err() == nil {
 			l.held, l.retry = queue, again
 			reason := stall.Error()

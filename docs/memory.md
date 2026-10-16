@@ -366,8 +366,8 @@ Each turn:
 - The reply is stored before the turn is marked `done`. If a store write fails during a
   turn, `reef chat` interrupts the agent and marks the turn `failed` with that error.
 - An agent error ends the turn `failed` with the error text. `reef chat` then exits 1 with
-  `reef: agent: <text>`. A turn that ends `failed` for any reason (an error, a stop, the
-  tool call cap) still stores the reply streamed so far, if it has text.
+  `reef: agent: <text>`. A turn that ends `failed` for any reason (an error, a stop) still
+  stores the reply streamed so far, if it has text.
 
 Caps in chat: before each line it sends, `reef chat` runs the same check as the server
 (`channel.CheckCaps`). A paused channel, or one at or over its token budget (paused first),
@@ -375,8 +375,7 @@ does not run the line and does not store it. It prints `channel 1 is paused: <re
 `/continue to go on`, then `> ` again. The line `/continue` clears the pause the way
 `POST /channels/{id}/continue` does (`channel.Continue`): a channel at or over its token budget
 gets a budget of the tokens it used plus 1,000,000, and it prints `continued`. On a channel that is not paused
-it prints `the channel is not paused`. The next line then runs. A tool call cap still
-ends the chat, as below; resume the channel and type `/continue`.
+it prints `the channel is not paused`. The next line then runs.
 
 Leaving:
 

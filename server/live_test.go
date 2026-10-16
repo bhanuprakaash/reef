@@ -57,15 +57,6 @@ func (f *fakeSession) RunAs(
 	if f.onRun != nil {
 		f.onRun(role, text, parent)
 	}
-	switch {
-	case strings.HasSuffix(text, "\ncap"):
-		const reason = "capped: more than 25 tool calls"
-		err := fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
-		return errors.Join(err, f.st.PauseChannel(ctx, f.channelID.Load(), reason))
-	case strings.HasSuffix(text, "\ncap-lost"):
-		err := fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
-		return errors.Join(err, f.st.DeleteChannel(ctx, f.channelID.Load()))
-	}
 	if !strings.HasSuffix(text, "block") {
 		onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
 		return nil
@@ -223,6 +214,30 @@ func (e *liveEnv) exec(t *testing.T, stmt string) {
 	if _, err := db.Exec(stmt); err != nil {
 		t.Error(err)
 	}
+}
+
+// overBudget uses up the token budget of channel 1 and sends a message, which pauses the
+// channel. It returns the pause reason.
+func (e *liveEnv) overBudget(t *testing.T) string {
+	t.Helper()
+	ctx := context.Background()
+	turn, err := e.st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "lead", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Status = "done"
+	turn.Usage = agent.Usage{InputTokens: store.TokenBudget}
+	if _, err := e.st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	if status, body := e.send(t, "hello"); status != 409 {
+		t.Fatalf("send over budget = %d %s, want 409", status, body)
+	}
+	ch, err := e.st.Channel(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ch.Paused
 }
 
 func (e *liveEnv) send(t *testing.T, text string) (int, string) {
@@ -731,42 +746,6 @@ func TestSend_UserPostMidChainIsNotRouted(t *testing.T) {
 	}
 }
 
-func TestSend_ToolCapPausesChannel(t *testing.T) {
-	env := newLiveEnv(t)
-	sub := subscribe(t, env.url)
-	env.send(t, "cap")
-	sub.want(t,
-		_idleFrame,
-		`turn {"role":"lead","status":"running"}`,
-		`turn {"role":"lead","status":"failed","error":"capped: more than 25 tool calls"}`,
-		`pause {"reason":"capped: more than 25 tool calls"}`,
-	)
-
-	status, body := env.send(t, "hello")
-	if status != 409 ||
-		body != `{"error":"channel 1 is paused: capped: more than 25 tool calls: conflict"}` {
-		t.Errorf("send to paused channel = %d %s, want 409 with the reason", status, body)
-	}
-	_, body = do(t, http.MethodGet, env.url+"/channels/1", "")
-	if !strings.Contains(body, `"paused":"capped: more than 25 tool calls"`) {
-		t.Errorf("channel = %s, want paused with the reason", body)
-	}
-
-	if status, body := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 || body != "" {
-		t.Fatalf("continue = %d %q, want 204", status, body)
-	}
-	sub.want(t, `pause {"reason":""}`)
-	if status, _ := env.send(t, "hello"); status != 202 {
-		t.Errorf("send after continue = %d, want 202", status)
-	}
-	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
-
-	status, body = do(t, http.MethodPost, env.url+"/channels/1/continue", "")
-	if status != 409 || body != `{"error":"channel 1 is not paused: conflict"}` {
-		t.Errorf("continue when not paused = %d %s, want 409", status, body)
-	}
-}
-
 func TestSend_TokenBudgetPausesChannel(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
@@ -946,13 +925,11 @@ func TestSend_StoresUserMessageBefore202(t *testing.T) {
 func TestSubscribe_StateOnConnect(t *testing.T) {
 	env := newLiveEnv(t)
 	sub := subscribe(t, env.url)
-	env.send(t, "cap")
-	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
-		`turn {"role":"lead","status":"failed","error":"capped: more than 25 tool calls"}`,
-		`pause {"reason":"capped: more than 25 tool calls"}`)
+	reason := env.overBudget(t)
+	sub.want(t, _idleFrame, `pause {"reason":"`+reason+`"}`)
 
 	late := subscribe(t, env.url)
-	late.want(t, _idleFrame, `pause {"reason":"capped: more than 25 tool calls"}`)
+	late.want(t, _idleFrame, `pause {"reason":"`+reason+`"}`)
 
 	do(t, http.MethodPost, env.url+"/channels/1/continue", "")
 	again := subscribe(t, env.url)
@@ -961,15 +938,6 @@ func TestSubscribe_StateOnConnect(t *testing.T) {
 		t.Fatalf("send after continue = %d, want 202", status)
 	}
 	again.want(t, `turn {"role":"lead","status":"running"}`)
-}
-
-func TestSend_CapKeepsReasonWhenChannelReadFails(t *testing.T) {
-	env := newLiveEnv(t)
-	sub := subscribe(t, env.url)
-	env.send(t, "cap-lost")
-	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
-		`turn {"role":"lead","status":"failed","error":"capped: more than 25 tool calls"}`,
-		`pause {"reason":"capped: more than 25 tool calls"}`)
 }
 
 func TestWrap_QuickSession(t *testing.T) {

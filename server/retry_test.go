@@ -93,7 +93,7 @@ func TestRetry_Refused(t *testing.T) {
 		})
 	}
 
-	const reason = "capped: more than 25 tool calls"
+	const reason = "token budget of 1000000 used: 1000312 tokens"
 	if err := env.st.PauseChannel(ctx, 1, reason); err != nil {
 		t.Fatal(err)
 	}
