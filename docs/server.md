@@ -101,8 +101,9 @@ logged in and on `PATH`.
 
 Client routes such as `/features/3`, `/tasks` and `/inbox` have the same paths as the REST API. In the Go server, `GET /` and `HEAD /` always get the app's `index.html`; other `GET` or `HEAD` requests get it when the `Accept` header includes `text/html`. Every other request goes to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`) are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
 
-Dev mode: run `reef serve` on `:7700`, then `cd web && npm run dev` and open
-`http://localhost:5173`. Vite proxies the API paths to `127.0.0.1:7700`.
+Dev mode: run `reef serve --addr 127.0.0.1:7701 --data ~/Library/Application\ Support/Reef\ Dev`,
+then `cd web && npm run dev` and open `http://localhost:5173`. Vite proxies the API paths to
+`127.0.0.1:7701`, the dev copy's port and folder, so it never reaches the installed app on 7700.
 
 ## Errors
 
