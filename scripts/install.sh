@@ -4,7 +4,7 @@ set -eu
 URL=https://github.com/bhanuprakaash/reef/releases/latest/download/Reef-mac-arm64.zip
 APP=/Applications/Reef.app
 NEW=/Applications/.Reef.app.new
-UPDATE="$HOME/Library/Application Support/Reef/update"
+UPDATE="$HOME/Library/Application Support/reef-desktop/update"
 
 main() {
   if [ "$(uname -s)" != Darwin ] || [ "$(uname -m)" != arm64 ]; then
