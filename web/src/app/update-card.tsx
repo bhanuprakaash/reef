@@ -3,9 +3,9 @@ import { Button } from '@/components/button';
 
 export function UpdateCard() {
   const [version, setVersion] = useState<string | null>(null);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState<string | null>(null);
   useEffect(() => window.reef?.onUpdateReady(setVersion), []);
-  if (!version || dismissed) return null;
+  if (!version || dismissed === version) return null;
 
   return (
     <section
@@ -22,7 +22,7 @@ export function UpdateCard() {
         <Button variant="primary" size="sm" onClick={() => window.reef?.restartToUpdate()}>
           Restart
         </Button>
-        <Button variant="ghost" size="sm" onClick={() => setDismissed(true)}>
+        <Button variant="ghost" size="sm" onClick={() => setDismissed(version)}>
           Later
         </Button>
       </div>
