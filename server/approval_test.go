@@ -281,25 +281,6 @@ func TestApproval_ApproveAtHopCapPausesAndStaysPending(t *testing.T) {
 	}
 }
 
-func TestApproval_ApproveWhileBusyStaysPending(t *testing.T) {
-	env := newLiveEnv(t)
-	id, sub, approvals := env.gatedChannel(t)
-	env.sendTo(t, id, "block")
-	<-env.fake.started
-	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
-
-	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
-	if status != 409 || body != `{"error":"channel 2 has a turn running: conflict"}` {
-		t.Errorf("approve while busy = %d %s, want 409 turn running", status, body)
-	}
-	status, body = do(t, http.MethodGet, approvals, "")
-	if status != 200 || !strings.Contains(body, `"id":1,`) || !strings.Contains(body, `"status":"pending"`) {
-		t.Errorf("approvals = %d %s, want approval 1 pending", status, body)
-	}
-	env.fake.release <- struct{}{}
-	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
-}
-
 func TestApproval_DefaultTeamHasNoGateToArchitect(t *testing.T) {
 	env := newLiveEnv(t)
 	id, post := env.teamChannel(t)

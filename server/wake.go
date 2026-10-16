@@ -16,11 +16,13 @@ const (
 
 // wake is a turn to run: role answers text, and its reply goes in the thread of parent.
 // from is the author of the message messageID that woke it; gated is set when the team
-// holds wakes from that author to role for approval.
+// holds wakes from that author to role for approval. approval is the id of the approval an
+// approved wake came from, or 0.
 type wake struct {
 	from      string
 	messageID int64
 	gated     bool
+	approval  int64
 	role      string
 	text      string
 	parent    *int64

@@ -311,6 +311,7 @@ REEF_VERIFY_RUN=<id> $H ui fixes     # Fixes feature: no stage bar, two tasks, o
 REEF_VERIFY_RUN=<id> $H ui workshop  # /teams page edits a role's persona, keeps its mcpServers, shows reef team apply's errors, copies a team, next developer wake uses the new persona
 REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, types, Enter shows Captured and clears the box, a task row is stored; a failing request shows its error
 REEF_VERIFY_RUN=<id> $H ui pr        # the header PR chip opens the PR panel: checks, Merge disabled while not mergeable, confirm dialog, merged state (fake gh, see features/window.md)
+REEF_VERIFY_RUN=<id> $H ui queue     # while a teammate works Send shows beside Stop; a send runs as the next turn after the running one
 ```
 
 `teams` needs the teams `duo` and `gated` (and `inbox` needs `gated`) applied to the `ui` folder first: run

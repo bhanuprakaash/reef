@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|queue BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -11,9 +11,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, queue };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|queue BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -727,6 +727,30 @@ async function stop() {
   await shot('resumed');
   const answer = sql(`select body from message where channel_id=${cid} and author='lead' order by id desc limit 1`);
   check(/pineapple/i.test(answer), 'the next message resumes the session', `answer: ${answer}`);
+}
+
+async function queue() {
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const cid = await newChannel(main, 'New channel', 'queue chat');
+  await send('Write a 1500-word story about lighthouses. Use no tools.');
+  await working();
+  const sendButton = page.getByRole('button', { name: 'Send' });
+  const stopButton = page.getByRole('button', { name: 'Stop' });
+  check((await sendButton.isVisible()) && (await stopButton.isVisible()), 'Send shows beside Stop while a teammate works');
+  const box = page.getByLabel('Message');
+  check(((await box.getAttribute('placeholder')) ?? '').includes('your message runs next'), 'the box says the message runs next', await box.getAttribute('placeholder'));
+  await box.fill('Say ok in one word.');
+  check(await sendButton.isEnabled(), 'Send is enabled with text while a teammate works');
+  await sendButton.click();
+  await main.getByText('Say ok in one word.').and(page.locator(':not(textarea)')).waitFor({ timeout: 15000 });
+  await shot('queued');
+  check((await box.inputValue()) === '', 'the box clears after the send', await box.inputValue());
+  await idle();
+  const turns = sql(`select role||' '||status from turn where channel_id=${cid} order by id`);
+  const replies = sql(`select count(*) from message where channel_id=${cid} and author='lead'`);
+  check(turns === 'lead done\nlead done' && replies === '2', 'the message ran right after the story turn, as a second lead turn', `${turns.replace('\n', ', ')}; ${replies} lead messages`);
+  await shot('answered');
 }
 
 async function retry() {
