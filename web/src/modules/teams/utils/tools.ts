@@ -9,6 +9,17 @@ export const builtinTools = [
   'WebSearch',
 ];
 
+export const toolHints: Record<string, string> = {
+  Read: 'Read files',
+  Grep: 'Search file contents',
+  Glob: 'Find files by name',
+  Edit: 'Change part of a file',
+  Write: 'Create or replace files',
+  Bash: 'Run shell commands',
+  WebFetch: 'Fetch a web page',
+  WebSearch: 'Search the web',
+};
+
 export function mcpTool(server: string) {
   return `mcp__${server}__*`;
 }
