@@ -17,6 +17,9 @@ jobs:
         with:
           node-version: 22
       - run: go test ./...
+        # The worktree tests compare paths, and the default TMPDIR under /var is a symlink.
+        env:
+          TMPDIR: ${{ runner.temp }}
       - run: npm ci
         working-directory: web
       - run: npm run typecheck
