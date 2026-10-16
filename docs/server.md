@@ -91,7 +91,7 @@ logged in and on `PATH`.
   and are hidden on a Codex role. A server can be removed there, not added (use `reef team apply`).
   Duplicate applies the same roles, gates and MCP servers under a new name with `?from=`,
   rejected if that name is taken. "New team" asks for a name and a team to start from and
-  sends the same `?from=` request. The hop, turn and token caps are not team fields, so the
+  sends the same `?from=` request. The hop and token caps are not team fields, so the
   page has no Caps section.
 - Settings (`/settings`): your name, occupation and working preferences (chips), the current project's skills read from disk, grouped Claude Code and Codex, each with its description, theme (dark, light or Match macOS, kept in `localStorage`)
   and notifications.
@@ -671,7 +671,7 @@ of a thread the role owns, and the user's reply in it goes to the role.
 The first turn and the wakes after it are one chain. They run one at a time, in the order
 the messages were stored, and the messages each turn stores are routed in turn and queued at
 the end. The channel has a turn running until the chain is done, so a `send`, a `wrap`, a
-`promote`, a `continue` or an approve during the chain is 409. A turn that fails, or is capped, ends the
+`promote`, a `continue` or an approve during the chain is 409. A turn that fails ends the
 chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
 lead's reply says `@architect ...`; the architect runs and posts a plan, a new thread it
 owns; the chain ends because the plan names no one. The lead gets no turn after the plan.
@@ -700,9 +700,8 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Five kind
   proposal made"}`. `{"status":"idle"}` has no role. It is sent only when a subscriber
   connects and no turn runs.
 - `agent`: one [agent event](agents.md) as JSON, as it comes, from the turn that is running.
-- `pause`: `{"reason":"..."}` when a cap pauses the channel: right after the `turn`
-  event of a capped turn, when a send finds the token budget used, or when the hop cap holds
-  a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
+- `pause`: `{"reason":"..."}` when a cap pauses the channel: when a send finds the
+  token budget used, or when the hop cap holds a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
 - `approval`: an [approval](#approval) as JSON, `pending` when a gate holds a wake, and again
   with `approved` or `rejected` when it is decided.
 - `note`: `{}`, sent when a message is posted outside a turn, such as a [GitHub
@@ -745,7 +744,7 @@ id to act with:
 | `kind` | Listed while | `text` | Also has | Cleared by |
 | --- | --- | --- | --- | --- |
 | `approval` | a gate holds a wake: a pending [approval](#approval) | `lead wants to wake architect` | `approvalId` | approve or reject |
-| `paused` | the channel's `paused` is not empty | the reason: hop cap, tool cap, token budget or a routing or store failure | | `continue`, or a user message after a hop cap pause |
+| `paused` | the channel's `paused` is not empty | the reason: hop cap, token budget or a routing or store failure | | `continue`, or a user message after a hop cap pause |
 | `failed` | a turn is retryable (see [Channels live](#channels-live)) and its error is not `interrupted`: a turn the user stopped is a decision, not an item | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
 | `waiting` | the channel's newest message is from an agent (not `user` or `reef`) and woke nobody: no wake held at a gate for it, no turn running, no other item for the channel, and the channel's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | `messageId` | any new message, such as a send; or `POST /channels/{id}/dismiss` with the item's `messageId`, which hides it until a newer message arrives |
 
@@ -803,14 +802,8 @@ its turn is stored `failed`, `interrupted`.
 
 ## Caps
 
-Three caps pause a channel. All are constants in the code, not settings.
+Two caps pause a channel. All are constants in the code, not settings.
 
-- Tool calls per wake: one turn (one wake, or the turn that answers one user message) of a
-  role without `write` may make 25 tool calls, subagent calls included; a writing role has no
-  tool call cap. The 26th interrupts the agent, ends the turn
-  `failed` with the error `capped: more than 25 tool calls` and pauses the channel with that
-  text as `paused`. The agent stops like after a failed turn; the next send resumes it by
-  session id. The wakes still waiting in the chain are dropped.
 - Tokens per channel: the input, output and cache write tokens of all the channel's turns,
   of every role, cache reads not counted, against `tokenBudget` (1,000,000). A turn only
   counts once it has ended. A send, or a wake in a chain, that finds the sum at or over the
@@ -824,8 +817,7 @@ Three caps pause a channel. All are constants in the code, not settings.
 A send to a paused channel is 409 with the reason in the error, except after the hop cap: that
 pause is for agents, so a user message clears it, resets the hop count to 0, drops the held
 wakes and runs. `POST /channels/{id}/continue` clears the pause. When the token sum is at or
-over the budget it also sets `tokenBudget` to the sum plus 1,000,000; after a tool cap the next
-turn simply gets a fresh 25. `continue` on a channel that is not paused, or has a turn running,
+over the budget it also sets `tokenBudget` to the sum plus 1,000,000. `continue` on a channel that is not paused, or has a turn running,
 is 409.
 
 Held wakes: when a wake cannot run because of a pause (the hop cap, or a token budget that ran
@@ -843,9 +835,8 @@ nothing runs ungated. These wakes are held in memory only, since the database fa
 the message before the turn's reply, and runs what that wakes. If it fails again the channel
 stays paused.
 
-The tool cap is counted in `channel.Runner`, so `reef chat` is capped too: it pauses the
-channel, prints the reason and exits, because the interrupt ends the agent. Before each
-line, `reef chat` runs the same pause and token budget check as send (`channel.CheckCaps`)
+No role has a tool call cap: a turn runs until the agent ends it, the user stops it, or the
+token budget is used. Before each line, `reef chat` runs the same pause and token budget check as send (`channel.CheckCaps`)
 and prints the reason instead of running the line. The line `/continue` does what
 `continue` does (`channel.Continue`). See [memory.md](memory.md#reef-chat). Hops do not
 exist in `reef chat`: it wakes nobody.

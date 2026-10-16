@@ -187,9 +187,6 @@ func converse(
 			if ctx.Err() != nil {
 				return nil
 			}
-			if errors.Is(err, channel.ErrCapped) {
-				_, err = fmt.Fprintf(stdout, "\n\n%v\n", err)
-			}
 			return err
 		}
 		if _, err := io.WriteString(stdout, "\n\n"); err != nil {

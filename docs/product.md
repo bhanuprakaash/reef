@@ -227,6 +227,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 66 | A feature's PR shows in a channel side panel, opened from the header's PR chip, with a Merge button that runs `gh pr merge --merge` (a merge commit) only when gh calls the PR mergeable; Azure DevOps is a later ticket | The user sees checks and reviews where the work happens and merges without leaving Reef; gh decides whether a merge is allowed and its message is shown when it refuses |
 | 67 | Every merge to `main` that passes tests is a numbered release `v0.1.N`; the everyday app is a release build, not the checkout | Reef builds Reef, so the app in use must not change while agents edit the repo |
 | 68 | Geist is the font everywhere in the web UI, self-hosted in the build | The user finds it easier to read than the system font; bundling it keeps it working offline and makes the window, the desktop app and a browser match |
+| 69 | No role has a tool call cap; a turn runs until the agent ends it, Stop, or the token budget. Replaces 59 | The cap paused read-only roles mid-work as often as it stopped loops; Stop and the token budget already bound a turn |
 
 ## Open questions
 
