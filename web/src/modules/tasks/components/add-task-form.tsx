@@ -7,11 +7,12 @@ import { Select } from '@/components/select';
 type Props = {
   projects: Project[];
   features: Feature[];
+  defaultProjectId: string;
 };
 
-export function AddTaskForm({ projects, features }: Props) {
+export function AddTaskForm({ projects, features, defaultProjectId }: Props) {
   const [title, setTitle] = useState('');
-  const [projectId, setProjectId] = useState('');
+  const [projectId, setProjectId] = useState(defaultProjectId);
   const [featureId, setFeatureId] = useState('');
   const create = useCreateTask();
   const projectFeatures = features.filter((f) => String(f.projectId) === projectId);

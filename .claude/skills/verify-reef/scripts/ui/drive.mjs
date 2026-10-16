@@ -335,9 +335,9 @@ async function pages() {
   await pick('Filter by project', sql(`select name from project where id=${pid}`));
   await pick('Filter by feature', 'Login');
   await row.getByRole('checkbox').click();
+  await row.waitFor({ state: 'hidden' });
+  await page.getByRole('group', { name: 'Status' }).getByRole('button', { name: 'Done', exact: true }).click();
   await row.getByRole('checkbox', { checked: true }).waitFor();
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
-  await row.waitFor();
   await shot('tasks-done');
   check(
     sql(`select status from task where title='${title}'`) === 'done' && page.url().includes('status=done'),
@@ -1463,7 +1463,7 @@ async function board() {
   const otherFid = page.url().split('/').pop();
   const otherPid = sql(`select project_id from feature where id=${otherFid}`);
 
-  await page.goto(base + '/tasks');
+  await page.goto(base + '/tasks?project=all');
   const title = `board task ${Date.now().toString(36)}`;
   await page.getByLabel('Task title').fill(title);
   await pick('Task project', sql(`select name from project where id=${pid}`));

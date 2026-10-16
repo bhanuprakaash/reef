@@ -19,26 +19,44 @@ const task: Task = {
   updatedAt: '2026-10-01T09:00:00Z',
 };
 
-function render() {
+function render(tasks: Task[] = [task]) {
   useUpdateTask.mockReturnValue({ isPending: false, isError: false });
   return renderToStaticMarkup(
     <MemoryRouter>
-      <TaskList tasks={[task]} />
+      <TaskList tasks={tasks} />
     </MemoryRouter>,
   );
 }
 
 describe('TaskList', () => {
-  it('links #N and the title to the task page and clamps the body to two lines', () => {
+  it('links #N and the title to the task page and leaves the body out of the row', () => {
     const markup = render();
 
     expect(markup).toMatch(/<a [^>]*href="\/tasks\/12"[^>]*>.*#12.*Fix the login.*<\/a>/s);
-    expect(markup).toMatch(/class="[^"]*line-clamp-2[^"]*">The body of the task</);
+    expect(markup).not.toContain('The body of the task');
   });
 
   it('keeps the link outside the checkbox label so clicking it does not tick the task', () => {
     const markup = render();
 
     expect(markup).not.toMatch(/<label[^>]*>(?:(?!<\/label>).)*<a /s);
+  });
+
+  it('shows a done task checked and enabled so it can be unticked', () => {
+    const markup = render([{ ...task, status: 'done' }]);
+
+    expect(markup).toMatch(/<input [^>]*checked=""/);
+    expect(markup).not.toMatch(/<input [^>]*disabled/);
+  });
+
+  it('shows a status pill for doing only', () => {
+    expect(render()).not.toContain('todo');
+    expect(render([{ ...task, status: 'doing' }])).toContain('doing');
+  });
+
+  it('lists doing before todo', () => {
+    const markup = render([task, { ...task, id: 13, title: 'Write the docs', status: 'doing' }]);
+
+    expect(markup.indexOf('Write the docs')).toBeLessThan(markup.indexOf('Fix the login'));
   });
 });

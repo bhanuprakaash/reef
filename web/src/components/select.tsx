@@ -170,7 +170,7 @@ export function Select({
           style={{ visibility: 'hidden' }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => e.preventDefault()}
-          className="fixed z-50 overflow-y-auto rounded-menu border border-line bg-card p-1.5 text-sm text-fg shadow-menu"
+          className="fixed z-50 max-w-[min(420px,calc(100vw-16px))] overflow-y-auto rounded-menu border border-line bg-card p-1.5 text-sm text-fg shadow-menu"
         >
           {options.map((o, i) => (
             <div key={o.value} role="presentation">
@@ -190,8 +190,12 @@ export function Select({
                 onClick={() => pick(i)}
                 className={`flex h-9 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 aria-disabled:cursor-not-allowed aria-disabled:text-faint ${i === active ? 'bg-hover' : ''}`}
               >
-                <span className="truncate">{o.label}</span>
-                {o.hint && <span className="ml-auto pl-2 text-xs text-muted">{o.hint}</span>}
+                <span className="max-w-full shrink-0 truncate">{o.label}</span>
+                {o.hint && (
+                  <span title={o.hint} className="ml-auto min-w-0 truncate pl-2 text-xs text-muted">
+                    {o.hint}
+                  </span>
+                )}
                 {o.value === value && (
                   <svg
                     className={`size-3.5 shrink-0 ${o.hint ? '' : 'ml-auto'}`}
