@@ -8,6 +8,17 @@ import { createTerminals } from './terminal.js';
 import { createUpdater } from './updater.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+// app.quit(), not app.exit(), so before-quit still stops reef serve, the browser and the panes.
+process.on('uncaughtException', (error) => {
+  console.error(error);
+  dialog.showErrorBox('Reef stopped unexpectedly', error.stack || error.message);
+  app.quit();
+});
+
+// Both copies are the same package, so without this Electron gives them one user data folder.
+if (!app.isPackaged) app.setPath('userData', path.join(app.getPath('appData'), 'reef-desktop-dev'));
+
 const PORT = process.env.REEF_PORT || (app.isPackaged ? '7700' : '7701');
 const ADDR = `127.0.0.1:${PORT}`;
 const SERVER_STOP_TIMEOUT = 5000;
@@ -210,10 +221,11 @@ app.whenReady().then(async () => {
   updater = createUpdater(win, ADDR, dataDir());
   const splashAt = Date.now();
   const PATH = await loginShellPath();
-  if (win.isDestroyed()) return;
+  if (quitting || win.isDestroyed()) return;
   const ok = await startServer(PATH);
-  if (!ok) return;
+  if (!ok || quitting) return;
   updater.start();
+  if (quitting) return;
   win.webContents.setWindowOpenHandler(({ url }) => {
     if (/^https?:\/\//.test(url)) shell.openExternal(url);
     return { action: 'deny' };
@@ -263,5 +275,4 @@ app.on('before-quit', (event) => {
   if (browser) browser.close();
   if (terminals) terminals.killAll();
   stopServer().then(() => app.quit());
-  if (updater) updater.applyOnQuit();
 });

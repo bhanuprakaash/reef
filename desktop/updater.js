@@ -15,7 +15,7 @@ const run = promisify(execFile);
 
 // The scripts run after this app has exited, in a helper that outlives it, because a running
 // app cannot replace its own bundle. Arguments: pid, bundle, previous.app, failed marker, the
-// version that failed, pending marker; the swap adds the staged app, the old version and "open".
+// version that failed, pending marker; the swap adds the staged app and the old version.
 // REEF_DB and REEF_DB_BACKUP are the database and its copy from before the swap.
 const WAIT = String.raw`trap '' HUP TERM
 while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
@@ -52,17 +52,15 @@ else
   printf '%s\n' "$5" > "$4"
 fi
 rm -rf "$(dirname "$7")"
-if [ "$9" = open ]; then
-  open "$2"
-  i=0
-  while [ -e "$6" ] && [ "$i" -lt ${OPEN_WATCH} ]; do sleep 1; i=$((i+1)); done
-  if [ -d "$3" ] && mv "$6" "$6.taken" 2>/dev/null; then
-    pkill -KILL -f "^$(printf '%s/Contents/' "$2" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
-    sleep 1
-    ` +
+open "$2"
+i=0
+while [ -e "$6" ] && [ "$i" -lt ${OPEN_WATCH} ]; do sleep 1; i=$((i+1)); done
+if [ -d "$3" ] && mv "$6" "$6.taken" 2>/dev/null; then
+  pkill -KILL -f "^$(printf '%s/Contents/' "$2" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+  sleep 1
+  ` +
   RESTORE +
-  String.raw`  fi
-fi
+  String.raw`fi
 `;
 const ROLLBACK = WAIT + RESTORE;
 
@@ -132,16 +130,16 @@ export function createUpdater(win, addr, dataDir) {
     if (staged && !win.isDestroyed()) win.webContents.send('update:ready', staged);
   }
 
-  function swap(open) {
+  function swap() {
     const stagedPath = stagedApp();
     if (!staged || !stagedPath || swapping) return false;
     swapping = true;
-    helper(SWAP, [failed, staged, pending, stagedPath, app.getVersion(), open ? 'open' : '']);
+    helper(SWAP, [failed, staged, pending, stagedPath, app.getVersion()]);
     return true;
   }
 
   function restart() {
-    if (swap(true)) app.quit();
+    if (swap()) app.quit();
   }
 
   async function stage(version, url) {
@@ -209,6 +207,7 @@ export function createUpdater(win, addr, dataDir) {
 
   return {
     start() {
+      if (!app.isPackaged) return;
       fs.rmSync(pending, { force: true });
       if (!fs.existsSync(taken)) {
         for (const suffix of ['', '-wal', '-shm']) fs.rmSync(backupDb + suffix, { force: true });
@@ -222,11 +221,14 @@ export function createUpdater(win, addr, dataDir) {
           message: `Update to ${failedVersion} failed to start; still on ${app.getVersion()}`,
         });
       }
-      if (!app.isPackaged) return;
       const version = read(path.join(stagedDir, 'version'));
       const parsed = parse(version);
       if (parsed && isNewer(parsed, parse(app.getVersion())) && stagedApp()) staged = version;
       else fs.rmSync(stagedDir, { recursive: true, force: true });
+      if (staged) {
+        restart();
+        return;
+      }
       check();
       setInterval(check, CHECK_EVERY);
       setInterval(applyWhenIdle, IDLE_EVERY);
@@ -241,9 +243,6 @@ export function createUpdater(win, addr, dataDir) {
       }
       helper(ROLLBACK, [failed, versions[1], pending]);
       return true;
-    },
-    applyOnQuit() {
-      swap(false);
     },
   };
 }
