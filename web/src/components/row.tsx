@@ -6,6 +6,7 @@ export function Row(props: {
   active: boolean;
   avatar: ReactNode;
   title: string;
+  live?: ReactNode;
   aside?: ReactNode;
   preview: string;
 }) {
@@ -17,7 +18,10 @@ export function Row(props: {
       {props.avatar}
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
-          <span className="truncate text-[14.5px]">{props.title}</span>
+          <span className="flex min-w-0 items-center gap-1.5">
+            <span className="truncate text-[14.5px]">{props.title}</span>
+            {props.live}
+          </span>
           <span className="ml-auto shrink-0 text-xs text-muted">{props.aside}</span>
         </span>
         <span className="block truncate text-[13px] text-muted">{props.preview}</span>
