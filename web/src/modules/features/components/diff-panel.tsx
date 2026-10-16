@@ -1,14 +1,17 @@
-import { type ReactNode, useState } from 'react';
+import { Fragment, type ReactNode, useState } from 'react';
 import { Link } from 'react-router';
 import { type DiffScope } from '@/modules/features/api/get-diff';
 import { type ReviewComment, useSendReview } from '@/modules/features/api/send-review';
 import { diffCounts } from '@/modules/features/utils/diff-counts';
+import { buildFileTree, type TreeNode } from '@/modules/features/utils/file-tree';
 import type { DiffLine, FileDiff } from '@/types/api';
 import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 import { SegmentedControl } from '@/components/segmented-control';
 import { TextArea } from '@/components/text-area';
+import { useMediaQuery } from '@/lib/use-media-query';
+import { useStoredFlag } from '@/lib/use-stored-flag';
 
 const lineClass: Record<DiffLine['kind'], string> = {
   add: 'bg-done/15 text-done',
@@ -66,6 +69,9 @@ export function DiffPanel({
   const [selected, setSelected] = useState('');
   const [active, setActive] = useState<Target | null>(null);
   const [draft, setDraft] = useState('');
+  const [treeView, toggleTreeView] = useStoredFlag('reef.diffFileTree');
+  const [collapsed, setCollapsed] = useState<string[]>([]);
+  const wide = useMediaQuery('(min-width: 768px)');
   const send = useSendReview(featureId);
   const file = files.find((f) => f.path === selected) ?? files[0];
 
@@ -74,6 +80,66 @@ export function DiffPanel({
     setComments((cs) => [...cs, { ...active, text: draft.trim() }]);
     setActive(null);
     setDraft('');
+  }
+
+  function fileRow(f: FileDiff, name: string, depth = 0) {
+    const drafts = comments.filter((c) => c.path === f.path).length;
+    const { letter, color } = statusLetter[f.status];
+    return (
+      <button
+        key={f.path}
+        type="button"
+        onClick={() => setSelected(f.path)}
+        aria-current={f === file}
+        style={depth > 0 ? { paddingLeft: 10 + depth * 14 } : undefined}
+        className={`flex h-8 items-center gap-2 rounded-lg px-2.5 text-left max-md:shrink-0 max-md:whitespace-nowrap max-md:rounded-pill ${f === file ? 'bg-card max-md:bg-pill max-md:text-pill-ink' : 'hover:bg-card max-md:bg-card'} ${f.status === 'deleted' ? 'text-muted' : 'text-soft'}`}
+      >
+        <span className={`w-4 font-mono text-[11px] ${color}`}>{letter}</span>
+        <span className={`min-w-0 flex-1 truncate ${f.status === 'deleted' ? 'line-through' : ''}`}>
+          {name}
+        </span>
+        {drafts > 0 && (
+          <span className="flex size-[18px] items-center justify-center rounded-full bg-pill text-[11px] text-pill-ink">
+            {drafts}
+          </span>
+        )}
+      </button>
+    );
+  }
+
+  function treeRows(nodes: TreeNode[], depth: number): ReactNode {
+    return nodes.map((n) => {
+      if (n.kind === 'file') return fileRow(n.file, n.name, depth);
+      const open = !collapsed.includes(n.path);
+      return (
+        <Fragment key={n.path}>
+          <button
+            type="button"
+            aria-expanded={open}
+            onClick={() =>
+              setCollapsed((c) => (open ? [...c, n.path] : c.filter((p) => p !== n.path)))
+            }
+            style={{ paddingLeft: 10 + depth * 14 }}
+            className="flex h-8 items-center gap-2 rounded-lg px-2.5 text-left text-soft hover:bg-card"
+          >
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              className={`shrink-0 text-faint ${open ? 'rotate-90' : ''}`}
+              aria-hidden="true"
+            >
+              <path d="M9 6l6 6-6 6" />
+            </svg>
+            <span className="min-w-0 flex-1 truncate">{n.name}</span>
+          </button>
+          {open && treeRows(n.children, depth + 1)}
+        </Fragment>
+      );
+    });
   }
 
   return (
@@ -144,31 +210,55 @@ export function DiffPanel({
             aria-label="Files"
             className="flex w-60 shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-hairline px-2 py-3 text-[13px] max-md:w-auto max-md:flex-row max-md:gap-1.5 max-md:overflow-x-auto max-md:border-r-0 max-md:px-3.5"
           >
-            {files.map((f) => {
-              const drafts = comments.filter((c) => c.path === f.path).length;
-              const { letter, color } = statusLetter[f.status];
-              return (
-                <button
-                  key={f.path}
-                  type="button"
-                  onClick={() => setSelected(f.path)}
-                  aria-current={f === file}
-                  className={`flex h-8 items-center gap-2 rounded-lg px-2.5 text-left max-md:shrink-0 max-md:whitespace-nowrap max-md:rounded-pill ${f === file ? 'bg-card max-md:bg-pill max-md:text-pill-ink' : 'hover:bg-card max-md:bg-card'} ${f.status === 'deleted' ? 'text-muted' : 'text-soft'}`}
-                >
-                  <span className={`w-4 font-mono text-[11px] ${color}`}>{letter}</span>
-                  <span
-                    className={`min-w-0 flex-1 truncate ${f.status === 'deleted' ? 'line-through' : ''}`}
-                  >
-                    {f.path}
-                  </span>
-                  {drafts > 0 && (
-                    <span className="flex size-[18px] items-center justify-center rounded-full bg-pill text-[11px] text-pill-ink">
-                      {drafts}
-                    </span>
-                  )}
-                </button>
-              );
-            })}
+            {wide && (
+              <SegmentedControl
+                label="File list view"
+                className="mb-1.5 self-start"
+                options={[
+                  {
+                    value: 'list',
+                    ariaLabel: 'List view',
+                    label: (
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M4 6h16M4 12h16M4 18h16" />
+                      </svg>
+                    ),
+                  },
+                  {
+                    value: 'tree',
+                    ariaLabel: 'Tree view',
+                    label: (
+                      <svg
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M4 5h8M8 12h12M8 19h12M4 5v14M4 12h4M4 19h4" />
+                      </svg>
+                    ),
+                  },
+                ]}
+                value={treeView ? 'tree' : 'list'}
+                onChange={(v) => (v === 'tree') !== treeView && toggleTreeView()}
+              />
+            )}
+            {wide && treeView
+              ? treeRows(buildFileTree(files), 0)
+              : files.map((f) => fileRow(f, f.path))}
           </nav>
           <section
             aria-label="Diff"
