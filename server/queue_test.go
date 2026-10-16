@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"slices"
@@ -174,5 +175,86 @@ func TestApproval_QueuedApproveStopsAtHopCapStaysPending(t *testing.T) {
 	}
 	if got := env.ranTexts(); len(got) != 3 || !strings.HasSuffix(got[2], "\nagain") {
 		t.Errorf("ran = %q, want the lead's answer to again, and no developer turn", got)
+	}
+}
+
+func TestSend_WhileStartingQueuesAfterTheFirstTurn(t *testing.T) {
+	env := newLiveEnv(t)
+	opening, gate := make(chan struct{}), make(chan struct{})
+	env.open = func(context.Context) (session, error) {
+		close(opening)
+		<-gate
+		return env.fake, nil
+	}
+	sub := subscribe(t, env.url)
+	statuses := make(chan int, 2)
+	post := func(text string) {
+		res, err := http.Post(env.url+"/channels/1/send", "application/json",
+			strings.NewReader(`{"text":"`+text+`"}`))
+		if err != nil {
+			statuses <- 0
+			return
+		}
+		_ = res.Body.Close()
+		statuses <- res.StatusCode
+	}
+	go post("first")
+	<-opening
+	go post("second")
+	time.Sleep(100 * time.Millisecond)
+	close(gate)
+
+	if got := []int{<-statuses, <-statuses}; !slices.Equal(got, []int{202, 202}) {
+		t.Errorf("statuses = %v, want both 202", got)
+	}
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead", "lead")
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 1, message 1]\nfirst", "[channel 1, message 2]\nsecond",
+	}) {
+		t.Errorf("ran = %q, want the second message to run after the first", got)
+	}
+}
+
+func TestSend_StartFailurePutsQueuedApprovalBack(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	m, err := env.st.CreateMessage(context.Background(),
+		store.Message{ChannelID: int64(id), Author: "lead", Body: "@architect plan it"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	a, err := env.st.CreateApproval(context.Background(), store.Approval{
+		ChannelID: int64(id), From: "lead", To: "architect", MessageID: m.ID, Text: "plan it",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	opening, gate := make(chan struct{}), make(chan struct{})
+	env.open = func(context.Context) (session, error) {
+		close(opening)
+		<-gate
+		return nil, errors.New("boom")
+	}
+	sent := make(chan int, 1)
+	go func() {
+		status, _ := env.sendTo(t, id, "first")
+		sent <- status
+	}()
+	<-opening
+	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	if status, body := do(t, http.MethodPost, fmt.Sprintf("%s/%d", approvals, a.ID), `{"approve":true}`); status != 204 {
+		t.Fatalf("approve while the chain starts = %d %s, want 204", status, body)
+	}
+	close(gate)
+	if status := <-sent; status == 202 {
+		t.Fatalf("send = %d, want the start failure", status)
+	}
+	status, body := do(t, http.MethodGet, approvals, "")
+	if status != 200 || !strings.Contains(body, `"status":"pending"`) {
+		t.Errorf("approvals = %d %s, want the approval pending again: the chain never ran", status, body)
+	}
+	if got := env.ranTexts(); len(got) != 0 {
+		t.Errorf("ran = %q, want no turn", got)
 	}
 }

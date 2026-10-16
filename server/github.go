@@ -514,7 +514,7 @@ func (s *server) wakeDeveloper(
 		return nil
 	}
 	text := s.ghWakeText(ctx, pr, unwoken, ghPath, dir)
-	chain, ch, err := s.claim(ctx, ch.ID)
+	chain, ch, err := s.claim(ctx, ch.ID, _message)
 	if err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			s.logGhErrOnce(f.ID, fmt.Errorf("wake developer: %w", err))

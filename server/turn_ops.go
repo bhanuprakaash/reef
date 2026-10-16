@@ -40,7 +40,7 @@ func (s *server) retryTurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	c, ch, err := s.claim(ctx, t.ChannelID)
+	c, ch, err := s.claim(ctx, t.ChannelID, _message)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -79,7 +79,7 @@ func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: turn %d has no checkpoint", store.ErrInvalid, id))
 		return
 	}
-	c, ch, err := s.claim(ctx, t.ChannelID)
+	c, ch, err := s.claim(ctx, t.ChannelID, 0)
 	if err != nil {
 		writeError(w, err)
 		return

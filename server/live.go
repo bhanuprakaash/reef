@@ -121,6 +121,8 @@ type chain struct {
 	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{}
+	// kind is the kind of turn the chain is about to run, or 0 when it runs none.
+	kind turnKind
 	// unpause is set when start clears the channel's pause and sets its budget to budget.
 	unpause bool
 	budget  int64
@@ -230,12 +232,12 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 // claim moves the channel from idle to starting and returns the claim and the channel as
 // stored. It creates the channel's entry, so a stop that arrives at any point finds it, and
 // refuses a channel that is being deleted.
-func (s *server) claim(ctx context.Context, id int64) (*chain, store.Channel, error) {
+func (s *server) claim(ctx context.Context, id int64, kind turnKind) (*chain, store.Channel, error) {
 	if !s.begin() {
 		return nil, store.Channel{}, errStopping
 	}
 	turnCtx, cancel := context.WithCancel(s.ctx)
-	c := &chain{s: s, id: id, ctx: turnCtx, cancel: cancel, done: make(chan struct{})}
+	c := &chain{s: s, id: id, kind: kind, ctx: turnCtx, cancel: cancel, done: make(chan struct{})}
 	if err := s.markStarting(c); err != nil {
 		cancel()
 		s.wg.Done()
@@ -261,7 +263,7 @@ func (s *server) markStarting(c *chain) error {
 	if l.state != _idle {
 		return fmt.Errorf("channel %d has a turn running: %w", c.id, store.ErrConflict)
 	}
-	l.state, l.cancel, l.done = _starting, c.cancel, c.done
+	l.state, l.kind, l.cancel, l.done = _starting, c.kind, c.cancel, c.done
 	c.l = l
 	return nil
 }
@@ -285,10 +287,16 @@ func (s *server) dropIdle(id int64, l *live, deleted bool) {
 // hop cap pause does not stop it: the message clears the pause and drops the held wakes.
 // Any other pause refuses it. A message sent while a chain of message turns runs joins its queue.
 func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error {
-	if t.kind == _message && s.takesQueue(id) {
-		return s.queueUserTurn(ctx, id, t)
+	if t.kind == _message {
+		queued, err := s.takesQueue(ctx, id)
+		if err != nil {
+			return err
+		}
+		if queued {
+			return s.queueUserTurn(ctx, id, t)
+		}
 	}
-	c, ch, err := s.claim(ctx, id)
+	c, ch, err := s.claim(ctx, id, t.kind)
 	if err != nil {
 		return err
 	}
@@ -322,15 +330,26 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 }
 
 // takesQueue reports whether channel id has a running chain of message turns, which runs the
-// wakes queued behind it. A chain that is starting, or runs a wrap or promote, does not.
-func (s *server) takesQueue(id int64) bool {
-	l := s.lookup(id)
-	if l == nil {
-		return false
+// wakes queued behind it. It waits for a chain of message turns that is starting, so a message
+// stored now comes after the one that starts the chain. A wrap or promote takes no queue.
+func (s *server) takesQueue(ctx context.Context, id int64) (bool, error) {
+	for {
+		l := s.lookup(id)
+		if l == nil {
+			return false, nil
+		}
+		l.mu.Lock()
+		state, kind := l.state, l.kind
+		l.mu.Unlock()
+		if state != _starting || kind != _message {
+			return state == _running && kind == _message, nil
+		}
+		select {
+		case <-ctx.Done():
+			return false, ctx.Err()
+		case <-time.After(20 * time.Millisecond):
+		}
 	}
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	return l.state == _running && l.kind == _message
 }
 
 // queueUserTurn stores the user message of t, which arrived while a chain runs, and queues
@@ -356,7 +375,7 @@ func (s *server) runOrQueue(ctx context.Context, id int64, ws []wake, lift bool)
 		if queued, err := s.enqueue(id, ws); queued || err != nil {
 			return err
 		}
-		c, ch, err := s.claim(ctx, id)
+		c, ch, err := s.claim(ctx, id, _message)
 		if errors.Is(err, store.ErrConflict) {
 			continue
 		}
@@ -370,7 +389,7 @@ func (s *server) runOrQueue(ctx context.Context, id int64, ws []wake, lift bool)
 	}
 }
 
-// enqueue adds ws to the wakes the channel's running chain runs next. It reports false with
+// enqueue adds ws to the wakes the channel's running or starting chain runs next. It reports false with
 // no error when the channel is idle, and refuses a chain that takes no queue.
 func (s *server) enqueue(id int64, ws []wake) (bool, error) {
 	l := s.lookup(id)
@@ -382,7 +401,7 @@ func (s *server) enqueue(id int64, ws []wake) (bool, error) {
 	switch {
 	case l.state == _idle:
 		return false, nil
-	case l.state == _running && l.kind == _message:
+	case (l.state == _starting || l.state == _running) && l.kind == _message:
 		l.queued = append(l.queued, ws...)
 		return true, nil
 	}
@@ -542,7 +561,7 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	c, ch, err := s.claim(r.Context(), id)
+	c, ch, err := s.claim(r.Context(), id, _message)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -838,6 +857,8 @@ func (s *server) close() {
 func (c *chain) release(err error) error {
 	c.cancel()
 	c.l.mu.Lock()
+	c.s.reopenLocked(c.l, c.id, c.l.queued)
+	c.l.queued = nil
 	c.l.state, c.l.cancel = _idle, nil
 	close(c.done)
 	c.l.mu.Unlock()
