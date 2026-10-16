@@ -16,6 +16,10 @@ export type ReefBridge = {
   browserReload: () => void;
   setTakeOver: (value: boolean) => Promise<boolean>;
   onBrowserNavigated: (callback: (state: BrowserState) => void) => () => void;
+  onUpdateReady: (callback: (version: string) => void) => () => void;
+  restartToUpdate: () => void;
+  getUpdateWhenIdle: () => Promise<boolean>;
+  setUpdateWhenIdle: (value: boolean) => Promise<void>;
   openTerminal: (cwd: string, cols: number, rows: number) => Promise<string>;
   writeTerminal: (cwd: string, data: string) => void;
   resizeTerminal: (cwd: string, cols: number, rows: number) => void;

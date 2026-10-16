@@ -39,6 +39,7 @@
       "identity": "-",
       "icon": "resources/mac/icon.icon",
       "category": "public.app-category.developer-tools",
+      "artifactName": "Reef-mac-arm64.${ext}",
       "target": [
         {
           "target": "zip",

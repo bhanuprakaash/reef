@@ -162,7 +162,7 @@ record "$page_pid"
 # --- launch: on a free port (REEF_PORT) and its own X display, beside any other app or run ---
 app_port=$(free_port)
 cdp_port=$(free_port)
-app_cmd=(env -u XDG_CONFIG_HOME HOME="$HOME_DIR" REEF_PORT="$app_port" "$electron" "$REPO/desktop" --remote-debugging-port="$cdp_port")
+app_cmd=(env -u XDG_CONFIG_HOME HOME="$HOME_DIR" REEF_PORT="$app_port" REEF_DATA="$DATA" "$electron" "$REPO/desktop" --remote-debugging-port="$cdp_port")
 launch='echo "$DISPLAY" >"$1/app.display"; echo "${XAUTHORITY:-}" >"$1/app.xauth"; echo $$ >"$1/app.pid"; shift; exec "$@"'
 if [ "$(uname)" = Darwin ]; then
 	bash -c "$launch" _ "$S" "${app_cmd[@]}" </dev/null >"$D/app.log" 2>&1 &
