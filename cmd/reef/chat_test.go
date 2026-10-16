@@ -35,9 +35,6 @@ func (f *fakeSession) Say(_ context.Context, body string, _ *int64) (store.Messa
 
 func (f *fakeSession) Run(_ context.Context, text string, _ *int64, onEvent func(agent.Event)) error {
 	f.said = append(f.said, text)
-	if text == "cap" {
-		return fmt.Errorf("%w: more than 25 tool calls", channel.ErrCapped)
-	}
 	onEvent(agent.Event{Kind: agent.KindText, Text: "ok"})
 	return nil
 }
@@ -208,20 +205,6 @@ func TestConverse_Wrap(t *testing.T) {
 				t.Errorf("PendingProposal error = %v, want pending %v", err, tt.wantPending)
 			}
 		})
-	}
-}
-
-func TestConverse_CappedTurnPrintsReasonAndEnds(t *testing.T) {
-	st, ch := chatFixture(t)
-	w := &fakeSession{}
-	c := startChat(t, st, ch, w)
-
-	c.say(t, "cap")
-	if err := <-c.done; err != nil {
-		t.Fatalf("converse = %v, want nil", err)
-	}
-	if want := "> \n\ncapped: more than 25 tool calls\n"; c.out.String() != want {
-		t.Errorf("output = %q, want %q", c.out.String(), want)
 	}
 }
 
@@ -437,7 +420,7 @@ func TestRun_ChatResumesPausedChannel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PauseChannel(context.Background(), ch.ID, "capped: more than 25 tool calls"); err != nil {
+	if err := st.PauseChannel(context.Background(), ch.ID, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Close(); err != nil {
@@ -530,7 +513,7 @@ func useTokens(t *testing.T, st *store.Store, channelID, tokens int64) {
 func TestConverse_PausedChannelRefusesMessageUntilContinue(t *testing.T) {
 	ctx := context.Background()
 	st, ch := chatFixture(t)
-	if err := st.PauseChannel(ctx, ch.ID, "capped: more than 25 tool calls"); err != nil {
+	if err := st.PauseChannel(ctx, ch.ID, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
 	w := &fakeSession{}
@@ -544,7 +527,7 @@ func TestConverse_PausedChannelRefusesMessageUntilContinue(t *testing.T) {
 	c.waitFor(t, "ok")
 	out := c.end(t)
 
-	want := "> channel 1 is paused: capped: more than 25 tool calls\n/continue to go on\n\n> " +
+	want := "> channel 1 is paused: token budget of 1000000 used: 1000312 tokens\n/continue to go on\n\n> " +
 		"continued\n\n> ok\n\n> "
 	if out != want {
 		t.Errorf("output = %q, want %q", out, want)

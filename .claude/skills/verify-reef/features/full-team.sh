@@ -597,7 +597,7 @@ cat >"$E/gated.json" <<'EOF'
       "name": "architect",
       "backend": "claude",
       "persona": "You are the architect. Answer in one short sentence, and end it with the word PLANNED. Use no tools unless asked to. Never @mention anyone.",
-      "skills": "Writing short plans.",
+      "skills": ["short-plans"],
       "tools": ["Read"]
     }
   ]

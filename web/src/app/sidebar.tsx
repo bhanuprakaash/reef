@@ -2,6 +2,7 @@ import { useCallback, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { FeatureChannels } from '@/app/feature-channels';
 import { ProjectSwitcher } from '@/app/project-switcher';
+import { UpdateCard } from '@/app/update-card';
 import { CountBadge } from '@/components/count-badge';
 import { Dialog } from '@/components/dialog';
 import { Logo } from '@/components/logo';
@@ -180,6 +181,8 @@ export function Sidebar() {
         {error && <p className="px-2.5 pt-3 text-sm text-danger">{error.message}</p>}
         {current && <FeatureChannels project={current} query={query} />}
       </div>
+
+      <UpdateCard />
 
       <div className="flex shrink-0 items-center gap-2.5 px-1.5 pt-3">
         <span className="flex size-[30px] flex-none items-center justify-center rounded-full bg-bubble text-[11.5px] text-soft">

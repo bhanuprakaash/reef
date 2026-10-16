@@ -6,7 +6,7 @@ import { defineConfig } from 'vite';
 // A page load of a client route such as /tasks also matches an API path. The Go
 // server uses the same rule: a GET that accepts text/html gets the app.
 const api = {
-  target: 'http://127.0.0.1:7700',
+  target: 'http://127.0.0.1:7701',
   bypass: (req: { method?: string; headers: { accept?: string } }) =>
     req.method === 'GET' && req.headers.accept?.includes('text/html') ? '/index.html' : undefined,
 };

@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { useSkills } from '@/lib/api/get-skills';
 import { useTeams } from '@/lib/api/get-teams';
+import { useCurrentProject } from '@/lib/current-project';
+import { useProjects } from '@/modules/projects/api/get-projects';
 import { NewTeamDialog } from '@/modules/teams/components/new-team-dialog';
 import { TeamEditor } from '@/modules/teams/components/team-editor';
 import { TeamList } from '@/modules/teams/components/team-list';
@@ -9,6 +12,9 @@ import { Button } from '@/components/button';
 export function TeamsPage() {
   const [params, setParams] = useSearchParams();
   const teams = useTeams();
+  const projects = useProjects();
+  const [project] = useCurrentProject(projects.data);
+  const skills = useSkills(project?.id);
   const [creating, setCreating] = useState<{ from?: string } | null>(null);
   const name = params.get('team') || (teams.data?.[0]?.name ?? '');
   const team = teams.data?.find((t) => t.name === name);
@@ -54,6 +60,8 @@ export function TeamsPage() {
           <TeamEditor
             key={team.name}
             team={team}
+            skills={skills.data}
+            noProject={!project}
             onSaved={(n) => setParams({ team: n })}
             onDuplicate={() => setCreating({ from: team.name })}
           />

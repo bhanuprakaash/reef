@@ -116,7 +116,7 @@ read-only `git` commands. Apply it with `reef team apply teams/full.json`.
      "persona": "You are the lead. Answer the user. Hand design work to @architect."},
     {"name": "architect", "backend": "claude", "permissionMode": "default",
      "persona": "You are the architect. Reply with a short plan.",
-     "skills": "Writing plans.",
+     "skills": ["writing-plans"],
      "tools": ["Read", "Grep"],
      "mcpServers": [{"command": "my-mcp", "args": ["--stdio"]}]}
   ],
@@ -147,6 +147,9 @@ read-only `git` commands. Apply it with `reef team apply teams/full.json`.
 - `tools` are the backend's allowed tools: Claude runs them without asking (`--allowedTools`),
   and so it does the reef tools (`mcp__reef__*`), but not the tools of the role's own `mcpServers`
   unless `tools` lists them (`mcp__mcp1__*`).
+  A claude role that picks skills (`skills`) may use only those: each is allowed as `Skill(name)` and every
+  other claude skill on disk is denied. A role that picks none keeps every skill. A codex role gets the
+  names in its prompt only.
   A claude role without `write` cannot list plain `Bash` (or `Bash(*)`): `reef team apply`
   rejects it, so list patterns such as `Bash(go test:*)`.
   Codex ignores `tools`. Its limit is `permissionMode`. `write` decides which limit applies
@@ -243,7 +246,7 @@ holds a message body. Its shape:
    resuming, gets this part again, marked `Your persona or skills changed:`.
 1. One line: role, feature name and slug, project name. Then, when a profile exists,
    `You work with Ada, a developer. They like: short answers, ask before big changes.` (occupation
-   and style only when set, lower-cased; `Other` is left out). Then the goal (if set) and the stage (a `fixes` feature says it is a list of fixes tracked as tasks instead). A quick session
+   and style only when set, lower-cased; `Other` is left out). Then the goal (if set) and the stage (a `fixes` feature says it is a list of fixes tracked as tasks instead). Then, when the project has a base branch, `Base branch: dev. A pull request you open targets it.` A quick session
    adds the same line after its second line.
 2. `## Project memory`: the project's memory (see [server.md](server.md#project_memory)), only
    when it is not empty.
@@ -363,8 +366,8 @@ Each turn:
 - The reply is stored before the turn is marked `done`. If a store write fails during a
   turn, `reef chat` interrupts the agent and marks the turn `failed` with that error.
 - An agent error ends the turn `failed` with the error text. `reef chat` then exits 1 with
-  `reef: agent: <text>`. A turn that ends `failed` for any reason (an error, a stop, the
-  tool call cap) still stores the reply streamed so far, if it has text.
+  `reef: agent: <text>`. A turn that ends `failed` for any reason (an error, a stop) still
+  stores the reply streamed so far, if it has text.
 
 Caps in chat: before each line it sends, `reef chat` runs the same check as the server
 (`channel.CheckCaps`). A paused channel, or one at or over its token budget (paused first),
@@ -372,8 +375,7 @@ does not run the line and does not store it. It prints `channel 1 is paused: <re
 `/continue to go on`, then `> ` again. The line `/continue` clears the pause the way
 `POST /channels/{id}/continue` does (`channel.Continue`): a channel at or over its token budget
 gets a budget of the tokens it used plus 1,000,000, and it prints `continued`. On a channel that is not paused
-it prints `the channel is not paused`. The next line then runs. A tool call cap still
-ends the chat, as below; resume the channel and type `/continue`.
+it prints `the channel is not paused`. The next line then runs.
 
 Leaving:
 

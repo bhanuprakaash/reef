@@ -111,6 +111,8 @@ func TestTeam_ApplyErrors(t *testing.T) {
 		{"unknown face", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude","face":"dragon"}]}`,
 			`role x: face "dragon" must be one of jellyfish, whale, penguin, shark, octopus, turtle, ` +
 				"seahorse, otter, clownfish, manta-ray, pebble"},
+		{"skills as a string", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude","skills":"x"}]}`,
+			"skills"},
 		{"read-only claude role with Bash", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude"},` +
 			`{"name":"tester","backend":"claude","tools":["Bash"]}]}`,
 			"role tester has no write, so it cannot have unrestricted Bash; " +
@@ -121,6 +123,20 @@ func TestTeam_ApplyErrors(t *testing.T) {
 			_, err := reef(t, t.TempDir(), "team", "apply", writeTeam(t, tt.give))
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("err = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
+func TestTeam_ApplyTeamFiles(t *testing.T) {
+	files, err := filepath.Glob(filepath.Join("..", "..", "teams", "*.json"))
+	if err != nil || len(files) == 0 {
+		t.Fatalf("teams/*.json = %v, %v, want files", files, err)
+	}
+	for _, file := range files {
+		t.Run(filepath.Base(file), func(t *testing.T) {
+			if _, err := reef(t, t.TempDir(), "team", "apply", file); err != nil {
+				t.Error(err)
 			}
 		})
 	}

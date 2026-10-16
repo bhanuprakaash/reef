@@ -48,6 +48,10 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 		fmt.Fprintf(&b, "Stage: %s\n", f.Stage)
 	}
 
+	if p.BaseBranch != "" {
+		fmt.Fprintf(&b, "Base branch: %s. A pull request you open targets it.\n", p.BaseBranch)
+	}
+
 	mem, err := st.ProjectMemory(ctx, f.ProjectID)
 	if err != nil {
 		return "", err
@@ -119,8 +123,8 @@ func roleIntro(r store.Role) string {
 	if r.Persona != "" {
 		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(r.Persona))
 	}
-	if r.Skills != "" {
-		fmt.Fprintf(&b, "Your skills:\n%s\n\n", strings.TrimSpace(r.Skills))
+	if len(r.Skills) > 0 {
+		fmt.Fprintf(&b, "Your skills:\n%s\n\n", strings.Join(r.Skills, ", "))
 	}
 	return b.String()
 }

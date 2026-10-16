@@ -42,6 +42,7 @@ type Props = {
   featureId: number;
   featureName: string;
   branch: string;
+  baseBranch: string;
   scope: DiffScope;
   onScopeChange: (scope: DiffScope) => void;
   developerFace?: string;
@@ -54,6 +55,7 @@ export function DiffPanel({
   featureId,
   featureName,
   branch,
+  baseBranch,
   scope,
   onScopeChange,
   developerFace,
@@ -97,7 +99,7 @@ export function DiffPanel({
         </svg>
         <h1 className="text-base font-normal">Changes</h1>
         <span className="font-mono text-[12.5px] text-muted max-md:hidden">
-          {scope === 'full' ? `${branch} vs main` : 'uncommitted'}
+          {scope === 'full' ? `${branch} vs ${baseBranch}` : 'uncommitted'}
         </span>
         <SegmentedControl
           label="Diff scope"

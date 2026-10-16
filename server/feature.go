@@ -340,7 +340,7 @@ func (s *server) ensureFeatureWorktree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
-	if err := channel.EnsureWorktree(r.Context(), s.trees, p.Path, dir, f.Slug); err != nil {
+	if err := channel.EnsureWorktree(r.Context(), s.trees, p, dir, f.Slug); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -348,8 +348,8 @@ func (s *server) ensureFeatureWorktree(w http.ResponseWriter, r *http.Request) {
 }
 
 // getFeatureDiff returns the feature worktree's changes, uncommitted and untracked files
-// included, against the commit its branch and the project's HEAD last shared, or against the
-// worktree's own HEAD with ?scope=current. A feature with no worktree yet has no changes.
+// included, against the commit its branch and the project's base branch last shared, or against
+// the worktree's own HEAD with ?scope=current. A feature with no worktree yet has no changes.
 func (s *server) getFeatureDiff(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -373,7 +373,7 @@ func (s *server) getFeatureDiff(w http.ResponseWriter, r *http.Request) {
 	}
 	base := "HEAD"
 	if r.URL.Query().Get("scope") != "current" {
-		base, err = worktree.Base(r.Context(), p.Path, dir)
+		base, err = worktree.Base(r.Context(), p.Path, dir, p.BaseBranch)
 		if err != nil {
 			writeError(w, err)
 			return

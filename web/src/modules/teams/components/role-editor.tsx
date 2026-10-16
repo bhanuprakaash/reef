@@ -1,6 +1,8 @@
-import type { Role } from '@/types/api';
+import type { Role, Skills } from '@/types/api';
 import { ChipList } from '@/modules/teams/components/chip-list';
 import { CreaturePicker } from '@/modules/teams/components/creature-picker';
+import { SkillPicker } from '@/modules/teams/components/skill-picker';
+import { ToolPicker } from '@/modules/teams/components/tool-picker';
 import { backendLabel, backendOptions } from '@/modules/teams/utils/backend-label';
 import { Button } from '@/components/button';
 import { Creature, creatureName } from '@/components/creature';
@@ -10,6 +12,8 @@ import { TextField } from '@/components/text-field';
 
 type Props = {
   role: Role;
+  skills?: Skills;
+  noProject?: boolean;
   open: boolean;
   onToggle: () => void;
   onChange: (role: Role) => void;
@@ -42,7 +46,7 @@ function claudeModelOptions(model: string) {
 
 const badge = 'inline-flex h-[30px] items-center rounded-pill border px-3 text-xs';
 
-export function RoleEditor({ role, open, onToggle, onChange, onRemove }: Props) {
+export function RoleEditor({ role, skills, noProject, open, onToggle, onChange, onRemove }: Props) {
   const label = role.name || 'role';
   return (
     <fieldset className="min-w-0 overflow-hidden rounded-2xl border border-line bg-card">
@@ -132,26 +136,24 @@ export function RoleEditor({ role, open, onToggle, onChange, onRemove }: Props) 
               onChange={(e) => onChange({ ...role, persona: e.target.value })}
             />
           </label>
-          <label className="block space-y-1.5">
-            <span className="text-xs text-muted">Skills</span>
-            <TextArea
-              className="w-full leading-normal"
-              rows={2}
-              aria-label={`${label} skills`}
-              value={role.skills}
-              onChange={(e) => onChange({ ...role, skills: e.target.value })}
-            />
-          </label>
           <div className="flex flex-wrap gap-x-6 gap-y-3.5">
-            <ChipList
-              label="Allowed tools"
-              hint="Claude only"
-              mono
-              values={role.tools}
-              addLabel={`${label} add tool`}
-              onAdd={(tool) => onChange({ ...role, tools: [...role.tools, tool] })}
-              onRemove={(i) => onChange({ ...role, tools: role.tools.filter((_, j) => j !== i) })}
+            <SkillPicker
+              label={label}
+              picked={role.skills}
+              available={role.backend === 'codex' ? skills?.codex : skills?.claude}
+              noProject={noProject}
+              limits={role.backend === 'claude'}
+              onChange={(next) => onChange({ ...role, skills: next })}
             />
+            {role.backend === 'claude' && (
+              <ToolPicker
+                label={label}
+                tools={role.tools}
+                write={role.write}
+                servers={role.mcp}
+                onChange={(tools) => onChange({ ...role, tools })}
+              />
+            )}
             <div className="min-w-0">
               <div className="mb-2 text-xs text-muted">Permission mode</div>
               <Select

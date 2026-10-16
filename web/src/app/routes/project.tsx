@@ -13,6 +13,7 @@ import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
 import { useProjects } from '@/modules/projects/api/get-projects';
+import { ProjectBaseBranchForm } from '@/modules/projects/components/project-base-branch-form';
 import { ProjectMemoryForm } from '@/modules/projects/components/project-memory-form';
 import { useTasks } from '@/modules/tasks/api/get-tasks';
 import { roleFaces } from '@/utils/role-faces';
@@ -61,6 +62,7 @@ export function ProjectPage() {
           <ProjectMemoryForm projectId={id} />
         </div>
         <div className="flex min-w-[300px] flex-1 flex-col gap-4">
+          <ProjectBaseBranchForm project={project} />
           <Card title="Features">
             {features.isError && <p className="text-sm text-danger">{features.error.message}</p>}
             {projectFeatures.length === 0 && (

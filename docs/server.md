@@ -84,12 +84,16 @@ logged in and on `PATH`.
   since the page loaded.
 - Teams (`/teams`): lists teams and edits one's roles, faces and gates, saving with
   `PUT /teams/{name}`. An opened role shows its persona, skills, allowed tools, permission
-  mode and MCP servers; a server can be removed there, not added (use `reef team apply`).
+  mode and MCP servers. Skills are picked from the current project's `GET /skills` list for the
+  role's backend; a picked name that is not on disk shows as missing. Allowed tools are
+  checkboxes (`Read`, `Grep`, `Glob`, `Edit`, `Write`, `Bash`, `WebFetch`, `WebSearch`, and
+  `mcp__<name>__*` for each MCP server) plus a field for patterns such as `Bash(git log:*)`,
+  and are hidden on a Codex role. A server can be removed there, not added (use `reef team apply`).
   Duplicate applies the same roles, gates and MCP servers under a new name with `?from=`,
   rejected if that name is taken. "New team" asks for a name and a team to start from and
-  sends the same `?from=` request. The hop, turn and token caps are not team fields, so the
+  sends the same `?from=` request. The hop and token caps are not team fields, so the
   page has no Caps section.
-- Settings (`/settings`): your name, occupation and working preferences (chips), theme (dark, light or Match macOS, kept in `localStorage`)
+- Settings (`/settings`): your name, occupation and working preferences (chips), the current project's skills read from disk, grouped Claude Code and Codex, each with its description, theme (dark, light or Match macOS, kept in `localStorage`)
   and notifications.
 - First run: one page with two steps. Your name with an optional occupation and working preferences (saved with `PUT /profile`), then the first
   project. A name with no project starts at the project step; a project with no name asks only
@@ -97,8 +101,9 @@ logged in and on `PATH`.
 
 Client routes such as `/features/3`, `/tasks` and `/inbox` have the same paths as the REST API. In the Go server, `GET /` and `HEAD /` always get the app's `index.html`; other `GET` or `HEAD` requests get it when the `Accept` header includes `text/html`. Every other request goes to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`) are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
 
-Dev mode: run `reef serve` on `:7700`, then `cd web && npm run dev` and open
-`http://localhost:5173`. Vite proxies the API paths to `127.0.0.1:7700`.
+Dev mode: run `reef serve --addr 127.0.0.1:7701 --data ~/Library/Application\ Support/Reef\ Dev`,
+then `cd web && npm run dev` and open `http://localhost:5173`. Vite proxies the API paths to
+`127.0.0.1:7701`, the dev copy's port and folder, so it never reaches the installed app on 7700.
 
 ## Errors
 
@@ -336,7 +341,7 @@ through the same validation. Migration 6 seeds the team `solo`, with one role, `
 | `permissionMode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`. The same rule as a channel's `permissionMode` |
 | `model` | string | optional; the model the role runs on, passed to the backend when its agent starts or resumes: claude `--model NAME` (`opus`, `sonnet`, `haiku` or a full model id), codex the thread `model`. Left out or `""` is the backend default |
 | `persona` | string | goes at the start of the role's first prompt, and again, marked as changed, at its next wake once it or `skills` differs from what the role's session last got |
-| `skills` | string | goes after the persona, under `Your skills:` |
+| `skills` | array of strings | names of skills, one per entry, trimmed; each is letters, digits, `:`, `_` or `-`, and an empty, repeated or other name is `invalid`. They go after the persona, under `Your skills:`. claude: a role that picks skills may use only these. `--allowedTools` gets `Skill(name)` for each and `--disallowedTools` gets `Skill(name)` for every other claude skill on disk (the scan of `GET /skills`, taken when the role's session starts, with the role's working folder). A role that picks none keeps every skill and gets no skill rule. Skill rules only add entries to the `write` and `tools` rules. codex: prompt only. A team file or `PUT` body that gives `skills` as a string is `invalid` |
 | `face` | string | optional; the creature the window draws for the role: `jellyfish`, `whale`, `penguin`, `shark`, `octopus`, `turtle`, `seahorse`, `otter`, `clownfish`, `manta-ray` or `pebble`. Left out, the window picks one by the role's name (`lead` jellyfish, `architect` whale, `developer` penguin, `tester` shark, else `pebble`). Any other value is `invalid` |
 | `tools` | array of strings | claude: passed as `--allowedTools` with `mcp__reef__*`, so these tools and the reef tools run without asking; the role's own `mcpServers` do not (list `mcp__mcp1__*` here to allow one). codex: ignored |
 | `mcpServers` | array | extra MCP servers for the role, each `command`, `args`, `env` (stdio) or `url` (HTTP). They are named `mcp1`, `mcp2`, ... next to the `reef` server |
@@ -422,10 +427,11 @@ tool calls.
 | Route | Filters and body | OK | Notable errors |
 | --- | --- | --- | --- |
 | `GET /health` | | 200 `{"status":"ok"}` | |
+| `GET /status` | | 200 `{"running":N}`, N the channels whose live state is not idle (a turn is starting, running or stopping); the desktop app polls it to update when idle | |
 | `GET /projects` | | 200 | |
 | `POST /projects` | `name`, `path` | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |
-| `PUT /projects/{id}` | `name`, `path` | 200 | 400 (same `path` rule), 404 |
+| `PUT /projects/{id}` | `name`, `path`, `baseBranch` (optional; the branch a new feature starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
 | `DELETE /projects/{id}` | | 204; the worktrees of its features and the checkpoint refs of the turns of all its channels are removed, its branches are kept | 404, 409 a feature's worktree has uncommitted changes (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200 | 404 |
@@ -446,9 +452,10 @@ tool calls.
 | `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
 | `GET /features/{id}/worktree` | | 200 `{"path": "..."}`; the path of the feature's worktree, or `""` when it has none yet. Never makes one | 404 |
 | `POST /features/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the feature's worktree the same way the first wake of one of its channels would, reusing it when it already exists | 404 |
-| `GET /features/{id}/diff` | query `scope=current` for the changes against the worktree's HEAD only | 200 the worktree's changes against the commit its branch and the project's default branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
+| `GET /features/{id}/diff` | query `scope=current` for the changes against the worktree's HEAD only | 200 the worktree's changes against the commit its branch and the project's base branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
 | `GET /features/{id}/pr` | | 200 `{"pr": {"number", "title", "state": "OPEN"\|"MERGED"\|"CLOSED", "url", "isDraft", "reviewDecision", "base", "head", "canMerge", "checks": [{"name", "state": "pass"\|"fail"\|"pending"}], "body", "additions", "deletions", "files": [{"path", "additions", "deletions"}]}}`, from `gh pr view feature/<slug>` run in the project's folder; `canMerge` is true only when `state` is `OPEN` and gh calls it `MERGEABLE`; `{"pr": null}` when the branch has no PR | 404, 502 gh is not on `PATH` or failed, with its text |
 | `POST /features/{id}/pr/merge` | no body needed | 200 the same body as `GET /features/{id}/pr`, after `gh pr merge <number> --merge` (a merge commit) | 404 no feature or no PR, 409 gh refused, with its text, 502 |
+| `GET /skills?project={id}` | `project` is required | 200 `{"claude":[...],"codex":[...]}`, each a list of `{name, description}` read from disk, never stored. claude: `~/.claude/skills`, the project's `.claude/skills` and the skills of the plugins in `~/.claude/plugins/installed_plugins.json` installed for the user or for the project path, named `plugin:skill`. codex: `~/.agents/skills` and the project's `.agents/skills`. A name found twice is listed once; each list is ordered by name. A skill whose name is not letters, digits, `:`, `_` or `-`, or whose file cannot be read, is left out, and a malformed `installed_plugins.json` gives no plugin skills; each is logged and the rest are listed | 400 `project` missing or not a number, 404 |
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
 | `GET /teams/{name}` | | 200, with `mcp` instead of `mcpServers` as above; each role shows `write` | 404 |
 | `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; a role may also list `mcpRemove`, the `{name, label}` of each stored MCP server to drop, as `GET` showed it; servers it does not list are kept); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones, minus those in its `mcpRemove`; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists, or a server in `mcpRemove` no longer matches a stored one by name and label (the team changed since it was loaded; nothing is applied) |
@@ -523,8 +530,9 @@ a message wakes them.
   start short. The server logs every failed turn.
 - An agent of a channel under a feature runs in the feature's worktree,
   `<data folder>/worktrees/<project id>/<slug>`, on branch `feature/<slug>`. It is made at
-  the first start of any agent of the feature, from the project's default branch, with `git worktree
-  add`; a worktree or branch that exists is reused, so every channel of the feature shares
+  the first start of any agent of the feature, from the project's base branch (fetched from
+  `origin` first, a failed fetch is only logged; `origin/<branch>` if it exists, else the local
+  branch) or the repo's default branch when none is set, with `git worktree add`; a worktree or branch that exists is reused, so every channel of the feature shares
   one tree. A branch that is checked out elsewhere (in the main checkout, or in the worktree
   of another project on the same repo) cannot be added: the start fails with `branch
   feature/<slug> is checked out at <path>; switch that checkout to another branch`. A
@@ -665,7 +673,7 @@ of a thread the role owns, and the user's reply in it goes to the role.
 The first turn and the wakes after it are one chain. They run one at a time, in the order
 the messages were stored, and the messages each turn stores are routed in turn and queued at
 the end. The channel has a turn running until the chain is done, so a `send`, a `wrap`, a
-`promote`, a `continue` or an approve during the chain is 409. A turn that fails, or is capped, ends the
+`promote`, a `continue` or an approve during the chain is 409. A turn that fails ends the
 chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
 lead's reply says `@architect ...`; the architect runs and posts a plan, a new thread it
 owns; the chain ends because the plan names no one. The lead gets no turn after the plan.
@@ -694,9 +702,8 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Five kind
   proposal made"}`. `{"status":"idle"}` has no role. It is sent only when a subscriber
   connects and no turn runs.
 - `agent`: one [agent event](agents.md) as JSON, as it comes, from the turn that is running.
-- `pause`: `{"reason":"..."}` when a cap pauses the channel: right after the `turn`
-  event of a capped turn, when a send finds the token budget used, or when the hop cap holds
-  a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
+- `pause`: `{"reason":"..."}` when a cap pauses the channel: when a send finds the
+  token budget used, or when the hop cap holds a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
 - `approval`: an [approval](#approval) as JSON, `pending` when a gate holds a wake, and again
   with `approved` or `rejected` when it is decided.
 - `note`: `{}`, sent when a message is posted outside a turn, such as a [GitHub
@@ -739,7 +746,7 @@ id to act with:
 | `kind` | Listed while | `text` | Also has | Cleared by |
 | --- | --- | --- | --- | --- |
 | `approval` | a gate holds a wake: a pending [approval](#approval) | `lead wants to wake architect` | `approvalId` | approve or reject |
-| `paused` | the channel's `paused` is not empty | the reason: hop cap, tool cap, token budget or a routing or store failure | | `continue`, or a user message after a hop cap pause |
+| `paused` | the channel's `paused` is not empty | the reason: hop cap, token budget or a routing or store failure | | `continue`, or a user message after a hop cap pause |
 | `failed` | a turn is retryable (see [Channels live](#channels-live)) and its error is not `interrupted`: a turn the user stopped is a decision, not an item | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
 | `waiting` | the channel's newest message is from an agent (not `user` or `reef`) and woke nobody: no wake held at a gate for it, no turn running, no other item for the channel, and the channel's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | `messageId` | any new message, such as a send; or `POST /channels/{id}/dismiss` with the item's `messageId`, which hides it until a newer message arrives |
 
@@ -797,14 +804,8 @@ its turn is stored `failed`, `interrupted`.
 
 ## Caps
 
-Three caps pause a channel. All are constants in the code, not settings.
+Two caps pause a channel. All are constants in the code, not settings.
 
-- Tool calls per wake: one turn (one wake, or the turn that answers one user message) of a
-  role without `write` may make 25 tool calls, subagent calls included; a writing role has no
-  tool call cap. The 26th interrupts the agent, ends the turn
-  `failed` with the error `capped: more than 25 tool calls` and pauses the channel with that
-  text as `paused`. The agent stops like after a failed turn; the next send resumes it by
-  session id. The wakes still waiting in the chain are dropped.
 - Tokens per channel: the input, output and cache write tokens of all the channel's turns,
   of every role, cache reads not counted, against `tokenBudget` (1,000,000). A turn only
   counts once it has ended. A send, or a wake in a chain, that finds the sum at or over the
@@ -818,8 +819,7 @@ Three caps pause a channel. All are constants in the code, not settings.
 A send to a paused channel is 409 with the reason in the error, except after the hop cap: that
 pause is for agents, so a user message clears it, resets the hop count to 0, drops the held
 wakes and runs. `POST /channels/{id}/continue` clears the pause. When the token sum is at or
-over the budget it also sets `tokenBudget` to the sum plus 1,000,000; after a tool cap the next
-turn simply gets a fresh 25. `continue` on a channel that is not paused, or has a turn running,
+over the budget it also sets `tokenBudget` to the sum plus 1,000,000. `continue` on a channel that is not paused, or has a turn running,
 is 409.
 
 Held wakes: when a wake cannot run because of a pause (the hop cap, or a token budget that ran
@@ -837,9 +837,8 @@ nothing runs ungated. These wakes are held in memory only, since the database fa
 the message before the turn's reply, and runs what that wakes. If it fails again the channel
 stays paused.
 
-The tool cap is counted in `channel.Runner`, so `reef chat` is capped too: it pauses the
-channel, prints the reason and exits, because the interrupt ends the agent. Before each
-line, `reef chat` runs the same pause and token budget check as send (`channel.CheckCaps`)
+No role has a tool call cap: a turn runs until the agent ends it, the user stops it, or the
+token budget is used. Before each line, `reef chat` runs the same pause and token budget check as send (`channel.CheckCaps`)
 and prints the reason instead of running the line. The line `/continue` does what
 `continue` does (`channel.Continue`). See [memory.md](memory.md#reef-chat). Hops do not
 exist in `reef chat`: it wakes nobody.
@@ -946,7 +945,7 @@ reef serve --data /tmp/reef-demo
 
 ```
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/projects -d '{"name":"shop","path":"/tmp"}'
-{"id":1,"name":"shop","path":"/tmp","createdAt":"2026-10-13T09:00:00.123456Z"}
+{"id":1,"name":"shop","path":"/tmp","baseBranch":"","createdAt":"2026-10-13T09:00:00.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Login"}'
 {"id":1,"projectId":1,"slug":"login","name":"Login","goal":"","stage":"ideation","kind":"journey","createdAt":"2026-10-13T09:00:01.123456Z","closedAt":null}

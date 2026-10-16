@@ -6,6 +6,7 @@ import { useTeams } from '@/lib/api/get-teams';
 import { type DiffScope, useDiff } from '@/modules/features/api/get-diff';
 import { useFeature } from '@/modules/features/api/get-feature';
 import { DiffPanel } from '@/modules/features/components/diff-panel';
+import { useProjects } from '@/modules/projects/api/get-projects';
 import { roleFaces } from '@/utils/role-faces';
 
 const iconButton = 'flex size-9 items-center justify-center rounded-field text-soft hover:bg-card';
@@ -21,6 +22,7 @@ export function ReviewDiff({ id, onClose, defaultScope = 'full' }: Props) {
   const diff = useDiff(id, scope);
   const channels = useChannels();
   const teams = useTeams();
+  const projects = useProjects();
 
   const latestTeam = channels.data?.filter((c) => c.featureId === id).at(-1)?.team;
 
@@ -34,6 +36,7 @@ export function ReviewDiff({ id, onClose, defaultScope = 'full' }: Props) {
       featureId={id}
       featureName={feature.data.name}
       branch={`feature/${feature.data.slug}`}
+      baseBranch={projects.data?.find((p) => p.id === feature.data.projectId)?.baseBranch || 'main'}
       scope={scope}
       onScopeChange={setScope}
       developerFace={roleFaces(teams.data, latestTeam).developer}
