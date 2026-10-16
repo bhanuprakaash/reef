@@ -24,6 +24,8 @@ type wake struct {
 	role      string
 	text      string
 	parent    *int64
+	// approval is the id of the approval a wake was released by, when it was.
+	approval int64
 }
 
 // wakes routes the messages of channel id stored after the message with id after. It also

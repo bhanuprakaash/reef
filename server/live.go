@@ -74,6 +74,7 @@ type live struct {
 	mu     sync.Mutex
 	sess   session
 	state  liveState
+	kind   turnKind
 	cancel context.CancelFunc
 	done   chan struct{}
 	frames []frame
@@ -82,6 +83,9 @@ type live struct {
 	hops  int
 	held  []wake
 	retry *retry
+	// queued is the wakes that arrived while a message chain runs; the chain runs them after
+	// its current turn, or gives them back when it ends first.
+	queued []wake
 	// dropped counts the frames of earlier chains of turns, cut from the front of frames.
 	dropped int
 	wake    chan struct{}
@@ -281,6 +285,11 @@ func (s *server) dropIdle(id int64, l *live, deleted bool) {
 // hop cap pause does not stop it: the message clears the pause and drops the held wakes.
 // Any other pause refuses it.
 func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error {
+	if t.kind == _message {
+		if queued, err := s.queueMessage(ctx, id, t); queued || err != nil {
+			return err
+		}
+	}
 	c, ch, err := s.claim(ctx, id)
 	if err != nil {
 		return err
@@ -312,6 +321,39 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 		}
 	}
 	return c.start(ctx, sess, t.kind, queue, msg.ID)
+}
+
+// queueMessage stores the message of t and queues its wakes behind the turn a running message
+// chain is on, with the checks of a turn. It reports false, having changed nothing, when the
+// channel is not running a message chain.
+func (s *server) queueMessage(ctx context.Context, id int64, t userTurn) (bool, error) {
+	l := s.lookup(id)
+	if l == nil || !l.running() {
+		return false, nil
+	}
+	ch, err := s.st.Channel(ctx, id)
+	if err != nil {
+		return false, err
+	}
+	if _, err := s.checkChannel(ctx, l, t.kind, ch); err != nil {
+		return false, err
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.state != _running || l.kind != _message {
+		return false, nil
+	}
+	msg, err := l.sess.Say(ctx, t.text, t.parent)
+	if err != nil {
+		return false, err
+	}
+	ws, err := s.route(ctx, id, []store.Message{msg}, _userAuthor)
+	if err != nil {
+		return false, err
+	}
+	l.hops = 0
+	l.queued = append(l.queued, ws...)
+	return true, nil
 }
 
 // runOne runs the turn of w and returns the frame that ends it and whether it went well.
@@ -420,7 +462,10 @@ func (s *server) hold(ctx context.Context, id int64, ws []wake) ([]wake, error) 
 }
 
 func wakeOf(a store.Approval) wake {
-	return wake{from: a.From, messageID: a.MessageID, role: a.To, text: a.Text, parent: a.Parent}
+	return wake{
+		from: a.From, messageID: a.MessageID, role: a.To, text: a.Text, parent: a.Parent,
+		approval: a.ID,
+	}
 }
 
 // capLocked pauses the channel because the hop cap held a wake, and returns the error of
@@ -570,16 +615,18 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	if *in.Approve {
 		ctx := context.WithoutCancel(r.Context())
-		c, ch, err := s.claim(ctx, id)
-		if err == nil {
-			err = c.resume(ctx, ch, []wake{wakeOf(a)})
-		}
-		if err != nil {
-			if rerr := s.st.ReopenApproval(ctx, aid); rerr != nil {
-				err = errors.Join(err, rerr)
+		if l := s.lookup(id); l == nil || !l.queue(wakeOf(a)) {
+			c, ch, err := s.claim(ctx, id)
+			if err == nil {
+				err = c.resume(ctx, ch, []wake{wakeOf(a)})
 			}
-			writeError(w, err)
-			return
+			if err != nil {
+				if rerr := s.st.ReopenApproval(ctx, aid); rerr != nil {
+					err = errors.Join(err, rerr)
+				}
+				writeError(w, err)
+				return
+			}
 		}
 	}
 	if l := s.lookup(id); l != nil {
@@ -799,7 +846,7 @@ func (c *chain) start(
 		l.mu.Unlock()
 		return c.release(err)
 	}
-	l.state, l.held, l.retry = _running, nil, nil
+	l.state, l.kind, l.held, l.retry = _running, kind, nil, nil
 	l.dropped += len(l.frames)
 	l.frames = nil
 	if c.unpause {
@@ -836,6 +883,14 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) 
 	defer s.wg.Done()
 	defer s.inboxChanged()
 	finishLocked := func() {
+		for _, w := range l.queued {
+			if w.approval == 0 {
+				l.held = append(l.held, w)
+			} else if err := s.st.ReopenApproval(context.WithoutCancel(c.ctx), w.approval); err != nil {
+				log.Printf("reopen approval %d of channel %d: %v", w.approval, c.id, err)
+			}
+		}
+		l.queued = nil
 		l.cancel()
 		l.state, l.cancel = _idle, nil
 		close(c.done)
@@ -873,11 +928,12 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) 
 			l.mu.Unlock()
 			return
 		}
-		if !ok || len(queue) == 0 {
+		if !ok || c.ctx.Err() != nil || len(queue)+len(l.queued) == 0 {
 			finishLocked()
 			l.mu.Unlock()
 			return
 		}
+		queue, l.queued = append(queue, l.queued...), nil
 		l.mu.Unlock()
 		kind = _message
 		ch, err := s.st.Channel(c.ctx, c.id)
@@ -906,6 +962,25 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) 
 		l.publishLocked("turn", turnState{Role: queue[0].role, Status: "running"})
 		l.mu.Unlock()
 	}
+}
+
+// running reports whether a message chain is running.
+func (l *live) running() bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.state == _running && l.kind == _message
+}
+
+// queue adds w to the wakes the running message chain runs next. It reports false, adding
+// nothing, when no message chain is running.
+func (l *live) queue(w wake) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	if l.state != _running || l.kind != _message {
+		return false
+	}
+	l.queued = append(l.queued, w)
+	return true
 }
 
 // countHop counts w as a hop when a message from an agent woke it, and reports whether w
