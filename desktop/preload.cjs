@@ -20,6 +20,17 @@ contextBridge.exposeInMainWorld('reef', {
     ipcRenderer.on('browser:navigated', listener);
     return () => ipcRenderer.removeListener('browser:navigated', listener);
   },
+  onUpdateReady: (callback) => {
+    const listener = (_event, version) => callback(version);
+    ipcRenderer.on('update:ready', listener);
+    ipcRenderer.invoke('update:staged').then((version) => {
+      if (version) callback(version);
+    });
+    return () => ipcRenderer.removeListener('update:ready', listener);
+  },
+  restartToUpdate: () => ipcRenderer.send('update:restart'),
+  getUpdateWhenIdle: () => ipcRenderer.invoke('update:get-when-idle'),
+  setUpdateWhenIdle: (value) => ipcRenderer.invoke('update:set-when-idle', value),
   openTerminal: (cwd, cols, rows) => ipcRenderer.invoke('terminal:open', cwd, cols, rows),
   writeTerminal: (cwd, data) => ipcRenderer.send('terminal:write', cwd, data),
   resizeTerminal: (cwd, cols, rows) => ipcRenderer.send('terminal:resize', cwd, cols, rows),

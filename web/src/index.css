@@ -60,6 +60,14 @@
   --shadow-menu: 0 16px 40px rgb(0 0 0 / 0.45);
   --shadow-dialog: 0 24px 60px rgb(0 0 0 / 0.5);
 
+  --animate-rise-in: rise-in 320ms cubic-bezier(0.22, 1, 0.36, 1) both;
+  @keyframes rise-in {
+    from {
+      opacity: 0;
+      transform: translateY(6px);
+    }
+  }
+
   --font-sans:
     'Geist Variable', -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Helvetica Neue', system-ui,
     sans-serif;
