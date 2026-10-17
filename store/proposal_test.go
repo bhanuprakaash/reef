@@ -116,6 +116,74 @@ func TestApproveProposal(t *testing.T) {
 	}
 }
 
+func TestApproveBriefProposal(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+	if _, err := s.CreateProposal(ctx, Proposal{
+		ChannelID: 1, Role: "lead", Kind: ProposalBrief, Brief: "v3",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	before := countRows(t, s)
+
+	got, added, err := s.ApproveProposal(ctx, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Kind != ProposalBrief || got.Status != ProposalApproved || added != 0 {
+		t.Errorf("ApproveProposal = kind %q status %q added %d, want brief approved 0",
+			got.Kind, got.Status, added)
+	}
+	if after := countRows(t, s); after != (counts{before.Briefs + 1, before.Decisions}) {
+		t.Errorf("counts after approve = %+v, want one more brief than %+v", after, before)
+	}
+	b, err := s.Brief(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Body != "v3" || b.Author != "lead" {
+		t.Errorf("Brief = %q by %q, want %q by lead", b.Body, b.Author, "v3")
+	}
+	n, err := s.RoleNotes(ctx, 1, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n.Body != "old" {
+		t.Errorf("notes = %q, want %q", n.Body, "old")
+	}
+	c, err := s.Channel(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.ClosedAt != nil {
+		t.Errorf("channel closedAt = %v, want nil", c.ClosedAt)
+	}
+}
+
+func TestCreateBriefProposalRejectsOlderBriefProposals(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+	for _, brief := range []string{"v3", "v4"} {
+		if _, err := s.CreateProposal(ctx, Proposal{
+			ChannelID: 1, Role: "lead", Kind: ProposalBrief, Brief: brief,
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ps, err := s.PendingProposals(ctx, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, p := range ps {
+		got = append(got, p.Kind+":"+p.Brief)
+	}
+	if want := []string{"wrap:v2", "brief:v4"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("pending = %v, want %v", got, want)
+	}
+}
+
 func TestApproveProposalSkipsRecordedDecisions(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t,

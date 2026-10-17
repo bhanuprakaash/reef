@@ -54,6 +54,7 @@ func TestCLI_Wrap(t *testing.T) {
 			Decisions: []store.ProposedDecision{{Body: "cookie sessions", Why: "simple"}, {Body: "24h expiry"}}},
 		{ChannelID: 2, Role: "reviewer", Brief: "bill monthly", Notes: "n2"},
 		{ChannelID: ch.ID, Role: "developer", Brief: "outside project"},
+		{ChannelID: ch.ID, Role: "lead", Kind: store.ProposalBrief, Brief: "outside plan"},
 	} {
 		if _, err := st.CreateProposal(ctx, prop); err != nil {
 			t.Fatal(err)
@@ -80,6 +81,9 @@ func TestCLI_Wrap(t *testing.T) {
 				"decisions:\n- cookie sessions (simple)\n- 24h expiry\n"},
 		{"reject", []string{"wrap", "reject", "2"}, "rejected: nothing changed\n"},
 		{"list empty", []string{"wrap", "list"}, ""},
+		{"show brief", []string{"wrap", "show", "4"},
+			"proposal 4 from lead\nstatus: pending\n\nbrief:\noutside plan\n"},
+		{"approve brief", []string{"wrap", "approve", "4"}, "approved: brief saved\n"},
 	}
 	for _, tt := range steps {
 		if got := mustReef(t, dir, tt.give...); got != tt.want {

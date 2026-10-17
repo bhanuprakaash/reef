@@ -16,11 +16,18 @@ const (
 	ProposalRejected = "rejected"
 )
 
+// Proposal kinds. A wrap ends the channel; a brief only updates the feature's brief.
+const (
+	ProposalWrap  = "wrap"
+	ProposalBrief = "brief"
+)
+
 const (
 	_insertNewDecision = "INSERT INTO decision (feature_id, message_id, body, why, author, created_at) " +
 		"SELECT ?, NULL, ?, ?, ?, ? WHERE NOT EXISTS " +
 		"(SELECT 1 FROM decision WHERE feature_id = ? AND body = ?)"
-	_proposalCols = "id, channel_id, role, brief, notes, decisions, status, created_at, decided_at"
+	_proposalCols = "id, channel_id, role, kind, brief, notes, decisions, status, created_at, " +
+		"decided_at"
 )
 
 // ProposedDecision is a decision that approving its proposal records.
@@ -29,12 +36,14 @@ type ProposedDecision struct {
 	Why  string `json:"why"`
 }
 
-// Proposal is what a role suggests at wrap-up: the new brief, its notes and the
-// decisions it noticed. Approving it applies all three.
+// Proposal is what a role suggests: at wrap-up the new brief, its notes and the
+// decisions it noticed, and approving it applies all three. A brief proposal has only
+// the brief.
 type Proposal struct {
 	ID        int64              `json:"id"`
 	ChannelID int64              `json:"channelId"`
 	Role      string             `json:"role"`
+	Kind      string             `json:"kind"`
 	Brief     string             `json:"brief"`
 	Notes     string             `json:"notes"`
 	Decisions []ProposedDecision `json:"decisions"`
@@ -43,8 +52,12 @@ type Proposal struct {
 	DecidedAt *time.Time         `json:"decidedAt"`
 }
 
-// CreateProposal adds p as pending. The channel must belong to a feature.
+// CreateProposal adds p as pending, of kind wrap unless p.Kind says otherwise. The channel
+// must belong to a feature. A new brief proposal rejects the channel's older pending ones.
 func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error) {
+	if p.Kind == "" {
+		p.Kind = ProposalWrap
+	}
 	if p.Role == "" {
 		return Proposal{}, fmt.Errorf("%w: proposal role is required", ErrInvalid)
 	}
@@ -71,10 +84,20 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 		return Proposal{}, fmt.Errorf("encode decisions: %w", err)
 	}
 	now := time.Now().UTC()
+	if p.Kind == ProposalBrief {
+		if _, err := s.db.ExecContext(ctx,
+			"UPDATE proposal SET status = ?, decided_at = ? "+
+				"WHERE channel_id = ? AND kind = ? AND status = ?",
+			ProposalRejected, now.Format(time.RFC3339Nano), p.ChannelID, ProposalBrief,
+			ProposalPending); err != nil {
+			return Proposal{}, fmt.Errorf("reject older brief proposals: %w", err)
+		}
+	}
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO proposal (channel_id, role, brief, notes, decisions, created_at) "+
-			"VALUES (?, ?, ?, ?, ?, ?)",
-		p.ChannelID, p.Role, p.Brief, p.Notes, string(decisions), now.Format(time.RFC3339Nano))
+		"INSERT INTO proposal (channel_id, role, kind, brief, notes, decisions, created_at) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?)",
+		p.ChannelID, p.Role, p.Kind, p.Brief, p.Notes, string(decisions),
+		now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Proposal{}, s.writeErr(ctx, "insert proposal", err, ErrNotFound,
 			parent{table: "channel", id: &p.ChannelID})
@@ -145,7 +168,8 @@ func (s *Store) PendingProposals(
 // ApproveProposal applies the pending proposal in one transaction: a new brief
 // version and the role's notes, both authored by the proposal's role, and each
 // proposed decision whose body the feature does not have yet. It closes the channel and
-// returns how many decisions it added. Nothing is applied if any step fails.
+// returns how many decisions it added. A brief proposal adds only the brief version.
+// Nothing is applied if any step fails.
 func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, int, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -166,6 +190,10 @@ func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, int, e
 	at := now.Format(time.RFC3339Nano)
 	if _, err := tx.ExecContext(ctx, _insertBrief, featureID, p.Brief, p.Role, at); err != nil {
 		return Proposal{}, 0, fmt.Errorf("insert brief: %w", err)
+	}
+	if p.Kind == ProposalBrief {
+		p, err = decideProposal(ctx, tx, p, ProposalApproved, now)
+		return p, 0, err
 	}
 	if _, err := tx.ExecContext(ctx, _upsertRoleNotes, featureID, p.Role, p.Notes, at); err != nil {
 		return Proposal{}, 0, fmt.Errorf("upsert role notes: %w", err)
@@ -239,7 +267,7 @@ func scanProposal(r interface{ Scan(...any) error }) (Proposal, error) {
 	var p Proposal
 	var decisions, created string
 	var decided sql.NullString
-	if err := r.Scan(&p.ID, &p.ChannelID, &p.Role, &p.Brief, &p.Notes, &decisions,
+	if err := r.Scan(&p.ID, &p.ChannelID, &p.Role, &p.Kind, &p.Brief, &p.Notes, &decisions,
 		&p.Status, &created, &decided); err != nil {
 		return Proposal{}, err
 	}

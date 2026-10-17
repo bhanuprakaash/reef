@@ -128,7 +128,7 @@ channel 2: build, ` + day + `, 2 messages
 ### Open tasks
 task 1 [todo]: write tests
 
-Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision.
+Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
 `
 	if got != want {
 		t.Errorf("Context =\n%s\nwant\n%s", got, want)
@@ -167,7 +167,7 @@ none
 ### Open tasks
 none
 
-Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision.
+Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
 `
 	if got != want {
 		t.Errorf("Context =\n%s\nwant\n%s", got, want)

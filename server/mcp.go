@@ -78,6 +78,9 @@ type (
 		Notes     string                   `json:"notes" jsonschema:"your own notes on this feature"`
 		Decisions []store.ProposedDecision `json:"decisions" jsonschema:"decisions made in this channel that are not recorded yet"`
 	}
+	briefIn struct {
+		Brief string `json:"brief" jsonschema:"the full brief: goal, status, key decisions, open questions"`
+	}
 	wrapOut struct {
 		ID      int64  `json:"id" jsonschema:"proposal id"`
 		Message string `json:"message"`
@@ -161,6 +164,13 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 			"decisions, open questions), notes are your own notes for this feature, " +
 			"decisions are ones made in this channel that are not recorded yet.",
 	}, m.proposeWrap)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "propose_brief",
+		Description: "Propose a new brief for this feature when the user and the team agree " +
+			"on its goal, scope or plan; the user approves it before it is saved. brief is " +
+			"the full brief (goal, status, key decisions, open questions). The channel goes " +
+			"on; use propose_wrap only to end it.",
+	}, m.proposeBrief)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "browser_navigate",
 		Description: "Open a URL in the shared browser pane. The user watches it live.",
@@ -406,6 +416,21 @@ func (m *mcpServer) proposeWrap(
 	p, err := m.st.CreateProposal(ctx, store.Proposal{
 		ChannelID: m.tok.ChannelID, Role: m.tok.Role, Brief: in.Brief, Notes: in.Notes,
 		Decisions: in.Decisions,
+	})
+	if err != nil {
+		return nil, wrapOut{}, err
+	}
+	return nil, wrapOut{ID: p.ID, Message: "proposal saved; the user will approve it"}, nil
+}
+
+func (m *mcpServer) proposeBrief(
+	ctx context.Context, _ *mcp.CallToolRequest, in briefIn,
+) (*mcp.CallToolResult, wrapOut, error) {
+	if _, err := m.feature(ctx); err != nil {
+		return nil, wrapOut{}, err
+	}
+	p, err := m.st.CreateProposal(ctx, store.Proposal{
+		ChannelID: m.tok.ChannelID, Role: m.tok.Role, Kind: store.ProposalBrief, Brief: in.Brief,
 	})
 	if err != nil {
 		return nil, wrapOut{}, err

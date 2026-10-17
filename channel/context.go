@@ -14,7 +14,8 @@ const (
 	_dateLayout    = "2006-01-02"
 	_maxIndexRunes = 100
 	_closing       = "Details are on demand through the reef MCP tools read_decision, " +
-		"read_thread and search_sessions. Record decisions with record_decision."
+		"read_thread and search_sessions. Record decisions with record_decision. When the " +
+		"user and the team agree on the goal, scope or plan, call propose_brief."
 )
 
 // Context is the first prompt of a role on a feature: the brief, the role's own

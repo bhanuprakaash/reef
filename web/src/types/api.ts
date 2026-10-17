@@ -77,6 +77,7 @@ export type Proposal = {
   id: number;
   channelId: number;
   role: string;
+  kind: 'wrap' | 'brief';
   brief: string;
   notes: string;
   decisions: ProposedDecision[];

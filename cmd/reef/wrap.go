@@ -94,11 +94,11 @@ func wrapDecide(ctx context.Context, verb string, args []string, stdout io.Write
 			p.ID, p.Role, p.Status, proposalBodyText(p))
 		return err
 	case "approve":
-		_, added, err := st.ApproveProposal(ctx, id)
+		p, added, err := st.ApproveProposal(ctx, id)
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintf(stdout, "approved: brief, notes and %d decisions saved\n", added)
+		_, err = fmt.Fprintln(stdout, approvedText(p, added))
 		return err
 	}
 	if _, err := st.RejectProposal(ctx, id); err != nil {

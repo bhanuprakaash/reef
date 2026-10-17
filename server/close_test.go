@@ -52,6 +52,35 @@ func TestApproveProposal_ClosesChannelAndStopsItsAgent(t *testing.T) {
 	}
 }
 
+func TestApproveBriefProposal_KeepsChannelAndItsAgent(t *testing.T) {
+	env := newLiveEnv(t)
+	id := env.featureChannel(t)
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "hi")
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
+	_, err := env.st.CreateProposal(context.Background(), store.Proposal{
+		ChannelID: int64(id), Role: "lead", Kind: store.ProposalBrief, Brief: "brief",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if status, body := do(t, http.MethodPost, env.url+"/proposals/1/approve", ""); status != 200 {
+		t.Fatalf("approve = %d %s, want 200", status, body)
+	}
+
+	if got := env.fake.closed.Load(); got != 0 {
+		t.Errorf("session closes = %d, want 0", got)
+	}
+	if _, body := do(t, http.MethodGet, env.url+"/channels/2", ""); !strings.Contains(body, `"closedAt":null`) {
+		t.Errorf("channel = %s, want closedAt null", body)
+	}
+	if status, body := env.sendTo(t, id, "again"); status != 202 {
+		t.Errorf("send = %d %s, want 202", status, body)
+	}
+}
+
 func TestCloseFeature_ClosesChannelsAndRefusesARunningTurn(t *testing.T) {
 	env := newLiveEnv(t)
 	id := env.featureChannel(t)

@@ -321,7 +321,7 @@ func TestMCPProposeWrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := store.Proposal{
-		ID: 1, ChannelID: 1, Role: "architect", Brief: "v2", Notes: "mine",
+		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalWrap, Brief: "v2", Notes: "mine",
 		Decisions: []store.ProposedDecision{{Body: "use sessions", Why: "simple"}},
 		Status:    store.ProposalPending,
 	}
@@ -379,6 +379,34 @@ func TestMCPSetStage(t *testing.T) {
 				t.Errorf("set_stage %q = %q (error %v), want %q", tt.give, got, isErr, tt.want)
 			}
 		})
+	}
+}
+
+func TestMCPProposeBrief(t *testing.T) {
+	st, tok := mcpFixture(t)
+	call := callTool(t, st, tok)
+
+	got, isErr := call("propose_brief", map[string]any{"brief": "plan: ship login first"})
+	if want := `{"id":1,"message":"proposal saved; the user will approve it"}`; got != want || isErr {
+		t.Errorf("propose_brief = %q (error %v), want %q", got, isErr, want)
+	}
+	p, err := st.PendingProposal(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := store.Proposal{
+		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalBrief,
+		Brief: "plan: ship login first", Decisions: []store.ProposedDecision{},
+		Status: store.ProposalPending,
+	}
+	p.CreatedAt = time.Time{}
+	if !reflect.DeepEqual(p, want) {
+		t.Errorf("proposal = %+v, want %+v", p, want)
+	}
+
+	got, isErr = call("propose_brief", map[string]any{"brief": ""})
+	if want := "invalid: proposal brief is required"; got != want || !isErr {
+		t.Errorf("propose_brief with empty brief = %q (error %v), want %q", got, isErr, want)
 	}
 }
 
@@ -554,6 +582,7 @@ func TestMCPQuickSession(t *testing.T) {
 		{"read_thread", map[string]any{"channelId": 1}},
 		{"propose_wrap", map[string]any{"brief": "b", "notes": "n", "decisions": []any{}}},
 		{"set_stage", map[string]any{"stage": "plan"}},
+		{"propose_brief", map[string]any{"brief": "b"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.tool, func(t *testing.T) {

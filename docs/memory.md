@@ -212,6 +212,7 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `post_to_channel` | `body` (required), `parent` (the id of a top-level message: reply in its thread; leave it out to post at the top level) | the stored message, with the token's role as `author`. It works on a quick session too | `invalid: message body is required`, `invalid: parent 9 is not a top-level message of channel 1` |
 | `set_stage` | `stage` (required): `ideation`, `grill`, `plan`, `tickets`, `implement`, `testing`, `live-testing` or `post-release` | the updated feature, as in [server.md](server.md#feature). It also stores a `reef` message in the token's channel: `<role> moved the stage to <stage>`. No approval: the stage is a label | `invalid: unknown stage "x"`, `invalid: feature login is a list of fixes and has no stage` |
 | `propose_wrap` | `brief`, `notes`, `decisions` (all required). Each decision is `{"body", "why"}`; `why` may be `""` | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: decision body is required` |
+| `propose_brief` | `brief` (required) | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required` |
 | `browser_navigate` | `url` (required) | `{"text": "navigated to <url>"}` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser`, `refused: the browser pane cannot open Reef itself` (or another `refused: ...` for a non-http(s) URL), the page's own error (e.g. `net::ERR_CONNECTION_REFUSED`) when it fails to load |
 | `browser_screenshot` | none | a PNG image of the browser pane's current page | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
 | `browser_snapshot` | none | the page's accessibility tree as text, one line per element: `- role "name" [ref=e12]`. A ref is only valid until the next snapshot or a navigation | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
@@ -221,6 +222,10 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `browser_network` | none | `{"text": "..."}`: the network requests since the last navigation, one per line with method, URL and status, e.g. `GET http://localhost/ 404` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
 
 `propose_wrap` saves a pending proposal and changes nothing else. See Wrap-up.
+`propose_brief` saves a pending proposal of kind `brief`: the agent calls it when the user and
+the team agree on the goal, scope or plan, and the channel goes on. Approving it adds one
+brief version and nothing else: the role's notes stay, no decisions are recorded and the channel
+stays open. `reef wrap approve` prints `approved: brief saved`.
 
 The browser tools go straight from `reef mcp` to the Reef app, over `browser.sock` in the data
 folder, not through `reef serve` (see [desktop.md](desktop.md#browser-pane)). With no socket, or
@@ -304,7 +309,7 @@ channel 1: developer chat, 2026-10-13, 4 messages
 ### Open tasks
 none
 
-Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision.
+Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
 ```
 
 ## reef chat

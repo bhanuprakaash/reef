@@ -399,8 +399,10 @@ them, and the one that made a token deletes it when its session ends. See
 ### proposal
 
 A wrap-up proposal: the new brief, the role's notes and the decisions to record.
-`propose_wrap` makes one. `reef chat` prompts for approval, and `reef wrap approve` or
-`reef wrap reject` decides it; the server offers the same over REST (see [Wrap-up and
+`propose_wrap` makes one. `propose_brief` makes a brief proposal: only the brief, made
+mid-channel. Approving it adds a brief version and leaves the notes, the decisions and the
+channel as they are; the channel's agent is not stopped. `reef chat` prompts for approval,
+and `reef wrap approve` or `reef wrap reject` decides it; the server offers the same over REST (see [Wrap-up and
 promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 
 | Field | JSON | Notes |
@@ -408,6 +410,7 @@ promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 | `id` | number | |
 | `channelId` | number | required; must be a channel of a feature. Deleting the channel deletes the proposal |
 | `role` | string | required; author of the brief, notes and decisions it applies |
+| `kind` | string | `wrap` (default) or `brief` |
 | `brief` | string | required, not empty; the full new brief |
 | `notes` | string | may be empty; replaces the role's notes |
 | `decisions` | array | `{"body", "why"}` each, `body` required. The SQL column holds them as JSON text |
@@ -475,7 +478,7 @@ tool calls.
 | `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
 | `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
 | `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
-| `POST /proposals/{id}/approve` | no body needed | 200 the proposal and `decisionsAdded`; the proposal's channel is closed and its agent stopped | 400 already decided, 404 |
+| `POST /proposals/{id}/approve` | no body needed | 200 the proposal and `decisionsAdded`; a wrap closes the proposal's channel and stops its agent, a brief proposal does neither | 400 already decided, 404 |
 | `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
 | `GET /messages` | `?channel=ID` (required), `?after=ID` (only newer ids) | 200, each with `parentId` | 400 no channel, 404 unknown channel |
 | `POST /messages` | `channelId`, `parentId`, `author`, `body` | 201 | 400 unknown channel, missing field, or a `parentId` that is not a top-level message of that channel |
@@ -781,7 +784,8 @@ turn of [`Session.Wrap`](../channel/session.go) (see [memory.md](memory.md#wrap-
 agent calls `propose_wrap`; when the turn is done, `GET /channels/{id}/proposal` returns the
 pending proposal, or 404 when the agent made none. `POST /proposals/{id}/approve` and
 `/reject` decide it with the same effect as `reef wrap approve` and `reject`. Approve
-also returns `decisionsAdded`, the decisions it saved, closes the channel (`closedAt`) and stops its agent; a closed channel refuses sends, wraps and wakes with 409 until `POST /channels/{id}/reopen`. A proposal that is already decided is
+also returns `decisionsAdded`, the decisions it saved, closes the channel (`closedAt`) and stops its agent; a closed channel refuses sends, wraps and wakes with 409 until `POST /channels/{id}/reopen`. A brief proposal (`propose_brief`, `kind` `brief`) does not close the channel or block its turns; only a wrap
+waits behind any pending proposal. A proposal that is already decided is
 400, like `invalid: proposal 1 is already approved` in the CLI.
 
 `POST /channels/{id}/promote` turns a quick session into a feature. It takes `{"slug":

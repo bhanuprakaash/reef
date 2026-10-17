@@ -28,6 +28,8 @@ export function ProposalPanel({
   const p = proposal.data;
   if (!p) {
     if (decide.data?.status === 'approved') {
+      if (decide.data.kind === 'brief')
+        return <p className="text-sm text-done">approved: brief saved</p>;
       return (
         <p className="text-sm text-done">
           approved: {decide.data.decisionsAdded ?? 0} decisions added
@@ -55,7 +57,7 @@ export function ProposalPanel({
     >
       <div className="flex items-center gap-2">
         <Creature role={p.role} face={faces[p.role]} size={22} />
-        <h2>Wrap-up proposal from {p.role}</h2>
+        <h2>{p.kind === 'brief' ? 'Brief update' : `Wrap-up proposal from ${p.role}`}</h2>
         <span className="ml-auto text-[12.5px] text-muted">{summary}</span>
       </div>
       <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
