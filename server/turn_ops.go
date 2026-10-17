@@ -50,6 +50,15 @@ func (s *server) retryTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rerun := wake{from: _userAuthor, role: t.Role, text: t.WakeText, parent: t.WakeParent}
+	if t.DirectMessageID != nil {
+		direct, err := s.st.DirectMessage(ctx, *t.DirectMessageID)
+		if err != nil {
+			_ = s.st.SetTurnRetried(ctx, id, false)
+			writeError(w, c.release(err))
+			return
+		}
+		rerun.from, rerun.direct = direct.From, &direct
+	}
 	if err := c.resume(ctx, ch, []wake{rerun}); err != nil {
 		if rerr := s.st.SetTurnRetried(ctx, id, false); rerr != nil {
 			err = errors.Join(err, rerr)

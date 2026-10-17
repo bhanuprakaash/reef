@@ -145,7 +145,7 @@ func updatedRoleIntro(r store.Role) string {
 	return _introChangedPrefix + roleIntro(r)
 }
 
-// teamIntro tells a teammate who is on its team and that they talk through the channel. A
+// teamIntro tells a teammate who is on its team and how public and direct delivery differ. A
 // team of one gets none.
 func teamIntro(team store.Team, r store.Role) string {
 	if len(team.Roles) < 2 {
@@ -155,9 +155,10 @@ func teamIntro(team store.Team, r store.Role) string {
 	for i, t := range team.Roles {
 		names[i] = "@" + t.Name
 	}
-	s := fmt.Sprintf("\n## Team\nYour team: %s. To hand work to a teammate, @mention them in a "+
-		"message: that wakes them. Your reply, and anything you send with post_to_channel, is "+
-		"posted to the channel; nobody sees anything else. A message that wakes you starts with "+
+	s := fmt.Sprintf("\n## Team\nYour team: %s. Use post_to_channel and @mentions for work "+
+		"the whole team needs. Use send_to_role for private coordination with exactly one teammate; "+
+		"their ordinary reply returns directly once, and continuing requires another send_to_role. "+
+		"A public message that wakes you starts with "+
 		"[channel N, message N] or [channel N, message N, thread N]: your plain reply goes where "+
 		"the header says, a top-level one starting your own thread; pass thread as the parent of "+
 		"post_to_channel when the header has one.\n", strings.Join(names, ", "))

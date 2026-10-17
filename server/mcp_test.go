@@ -478,6 +478,79 @@ func TestMCPProposeBriefRefusedWhileWrapPending(t *testing.T) {
 	}
 }
 
+func TestMCPDirectMessages(t *testing.T) {
+	ctx := context.Background()
+	st, _ := mcpFixture(t)
+	_, err := st.CreateTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Backend: "codex"},
+		{Name: "tester", Backend: "claude"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	one := int64(1)
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: 1, FeatureID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead, err := st.CreateToken(ctx, ch.ID, "lead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	developer, err := st.CreateToken(ctx, ch.ID, "developer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	callLead := callTool(t, st, lead)
+	got, isErr := callLead("send_to_role", map[string]any{"to": "developer", "body": "build it"})
+	if want := `{"body":"build it","chainId":1,"channelId":5,"createdAt":"T","from":"lead",` +
+		`"id":1,"replyToId":null,"status":"sent","to":"developer"}`; got != want || isErr {
+		t.Fatalf("send_to_role = %q (error %v), want %q", got, isErr, want)
+	}
+	if msgs, err := st.Messages(ctx, ch.ID, 0); err != nil || len(msgs) != 0 {
+		t.Errorf("public messages = %+v, %v, want none", msgs, err)
+	}
+
+	callDeveloper := callTool(t, st, developer)
+	got, isErr = callDeveloper("read_direct_messages", nil)
+	if want := `{"messages":[{"body":"build it","chainId":1,"channelId":5,"createdAt":"T",` +
+		`"from":"lead","id":1,"replyToId":null,"status":"sent","to":"developer"}]}`; got != want || isErr {
+		t.Errorf("developer read = %q (error %v), want %q", got, isErr, want)
+	}
+	tester, err := st.CreateToken(ctx, ch.ID, "tester")
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, isErr = callTool(t, st, tester)("read_direct_messages", nil)
+	if want := `{"messages":[]}`; got != want || isErr {
+		t.Errorf("tester read = %q (error %v), want %q", got, isErr, want)
+	}
+
+	bad := []struct {
+		name string
+		give map[string]any
+		want bool
+	}{
+		{"empty", map[string]any{"to": "developer", "body": "  "}, true},
+		{"self", map[string]any{"to": "lead", "body": "x"}, true},
+		{"unknown", map[string]any{"to": "ghost", "body": "x"}, true},
+		{"several", map[string]any{"to": []any{"developer", "tester"}, "body": "x"}, true},
+	}
+	for _, tt := range bad {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, got := callLead("send_to_role", tt.give); got != tt.want {
+				t.Errorf("send_to_role error = %v, want %v", got, tt.want)
+			}
+		})
+	}
+	if direct, err := st.DirectMessages(ctx, ch.ID, 0); err != nil || len(direct) != 1 {
+		t.Errorf("direct messages after invalid sends = %+v, %v, want original only", direct, err)
+	}
+}
+
 func TestMCPListTasks(t *testing.T) {
 	st, tok := mcpFixture(t)
 	ctx := context.Background()

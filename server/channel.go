@@ -21,10 +21,38 @@ func (s *server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/channels/{id}/reopen", methodNotAllowed)
 	mux.HandleFunc("GET /channels/{id}/inspector", s.getInspector)
 	mux.HandleFunc("/channels/{id}/inspector", methodNotAllowed)
+	mux.HandleFunc("GET /channels/{id}/direct-messages", s.listDirectMessages)
+	mux.HandleFunc("/channels/{id}/direct-messages", methodNotAllowed)
 	mux.HandleFunc("GET /messages", s.listMessages)
 	mux.HandleFunc("POST /messages", s.createMessage)
 	mux.HandleFunc("/messages", methodNotAllowed)
 	mux.HandleFunc("/messages/{id}", methodNotAllowed)
+}
+
+func (s *server) listDirectMessages(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	after, err := queryID(r, "after")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var afterID int64
+	if after != nil {
+		afterID = *after
+	}
+	msgs, err := s.st.DirectMessages(r.Context(), id, afterID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if msgs == nil {
+		msgs = []store.DirectMessage{}
+	}
+	writeJSON(w, http.StatusOK, msgs)
 }
 
 func (s *server) listChannels(w http.ResponseWriter, r *http.Request) {

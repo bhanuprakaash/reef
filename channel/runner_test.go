@@ -17,6 +17,8 @@ import (
 // fakeAgent answers each prompt with text, usage and a turn end. Like codex, it
 // reports its session once.
 type fakeAgent struct {
+	// The fake emits a whole turn synchronously from Send, before Runner reads Events. The
+	// buffer holds that fixed test script; production agents emit asynchronously.
 	events  chan agent.Event
 	prompts []string
 }
@@ -180,6 +182,80 @@ func TestRunner_ReplyStaysInThread(t *testing.T) {
 	}
 	if turn.WakeText != "one 1" || turn.WakeParent == nil || *turn.WakeParent != root.ID {
 		t.Errorf("turn wake = %q in %v, want %q in %d", turn.WakeText, turn.WakeParent, "one 1", root.ID)
+	}
+}
+
+func TestRunner_DirectReplyStopsAfterOneResponse(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := st.CreateDirectMessage(ctx, store.DirectMessage{
+		ChannelID: ch.ID, From: "lead", To: "architect", Body: "plan 1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	architect := NewRunner(st, &fakeAgent{events: make(chan agent.Event, 8)},
+		ch.ID, "architect", "claude", "")
+	if err := architect.RunDirect(ctx, "request 1", req, func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	direct, err := st.DirectMessages(ctx, ch.ID, 0)
+	if err != nil || len(direct) != 2 || direct[1].Body != "reply 1" {
+		t.Fatalf("direct after request = %+v, %v, want one response", direct, err)
+	}
+	lead := NewRunner(st, &fakeAgent{events: make(chan agent.Event, 8)},
+		ch.ID, "lead", "claude", "")
+	if err := lead.RunDirect(ctx, "response 2", direct[1], func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	direct, err = st.DirectMessages(ctx, ch.ID, 0)
+	if err != nil || len(direct) != 2 {
+		t.Errorf("direct after handling response = %+v, %v, want no automatic third message", direct, err)
+	}
+	public, err := st.Messages(ctx, ch.ID, 0)
+	if err != nil || len(public) != 0 {
+		t.Errorf("public messages = %+v, %v, want none", public, err)
+	}
+}
+
+func TestRunner_FailedDirectTurnKeepsPartialAttempt(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := st.CreateDirectMessage(ctx, store.DirectMessage{
+		ChannelID: ch.ID, From: "lead", To: "architect", Body: "plan",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Send emits both scripted events synchronously before Runner reads them.
+	ag := &scriptAgent{events: make(chan agent.Event, 8), script: []agent.Event{
+		{Kind: agent.KindText, Text: "partial"},
+		{Kind: agent.KindError, Text: "boom"},
+	}}
+	r := NewRunner(st, ag, ch.ID, "architect", "claude", "")
+	if err := r.RunDirect(ctx, "direct wake", req, func(agent.Event) {}); err == nil {
+		t.Fatal("RunDirect succeeded, want agent error")
+	}
+	direct, err := st.DirectMessages(ctx, ch.ID, 0)
+	if err != nil || len(direct) != 2 || direct[1].Body != "partial" ||
+		direct[1].Status != store.DirectFailed {
+		t.Errorf("direct messages = %+v, %v, want inspectable failed partial attempt", direct, err)
+	}
+	public, err := st.Messages(ctx, ch.ID, 0)
+	if err != nil || len(public) != 0 {
+		t.Errorf("public messages = %+v, %v, want no partial leak", public, err)
 	}
 }
 

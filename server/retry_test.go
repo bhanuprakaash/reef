@@ -52,6 +52,52 @@ func TestRetry_RunsTheWakeAgain(t *testing.T) {
 	}
 }
 
+func TestRetry_DirectTurnKeepsReplyPrivate(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	channelID, _ := env.teamChannel(t)
+	req, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
+		ChannelID: int64(channelID), From: "lead", To: "architect", Body: "plan it",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.st.CreateFailedDirectResponse(ctx, req.ID, "architect", "partial"); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := env.st.CreateTurn(ctx, store.Turn{
+		ChannelID: int64(channelID), Role: "architect", Backend: "claude",
+		WakeText: "direct wake", DirectMessageID: &req.ID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Status, turn.Error = "failed", "server restarted"
+	if _, err := env.st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	sub := subscribeTo(t, env.url, channelID)
+
+	if status, body := do(t, http.MethodPost, env.url+"/turns/1/retry", ""); status != 202 || body != "" {
+		t.Fatalf("retry = %d %q, want 202", status, body)
+	}
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "architect", "lead")
+	direct, err := env.st.DirectMessages(ctx, int64(channelID), 0)
+	if err != nil || len(direct) != 3 || direct[1].Status != store.DirectFailed ||
+		direct[2].Status != store.DirectDone || direct[2].ReplyToID == nil ||
+		*direct[2].ReplyToID != req.ID {
+		t.Errorf("direct messages = %+v, %v, want failed attempt then retried response", direct, err)
+	}
+	public, err := env.st.Messages(ctx, int64(channelID), 0)
+	if err != nil || len(public) != 0 {
+		t.Errorf("public messages = %+v, %v, want none", public, err)
+	}
+	if got := env.ranTexts(); len(got) != 2 {
+		t.Errorf("turns run = %q, want recipient retry and exactly one sender wake", got)
+	}
+}
+
 func TestRetry_Refused(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)

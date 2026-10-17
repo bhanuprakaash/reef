@@ -33,7 +33,15 @@ type Runner struct {
 	preamble  string
 	sessionID string
 	model     string
+	direct    *store.DirectMessage
 }
+
+type replyState uint8
+
+const (
+	_replyDone replyState = iota + 1
+	_replyFailed
+)
 
 // NewRunner returns a Runner for ag, which must already be started or resumed.
 // A non-empty preamble is put before the first message sent.
@@ -55,7 +63,7 @@ func (r *Runner) Run(
 	wctx := context.WithoutCancel(ctx)
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
 		ChannelID: r.channelID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,
-		WakeText: r.wake(text), WakeParent: parent,
+		WakeText: r.wake(text), WakeParent: parent, DirectMessageID: r.direct.IDRef(),
 	})
 	if err != nil {
 		return err
@@ -145,7 +153,7 @@ func (r *Runner) Run(
 				if ev.CostUSD != nil {
 					turn.CostUSD = ev.CostUSD
 				}
-				if err := r.keepReply(wctx, reply.String(), parent); err != nil {
+				if err := r.keepReply(wctx, reply.String(), parent, _replyDone); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), "", parent)
 				}
 				turn.Status = "done"
@@ -156,6 +164,16 @@ func (r *Runner) Run(
 			}
 		}
 	}
+}
+
+// RunDirect runs a turn woken by dm. A request keeps the ordinary reply as its one direct
+// response. A response keeps no ordinary reply; continuing requires send_to_role.
+func (r *Runner) RunDirect(
+	ctx context.Context, text string, dm store.DirectMessage, onEvent func(agent.Event),
+) error {
+	r.direct = &dm
+	defer func() { r.direct = nil }()
+	return r.Run(ctx, text, nil, onEvent)
 }
 
 func (r *Runner) wake(text string) string {
@@ -192,16 +210,30 @@ drain:
 func (r *Runner) fail(
 	ctx context.Context, turn store.Turn, reason, reply string, parent *int64,
 ) error {
-	keepErr := r.keepReply(ctx, reply, parent)
+	keepErr := r.keepReply(ctx, reply, parent, _replyFailed)
 	turn.Status, turn.Error = "failed", reason
 	_, err := r.st.EndTurn(ctx, turn)
 	return errors.Join(keepErr, err)
 }
 
 // keepReply stores a non-empty reply as the role's message, in the thread of parent.
-func (r *Runner) keepReply(ctx context.Context, reply string, parent *int64) error {
+func (r *Runner) keepReply(
+	ctx context.Context, reply string, parent *int64, state replyState,
+) error {
 	if reply == "" {
 		return nil
+	}
+	if r.direct != nil {
+		if r.direct.ReplyToID != nil {
+			return nil
+		}
+		var err error
+		if state == _replyDone {
+			_, err = r.st.CreateDirectResponse(ctx, r.direct.ID, r.role, reply)
+		} else {
+			_, err = r.st.CreateFailedDirectResponse(ctx, r.direct.ID, r.role, reply)
+		}
+		return err
 	}
 	_, err := r.st.CreateMessage(ctx, store.Message{
 		ChannelID: r.channelID, ParentID: parent, Author: r.role, Body: reply,
