@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 const _nearBottom = 120;
 
@@ -7,10 +7,21 @@ const _nearBottom = 120;
 export function useStickToBottom(jump?: unknown) {
   const box = useRef<HTMLDivElement>(null);
   const stuck = useRef(true);
+  const [atBottom, setAtBottom] = useState(true);
 
   const onScroll = () => {
     const el = box.current;
-    if (el) stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < _nearBottom;
+    if (!el) return;
+    stuck.current = el.scrollHeight - el.scrollTop - el.clientHeight < _nearBottom;
+    setAtBottom(stuck.current);
+  };
+
+  const toBottom = () => {
+    const el = box.current;
+    if (!el) return;
+    stuck.current = true;
+    setAtBottom(true);
+    el.scrollTop = el.scrollHeight;
   };
 
   useEffect(() => {
@@ -27,8 +38,9 @@ export function useStickToBottom(jump?: unknown) {
     const el = box.current;
     if (!el) return;
     stuck.current = true;
+    setAtBottom(true);
     el.scrollTop = el.scrollHeight;
   }, [jump]);
 
-  return { box, onScroll };
+  return { box, onScroll, atBottom, toBottom };
 }

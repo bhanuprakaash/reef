@@ -83,7 +83,9 @@ export function ChannelView({
   const face = faces[working];
   const action = browserAction(turn);
   const last = messages.data?.at(-1);
-  const { box, onScroll } = useStickToBottom(last?.author === 'user' ? last.id : undefined);
+  const { box, onScroll, atBottom, toBottom } = useStickToBottom(
+    last?.author === 'user' ? last.id : undefined,
+  );
   const turnOpen = side?.kind === 'turn' && turn.status !== 'idle';
   if (side?.kind === 'turn' && turn.status === 'idle') setSide(null);
 
@@ -180,6 +182,31 @@ export function ChannelView({
               <ProposalPanel channelId={channel.id} featureId={channel.featureId} faces={faces} />
             </div>
           </div>
+          {!atBottom && (
+            <div className="relative h-0">
+              <Button
+                size="icon"
+                type="button"
+                aria-label="Scroll to latest"
+                className="absolute bottom-3 left-1/2 z-10 -translate-x-1/2 bg-main shadow-menu"
+                onClick={toBottom}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 5v14M5 12l7 7 7-7" />
+                </svg>
+              </Button>
+            </div>
+          )}
           <div className="shrink-0 px-3.5 pb-5 pt-2 md:px-7">
             <div className="mx-auto max-w-5xl space-y-2">
               {channel.paused !== '' && (
