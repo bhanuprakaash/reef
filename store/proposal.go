@@ -56,10 +56,15 @@ type Proposal struct {
 }
 
 // CreateProposal adds p as pending, of kind wrap unless p.Kind says otherwise. The channel
-// must belong to a feature. A new brief proposal rejects the channel's older pending ones.
+// must belong to a feature and has one pending proposal at most: a wrap rejects the older
+// pending ones of any kind, and a brief rejects the older pending briefs but is refused
+// while a wrap is pending.
 func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error) {
 	if p.Kind == "" {
 		p.Kind = ProposalWrap
+	}
+	if p.Kind != ProposalWrap && p.Kind != ProposalBrief {
+		return Proposal{}, fmt.Errorf("%w: unknown proposal kind %q", ErrInvalid, p.Kind)
 	}
 	if p.Role == "" {
 		return Proposal{}, fmt.Errorf("%w: proposal role is required", ErrInvalid)
@@ -71,13 +76,6 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 		if d.Body == "" {
 			return Proposal{}, fmt.Errorf("%w: decision body is required", ErrInvalid)
 		}
-	}
-	c, err := s.Channel(ctx, p.ChannelID)
-	if err != nil {
-		return Proposal{}, err
-	}
-	if c.FeatureID == nil {
-		return Proposal{}, fmt.Errorf("%w: channel %d has no feature", ErrInvalid, c.ID)
 	}
 	if p.Decisions == nil {
 		p.Decisions = []ProposedDecision{}
@@ -93,21 +91,46 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 	if err != nil {
 		return Proposal{}, fmt.Errorf("encode retire: %w", err)
 	}
-	now := time.Now().UTC()
-	if p.Kind == ProposalBrief {
-		if _, err := s.db.ExecContext(ctx,
-			"UPDATE proposal SET status = ?, decided_at = ? "+
-				"WHERE channel_id = ? AND kind = ? AND status = ?",
-			ProposalRejected, now.Format(time.RFC3339Nano), p.ChannelID, ProposalBrief,
-			ProposalPending); err != nil {
-			return Proposal{}, fmt.Errorf("reject older brief proposals: %w", err)
-		}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Proposal{}, fmt.Errorf("begin proposal: %w", err)
 	}
-	res, err := s.db.ExecContext(ctx,
+	defer func() { _ = tx.Rollback() }()
+	c, err := scanChannel(tx.QueryRowContext(ctx,
+		"SELECT "+_channelCols+" FROM channel WHERE id = ?", p.ChannelID))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Proposal{}, fmt.Errorf("channel %d: %w", p.ChannelID, ErrNotFound)
+	}
+	if err != nil {
+		return Proposal{}, err
+	}
+	if c.FeatureID == nil {
+		return Proposal{}, fmt.Errorf("%w: channel %d has no feature", ErrInvalid, c.ID)
+	}
+	now := time.Now().UTC()
+	at := now.Format(time.RFC3339Nano)
+	reject := "UPDATE proposal SET status = ?, decided_at = ? WHERE channel_id = ? AND status = ?"
+	args := []any{ProposalRejected, at, p.ChannelID, ProposalPending}
+	if p.Kind == ProposalBrief {
+		var wraps int
+		if err := tx.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM proposal WHERE channel_id = ? AND kind = ? AND status = ?",
+			p.ChannelID, ProposalWrap, ProposalPending).Scan(&wraps); err != nil {
+			return Proposal{}, fmt.Errorf("check pending wrap: %w", err)
+		}
+		if wraps > 0 {
+			return Proposal{}, fmt.Errorf("%w: channel %d has a wrap-up waiting for approval",
+				ErrInvalid, p.ChannelID)
+		}
+		reject, args = reject+" AND kind = ?", append(args, ProposalBrief)
+	}
+	if _, err := tx.ExecContext(ctx, reject, args...); err != nil {
+		return Proposal{}, fmt.Errorf("reject older proposals: %w", err)
+	}
+	res, err := tx.ExecContext(ctx,
 		"INSERT INTO proposal (channel_id, role, kind, brief, notes, decisions, retire, created_at) "+
 			"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		p.ChannelID, p.Role, p.Kind, p.Brief, p.Notes, string(decisions), string(retire),
-		now.Format(time.RFC3339Nano))
+		p.ChannelID, p.Role, p.Kind, p.Brief, p.Notes, string(decisions), string(retire), at)
 	if err != nil {
 		return Proposal{}, s.writeErr(ctx, "insert proposal", err, ErrNotFound,
 			parent{table: "channel", id: &p.ChannelID})
@@ -115,6 +138,9 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 	id, err := res.LastInsertId()
 	if err != nil {
 		return Proposal{}, fmt.Errorf("insert proposal: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Proposal{}, fmt.Errorf("commit proposal: %w", err)
 	}
 	p.ID, p.Status, p.CreatedAt = id, ProposalPending, now
 	return p, nil
@@ -179,7 +205,8 @@ func (s *Store) PendingProposals(
 // version and the role's notes, both authored by the proposal's role, and each
 // proposed decision whose body the feature does not have yet, retiring the decisions it
 // replaces, then retires the proposal's Retire decisions. It closes the channel and
-// returns how many decisions it added. A brief proposal adds only the brief version.
+// returns how many decisions it added. A brief proposal adds only the brief version, and
+// is refused once its channel is closed.
 // Nothing is applied if any step fails, such as a retired id that is not a live decision
 // of the feature.
 func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, int, error) {
@@ -193,10 +220,15 @@ func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, int, e
 		return Proposal{}, 0, err
 	}
 	var featureID int64
+	var closed sql.NullString
 	err = tx.QueryRowContext(ctx,
-		"SELECT feature_id FROM channel WHERE id = ?", p.ChannelID).Scan(&featureID)
+		"SELECT feature_id, closed_at FROM channel WHERE id = ?", p.ChannelID).
+		Scan(&featureID, &closed)
 	if err != nil {
 		return Proposal{}, 0, fmt.Errorf("read feature of proposal %d: %w", id, err)
+	}
+	if p.Kind == ProposalBrief && closed.Valid {
+		return Proposal{}, 0, fmt.Errorf("%w: channel %d is closed", ErrInvalid, p.ChannelID)
 	}
 	now := time.Now().UTC()
 	at := now.Format(time.RFC3339Nano)

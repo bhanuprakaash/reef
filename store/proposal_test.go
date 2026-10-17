@@ -119,6 +119,9 @@ func TestApproveProposal(t *testing.T) {
 func TestApproveBriefProposal(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
+	if _, err := s.RejectProposal(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := s.CreateProposal(ctx, Proposal{
 		ChannelID: 1, Role: "lead", Kind: ProposalBrief, Brief: "v3",
 	}); err != nil {
@@ -163,6 +166,9 @@ func TestApproveBriefProposal(t *testing.T) {
 func TestCreateBriefProposalRejectsOlderBriefProposals(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
+	if _, err := s.RejectProposal(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
 	for _, brief := range []string{"v3", "v4"} {
 		if _, err := s.CreateProposal(ctx, Proposal{
 			ChannelID: 1, Role: "lead", Kind: ProposalBrief, Brief: brief,
@@ -179,7 +185,7 @@ func TestCreateBriefProposalRejectsOlderBriefProposals(t *testing.T) {
 	for _, p := range ps {
 		got = append(got, p.Kind+":"+p.Brief)
 	}
-	if want := []string{"wrap:v2", "brief:v4"}; !reflect.DeepEqual(got, want) {
+	if want := []string{"brief:v4"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("pending = %v, want %v", got, want)
 	}
 }
@@ -290,13 +296,18 @@ func TestPendingProposals(t *testing.T) {
 	if _, err := s.CreateFeature(ctx, Feature{ProjectID: 1, Slug: "billing", Name: "Billing"}); err != nil {
 		t.Fatal(err)
 	}
-	two := int64(2)
-	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, FeatureID: &two, Name: "dev"}); err != nil {
-		t.Fatal(err)
+	one, two := int64(1), int64(2)
+	for _, c := range []Channel{
+		{ProjectID: 1, FeatureID: &two, Name: "dev"},
+		{ProjectID: 1, FeatureID: &one, Name: "review"},
+	} {
+		if _, err := s.CreateChannel(ctx, c); err != nil {
+			t.Fatal(err)
+		}
 	}
 	for _, p := range []Proposal{
 		{ChannelID: 3, Role: "developer", Brief: "b2"},
-		{ChannelID: 1, Role: "reviewer", Brief: "b3"},
+		{ChannelID: 4, Role: "reviewer", Brief: "b3"},
 	} {
 		if _, err := s.CreateProposal(ctx, p); err != nil {
 			t.Fatal(err)
@@ -317,7 +328,6 @@ func TestPendingProposals(t *testing.T) {
 		}
 		return got
 	}
-	one := int64(1)
 	if got, want := ids(nil), []int64{1, 2}; !reflect.DeepEqual(got, want) {
 		t.Errorf("all pending = %v, want %v", got, want)
 	}
@@ -378,5 +388,110 @@ func TestApproveProposalClosesChannelAndReopenClearsIt(t *testing.T) {
 	}
 	if err := s.ReopenChannel(ctx, 99); !errors.Is(err, ErrNotFound) {
 		t.Errorf("reopen channel 99 = %v, want ErrNotFound", err)
+	}
+}
+
+func TestCreateBriefProposalRefusedWhileWrapPending(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+
+	_, err := s.CreateProposal(ctx, Proposal{
+		ChannelID: 1, Role: "lead", Kind: ProposalBrief, Brief: "v3",
+	})
+	want := "invalid: channel 1 has a wrap-up waiting for approval"
+	if !errors.Is(err, ErrInvalid) || err.Error() != want {
+		t.Errorf("CreateProposal brief = %v, want %s", err, want)
+	}
+	p, err := s.PendingProposal(ctx, 1)
+	if err != nil || p.ID != 1 || p.Kind != ProposalWrap {
+		t.Errorf("pending = %d %q, err %v, want wrap 1", p.ID, p.Kind, err)
+	}
+}
+
+func TestCreateProposalUnknownKindMessage(t *testing.T) {
+	s := proposalFixture(t)
+
+	_, err := s.CreateProposal(context.Background(), Proposal{
+		ChannelID: 1, Role: "lead", Kind: "x", Brief: "b",
+	})
+	if want := `invalid: unknown proposal kind "x"`; err == nil || err.Error() != want {
+		t.Errorf("error = %v, want %s", err, want)
+	}
+}
+
+func TestStaleBriefProposalCannotOverwriteWrap(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+	if _, err := s.RejectProposal(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	for _, p := range []Proposal{
+		{ChannelID: 1, Role: "lead", Kind: ProposalBrief, Brief: "stale"},
+		{ChannelID: 1, Role: "lead", Brief: "final", Notes: "n"},
+	} {
+		if _, err := s.CreateProposal(ctx, p); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, _, err := s.ApproveProposal(ctx, 3); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := s.ApproveProposal(ctx, 2); !errors.Is(err, ErrInvalid) {
+		t.Errorf("approve stale brief = %v, want ErrInvalid", err)
+	}
+	b, err := s.Brief(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Body != "final" {
+		t.Errorf("Brief = %q, want %q", b.Body, "final")
+	}
+	got, err := s.Proposal(ctx, 2)
+	if err != nil || got.Status != ProposalRejected {
+		t.Errorf("proposal 2 = %q, err %v, want rejected", got.Status, err)
+	}
+}
+
+func TestCreateWrapProposalRejectsOlderPending(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+	if _, err := s.CreateProposal(ctx, Proposal{ChannelID: 1, Role: "lead", Brief: "v3"}); err != nil {
+		t.Fatal(err)
+	}
+
+	ps, err := s.PendingProposals(ctx, nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ps) != 1 || ps[0].ID != 2 || ps[0].Brief != "v3" {
+		t.Errorf("pending = %+v, want only proposal 2", ps)
+	}
+	if old, err := s.Proposal(ctx, 1); err != nil || old.Status != ProposalRejected {
+		t.Errorf("proposal 1 = %q, err %v, want rejected", old.Status, err)
+	}
+}
+
+func TestApproveBriefProposalOnClosedChannel(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+	if _, err := s.RejectProposal(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateProposal(ctx, Proposal{
+		ChannelID: 1, Role: "lead", Kind: ProposalBrief, Brief: "v3",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CloseFeature(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err := s.ApproveProposal(ctx, 2)
+	if want := "invalid: channel 1 is closed"; err == nil || err.Error() != want {
+		t.Errorf("approve = %v, want %s", err, want)
+	}
+	if b, err := s.Brief(ctx, 1); err != nil || b.Body != "v1" {
+		t.Errorf("Brief = %q, err %v, want v1", b.Body, err)
 	}
 }
