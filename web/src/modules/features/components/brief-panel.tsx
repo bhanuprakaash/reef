@@ -54,7 +54,7 @@ export function BriefPanel({ versions }: { versions: Brief[] }) {
         <div className="space-y-3">
           <div
             ref={body}
-            className={`text-[15px] leading-relaxed text-soft ${expanded ? '' : 'max-h-52 overflow-hidden mask-[linear-gradient(to_bottom,black_75%,transparent)]'}`}
+            className={`text-[15px] leading-relaxed text-soft ${expanded ? '' : 'max-h-52 overflow-hidden'} ${overflows && !expanded ? 'mask-[linear-gradient(to_bottom,black_75%,transparent)]' : ''}`}
           >
             <Markdown>{latest.body}</Markdown>
           </div>
