@@ -104,10 +104,13 @@ func TestApproveProposalBadRetireFailsAll(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
 	p, err := s.CreateProposal(ctx, Proposal{
-		ChannelID: 1, Role: "architect", Brief: "v3", Retire: []int64{1, 9},
+		ChannelID: 1, Role: "architect", Brief: "v3", Retire: []int64{1},
 		Decisions: []ProposedDecision{{Body: "use rust"}},
 	})
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.Exec(`UPDATE proposal SET retire = '[1, 9]' WHERE id = ?`, p.ID); err != nil {
 		t.Fatal(err)
 	}
 	before := countRows(t, s)
@@ -132,5 +135,116 @@ func TestApproveProposalBadRetireFailsAll(t *testing.T) {
 	}
 	if got.Status != ProposalPending {
 		t.Errorf("proposal status = %q, want pending", got.Status)
+	}
+}
+
+func TestCreateDecisionCannotReplaceItself(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+
+	_, err := s.CreateDecision(ctx, Decision{
+		FeatureID: 1, Body: "use rust", Author: "user", Replaces: []int64{2},
+	})
+	if want := "invalid: decision 2 is not a live decision of feature 1"; err == nil || err.Error() != want {
+		t.Errorf("error = %v, want %s", err, want)
+	}
+	if ds, err := s.Decisions(ctx, 1); err != nil || len(ds) != 1 {
+		t.Errorf("decisions = %+v, %v, want only decision 1", ds, err)
+	}
+}
+
+func TestCreateProposalChecksRetiredIDs(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+	if _, err := s.CreateFeature(ctx, Feature{ProjectID: 1, Slug: "billing", Name: "Billing"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateDecision(ctx, Decision{FeatureID: 2, Body: "use stripe", Author: "user"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateDecision(ctx, Decision{
+		FeatureID: 1, Body: "use rust", Author: "user", Replaces: []int64{1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		name string
+		give Proposal
+		want string
+	}{
+		{"retire unknown", Proposal{Retire: []int64{9}}, _notLive9},
+		{"replace unknown", Proposal{Decisions: []ProposedDecision{{Body: "x", Replaces: []int64{9}}}}, _notLive9},
+		{"retire other feature", Proposal{Retire: []int64{2}},
+			"invalid: decision 2 is not a live decision of feature 1"},
+		{"retire already retired", Proposal{Retire: []int64{1}},
+			"invalid: decision 1 is not a live decision of feature 1"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.give.ChannelID, tt.give.Role, tt.give.Brief = 1, "architect", "v3"
+			_, err := s.CreateProposal(ctx, tt.give)
+			if !errors.Is(err, ErrInvalid) || err.Error() != tt.want {
+				t.Errorf("error = %v, want %s", err, tt.want)
+			}
+		})
+	}
+	if p, err := s.PendingProposal(ctx, 1); err != nil || p.ID != 1 {
+		t.Errorf("pending = %d, %v, want the earlier proposal 1 untouched", p.ID, err)
+	}
+}
+
+func TestCreateProposalDedupesRetiredIDs(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+	for _, body := range []string{"use sqlite", "use json"} {
+		if _, err := s.CreateDecision(ctx, Decision{FeatureID: 1, Body: body, Author: "user"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	p, err := s.CreateProposal(ctx, Proposal{
+		ChannelID: 1, Role: "architect", Brief: "v3", Retire: []int64{1, 2, 3, 3},
+		Decisions: []ProposedDecision{
+			{Body: "use postgres", Replaces: []int64{1, 2}},
+			{Body: "use yaml", Replaces: []int64{2, 3}},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []ProposedDecision{
+		{Body: "use postgres", Replaces: []int64{1, 2}},
+		{Body: "use yaml", Replaces: []int64{3}},
+	}
+	if !reflect.DeepEqual(p.Decisions, want) || !reflect.DeepEqual(p.Retire, []int64{}) {
+		t.Errorf("proposal = decisions %+v retire %v, want %+v and []", p.Decisions, p.Retire, want)
+	}
+}
+
+func TestApproveProposalSkipsAlreadyRetired(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+	p, err := s.CreateProposal(ctx, Proposal{
+		ChannelID: 1, Role: "architect", Brief: "v3", Retire: []int64{1},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateDecision(ctx, Decision{
+		FeatureID: 1, Body: "use rust", Author: "user", Replaces: []int64{1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, _, err := s.ApproveProposal(ctx, p.ID); err != nil {
+		t.Fatalf("approve with a decision retired meanwhile = %v, want nil", err)
+	}
+	d, err := s.Decision(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.ReplacedBy == nil || *d.ReplacedBy != 2 {
+		t.Errorf("decision 1 replacedBy = %v, want 2 kept from the first retire", d.ReplacedBy)
 	}
 }

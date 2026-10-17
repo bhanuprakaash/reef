@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 )
 
@@ -56,7 +57,8 @@ type Proposal struct {
 }
 
 // CreateProposal adds p as pending, of kind wrap unless p.Kind says otherwise. The channel
-// must belong to a feature and has one pending proposal at most: a wrap rejects the older
+// must belong to a feature. A wrap's Retire and Replaces ids must be live decisions of that
+// feature. The channel has one pending proposal at most: a wrap rejects the older
 // pending ones of any kind, and a brief rejects the older pending briefs but is refused
 // while a wrap is pending.
 func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error) {
@@ -77,20 +79,6 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 			return Proposal{}, fmt.Errorf("%w: decision body is required", ErrInvalid)
 		}
 	}
-	if p.Decisions == nil {
-		p.Decisions = []ProposedDecision{}
-	}
-	decisions, err := json.Marshal(p.Decisions)
-	if err != nil {
-		return Proposal{}, fmt.Errorf("encode decisions: %w", err)
-	}
-	if p.Retire == nil {
-		p.Retire = []int64{}
-	}
-	retire, err := json.Marshal(p.Retire)
-	if err != nil {
-		return Proposal{}, fmt.Errorf("encode retire: %w", err)
-	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Proposal{}, fmt.Errorf("begin proposal: %w", err)
@@ -106,6 +94,24 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 	}
 	if c.FeatureID == nil {
 		return Proposal{}, fmt.Errorf("%w: channel %d has no feature", ErrInvalid, c.ID)
+	}
+	if p.Kind == ProposalWrap {
+		ids := slices.Clone(p.Retire)
+		for _, d := range p.Decisions {
+			ids = append(ids, d.Replaces...)
+		}
+		if err := requireLiveDecisions(ctx, tx, *c.FeatureID, ids); err != nil {
+			return Proposal{}, err
+		}
+	}
+	dedupeRetired(&p)
+	decisions, err := json.Marshal(p.Decisions)
+	if err != nil {
+		return Proposal{}, fmt.Errorf("encode decisions: %w", err)
+	}
+	retire, err := json.Marshal(p.Retire)
+	if err != nil {
+		return Proposal{}, fmt.Errorf("encode retire: %w", err)
 	}
 	now := time.Now().UTC()
 	at := now.Format(time.RFC3339Nano)
@@ -144,6 +150,28 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 	}
 	p.ID, p.Status, p.CreatedAt = id, ProposalPending, now
 	return p, nil
+}
+
+// dedupeRetired makes the decision ids p retires unique, so each is retired once. The first
+// claim wins: a decision's Replaces in order, then Retire.
+func dedupeRetired(p *Proposal) {
+	seen := map[int64]bool{}
+	claim := func(ids []int64) []int64 {
+		kept := make([]int64, 0, len(ids))
+		for _, id := range ids {
+			if !seen[id] {
+				seen[id] = true
+				kept = append(kept, id)
+			}
+		}
+		return kept
+	}
+	decisions := make([]ProposedDecision, len(p.Decisions))
+	for i, d := range p.Decisions {
+		d.Replaces = claim(d.Replaces)
+		decisions[i] = d
+	}
+	p.Decisions, p.Retire = decisions, claim(p.Retire)
 }
 
 // PendingProposal returns the channel's newest pending proposal, or ErrNotFound.

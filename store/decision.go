@@ -62,6 +62,9 @@ func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error
 		return Decision{}, fmt.Errorf("begin decision: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	if err := requireLiveDecisions(ctx, tx, d.FeatureID, d.Replaces); err != nil {
+		return Decision{}, err
+	}
 	now := time.Now().UTC()
 	at := now.Format(time.RFC3339Nano)
 	res, err := tx.ExecContext(ctx, _insertDecision,
@@ -84,7 +87,30 @@ func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error
 	return d, nil
 }
 
-// retireDecisions returns ErrInvalid for an id that is not a live decision of the feature.
+// requireLiveDecisions returns ErrInvalid for an id that is not a live decision of the feature.
+func requireLiveDecisions(
+	ctx context.Context, q interface {
+		QueryRowContext(context.Context, string, ...any) *sql.Row
+	}, featureID int64, ids []int64,
+) error {
+	for _, id := range ids {
+		var ok bool
+		err := q.QueryRowContext(ctx,
+			"SELECT EXISTS (SELECT 1 FROM decision WHERE id = ? AND feature_id = ? AND retired_at IS NULL)",
+			id, featureID).Scan(&ok)
+		if err != nil {
+			return fmt.Errorf("check decision %d: %w", id, err)
+		}
+		if !ok {
+			return fmt.Errorf("%w: decision %d is not a live decision of feature %d",
+				ErrInvalid, id, featureID)
+		}
+	}
+	return nil
+}
+
+// retireDecisions retires the live ones among ids and skips a decision of the feature that is
+// already retired. It returns ErrInvalid for an id that is not a decision of the feature.
 func retireDecisions(
 	ctx context.Context, tx *sql.Tx, featureID int64, ids []int64, replacedBy *int64, at string,
 ) error {
@@ -100,7 +126,17 @@ func retireDecisions(
 		if err != nil {
 			return fmt.Errorf("retire decision %d: %w", id, err)
 		}
-		if n == 0 {
+		if n > 0 {
+			continue
+		}
+		var exists bool
+		err = tx.QueryRowContext(ctx,
+			"SELECT EXISTS (SELECT 1 FROM decision WHERE id = ? AND feature_id = ?)",
+			id, featureID).Scan(&exists)
+		if err != nil {
+			return fmt.Errorf("check decision %d: %w", id, err)
+		}
+		if !exists {
 			return fmt.Errorf("%w: decision %d is not a live decision of feature %d",
 				ErrInvalid, id, featureID)
 		}

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"net"
 	"path/filepath"
 	"reflect"
@@ -432,6 +433,21 @@ func TestMCPProposeBrief(t *testing.T) {
 	got, isErr = call("propose_brief", map[string]any{"brief": ""})
 	if want := "invalid: proposal brief is required"; got != want || !isErr {
 		t.Errorf("propose_brief with empty brief = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
+func TestMCPProposeWrapRejectsBadRetireID(t *testing.T) {
+	st, tok := mcpFixture(t)
+	call := callTool(t, st, tok)
+
+	got, isErr := call("propose_wrap", map[string]any{
+		"brief": "v2", "notes": "n", "decisions": []any{}, "retire": []any{9},
+	})
+	if want := "invalid: decision 9 is not a live decision of feature 1"; got != want || !isErr {
+		t.Errorf("propose_wrap = %q (error %v), want %q", got, isErr, want)
+	}
+	if _, err := st.PendingProposal(context.Background(), 1); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("PendingProposal = %v, want ErrNotFound: nothing saved", err)
 	}
 }
 
