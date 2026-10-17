@@ -1,13 +1,22 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
+	"unicode/utf8"
 
+	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
 )
+
+const _fileCap = 512 << 10
 
 func (s *server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /channels", s.listChannels)
@@ -23,6 +32,8 @@ func (s *server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/channels/{id}/inspector", methodNotAllowed)
 	mux.HandleFunc("GET /channels/{id}/direct-messages", s.listDirectMessages)
 	mux.HandleFunc("/channels/{id}/direct-messages", methodNotAllowed)
+	mux.HandleFunc("GET /channels/{id}/file", s.getChannelFile)
+	mux.HandleFunc("/channels/{id}/file", methodNotAllowed)
 	mux.HandleFunc("GET /messages", s.listMessages)
 	mux.HandleFunc("POST /messages", s.createMessage)
 	mux.HandleFunc("/messages", methodNotAllowed)
@@ -53,6 +64,108 @@ func (s *server) listDirectMessages(w http.ResponseWriter, r *http.Request) {
 		msgs = []store.DirectMessage{}
 	}
 	writeJSON(w, http.StatusOK, msgs)
+}
+
+// getChannelFile returns the text of a file inside the channel's working folder: its
+// feature's worktree when it exists, else the project folder.
+func (s *server) getChannelFile(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	p := r.URL.Query().Get("path")
+	if p == "" || strings.ContainsRune(p, 0) {
+		writeError(w, fmt.Errorf("%w: path is required", store.ErrInvalid))
+		return
+	}
+	root, slug, err := channel.WorkDir(r.Context(), s.st, s.dataDir, id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if _, err := os.Stat(filepath.Join(root, ".git")); slug != "" && err != nil {
+		ch, err := s.st.Channel(r.Context(), id)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		pr, err := s.st.Project(r.Context(), ch.ProjectID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		root = pr.Path
+	}
+	realRoot, err := filepath.EvalSymlinks(root)
+	if err != nil {
+		writeError(w, fmt.Errorf("channel %d folder: %w", id, err))
+		return
+	}
+	full := filepath.Clean(p)
+	if !filepath.IsAbs(full) {
+		full = filepath.Join(root, full)
+	}
+	base := root
+	if !within(base, full) {
+		base = realRoot
+	}
+	if !within(base, full) {
+		writeError(w, fmt.Errorf("%w: path is outside the channel's folder", store.ErrInvalid))
+		return
+	}
+	target, err := filepath.EvalSymlinks(full)
+	if err != nil {
+		writeError(w, fmt.Errorf("file: %w", store.ErrNotFound))
+		return
+	}
+	if !within(realRoot, target) {
+		writeError(w, fmt.Errorf("%w: path is outside the channel's folder", store.ErrInvalid))
+		return
+	}
+	fi, err := os.Stat(target)
+	if err != nil {
+		writeError(w, fmt.Errorf("file: %w", store.ErrNotFound))
+		return
+	}
+	if !fi.Mode().IsRegular() {
+		writeError(w, fmt.Errorf("%w: path is not a regular file", store.ErrInvalid))
+		return
+	}
+	f, err := os.Open(target)
+	if err != nil {
+		writeError(w, fmt.Errorf("open channel %d file: %w", id, err))
+		return
+	}
+	defer func() { _ = f.Close() }()
+	data, err := io.ReadAll(io.LimitReader(f, _fileCap))
+	if err != nil {
+		writeError(w, fmt.Errorf("read channel %d file: %w", id, err))
+		return
+	}
+	if bytes.IndexByte(data[:min(len(data), 8<<10)], 0) >= 0 {
+		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "binary file"})
+		return
+	}
+	truncated := fi.Size() > _fileCap
+	if truncated {
+		i := len(data) - 1
+		for i > 0 && i > len(data)-utf8.UTFMax && !utf8.RuneStart(data[i]) {
+			i--
+		}
+		if !utf8.FullRune(data[i:]) {
+			data = data[:i]
+		}
+	}
+	rel, err := filepath.Rel(base, full)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"path": filepath.ToSlash(rel), "content": string(data), "size": fi.Size(),
+		"truncated": truncated,
+	})
 }
 
 func (s *server) listChannels(w http.ResponseWriter, r *http.Request) {
@@ -279,4 +392,9 @@ func (s *server) createMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, m)
+}
+
+// within reports whether path is dir or inside it. Both must be clean.
+func within(dir, path string) bool {
+	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
 }

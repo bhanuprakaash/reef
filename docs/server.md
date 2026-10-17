@@ -116,7 +116,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
 | 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a wrap or promote turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; `retry` of a turn that is not [retryable](#channels-live), or on a channel with a turn running or paused; `rollback` on a channel with a turn running or open in a `reef chat`, on a tree other than the checkpoint's, or on a tree a turn runs on; an approval that is not pending, or one approved while the channel is paused |
-| 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
+| 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine. Also a binary file from `GET /channels/{id}/file` |
 | 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
 
@@ -476,6 +476,7 @@ tool calls.
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
 | `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `toolCalls` (`name`, `input`, `result`) | 404 |
 | `GET /channels/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the channel, oldest first; each has `id`, `channelId`, `chainId`, `replyToId`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `createdAt` | 400 bad id, 404 |
+| `GET /channels/{id}/file` | `?path=` (required), relative to the channel's folder or absolute inside it | 200 `{"path", "content", "size", "truncated"}`, see [Channel files](#channel-files) | 400 empty path or a NUL in it, a path outside the folder or not a regular file; 404 unknown channel or no such file; 415 binary file |
 | `POST /channels/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
@@ -515,6 +516,22 @@ Create requests take the whole object from the table above. A field you leave ou
 its default. Other `PUT` requests replace the whole object. Update behavior is
 route-specific: `PUT /channels/{id}` keeps an omitted `permissionMode`, while
 `PATCH /turns/{id}` is the only partial update for other resources.
+
+## Channel files
+
+`GET /channels/{id}/file?path=src/main.go` returns a file an agent mentioned, so the window
+can open it. It only reads. The channel's folder is where its agents run: its feature's
+worktree once that exists, else the project folder.
+
+`path` is relative to that folder, or absolute and inside it. Symlinks are resolved on both
+sides; a path that ends up outside the folder, `..` included, is 400, and so is a directory,
+a fifo or a device. A missing file is 404. A file with a NUL byte in its first 8 KiB is
+binary and gets 415.
+
+The answer is `{"path": "src/main.go", "content": "...", "size": 1834, "truncated": false}`.
+`path` is relative to the folder with `/` separators, `size` is the size on disk. At most
+512 KiB is read: a bigger file has `truncated` `true` and `content` ends on a whole UTF-8
+character. No error names a server path.
 
 ## Channels live
 
