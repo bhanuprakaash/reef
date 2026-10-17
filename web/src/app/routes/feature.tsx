@@ -76,11 +76,6 @@ export function FeaturePage() {
           >
             {f.closedAt === null ? 'Close feature' : 'Reopen'}
           </Button>
-          {latestChannel && (
-            <Link to={`/channels/${latestChannel.id}`} className={buttonClass('primary')}>
-              Open channel
-            </Link>
-          )}
         </div>
       </header>
       {f.kind === 'journey' ? (
