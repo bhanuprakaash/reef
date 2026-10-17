@@ -26,9 +26,8 @@ describe('Markdown', () => {
     expect(html).toContain('<strong>bold</strong>');
     expect(html).toContain('<code>inline</code>');
     expect(html).toContain('<li>two</li>');
-    expect(html).toContain(
-      '<pre><code class="language-go">fmt.Println(&quot;hi&quot;)\n</code></pre>',
-    );
+    expect(html).toContain('<code>fmt.Println(&quot;hi&quot;)</code>');
+    expect(html).toContain('>go</span>');
     expect(html).toContain(
       '<a href="https://example.com" target="_blank" rel="noreferrer">docs</a>',
     );
@@ -38,8 +37,15 @@ describe('Markdown', () => {
     const html = renderToStaticMarkup(<Markdown>{text}</Markdown>);
 
     expect(html).toMatch(/<div class="[^"]*overflow-x-auto[^"]*"><table>/);
-    expect(html).toMatch(/<th class="text-left">a<\/th>/);
+    expect(html).toMatch(/<th[^>]*class="text-right"[^>]*>a<\/th>/);
     expect(html).toMatch(/<td class="[^"]*text-right[^"]*">2<\/td>/);
+  });
+
+  it('left-aligns the header of a column that holds text', () => {
+    const html = renderToStaticMarkup(<Markdown>{'| name | n |\n| - | - |\n| x | 1 |'}</Markdown>);
+
+    expect(html).toMatch(/<th[^>]*class="text-left"[^>]*>name<\/th>/);
+    expect(html).toMatch(/<th[^>]*class="text-right"[^>]*>n<\/th>/);
   });
 
   it('keeps single newlines as line breaks and does not render raw html', () => {

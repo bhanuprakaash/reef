@@ -182,6 +182,18 @@
   }
 }
 
+.shiki-token {
+  color: var(--shiki-dark);
+}
+[data-theme='light'] .shiki-token {
+  color: var(--shiki-light);
+}
+@media (prefers-color-scheme: light) {
+  [data-theme='system'] .shiki-token {
+    color: var(--shiki-light);
+  }
+}
+
 @layer base {
   :root {
     color-scheme: dark;

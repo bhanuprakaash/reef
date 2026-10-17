@@ -1,9 +1,11 @@
-import type { ReactNode } from 'react';
+import { isValidElement, type ReactNode } from 'react';
 import type { Parent, PhrasingContent, Root } from 'mdast';
 import type { Components } from 'react-markdown';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
+import { CodeBlock } from '@/components/code-block';
+import { DataTable } from '@/components/data-table';
 import { splitMentions } from '@/utils/split-mentions';
 
 function mentions(nodes: PhrasingContent[]): PhrasingContent[] {
@@ -57,6 +59,9 @@ const style = [
   '[&_h5]:mt-[0.5em] [&_h5]:text-[14.5px] [&_h5]:font-medium [&_h5]:text-soft',
   '[&_h6]:mt-[0.5em] [&_h6]:text-[14.5px] [&_h6]:font-medium [&_h6]:text-muted',
 
+  // Full-width prose runs past a comfortable line length; code and tables keep the whole width.
+  '[&>:is(p,ul,ol,blockquote,h1,h2,h3,h4,h5,h6)]:max-w-[80ch]',
+
   '[&_strong]:font-semibold',
   '[&_.mention]:text-[color:var(--mention,var(--color-mention))]',
   '[&_p]:my-0 [&_li>p]:my-0',
@@ -73,10 +78,10 @@ const style = [
   '[&_hr]:my-1 [&_hr]:border-current/15',
 
   '[&_:not(pre)>code]:rounded-md [&_:not(pre)>code]:bg-current/[0.09] [&_:not(pre)>code]:px-1.5 [&_:not(pre)>code]:py-0.5 [&_:not(pre)>code]:font-mono [&_:not(pre)>code]:text-[0.86em]',
-  '[&_pre]:overflow-x-auto [&_pre]:rounded-lg [&_pre]:border [&_pre]:border-current/10 [&_pre]:bg-current/[0.07] [&_pre]:px-3.5 [&_pre]:py-3 [&_pre]:font-mono [&_pre]:text-[12.5px] [&_pre]:leading-[1.55]',
 
   // Tables: row rules and a tinted header, not a four-sided grid on every cell.
   '[&_table]:w-full [&_table]:border-collapse [&_table]:text-[13px]',
+  '[&_th]:cursor-pointer [&_th]:select-none [&_th:hover]:text-fg [&_th[aria-sort=ascending]]:after:content-["_↑"] [&_th[aria-sort=descending]]:after:content-["_↓"]',
   '[&_th]:whitespace-nowrap [&_th]:border-b [&_th]:border-current/15 [&_th]:bg-current/[0.06] [&_th]:px-3 [&_th]:py-1.5 [&_th]:text-[11.5px] [&_th]:font-medium [&_th]:uppercase [&_th]:tracking-[0.06em] [&_th]:text-muted',
   '[&_td]:border-t [&_td]:border-current/10 [&_td]:px-3 [&_td]:py-1.5 [&_td]:align-top',
   '[&_tbody_tr:nth-child(even)]:bg-current/[0.025]',
@@ -97,13 +102,25 @@ const components: Components = {
       {children}
     </a>
   ),
-  table: ({ children }) => (
-    <div className="my-0.5 overflow-x-auto rounded-lg border border-current/15">
-      <table>{children}</table>
-    </div>
-  ),
-  th: ({ children }) => (
-    <th className={numeric(children) ? 'text-right' : 'text-left'}>{children}</th>
+  pre: ({ children }) => {
+    const code = isValidElement<{ className?: string; children?: ReactNode }>(children)
+      ? children
+      : null;
+    const lang = /language-([\w+-]+)/.exec(code?.props.className ?? '')?.[1] ?? '';
+    return <CodeBlock code={String(code?.props.children ?? '').replace(/\n$/, '')} lang={lang} />;
+  },
+  table: DataTable,
+  th: ({ children, ...props }) => (
+    <th
+      tabIndex={0}
+      aria-sort={props['aria-sort']}
+      className={
+        (props as { 'data-numeric'?: boolean })['data-numeric'] ? 'text-right' : 'text-left'
+      }
+      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.click()}
+    >
+      {children}
+    </th>
   ),
   td: ({ children }) => (
     <td className={numeric(children) ? 'text-right tabular-nums' : undefined}>{children}</td>
