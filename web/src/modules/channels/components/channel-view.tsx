@@ -340,7 +340,10 @@ export function ChannelView({
                 working={running ? working : null}
                 waiting={approvals.data?.map((a) => a.to) ?? []}
                 brief={brief}
-                onClose={toggleTeamHidden}
+                onClose={() => {
+                  setTeamOpen(false);
+                  if (!teamHidden) toggleTeamHidden();
+                }}
               />
             )}
           </div>
