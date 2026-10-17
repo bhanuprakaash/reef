@@ -402,10 +402,12 @@ Flags:
 A channel ends explicitly, never on a timer. The user types `/wrap` in `reef chat`:
 
 1. `reef chat` sends the agent a fixed prompt instead of `/wrap`. The stored user message
-   is still `/wrap`. The prompt asks the agent to call `propose_wrap` once, with the full
-   rewritten brief, its own notes on the feature, and the decisions made in this channel
-   that are not recorded yet. Decisions the agent already recorded with `record_decision`
-   are not proposed again.
+   is still `/wrap`. The prompt asks the agent to call `get_brief` first, then `propose_wrap`
+   once, with the full brief written as the latest brief plus what this channel achieved
+   (keep what still holds, status is where the feature is now and not a history, drop what
+   is done or no longer true, stay short), its own notes on the feature, and the decisions
+   made in this channel that are not recorded yet. Decisions the agent already recorded
+   with `record_decision` are not proposed again.
 2. `propose_wrap` stores a `pending` proposal (see [server.md](server.md#proposal)).
 3. After the turn, `reef chat` looks for a pending proposal of this channel that is newer
    than the one pending before `/wrap`. With none, it prints `no proposal made`.

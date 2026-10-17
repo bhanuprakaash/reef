@@ -51,9 +51,12 @@ const (
 	WrapCommand    = "/wrap"
 	PromoteCommand = "/promote"
 
-	_wrapPrompt = "Wrap up this channel. Call the propose_wrap tool once with the full " +
-		"rewritten brief (goal, status, key decisions, open questions), your own notes on " +
-		"this feature, and the decisions made in this channel that are not recorded yet. " +
+	_wrapPrompt = "Wrap up this channel. Call the get_brief tool first. Then call the " +
+		"propose_wrap tool once with the full brief rewritten as the latest brief plus what " +
+		"this channel achieved (goal, status, key decisions, open questions): keep what still " +
+		"holds, make status where the feature is now, not a history, drop what is done or no " +
+		"longer true, and keep it short. Add your own notes on this feature, and the decisions " +
+		"made in this channel that are not recorded yet. " +
 		"Then reply with one line saying it is proposed."
 	_promotePrompt = "This quick session is now feature %q (%s). Call the propose_wrap tool " +
 		"once with the first brief (goal, status, key decisions, open questions) written from " +
