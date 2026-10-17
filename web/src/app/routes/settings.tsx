@@ -113,14 +113,51 @@ function NameSection() {
   );
 }
 
+type UpdateState =
+  | { status: 'idle' | 'checking' | 'current' }
+  | { status: 'ready'; version: string }
+  | { status: 'error'; message: string };
+
 function UpdateSection() {
   const [idle, setIdle] = useState(false);
+  const [current, setCurrent] = useState<string | null>(null);
+  const [update, setUpdate] = useState<UpdateState>({ status: 'idle' });
   useEffect(() => {
     void window.reef?.getUpdateWhenIdle().then(setIdle);
+    void window.reef?.getVersion().then(setCurrent);
+    return window.reef?.onUpdateReady((version) => setUpdate({ status: 'ready', version }));
   }, []);
 
   return (
     <Section title="Updates">
+      <div className="flex min-h-9 items-center gap-3">
+        <span className="flex-1">Version {current ?? ''}</span>
+        {update.status === 'ready' ? (
+          <Button variant="primary" size="sm" onClick={() => window.reef?.restartToUpdate()}>
+            Restart to update
+          </Button>
+        ) : (
+          <Button
+            size="sm"
+            loading={update.status === 'checking'}
+            onClick={() => {
+              setUpdate({ status: 'checking' });
+              void window.reef?.checkForUpdate().then(setUpdate);
+            }}
+          >
+            Check for updates
+          </Button>
+        )}
+      </div>
+      <p
+        role="status"
+        className={`text-[13px] ${update.status === 'error' ? 'text-danger' : 'text-muted'}`}
+      >
+        {update.status === 'checking' && 'Checking…'}
+        {update.status === 'current' && 'Reef is up to date.'}
+        {update.status === 'ready' && `Reef ${update.version} is ready. Restart to install it.`}
+        {update.status === 'error' && update.message}
+      </p>
       <div className="flex min-h-9 items-center gap-3">
         <span className="flex-1">Update when idle</span>
         <Toggle

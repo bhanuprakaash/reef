@@ -5,6 +5,11 @@ import type { Theme } from '@/lib/theme';
 // there.
 export type BrowserState = { url: string; canGoBack: boolean; canGoForward: boolean };
 
+export type UpdateCheck =
+  | { status: 'ready'; version: string }
+  | { status: 'current' }
+  | { status: 'error'; message: string };
+
 export type ReefBridge = {
   capture: () => Promise<void>;
   chooseFolder: () => Promise<string | null>;
@@ -17,6 +22,8 @@ export type ReefBridge = {
   setTakeOver: (value: boolean) => Promise<boolean>;
   onBrowserNavigated: (callback: (state: BrowserState) => void) => () => void;
   onUpdateReady: (callback: (version: string) => void) => () => void;
+  getVersion: () => Promise<string>;
+  checkForUpdate: () => Promise<UpdateCheck>;
   restartToUpdate: () => void;
   getUpdateWhenIdle: () => Promise<boolean>;
   setUpdateWhenIdle: (value: boolean) => Promise<void>;
