@@ -107,7 +107,8 @@ export function ChannelView({
   const fullSheet = thread !== undefined || wide || turnOpen;
   const showTeam =
     !thread && side?.kind !== 'inspector' && side?.kind !== 'pr' && !wide && !turnOpen;
-  const wrapDisabled = running || wrap.isPending || !!proposal.data || blocksUser(channel.paused);
+  const wrapDisabled =
+    running || wrap.isPending || proposal.data?.kind === 'wrap' || blocksUser(channel.paused);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
