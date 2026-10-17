@@ -95,8 +95,7 @@ export function createUpdater(win, addr, dataDir) {
   const bundle = path.resolve(process.execPath, '../../..');
   let staged = null;
   let skipped = null;
-  let checking = false;
-  let unwritableLogged = false;
+  let inFlight = null;
   let swapping = false;
   let whenIdle = read(idleFile) === '1';
 
@@ -157,32 +156,38 @@ export function createUpdater(win, addr, dataDir) {
     staged = version;
   }
 
-  async function check() {
-    if (checking) return;
-    checking = true;
+  // Resolves 'ready' when an update is staged and 'current' when there is none; throws on failure.
+  function check() {
+    inFlight ??= fetchUpdate().finally(() => {
+      inFlight = null;
+    });
+    return inFlight;
+  }
+
+  async function fetchUpdate() {
+    const res = await fetch(RELEASE_URL, {
+      headers: { Accept: 'application/vnd.github+json' },
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!res.ok) throw new Error(`${RELEASE_URL}: ${res.status}`);
+    const release = await res.json();
+    const latest = parse(release.tag_name);
+    const asset = release.assets?.find((a) => a.name === ASSET);
+    if (!latest || !asset) throw new Error(`release ${release.tag_name} has no usable ${ASSET}`);
+    const version = latest.join('.');
+    if (version === staged) return 'ready';
+    if (!isNewer(latest, parse(app.getVersion())) || version === skipped) return 'current';
+    if (!canReplaceBundle()) throw new Error(`${bundle} cannot be replaced from here`);
+    await stage(version, asset.browser_download_url);
+    notify();
+    return 'ready';
+  }
+
+  async function backgroundCheck() {
     try {
-      const res = await fetch(RELEASE_URL, {
-        headers: { Accept: 'application/vnd.github+json' },
-        signal: AbortSignal.timeout(TIMEOUT),
-      });
-      if (!res.ok) throw new Error(`${RELEASE_URL}: ${res.status}`);
-      const release = await res.json();
-      const latest = parse(release.tag_name);
-      const asset = release.assets?.find((a) => a.name === ASSET);
-      if (!latest || !asset) throw new Error(`release ${release.tag_name} has no usable ${ASSET}`);
-      const version = latest.join('.');
-      if (!isNewer(latest, parse(app.getVersion())) || version === staged || version === skipped) return;
-      if (!canReplaceBundle()) {
-        if (!unwritableLogged) console.error(`update skipped: ${bundle} cannot be replaced from here`);
-        unwritableLogged = true;
-        return;
-      }
-      await stage(version, asset.browser_download_url);
-      notify();
+      await check();
     } catch (err) {
       console.error(`update check failed: ${err.message}`);
-    } finally {
-      checking = false;
     }
   }
 
@@ -197,6 +202,16 @@ export function createUpdater(win, addr, dataDir) {
   }
 
   ipcMain.handle('update:staged', () => staged);
+  ipcMain.handle('update:version', () => app.getVersion());
+  ipcMain.handle('update:check', async () => {
+    if (!app.isPackaged) return { status: 'error', message: 'Only the installed app updates itself' };
+    try {
+      const status = await check();
+      return { status, version: staged };
+    } catch (err) {
+      return { status: 'error', message: err.message };
+    }
+  });
   ipcMain.on('update:restart', restart);
   ipcMain.handle('update:get-when-idle', () => whenIdle);
   ipcMain.handle('update:set-when-idle', (_event, value) => {
@@ -229,8 +244,8 @@ export function createUpdater(win, addr, dataDir) {
         restart();
         return;
       }
-      check();
-      setInterval(check, CHECK_EVERY);
+      backgroundCheck();
+      setInterval(backgroundCheck, CHECK_EVERY);
       setInterval(applyWhenIdle, IDLE_EVERY);
     },
     rollBack() {

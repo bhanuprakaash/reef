@@ -186,6 +186,11 @@ app asks the main process for the staged version when it starts,
 so a reload shows the card too, unless it was hidden for that version. Restart does nothing while
 no update is staged (a download may still be running).
 
+The settings page (Updates) shows the running version and a "Check for updates" button. It runs the
+same check at once and reports "Reef is up to date.", the error, or, once an update is staged
+(downloaded now or earlier), "Restart to update", which applies it like the card's Restart. The
+installed app only: a dev copy answers that it does not update itself.
+
 "Update when idle" (a toggle on the settings page, kept in `update-when-idle` in the user data
 folder) applies a staged update by itself: every minute the app reads `GET /status` of its
 `reef serve` and applies when `running` is 0.
