@@ -1,20 +1,21 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import type { Task, TaskStatus } from '@/types/api';
+import type { Task } from '@/types/api';
 
-type StatusChange = { task: Task; status: TaskStatus };
+type TaskEdit = { task: Task } & Partial<Pick<Task, 'title' | 'body' | 'featureId' | 'status'>>;
 
 export function useUpdateTask() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ task, status }: StatusChange) =>
+    mutationFn: ({ task, ...edit }: TaskEdit) =>
       api<Task>(`/tasks/${task.id}`, {
         method: 'PUT',
         body: JSON.stringify({
           title: task.title,
           body: task.body,
           featureId: task.featureId,
-          status,
+          status: task.status,
+          ...edit,
         }),
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['tasks'] }),
