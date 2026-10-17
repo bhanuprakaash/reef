@@ -1,5 +1,6 @@
 import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
 import { Dialog } from '@/components/dialog';
+import { FileLinkContext } from '@/components/file-links';
 import { ResizeHandle } from '@/components/resize-handle';
 import { useResizableWidth } from '@/lib/use-resizable-width';
 import { useStoredFlag } from '@/lib/use-stored-flag';
@@ -15,6 +16,7 @@ import { ChannelHeader } from '@/modules/channels/components/channel-header';
 import { CheckpointRows } from '@/modules/channels/components/checkpoint-rows';
 import { Composer } from '@/modules/channels/components/composer';
 import { FailedTurnRows } from '@/modules/channels/components/failed-turn-rows';
+import { FilePanel } from '@/modules/channels/components/file-panel';
 import { InspectorPanel } from '@/modules/channels/components/inspector-panel';
 import { LiveTurn } from '@/modules/channels/components/live-turn';
 import { MessageList } from '@/modules/channels/components/message-list';
@@ -53,6 +55,7 @@ type Side =
   | { kind: 'inspector' }
   | { kind: 'diff' }
   | { kind: 'pr' }
+  | { kind: 'file'; path: string; line?: number }
   | null;
 
 export function ChannelView({
@@ -114,10 +117,12 @@ export function ChannelView({
     setSide(next);
     setTeamOpen(false);
   };
+  const openFile = (path: string, line?: number) => openSide({ kind: 'file', path, line });
+  const file = side?.kind === 'file' ? side : undefined;
   const wide = side?.kind === 'diff';
-  const fullSheet = thread !== undefined || wide || turnOpen;
+  const fullSheet = thread !== undefined || wide || turnOpen || file !== undefined;
   const showTeam =
-    !thread && side?.kind !== 'inspector' && side?.kind !== 'pr' && !wide && !turnOpen;
+    !thread && side?.kind !== 'inspector' && side?.kind !== 'pr' && !wide && !turnOpen && !file;
   const wrapDisabled =
     running || wrap.isPending || proposal.data?.kind === 'wrap' || blocksUser(channel.paused);
 
@@ -184,12 +189,14 @@ export function ChannelView({
               {messages.isPending && <p className="text-sm text-muted">Loading...</p>}
               {messages.isError && <p className="text-sm text-danger">{messages.error.message}</p>}
               {messages.data && (
-                <MessageList
-                  threads={threads}
-                  faces={faces}
-                  openId={thread?.root.id}
-                  onOpen={(rootId) => openSide({ kind: 'thread', rootId })}
-                />
+                <FileLinkContext.Provider value={openFile}>
+                  <MessageList
+                    threads={threads}
+                    faces={faces}
+                    openId={thread?.root.id}
+                    onOpen={(rootId) => openSide({ kind: 'thread', rootId })}
+                  />
+                </FileLinkContext.Provider>
               )}
               <LiveTurn
                 turn={turn}
@@ -291,25 +298,35 @@ export function ChannelView({
               <div className="mx-auto mb-4 h-[5px] w-[38px] rounded-pill bg-raised md:hidden" />
             )}
             {thread && (
-              <ThreadPane
-                key={thread.root.id}
-                channelId={channel.id}
-                thread={thread}
-                lead={channel.role}
-                roles={roles.map((r) => r.name)}
-                faces={faces}
-                running={running}
-                paused={blocksUser(channel.paused)}
-                reason={channel.paused}
-                working={working}
-                closed={closed}
-                onClose={closeSide}
-              />
+              <FileLinkContext.Provider value={openFile}>
+                <ThreadPane
+                  key={thread.root.id}
+                  channelId={channel.id}
+                  thread={thread}
+                  lead={channel.role}
+                  roles={roles.map((r) => r.name)}
+                  faces={faces}
+                  running={running}
+                  paused={blocksUser(channel.paused)}
+                  reason={channel.paused}
+                  working={working}
+                  closed={closed}
+                  onClose={closeSide}
+                />
+              </FileLinkContext.Provider>
             )}
             {turnOpen && <TurnPanel turn={turn} role={working} face={face} onClose={closeSide} />}
             {wide && diffPanel?.(closeSide)}
             {side?.kind === 'inspector' && (
               <InspectorPanel channelId={channel.id} faces={faces} onClose={closeSide} />
+            )}
+            {file && (
+              <FilePanel
+                channelId={channel.id}
+                path={file.path}
+                line={file.line}
+                onClose={closeSide}
+              />
             )}
             {side?.kind === 'pr' && channel.featureId !== null && (
               <PrPanel featureId={channel.featureId} onClose={closeSide} />

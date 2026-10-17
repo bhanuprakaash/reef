@@ -1,4 +1,4 @@
-import { isValidElement, type ReactNode } from 'react';
+import { isValidElement, useContext, type ReactNode } from 'react';
 import type { Parent, PhrasingContent, Root } from 'mdast';
 import type { Components } from 'react-markdown';
 import ReactMarkdown from 'react-markdown';
@@ -9,6 +9,7 @@ import { CodeBlock } from '@/components/code-block';
 import { DataTable } from '@/components/data-table';
 import { HtmlBlock } from '@/components/html-block';
 import { MermaidBlock } from '@/components/mermaid-block';
+import { FileLink, FileLinkContext, remarkFileLinks } from '@/components/file-links';
 import { splitMentions } from '@/utils/split-mentions';
 
 function mentions(nodes: PhrasingContent[]): PhrasingContent[] {
@@ -50,6 +51,7 @@ function remarkMentions() {
 }
 
 const plugins = [remarkGfm, remarkBreaks, remarkMentions];
+const filePlugins = [...plugins, remarkFileLinks];
 
 const style = [
   'flex flex-col gap-[0.7em] break-words leading-[1.62]',
@@ -116,6 +118,7 @@ const components: Components = {
     if (lang === 'html') return <HtmlBlock code={body} />;
     return <CodeBlock code={body} lang={lang} />;
   },
+  button: FileLink,
   table: DataTable,
   th: ({ children, ...props }) => (
     <th
@@ -135,9 +138,10 @@ const components: Components = {
 };
 
 export function Markdown({ children }: { children: string }) {
+  const openFile = useContext(FileLinkContext);
   return (
     <div className={style}>
-      <ReactMarkdown remarkPlugins={plugins} components={components}>
+      <ReactMarkdown remarkPlugins={openFile ? filePlugins : plugins} components={components}>
         {children}
       </ReactMarkdown>
     </div>
