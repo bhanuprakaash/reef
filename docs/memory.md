@@ -85,8 +85,8 @@ Rules for every command:
 | `reef team list` | Lists the teams by name, each with its roles | `duo  lead*(claude) architect(claude)`: the lead has a `*` |
 | `reef context <feature> --role R` | Prints the context prompt for role `R` (see below) | the prompt |
 | `reef token <feature> --role R` | Makes a channel and a token for role `R` (see Tokens) | a `claude mcp add` command |
-| `reef wrap list [<feature>]` | Lists pending wrap-up proposals (see Wrap-up): of the feature, or of the current folder's project | `1  login  3  architect  2026-10-13`: id, feature slug, channel id, role, created date |
-| `reef wrap show <id>` | Prints a proposal and its status | `proposal 1 from architect`, status, then brief, notes and decisions |
+| `reef wrap list [<feature>]` | Lists pending wrap-up proposals (see Wrap-up): of the feature, or of the current folder's project | `1  login  3  architect  wrap  2026-10-13`: id, feature slug, channel id, role, kind (`wrap` or `brief`), created date |
+| `reef wrap show <id>` | Prints a proposal and its status | `proposal 1 from architect` (`brief update 2 from lead` for a brief proposal), status, then brief, notes and decisions |
 | `reef wrap approve <id>` | Approves a pending proposal | `approved: brief, notes and 1 decisions saved` |
 | `reef wrap reject <id>` | Rejects a pending proposal | `rejected: nothing changed` |
 | `reef chat ...` | Runs a channel in the terminal (see below) | the conversation |
@@ -210,9 +210,9 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `read_decision` | `id` (required) | the decision, with `retiredAt` and `replacedBy` when it is retired | `decision 99: not found`, also for a decision of another feature |
 | `read_thread` | `channelId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the channel's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `channel 9: not found`, also for a channel of another feature or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the channel |
 | `post_to_channel` | `body` (required), `parent` (the id of a top-level message: reply in its thread; leave it out to post at the top level) | the stored message, with the token's role as `author`. It works on a quick session too | `invalid: message body is required`, `invalid: parent 9 is not a top-level message of channel 1` |
-| `set_stage` | `stage` (required): `ideation`, `grill`, `plan`, `tickets`, `implement`, `testing`, `live-testing` or `post-release` | the updated feature, as in [server.md](server.md#feature). It also stores a `reef` message in the token's channel: `<role> moved the stage to <stage>`. No approval: the stage is a label | `invalid: unknown stage "x"`, `invalid: feature login is a list of fixes and has no stage` |
-| `propose_wrap` | `brief`, `notes`, `decisions` (all required); `retire` (ids of live decisions that are stale or duplicate). Each decision is `{"body", "why", "replaces"}`; `why` may be `""`, `replaces` lists the ids it amends or replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: decision body is required` |
-| `propose_brief` | `brief` (required) | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required` |
+| `set_stage` | `stage` (required): `ideation`, `grill`, `plan`, `tickets`, `implement`, `testing`, `live-testing` or `post-release` | the updated feature, as in [server.md](server.md#feature). It also stores a `reef` message in the token's channel: `<role> moved the stage to <stage>`, unless the feature is already in that stage. No approval: the stage is a label | `invalid: unknown stage "x"`, `invalid: feature login is a list of fixes and has no stage` |
+| `propose_wrap` | `brief`, `notes`, `decisions` (all required); `retire` (ids of live decisions that are stale or duplicate). Each decision is `{"body", "why", "replaces"}`; `why` may be `""`, `replaces` lists the ids it amends or replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: decision body is required`, `invalid: decision 9 is not a live decision of feature 1` (a `retire` or `replaces` id) |
+| `propose_brief` | `brief` (required) | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: channel 1 has a wrap-up waiting for approval` |
 | `browser_navigate` | `url` (required) | `{"text": "navigated to <url>"}` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser`, `refused: the browser pane cannot open Reef itself` (or another `refused: ...` for a non-http(s) URL), the page's own error (e.g. `net::ERR_CONNECTION_REFUSED`) when it fails to load |
 | `browser_screenshot` | none | a PNG image of the browser pane's current page | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
 | `browser_snapshot` | none | the page's accessibility tree as text, one line per element: `- role "name" [ref=e12]`. A ref is only valid until the next snapshot or a navigation | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
@@ -221,11 +221,16 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `browser_console` | none | `{"text": "..."}`: the console messages and errors since the last navigation, one per line with their level, e.g. `error: boom` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
 | `browser_network` | none | `{"text": "..."}`: the network requests since the last navigation, one per line with method, URL and status, e.g. `GET http://localhost/ 404` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
 
-`propose_wrap` saves a pending proposal and changes nothing else. See Wrap-up.
+`propose_wrap` saves a pending proposal and changes nothing else. See Wrap-up. A channel has one
+pending proposal: a new wrap rejects the older pending proposals of the channel, whatever their
+kind, and `propose_wrap` refuses a `retire` or `replaces` id that is not a live decision of the
+feature, so the agent sees the error and nothing is saved.
 `propose_brief` saves a pending proposal of kind `brief`: the agent calls it when the user and
 the team agree on the goal, scope or plan, and the channel goes on. Approving it adds one
 brief version and nothing else: the role's notes stay, no decisions are recorded and the channel
-stays open. `reef wrap approve` prints `approved: brief saved`.
+stays open. A new brief proposal rejects the channel's older pending brief proposals, and is
+refused while a wrap is pending. Approving a brief proposal of a closed channel fails with
+`invalid: channel 1 is closed`. `reef wrap approve` prints `approved: brief saved`.
 
 The browser tools go straight from `reef mcp` to the Reef app, over `browser.sock` in the data
 folder, not through `reef serve` (see [desktop.md](desktop.md#browser-pane)). With no socket, or
@@ -416,8 +421,10 @@ A channel ends explicitly, never on a timer. The user types `/wrap` in `reef cha
    decision index: `retire` lists decisions that are stale or duplicate, and `replaces` on
    a new decision lists older ones it amends.
 2. `propose_wrap` stores a `pending` proposal (see [server.md](server.md#proposal)).
-3. After the turn, `reef chat` looks for a pending proposal of this channel that is newer
-   than the one pending before `/wrap`. With none, it prints `no proposal made`.
+3. After the turn, `reef chat` looks for a pending wrap proposal of this channel that is newer
+   than the one pending before `/wrap`. With none, it prints `no proposal made`: an agent that
+   answers with `propose_brief` has made none. A pending brief proposal does not block `/wrap`;
+   the new wrap rejects it.
 4. Otherwise it prints the proposal: brief, notes and decisions (with what each replaces),
    the decisions to retire, then `approve? [y/N]`.
 5. The next line typed after the prompt decides. `y` or `yes` (any case) approves.
@@ -433,12 +440,14 @@ Approve applies everything in one transaction:
 - a new brief version, with the role as author,
 - the role's notes, replacing the old ones,
 - each proposed decision, with the role as author and no source message. A decision whose
-  body is exactly the body of one the feature already has is skipped, so a decision the
-  agent recorded live is not saved twice. A repeat inside the proposal is skipped too, and
-  so is its `replaces`: a skipped decision retires nothing,
+  body is exactly the body of a live decision of the feature is skipped, so a decision the
+  agent recorded live is not saved twice. A body that only a retired decision has is saved
+  again. A repeat inside the proposal is skipped too, and so is its `replaces`: a skipped
+  decision retires nothing,
 - for each added decision, its `replaces` retired with `replacedBy` set to it, and each id
-  in `retire` retired with no `replacedBy`. An id that is not a live decision of the
-  feature fails the whole approve,
+  in `retire` retired with no `replacedBy`. Ids were checked when the proposal was made, and
+  an id claimed twice is kept for its first claim only. An id that another channel retired
+  since is skipped. An id that is not a decision of the feature fails the whole approve,
 - the proposal marked `approved`, with `decidedAt`,
 - the proposal's channel closed (`closedAt`). The server then stops its agent and refuses new turns on it until `POST /channels/{id}/reopen`.
 
@@ -458,9 +467,8 @@ approved brief and notes.
 
 A proposal stays `pending` until someone decides it. `reef chat` only asks about the one
 `/wrap` just made. Every other pending proposal is decided later with `reef wrap`: one
-left pending by end of input or Ctrl-C, one the agent proposed outside `/wrap`, the older
-of two from one turn, and every proposal from plain Claude Code (below). `reef wrap list`
-shows them, `reef wrap show <id>` prints one, and `reef wrap approve <id>` or `reef wrap
+left pending by end of input or Ctrl-C, one the agent proposed outside `/wrap`, and every proposal from plain Claude Code (below).
+`reef wrap list` shows them, `reef wrap show <id>` prints one, and `reef wrap approve <id>` or `reef wrap
 reject <id>` decides it, with the same effect and output as in the chat. A proposal
 that is already decided fails with `invalid: proposal 1 is already approved`, exit 1.
 

@@ -404,7 +404,7 @@ them, and the one that made a token deletes it when its session ends. See
 A wrap-up proposal: the new brief, the role's notes and the decisions to record.
 `propose_wrap` makes one. `propose_brief` makes a brief proposal: only the brief, made
 mid-channel. Approving it adds a brief version and leaves the notes, the decisions and the
-channel as they are; the channel's agent is not stopped. `reef chat` prompts for approval,
+channel as they are; the channel's agent is not stopped. A channel has one pending proposal at most: a new wrap rejects the older pending ones of any kind, a new brief rejects the older pending briefs and is refused with `invalid: channel 1 has a wrap-up waiting for approval` while a wrap is pending, and approving a brief on a closed channel is `invalid: channel 1 is closed`. `reef chat` prompts for approval,
 and `reef wrap approve` or `reef wrap reject` decides it; the server offers the same over REST (see [Wrap-up and
 promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 
@@ -413,11 +413,11 @@ promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 | `id` | number | |
 | `channelId` | number | required; must be a channel of a feature. Deleting the channel deletes the proposal |
 | `role` | string | required; author of the brief, notes and decisions it applies |
-| `kind` | string | `wrap` (default) or `brief` |
+| `kind` | string | `wrap` (default) or `brief`; any other is `invalid: unknown proposal kind "x"` |
 | `brief` | string | required, not empty; the full new brief |
 | `notes` | string | may be empty; replaces the role's notes |
-| `decisions` | array | `{"body", "why", "replaces"}` each, `body` required; `replaces` is optional, ids of live decisions it retires. Approving applies it only for a decision it adds: one skipped because the feature already has its body retires nothing. The SQL column holds them as JSON text |
-| `retire` | array | ids of live decisions that are stale or duplicate; approving sets their `retiredAt`. `[]` by default. The SQL column holds them as JSON text. A bad id in `retire` or `replaces` fails the whole approve with 400 |
+| `decisions` | array | `{"body", "why", "replaces"}` each, `body` required; `replaces` is optional, ids of live decisions it retires. Approving applies it only for a decision it adds: one skipped because a live decision of the feature has its body retires nothing. The SQL column holds them as JSON text |
+| `retire` | array | ids of live decisions that are stale or duplicate; approving sets their `retiredAt`. `[]` by default. The SQL column holds them as JSON text. A wrap whose `retire` or `replaces` has an id that is not a live decision of the channel's feature is `invalid: decision 9 is not a live decision of feature 1` and is not saved. An id claimed twice (in `retire` and a `replaces`, or two `replaces`) is kept for its first claim, replaces before `retire`. At approve an id that is already retired is skipped; an id that is not a decision of the feature fails the whole approve with 400 |
 | `status` | string | `pending` (default), `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 | `decidedAt` | string? | `null` while pending |
@@ -788,8 +788,8 @@ turn of [`Session.Wrap`](../channel/session.go) (see [memory.md](memory.md#wrap-
 agent calls `propose_wrap`; when the turn is done, `GET /channels/{id}/proposal` returns the
 pending proposal, or 404 when the agent made none. `POST /proposals/{id}/approve` and
 `/reject` decide it with the same effect as `reef wrap approve` and `reject`. Approve
-also returns `decisionsAdded`, the decisions it saved, closes the channel (`closedAt`) and stops its agent; a closed channel refuses sends, wraps and wakes with 409 until `POST /channels/{id}/reopen`. A brief proposal (`propose_brief`, `kind` `brief`) does not close the channel or block its turns; only a wrap
-waits behind any pending proposal. A proposal that is already decided is
+also returns `decisionsAdded`, the decisions it saved, closes the channel (`closedAt`) and stops its agent; a closed channel refuses sends, wraps and wakes with 409 until `POST /channels/{id}/reopen`. A brief proposal (`propose_brief`, `kind` `brief`) does not close the channel or block its turns or a wrap; only a
+pending wrap blocks another wrap (409 `channel 2 has a wrap-up waiting for approval`). A proposal that is already decided is
 400, like `invalid: proposal 1 is already approved` in the CLI.
 
 `POST /channels/{id}/promote` turns a quick session into a feature. It takes `{"slug":
