@@ -30,6 +30,8 @@ var _hopReason = fmt.Sprintf("%s %d agent hops without a user message", _hopReas
 type session interface {
 	Say(ctx context.Context, body string, parent *int64) (store.Message, error)
 	RunAs(ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event)) error
+	RunDirectAs(ctx context.Context, role, text string, dm store.DirectMessage,
+		onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 	Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 	Close() error
@@ -372,7 +374,11 @@ func (s *server) runOne(
 	case _promote:
 		_, err = sess.Promote(ctx, onEvent)
 	default:
-		err = sess.RunAs(ctx, w.role, w.text, w.parent, onEvent)
+		if w.direct != nil {
+			err = sess.RunDirectAs(ctx, w.role, w.text, *w.direct, onEvent)
+		} else {
+			err = sess.RunAs(ctx, w.role, w.text, w.parent, onEvent)
+		}
 	}
 	end = turnState{Role: w.role, Status: "done"}
 	if errors.Is(err, channel.ErrNoProposal) {
@@ -847,9 +853,13 @@ func (c *chain) session() (session, error) {
 func (c *chain) start(
 	ctx context.Context, sess session, kind turnKind, queue []wake, after int64,
 ) error {
+	afterDirect, err := c.s.st.LastDirectMessageID(ctx, c.id)
+	if err != nil {
+		return c.release(err)
+	}
 	l := c.l
 	l.mu.Lock()
-	var err error
+	err = nil
 	if c.unpause {
 		err = c.s.st.ContinueChannel(ctx, c.id, c.budget)
 	}
@@ -868,7 +878,7 @@ func (c *chain) start(
 	}
 	l.publishLocked("turn", turnState{Role: queue[0].role, Status: "running"})
 	l.mu.Unlock()
-	go c.runTurn(sess, kind, queue, after)
+	go c.runTurn(sess, kind, queue, after, afterDirect)
 	return nil
 }
 
@@ -892,7 +902,7 @@ func (c *chain) resume(ctx context.Context, ch store.Channel, queue []wake) erro
 // leaves the channel idle once none is left. The queue is the one place a wake is added;
 // a wrap or promote turn talks to the user and wakes nobody.
 // A turn that fails, or a channel that is paused, ends the chain.
-func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) {
+func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterDirect int64) {
 	s, l := c.s, c.l
 	defer s.wg.Done()
 	defer s.inboxChanged()
@@ -913,8 +923,17 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after int64) 
 			if err != nil {
 				stall, again = fmt.Errorf("route messages: %w", err), &retry{role: w.role, after: after}
 			} else {
+				direct, directLast, directErr := s.directWakes(c.ctx, c.id, afterDirect, w.role)
+				if directErr != nil {
+					stall = fmt.Errorf("route direct messages: %w", directErr)
+				} else {
+					ws = append(ws, direct...)
+					afterDirect = directLast
+				}
 				var open []wake
-				open, stall = s.gate(c.ctx, c.id, l, ws)
+				if stall == nil {
+					open, stall = s.gate(c.ctx, c.id, l, ws)
+				}
 				queue, after = append(queue, open...), last
 			}
 		}

@@ -24,8 +24,39 @@ type wake struct {
 	role      string
 	text      string
 	parent    *int64
+	direct    *store.DirectMessage
 	// approval is the id of the approval a wake was released by, when it was.
 	approval int64
+}
+
+func (s *server) directWakes(
+	ctx context.Context, channelID, after int64, author string,
+) ([]wake, int64, error) {
+	msgs, err := s.st.DirectMessages(ctx, channelID, after)
+	if err != nil {
+		return nil, after, err
+	}
+	if len(msgs) > 0 {
+		after = msgs[len(msgs)-1].ID
+	}
+	ws := make([]wake, 0, len(msgs))
+	for i := range msgs {
+		m := msgs[i]
+		if m.From != author {
+			continue
+		}
+		if m.Status == store.DirectFailed {
+			continue
+		}
+		source := "direct request"
+		if m.ReplyToID != nil {
+			source = "direct response"
+		}
+		text := fmt.Sprintf("[channel %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
+			channelID, m.ID, m.ChainID, source, m.From, m.Body)
+		ws = append(ws, wake{from: m.From, role: m.To, text: text, direct: &msgs[i]})
+	}
+	return ws, after, nil
 }
 
 // wakes routes the messages of channel id stored after the message with id after. It also
