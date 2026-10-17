@@ -18,6 +18,7 @@ var _scenarios = []scenario{
 	{"promote-propose-merge", "", pat(`now part of feature .* already has a brief`)},
 	{"promote-propose", "", pat(`This quick session is now feature`)},
 	{"wrap-propose", "", pat(`Wrap up this channel\.`)},
+	{"propose-brief", "", pat(`Call the propose_brief tool once`)},
 	{"design-codeword", "lead", pat(`codeword kiwi-77`)},
 	{"recall-codeword-decision", "architect", pat(`What codeword did I give you`)},
 	{"post-to-channel-thread", "architect", pat(`post_to_channel tool once with body: thread post`)},
