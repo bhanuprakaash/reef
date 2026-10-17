@@ -84,8 +84,7 @@ func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error
 	return d, nil
 }
 
-// retireDecisions retires each live decision of the feature in ids, replaced by replacedBy
-// when set. An id that is not a live decision of the feature is ErrInvalid.
+// retireDecisions returns ErrInvalid for an id that is not a live decision of the feature.
 func retireDecisions(
 	ctx context.Context, tx *sql.Tx, featureID int64, ids []int64, replacedBy *int64, at string,
 ) error {
