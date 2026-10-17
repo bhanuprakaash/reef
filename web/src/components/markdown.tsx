@@ -4,8 +4,11 @@ import type { Components } from 'react-markdown';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
+import { ChartBlock } from '@/components/chart-block';
 import { CodeBlock } from '@/components/code-block';
 import { DataTable } from '@/components/data-table';
+import { HtmlBlock } from '@/components/html-block';
+import { MermaidBlock } from '@/components/mermaid-block';
 import { splitMentions } from '@/utils/split-mentions';
 
 function mentions(nodes: PhrasingContent[]): PhrasingContent[] {
@@ -107,7 +110,11 @@ const components: Components = {
       ? children
       : null;
     const lang = /language-([\w+-]+)/.exec(code?.props.className ?? '')?.[1] ?? '';
-    return <CodeBlock code={String(code?.props.children ?? '').replace(/\n$/, '')} lang={lang} />;
+    const body = String(code?.props.children ?? '').replace(/\n$/, '');
+    if (lang === 'chart') return <ChartBlock code={body} />;
+    if (lang === 'mermaid') return <MermaidBlock code={body} />;
+    if (lang === 'html') return <HtmlBlock code={body} />;
+    return <CodeBlock code={body} lang={lang} />;
   },
   table: DataTable,
   th: ({ children, ...props }) => (

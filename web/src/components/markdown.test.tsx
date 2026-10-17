@@ -56,6 +56,48 @@ describe('Markdown', () => {
   });
 });
 
+describe('Markdown rich fences', () => {
+  it('shows an invalid or half-written chart as code with a note', () => {
+    for (const body of ['{"type":"bar","labels":["a"', '{"type":"radar"}']) {
+      const html = renderToStaticMarkup(<Markdown>{'```chart\n' + body + '\n```'}</Markdown>);
+
+      expect(html).toContain('>chart</span>');
+      expect(html).toContain('<p class="text-[12px] text-muted">Not a valid chart</p>');
+      expect(html).not.toContain('<canvas');
+    }
+  });
+
+  it('draws a valid chart on a labelled canvas with a hidden data table', () => {
+    const html = renderToStaticMarkup(
+      <Markdown>
+        {'```chart\n{"type":"line","title":"Load","labels":["a"],"datasets":[{"data":[4]}]}\n```'}
+      </Markdown>,
+    );
+
+    expect(html).toContain('<canvas role="img" aria-label="Load"></canvas>');
+    expect(html).toContain('<tr><th>a</th><td>4</td></tr>');
+  });
+
+  it('holds a placeholder for a mermaid diagram until it is drawn', () => {
+    const html = renderToStaticMarkup(<Markdown>{'```mermaid\ngraph TD\n```'}</Markdown>);
+
+    expect(html).toContain('aria-hidden="true"');
+    expect(html).not.toContain('<pre');
+  });
+
+  it('previews html in an iframe with an empty sandbox, never inline', () => {
+    const html = renderToStaticMarkup(
+      <Markdown>{'```html\n<b>x</b><script>alert(1)</script>\n```'}</Markdown>,
+    );
+
+    expect(html).toContain(
+      '<iframe sandbox="" srcDoc="&lt;b&gt;x&lt;/b&gt;&lt;script&gt;alert(1)&lt;/script&gt;"',
+    );
+    expect(html).not.toContain('<b>');
+    expect(html).not.toContain('<script>');
+  });
+});
+
 describe('Markdown mentions', () => {
   it('wraps each @mention in a mention span, but not emails, code or links', () => {
     const html = renderToStaticMarkup(
