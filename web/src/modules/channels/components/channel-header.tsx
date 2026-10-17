@@ -24,6 +24,7 @@ type Props = {
   onPromote: () => void;
   onInspector: () => void;
   onTeam: () => void;
+  teamHidden: boolean;
   browserOpen?: boolean;
 };
 
@@ -46,6 +47,7 @@ export function ChannelHeader({
   onPromote,
   onInspector,
   onTeam,
+  teamHidden,
   browserOpen,
 }: Props) {
   return (
@@ -147,7 +149,7 @@ export function ChannelHeader({
           type="button"
           onClick={onTeam}
           aria-label="Team"
-          className={`${browserOpen ? 'min-[1540px]:hidden' : 'min-[1100px]:hidden'} ${phoneIcon}`}
+          className={`${teamHidden ? '' : browserOpen ? 'min-[1540px]:hidden' : 'min-[1100px]:hidden'} ${phoneIcon}`}
         >
           <svg
             width="20"
