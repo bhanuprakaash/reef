@@ -389,6 +389,16 @@ func TestMCPSetStage(t *testing.T) {
 		t.Errorf("messages after id 4 = %+v, %v, want one reef note", msgs, err)
 	}
 
+	got, isErr = callTool(t, st, tok)("set_stage", map[string]any{"stage": "plan"})
+	if want := `{"closedAt":null,"createdAt":"T","goal":"","id":1,"kind":"journey",` +
+		`"name":"Auth","projectId":1,"slug":"auth","stage":"plan"}`; got != want || isErr {
+		t.Errorf("set_stage plan again = %q (error %v), want %q", got, isErr, want)
+	}
+	msgs, err = st.Messages(ctx, 1, 4)
+	if err != nil || len(msgs) != 1 {
+		t.Errorf("messages after id 4 = %+v, %v, want still one reef note", msgs, err)
+	}
+
 	tests := []struct {
 		name string
 		tok  store.Token

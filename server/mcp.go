@@ -403,9 +403,10 @@ func (m *mcpServer) setStage(
 	if err != nil {
 		return nil, store.Feature{}, err
 	}
+	was := f.Stage
 	f, err = m.st.SetFeatureStage(ctx, f.ID, in.Stage)
-	if err != nil {
-		return nil, store.Feature{}, err
+	if err != nil || f.Stage == was {
+		return nil, f, err
 	}
 	_, err = m.st.CreateMessage(ctx, store.Message{
 		ChannelID: m.tok.ChannelID, Author: store.ReefAuthor,
