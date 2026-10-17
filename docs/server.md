@@ -271,6 +271,7 @@ One agent run in a channel.
 | `endedAt` | string? | `null` while running |
 | `wakeText` | string | default `""`; the text the turn ran: the wake, without the context prompt. Empty for a turn from before this field existed and for a wrap-up or promote turn |
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
+| `directMessageId` | number? | the direct request or response the turn was woken by; `null` for a public wake. Kept so retry preserves private reply routing |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
 | `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<turn id>`. `null` for a turn of a role without `write`, for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
 | `model` | string | default `""`; the backend's model name, set from the agent's first event once the turn ends |
@@ -467,6 +468,7 @@ tool calls.
 | `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body; while a message chain runs the message is stored at once and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 wrap or promote turn running, channel closed, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
 | `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `toolCalls` (`name`, `input`, `result`) | 404 |
+| `GET /channels/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the channel, oldest first; each has `id`, `channelId`, `chainId`, `replyToId`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `createdAt` | 400 bad id, 404 |
 | `POST /channels/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
@@ -485,7 +487,7 @@ tool calls.
 | `PUT /tasks/{id}` | `title`, `body`, `status`, `featureId` | 200 | 400, 404 |
 | `DELETE /tasks/{id}` | | 204 | 404 |
 | `GET /turns` | `?channel=ID`, `?status=running\|done\|failed`, `?retryable=1` (only the turns `retry` accepts), `?rollbackable=1` (needs `channel`; only the turns with a `checkpoint` taken in the tree the channel runs in now, so `rollback` is not a 409 for the tree) | 200 | 400 bad id or status, or `rollbackable` without a channel, 404 `rollbackable` on an unknown channel |
-| `POST /turns` | `channelId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent` | 201 | 400 bad backend or unknown channel or message |
+| `POST /turns` | `channelId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent`, `directMessageId` | 201 | 400 bad backend or unknown channel, public message or direct message |
 | `GET /turns/{id}` | | 200 | 404 |
 | `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId`. With no `status`, only `sessionId` is set and the turn stays `running` | 200 | 400 bad status, negative usage, empty `sessionId` without a status, `error` or `usage` without a status, or already ended; 404 |
 | `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not retryable (see [Channels live](#channels-live)), or as send for a channel with a turn running or paused, 503 |
@@ -619,9 +621,10 @@ a message wakes them.
   From the start of that stop until the delete is done, a send to the channel is 404
   `channel 1 is being deleted`, so no agent starts for a channel that is going away.
 - Server shutdown does the same for every channel before it stops listening.
-- A turn keeps the wake it ran as `wakeText` and `wakeParent`. `POST /turns/{id}/retry` on a
+- A turn keeps the wake it ran as `wakeText`, `wakeParent` and `directMessageId`. `POST /turns/{id}/retry` on a
   `failed` turn runs that wake again for the same role as a new turn in a new chain, the way an
-  approve does, with no new user message: the new turn answers in the same thread, and what its
+  approve does, with no new user message: the new turn answers in the same public thread or
+  direct exchange, and what its
   reply wakes is routed as usual. The failed turn is marked `retried` before the turn starts, so a
   second retry is 409; if the turn cannot start, the mark is taken back. Nothing retries a
   turn by itself. A turn is retryable when it is `failed`, not `retried`, has a `wakeText`, and
@@ -681,6 +684,18 @@ pause, the hop cap) or never starts, a queued approval is pending again and a qu
 not run. A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
 lead's reply says `@architect ...`; the architect runs and posts a plan, a new thread it
 owns; the chain ends because the plan names no one. The lead gets no turn after the plan.
+
+`send_to_role` stores a direct request outside the public `message` table. When its sender's
+turn ends, only the named role wakes. Its prompt starts `[channel N, direct message N, chain
+N, source: direct request]`, names the sender, and carries the body. The recipient's ordinary
+reply is one direct response in the same chain (`replyToId` points to the request) and wakes
+the sender with `source: direct response`. The sender's ordinary reply to that response is
+not stored or routed. A further exchange requires an explicit `send_to_role`. The user reads
+all direct records with `GET /channels/{id}/direct-messages`; an MCP token reads only records
+whose `from` or `to` is its role. Partial output from a failed recipient turn is appended as
+a `failed` response attempt: it is inspectable but never routed. Retry appends a `done`
+response; a partial unique index allows only one `done` response per request, and only that
+response wakes the sender. Public `GET /messages` history is unchanged.
 
 ### Gates
 

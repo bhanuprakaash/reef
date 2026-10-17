@@ -44,6 +44,13 @@ type member struct {
 	dir   string
 }
 
+type runInput struct {
+	text    string
+	parent  *int64
+	direct  *store.DirectMessage
+	onEvent func(agent.Event)
+}
+
 // TokenEnv carries the token to the channel's reef mcp. WrapCommand is the text that asks
 // for a wrap-up; PromoteCommand is the stored message of a promote turn.
 const (
@@ -150,7 +157,7 @@ func (s *Session) RunAs(
 	if err != nil {
 		return err
 	}
-	err = s.run(ctx, m, text, parent, onEvent)
+	err = s.run(ctx, m, runInput{text: text, parent: parent, onEvent: onEvent})
 	if role == s.ch.Role {
 		return err
 	}
@@ -161,14 +168,37 @@ func (s *Session) RunAs(
 	return err
 }
 
+// RunDirectAs runs a role for a direct message, keeping the request/response boundary in
+// Runner while applying the same role setup, worktree access and session lifetime as RunAs.
+func (s *Session) RunDirectAs(
+	ctx context.Context, role, text string, dm store.DirectMessage, onEvent func(agent.Event),
+) error {
+	m, err := s.member(ctx, role, text, nil)
+	if err != nil {
+		return err
+	}
+	err = s.run(ctx, m, runInput{text: text, direct: &dm, onEvent: onEvent})
+	if role != s.ch.Role {
+		delete(s.members, role)
+		if closeErr := m.close(s.st); closeErr != nil {
+			log.Printf("close %s of channel %d: %v", role, s.ch.ID, closeErr)
+		}
+	}
+	return err
+}
+
 // run runs a turn of m, holding m's tree when it writes and counting as a reader of it when
 // it does not. A ctx cancelled while it waits leaves an interrupted turn.
-func (s *Session) run(
-	ctx context.Context, m *member, text string, parent *int64, onEvent func(agent.Event),
-) error {
+func (s *Session) run(ctx context.Context, m *member, in runInput) error {
+	run := func() error {
+		if in.direct != nil {
+			return m.run.RunDirect(ctx, in.text, *in.direct, in.onEvent)
+		}
+		return m.run.Run(ctx, in.text, in.parent, in.onEvent)
+	}
 	if !m.write {
 		defer s.trees.Read(m.dir)()
-		return m.run.Run(ctx, text, parent, onEvent)
+		return run()
 	}
 	unlock, err := s.trees.Lock(ctx, m.dir)
 	if err != nil {
@@ -176,20 +206,22 @@ func (s *Session) run(
 		if ctx.Err() != nil {
 			reason = "interrupted"
 		}
-		ferr := s.failTurn(ctx, m.run.role, m.run.backend, reason, m.run.wake(text), parent)
+		ferr := s.failTurn(ctx, m.run.role, m.run.backend, reason, m.run.wake(in.text),
+			in.parent, in.direct.IDRef())
 		return errors.Join(err, ferr)
 	}
 	defer unlock()
-	return m.run.Run(ctx, text, parent, onEvent)
+	return run()
 }
 
 // failTurn stores a failed turn of role for a turn that never started.
 func (s *Session) failTurn(
-	ctx context.Context, role, backend, reason, text string, parent *int64,
+	ctx context.Context, role, backend, reason, text string, parent, directMessageID *int64,
 ) error {
 	ctx = context.WithoutCancel(ctx)
 	t, err := s.st.CreateTurn(ctx, store.Turn{
 		ChannelID: s.ch.ID, Role: role, Backend: backend, WakeText: text, WakeParent: parent,
+		DirectMessageID: directMessageID,
 	})
 	if err != nil {
 		return err
@@ -380,7 +412,7 @@ func (s *Session) member(
 		if ctx.Err() != nil {
 			reason = "interrupted"
 		}
-		return nil, errors.Join(err, s.failTurn(wctx, role, r.Backend, reason, text, parent))
+		return nil, errors.Join(err, s.failTurn(wctx, role, r.Backend, reason, text, parent, nil))
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.OnPrompt = s.onPrompt
@@ -502,7 +534,7 @@ func (s *Session) propose(
 	}
 	m.run.NoWake = true
 	defer func() { m.run.NoWake = false }()
-	if err := s.run(ctx, m, prompt, nil, onEvent); err != nil {
+	if err := s.run(ctx, m, runInput{text: prompt, onEvent: onEvent}); err != nil {
 		return store.Proposal{}, err
 	}
 	p, err := s.st.PendingProposal(ctx, s.ch.ID)

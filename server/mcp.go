@@ -70,6 +70,16 @@ type (
 		Body   string `json:"body" jsonschema:"the message; @mention a teammate to hand work over"`
 		Parent *int64 `json:"parent,omitempty" jsonschema:"id of a top-level message to reply to in its thread; omit to post at the top level"`
 	}
+	directIn struct {
+		To   string `json:"to" jsonschema:"exactly one teammate role"`
+		Body string `json:"body" jsonschema:"the private message for that teammate"`
+	}
+	directListIn struct {
+		After int64 `json:"after,omitempty" jsonschema:"only direct messages with a larger id"`
+	}
+	directListOut struct {
+		Messages []store.DirectMessage `json:"messages"`
+	}
 	wrapIn struct {
 		Brief     string                   `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
 		Notes     string                   `json:"notes" jsonschema:"your own notes on this feature"`
@@ -146,6 +156,15 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 		Description: "Post a message to this channel as yourself. @mention a teammate to wake " +
 			"them when your turn ends; a post that mentions nobody wakes no one.",
 	}, m.postToChannel)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "send_to_role",
+		Description: "Send a private message to exactly one teammate. The teammate's ordinary " +
+			"reply comes back privately once; use send_to_role again to continue.",
+	}, m.sendToRole)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "read_direct_messages",
+		Description: "Read private messages in this channel that you sent or received.",
+	}, m.readDirectMessages)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_wrap",
 		Description: "Propose how to wrap up this channel; the user approves it before " +
@@ -369,6 +388,50 @@ func (m *mcpServer) postToChannel(
 		ChannelID: m.tok.ChannelID, ParentID: in.Parent, Author: m.tok.Role, Body: in.Body,
 	})
 	return nil, msg, err
+}
+
+func (m *mcpServer) sendToRole(
+	ctx context.Context, _ *mcp.CallToolRequest, in directIn,
+) (*mcp.CallToolResult, store.DirectMessage, error) {
+	if in.To == m.tok.Role {
+		return nil, store.DirectMessage{}, fmt.Errorf("%w: cannot send a direct message to yourself", store.ErrInvalid)
+	}
+	ch, err := m.st.Channel(ctx, m.tok.ChannelID)
+	if err != nil {
+		return nil, store.DirectMessage{}, err
+	}
+	team, err := m.st.Team(ctx, ch.Team)
+	if err != nil {
+		return nil, store.DirectMessage{}, err
+	}
+	found := false
+	for _, role := range team.Roles {
+		name := role.Name
+		if role.Lead {
+			name = ch.Role
+		}
+		if name == in.To {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, store.DirectMessage{}, fmt.Errorf("%w: role %q is not in this channel's team", store.ErrInvalid, in.To)
+	}
+	dm, err := m.st.CreateDirectMessage(ctx, store.DirectMessage{
+		ChannelID: m.tok.ChannelID, From: m.tok.Role, To: in.To, Body: in.Body,
+	})
+	return nil, dm, err
+}
+
+func (m *mcpServer) readDirectMessages(
+	ctx context.Context, _ *mcp.CallToolRequest, in directListIn,
+) (*mcp.CallToolResult, directListOut, error) {
+	msgs, err := m.st.DirectMessagesForRole(ctx, m.tok.ChannelID, m.tok.Role, in.After)
+	if msgs == nil {
+		msgs = []store.DirectMessage{}
+	}
+	return nil, directListOut{Messages: msgs}, err
 }
 
 func (m *mcpServer) proposeWrap(

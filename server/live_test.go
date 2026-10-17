@@ -72,6 +72,24 @@ func (f *fakeSession) RunAs(
 	}
 }
 
+func (f *fakeSession) RunDirectAs(
+	ctx context.Context, role, text string, dm store.DirectMessage, onEvent func(agent.Event),
+) error {
+	f.mu.Lock()
+	f.ran = append(f.ran, text)
+	f.mu.Unlock()
+	if f.onRun != nil {
+		f.onRun(role, text, nil)
+	}
+	if dm.ReplyToID == nil {
+		onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
+		_, err := f.st.CreateDirectResponse(ctx, dm.ID, role, "hi")
+		return err
+	}
+	onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
+	return nil
+}
+
 func (f *fakeSession) Wrap(_ context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
 	if f.onRun != nil {
 		f.onRun("lead", channel.WrapCommand, nil)
@@ -124,6 +142,13 @@ func (r runnerSession) RunAs(
 	ctx context.Context, _, text string, parent *int64, onEvent func(agent.Event),
 ) error {
 	return r.run.Run(ctx, text, parent, onEvent)
+}
+
+func (r runnerSession) RunDirectAs(
+	ctx context.Context, _ string, text string, dm store.DirectMessage,
+	onEvent func(agent.Event),
+) error {
+	return r.run.RunDirect(ctx, text, dm, onEvent)
 }
 
 func (r runnerSession) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
@@ -520,6 +545,49 @@ func TestSend_WakesByPost(t *testing.T) {
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: the post that mentions nobody wakes no one", got, want)
+	}
+}
+
+func TestSend_DirectRequestGetsOnePrivateResponse(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	var sent atomic.Bool
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" && sent.CompareAndSwap(false, true) {
+			if _, err := env.st.CreateDirectMessage(context.Background(), store.DirectMessage{
+				ChannelID: int64(id), From: "lead", To: "architect", Body: "design it",
+			}); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead", "architect", "lead")
+
+	direct, err := env.st.DirectMessages(context.Background(), int64(id), 0)
+	if err != nil || len(direct) != 2 || direct[0].From != "lead" ||
+		direct[1].From != "architect" || direct[1].To != "lead" {
+		t.Errorf("direct messages = %+v, %v, want one request and one response", direct, err)
+	}
+	public, err := env.st.Messages(context.Background(), int64(id), 0)
+	if err != nil || len(public) != 1 || public[0].Author != "user" {
+		t.Errorf("public messages = %+v, %v, want only the user's message", public, err)
+	}
+	status, body := do(t, http.MethodGet,
+		env.url+fmt.Sprintf("/channels/%d/direct-messages", id), "")
+	if status != 200 || !strings.Contains(body, `"from":"lead","to":"architect","body":"design it"`) ||
+		!strings.Contains(body, `"from":"architect","to":"lead","body":"hi"`) {
+		t.Errorf("GET direct messages = %d %s, want both sides of the exchange", status, body)
+	}
+	want := []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, direct message 1, chain 1, source: direct request]\nlead wrote privately: design it",
+		"[channel 2, direct message 2, chain 1, source: direct response]\narchitect wrote privately: hi",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
 	}
 }
 

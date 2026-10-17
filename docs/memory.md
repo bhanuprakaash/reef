@@ -190,7 +190,7 @@ It serves Reef's MCP tools over stdio, with the official Go SDK
 with exit code 1, when `REEF_TOKEN` is empty (`REEF_TOKEN is not set`) or matches no
 token (`unknown REEF_TOKEN`). It stops when stdin closes.
 
-Every tool except `post_to_channel` works on the token's feature. On a quick-session channel
+Every tool except `post_to_channel`, `send_to_role` and `read_direct_messages` works on the token's feature. On a quick-session channel
 (no feature) those tools fail with `this channel has no feature`, except `read_thread` of the
 token's own channel. A result is one JSON object as text. A
 tool error comes back as a result with `isError: true` and the message as text, so the
@@ -210,6 +210,8 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `read_decision` | `id` (required) | the decision | `decision 99: not found`, also for a decision of another feature |
 | `read_thread` | `channelId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the channel's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `channel 9: not found`, also for a channel of another feature or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the channel |
 | `post_to_channel` | `body` (required), `parent` (the id of a top-level message: reply in its thread; leave it out to post at the top level) | the stored message, with the token's role as `author`. It works on a quick session too | `invalid: message body is required`, `invalid: parent 9 is not a top-level message of channel 1` |
+| `send_to_role` | `to` (exactly one teammate role), `body` (required) | the stored direct request, with `channelId`, `chainId`, `from`, `to`, `replyToId: null` and `status: sent` | empty body, self, unknown or out-of-team role, and a recipient list are errors; nothing is stored |
+| `read_direct_messages` | `after` (only newer direct-message ids) | `{"messages": [...]}` containing only exchanges in this channel where the token's role is sender or recipient | |
 | `propose_wrap` | `brief`, `notes`, `decisions` (all required). Each decision is `{"body", "why"}`; `why` may be `""` | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: decision body is required` |
 | `browser_navigate` | `url` (required) | `{"text": "navigated to <url>"}` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser`, `refused: the browser pane cannot open Reef itself` (or another `refused: ...` for a non-http(s) URL), the page's own error (e.g. `net::ERR_CONNECTION_REFUSED`) when it fails to load |
 | `browser_screenshot` | none | a PNG image of the browser pane's current page | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
@@ -232,6 +234,15 @@ routes the message when the poster's turn ends: every `@role` in the body wakes 
 (once, even when the reply names the same role again), and a post that names nobody wakes no
 one (see [server.md](server.md#routing)). Plain Claude
 Code and `reef chat` have no router, so a post there is only stored.
+
+`send_to_role` starts a private request/response chain under the current channel. The named
+role wakes with the sender, channel, direct message, chain and `source: direct request` in its
+prompt. Its ordinary reply is stored directly for the sender and wakes the sender with
+`source: direct response`. That turn's ordinary reply is not stored or routed; continuing
+requires another `send_to_role`. Direct messages never appear in `read_thread` or the public
+channel message list. Partial output from a failed direct turn is kept privately with status
+`failed` and does not wake the sender. A retry appends the one `done` response, which wakes the
+sender once; SQLite permits only one `done` response per request.
 
 ## The context prompt
 
@@ -258,9 +269,8 @@ holds a message body. Its shape:
    `none`.
 6. One closing line that names the tools for details.
 7. When the team has two or more roles, a `## Team` section: `Your team: @lead, @architect.`
-   It says that to hand work over you @mention a teammate in a message, which wakes them, and
-   that your reply, and anything you send with `post_to_channel`, is posted to the channel
-   and nobody sees anything else. A message that wakes you starts with `[channel N, message
+   It says that `post_to_channel` and @mentions are shared, while `send_to_role` coordinates
+   privately with one teammate and gets one automatic direct response. A public message that wakes you starts with `[channel N, message
    N]` or `[channel N, message N, thread N]`; your plain reply goes where the header says (a
    top-level reply starts your own thread), and `post_to_channel` takes the header's `thread` as
    its `parent` when there is one.
