@@ -215,6 +215,28 @@ func TestApproveProposalSkipsRecordedDecisions(t *testing.T) {
 	}
 }
 
+func TestApproveProposalRecordsBodyOfRetiredDecision(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t, ProposedDecision{Body: "use go", Why: "back again"})
+	if _, err := s.CreateDecision(ctx, Decision{
+		FeatureID: 1, Body: "use rust", Author: "user", Replaces: []int64{1},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	_, added, err := s.ApproveProposal(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ds, err := s.Decisions(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(ds) != 3 || ds[2].Body != "use go" || ds[2].RetiredAt != nil || added != 1 {
+		t.Errorf("decisions = %+v, added = %d, want a live \"use go\" as decision 3 and 1 added", ds, added)
+	}
+}
+
 func TestRejectProposal(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t, ProposedDecision{Body: "cookie sessions"})

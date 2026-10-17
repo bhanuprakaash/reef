@@ -26,7 +26,7 @@ const (
 const (
 	_insertNewDecision = "INSERT INTO decision (feature_id, message_id, body, why, author, created_at) " +
 		"SELECT ?, NULL, ?, ?, ?, ? WHERE NOT EXISTS " +
-		"(SELECT 1 FROM decision WHERE feature_id = ? AND body = ?)"
+		"(SELECT 1 FROM decision WHERE feature_id = ? AND body = ? AND retired_at IS NULL)"
 	_proposalCols = "id, channel_id, role, kind, brief, notes, decisions, retire, status, " +
 		"created_at, decided_at"
 )
@@ -231,7 +231,7 @@ func (s *Store) PendingProposals(
 
 // ApproveProposal applies the pending proposal in one transaction: a new brief
 // version and the role's notes, both authored by the proposal's role, and each
-// proposed decision whose body the feature does not have yet, retiring the decisions it
+// proposed decision whose body no live decision of the feature has, retiring the decisions it
 // replaces, then retires the proposal's Retire decisions. It closes the channel and
 // returns how many decisions it added. A brief proposal adds only the brief version, and
 // is refused once its channel is closed.
