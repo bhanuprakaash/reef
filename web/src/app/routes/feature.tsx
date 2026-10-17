@@ -69,7 +69,7 @@ export function FeaturePage() {
               </>
             )}
             <span className="font-mono">feature/{f.slug}</span>
-            <span aria-hidden="true">·</span>
+            {(diff.isError || diff.data) && <span aria-hidden="true">·</span>}
             {diff.isError ? (
               <span className="text-danger">{diff.error.message}</span>
             ) : (

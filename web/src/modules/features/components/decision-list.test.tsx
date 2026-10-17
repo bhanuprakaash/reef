@@ -35,4 +35,15 @@ describe('DecisionList', () => {
     expect(markup).toContain('Retired (1)');
     expect(markup).not.toContain('Show all');
   });
+
+  it('says no decisions yet only when there are none, retired or live', () => {
+    const empty = renderToStaticMarkup(<DecisionList decisions={[]} faces={{}} />);
+    const onlyRetired = renderToStaticMarkup(
+      <DecisionList decisions={[decision(1, '2026-10-02T09:00:00Z')]} faces={{}} />,
+    );
+
+    expect(empty).toContain('No decisions yet');
+    expect(onlyRetired).not.toContain('No decisions yet');
+    expect(onlyRetired).toContain('Retired (1)');
+  });
 });

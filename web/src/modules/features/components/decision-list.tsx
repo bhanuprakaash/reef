@@ -57,14 +57,16 @@ export function DecisionList({ decisions, faces }: Props) {
       aside={<span className="ml-auto text-xs text-muted tabular-nums">{live.length}</span>}
     >
       {live.length === 0 ? (
-        <div className="px-6 pb-5">
-          <EmptyState
-            title="No decisions yet"
-            body="Choices the team makes land here."
-            role="architect"
-            compact
-          />
-        </div>
+        retired.length === 0 && (
+          <div className="px-6 pb-5">
+            <EmptyState
+              title="No decisions yet"
+              body="Choices the team makes land here."
+              role="architect"
+              compact
+            />
+          </div>
+        )
       ) : (
         <ul>
           {[...live]
