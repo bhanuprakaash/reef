@@ -16,7 +16,7 @@ Reef has no handoff file. A new session starts with three things:
 
 - The feature's brief: goal, status, key decisions, open questions.
 - The role's own notes on the feature.
-- An index: one line per decision, channel and open task.
+- An index: one line per live decision, channel and open task. Retired decisions are left out.
 
 It never gets old message bodies. When it needs details, it fetches them on demand with
 the MCP tools (`read_decision`, `read_thread`, `search_sessions`). So the first prompt
@@ -201,17 +201,17 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | Tool | Input | Output | Errors |
 | --- | --- | --- | --- |
 | `get_brief` | none | `{"brief": "...", "notes": "..."}`: the latest brief and this role's notes. Each is `""` when there is none yet | |
-| `record_decision` | `body` (required), `why`, `messageId` | the new decision, as in [server.md](server.md#decision). The author is the token's role | `invalid: decision body is required`, `invalid: message 5 is not in a channel of feature 1` |
+| `record_decision` | `body` (required), `why`, `messageId`, `replaces` (ids of live decisions it amends or replaces) | the new decision, as in [server.md](server.md#decision). The author is the token's role. Each `replaces` id is retired with `replacedBy` set to the new decision, in one transaction. The tool says a decision is a choice about how the feature works, not progress, proof or a won't-fix list | `invalid: decision body is required`, `invalid: message 5 is not in a channel of feature 1`, `invalid: decision 9 is not a live decision of feature 1` (nothing is written) |
 | `add_task` | `title` (required), `body` | the new task: `todo`, in the feature's project, tagged with the feature | `invalid: task title is required` |
 | `list_tasks` | `status` (`todo`, `doing` or `done`; leave it out for all) | `{"tasks": [...]}`: the feature's tasks by id, as in [server.md](server.md#task). `tasks` is `[]` when there are none | `invalid: unknown status "later"` |
 | `read_task` | `id` (required) | the task, with its full body | `task 99: not found`, also for a task of another feature or of no feature |
 | `update_task` | `id` (required), `title`, `body`, `status` (`todo`, `doing` or `done`) | the updated task. Only the fields given change; `{"id": 3, "status": "done"}` marks task 3 done. There is no tool to delete a task | `task 99: not found` as for `read_task`, `invalid: task title is required`, `invalid: unknown status "later"` |
 | `search_sessions` | `query` (required), `limit` (default 20) | `{"hits": [{"channelId", "messageId", "author", "snippet"}]}`: messages in all of the feature's channels that contain `query`, newest first. Case is ignored for ASCII. The snippet is about 120 characters around the match. `hits` is `null` when nothing matches | `query is required` |
-| `read_decision` | `id` (required) | the decision | `decision 99: not found`, also for a decision of another feature |
+| `read_decision` | `id` (required) | the decision, with `retiredAt` and `replacedBy` when it is retired | `decision 99: not found`, also for a decision of another feature |
 | `read_thread` | `channelId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the channel's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `channel 9: not found`, also for a channel of another feature or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the channel |
 | `post_to_channel` | `body` (required), `parent` (the id of a top-level message: reply in its thread; leave it out to post at the top level) | the stored message, with the token's role as `author`. It works on a quick session too | `invalid: message body is required`, `invalid: parent 9 is not a top-level message of channel 1` |
 | `set_stage` | `stage` (required): `ideation`, `grill`, `plan`, `tickets`, `implement`, `testing`, `live-testing` or `post-release` | the updated feature, as in [server.md](server.md#feature). It also stores a `reef` message in the token's channel: `<role> moved the stage to <stage>`. No approval: the stage is a label | `invalid: unknown stage "x"`, `invalid: feature login is a list of fixes and has no stage` |
-| `propose_wrap` | `brief`, `notes`, `decisions` (all required). Each decision is `{"body", "why"}`; `why` may be `""` | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: decision body is required` |
+| `propose_wrap` | `brief`, `notes`, `decisions` (all required); `retire` (ids of live decisions that are stale or duplicate). Each decision is `{"body", "why", "replaces"}`; `why` may be `""`, `replaces` lists the ids it amends or replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: decision body is required` |
 | `propose_brief` | `brief` (required) | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required` |
 | `browser_navigate` | `url` (required) | `{"text": "navigated to <url>"}` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser`, `refused: the browser pane cannot open Reef itself` (or another `refused: ...` for a non-http(s) URL), the page's own error (e.g. `net::ERR_CONNECTION_REFUSED`) when it fails to load |
 | `browser_screenshot` | none | a PNG image of the browser pane's current page | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
@@ -258,8 +258,8 @@ holds a message body. Its shape:
    when it is not empty.
 3. `## Brief`: the latest brief, or `No brief yet.`
 4. `## Your notes`: this role's notes, or `No notes yet.`
-5. `## Index`, with `### Decisions` (one line each: id, the first line of the body cut
-   at 100 characters with `…`, author, date), `### Channels` (channels with messages, one line each: id, name,
+5. `## Index`, with `### Decisions` (one line each for a live decision: id, the first line of the body cut
+   at 100 characters with `…`, author, date; retired decisions are left out), `### Channels` (channels with messages, one line each: id, name,
    date, message count) and `### Open tasks` (tasks not `done`). An empty group says
    `none`.
 6. One closing line that names the tools for details.
@@ -412,11 +412,14 @@ A channel ends explicitly, never on a timer. The user types `/wrap` in `reef cha
    (keep what still holds, status is where the feature is now and not a history, drop what
    is done or no longer true, stay short), its own notes on the feature, and the decisions
    made in this channel that are not recorded yet. Decisions the agent already recorded
-   with `record_decision` are not proposed again.
+   with `record_decision` are not proposed again. The prompt also asks it to review the
+   decision index: `retire` lists decisions that are stale or duplicate, and `replaces` on
+   a new decision lists older ones it amends.
 2. `propose_wrap` stores a `pending` proposal (see [server.md](server.md#proposal)).
 3. After the turn, `reef chat` looks for a pending proposal of this channel that is newer
    than the one pending before `/wrap`. With none, it prints `no proposal made`.
-4. Otherwise it prints the proposal: brief, notes and decisions, then `approve? [y/N]`.
+4. Otherwise it prints the proposal: brief, notes and decisions (with what each replaces),
+   the decisions to retire, then `approve? [y/N]`.
 5. The next line typed after the prompt decides. `y` or `yes` (any case) approves.
    Anything else, a blank line too, rejects. `reef chat` reads stdin all the time, so it
    drops lines already queued after first printing `approve? [y/N]`. It prints
@@ -431,7 +434,11 @@ Approve applies everything in one transaction:
 - the role's notes, replacing the old ones,
 - each proposed decision, with the role as author and no source message. A decision whose
   body is exactly the body of one the feature already has is skipped, so a decision the
-  agent recorded live is not saved twice. A repeat inside the proposal is skipped too,
+  agent recorded live is not saved twice. A repeat inside the proposal is skipped too, and
+  so is its `replaces`: a skipped decision retires nothing,
+- for each added decision, its `replaces` retired with `replacedBy` set to it, and each id
+  in `retire` retired with no `replacedBy`. An id that is not a live decision of the
+  feature fails the whole approve,
 - the proposal marked `approved`, with `decidedAt`,
 - the proposal's channel closed (`closedAt`). The server then stops its agent and refuses new turns on it until `POST /channels/{id}/reopen`.
 

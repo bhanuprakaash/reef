@@ -17,7 +17,7 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-var _timestamp = regexp.MustCompile(`"(createdAt|updatedAt)":"[^"]*"`)
+var _timestamp = regexp.MustCompile(`"(createdAt|updatedAt|retiredAt)":"[^"]*"`)
 
 // mcpFixture has features 1 (auth) and 2 (billing). The returned token is the
 // architect in channel 1; channel 2 is a second channel of auth, channel 3 is
@@ -152,7 +152,7 @@ func TestMCPTools(t *testing.T) {
 			tool: "record_decision",
 			give: map[string]any{"body": "use sessions", "why": "simple", "messageId": 1},
 			want: `{"author":"architect","body":"use sessions","createdAt":"T","featureId":1,` +
-				`"id":2,"messageId":1,"why":"simple"}`,
+				`"id":2,"messageId":1,"replacedBy":null,"retiredAt":null,"why":"simple"}`,
 		},
 		{
 			name: "add task to the feature",
@@ -188,7 +188,7 @@ func TestMCPTools(t *testing.T) {
 			tool: "read_decision",
 			give: map[string]any{"id": 2},
 			want: `{"author":"architect","body":"use sessions","createdAt":"T","featureId":1,` +
-				`"id":2,"messageId":1,"why":"simple"}`,
+				`"id":2,"messageId":1,"replacedBy":null,"retiredAt":null,"why":"simple"}`,
 		},
 		{
 			name:    "read another feature's decision",
@@ -323,6 +323,7 @@ func TestMCPProposeWrap(t *testing.T) {
 	want := store.Proposal{
 		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalWrap, Brief: "v2", Notes: "mine",
 		Decisions: []store.ProposedDecision{{Body: "use sessions", Why: "simple"}},
+		Retire:    []int64{},
 		Status:    store.ProposalPending,
 	}
 	p.CreatedAt = time.Time{}
@@ -333,6 +334,30 @@ func TestMCPProposeWrap(t *testing.T) {
 	got, isErr = call("propose_wrap", map[string]any{"brief": "", "notes": "n", "decisions": []any{}})
 	if want := "invalid: proposal brief is required"; got != want || !isErr {
 		t.Errorf("propose_wrap with empty brief = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
+func TestMCPRecordDecisionReplaces(t *testing.T) {
+	st, tok := mcpFixture(t)
+	call := callTool(t, st, tok)
+	call("record_decision", map[string]any{"body": "use sessions", "why": "simple"})
+
+	got, isErr := call("record_decision", map[string]any{"body": "use tokens", "replaces": []int{2}})
+	want := `{"author":"architect","body":"use tokens","createdAt":"T","featureId":1,` +
+		`"id":3,"messageId":null,"replacedBy":null,"replaces":[2],"retiredAt":null,"why":""}`
+	if got != want || isErr {
+		t.Errorf("record_decision with replaces = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = call("read_decision", map[string]any{"id": 2})
+	want = `{"author":"architect","body":"use sessions","createdAt":"T","featureId":1,` +
+		`"id":2,"messageId":null,"replacedBy":3,"retiredAt":"T","why":"simple"}`
+	if got != want || isErr {
+		t.Errorf("read_decision of the replaced = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = call("record_decision", map[string]any{"body": "use jwt", "replaces": []int{1}})
+	want = "invalid: decision 1 is not a live decision of feature 1"
+	if got != want || !isErr {
+		t.Errorf("record_decision replacing another feature's = %q (error %v), want %q", got, isErr, want)
 	}
 }
 
@@ -397,7 +422,7 @@ func TestMCPProposeBrief(t *testing.T) {
 	want := store.Proposal{
 		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalBrief,
 		Brief: "plan: ship login first", Decisions: []store.ProposedDecision{},
-		Status: store.ProposalPending,
+		Retire: []int64{}, Status: store.ProposalPending,
 	}
 	p.CreatedAt = time.Time{}
 	if !reflect.DeepEqual(p, want) {

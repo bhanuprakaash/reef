@@ -56,7 +56,9 @@ const (
 		"this channel achieved (goal, status, key decisions, open questions): keep what still " +
 		"holds, make status where the feature is now, not a history, drop what is done or no " +
 		"longer true, and keep it short. Add your own notes on this feature, and the decisions " +
-		"made in this channel that are not recorded yet. " +
+		"made in this channel that are not recorded yet. Review the decision index: pass " +
+		"retire with the ids of decisions that are stale or duplicate, and replaces on a " +
+		"new decision that amends older ones. " +
 		"Then reply with one line saying it is proposed."
 	_promotePrompt = "This quick session is now feature %q (%s). Call the propose_wrap tool " +
 		"once with the first brief (goal, status, key decisions, open questions) written from " +

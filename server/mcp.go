@@ -25,9 +25,10 @@ type (
 		Notes string `json:"notes" jsonschema:"your role's notes on this feature, empty if none"`
 	}
 	decideIn struct {
-		Body      string `json:"body" jsonschema:"the decision"`
-		Why       string `json:"why,omitempty" jsonschema:"the reason for it"`
-		MessageID *int64 `json:"messageId,omitempty" jsonschema:"id of the message it came from"`
+		Body      string  `json:"body" jsonschema:"the decision"`
+		Why       string  `json:"why,omitempty" jsonschema:"the reason for it"`
+		MessageID *int64  `json:"messageId,omitempty" jsonschema:"id of the message it came from"`
+		Replaces  []int64 `json:"replaces,omitempty" jsonschema:"ids of live decisions this one amends or replaces; they are retired"`
 	}
 	taskIn struct {
 		Title string `json:"title" jsonschema:"short task title"`
@@ -76,7 +77,8 @@ type (
 	wrapIn struct {
 		Brief     string                   `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
 		Notes     string                   `json:"notes" jsonschema:"your own notes on this feature"`
-		Decisions []store.ProposedDecision `json:"decisions" jsonschema:"decisions made in this channel that are not recorded yet"`
+		Decisions []store.ProposedDecision `json:"decisions" jsonschema:"decisions made in this channel that are not recorded yet; replaces on one lists the earlier decisions it amends or replaces"`
+		Retire    []int64                  `json:"retire,omitempty" jsonschema:"ids of live decisions that are stale or duplicate"`
 	}
 	briefIn struct {
 		Brief string `json:"brief" jsonschema:"the full brief: goal, status, key decisions, open questions"`
@@ -113,8 +115,10 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 	}, m.getBrief)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "record_decision",
-		Description: "Record a decision made on this feature, with why " +
-			"and the message it came from.",
+		Description: "Record a decision made on this feature, with why and the message it " +
+			"came from. A decision is a choice about how the feature works, not progress, " +
+			"proof or a won't-fix list. Pass replaces when it amends or replaces earlier " +
+			"decisions: they are retired.",
 	}, m.recordDecision)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "add_task",
@@ -139,8 +143,9 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 			"Returns channel and message ids; read more with read_thread.",
 	}, m.searchSessions)
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "read_decision",
-		Description: "Read one decision of this feature in full.",
+		Name: "read_decision",
+		Description: "Read one decision of this feature in full, with retiredAt and " +
+			"replacedBy when it is retired.",
 	}, m.readDecision)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "read_thread",
@@ -162,7 +167,9 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 		Description: "Propose how to wrap up this channel; the user approves it before " +
 			"anything is saved. brief is the full rewritten brief (goal, status, key " +
 			"decisions, open questions), notes are your own notes for this feature, " +
-			"decisions are ones made in this channel that are not recorded yet.",
+			"decisions are ones made in this channel that are not recorded yet, each with " +
+			"replaces for earlier decisions it amends or replaces. retire lists ids of " +
+			"decisions that are stale or duplicate.",
 	}, m.proposeWrap)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_brief",
@@ -245,7 +252,7 @@ func (m *mcpServer) recordDecision(
 	}
 	d, err := m.st.CreateDecision(ctx, store.Decision{
 		FeatureID: f.ID, MessageID: in.MessageID, Body: in.Body, Why: in.Why,
-		Author: m.tok.Role,
+		Author: m.tok.Role, Replaces: in.Replaces,
 	})
 	return nil, d, err
 }
@@ -415,7 +422,7 @@ func (m *mcpServer) proposeWrap(
 	}
 	p, err := m.st.CreateProposal(ctx, store.Proposal{
 		ChannelID: m.tok.ChannelID, Role: m.tok.Role, Brief: in.Brief, Notes: in.Notes,
-		Decisions: in.Decisions,
+		Decisions: in.Decisions, Retire: in.Retire,
 	})
 	if err != nil {
 		return nil, wrapOut{}, err

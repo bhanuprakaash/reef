@@ -301,6 +301,9 @@ delete; deleting the turn deletes its tool calls.
 | `why` | string | default `""` |
 | `author` | string | required |
 | `createdAt` | string | |
+| `retiredAt` | string? | `null` while the decision is live. Set when it is retired: stale, duplicate or replaced. A retired decision is never edited or deleted, and still reads |
+| `replacedBy` | number? | the decision that replaced it, if one did; `null` for a plain retire |
+| `replaces` | array? | input to create, echoed in its response and never in a read: ids of live decisions of the same feature that the new decision retires, with their `replacedBy` set to it. Any other id is `invalid: decision 9 is not a live decision of feature 1` and nothing is written |
 
 ### task
 
@@ -413,7 +416,8 @@ promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 | `kind` | string | `wrap` (default) or `brief` |
 | `brief` | string | required, not empty; the full new brief |
 | `notes` | string | may be empty; replaces the role's notes |
-| `decisions` | array | `{"body", "why"}` each, `body` required. The SQL column holds them as JSON text |
+| `decisions` | array | `{"body", "why", "replaces"}` each, `body` required; `replaces` is optional, ids of live decisions it retires. Approving applies it only for a decision it adds: one skipped because the feature already has its body retires nothing. The SQL column holds them as JSON text |
+| `retire` | array | ids of live decisions that are stale or duplicate; approving sets their `retiredAt`. `[]` by default. The SQL column holds them as JSON text. A bad id in `retire` or `replaces` fails the whole approve with 400 |
 | `status` | string | `pending` (default), `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 | `decidedAt` | string? | `null` while pending |
@@ -496,8 +500,8 @@ tool calls.
 | `GET /inbox/events` | | 200 `text/event-stream` | |
 | `POST /channels/{id}/dismiss` | `messageId` | 204, no body; the channel's `waiting` item for that message is hidden, see [Inbox](#inbox) | 400 bad body, 404 unknown channel or a message that is not the channel's |
 | `POST /turns/{id}/rollback` | no body needed | 204, no body; the channel's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the channel has a turn running, a `reef chat` has it open, its tree is not the one the checkpoint was taken in, or a turn of any role runs on the tree, 503 |
-| `GET /decisions` | `?feature=ID` (required) | 200 | 400 no feature, 404 unknown feature |
-| `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field, unknown feature, or a message of another feature |
+| `GET /decisions` | `?feature=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy` | 400 no feature, 404 unknown feature |
+| `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author`, `replaces` | 201 | 400 missing field, unknown feature, a message of another feature, or a `replaces` id that is not a live decision of the feature |
 | `GET /decisions/{id}` | | 200 | 404 |
 
 A `POST` with no body (`stop`, `continue`, `wrap`, `approve`, `reject`) still needs
@@ -904,7 +908,9 @@ The API has no way to change or remove these rows.
 - Messages and decisions: create and read only. `PUT`, `PATCH` and `DELETE` on
   `/messages/{id}` and `/decisions/{id}` return 405. The only way a message or decision
   goes away is a cascade from its channel or feature. Deleting a channel does not delete
-  its decisions; they only lose `messageId`.
+  its decisions; they only lose `messageId`. A decision's body is never edited, but it can
+  be retired (`retiredAt`, `replacedBy`) by a new decision that replaces it or by an
+  approved proposal; see decision 75.
 - Briefs: `PUT /features/{id}/brief` adds a version and never edits one. Old versions
   stay in `/brief/versions`. Role notes are not versioned; `PUT` replaces them.
 - Turns: created `running`, may get a `sessionId` while running, ended once with `PATCH`

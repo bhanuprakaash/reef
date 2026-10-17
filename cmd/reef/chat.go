@@ -289,7 +289,13 @@ func proposalBodyText(p store.Proposal) string {
 		if d.Why != "" {
 			fmt.Fprintf(&b, " (%s)", d.Why)
 		}
+		if len(d.Replaces) > 0 {
+			fmt.Fprintf(&b, " [replaces %v]", d.Replaces)
+		}
 		b.WriteString("\n")
+	}
+	if len(p.Retire) > 0 {
+		fmt.Fprintf(&b, "\nretire decisions: %v\n", p.Retire)
 	}
 	return b.String()
 }

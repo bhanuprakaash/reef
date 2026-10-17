@@ -70,7 +70,7 @@ export function ProposalPanel({
           <Markdown>{p.notes}</Markdown>
         </div>
       )}
-      {p.decisions.length > 0 && (
+      {(p.decisions.length > 0 || p.retire.length > 0) && (
         <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
           <h3 className="text-xs text-muted uppercase">Decisions</h3>
           <ul className="space-y-2">
@@ -78,9 +78,15 @@ export function ProposalPanel({
               <li key={i}>
                 <p>{d.body}</p>
                 {d.why && <p className="text-sm text-muted">Why: {d.why}</p>}
+                {d.replaces && d.replaces.length > 0 && (
+                  <p className="text-sm text-muted">Replaces: {d.replaces.join(', ')}</p>
+                )}
               </li>
             ))}
           </ul>
+          {p.retire.length > 0 && (
+            <p className="text-sm text-muted">Retires: {p.retire.join(', ')}</p>
+          )}
         </div>
       )}
       {decide.isError && <p className="text-sm text-danger">{decide.error.message}</p>}

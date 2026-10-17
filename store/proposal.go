@@ -26,19 +26,21 @@ const (
 	_insertNewDecision = "INSERT INTO decision (feature_id, message_id, body, why, author, created_at) " +
 		"SELECT ?, NULL, ?, ?, ?, ? WHERE NOT EXISTS " +
 		"(SELECT 1 FROM decision WHERE feature_id = ? AND body = ?)"
-	_proposalCols = "id, channel_id, role, kind, brief, notes, decisions, status, created_at, " +
-		"decided_at"
+	_proposalCols = "id, channel_id, role, kind, brief, notes, decisions, retire, status, " +
+		"created_at, decided_at"
 )
 
-// ProposedDecision is a decision that approving its proposal records.
+// ProposedDecision is a decision that approving its proposal records. Replaces are the
+// live decisions it retires; they are skipped when the feature already has the body.
 type ProposedDecision struct {
-	Body string `json:"body"`
-	Why  string `json:"why"`
+	Body     string  `json:"body"`
+	Why      string  `json:"why"`
+	Replaces []int64 `json:"replaces,omitempty"`
 }
 
 // Proposal is what a role suggests: at wrap-up the new brief, its notes and the
-// decisions it noticed, and approving it applies all three. A brief proposal has only
-// the brief.
+// decisions it noticed, and approving it applies all three. Retire lists live decisions
+// that are stale or duplicate. A brief proposal has only the brief.
 type Proposal struct {
 	ID        int64              `json:"id"`
 	ChannelID int64              `json:"channelId"`
@@ -47,6 +49,7 @@ type Proposal struct {
 	Brief     string             `json:"brief"`
 	Notes     string             `json:"notes"`
 	Decisions []ProposedDecision `json:"decisions"`
+	Retire    []int64            `json:"retire"`
 	Status    string             `json:"status"`
 	CreatedAt time.Time          `json:"createdAt"`
 	DecidedAt *time.Time         `json:"decidedAt"`
@@ -83,6 +86,13 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 	if err != nil {
 		return Proposal{}, fmt.Errorf("encode decisions: %w", err)
 	}
+	if p.Retire == nil {
+		p.Retire = []int64{}
+	}
+	retire, err := json.Marshal(p.Retire)
+	if err != nil {
+		return Proposal{}, fmt.Errorf("encode retire: %w", err)
+	}
 	now := time.Now().UTC()
 	if p.Kind == ProposalBrief {
 		if _, err := s.db.ExecContext(ctx,
@@ -94,9 +104,9 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 		}
 	}
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO proposal (channel_id, role, kind, brief, notes, decisions, created_at) "+
-			"VALUES (?, ?, ?, ?, ?, ?, ?)",
-		p.ChannelID, p.Role, p.Kind, p.Brief, p.Notes, string(decisions),
+		"INSERT INTO proposal (channel_id, role, kind, brief, notes, decisions, retire, created_at) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		p.ChannelID, p.Role, p.Kind, p.Brief, p.Notes, string(decisions), string(retire),
 		now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Proposal{}, s.writeErr(ctx, "insert proposal", err, ErrNotFound,
@@ -167,9 +177,11 @@ func (s *Store) PendingProposals(
 
 // ApproveProposal applies the pending proposal in one transaction: a new brief
 // version and the role's notes, both authored by the proposal's role, and each
-// proposed decision whose body the feature does not have yet. It closes the channel and
+// proposed decision whose body the feature does not have yet, retiring the decisions it
+// replaces, then retires the proposal's Retire decisions. It closes the channel and
 // returns how many decisions it added. A brief proposal adds only the brief version.
-// Nothing is applied if any step fails.
+// Nothing is applied if any step fails, such as a retired id that is not a live decision
+// of the feature.
 func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, int, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -209,7 +221,20 @@ func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, int, e
 		if err != nil {
 			return Proposal{}, 0, fmt.Errorf("insert decision: %w", err)
 		}
-		added += int(n)
+		if n == 0 {
+			continue
+		}
+		added++
+		newID, err := res.LastInsertId()
+		if err != nil {
+			return Proposal{}, 0, fmt.Errorf("insert decision: %w", err)
+		}
+		if err := retireDecisions(ctx, tx, featureID, d.Replaces, &newID, at); err != nil {
+			return Proposal{}, 0, err
+		}
+	}
+	if err := retireDecisions(ctx, tx, featureID, p.Retire, nil, at); err != nil {
+		return Proposal{}, 0, err
 	}
 	if _, err := tx.ExecContext(ctx,
 		"UPDATE channel SET closed_at = ? WHERE id = ?", at, p.ChannelID); err != nil {
@@ -265,14 +290,17 @@ func decideProposal(
 
 func scanProposal(r interface{ Scan(...any) error }) (Proposal, error) {
 	var p Proposal
-	var decisions, created string
+	var decisions, retire, created string
 	var decided sql.NullString
 	if err := r.Scan(&p.ID, &p.ChannelID, &p.Role, &p.Kind, &p.Brief, &p.Notes, &decisions,
-		&p.Status, &created, &decided); err != nil {
+		&retire, &p.Status, &created, &decided); err != nil {
 		return Proposal{}, err
 	}
 	if err := json.Unmarshal([]byte(decisions), &p.Decisions); err != nil {
 		return Proposal{}, fmt.Errorf("proposal %d: bad decisions: %w", p.ID, err)
+	}
+	if err := json.Unmarshal([]byte(retire), &p.Retire); err != nil {
+		return Proposal{}, fmt.Errorf("proposal %d: bad retire: %w", p.ID, err)
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)
 	if err != nil {

@@ -91,6 +91,9 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 	b.WriteString("\n## Index\n")
 	var lines []string
 	for _, d := range decisions {
+		if d.RetiredAt != nil {
+			continue
+		}
 		lines = append(lines, fmt.Sprintf("decision %d: %s (%s, %s)",
 			d.ID, firstLine(d.Body), d.Author, d.CreatedAt.Format(_dateLayout)))
 	}

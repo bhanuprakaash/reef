@@ -103,7 +103,7 @@ Never preload history, only a summary; details are fetched on demand.
 
 **Session lifetime.** Within a channel each teammate's session persists and resumes. When it gets long it is compacted into role notes and continues fresh. Across channels sessions are not shared: a teammate's memory of other channels is its role notes, the brief and the on-demand tools, never the raw session. After 30 to 40 chats the architect still starts small and relevant.
 
-**Brief and role notes.** The agent writes them from the conversation and the shared understanding with the user; the user approves before they become the new brief. Decisions are append-only with author and source message.
+**Brief and role notes.** The agent writes them from the conversation and the shared understanding with the user; the user approves before they become the new brief. Decisions are never edited or deleted, but can be retired (decision 75); each has an author and source message.
 
 **Capturing decisions.** Both ways: the agent records decisions as it goes via `record_decision` (with the source message), and at wrap-up it proposes any it noticed but did not record; those are approved with the brief.
 
@@ -233,6 +233,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 72 | An approval that arrives while any chain starts or runs, a wrap or promote one included, joins that chain's queue and runs after its turn; if the chain ends or never starts, the approval is pending again. Messages keep decision 71. Extends 71 | Approving a gated wake while the channel was starting or wrapping up was 409 for no reason the user could act on |
 | 73 | An agent proposes a brief mid-channel with `propose_brief` when the user and the team agree on the goal, scope or plan. Approving it saves a brief version only: notes, decisions and the open channel stay. Extends 6 | The brief is about the feature, so it should change when the team agrees, not only when a channel ends |
 | 74 | An agent moves the feature's stage with the `set_stage` tool, with no approval, and Reef posts a `reef` note in the channel; a `fixes` feature has no stage. The context prompt lists the stages. Extends 2 | Agents see when the work moves; the user should not have to move the label by hand |
+| 75 | A decision is never edited or deleted, but it can be retired: `retiredAt`, and `replacedBy` when a newer decision replaces it. `record_decision` and a wrap decision take `replaces`; a wrap proposal takes `retire` for stale or duplicate ones; approving applies both. The context index and the feature page list live decisions only, retired ones fold under "Retired". Amends the append-only line in Context and memory | Stale and duplicate decisions bloated every prompt and the feature page, with no way to remove them |
 
 ## Open questions
 
