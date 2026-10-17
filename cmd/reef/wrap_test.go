@@ -52,6 +52,14 @@ func TestCLI_Wrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	search, err := st.CreateFeature(ctx, store.Feature{ProjectID: p.ID, Slug: "search", Name: "search"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sch, err := st.CreateChannel(ctx, store.Channel{ProjectID: p.ID, FeatureID: &search.ID, Name: "chat"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	day := time.Now().UTC().Format(time.DateOnly)
 	for _, prop := range []store.Proposal{
 		{ChannelID: 1, Role: "architect", Brief: "sign in with sessions", Notes: "n1",
@@ -59,6 +67,7 @@ func TestCLI_Wrap(t *testing.T) {
 		{ChannelID: 2, Role: "reviewer", Brief: "bill monthly", Notes: "n2"},
 		{ChannelID: ch.ID, Role: "developer", Brief: "outside project"},
 		{ChannelID: brief.ID, Role: "lead", Kind: store.ProposalBrief, Brief: "outside plan"},
+		{ChannelID: sch.ID, Role: "lead", Kind: store.ProposalBrief, Brief: "search plan"},
 	} {
 		if _, err := st.CreateProposal(ctx, prop); err != nil {
 			t.Fatal(err)
@@ -74,8 +83,9 @@ func TestCLI_Wrap(t *testing.T) {
 		want string
 	}{
 		{"list all", []string{"wrap", "list"},
-			"1  login  1  architect  " + day + "\n2  billing  2  reviewer  " + day + "\n"},
-		{"list feature", []string{"wrap", "list", "billing"}, "2  billing  2  reviewer  " + day + "\n"},
+			"1  login  1  architect  wrap  " + day + "\n2  billing  2  reviewer  wrap  " + day +
+				"\n5  search  5  lead  brief  " + day + "\n"},
+		{"list feature", []string{"wrap", "list", "billing"}, "2  billing  2  reviewer  wrap  " + day + "\n"},
 		{"show", []string{"wrap", "show", "1"},
 			"proposal 1 from architect\nstatus: pending\n\nbrief:\nsign in with sessions\n\nnotes:\nn1\n\n" +
 				"decisions:\n- cookie sessions (simple)\n- 24h expiry\n"},
@@ -84,9 +94,9 @@ func TestCLI_Wrap(t *testing.T) {
 			"proposal 1 from architect\nstatus: approved\n\nbrief:\nsign in with sessions\n\nnotes:\nn1\n\n" +
 				"decisions:\n- cookie sessions (simple)\n- 24h expiry\n"},
 		{"reject", []string{"wrap", "reject", "2"}, "rejected: nothing changed\n"},
-		{"list empty", []string{"wrap", "list"}, ""},
+		{"list after deciding", []string{"wrap", "list"}, "5  search  5  lead  brief  " + day + "\n"},
 		{"show brief", []string{"wrap", "show", "4"},
-			"proposal 4 from lead\nstatus: pending\n\nbrief:\noutside plan\n"},
+			"brief update 4 from lead\nstatus: pending\n\nbrief:\noutside plan\n"},
 		{"approve brief", []string{"wrap", "approve", "4"}, "approved: brief saved\n"},
 	}
 	for _, tt := range steps {

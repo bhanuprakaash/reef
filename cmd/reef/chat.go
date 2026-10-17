@@ -266,9 +266,14 @@ func decideWrap(
 }
 
 func proposalText(p store.Proposal) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "proposal %d from %s\n\n%s", p.ID, p.Role, proposalBodyText(p))
-	return b.String()
+	return proposalTitle(p) + "\n\n" + proposalBodyText(p)
+}
+
+func proposalTitle(p store.Proposal) string {
+	if p.Kind == store.ProposalBrief {
+		return fmt.Sprintf("brief update %d from %s", p.ID, p.Role)
+	}
+	return fmt.Sprintf("proposal %d from %s", p.ID, p.Role)
 }
 
 func approvedText(p store.Proposal, added int) string {
