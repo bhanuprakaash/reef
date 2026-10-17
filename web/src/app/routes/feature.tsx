@@ -23,10 +23,9 @@ import { TaskList } from '@/modules/tasks/components/task-list';
 import { TaskProgress } from '@/modules/tasks/components/task-progress';
 import { roleFaces } from '@/utils/role-faces';
 import { BackButton } from '@/components/back-button';
-import { Button, buttonClass } from '@/components/button';
+import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { Dialog } from '@/components/dialog';
-import { EmptyState } from '@/components/empty-state';
 
 export function FeaturePage() {
   const id = Number(useParams().id);
@@ -49,6 +48,8 @@ export function FeaturePage() {
   const project = projects.data?.find((p) => p.id === f.projectId);
   const featureChannels = channels.data?.filter((c) => c.featureId === id) ?? [];
   const latestChannel = featureChannels[featureChannels.length - 1];
+  const openTasks = tasks.data?.filter((t) => t.status !== 'done') ?? [];
+  const doneTasks = tasks.data?.filter((t) => t.status === 'done') ?? [];
 
   return (
     <div className="space-y-7">
@@ -60,12 +61,38 @@ export function FeaturePage() {
           </div>
           <h1 className="text-[40px] leading-[1.05] font-normal tracking-[-0.02em]">{f.name}</h1>
           {f.goal && <p className="mt-2 max-w-xl text-sm text-muted">{f.goal}</p>}
+          <div className="mt-3 flex flex-wrap items-center gap-x-2 text-xs text-muted">
+            {f.kind === 'journey' && (
+              <>
+                <StagePicker feature={f} />
+                <span aria-hidden="true">·</span>
+              </>
+            )}
+            <span className="font-mono">feature/{f.slug}</span>
+            <span aria-hidden="true">·</span>
+            {diff.isError ? (
+              <span className="text-danger">{diff.error.message}</span>
+            ) : (
+              diff.data &&
+              (diff.data.length ? (
+                <Link
+                  to={`/features/${id}/review`}
+                  className="inline-flex min-h-11 items-center gap-1.5 hover:text-fg md:min-h-0"
+                >
+                  {diff.data.length} file{diff.data.length === 1 ? '' : 's'}
+                  <span className="text-done">+{diffCounts(diff.data).added}</span>
+                  <span className="text-failed">−{diffCounts(diff.data).removed}</span>
+                </Link>
+              ) : (
+                <span>No changes yet</span>
+              ))
+            )}
+          </div>
           {setClosed.isError && (
             <p className="mt-2 text-sm text-danger">{setClosed.error.message}</p>
           )}
         </div>
         <div className="flex gap-2">
-          {f.kind === 'journey' && <StagePicker feature={f} />}
           <Button type="button" onClick={() => setDialog('edit')}>
             Edit
           </Button>
@@ -84,7 +111,7 @@ export function FeaturePage() {
         <TaskProgress tasks={tasks.data ?? []} />
       )}
       <div className="flex flex-wrap items-start gap-5">
-        <div className="flex flex-[999_1_460px] flex-col gap-5 md:min-w-[460px]">
+        <div className="flex min-w-0 flex-[999_1_460px] flex-col gap-5 md:min-w-[460px]">
           {briefs.isError ? (
             <p className="text-sm text-danger">{briefs.error.message}</p>
           ) : (
@@ -98,29 +125,6 @@ export function FeaturePage() {
               faces={roleFaces(teams.data, latestChannel?.team)}
             />
           )}
-          <Card title="Diff">
-            {diff.isError ? (
-              <p className="text-sm text-danger">{diff.error.message}</p>
-            ) : (
-              <div className="flex items-center gap-3 text-sm">
-                {diff.data &&
-                  (diff.data.length ? (
-                    <>
-                      <span className="text-muted">
-                        {diff.data.length} file{diff.data.length === 1 ? '' : 's'}
-                      </span>
-                      <span className="text-done">+{diffCounts(diff.data).added}</span>
-                      <span className="text-failed">−{diffCounts(diff.data).removed}</span>
-                    </>
-                  ) : (
-                    <EmptyState title="No changes yet" role="developer" compact />
-                  ))}
-                <Link to={`/features/${id}/review`} className={`${buttonClass()} ml-auto`}>
-                  Review changes
-                </Link>
-              </div>
-            )}
-          </Card>
         </div>
         <div className="flex min-w-[300px] flex-1 flex-col gap-5">
           <Card title="Channels">
@@ -137,11 +141,20 @@ export function FeaturePage() {
             {tasks.isError ? (
               <p className="text-sm text-danger">{tasks.error.message}</p>
             ) : (
-              <TaskList tasks={tasks.data ?? []} compact />
+              <>
+                {(openTasks.length > 0 || doneTasks.length === 0) && (
+                  <TaskList tasks={openTasks} compact />
+                )}
+                {doneTasks.length > 0 && (
+                  <details>
+                    <summary className="cursor-pointer py-2 text-xs text-muted">
+                      {doneTasks.length} done
+                    </summary>
+                    <TaskList tasks={doneTasks} compact />
+                  </details>
+                )}
+              </>
             )}
-          </Card>
-          <Card title="Branch">
-            <div className="font-mono text-xs text-soft">feature/{f.slug}</div>
           </Card>
         </div>
       </div>
