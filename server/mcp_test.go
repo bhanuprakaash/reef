@@ -435,6 +435,23 @@ func TestMCPProposeBrief(t *testing.T) {
 	}
 }
 
+func TestMCPProposeBriefRefusedWhileWrapPending(t *testing.T) {
+	st, tok := mcpFixture(t)
+	call := callTool(t, st, tok)
+	if got, isErr := call("propose_wrap", map[string]any{"brief": "final", "notes": "n", "decisions": []any{}}); isErr {
+		t.Fatalf("propose_wrap = %q", got)
+	}
+
+	got, isErr := call("propose_brief", map[string]any{"brief": "plan"})
+	if want := "invalid: channel 1 has a wrap-up waiting for approval"; got != want || !isErr {
+		t.Errorf("propose_brief = %q (error %v), want %q", got, isErr, want)
+	}
+	p, err := st.PendingProposal(context.Background(), 1)
+	if err != nil || p.Kind != store.ProposalWrap || p.Brief != "final" {
+		t.Errorf("pending = %+v, %v, want the wrap with brief final", p, err)
+	}
+}
+
 func TestMCPListTasks(t *testing.T) {
 	st, tok := mcpFixture(t)
 	ctx := context.Background()

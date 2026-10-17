@@ -511,10 +511,13 @@ func (s *Session) propose(
 		return store.Proposal{}, err
 	}
 	p, err := s.st.PendingProposal(ctx, s.ch.ID)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && p.ID == before.ID) {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return store.Proposal{}, err
+	}
+	if err != nil || p.ID == before.ID || p.Kind != store.ProposalWrap {
 		return store.Proposal{}, ErrNoProposal
 	}
-	return p, err
+	return p, nil
 }
 
 func (m *member) close(st *store.Store) error {

@@ -17,6 +17,7 @@ type recordingAgent struct {
 	st        *store.Store
 	channelID int64
 	propose   bool
+	kind      string
 	startErr  error
 	closeErr  error
 
@@ -49,7 +50,8 @@ func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 	a.prompts = append(a.prompts, prompt)
 	if strings.Contains(prompt, "propose_wrap") && a.propose {
 		_, err := a.st.CreateProposal(ctx, store.Proposal{
-			ChannelID: a.channelID, Role: "architect", Brief: "new brief", Notes: "my notes",
+			ChannelID: a.channelID, Role: "architect", Kind: a.kind, Brief: "new brief",
+			Notes: "my notes",
 		})
 		if err != nil {
 			return err
@@ -885,6 +887,23 @@ func TestSession_Wrap(t *testing.T) {
 	ag.propose = false
 	if _, err := s.Wrap(ctx, discard); !errors.Is(err, ErrNoProposal) {
 		t.Errorf("Wrap with an older proposal pending error = %v, want ErrNoProposal", err)
+	}
+}
+
+func TestSession_WrapIgnoresBriefProposal(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionChannel(t, st, f, false)
+	ag := newRecordingAgent()
+	ag.st, ag.channelID, ag.propose, ag.kind = st, ch.ID, true, store.ProposalBrief
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if p, err := s.Wrap(ctx, discard); !errors.Is(err, ErrNoProposal) {
+		t.Errorf("Wrap answered with propose_brief = %+v, %v, want ErrNoProposal", p, err)
 	}
 }
 

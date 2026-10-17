@@ -145,3 +145,18 @@ func TestWrap_RefusedWhileProposalPending(t *testing.T) {
 		t.Errorf("send = %d %s, want 202: only a wrap waits on the proposal", status, body)
 	}
 }
+
+func TestWrap_NotBlockedByPendingBrief(t *testing.T) {
+	env := newLiveEnv(t)
+	id := env.featureChannel(t)
+	_, err := env.st.CreateProposal(context.Background(), store.Proposal{
+		ChannelID: int64(id), Role: "lead", Kind: store.ProposalBrief, Brief: "plan",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if status, body := do(t, http.MethodPost, env.url+"/channels/2/wrap", ""); status != 202 {
+		t.Errorf("wrap = %d %s, want 202: a pending brief does not block a wrap", status, body)
+	}
+}

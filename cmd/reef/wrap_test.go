@@ -48,13 +48,17 @@ func TestCLI_Wrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	brief, err := st.CreateChannel(ctx, store.Channel{ProjectID: other.ID, FeatureID: &f.ID, Name: "plan"})
+	if err != nil {
+		t.Fatal(err)
+	}
 	day := time.Now().UTC().Format(time.DateOnly)
 	for _, prop := range []store.Proposal{
 		{ChannelID: 1, Role: "architect", Brief: "sign in with sessions", Notes: "n1",
 			Decisions: []store.ProposedDecision{{Body: "cookie sessions", Why: "simple"}, {Body: "24h expiry"}}},
 		{ChannelID: 2, Role: "reviewer", Brief: "bill monthly", Notes: "n2"},
 		{ChannelID: ch.ID, Role: "developer", Brief: "outside project"},
-		{ChannelID: ch.ID, Role: "lead", Kind: store.ProposalBrief, Brief: "outside plan"},
+		{ChannelID: brief.ID, Role: "lead", Kind: store.ProposalBrief, Brief: "outside plan"},
 	} {
 		if _, err := st.CreateProposal(ctx, prop); err != nil {
 			t.Fatal(err)
