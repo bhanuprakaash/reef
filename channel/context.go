@@ -14,7 +14,8 @@ const (
 	_dateLayout    = "2006-01-02"
 	_maxIndexRunes = 100
 	_closing       = "Details are on demand through the reef MCP tools read_decision, " +
-		"read_thread and search_sessions. Record decisions with record_decision."
+		"read_thread and search_sessions. Record decisions with record_decision. When the " +
+		"user and the team agree on the goal, scope or plan, call propose_brief."
 )
 
 // Context is the first prompt of a role on a feature: the brief, the role's own
@@ -46,6 +47,8 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 		b.WriteString("This feature is a list of fixes tracked as tasks, not one piece of work with stages.\n")
 	} else {
 		fmt.Fprintf(&b, "Stage: %s\n", f.Stage)
+		fmt.Fprintf(&b, "Stages in order: %s. Call set_stage when the work moves to the next one.\n",
+			strings.Join(store.Stages(), ", "))
 	}
 
 	if p.BaseBranch != "" {
@@ -88,6 +91,9 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 	b.WriteString("\n## Index\n")
 	var lines []string
 	for _, d := range decisions {
+		if d.RetiredAt != nil {
+			continue
+		}
 		lines = append(lines, fmt.Sprintf("decision %d: %s (%s, %s)",
 			d.ID, firstLine(d.Body), d.Author, d.CreatedAt.Format(_dateLayout)))
 	}

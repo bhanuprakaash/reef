@@ -413,10 +413,11 @@ func (s *server) checkChannel(
 			store.ErrInvalid, ch.ID)
 	}
 	if kind == _wrap {
-		if _, err := s.st.PendingProposal(ctx, ch.ID); !errors.Is(err, store.ErrNotFound) {
-			if err != nil {
-				return "", err
-			}
+		p, err := s.st.PendingProposal(ctx, ch.ID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return "", err
+		}
+		if err == nil && p.Kind == store.ProposalWrap {
 			return "", fmt.Errorf("channel %d has a wrap-up waiting for approval: %w", ch.ID, store.ErrConflict)
 		}
 	}

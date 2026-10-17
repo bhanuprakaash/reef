@@ -302,6 +302,9 @@ delete; deleting the turn deletes its tool calls.
 | `why` | string | default `""` |
 | `author` | string | required |
 | `createdAt` | string | |
+| `retiredAt` | string? | `null` while the decision is live. Set when it is retired: stale, duplicate or replaced. A retired decision is never edited or deleted, and still reads |
+| `replacedBy` | number? | the decision that replaced it, if one did; `null` for a plain retire |
+| `replaces` | array? | input to create, echoed in its response and never in a read: ids of live decisions of the same feature that the new decision retires, with their `replacedBy` set to it. Any other id is `invalid: decision 9 is not a live decision of feature 1` and nothing is written |
 
 ### task
 
@@ -400,8 +403,10 @@ them, and the one that made a token deletes it when its session ends. See
 ### proposal
 
 A wrap-up proposal: the new brief, the role's notes and the decisions to record.
-`propose_wrap` makes one. `reef chat` prompts for approval, and `reef wrap approve` or
-`reef wrap reject` decides it; the server offers the same over REST (see [Wrap-up and
+`propose_wrap` makes one. `propose_brief` makes a brief proposal: only the brief, made
+mid-channel. Approving it adds a brief version and leaves the notes, the decisions and the
+channel as they are; the channel's agent is not stopped. A channel has one pending proposal at most: a new wrap rejects the older pending ones of any kind, a new brief rejects the older pending briefs and is refused with `invalid: channel 1 has a wrap-up waiting for approval` while a wrap is pending, and approving a brief on a closed channel is `invalid: channel 1 is closed`. `reef chat` prompts for approval,
+and `reef wrap approve` or `reef wrap reject` decides it; the server offers the same over REST (see [Wrap-up and
 promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 
 | Field | JSON | Notes |
@@ -409,9 +414,11 @@ promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 | `id` | number | |
 | `channelId` | number | required; must be a channel of a feature. Deleting the channel deletes the proposal |
 | `role` | string | required; author of the brief, notes and decisions it applies |
+| `kind` | string | `wrap` (default) or `brief`; any other is `invalid: unknown proposal kind "x"` |
 | `brief` | string | required, not empty; the full new brief |
 | `notes` | string | may be empty; replaces the role's notes |
-| `decisions` | array | `{"body", "why"}` each, `body` required. The SQL column holds them as JSON text |
+| `decisions` | array | `{"body", "why", "replaces"}` each, `body` required; `replaces` is optional, ids of live decisions it retires. Approving applies it only for a decision it adds: one skipped because a live decision of the feature has its body retires nothing. The SQL column holds them as JSON text |
+| `retire` | array | ids of live decisions that are stale or duplicate; approving sets their `retiredAt`. `[]` by default. The SQL column holds them as JSON text. A wrap whose `retire` or `replaces` has an id that is not a live decision of the channel's feature is `invalid: decision 9 is not a live decision of feature 1` and is not saved. An id claimed twice (in `retire` and a `replaces`, or two `replaces`) is kept for its first claim, replaces before `retire`. At approve an id that is already retired is skipped; an id that is not a decision of the feature fails the whole approve with 400 |
 | `status` | string | `pending` (default), `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 | `decidedAt` | string? | `null` while pending |
@@ -477,7 +484,7 @@ tool calls.
 | `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
 | `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
 | `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
-| `POST /proposals/{id}/approve` | no body needed | 200 the proposal and `decisionsAdded`; the proposal's channel is closed and its agent stopped | 400 already decided, 404 |
+| `POST /proposals/{id}/approve` | no body needed | 200 the proposal and `decisionsAdded`; a wrap closes the proposal's channel and stops its agent, a brief proposal does neither | 400 already decided, 404 |
 | `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
 | `GET /messages` | `?channel=ID` (required), `?after=ID` (only newer ids) | 200, each with `parentId` | 400 no channel, 404 unknown channel |
 | `POST /messages` | `channelId`, `parentId`, `author`, `body` | 201 | 400 unknown channel, missing field, or a `parentId` that is not a top-level message of that channel |
@@ -495,8 +502,8 @@ tool calls.
 | `GET /inbox/events` | | 200 `text/event-stream` | |
 | `POST /channels/{id}/dismiss` | `messageId` | 204, no body; the channel's `waiting` item for that message is hidden, see [Inbox](#inbox) | 400 bad body, 404 unknown channel or a message that is not the channel's |
 | `POST /turns/{id}/rollback` | no body needed | 204, no body; the channel's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the channel has a turn running, a `reef chat` has it open, its tree is not the one the checkpoint was taken in, or a turn of any role runs on the tree, 503 |
-| `GET /decisions` | `?feature=ID` (required) | 200 | 400 no feature, 404 unknown feature |
-| `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field, unknown feature, or a message of another feature |
+| `GET /decisions` | `?feature=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy` | 400 no feature, 404 unknown feature |
+| `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author`, `replaces` | 201 | 400 missing field, unknown feature, a message of another feature, or a `replaces` id that is not a live decision of the feature |
 | `GET /decisions/{id}` | | 200 | 404 |
 
 A `POST` with no body (`stop`, `continue`, `wrap`, `approve`, `reject`) still needs
@@ -796,7 +803,8 @@ turn of [`Session.Wrap`](../channel/session.go) (see [memory.md](memory.md#wrap-
 agent calls `propose_wrap`; when the turn is done, `GET /channels/{id}/proposal` returns the
 pending proposal, or 404 when the agent made none. `POST /proposals/{id}/approve` and
 `/reject` decide it with the same effect as `reef wrap approve` and `reject`. Approve
-also returns `decisionsAdded`, the decisions it saved, closes the channel (`closedAt`) and stops its agent; a closed channel refuses sends, wraps and wakes with 409 until `POST /channels/{id}/reopen`. A proposal that is already decided is
+also returns `decisionsAdded`, the decisions it saved, closes the channel (`closedAt`) and stops its agent; a closed channel refuses sends, wraps and wakes with 409 until `POST /channels/{id}/reopen`. A brief proposal (`propose_brief`, `kind` `brief`) does not close the channel or block its turns or a wrap; only a
+pending wrap blocks another wrap (409 `channel 2 has a wrap-up waiting for approval`). A proposal that is already decided is
 400, like `invalid: proposal 1 is already approved` in the CLI.
 
 `POST /channels/{id}/promote` turns a quick session into a feature. It takes `{"slug":
@@ -915,7 +923,9 @@ The API has no way to change or remove these rows.
 - Messages and decisions: create and read only. `PUT`, `PATCH` and `DELETE` on
   `/messages/{id}` and `/decisions/{id}` return 405. The only way a message or decision
   goes away is a cascade from its channel or feature. Deleting a channel does not delete
-  its decisions; they only lose `messageId`.
+  its decisions; they only lose `messageId`. A decision's body is never edited, but it can
+  be retired (`retiredAt`, `replacedBy`) by a new decision that replaces it or by an
+  approved proposal; see decision 76.
 - Briefs: `PUT /features/{id}/brief` adds a version and never edits one. Old versions
   stay in `/brief/versions`. Role notes are not versioned; `PUT` replaces them.
 - Turns: created `running`, may get a `sessionId` while running, ended once with `PATCH`

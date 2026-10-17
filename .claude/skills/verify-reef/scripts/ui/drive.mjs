@@ -856,13 +856,14 @@ async function diff() {
   );
 
   await page.goto(`${base}/features/${featureId}`);
-  const card = main.locator('section', { has: page.getByRole('heading', { name: 'Diff', level: 2 }) });
-  await card.getByText('1 file').waitFor();
+  const meta = main.getByRole('link', { name: /^1 file/ });
+  await meta.waitFor();
   await shot('summary');
   check(
-    (await card.innerText()).replace(/\s+/g, ' ').includes('1 file +1 −0'),
-    'the feature page Diff card sums the changes and links to the review page',
-    await card.innerText(),
+    (await meta.innerText()).replace(/\s+/g, ' ').includes('1 file +1 −0') &&
+      (await meta.getAttribute('href')) === `/features/${featureId}/review`,
+    'the feature page header meta line sums the changes and links to the review page',
+    await meta.innerText(),
   );
   await page.goto(`${base}/channels/${cid}`);
   await page.getByRole('button', { name: /^Diff \+1/ }).click();

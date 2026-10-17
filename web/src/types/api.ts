@@ -48,6 +48,8 @@ export type Decision = {
   why: string;
   author: string;
   createdAt: string;
+  retiredAt: string | null;
+  replacedBy: number | null;
 };
 
 export type Channel = {
@@ -71,15 +73,18 @@ export type ChannelPreview = Channel & {
 export type ProposedDecision = {
   body: string;
   why: string;
+  replaces?: number[];
 };
 
 export type Proposal = {
   id: number;
   channelId: number;
   role: string;
+  kind: 'wrap' | 'brief';
   brief: string;
   notes: string;
   decisions: ProposedDecision[];
+  retire: number[];
   status: string;
   createdAt: string;
 };

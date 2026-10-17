@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -17,7 +18,16 @@ const (
 	_featureCols  = "id, project_id, slug, name, goal, stage, kind, created_at, closed_at"
 )
 
-var _slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+var (
+	_slugPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]*$`)
+	_stages      = []string{
+		"ideation", "grill", "plan", "tickets", "implement", "testing", "live-testing",
+		"post-release",
+	}
+)
+
+// Stages returns the journey stages in order.
+func Stages() []string { return slices.Clone(_stages) }
 
 // Feature is a unit of work in a project. Its slug names its branch and folder.
 type Feature struct {
@@ -153,6 +163,26 @@ func (s *Store) UpdateFeature(ctx context.Context, f Feature) (Feature, error) {
 		return Feature{}, fmt.Errorf("feature %d: %w", f.ID, ErrNotFound)
 	}
 	return s.Feature(ctx, f.ID)
+}
+
+// SetFeatureStage sets the stage of a journey feature. A fixes feature has no stage.
+func (s *Store) SetFeatureStage(ctx context.Context, id int64, stage string) (Feature, error) {
+	if !slices.Contains(_stages, stage) {
+		return Feature{}, fmt.Errorf("%w: unknown stage %q", ErrInvalid, stage)
+	}
+	f, err := s.Feature(ctx, id)
+	if err != nil {
+		return Feature{}, err
+	}
+	if f.Kind == "fixes" {
+		return Feature{}, fmt.Errorf("%w: feature %s is a list of fixes and has no stage",
+			ErrInvalid, f.Slug)
+	}
+	if _, err := s.db.ExecContext(ctx, "UPDATE feature SET stage = ? WHERE id = ?", stage, id); err != nil {
+		return Feature{}, fmt.Errorf("set feature stage: %w", err)
+	}
+	f.Stage = stage
+	return f, nil
 }
 
 // CloseFeature sets closed_at on the feature and on each of its channels still open, in one

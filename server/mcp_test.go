@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"errors"
 	"net"
 	"path/filepath"
 	"reflect"
@@ -17,7 +18,7 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-var _timestamp = regexp.MustCompile(`"(createdAt|updatedAt)":"[^"]*"`)
+var _timestamp = regexp.MustCompile(`"(createdAt|updatedAt|retiredAt)":"[^"]*"`)
 
 // mcpFixture has features 1 (auth) and 2 (billing). The returned token is the
 // architect in channel 1; channel 2 is a second channel of auth, channel 3 is
@@ -152,7 +153,7 @@ func TestMCPTools(t *testing.T) {
 			tool: "record_decision",
 			give: map[string]any{"body": "use sessions", "why": "simple", "messageId": 1},
 			want: `{"author":"architect","body":"use sessions","createdAt":"T","featureId":1,` +
-				`"id":2,"messageId":1,"why":"simple"}`,
+				`"id":2,"messageId":1,"replacedBy":null,"retiredAt":null,"why":"simple"}`,
 		},
 		{
 			name: "add task to the feature",
@@ -188,7 +189,7 @@ func TestMCPTools(t *testing.T) {
 			tool: "read_decision",
 			give: map[string]any{"id": 2},
 			want: `{"author":"architect","body":"use sessions","createdAt":"T","featureId":1,` +
-				`"id":2,"messageId":1,"why":"simple"}`,
+				`"id":2,"messageId":1,"replacedBy":null,"retiredAt":null,"why":"simple"}`,
 		},
 		{
 			name:    "read another feature's decision",
@@ -321,8 +322,9 @@ func TestMCPProposeWrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := store.Proposal{
-		ID: 1, ChannelID: 1, Role: "architect", Brief: "v2", Notes: "mine",
+		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalWrap, Brief: "v2", Notes: "mine",
 		Decisions: []store.ProposedDecision{{Body: "use sessions", Why: "simple"}},
+		Retire:    []int64{},
 		Status:    store.ProposalPending,
 	}
 	p.CreatedAt = time.Time{}
@@ -333,6 +335,146 @@ func TestMCPProposeWrap(t *testing.T) {
 	got, isErr = call("propose_wrap", map[string]any{"brief": "", "notes": "n", "decisions": []any{}})
 	if want := "invalid: proposal brief is required"; got != want || !isErr {
 		t.Errorf("propose_wrap with empty brief = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
+func TestMCPRecordDecisionReplaces(t *testing.T) {
+	st, tok := mcpFixture(t)
+	call := callTool(t, st, tok)
+	call("record_decision", map[string]any{"body": "use sessions", "why": "simple"})
+
+	got, isErr := call("record_decision", map[string]any{"body": "use tokens", "replaces": []int{2}})
+	want := `{"author":"architect","body":"use tokens","createdAt":"T","featureId":1,` +
+		`"id":3,"messageId":null,"replacedBy":null,"replaces":[2],"retiredAt":null,"why":""}`
+	if got != want || isErr {
+		t.Errorf("record_decision with replaces = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = call("read_decision", map[string]any{"id": 2})
+	want = `{"author":"architect","body":"use sessions","createdAt":"T","featureId":1,` +
+		`"id":2,"messageId":null,"replacedBy":3,"retiredAt":"T","why":"simple"}`
+	if got != want || isErr {
+		t.Errorf("read_decision of the replaced = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = call("record_decision", map[string]any{"body": "use jwt", "replaces": []int{1}})
+	want = "invalid: decision 1 is not a live decision of feature 1"
+	if got != want || !isErr {
+		t.Errorf("record_decision replacing another feature's = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
+func TestMCPSetStage(t *testing.T) {
+	st, tok := mcpFixture(t)
+	ctx := context.Background()
+	if _, err := st.CreateFeature(ctx, store.Feature{ProjectID: 1, Slug: "login", Name: "Login", Kind: "fixes"}); err != nil {
+		t.Fatal(err)
+	}
+	three := int64(3)
+	ch, err := st.CreateChannel(ctx, store.Channel{ProjectID: 1, FeatureID: &three, Name: "architect"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixesTok, err := st.CreateToken(ctx, ch.ID, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, isErr := callTool(t, st, tok)("set_stage", map[string]any{"stage": "plan"})
+	if want := `{"closedAt":null,"createdAt":"T","goal":"","id":1,"kind":"journey",` +
+		`"name":"Auth","projectId":1,"slug":"auth","stage":"plan"}`; got != want || isErr {
+		t.Errorf("set_stage plan = %q (error %v), want %q", got, isErr, want)
+	}
+	msgs, err := st.Messages(ctx, 1, 4)
+	if err != nil || len(msgs) != 1 || msgs[0].Author != "reef" ||
+		msgs[0].Body != "architect moved the stage to plan" {
+		t.Errorf("messages after id 4 = %+v, %v, want one reef note", msgs, err)
+	}
+
+	got, isErr = callTool(t, st, tok)("set_stage", map[string]any{"stage": "plan"})
+	if want := `{"closedAt":null,"createdAt":"T","goal":"","id":1,"kind":"journey",` +
+		`"name":"Auth","projectId":1,"slug":"auth","stage":"plan"}`; got != want || isErr {
+		t.Errorf("set_stage plan again = %q (error %v), want %q", got, isErr, want)
+	}
+	msgs, err = st.Messages(ctx, 1, 4)
+	if err != nil || len(msgs) != 1 {
+		t.Errorf("messages after id 4 = %+v, %v, want still one reef note", msgs, err)
+	}
+
+	tests := []struct {
+		name string
+		tok  store.Token
+		give string
+		want string
+	}{
+		{"unknown stage", tok, "x", `invalid: unknown stage "x"`},
+		{"fixes feature", fixesTok, "plan", "invalid: feature login is a list of fixes and has no stage"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, isErr := callTool(t, st, tt.tok)("set_stage", map[string]any{"stage": tt.give})
+			if got != tt.want || !isErr {
+				t.Errorf("set_stage %q = %q (error %v), want %q", tt.give, got, isErr, tt.want)
+			}
+		})
+	}
+}
+
+func TestMCPProposeBrief(t *testing.T) {
+	st, tok := mcpFixture(t)
+	call := callTool(t, st, tok)
+
+	got, isErr := call("propose_brief", map[string]any{"brief": "plan: ship login first"})
+	if want := `{"id":1,"message":"proposal saved; the user will approve it"}`; got != want || isErr {
+		t.Errorf("propose_brief = %q (error %v), want %q", got, isErr, want)
+	}
+	p, err := st.PendingProposal(context.Background(), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := store.Proposal{
+		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalBrief,
+		Brief: "plan: ship login first", Decisions: []store.ProposedDecision{},
+		Retire: []int64{}, Status: store.ProposalPending,
+	}
+	p.CreatedAt = time.Time{}
+	if !reflect.DeepEqual(p, want) {
+		t.Errorf("proposal = %+v, want %+v", p, want)
+	}
+
+	got, isErr = call("propose_brief", map[string]any{"brief": ""})
+	if want := "invalid: proposal brief is required"; got != want || !isErr {
+		t.Errorf("propose_brief with empty brief = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
+func TestMCPProposeWrapRejectsBadRetireID(t *testing.T) {
+	st, tok := mcpFixture(t)
+	call := callTool(t, st, tok)
+
+	got, isErr := call("propose_wrap", map[string]any{
+		"brief": "v2", "notes": "n", "decisions": []any{}, "retire": []any{9},
+	})
+	if want := "invalid: decision 9 is not a live decision of feature 1"; got != want || !isErr {
+		t.Errorf("propose_wrap = %q (error %v), want %q", got, isErr, want)
+	}
+	if _, err := st.PendingProposal(context.Background(), 1); !errors.Is(err, store.ErrNotFound) {
+		t.Errorf("PendingProposal = %v, want ErrNotFound: nothing saved", err)
+	}
+}
+
+func TestMCPProposeBriefRefusedWhileWrapPending(t *testing.T) {
+	st, tok := mcpFixture(t)
+	call := callTool(t, st, tok)
+	if got, isErr := call("propose_wrap", map[string]any{"brief": "final", "notes": "n", "decisions": []any{}}); isErr {
+		t.Fatalf("propose_wrap = %q", got)
+	}
+
+	got, isErr := call("propose_brief", map[string]any{"brief": "plan"})
+	if want := "invalid: channel 1 has a wrap-up waiting for approval"; got != want || !isErr {
+		t.Errorf("propose_brief = %q (error %v), want %q", got, isErr, want)
+	}
+	p, err := st.PendingProposal(context.Background(), 1)
+	if err != nil || p.Kind != store.ProposalWrap || p.Brief != "final" {
+		t.Errorf("pending = %+v, %v, want the wrap with brief final", p, err)
 	}
 }
 
@@ -580,6 +722,8 @@ func TestMCPQuickSession(t *testing.T) {
 		{"read_decision", map[string]any{"id": 1}},
 		{"read_thread", map[string]any{"channelId": 1}},
 		{"propose_wrap", map[string]any{"brief": "b", "notes": "n", "decisions": []any{}}},
+		{"set_stage", map[string]any{"stage": "plan"}},
+		{"propose_brief", map[string]any{"brief": "b"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.tool, func(t *testing.T) {

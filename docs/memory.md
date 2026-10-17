@@ -16,7 +16,7 @@ Reef has no handoff file. A new session starts with three things:
 
 - The feature's brief: goal, status, key decisions, open questions.
 - The role's own notes on the feature.
-- An index: one line per decision, channel and open task.
+- An index: one line per live decision, channel and open task. Retired decisions are left out.
 
 It never gets old message bodies. When it needs details, it fetches them on demand with
 the MCP tools (`read_decision`, `read_thread`, `search_sessions`). So the first prompt
@@ -85,8 +85,8 @@ Rules for every command:
 | `reef team list` | Lists the teams by name, each with its roles | `duo  lead*(claude) architect(claude)`: the lead has a `*` |
 | `reef context <feature> --role R` | Prints the context prompt for role `R` (see below) | the prompt |
 | `reef token <feature> --role R` | Makes a channel and a token for role `R` (see Tokens) | a `claude mcp add` command |
-| `reef wrap list [<feature>]` | Lists pending wrap-up proposals (see Wrap-up): of the feature, or of the current folder's project | `1  login  3  architect  2026-10-13`: id, feature slug, channel id, role, created date |
-| `reef wrap show <id>` | Prints a proposal and its status | `proposal 1 from architect`, status, then brief, notes and decisions |
+| `reef wrap list [<feature>]` | Lists pending wrap-up proposals (see Wrap-up): of the feature, or of the current folder's project | `1  login  3  architect  wrap  2026-10-13`: id, feature slug, channel id, role, kind (`wrap` or `brief`), created date |
+| `reef wrap show <id>` | Prints a proposal and its status | `proposal 1 from architect` (`brief update 2 from lead` for a brief proposal), status, then brief, notes and decisions |
 | `reef wrap approve <id>` | Approves a pending proposal | `approved: brief, notes and 1 decisions saved` |
 | `reef wrap reject <id>` | Rejects a pending proposal | `rejected: nothing changed` |
 | `reef chat ...` | Runs a channel in the terminal (see below) | the conversation |
@@ -201,18 +201,20 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | Tool | Input | Output | Errors |
 | --- | --- | --- | --- |
 | `get_brief` | none | `{"brief": "...", "notes": "..."}`: the latest brief and this role's notes. Each is `""` when there is none yet | |
-| `record_decision` | `body` (required), `why`, `messageId` | the new decision, as in [server.md](server.md#decision). The author is the token's role | `invalid: decision body is required`, `invalid: message 5 is not in a channel of feature 1` |
+| `record_decision` | `body` (required), `why`, `messageId`, `replaces` (ids of live decisions it amends or replaces) | the new decision, as in [server.md](server.md#decision). The author is the token's role. Each `replaces` id is retired with `replacedBy` set to the new decision, in one transaction. The tool says a decision is a choice about how the feature works, not progress, proof or a won't-fix list | `invalid: decision body is required`, `invalid: message 5 is not in a channel of feature 1`, `invalid: decision 9 is not a live decision of feature 1` (nothing is written) |
 | `add_task` | `title` (required), `body` | the new task: `todo`, in the feature's project, tagged with the feature | `invalid: task title is required` |
 | `list_tasks` | `status` (`todo`, `doing` or `done`; leave it out for all) | `{"tasks": [...]}`: the feature's tasks by id, as in [server.md](server.md#task). `tasks` is `[]` when there are none | `invalid: unknown status "later"` |
 | `read_task` | `id` (required) | the task, with its full body | `task 99: not found`, also for a task of another feature or of no feature |
 | `update_task` | `id` (required), `title`, `body`, `status` (`todo`, `doing` or `done`) | the updated task. Only the fields given change; `{"id": 3, "status": "done"}` marks task 3 done. There is no tool to delete a task | `task 99: not found` as for `read_task`, `invalid: task title is required`, `invalid: unknown status "later"` |
 | `search_sessions` | `query` (required), `limit` (default 20) | `{"hits": [{"channelId", "messageId", "author", "snippet"}]}`: messages in all of the feature's channels that contain `query`, newest first. Case is ignored for ASCII. The snippet is about 120 characters around the match. `hits` is `null` when nothing matches | `query is required` |
-| `read_decision` | `id` (required) | the decision | `decision 99: not found`, also for a decision of another feature |
+| `read_decision` | `id` (required) | the decision, with `retiredAt` and `replacedBy` when it is retired | `decision 99: not found`, also for a decision of another feature |
 | `read_thread` | `channelId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the channel's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `channel 9: not found`, also for a channel of another feature or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the channel |
 | `post_to_channel` | `body` (required), `parent` (the id of a top-level message: reply in its thread; leave it out to post at the top level) | the stored message, with the token's role as `author`. It works on a quick session too | `invalid: message body is required`, `invalid: parent 9 is not a top-level message of channel 1` |
 | `send_to_role` | `to` (exactly one teammate role), `body` (required) | the stored direct request, with `channelId`, `chainId`, `from`, `to`, `replyToId: null` and `status: sent` | empty body, self, unknown or out-of-team role, and a recipient list are errors; nothing is stored |
 | `read_direct_messages` | `after` (only newer direct-message ids) | `{"messages": [...]}` containing only exchanges in this channel where the token's role is sender or recipient | |
-| `propose_wrap` | `brief`, `notes`, `decisions` (all required). Each decision is `{"body", "why"}`; `why` may be `""` | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: decision body is required` |
+| `set_stage` | `stage` (required): `ideation`, `grill`, `plan`, `tickets`, `implement`, `testing`, `live-testing` or `post-release` | the updated feature, as in [server.md](server.md#feature). It also stores a `reef` message in the token's channel: `<role> moved the stage to <stage>`, unless the feature is already in that stage. No approval: the stage is a label | `invalid: unknown stage "x"`, `invalid: feature login is a list of fixes and has no stage` |
+| `propose_wrap` | `brief`, `notes`, `decisions` (all required); `retire` (ids of live decisions that are stale or duplicate). Each decision is `{"body", "why", "replaces"}`; `why` may be `""`, `replaces` lists the ids it amends or replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: decision body is required`, `invalid: decision 9 is not a live decision of feature 1` (a `retire` or `replaces` id) |
+| `propose_brief` | `brief` (required) | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: channel 1 has a wrap-up waiting for approval` |
 | `browser_navigate` | `url` (required) | `{"text": "navigated to <url>"}` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser`, `refused: the browser pane cannot open Reef itself` (or another `refused: ...` for a non-http(s) URL), the page's own error (e.g. `net::ERR_CONNECTION_REFUSED`) when it fails to load |
 | `browser_screenshot` | none | a PNG image of the browser pane's current page | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
 | `browser_snapshot` | none | the page's accessibility tree as text, one line per element: `- role "name" [ref=e12]`. A ref is only valid until the next snapshot or a navigation | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
@@ -221,7 +223,16 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `browser_console` | none | `{"text": "..."}`: the console messages and errors since the last navigation, one per line with their level, e.g. `error: boom` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
 | `browser_network` | none | `{"text": "..."}`: the network requests since the last navigation, one per line with method, URL and status, e.g. `GET http://localhost/ 404` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
 
-`propose_wrap` saves a pending proposal and changes nothing else. See Wrap-up.
+`propose_wrap` saves a pending proposal and changes nothing else. See Wrap-up. A channel has one
+pending proposal: a new wrap rejects the older pending proposals of the channel, whatever their
+kind, and `propose_wrap` refuses a `retire` or `replaces` id that is not a live decision of the
+feature, so the agent sees the error and nothing is saved.
+`propose_brief` saves a pending proposal of kind `brief`: the agent calls it when the user and
+the team agree on the goal, scope or plan, and the channel goes on. Approving it adds one
+brief version and nothing else: the role's notes stay, no decisions are recorded and the channel
+stays open. A new brief proposal rejects the channel's older pending brief proposals, and is
+refused while a wrap is pending. Approving a brief proposal of a closed channel fails with
+`invalid: channel 1 is closed`. `reef wrap approve` prints `approved: brief saved`.
 
 The browser tools go straight from `reef mcp` to the Reef app, over `browser.sock` in the data
 folder, not through `reef serve` (see [desktop.md](desktop.md#browser-pane)). With no socket, or
@@ -257,14 +268,14 @@ holds a message body. Its shape:
    resuming, gets this part again, marked `Your persona or skills changed:`.
 1. One line: role, feature name and slug, project name. Then, when a profile exists,
    `You work with Ada, a developer. They like: short answers, ask before big changes.` (occupation
-   and style only when set, lower-cased; `Other` is left out). Then the goal (if set) and the stage (a `fixes` feature says it is a list of fixes tracked as tasks instead). Then, when the project has a base branch, `Base branch: dev. A pull request you open targets it.` A quick session
+   and style only when set, lower-cased; `Other` is left out). Then the goal (if set) and the stage, then one line that lists the stages in order and asks the agent to call `set_stage` when the work moves to the next (a `fixes` feature says it is a list of fixes tracked as tasks instead, with no stage lines). Then, when the project has a base branch, `Base branch: dev. A pull request you open targets it.` A quick session
    adds the same line after its second line.
 2. `## Project memory`: the project's memory (see [server.md](server.md#project_memory)), only
    when it is not empty.
 3. `## Brief`: the latest brief, or `No brief yet.`
 4. `## Your notes`: this role's notes, or `No notes yet.`
-5. `## Index`, with `### Decisions` (one line each: id, the first line of the body cut
-   at 100 characters with `…`, author, date), `### Channels` (channels with messages, one line each: id, name,
+5. `## Index`, with `### Decisions` (one line each for a live decision: id, the first line of the body cut
+   at 100 characters with `…`, author, date; retired decisions are left out), `### Channels` (channels with messages, one line each: id, name,
    date, message count) and `### Open tasks` (tasks not `done`). An empty group says
    `none`.
 6. One closing line that names the tools for details.
@@ -288,6 +299,7 @@ Example, for a feature with one approved wrap-up:
 You are the developer on feature "Email login" (login) in project "shop".
 Goal: Users sign in with email and password
 Stage: ideation
+Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
 
 ## Project memory
 Sessions are stored server-side, not JWT.
@@ -312,7 +324,7 @@ channel 1: developer chat, 2026-10-13, 4 messages
 ### Open tasks
 none
 
-Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision.
+Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
 ```
 
 ## reef chat
@@ -410,14 +422,21 @@ Flags:
 A channel ends explicitly, never on a timer. The user types `/wrap` in `reef chat`:
 
 1. `reef chat` sends the agent a fixed prompt instead of `/wrap`. The stored user message
-   is still `/wrap`. The prompt asks the agent to call `propose_wrap` once, with the full
-   rewritten brief, its own notes on the feature, and the decisions made in this channel
-   that are not recorded yet. Decisions the agent already recorded with `record_decision`
-   are not proposed again.
+   is still `/wrap`. The prompt asks the agent to call `get_brief` first, then `propose_wrap`
+   once, with the full brief written as the latest brief plus what this channel achieved
+   (keep what still holds, status is where the feature is now and not a history, drop what
+   is done or no longer true, stay short), its own notes on the feature, and the decisions
+   made in this channel that are not recorded yet. Decisions the agent already recorded
+   with `record_decision` are not proposed again. The prompt also asks it to review the
+   decision index: `retire` lists decisions that are stale or duplicate, and `replaces` on
+   a new decision lists older ones it amends.
 2. `propose_wrap` stores a `pending` proposal (see [server.md](server.md#proposal)).
-3. After the turn, `reef chat` looks for a pending proposal of this channel that is newer
-   than the one pending before `/wrap`. With none, it prints `no proposal made`.
-4. Otherwise it prints the proposal: brief, notes and decisions, then `approve? [y/N]`.
+3. After the turn, `reef chat` looks for a pending wrap proposal of this channel that is newer
+   than the one pending before `/wrap`. With none, it prints `no proposal made`: an agent that
+   answers with `propose_brief` has made none. A pending brief proposal does not block `/wrap`;
+   the new wrap rejects it.
+4. Otherwise it prints the proposal: brief, notes and decisions (with what each replaces),
+   the decisions to retire, then `approve? [y/N]`.
 5. The next line typed after the prompt decides. `y` or `yes` (any case) approves.
    Anything else, a blank line too, rejects. `reef chat` reads stdin all the time, so it
    drops lines already queued after first printing `approve? [y/N]`. It prints
@@ -431,8 +450,14 @@ Approve applies everything in one transaction:
 - a new brief version, with the role as author,
 - the role's notes, replacing the old ones,
 - each proposed decision, with the role as author and no source message. A decision whose
-  body is exactly the body of one the feature already has is skipped, so a decision the
-  agent recorded live is not saved twice. A repeat inside the proposal is skipped too,
+  body is exactly the body of a live decision of the feature is skipped, so a decision the
+  agent recorded live is not saved twice. A body that only a retired decision has is saved
+  again. A repeat inside the proposal is skipped too, and so is its `replaces`: a skipped
+  decision retires nothing,
+- for each added decision, its `replaces` retired with `replacedBy` set to it, and each id
+  in `retire` retired with no `replacedBy`. Ids were checked when the proposal was made, and
+  an id claimed twice is kept for its first claim only. An id that another channel retired
+  since is skipped. An id that is not a decision of the feature fails the whole approve,
 - the proposal marked `approved`, with `decidedAt`,
 - the proposal's channel closed (`closedAt`). The server then stops its agent and refuses new turns on it until `POST /channels/{id}/reopen`.
 
@@ -452,9 +477,8 @@ approved brief and notes.
 
 A proposal stays `pending` until someone decides it. `reef chat` only asks about the one
 `/wrap` just made. Every other pending proposal is decided later with `reef wrap`: one
-left pending by end of input or Ctrl-C, one the agent proposed outside `/wrap`, the older
-of two from one turn, and every proposal from plain Claude Code (below). `reef wrap list`
-shows them, `reef wrap show <id>` prints one, and `reef wrap approve <id>` or `reef wrap
+left pending by end of input or Ctrl-C, one the agent proposed outside `/wrap`, and every proposal from plain Claude Code (below).
+`reef wrap list` shows them, `reef wrap show <id>` prints one, and `reef wrap approve <id>` or `reef wrap
 reject <id>` decides it, with the same effect and output as in the chat. A proposal
 that is already decided fails with `invalid: proposal 1 is already approved`, exit 1.
 

@@ -106,6 +106,7 @@ func TestContext(t *testing.T) {
 	want := `You are the architect on feature "Login" (login) in project "shop".
 Goal: Google login
 Stage: ideation
+Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
 
 ## Brief
 Use Google OAuth.
@@ -127,7 +128,7 @@ channel 2: build, ` + day + `, 2 messages
 ### Open tasks
 task 1 [todo]: write tests
 
-Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision.
+Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
 `
 	if got != want {
 		t.Errorf("Context =\n%s\nwant\n%s", got, want)
@@ -147,6 +148,7 @@ func TestContext_EmptyFeature(t *testing.T) {
 	want := `You are the architect on feature "Login" (login) in project "shop".
 Goal: Google login
 Stage: ideation
+Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
 
 ## Brief
 No brief yet.
@@ -165,7 +167,7 @@ none
 ### Open tasks
 none
 
-Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision.
+Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
 `
 	if got != want {
 		t.Errorf("Context =\n%s\nwant\n%s", got, want)

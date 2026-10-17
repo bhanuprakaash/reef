@@ -45,6 +45,18 @@ func TestMigrateSkillsToList(t *testing.T) {
 			if _, err := s.db.Exec("ALTER TABLE project DROP COLUMN base_branch"); err != nil {
 				t.Fatal(err)
 			}
+			if _, err := s.db.Exec("ALTER TABLE proposal DROP COLUMN kind"); err != nil {
+				t.Fatal(err)
+			}
+			for _, drop := range []string{
+				"ALTER TABLE proposal DROP COLUMN retire",
+				"ALTER TABLE decision DROP COLUMN replaced_by",
+				"ALTER TABLE decision DROP COLUMN retired_at",
+			} {
+				if _, err := s.db.Exec(drop); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if _, err := s.db.Exec("ALTER TABLE turn DROP COLUMN direct_message_id"); err != nil {
 				t.Fatal(err)
 			}
