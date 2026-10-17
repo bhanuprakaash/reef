@@ -1,5 +1,8 @@
-import { type ReactNode, useEffect, useState } from 'react';
+import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
 import { Dialog } from '@/components/dialog';
+import { ResizeHandle } from '@/components/resize-handle';
+import { useResizableWidth } from '@/lib/use-resizable-width';
+import { useStoredFlag } from '@/lib/use-stored-flag';
 import { useApprovals } from '@/modules/channels/api/get-approvals';
 import { useFailedTurns } from '@/modules/channels/api/get-failed-turns';
 import { useMessages } from '@/lib/api/get-messages';
@@ -20,6 +23,7 @@ import { PrPanel } from '@/modules/channels/components/pr-panel';
 import { PromoteForm } from '@/modules/channels/components/promote-form';
 import { ProposalPanel } from '@/modules/channels/components/proposal-panel';
 import { TeamPanel } from '@/modules/channels/components/team-panel';
+import { WorkingBadge } from '@/modules/channels/components/working-badge';
 import { ThreadPane } from '@/modules/channels/components/thread-pane';
 import { TurnPanel } from '@/modules/channels/components/turn-panel';
 import { useLiveTurn } from '@/modules/channels/hooks/use-live-turn';
@@ -73,6 +77,13 @@ export function ChannelView({
   const [side, setSide] = useState<Side>(null);
   const [teamOpen, setTeamOpen] = useState(false);
   const [promoting, setPromoting] = useState(false);
+  const [teamHidden, toggleTeamHidden] = useStoredFlag('reef.teamPanel.hidden');
+  const { width, startResize } = useResizableWidth({
+    key: 'reef.sidePanel.width',
+    initial: 400,
+    min: 320,
+    maxShare: 0.7,
+  });
   const threads = groupThreads(messages.data ?? []);
   const thread =
     side?.kind === 'thread' ? threads.find((t) => t.root.id === side.rootId) : undefined;
@@ -129,10 +140,12 @@ export function ChannelView({
         onPromote={() => setPromoting(true)}
         onInspector={() => openSide(side?.kind === 'inspector' ? null : { kind: 'inspector' })}
         onTeam={() => {
-          setTeamOpen(!showTeam || !teamOpen);
+          if (teamHidden) toggleTeamHidden();
+          setTeamOpen(!showTeam || !teamOpen || teamHidden);
           closeSide();
         }}
         browserOpen={browserOpen}
+        teamHidden={teamHidden}
       />
       {channel.featureId === null && (
         <Dialog open={promoting} onClose={() => setPromoting(false)} title="Promote to a feature">
@@ -147,6 +160,20 @@ export function ChannelView({
       )}
       <div className="relative flex min-h-0 flex-1">
         <section className="flex min-w-0 flex-1 flex-col">
+          {running && showTeam && !teamOpen && (
+            <WorkingBadge
+              role={working}
+              face={face}
+              className={
+                teamHidden
+                  ? 'max-md:hidden'
+                  : browserOpen
+                    ? 'max-md:hidden min-[1540px]:hidden'
+                    : 'max-md:hidden min-[1100px]:hidden'
+              }
+            />
+          )}
+
           <div
             ref={box}
             onScroll={onScroll}
@@ -249,63 +276,74 @@ export function ChannelView({
           />
         )}
         <div
-          className={`shrink-0 overflow-y-auto ${wide ? 'md:w-[min(840px,65%)]' : 'md:w-[400px]'} md:border-l md:border-hairline ${browserOpen ? 'md:max-[1539px]:absolute md:max-[1539px]:inset-y-0 md:max-[1539px]:right-0 md:max-[1539px]:z-20 md:max-[1539px]:bg-main' : 'md:max-[1099px]:absolute md:max-[1099px]:inset-y-0 md:max-[1099px]:right-0 md:max-[1099px]:z-20 md:max-[1099px]:bg-main'} ${fullSheet ? 'flex flex-col max-md:fixed max-md:inset-0 max-md:z-30 max-md:bg-main' : 'p-4 max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-20 max-md:max-h-[85dvh] max-md:rounded-t-[28px] max-md:bg-field max-md:pb-8'} ${showTeam && !teamOpen ? (browserOpen ? 'hidden min-[1540px]:block' : 'hidden min-[1100px]:block') : ''}`}
+          style={{ '--side-width': `${width}px` } as CSSProperties}
+          className={`relative shrink-0 md:w-(--side-width) md:border-l md:border-hairline ${browserOpen ? 'md:max-[1539px]:absolute md:max-[1539px]:inset-y-0 md:max-[1539px]:right-0 md:max-[1539px]:z-20 md:max-[1539px]:bg-main' : 'md:max-[1099px]:absolute md:max-[1099px]:inset-y-0 md:max-[1099px]:right-0 md:max-[1099px]:z-20 md:max-[1099px]:bg-main'} ${fullSheet ? 'max-md:fixed max-md:inset-0 max-md:z-30 max-md:bg-main' : 'max-md:fixed max-md:inset-x-0 max-md:bottom-0 max-md:z-20 max-md:rounded-t-[28px] max-md:bg-field'} ${showTeam && !teamOpen ? (teamHidden ? 'hidden' : browserOpen ? 'hidden min-[1540px]:block' : 'hidden min-[1100px]:block') : ''}`}
         >
-          {!fullSheet && (
-            <div className="mx-auto mb-4 h-[5px] w-[38px] rounded-pill bg-raised md:hidden" />
-          )}
-          {thread && (
-            <ThreadPane
-              key={thread.root.id}
-              channelId={channel.id}
-              thread={thread}
-              lead={channel.role}
-              roles={roles.map((r) => r.name)}
-              faces={faces}
-              running={running}
-              paused={blocksUser(channel.paused)}
-              reason={channel.paused}
-              working={working}
-              closed={closed}
-              onClose={closeSide}
-            />
-          )}
-          {turnOpen && <TurnPanel turn={turn} role={working} face={face} onClose={closeSide} />}
-          {wide && diffPanel?.(closeSide)}
-          {side?.kind === 'inspector' && (
-            <InspectorPanel channelId={channel.id} faces={faces} onClose={closeSide} />
-          )}
-          {side?.kind === 'pr' && channel.featureId !== null && (
-            <PrPanel featureId={channel.featureId} onClose={closeSide} />
-          )}
-          {showTeam && (
-            <div className="mb-5 flex items-center gap-2.5 md:hidden">
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-xl">#{channel.name}</div>
-                <div className="text-[13px] text-muted">Team · {channel.team}</div>
+          <ResizeHandle
+            label="Resize panel"
+            onPointerDown={startResize}
+            className="max-md:hidden"
+          />
+          <div
+            className={`h-full overflow-y-auto ${fullSheet ? 'flex flex-col' : 'p-4 max-md:max-h-[85dvh] max-md:pb-8'}`}
+          >
+            {!fullSheet && (
+              <div className="mx-auto mb-4 h-[5px] w-[38px] rounded-pill bg-raised md:hidden" />
+            )}
+            {thread && (
+              <ThreadPane
+                key={thread.root.id}
+                channelId={channel.id}
+                thread={thread}
+                lead={channel.role}
+                roles={roles.map((r) => r.name)}
+                faces={faces}
+                running={running}
+                paused={blocksUser(channel.paused)}
+                reason={channel.paused}
+                working={working}
+                closed={closed}
+                onClose={closeSide}
+              />
+            )}
+            {turnOpen && <TurnPanel turn={turn} role={working} face={face} onClose={closeSide} />}
+            {wide && diffPanel?.(closeSide)}
+            {side?.kind === 'inspector' && (
+              <InspectorPanel channelId={channel.id} faces={faces} onClose={closeSide} />
+            )}
+            {side?.kind === 'pr' && channel.featureId !== null && (
+              <PrPanel featureId={channel.featureId} onClose={closeSide} />
+            )}
+            {showTeam && (
+              <div className="mb-5 flex items-center gap-2.5 md:hidden">
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-xl">#{channel.name}</div>
+                  <div className="text-[13px] text-muted">Team · {channel.team}</div>
+                </div>
+                {channel.featureId !== null && !closed && (
+                  <Button
+                    variant="primary"
+                    type="button"
+                    disabled={wrapDisabled}
+                    onClick={() => wrap.mutate()}
+                  >
+                    Wrap up
+                  </Button>
+                )}
               </div>
-              {channel.featureId !== null && !closed && (
-                <Button
-                  variant="primary"
-                  type="button"
-                  disabled={wrapDisabled}
-                  onClick={() => wrap.mutate()}
-                >
-                  Wrap up
-                </Button>
-              )}
-            </div>
-          )}
-          {showTeam && (
-            <TeamPanel
-              channelId={channel.id}
-              featureId={channel.featureId}
-              roles={roles}
-              working={running ? working : null}
-              waiting={approvals.data?.map((a) => a.to) ?? []}
-              brief={brief}
-            />
-          )}
+            )}
+            {showTeam && (
+              <TeamPanel
+                channelId={channel.id}
+                featureId={channel.featureId}
+                roles={roles}
+                working={running ? working : null}
+                waiting={approvals.data?.map((a) => a.to) ?? []}
+                brief={brief}
+                onClose={toggleTeamHidden}
+              />
+            )}
+          </div>
         </div>
       </div>
     </div>
