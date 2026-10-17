@@ -51,11 +51,9 @@ describe('FeaturePage header', () => {
     expect(render()).toMatch(/feature\/auth<\/span><\/div>/);
   });
 
-  it('puts the separator before the diff summary once it loads', () => {
+  it('starts the diff summary with its separator once it loads', () => {
     hooks.useDiff.mockReturnValue({ isPending: false, isError: false, data: [] });
 
-    expect(render()).toMatch(
-      /feature\/auth<\/span><span aria-hidden="true">·<\/span><span>No changes yet<\/span>/,
-    );
+    expect(render()).toMatch(/feature\/auth<\/span><span[^>]*>· No changes yet<\/span>/);
   });
 });

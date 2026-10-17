@@ -61,30 +61,27 @@ export function FeaturePage() {
           </div>
           <h1 className="text-[40px] leading-[1.05] font-normal tracking-[-0.02em]">{f.name}</h1>
           {f.goal && <p className="mt-2 max-w-xl text-sm text-muted">{f.goal}</p>}
-          <div className="mt-3 flex flex-wrap items-center gap-x-2 text-xs text-muted">
-            {f.kind === 'journey' && (
-              <>
-                <StagePicker feature={f} />
-                <span aria-hidden="true">·</span>
-              </>
-            )}
-            <span className="font-mono">feature/{f.slug}</span>
-            {(diff.isError || diff.data) && <span aria-hidden="true">·</span>}
+          <div className="mt-3 flex flex-wrap items-center text-xs text-muted">
+            {f.kind === 'journey' && <StagePicker feature={f} />}
+            <span className={`font-mono ${f.kind === 'journey' ? 'ml-2 whitespace-nowrap' : ''}`}>
+              {f.kind === 'journey' && '· '}feature/{f.slug}
+            </span>
             {diff.isError ? (
-              <span className="text-danger">{diff.error.message}</span>
+              <span className="ml-2 whitespace-nowrap text-danger">· {diff.error.message}</span>
             ) : (
               diff.data &&
               (diff.data.length ? (
                 <Link
                   to={`/features/${id}/review`}
-                  className="inline-flex min-h-11 items-center gap-1.5 hover:text-fg md:min-h-0"
+                  className="ml-2 inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap hover:text-fg md:min-h-0"
                 >
+                  <span aria-hidden="true">·</span>
                   {diff.data.length} file{diff.data.length === 1 ? '' : 's'}
                   <span className="text-done">+{diffCounts(diff.data).added}</span>
                   <span className="text-failed">−{diffCounts(diff.data).removed}</span>
                 </Link>
               ) : (
-                <span>No changes yet</span>
+                <span className="ml-2 whitespace-nowrap">· No changes yet</span>
               ))
             )}
           </div>
