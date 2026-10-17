@@ -83,7 +83,14 @@ func (s *Store) CreateDirectMessage(ctx context.Context, m DirectMessage) (Direc
 func (s *Store) CreateDirectResponse(
 	ctx context.Context, requestID int64, from, body string,
 ) (DirectMessage, error) {
-	return s.createDirectResponse(ctx, requestID, from, body, DirectDone)
+	return s.createDirectResponse(ctx, s.db, requestID, from, body, DirectDone)
+}
+
+// CreateFailedDirectResponseTx is the transactional variant used by recovery code.
+func (s *Store) CreateFailedDirectResponseTx(
+	ctx context.Context, tx *sql.Tx, requestID int64, from, body string,
+) (DirectMessage, error) {
+	return s.createDirectResponse(ctx, tx, requestID, from, body, DirectFailed)
 }
 
 // CreateFailedDirectResponse preserves partial output from a failed direct turn. It is
@@ -91,11 +98,11 @@ func (s *Store) CreateDirectResponse(
 func (s *Store) CreateFailedDirectResponse(
 	ctx context.Context, requestID int64, from, body string,
 ) (DirectMessage, error) {
-	return s.createDirectResponse(ctx, requestID, from, body, DirectFailed)
+	return s.createDirectResponse(ctx, s.db, requestID, from, body, DirectFailed)
 }
 
 func (s *Store) createDirectResponse(
-	ctx context.Context, requestID int64, from, body, status string,
+	ctx context.Context, db execer, requestID int64, from, body, status string,
 ) (DirectMessage, error) {
 	request, err := s.DirectMessage(ctx, requestID)
 	if err != nil {
@@ -105,13 +112,13 @@ func (s *Store) createDirectResponse(
 		return DirectMessage{}, fmt.Errorf("%w: direct message %d cannot be answered by %s",
 			ErrInvalid, requestID, from)
 	}
-	if strings.TrimSpace(body) == "" {
+	if status == DirectDone && strings.TrimSpace(body) == "" {
 		return DirectMessage{}, fmt.Errorf("%w: direct message body is required", ErrInvalid)
 	}
 	now := time.Now().UTC()
 	m := DirectMessage{ChannelID: request.ChannelID, ChainID: request.ChainID,
 		ReplyToID: &request.ID, From: from, To: request.From, Body: body, Status: status, CreatedAt: now}
-	res, err := s.db.ExecContext(ctx,
+	res, err := db.ExecContext(ctx,
 		`INSERT INTO direct_message
 		(channel_id, chain_id, reply_to_id, from_role, to_role, body, status, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,

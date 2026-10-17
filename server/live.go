@@ -89,10 +89,11 @@ type live struct {
 	// its current turn, or gives them back when it ends first.
 	queued []wake
 	// dropped counts the frames of earlier chains of turns, cut from the front of frames.
-	dropped int
-	wake    chan struct{}
-	subs    int
-	changed func()
+	dropped   int
+	activeGen uint64
+	wake      chan struct{}
+	subs      int
+	changed   func()
 }
 
 // retry is a routing read to do again: the messages role wrote after the message with id
@@ -117,15 +118,27 @@ type userTurn struct {
 // runs the chain, or release, which frees the channel. A stop that arrives before start
 // cancels the chain.
 type chain struct {
-	s      *server
-	id     int64
-	l      *live
+	s              *server
+	id             int64
+	l              *live
+	gen            uint64
+	ownsActiveTurn bool
+	// hint is the active-turn kind this chain last stored. It clears only that value, so a
+	// teardown that outruns a newer chain cannot blank the newer chain's hint.
+	hint   string
 	ctx    context.Context
 	cancel context.CancelFunc
 	done   chan struct{}
 	// unpause is set when start clears the channel's pause and sets its budget to budget.
 	unpause bool
 	budget  int64
+}
+
+// directFail is a wake a chain ends without running, whose sender is told that delivery
+// did not complete.
+type directFail struct {
+	id   int64
+	role string
 }
 
 func (s *server) liveRoutes(mux *http.ServeMux) {
@@ -243,6 +256,10 @@ func (s *server) claim(ctx context.Context, id int64) (*chain, store.Channel, er
 		s.wg.Done()
 		return nil, store.Channel{}, err
 	}
+	if err := s.st.SetActiveTurn(context.Background(), c.id, store.ActiveTurnStarting); err != nil {
+		return nil, store.Channel{}, c.release(err)
+	}
+	c.hint = store.ActiveTurnStarting
 	ch, err := s.st.Channel(ctx, id)
 	if err != nil {
 		return nil, store.Channel{}, c.release(err)
@@ -264,6 +281,9 @@ func (s *server) markStarting(c *chain) error {
 		return fmt.Errorf("channel %d has a turn running: %w", c.id, store.ErrConflict)
 	}
 	l.state, l.cancel, l.done = _starting, c.cancel, c.done
+	l.activeGen++
+	c.gen = l.activeGen
+	c.ownsActiveTurn = true
 	c.l = l
 	return nil
 }
@@ -439,10 +459,7 @@ func (s *server) gate(ctx context.Context, id int64, l *live, ws []wake) ([]wake
 			open = append(open, w)
 			continue
 		}
-		a, err := s.st.CreateApproval(ctx, store.Approval{
-			ChannelID: id, From: w.from, To: w.role, MessageID: w.messageID, Text: w.text,
-			Parent: w.parent,
-		})
+		a, err := s.st.CreateApproval(ctx, approvalForWake(w, id, w.text))
 		if err != nil {
 			return append(open, ws[i:]...), fmt.Errorf("hold wake for %s: %w", w.role, err)
 		}
@@ -457,10 +474,9 @@ func (s *server) gate(ctx context.Context, id int64, l *live, ws []wake) ([]wake
 // the wakes not stored so far, and the error.
 func (s *server) hold(ctx context.Context, id int64, ws []wake) ([]wake, error) {
 	for i, w := range ws {
-		_, err := s.st.CreateApproval(ctx, store.Approval{
-			ChannelID: id, From: w.from, To: w.role, MessageID: w.messageID, Text: w.text,
-			Parent: w.parent, Kind: store.ApprovalHold,
-		})
+		a := approvalForWake(w, id, w.text)
+		a.Kind = store.ApprovalHold
+		_, err := s.st.CreateApproval(ctx, a)
 		if err != nil {
 			return ws[i:], fmt.Errorf("hold wake for %s: %w", w.role, err)
 		}
@@ -468,11 +484,36 @@ func (s *server) hold(ctx context.Context, id int64, ws []wake) ([]wake, error) 
 	return nil, nil
 }
 
-func wakeOf(a store.Approval) wake {
-	return wake{
+// approvalForWake maps a wake to the approval row that holds it. A direct wake stores the
+// direct message id instead of a public message id, so the two are never confused.
+func approvalForWake(w wake, channelID int64, text string) store.Approval {
+	a := store.Approval{
+		ChannelID: channelID, From: w.from, To: w.role, MessageID: w.messageID,
+		Text: text, Parent: w.parent,
+	}
+	if w.direct != nil {
+		a.MessageID = 0
+		idv := w.direct.ID
+		a.DirectMessageID = &idv
+	}
+	return a
+}
+
+func (s *server) wakeOf(ctx context.Context, a store.Approval) (wake, error) {
+	w := wake{
 		from: a.From, messageID: a.MessageID, role: a.To, text: a.Text, parent: a.Parent,
 		approval: a.ID,
 	}
+	if a.DirectMessageID != nil {
+		dm, err := s.st.DirectMessage(ctx, *a.DirectMessageID)
+		if err != nil {
+			return wake{}, fmt.Errorf("load direct message %d: %w", *a.DirectMessageID, err)
+		}
+		dmCopy := dm
+		w.direct = &dmCopy
+		w.messageID = dm.ID
+	}
+	return w, nil
 }
 
 // capLocked pauses the channel because the hop cap held a wake, and returns the error of
@@ -512,8 +553,27 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		holds, err = s.st.ClaimHolds(r.Context(), id)
 	}
+	var wakeErr error
 	for _, a := range holds {
-		held = append(held, wakeOf(a))
+		w, err := s.wakeOf(r.Context(), a)
+		if err != nil {
+			wakeErr = err
+			if rerr := s.st.ReopenApproval(context.WithoutCancel(r.Context()), a.ID); rerr != nil {
+				wakeErr = errors.Join(wakeErr, rerr)
+			}
+			break
+		}
+		held = append(held, w)
+	}
+	if wakeErr != nil {
+		for _, ha := range holds {
+			if rerr := s.st.ReopenApproval(context.WithoutCancel(r.Context()), ha.ID); rerr != nil {
+				wakeErr = errors.Join(wakeErr, rerr)
+			}
+		}
+		err = c.release(wakeErr)
+		writeError(w, err)
+		return
 	}
 	if err != nil {
 		err = c.release(err)
@@ -622,10 +682,18 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	}
 	if *in.Approve {
 		ctx := context.WithoutCancel(r.Context())
-		if l := s.lookup(id); l == nil || !l.queue(wakeOf(a)) {
+		wk, err := s.wakeOf(r.Context(), a)
+		if err != nil {
+			if rerr := s.st.ReopenApproval(ctx, aid); rerr != nil {
+				err = errors.Join(err, rerr)
+			}
+			writeError(w, err)
+			return
+		}
+		if l := s.lookup(id); l == nil || !l.queue(wk) {
 			c, ch, err := s.claim(ctx, id)
 			if err == nil {
-				err = c.resume(ctx, ch, []wake{wakeOf(a)})
+				err = c.resume(ctx, ch, []wake{wk})
 			}
 			if err != nil {
 				if rerr := s.st.ReopenApproval(ctx, aid); rerr != nil {
@@ -792,27 +860,81 @@ func (s *server) close() {
 
 func (c *chain) release(err error) error {
 	c.cancel()
-	c.l.mu.Lock()
-	c.dropQueuedLocked()
-	c.l.state, c.l.cancel = _idle, nil
-	close(c.done)
-	c.l.mu.Unlock()
-	c.s.dropIdle(c.id, c.l, false)
+	var directFailed []directFail
+	var approvals []int64
+	if c.l != nil {
+		c.l.mu.Lock()
+		directFailed, approvals = c.shedLocked(nil)
+		// Only the chain that still owns the live state may retire it. An older chain
+		// whose teardown ran late must not clear a newer chain's starting/running state.
+		mine := c.gen == c.l.activeGen
+		if mine {
+			c.l.state, c.l.cancel = _idle, nil
+			c.l.activeGen = 0
+		}
+		c.l.mu.Unlock()
+		close(c.done)
+		c.finalize(mine, directFailed, approvals)
+		c.s.dropIdle(c.id, c.l, false)
+	} else {
+		close(c.done)
+	}
 	c.s.wg.Done()
 	return err
 }
 
-// dropQueuedLocked empties the queue of a chain that ends: a queued approval goes back to
-// pending, a queued message wake to held.
-func (c *chain) dropQueuedLocked() {
-	for _, w := range c.l.queued {
-		if w.approval == 0 {
-			c.l.held = append(c.l.held, w)
-		} else if err := c.s.st.ReopenApproval(context.WithoutCancel(c.ctx), w.approval); err != nil {
-			log.Printf("reopen approval %d of channel %d: %v", w.approval, c.id, err)
+// finalize performs the store work of ending a chain outside the channel lock: failed
+// direct responses for the wakes it did not run, reopened approvals, and clearing the
+// active-turn hint when this chain still owns the live state.
+func (c *chain) finalize(mine bool, directFailed []directFail, approvals []int64) {
+	for _, f := range directFailed {
+		if err := recordFailedDirect(context.WithoutCancel(c.ctx), c.s.st, f.id, f.role); err != nil {
+			log.Printf("direct response for %d: %v", f.id, err)
 		}
 	}
+	for _, aid := range approvals {
+		if err := c.s.st.ReopenApproval(context.WithoutCancel(c.ctx), aid); err != nil {
+			log.Printf("reopen approval %d of channel %d: %v", aid, c.id, err)
+		}
+	}
+	if mine && c.ownsActiveTurn {
+		c.ownsActiveTurn = false
+		if err := c.s.st.ClearActiveTurnIf(context.WithoutCancel(c.ctx), c.id, c.hint); err != nil {
+			log.Printf("clear active turn %d: %v", c.id, err)
+		}
+	}
+}
+
+// shedLocked restores the state of the wakes a chain ends without running, including the
+// wake of the leftover queue: an approved wake goes back to pending, a direct wake records a
+// failed response so its sender sees that delivery did not complete, and a public wake is
+// kept as held. It returns the deferred store work for the caller to perform outside the
+// channel lock.
+func (c *chain) shedLocked(left []wake) (directFailed []directFail, approvals []int64) {
+	for _, w := range c.l.queued {
+		if w.approval != 0 {
+			approvals = append(approvals, w.approval)
+			continue
+		}
+		if w.direct != nil {
+			directFailed = append(directFailed, directFail{w.direct.ID, w.role})
+			continue
+		}
+		c.l.held = append(c.l.held, w)
+	}
 	c.l.queued = nil
+	for _, w := range left {
+		if w.approval != 0 {
+			approvals = append(approvals, w.approval)
+			continue
+		}
+		if w.direct != nil {
+			directFailed = append(directFailed, directFail{w.direct.ID, w.role})
+			continue
+		}
+		c.l.held = append(c.l.held, w)
+	}
+	return
 }
 
 // lift clears the pause in ch and sets its budget, and has start do the same in the store.
@@ -854,6 +976,20 @@ func (c *chain) session() (session, error) {
 func (c *chain) start(
 	ctx context.Context, sess session, kind turnKind, queue []wake, after int64,
 ) error {
+	kindStr := store.ActiveTurnMessage
+	switch kind {
+	case _wrap:
+		kindStr = store.ActiveTurnWrap
+	case _promote:
+		kindStr = store.ActiveTurnPromote
+	}
+	if c.ownsActiveTurn {
+		if err := c.s.st.SetActiveTurn(ctx, c.id, kindStr); err != nil {
+			log.Printf("set active turn %d: %v", c.id, err)
+		} else {
+			c.hint = kindStr
+		}
+	}
 	afterDirect, err := c.s.st.LastDirectMessageID(ctx, c.id)
 	if err != nil {
 		return c.release(err)
@@ -907,11 +1043,23 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 	s, l := c.s, c.l
 	defer s.wg.Done()
 	defer s.inboxChanged()
-	finishLocked := func() {
-		c.dropQueuedLocked()
-		l.cancel()
-		l.state, l.cancel = _idle, nil
+	// finish ends the chain owning the live state, and hands the wakes of remaining, the
+	// queue left before the next turn, to shedLocked. Callers pass the leftover queue when
+	// the chain dies outside a turn (failed or stopped turn), and nil when a stall or cap
+	// error already moved the queue to the channel's held ones.
+	finish := func(remaining []wake) {
+		directFailed, approvals := c.shedLocked(remaining)
+		mine := c.gen == l.activeGen
+		if mine {
+			// Only the chain that still owns the live state may retire it; an older
+			// chain whose teardown ran late leaves a newer chain's state alone.
+			l.cancel()
+			l.state, l.cancel = _idle, nil
+			l.activeGen = 0
+		}
 		close(c.done)
+		l.mu.Unlock()
+		c.finalize(mine, directFailed, approvals)
 	}
 	for {
 		var w wake
@@ -951,13 +1099,13 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 			} else {
 				l.publishLocked("pause", pauseState{Reason: reason})
 			}
-			finishLocked()
-			l.mu.Unlock()
+			finish(nil)
 			return
 		}
 		if !ok || c.ctx.Err() != nil || len(queue)+len(l.queued) == 0 {
-			finishLocked()
-			l.mu.Unlock()
+			// A turn failed or was stopped: the wakes the chain does not run go back to a
+			// waiting or failed state instead of silently dropping in place.
+			finish(queue)
 			return
 		}
 		queue, l.queued = append(queue, l.queued...), nil
@@ -982,8 +1130,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 					}
 				}
 			}
-			finishLocked()
-			l.mu.Unlock()
+			finish(nil)
 			return
 		}
 		l.publishLocked("turn", turnState{Role: queue[0].role, Status: "running"})
@@ -1054,4 +1201,14 @@ func newFrame(event string, v any) (frame, bool) {
 		return frame{}, false
 	}
 	return frame{event: event, data: data}, true
+}
+
+// recordFailedDirect stores an empty failed direct response unless one already exists. A
+// conflict is expected when a response was already recorded; any other error is returned.
+func recordFailedDirect(ctx context.Context, st *store.Store, directID int64, role string) error {
+	if _, err := st.CreateFailedDirectResponse(ctx, directID, role, ""); err != nil &&
+		!errors.Is(err, store.ErrConflict) {
+		return err
+	}
+	return nil
 }

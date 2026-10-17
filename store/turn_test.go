@@ -2,10 +2,12 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 type turnRow struct {
@@ -122,6 +124,165 @@ func TestFailRunningTurns(t *testing.T) {
 		if got := messageRows(t, s, ch); !reflect.DeepEqual(got, want) {
 			t.Errorf("channel %d messages after second run = %v, want %v", ch, got, want)
 		}
+	}
+}
+
+func TestFailRunningTurns_MissingDirectMessageDoesNotBlock(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "c", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Insert a running turn that references a missing direct message. Foreign keys are
+	// on for this store's own connections, so open a second connection with them off to
+	// create the dangling reference that a crash could leave behind.
+	db2, err := sql.Open("sqlite", "file:"+dir+"/reef.db?_pragma=foreign_keys(OFF)&_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db2.Close() }()
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := db2.ExecContext(ctx,
+		"INSERT INTO turn (channel_id, role, backend, status, started_at, wake_text, direct_message_id) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?)",
+		ch.ID, "architect", "claude", "running", now, "do", 999999); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FailRunningTurns(ctx, nil); err != nil {
+		t.Fatalf("missing direct message blocked recovery: %v", err)
+	}
+	tr, err := s.Turn(ctx, 1)
+	if err != nil || tr.Status != "failed" || tr.Error != "server restarted" {
+		t.Fatalf("turn = %+v, %v, want failed server restarted", tr, err)
+	}
+	direct, err := s.DirectMessages(ctx, ch.ID, 0)
+	if err != nil || len(direct) != 0 {
+		t.Fatalf("direct = %+v, %v, want none", direct, err)
+	}
+}
+
+func TestFailRunningTurns_ValidDirectRecovery(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "c", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := s.CreateDirectMessage(ctx, DirectMessage{ChannelID: ch.ID, From: "lead", To: "architect", Body: "do"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateTurn(ctx, Turn{ChannelID: ch.ID, Role: "architect", Backend: "claude",
+		WakeText: "do", DirectMessageID: req.IDRef()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.FailRunningTurns(ctx, nil); err != nil {
+		t.Fatal(err)
+	}
+	direct, err := s.DirectMessages(ctx, ch.ID, 0)
+	if err != nil || len(direct) != 2 {
+		t.Fatalf("direct = %+v, %v", direct, err)
+	}
+	if direct[0].Status != DirectSent || direct[0].From != "lead" || direct[0].To != "architect" {
+		t.Fatalf("request = %+v, want sent lead->architect", direct[0])
+	}
+	if direct[1].Status != DirectFailed || direct[1].From != "architect" || direct[1].To != "lead" ||
+		direct[1].ReplyToID == nil || *direct[1].ReplyToID != req.ID {
+		t.Fatalf("response = %+v, want failed architect->lead replying to %d", direct[1], req.ID)
+	}
+}
+
+func TestClearStaleActiveTurns(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	stale, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "stale", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "kept", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, "UPDATE channel SET active_turn = ? WHERE id IN (?, ?)",
+		ActiveTurnMessage, stale.ID, kept.ID); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClearStaleActiveTurns(ctx, func(channelID int64) bool {
+		return channelID == kept.ID
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := s.Channel(ctx, stale.ID); err != nil || c.ActiveTurn != "" {
+		t.Fatalf("stale channel active_turn = %q, want cleared", c.ActiveTurn)
+	}
+	if c, err := s.Channel(ctx, kept.ID); err != nil || c.ActiveTurn != ActiveTurnMessage {
+		t.Fatalf("kept channel active_turn = %q, want preserved", c.ActiveTurn)
+	}
+}
+
+// TestClearActiveTurnIf clears the hint a chain owns and leaves the hint a newer chain
+// wrote after it alone, so a delayed teardown cannot blank a newer chain's starting state.
+func TestClearActiveTurnIf(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "c", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Clearing with no known hint changes nothing rather than guessing.
+	if err := s.ClearActiveTurnIf(ctx, ch.ID, ActiveTurnNone); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClearActiveTurnIf(ctx, ch.ID, ActiveTurnMessage); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetActiveTurn(ctx, ch.ID, ActiveTurnMessage); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClearActiveTurnIf(ctx, ch.ID, ActiveTurnMessage); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := s.Channel(ctx, ch.ID); err != nil || c.ActiveTurn != "" {
+		t.Fatalf("active_turn = %q, %v, want cleared", c.ActiveTurn, err)
+	}
+	if err := s.SetActiveTurn(ctx, ch.ID, ActiveTurnStarting); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ClearActiveTurnIf(ctx, ch.ID, ActiveTurnMessage); err != nil {
+		t.Fatal(err)
+	}
+	if c, err := s.Channel(ctx, ch.ID); err != nil || c.ActiveTurn != ActiveTurnStarting {
+		t.Fatalf("active_turn = %q, %v, want another chain's starting preserved during clear", c.ActiveTurn, err)
 	}
 }
 

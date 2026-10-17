@@ -444,6 +444,24 @@ func (m *mcpServer) sendToRole(
 	if err != nil {
 		return nil, store.DirectMessage{}, err
 	}
+	if ch.ClosedAt != nil {
+		return nil, store.DirectMessage{}, fmt.Errorf("channel %d is closed: %w", ch.ID, store.ErrConflict)
+	}
+	if ch.ActiveTurn == store.ActiveTurnStarting {
+		return nil, store.DirectMessage{}, fmt.Errorf("channel %d is starting: %w", ch.ID, store.ErrConflict)
+	}
+	if ch.ActiveTurn == store.ActiveTurnWrap || ch.ActiveTurn == store.ActiveTurnPromote {
+		return nil, store.DirectMessage{}, fmt.Errorf("channel %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
+	}
+	running, err := m.st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID, Status: "running"})
+	if err != nil {
+		return nil, store.DirectMessage{}, err
+	}
+	for _, t := range running {
+		if t.WakeText == "" {
+			return nil, store.DirectMessage{}, fmt.Errorf("channel %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
+		}
+	}
 	team, err := m.st.Team(ctx, ch.Team)
 	if err != nil {
 		return nil, store.DirectMessage{}, err

@@ -37,6 +37,19 @@ type fakeSession struct {
 	mu  sync.Mutex
 	ran []string
 	say func()
+
+	// directStart receives a signal each time a direct turn starts, so tests can
+	// synchronize on direct-turn execution without sleeping. It is buffered so a start
+	// is never lost.
+	directStart chan struct{}
+	// directRelease, when non-nil, is waited on by RunDirectAs before it completes.
+	directRelease chan struct{}
+	// directFail, when non-nil, makes RunDirectAs fail with it and, for a request,
+	// leaves a failed direct response so the sender can see that delivery failed.
+	directFail    error
+	directMu      sync.Mutex
+	directRunning int32
+	directMax     int32
 }
 
 func (f *fakeSession) Say(ctx context.Context, body string, parent *int64) (store.Message, error) {
@@ -81,12 +94,40 @@ func (f *fakeSession) RunDirectAs(
 	if f.onRun != nil {
 		f.onRun(role, text, nil)
 	}
+	if f.directRelease != nil {
+		f.directMu.Lock()
+		f.directRunning++
+		if f.directRunning > f.directMax {
+			f.directMax = f.directRunning
+		}
+		f.directMu.Unlock()
+		select {
+		case f.directStart <- struct{}{}:
+		default:
+		}
+		select {
+		case <-f.directRelease:
+		case <-ctx.Done():
+			if dm.ReplyToID == nil {
+				_, _ = f.st.CreateFailedDirectResponse(context.WithoutCancel(ctx), dm.ID, role, "")
+			}
+			return ctx.Err()
+		}
+		f.directMu.Lock()
+		f.directRunning--
+		f.directMu.Unlock()
+	}
+	if f.directFail != nil {
+		if dm.ReplyToID == nil {
+			_, _ = f.st.CreateFailedDirectResponse(ctx, dm.ID, role, "")
+		}
+		return f.directFail
+	}
+	onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
 	if dm.ReplyToID == nil {
-		onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
 		_, err := f.st.CreateDirectResponse(ctx, dm.ID, role, "hi")
 		return err
 	}
-	onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
 	return nil
 }
 
@@ -186,7 +227,7 @@ func newLiveEnv(t *testing.T) *liveEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	env := &liveEnv{dir: dir, fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{})}}
+	env := &liveEnv{dir: dir, fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{}), directStart: make(chan struct{}, 2)}}
 	env.st, env.fake.st = st, st
 	env.serve(t)
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"reef","path":"`+t.TempDir()+`"}`)

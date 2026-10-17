@@ -1,0 +1,1 @@
+ALTER TABLE channel ADD COLUMN active_turn TEXT NOT NULL DEFAULT '';

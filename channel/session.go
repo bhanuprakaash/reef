@@ -123,7 +123,7 @@ func open(
 
 // Start starts or resumes the lead now instead of at its first turn.
 func (s *Session) Start(ctx context.Context) error {
-	_, err := s.member(ctx, s.ch.Role, "", nil)
+	_, err := s.member(ctx, s.ch.Role, "", nil, nil)
 	return err
 }
 
@@ -158,7 +158,7 @@ func (s *Session) Run(
 func (s *Session) RunAs(
 	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
 ) error {
-	m, err := s.member(ctx, role, text, parent)
+	m, err := s.member(ctx, role, text, parent, nil)
 	if err != nil {
 		return err
 	}
@@ -178,8 +178,12 @@ func (s *Session) RunAs(
 func (s *Session) RunDirectAs(
 	ctx context.Context, role, text string, dm store.DirectMessage, onEvent func(agent.Event),
 ) error {
-	m, err := s.member(ctx, role, text, nil)
+	m, err := s.member(ctx, role, text, nil, dm.IDRef())
 	if err != nil {
+		if _, rerr := s.st.CreateFailedDirectResponse(ctx, dm.ID, role, ""); rerr != nil &&
+			!errors.Is(rerr, store.ErrConflict) {
+			log.Printf("direct response for %d: %v", dm.ID, rerr)
+		}
 		return err
 	}
 	err = s.run(ctx, m, runInput{text: text, direct: &dm, onEvent: onEvent})
@@ -213,6 +217,13 @@ func (s *Session) run(ctx context.Context, m *member, in runInput) error {
 		}
 		ferr := s.failTurn(ctx, m.run.role, m.run.backend, reason, m.run.wake(in.text),
 			in.parent, in.direct.IDRef())
+		if in.direct != nil {
+			if _, rerr := s.st.CreateFailedDirectResponse(
+				context.WithoutCancel(ctx), in.direct.ID, m.run.role, "",
+			); rerr != nil && !errors.Is(rerr, store.ErrConflict) {
+				ferr = errors.Join(ferr, rerr)
+			}
+		}
 		return errors.Join(err, ferr)
 	}
 	defer unlock()
@@ -311,7 +322,7 @@ func (s *Session) closeMembers() error {
 // starting for, and so does a ctx cancelled before it starts: the turn is interrupted. The
 // store is read even then, as Run stores its turn.
 func (s *Session) member(
-	ctx context.Context, role, text string, parent *int64,
+	ctx context.Context, role, text string, parent, directMessageID *int64,
 ) (_ *member, err error) {
 	wctx := context.WithoutCancel(ctx)
 	team, err := s.st.Team(wctx, s.ch.Team)
@@ -417,7 +428,7 @@ func (s *Session) member(
 		if ctx.Err() != nil {
 			reason = "interrupted"
 		}
-		return nil, errors.Join(err, s.failTurn(wctx, role, r.Backend, reason, text, parent, nil))
+		return nil, errors.Join(err, s.failTurn(wctx, role, r.Backend, reason, text, parent, directMessageID))
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.OnPrompt = s.onPrompt
@@ -533,7 +544,7 @@ func (s *Session) propose(
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, err
 	}
-	m, err := s.member(ctx, s.ch.Role, "", nil)
+	m, err := s.member(ctx, s.ch.Role, "", nil, nil)
 	if err != nil {
 		return store.Proposal{}, err
 	}

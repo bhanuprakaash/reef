@@ -378,7 +378,8 @@ A wake that waits at a gate. The SQL table is `approval`.
 | `channelId` | number | |
 | `from` | string | the role whose message woke it |
 | `to` | string | the role that would run |
-| `messageId` | number | the message that woke it |
+| `messageId` | number | the message that woke it; `0` for a direct wake |
+| `directMessageId` | number? | the direct message that woke it, when the wake is direct |
 | `text` | string | the prompt the wake will run, for example `[channel 5, message 28]\nlead wrote: @architect design a form` |
 | `status` | string | `pending`, `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
@@ -693,7 +694,10 @@ lead's reply says `@architect ...`; the architect runs and posts a plan, a new t
 owns; the chain ends because the plan names no one. The lead gets no turn after the plan.
 
 `send_to_role` stores a direct request outside the public `message` table. When its sender's
-turn ends, only the named role wakes. Its prompt starts `[channel N, direct message N, chain
+turn ends, only the named role wakes. A direct wake is gated the same way a public one is:
+a gate that is on holds it as a pending approval, and rejection wakes nobody. Reaching the
+hop or token cap pauses the chain with the held direct wakes. Direct and public wakes share
+the channel's hop count, so switching between them never resets it. Its prompt starts `[channel N, direct message N, chain
 N, source: direct request]`, names the sender, and carries the body. The recipient's ordinary
 reply is one direct response in the same chain (`replyToId` points to the request) and wakes
 the sender with `source: direct response`. The sender's ordinary reply to that response is

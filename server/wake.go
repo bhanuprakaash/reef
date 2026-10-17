@@ -39,6 +39,14 @@ func (s *server) directWakes(
 	if len(msgs) > 0 {
 		after = msgs[len(msgs)-1].ID
 	}
+	ch, err := s.st.Channel(ctx, channelID)
+	if err != nil {
+		return nil, after, err
+	}
+	team, err := s.st.Team(ctx, ch.Team)
+	if err != nil {
+		return nil, after, err
+	}
 	ws := make([]wake, 0, len(msgs))
 	for i := range msgs {
 		m := msgs[i]
@@ -54,7 +62,11 @@ func (s *server) directWakes(
 		}
 		text := fmt.Sprintf("[channel %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
 			channelID, m.ID, m.ChainID, source, m.From, m.Body)
-		ws = append(ws, wake{from: m.From, role: m.To, text: text, direct: &msgs[i]})
+		gated := team.Gated(m.From, m.To)
+		ws = append(ws, wake{
+			from: m.From, messageID: m.ID, gated: gated,
+			role: m.To, text: text, direct: &msgs[i],
+		})
 	}
 	return ws, after, nil
 }
