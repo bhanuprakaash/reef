@@ -7,7 +7,6 @@ export function useFile(channelId: number, path: string) {
   return useQuery({
     queryKey: fileKey(channelId, path),
     queryFn: () => api<ChannelFile>(`/channels/${channelId}/file?path=${encodeURIComponent(path)}`),
-    retry: (count, error) =>
-      !(error instanceof ApiError && (error.status === 404 || error.status === 415)) && count < 3,
+    retry: (count, error) => !(error instanceof ApiError && error.status < 500) && count < 3,
   });
 }
