@@ -46,6 +46,8 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 		b.WriteString("This feature is a list of fixes tracked as tasks, not one piece of work with stages.\n")
 	} else {
 		fmt.Fprintf(&b, "Stage: %s\n", f.Stage)
+		fmt.Fprintf(&b, "Stages in order: %s. Call set_stage when the work moves to the next one.\n",
+			strings.Join(store.Stages(), ", "))
 	}
 
 	if p.BaseBranch != "" {

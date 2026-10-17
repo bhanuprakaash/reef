@@ -210,6 +210,7 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `read_decision` | `id` (required) | the decision | `decision 99: not found`, also for a decision of another feature |
 | `read_thread` | `channelId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the channel's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `channel 9: not found`, also for a channel of another feature or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the channel |
 | `post_to_channel` | `body` (required), `parent` (the id of a top-level message: reply in its thread; leave it out to post at the top level) | the stored message, with the token's role as `author`. It works on a quick session too | `invalid: message body is required`, `invalid: parent 9 is not a top-level message of channel 1` |
+| `set_stage` | `stage` (required): `ideation`, `grill`, `plan`, `tickets`, `implement`, `testing`, `live-testing` or `post-release` | the updated feature, as in [server.md](server.md#feature). It also stores a `reef` message in the token's channel: `<role> moved the stage to <stage>`. No approval: the stage is a label | `invalid: unknown stage "x"`, `invalid: feature login is a list of fixes and has no stage` |
 | `propose_wrap` | `brief`, `notes`, `decisions` (all required). Each decision is `{"body", "why"}`; `why` may be `""` | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: decision body is required` |
 | `browser_navigate` | `url` (required) | `{"text": "navigated to <url>"}` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser`, `refused: the browser pane cannot open Reef itself` (or another `refused: ...` for a non-http(s) URL), the page's own error (e.g. `net::ERR_CONNECTION_REFUSED`) when it fails to load |
 | `browser_screenshot` | none | a PNG image of the browser pane's current page | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
@@ -246,7 +247,7 @@ holds a message body. Its shape:
    resuming, gets this part again, marked `Your persona or skills changed:`.
 1. One line: role, feature name and slug, project name. Then, when a profile exists,
    `You work with Ada, a developer. They like: short answers, ask before big changes.` (occupation
-   and style only when set, lower-cased; `Other` is left out). Then the goal (if set) and the stage (a `fixes` feature says it is a list of fixes tracked as tasks instead). Then, when the project has a base branch, `Base branch: dev. A pull request you open targets it.` A quick session
+   and style only when set, lower-cased; `Other` is left out). Then the goal (if set) and the stage, then one line that lists the stages in order and asks the agent to call `set_stage` when the work moves to the next (a `fixes` feature says it is a list of fixes tracked as tasks instead, with no stage lines). Then, when the project has a base branch, `Base branch: dev. A pull request you open targets it.` A quick session
    adds the same line after its second line.
 2. `## Project memory`: the project's memory (see [server.md](server.md#project_memory)), only
    when it is not empty.
@@ -278,6 +279,7 @@ Example, for a feature with one approved wrap-up:
 You are the developer on feature "Email login" (login) in project "shop".
 Goal: Users sign in with email and password
 Stage: ideation
+Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
 
 ## Project memory
 Sessions are stored server-side, not JWT.

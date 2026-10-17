@@ -70,6 +70,9 @@ type (
 		Body   string `json:"body" jsonschema:"the message; @mention a teammate to hand work over"`
 		Parent *int64 `json:"parent,omitempty" jsonschema:"id of a top-level message to reply to in its thread; omit to post at the top level"`
 	}
+	stageIn struct {
+		Stage string `json:"stage" jsonschema:"the stage the work has moved to: ideation, grill, plan, tickets, implement, testing, live-testing or post-release"`
+	}
 	wrapIn struct {
 		Brief     string                   `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
 		Notes     string                   `json:"notes" jsonschema:"your own notes on this feature"`
@@ -146,6 +149,11 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 		Description: "Post a message to this channel as yourself. @mention a teammate to wake " +
 			"them when your turn ends; a post that mentions nobody wakes no one.",
 	}, m.postToChannel)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "set_stage",
+		Description: "Move this feature to the next journey stage when the work moves there. " +
+			"The channel sees a note; nothing needs approval.",
+	}, m.setStage)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_wrap",
 		Description: "Propose how to wrap up this channel; the user approves it before " +
@@ -369,6 +377,24 @@ func (m *mcpServer) postToChannel(
 		ChannelID: m.tok.ChannelID, ParentID: in.Parent, Author: m.tok.Role, Body: in.Body,
 	})
 	return nil, msg, err
+}
+
+func (m *mcpServer) setStage(
+	ctx context.Context, _ *mcp.CallToolRequest, in stageIn,
+) (*mcp.CallToolResult, store.Feature, error) {
+	f, err := m.feature(ctx)
+	if err != nil {
+		return nil, store.Feature{}, err
+	}
+	f, err = m.st.SetFeatureStage(ctx, f.ID, in.Stage)
+	if err != nil {
+		return nil, store.Feature{}, err
+	}
+	_, err = m.st.CreateMessage(ctx, store.Message{
+		ChannelID: m.tok.ChannelID, Author: store.ReefAuthor,
+		Body: fmt.Sprintf("%s moved the stage to %s", m.tok.Role, f.Stage),
+	})
+	return nil, f, err
 }
 
 func (m *mcpServer) proposeWrap(

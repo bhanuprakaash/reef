@@ -106,6 +106,7 @@ func TestContext(t *testing.T) {
 	want := `You are the architect on feature "Login" (login) in project "shop".
 Goal: Google login
 Stage: ideation
+Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
 
 ## Brief
 Use Google OAuth.
@@ -147,6 +148,7 @@ func TestContext_EmptyFeature(t *testing.T) {
 	want := `You are the architect on feature "Login" (login) in project "shop".
 Goal: Google login
 Stage: ideation
+Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
 
 ## Brief
 No brief yet.

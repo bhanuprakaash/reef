@@ -336,6 +336,52 @@ func TestMCPProposeWrap(t *testing.T) {
 	}
 }
 
+func TestMCPSetStage(t *testing.T) {
+	st, tok := mcpFixture(t)
+	ctx := context.Background()
+	if _, err := st.CreateFeature(ctx, store.Feature{ProjectID: 1, Slug: "login", Name: "Login", Kind: "fixes"}); err != nil {
+		t.Fatal(err)
+	}
+	three := int64(3)
+	ch, err := st.CreateChannel(ctx, store.Channel{ProjectID: 1, FeatureID: &three, Name: "architect"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixesTok, err := st.CreateToken(ctx, ch.ID, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, isErr := callTool(t, st, tok)("set_stage", map[string]any{"stage": "plan"})
+	if want := `{"closedAt":null,"createdAt":"T","goal":"","id":1,"kind":"journey",` +
+		`"name":"Auth","projectId":1,"slug":"auth","stage":"plan"}`; got != want || isErr {
+		t.Errorf("set_stage plan = %q (error %v), want %q", got, isErr, want)
+	}
+	msgs, err := st.Messages(ctx, 1, 4)
+	if err != nil || len(msgs) != 1 || msgs[0].Author != "reef" ||
+		msgs[0].Body != "architect moved the stage to plan" {
+		t.Errorf("messages after id 4 = %+v, %v, want one reef note", msgs, err)
+	}
+
+	tests := []struct {
+		name string
+		tok  store.Token
+		give string
+		want string
+	}{
+		{"unknown stage", tok, "x", `invalid: unknown stage "x"`},
+		{"fixes feature", fixesTok, "plan", "invalid: feature login is a list of fixes and has no stage"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, isErr := callTool(t, st, tt.tok)("set_stage", map[string]any{"stage": tt.give})
+			if got != tt.want || !isErr {
+				t.Errorf("set_stage %q = %q (error %v), want %q", tt.give, got, isErr, tt.want)
+			}
+		})
+	}
+}
+
 func TestMCPListTasks(t *testing.T) {
 	st, tok := mcpFixture(t)
 	ctx := context.Background()
@@ -507,6 +553,7 @@ func TestMCPQuickSession(t *testing.T) {
 		{"read_decision", map[string]any{"id": 1}},
 		{"read_thread", map[string]any{"channelId": 1}},
 		{"propose_wrap", map[string]any{"brief": "b", "notes": "n", "decisions": []any{}}},
+		{"set_stage", map[string]any{"stage": "plan"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.tool, func(t *testing.T) {
