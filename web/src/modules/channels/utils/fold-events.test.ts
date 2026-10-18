@@ -163,6 +163,14 @@ describe('foldEvent', () => {
     });
   });
 
+  it('keeps the direct flag of a turn from its running frame to its end', () => {
+    const running = foldEvent(emptyTurn, { type: 'turn', status: 'running', direct: true });
+
+    expect(running.direct).toBe(true);
+    expect(foldEvent(running, { type: 'turn', status: 'done', direct: true }).direct).toBe(true);
+    expect(foldEvent(running, { type: 'turn', status: 'running' }).direct).toBeUndefined();
+  });
+
   it('keeps the note of a done turn', () => {
     const got = fold([
       { type: 'turn', status: 'running' },

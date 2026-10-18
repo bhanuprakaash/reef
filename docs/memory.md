@@ -206,11 +206,11 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `list_tasks` | `status` (`todo`, `doing` or `done`; leave it out for all) | `{"tasks": [...]}`: the feature's tasks by id, as in [server.md](server.md#task). `tasks` is `[]` when there are none | `invalid: unknown status "later"` |
 | `read_task` | `id` (required) | the task, with its full body | `task 99: not found`, also for a task of another feature or of no feature |
 | `update_task` | `id` (required), `title`, `body`, `status` (`todo`, `doing` or `done`) | the updated task. Only the fields given change; `{"id": 3, "status": "done"}` marks task 3 done. There is no tool to delete a task | `task 99: not found` as for `read_task`, `invalid: task title is required`, `invalid: unknown status "later"` |
-| `search_sessions` | `query` (required), `limit` (default 20) | `{"hits": [{"channelId", "messageId", "author", "snippet"}]}`: messages in all of the feature's channels that contain `query`, newest first. Case is ignored for ASCII. The snippet is about 120 characters around the match. `hits` is `null` when nothing matches | `query is required` |
+| `search_sessions` | `query` (required), `limit` (default 20) | `{"hits": [{"channelId", "messageId", "kind", "author", "snippet"}]}`: messages in all of the feature's channels that contain `query`, newest first. `kind` is `public` or `direct`. A direct hit appears only when the token's role is its sender or recipient, in any channel of the feature, and also has `from`, `to` and `chainId`; its `messageId` is the direct message id, which `read_thread` does not take. Case is ignored for ASCII. The snippet is about 120 characters around the match. `hits` is `null` when nothing matches | `query is required` |
 | `read_decision` | `id` (required) | the decision, with `retiredAt` and `replacedBy` when it is retired | `decision 99: not found`, also for a decision of another feature |
 | `read_thread` | `channelId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the channel's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `channel 9: not found`, also for a channel of another feature or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the channel |
 | `post_to_channel` | `body` (required), `parent` (the id of a top-level message: reply in its thread; leave it out to post at the top level) | the stored message, with the token's role as `author`. It works on a quick session too | `invalid: message body is required`, `invalid: parent 9 is not a top-level message of channel 1` |
-| `send_to_role` | `to` (exactly one teammate role), `body` (required) | the stored direct request, with `channelId`, `chainId`, `from`, `to`, `replyToId: null` and `status: sent` | empty body, self, unknown or out-of-team role, and a recipient list are errors; nothing is stored |
+| `send_to_role` | `to` (exactly one teammate role), `body` (required) | the stored direct request, with `channelId`, `chainId`, `from`, `to`, `replyToId: null` and `status: sent` | empty body, self, unknown or out-of-team role, a recipient list, a closed channel, a starting channel, or a wrapping or promoting channel are errors; nothing is stored |
 | `read_direct_messages` | `after` (only newer direct-message ids) | `{"messages": [...]}` containing only exchanges in this channel where the token's role is sender or recipient | |
 | `set_stage` | `stage` (required): `ideation`, `grill`, `plan`, `tickets`, `implement`, `testing`, `live-testing` or `post-release` | the updated feature, as in [server.md](server.md#feature). It also stores a `reef` message in the token's channel: `<role> moved the stage to <stage>`, unless the feature is already in that stage. No approval: the stage is a label | `invalid: unknown stage "x"`, `invalid: feature login is a list of fixes and has no stage` |
 | `propose_wrap` | `brief`, `notes`, `decisions` (all required); `retire` (ids of live decisions that are stale or duplicate). Each decision is `{"body", "why", "replaces"}`; `why` may be `""`, `replaces` lists the ids it amends or replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: decision body is required`, `invalid: decision 9 is not a live decision of feature 1` (a `retire` or `replaces` id) |
@@ -255,6 +255,14 @@ channel message list. Partial output from a failed direct turn is kept privately
 `failed` and does not wake the sender. A retry appends the one `done` response, which wakes the
 sender once; SQLite permits only one `done` response per request.
 
+Direct work reaches the rest of the team through public posts, not through search. Example:
+the lead posts `@developer add the export button`. The developer and the tester trade
+`send_to_role` messages about a failing fixture and its fix; no other role can read or find
+them. When the chain is done, the developer posts one public message, `Export button done;
+tester confirmed it on the sqlite fixture`. Raw logs and routine acknowledgements stay
+private. A chain that ends without a public post stores no channel message; wrap-up (below)
+carries a private decision into the feature's memory.
+
 ## The context prompt
 
 `reef context <feature> --role R` prints it, and `reef chat` puts it before the first
@@ -280,14 +288,20 @@ holds a message body. Its shape:
    `none`.
 6. One closing line that names the tools for details.
 7. When the team has two or more roles, a `## Team` section: `Your team: @lead, @architect.`
-   It says that `post_to_channel` and @mentions are shared, while `send_to_role` coordinates
-   privately with one teammate and gets one automatic direct response. A public message that wakes you starts with `[channel N, message
+   It says that `post_to_channel` and @mentions are shared (decisions, blockers, user questions
+   and outcomes belong there), while `send_to_role` coordinates in detail with one teammate and
+   gets one automatic direct response, and that an `Asked together:` line names every role one
+   message woke. A public message that wakes you starts with `[channel N, message
    N]` or `[channel N, message N, thread N]`; your plain reply goes where the header says (a
    top-level reply starts your own thread), and `post_to_channel` takes the header's `thread` as
    its `parent` when there is one.
    After the header, a wake may carry `reef wrote: ...` lines: what `reef` posted in the
    channel since the role's last turn began, such as a rollback note (see
    [server.md](server.md#channels-live)). The prompt does not explain them.
+   It also asks a role to publish one concise outcome with `post_to_channel` when a direct
+   chain completes with information the team or the user needs; raw logs and routine
+   acknowledgements stay private. A new channel never gets direct messages in its context:
+   the brief, decisions and notes are the memory that carries over.
    The lead gets one more line: do not summarize or repeat a
    specialist's post back to the user, because they see it. `reef context` does not print it.
 
@@ -429,7 +443,12 @@ A channel ends explicitly, never on a timer. The user types `/wrap` in `reef cha
    made in this channel that are not recorded yet. Decisions the agent already recorded
    with `record_decision` are not proposed again. The prompt also asks it to review the
    decision index: `retire` lists decisions that are stale or duplicate, and `replaces` on
-   a new decision lists older ones it amends.
+   a new decision lists older ones it amends. When the channel has direct messages, the
+   prompt starts with all of them as plain text, one line each, `[direct 1] developer ->
+   tester: use the sqlite fixture`, with ` (failed)` after the recipient for a failed attempt (a body is cut at 1000 characters; only the newest 100 are
+   listed; none are listed when there are none), and asks the agent to propose the decisions
+   made in them that are not recorded yet and a brief that reflects the direct work that is
+   complete. A promote turn gets the same list.
 2. `propose_wrap` stores a `pending` proposal (see [server.md](server.md#proposal)).
 3. After the turn, `reef chat` looks for a pending wrap proposal of this channel that is newer
    than the one pending before `/wrap`. With none, it prints `no proposal made`: an agent that

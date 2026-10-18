@@ -1,7 +1,9 @@
 import { Fragment } from 'react';
+import type { Chain } from '@/modules/channels/utils/direct-chains';
 import type { Thread } from '@/modules/channels/utils/group-threads';
 import { Author } from '@/modules/channels/components/author';
 import { Bubble } from '@/modules/channels/components/bubble';
+import { CoordinationItem } from '@/modules/channels/components/coordination-item';
 import { PullRequestIcon } from '@/modules/channels/components/pull-request-icon';
 import { showTimestamp, timestampLabel } from '@/modules/channels/utils/message-time';
 import { checkResult, pullRequestNote } from '@/modules/channels/utils/pull-request';
@@ -13,14 +15,25 @@ import { StatusDot } from '@/components/status-dot';
 
 type Props = {
   threads: Thread[];
+  chains: Chain[];
   faces: Record<string, string | undefined>;
   openId?: number;
+  openChainId?: number;
   onOpen: (rootId: number) => void;
+  onOpenChain: (chainId: number) => void;
 };
 
 const isTeammate = (author: string) => author !== 'user' && author !== 'reef';
 
-export function MessageList({ threads, faces, openId, onOpen }: Props) {
+export function MessageList({
+  threads,
+  chains,
+  faces,
+  openId,
+  openChainId,
+  onOpen,
+  onOpenChain,
+}: Props) {
   if (threads.length === 0) {
     return (
       <div className="py-16">
@@ -44,6 +57,22 @@ export function MessageList({ threads, faces, openId, onOpen }: Props) {
     ...[...firstId].filter(([author]) => isTeammate(author)).map(([, id]) => id),
   );
   const now = new Date();
+  const before: Chain[][] = threads.map(() => []);
+  const after: Chain[] = [];
+  for (const chain of chains) {
+    const at = Date.parse(chain.messages[0].createdAt);
+    const i = threads.findIndex(({ root }) => Date.parse(root.createdAt) > at);
+    (i < 0 ? after : before[i]).push(chain);
+  }
+  const item = (chain: Chain) => (
+    <CoordinationItem
+      key={`direct-${chain.id}`}
+      chain={chain}
+      faces={faces}
+      open={chain.id === openChainId}
+      onOpen={() => onOpenChain(chain.id)}
+    />
+  );
 
   return (
     <ul className="flex flex-col gap-2.5">
@@ -59,6 +88,7 @@ export function MessageList({ threads, faces, openId, onOpen }: Props) {
         const repliers = [...new Set(replies.map((r) => r.author).filter(isTeammate))];
         return (
           <Fragment key={root.id}>
+            {before[i].map(item)}
             {stamped && (
               <li className="py-1 text-center text-[13px] text-faint">
                 {timestampLabel(root.createdAt, previous?.createdAt, now)}
@@ -116,6 +146,7 @@ export function MessageList({ threads, faces, openId, onOpen }: Props) {
           </Fragment>
         );
       })}
+      {after.map(item)}
     </ul>
   );
 }

@@ -876,8 +876,8 @@ func TestSession_Wrap(t *testing.T) {
 	if len(msgs) != 1 || msgs[0].Author != "architect" {
 		t.Errorf("messages = %+v, want only the agent's reply, no user message", msgs)
 	}
-	if !strings.HasSuffix(ag.prompts[0], _wrapPrompt) {
-		t.Errorf("prompt = %q, want it to end with the wrap prompt", ag.prompts[0])
+	if !strings.HasSuffix(ag.prompts[0], _wrapPrompt) || strings.Contains(ag.prompts[0], "[direct") {
+		t.Errorf("prompt = %q, want it to end with the wrap prompt and list no direct exchange", ag.prompts[0])
 	}
 
 	if turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID}); err != nil || len(turns) != 1 || turns[0].WakeText != "" {
@@ -887,6 +887,43 @@ func TestSession_Wrap(t *testing.T) {
 	ag.propose = false
 	if _, err := s.Wrap(ctx, discard); !errors.Is(err, ErrNoProposal) {
 		t.Errorf("Wrap with an older proposal pending error = %v, want ErrNoProposal", err)
+	}
+}
+
+func TestSession_WrapIncludesDirectExchanges(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionChannel(t, st, f, false)
+	req, err := st.CreateDirectMessage(ctx, store.DirectMessage{
+		ChannelID: ch.ID, From: "developer", To: "tester", Body: "use the sqlite fixture"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateFailedDirectResponse(ctx, req.ID, "tester", "half an answer"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateDirectResponse(ctx, req.ID, "tester", "fixture works"); err != nil {
+		t.Fatal(err)
+	}
+	ag := newRecordingAgent()
+	ag.st, ag.channelID, ag.propose = st, ch.ID, true
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if _, err := s.Wrap(ctx, discard); err != nil {
+		t.Fatal(err)
+	}
+	want := "Direct exchanges in this channel, private between two teammates:\n" +
+		"[direct 1] developer -> tester: use the sqlite fixture\n" +
+		"[direct 1] tester -> developer (failed): half an answer\n" +
+		"[direct 1] tester -> developer: fixture works\n" +
+		"Propose the decisions made in these exchanges that are not recorded yet, and a brief " +
+		"that reflects the direct work that is complete.\n\n" + _wrapPrompt
+	if !strings.HasSuffix(ag.prompts[0], want) {
+		t.Errorf("prompt = %q, want it to end with %q", ag.prompts[0], want)
 	}
 }
 

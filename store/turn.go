@@ -302,6 +302,30 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(channelID int64)
 			return nil, fmt.Errorf("fail running turns: %w", err)
 		}
 		t.Status, t.Error, t.EndedAt = _turnFailed, _restartError, &now
+		if _, err := tx.ExecContext(ctx, "UPDATE channel SET active_turn = '' WHERE id = ?", t.ChannelID); err != nil {
+			return nil, fmt.Errorf("fail running turns: %w", err)
+		}
+		if t.DirectMessageID != nil {
+			// The turn was woken by a direct message. If that message is the original
+			// request (no reply_to), leave a failed response so the sender sees that
+			// delivery did not complete. A missing original message is not an error:
+			// there is nothing to answer.
+			var replyTo sql.NullInt64
+			scanErr := tx.QueryRowContext(ctx,
+				"SELECT reply_to_id FROM direct_message WHERE id = ?",
+				*t.DirectMessageID).Scan(&replyTo)
+			switch {
+			case errors.Is(scanErr, sql.ErrNoRows):
+				// missing original direct message: nothing to respond to.
+			case scanErr != nil:
+				return nil, fmt.Errorf("fail running turns: %w", scanErr)
+			case !replyTo.Valid:
+				if _, err := s.CreateFailedDirectResponseTx(ctx, tx, *t.DirectMessageID,
+					t.Role, ""); err != nil {
+					return nil, fmt.Errorf("fail running turns: %w", err)
+				}
+			}
+		}
 		label := "turn"
 		if len(names) == 0 {
 			label = "Turn"

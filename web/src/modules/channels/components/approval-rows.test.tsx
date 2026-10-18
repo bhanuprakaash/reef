@@ -57,4 +57,14 @@ describe('ApprovalRows', () => {
     expect(markup).toContain('Approve');
     expect(markup).toContain('Reject');
   });
+
+  it('leaves the approval of a direct wake to the coordination item', () => {
+    useApprovals.mockReturnValue({
+      data: [{ ...approval, text: 'Private request', directMessageId: 4 }],
+    });
+
+    const markup = renderToStaticMarkup(<ApprovalRows channelId={2} faces={{}} />);
+
+    expect(markup).toBe('');
+  });
 });

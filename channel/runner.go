@@ -220,20 +220,26 @@ func (r *Runner) fail(
 func (r *Runner) keepReply(
 	ctx context.Context, reply string, parent *int64, state replyState,
 ) error {
-	if reply == "" {
-		return nil
-	}
 	if r.direct != nil {
 		if r.direct.ReplyToID != nil {
+			// A response to a direct request never produces another direct reply.
 			return nil
 		}
-		var err error
-		if state == _replyDone {
-			_, err = r.st.CreateDirectResponse(ctx, r.direct.ID, r.role, reply)
-		} else {
-			_, err = r.st.CreateFailedDirectResponse(ctx, r.direct.ID, r.role, reply)
+		// A successful direct turn with no reply stores no response. A failed turn,
+		// even one with no partial output, leaves a failed response so the sender can
+		// see that delivery did not complete.
+		if reply == "" && state == _replyDone {
+			return nil
 		}
+		if state == _replyDone {
+			_, err := r.st.CreateDirectResponse(ctx, r.direct.ID, r.role, reply)
+			return err
+		}
+		_, err := r.st.CreateFailedDirectResponse(ctx, r.direct.ID, r.role, reply)
 		return err
+	}
+	if reply == "" {
+		return nil
 	}
 	_, err := r.st.CreateMessage(ctx, store.Message{
 		ChannelID: r.channelID, ParentID: parent, Author: r.role, Body: reply,

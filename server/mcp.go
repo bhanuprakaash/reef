@@ -361,7 +361,7 @@ func (m *mcpServer) searchSessions(
 	if in.Limit <= 0 {
 		in.Limit = _defaultSearchLimit
 	}
-	hits, err := m.st.SearchMessages(ctx, f.ID, in.Query, in.Limit)
+	hits, err := m.st.SearchHistory(ctx, f.ID, in.Query, in.Limit, m.tok.Role)
 	return nil, searchOut{Hits: hits}, err
 }
 
@@ -444,6 +444,37 @@ func (m *mcpServer) sendToRole(
 	if err != nil {
 		return nil, store.DirectMessage{}, err
 	}
+	if ch.ClosedAt != nil {
+		return nil, store.DirectMessage{}, fmt.Errorf("channel %d is closed: %w", ch.ID, store.ErrConflict)
+	}
+	if ch.ActiveTurn == store.ActiveTurnStarting {
+		return nil, store.DirectMessage{}, fmt.Errorf("channel %d is starting: %w", ch.ID, store.ErrConflict)
+	}
+	if ch.ActiveTurn == store.ActiveTurnWrap || ch.ActiveTurn == store.ActiveTurnPromote {
+		return nil, store.DirectMessage{}, fmt.Errorf("channel %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
+	}
+	running, err := m.st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID, Status: "running"})
+	if err != nil {
+		return nil, store.DirectMessage{}, err
+	}
+	var source *int64
+	for _, t := range running {
+		if t.WakeText == "" {
+			return nil, store.DirectMessage{}, fmt.Errorf("channel %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
+		}
+		if t.Role != m.tok.Role {
+			continue
+		}
+		if t.DirectMessageID == nil {
+			source = wakeSource(t.WakeText)
+			continue
+		}
+		woken, err := m.st.DirectMessage(ctx, *t.DirectMessageID)
+		if err != nil {
+			return nil, store.DirectMessage{}, err
+		}
+		source = woken.SourceMessageID
+	}
 	team, err := m.st.Team(ctx, ch.Team)
 	if err != nil {
 		return nil, store.DirectMessage{}, err
@@ -463,7 +494,7 @@ func (m *mcpServer) sendToRole(
 		return nil, store.DirectMessage{}, fmt.Errorf("%w: role %q is not in this channel's team", store.ErrInvalid, in.To)
 	}
 	dm, err := m.st.CreateDirectMessage(ctx, store.DirectMessage{
-		ChannelID: m.tok.ChannelID, From: m.tok.Role, To: in.To, Body: in.Body,
+		ChannelID: m.tok.ChannelID, SourceMessageID: source, From: m.tok.Role, To: in.To, Body: in.Body,
 	})
 	return nil, dm, err
 }

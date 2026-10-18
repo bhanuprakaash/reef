@@ -69,7 +69,11 @@ logged in and on `PATH`.
   count, and a side panel for the team, a thread, the inspector, the pull request or the diff (its expand button opens
   the review page). The header's `PR #N` chip opens the pull request panel: title, state, base and head, review, checks and
   Open on GitHub; Merge asks to confirm, then does `POST /features/{id}/pr/merge`. The running turn names its
-  teammate. A wake held at a gate shows Approve and Reject; a pause from the hop cap shows in
+  teammate. Teammates' direct messages (`GET /channels/{id}/direct-messages`) are never bubbles: each conversation
+  between two roles (from one public source message, or from none) is one compact item at the time of its
+  first message, saying working, waiting approval, paused, failed, stopped, rejected or completed (the state of
+  its newest chain) with its message count; a direct wake's approval shows there, not as a channel row; it opens a Coordination panel with the exchange, a link to
+  the public message it began from, and Approve or Reject, Continue or Retry for its state. A wake held at a gate shows Approve and Reject; a pause from the hop cap shows in
   the cap banner. A channel with rollbackable turns (`GET /turns?channel=ID&rollbackable=1`)
   lists Checkpoints; Roll back on a row asks to confirm, then does `POST /turns/{id}/rollback`.
   A checkpoint taken in another tree, such as a quick session's turn after a promote, is not
@@ -378,7 +382,8 @@ A wake that waits at a gate. The SQL table is `approval`.
 | `channelId` | number | |
 | `from` | string | the role whose message woke it |
 | `to` | string | the role that would run |
-| `messageId` | number | the message that woke it |
+| `messageId` | number | the message that woke it; `0` for a direct wake |
+| `directMessageId` | number? | the direct message that woke it, when the wake is direct |
 | `text` | string | the prompt the wake will run, for example `[channel 5, message 28]\nlead wrote: @architect design a form` |
 | `status` | string | `pending`, `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
@@ -475,7 +480,8 @@ tool calls.
 | `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body; while a message chain runs the message is stored at once and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 wrap or promote turn running, channel closed, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
 | `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `toolCalls` (`name`, `input`, `result`) | 404 |
-| `GET /channels/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the channel, oldest first; each has `id`, `channelId`, `chainId`, `replyToId`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `createdAt` | 400 bad id, 404 |
+| `GET /channels/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the channel, oldest first; each has `id`, `channelId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `createdAt` | 400 bad id, 404 |
+| `GET /search` | `?feature=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the feature's public messages and all its direct messages, newest first, `[]` when none. Each hit has `channelId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `feature`, missing `q` |
 | `POST /channels/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
@@ -655,7 +661,9 @@ no model. In order:
    the user owns the thread, it goes to the lead. An agent's reply in a thread has no owner
    rule: it wakes only the roles it mentions.
 2. Otherwise every `@name` in the body that is a role of the team goes to that role, each
-   once.
+   once; the sender and unknown names are skipped. The message is stored once. When it wakes
+   more than one role, each wake's header is followed by `Asked together: @a, @b` naming all of
+   them.
 3. Otherwise a message from the user goes to the lead.
 4. Otherwise nobody: a message from an agent that names no one wakes no one, in a thread or not.
 
@@ -693,16 +701,26 @@ lead's reply says `@architect ...`; the architect runs and posts a plan, a new t
 owns; the chain ends because the plan names no one. The lead gets no turn after the plan.
 
 `send_to_role` stores a direct request outside the public `message` table. When its sender's
-turn ends, only the named role wakes. Its prompt starts `[channel N, direct message N, chain
+turn ends, only the named role wakes. A direct wake is gated the same way a public one is:
+a gate that is on holds it as a pending approval, and rejection wakes nobody. Reaching the
+hop or token cap pauses the chain with the held direct wakes. Direct and public wakes share
+the channel's hop count, so switching between them never resets it. Its prompt starts `[channel N, direct message N, chain
 N, source: direct request]`, names the sender, and carries the body. The recipient's ordinary
 reply is one direct response in the same chain (`replyToId` points to the request) and wakes
 the sender with `source: direct response`. The sender's ordinary reply to that response is
 not stored or routed. A further exchange requires an explicit `send_to_role`. The user reads
 all direct records with `GET /channels/{id}/direct-messages`; an MCP token reads only records
-whose `from` or `to` is its role. Partial output from a failed recipient turn is appended as
+whose `from` or `to` is its role. `GET /search` finds public and direct messages together for
+the user; the MCP `search_sessions` returns a direct hit only to its sender or recipient.
+Rejecting the approval of a direct wake, and a stop that sheds a queued direct wake, each give the request a `failed`
+response with body `rejected` or `stopped`, so the window tells them from a delivery that failed. Wrap-up and promote prompts list the
+channel's direct messages, marking a `failed` attempt `(failed)`. Partial output from a failed recipient turn is appended as
 a `failed` response attempt: it is inspectable but never routed. Retry appends a `done`
 response; a partial unique index allows only one `done` response per request, and only that
-response wakes the sender. Public `GET /messages` history is unchanged.
+response wakes the sender. `sourceMessageId` is the public message whose wake the sender was answering when it called
+`send_to_role`, read from the sender's running turn; a request sent from a direct wake keeps the
+source of that wake, and a request sent outside a turn has `null`. A response keeps the source of
+its request. Public `GET /messages` history is unchanged.
 
 ### Gates
 
@@ -714,20 +732,21 @@ the prompt it would have run and goes on with the rest of the chain. `GET
 paused, else 409 and the approval stays pending), or queues it on the chain that is starting or
 running, a wrap or promote one included. An approve at 6 hops pauses the channel for
 the hop cap, answers 409 and reopens the approval. With `{"approve":false}` it only marks the
-approval `rejected`. A decided approval is 409. Pending approvals are stored, so they survive a
+approval `rejected`; for a direct wake it also records the `rejected` failed response. A decided approval is 409. Pending approvals are stored, so they survive a
 restart.
 
 ### Events
 
 `GET /channels/{id}/events` is a Server-Sent Events stream. It works for a channel that
-is not live: it waits. A `: keepalive` comment comes every 15 seconds. Five kinds of event:
+is not live: it waits. A `: keepalive` comment comes every 15 seconds. Six kinds of event:
 
 - `turn`: `{"role":"architect","status":"running"}` when a turn of that role starts, then
   `{"role":"architect","status":"done"}` or `{"role":"architect","status":"failed","error":"interrupted"}`
   when it ends. A chain of wakes sends one pair for each turn, with no `idle` between them. A
   wrap or promote turn in which the agent made no proposal ends `{"role":"lead","status":"done","note":"no
   proposal made"}`. `{"status":"idle"}` has no role. It is sent only when a subscriber
-  connects and no turn runs.
+  connects and no turn runs. A turn woken by a direct message carries `"direct":true` in each of its frames; the window shows such a turn
+  as working only, without its text or tool calls.
 - `agent`: one [agent event](agents.md) as JSON, as it comes, from the turn that is running.
 - `pause`: `{"reason":"..."}` when a cap pauses the channel: when a send finds the
   token budget used, or when the hop cap holds a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
@@ -735,6 +754,9 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Five kind
   with `approved` or `rejected` when it is decided.
 - `note`: `{}`, sent when a message is posted outside a turn, such as a [GitHub
   poll](#github-poll) note, so a subscriber knows to re-read `GET /messages`.
+- `direct`: `{}`, sent when a chain ends without running a queued direct wake and gives it a
+  `failed` response after the last `turn` event, and when a rejected approval of a direct wake does the same, so a subscriber knows to re-read `GET /channels/{id}/direct-messages`. Every
+  other change to a direct message happens before a `turn` event that ends its turn.
 
 A subscriber is brought up to date when it connects, so a reconnect needs no other
 request to know the state. The server keeps the events of the running chain in memory. A

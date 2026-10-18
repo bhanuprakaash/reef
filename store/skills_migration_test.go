@@ -60,6 +60,9 @@ func TestMigrateSkillsToList(t *testing.T) {
 			if _, err := s.db.Exec("ALTER TABLE turn DROP COLUMN direct_message_id"); err != nil {
 				t.Fatal(err)
 			}
+			if _, err := s.db.Exec("ALTER TABLE channel DROP COLUMN active_turn"); err != nil {
+				t.Fatal(err)
+			}
 			if _, err := s.db.Exec("DROP TABLE direct_message"); err != nil {
 				t.Fatal(err)
 			}

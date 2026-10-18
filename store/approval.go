@@ -24,22 +24,23 @@ const (
 	ApprovalHold = "hold"
 )
 
-const _approvalCols = "id, channel_id, from_role, to_role, message_id, text, parent, status, kind, created_at"
+const _approvalCols = "id, channel_id, from_role, to_role, message_id, direct_message_id, text, parent, status, kind, created_at"
 
 // Approval is a wake held at a gate or by a pause: Text is what To would run for the message
 // MessageID that From wrote, as a reply in the thread of Parent when it is set. An empty Kind
 // is a gate.
 type Approval struct {
-	ID        int64     `json:"id"`
-	ChannelID int64     `json:"channelId"`
-	From      string    `json:"from"`
-	To        string    `json:"to"`
-	MessageID int64     `json:"messageId"`
-	Text      string    `json:"text"`
-	Parent    *int64    `json:"-"`
-	Status    string    `json:"status"`
-	Kind      string    `json:"-"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID              int64     `json:"id"`
+	ChannelID       int64     `json:"channelId"`
+	From            string    `json:"from"`
+	To              string    `json:"to"`
+	MessageID       int64     `json:"messageId"`
+	DirectMessageID *int64    `json:"directMessageId,omitempty"`
+	Text            string    `json:"text"`
+	Parent          *int64    `json:"-"`
+	Status          string    `json:"status"`
+	Kind            string    `json:"-"`
+	CreatedAt       time.Time `json:"createdAt"`
 }
 
 // CreateApproval adds a as pending.
@@ -48,10 +49,14 @@ func (s *Store) CreateApproval(ctx context.Context, a Approval) (Approval, error
 		a.Kind = ApprovalGate
 	}
 	now := time.Now().UTC()
+	var messageID any
+	if a.MessageID != 0 {
+		messageID = a.MessageID
+	}
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO approval (channel_id, from_role, to_role, message_id, text, parent, kind, created_at) "+
-			"VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		a.ChannelID, a.From, a.To, a.MessageID, a.Text, a.Parent, a.Kind,
+		"INSERT INTO approval (channel_id, from_role, to_role, message_id, direct_message_id, text, parent, kind, created_at) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		a.ChannelID, a.From, a.To, messageID, a.DirectMessageID, a.Text, a.Parent, a.Kind,
 		now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Approval{}, s.writeErr(ctx, "insert approval", err, ErrNotFound,
@@ -139,9 +144,19 @@ func (s *Store) ReopenApproval(ctx context.Context, id int64) error {
 func scanApproval(r interface{ Scan(...any) error }) (Approval, error) {
 	var a Approval
 	var created string
-	if err := r.Scan(&a.ID, &a.ChannelID, &a.From, &a.To, &a.MessageID, &a.Text, &a.Parent,
+	var messageID sql.NullInt64
+	var directMessageID sql.NullInt64
+	if err := r.Scan(&a.ID, &a.ChannelID, &a.From, &a.To, &messageID, &directMessageID, &a.Text, &a.Parent,
 		&a.Status, &a.Kind, &created); err != nil {
 		return Approval{}, err
+	}
+	if messageID.Valid {
+		v := messageID.Int64
+		a.MessageID = v
+	}
+	if directMessageID.Valid {
+		v := directMessageID.Int64
+		a.DirectMessageID = &v
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)
 	if err != nil {

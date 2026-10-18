@@ -10,6 +10,7 @@ type Props = { turn: LiveTurn; role: string; face?: string; onClose: () => void 
 export function TurnPanel({ turn, role, face, onClose }: Props) {
   const { box, onScroll } = useStickToBottom();
   const failed = turn.status === 'failed';
+  const items = turn.direct ? [] : turn.items;
 
   return (
     <aside aria-label="Turn" className="flex min-h-0 flex-1 flex-col bg-sidebar max-md:bg-main">
@@ -49,7 +50,7 @@ export function TurnPanel({ turn, role, face, onClose }: Props) {
       </div>
       <div ref={box} onScroll={onScroll} className="min-h-0 flex-1 overflow-y-auto">
         <div className="flex flex-col items-start gap-2.5 px-[18px] py-4">
-          {turn.items.map((item, i) =>
+          {items.map((item, i) =>
             item.type === 'text' ? (
               !failed && <Bubble key={i}>{item.text}</Bubble>
             ) : (
@@ -58,7 +59,7 @@ export function TurnPanel({ turn, role, face, onClose }: Props) {
               </div>
             ),
           )}
-          {turn.status === 'running' && turn.items.length === 0 && (
+          {turn.status === 'running' && items.length === 0 && (
             <div
               role="status"
               aria-label="Waiting for the agent"
