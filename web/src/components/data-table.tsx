@@ -10,6 +10,7 @@ import {
 } from 'react';
 import type { Element, ElementContent } from 'hast';
 import { CopyButton } from '@/components/copy-button';
+import { csv, numericColumn, sortOrder } from '@/utils/table-data';
 
 type Sort = { col: number; dir: 'asc' | 'desc' } | null;
 
@@ -32,43 +33,22 @@ function rowsOf(table: Element, section: 'thead' | 'tbody'): string[][] {
     );
 }
 
-const figure = /^[\s$€£+-]*(\d[\d,]*(?:\.\d+)?)\s*(?:%|ms|s|x|k|m|kb|mb|gb)?$/i;
-
-function compare(a: string, b: string) {
-  const x = figure.exec(a);
-  const y = figure.exec(b);
-  if (x && y) return Number(x[1].replaceAll(',', '')) - Number(y[1].replaceAll(',', ''));
-  return a.localeCompare(b, undefined, { numeric: true, sensitivity: 'base' });
-}
-
-function csv(rows: string[][]) {
-  return rows
-    .map((row) => row.map((cell) => `"${cell.replaceAll('"', '""')}"`).join(','))
-    .join('\n');
-}
-
 function mapChildren(node: ReactNode, fn: (child: ReactElement, index: number) => ReactNode) {
   return Children.toArray(node).map((child, i) => (isValidElement(child) ? fn(child, i) : child));
 }
 
-// DataTable is the markdown `table`: click a header to sort its rows, copy the whole table as
-// CSV. Rows are reordered from the parsed tree, so cells keep their links, code and mentions.
 export function DataTable({ node, children }: ComponentProps<'table'> & { node?: Element }) {
   const [sort, setSort] = useState<Sort>(null);
   const head = node ? rowsOf(node, 'thead') : [];
   const body = node ? rowsOf(node, 'tbody') : [];
 
-  const order = body.map((_, i) => i);
-  if (sort) {
-    order.sort((a, b) => {
-      const diff = compare(body[a][sort.col] ?? '', body[b][sort.col] ?? '');
-      return sort.dir === 'asc' ? diff : -diff;
-    });
-  }
+  const order = sort ? sortOrder(body, sort.col, sort.dir) : body.map((_, i) => i);
+  const numeric = (head[0] ?? []).map((_, col) => numericColumn(body, col));
 
   const onHeaderClick = (e: MouseEvent) => {
-    const th = (e.target as HTMLElement).closest('th');
-    if (!th) return;
+    const target = e.target as HTMLElement;
+    const th = target.closest('th');
+    if (!th || target.closest('button, a')) return;
     const col = th.cellIndex;
     setSort((prev) =>
       prev?.col !== col ? { col, dir: 'asc' } : prev.dir === 'asc' ? { col, dir: 'desc' } : null,
@@ -86,7 +66,7 @@ export function DataTable({ node, children }: ComponentProps<'table'> & { node?:
             {},
             mapChildren((tr.props as { children?: ReactNode }).children, (th, col) =>
               cloneElement(th as ReactElement<Record<string, unknown>>, {
-                'data-numeric': body.length > 0 && body.every((row) => figure.test(row[col] ?? '')),
+                'data-numeric': numeric[col],
                 'aria-sort':
                   sort?.col === col ? (sort.dir === 'asc' ? 'ascending' : 'descending') : undefined,
               }),
@@ -95,7 +75,17 @@ export function DataTable({ node, children }: ComponentProps<'table'> & { node?:
         ),
       );
     }
-    const rows = Children.toArray((section.props as { children?: ReactNode }).children);
+    const rows = mapChildren((section.props as { children?: ReactNode }).children, (tr) =>
+      cloneElement(
+        tr,
+        {},
+        mapChildren((tr.props as { children?: ReactNode }).children, (td, col) =>
+          cloneElement(td as ReactElement<Record<string, unknown>>, {
+            'data-numeric': numeric[col],
+          }),
+        ),
+      ),
+    );
     return cloneElement(
       section,
       {},

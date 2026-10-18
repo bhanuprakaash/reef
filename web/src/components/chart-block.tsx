@@ -1,6 +1,7 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Chart } from 'chart.js';
 import { CodeBlock } from '@/components/code-block';
+import { Skeleton } from '@/components/skeleton';
 import { useResolvedTheme } from '@/lib/use-resolved-theme';
 import { parseChart } from '@/utils/chart-spec';
 
@@ -9,15 +10,26 @@ const palette = ['working', 'done', 'lead', 'architect', 'paused', 'failed', 'de
 // ChartBlock draws a ```chart fence with Chart.js, loaded on the first chart. Canvas cannot read
 // CSS variables, so colours are read from the theme when drawn and again when the theme changes.
 export function ChartBlock({ code }: { code: string }) {
-  const spec = useMemo(() => parseChart(code), [code]);
+  const parsed = useMemo(() => parseChart(code), [code]);
+  const [last, setLast] = useState(parsed);
+  if (parsed && parsed !== last) setLast(parsed);
+  const spec = parsed ?? last;
+  // A streaming reply is not valid JSON until it ends: call it invalid only once it stops changing.
+  const [settled, setSettled] = useState<string | null>(null);
   const theme = useResolvedTheme();
   const canvas = useRef<HTMLCanvasElement>(null);
+
+  useEffect(() => {
+    if (parsed) return;
+    const timer = setTimeout(() => setSettled(code), 600);
+    return () => clearTimeout(timer);
+  }, [code, parsed]);
 
   useEffect(() => {
     if (!spec) return;
     let live = true;
     let chart: Chart | undefined;
-    void import('chart.js/auto').then(({ default: ChartJS }) => {
+    void import('@/lib/chart').then(({ Chart: ChartJS }) => {
       if (!live || !canvas.current) return;
       const css = getComputedStyle(document.documentElement);
       const token = (name: string) => css.getPropertyValue(`--color-${name}`).trim();
@@ -55,7 +67,7 @@ export function ChartBlock({ code }: { code: string }) {
     };
   }, [spec, theme]);
 
-  if (!spec) {
+  if (!parsed && settled === code) {
     return (
       <div className="flex flex-col gap-1">
         <CodeBlock code={code} lang="chart" />
@@ -63,6 +75,8 @@ export function ChartBlock({ code }: { code: string }) {
       </div>
     );
   }
+
+  if (!spec) return <Skeleton className="h-64" />;
 
   return (
     <figure className="rounded-lg border border-current/10 p-3">
