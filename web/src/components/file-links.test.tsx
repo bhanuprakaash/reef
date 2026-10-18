@@ -5,7 +5,7 @@ import { Markdown } from './markdown';
 
 const text = [
   'See `web/src/app.tsx:42`, [the store](store/db.go) and server/http.go.',
-  'Not v1.2.3, e.g. this, `npm test` or http://x.io/a.go.',
+  'Not v1.2.3, e.g. this, `npm test`, `chart.js` or http://x.io/a.go.',
   '',
   '```',
   'cmd/reef/main.go',
@@ -35,10 +35,12 @@ describe('Markdown file links', () => {
     expect(buttons[2]).toContain('>server/http.go</button>');
   });
 
-  it('leaves versions, commands, urls and fenced code alone', () => {
+  it('leaves versions, commands, bare names, urls and fenced code alone', () => {
     const html = render(true);
 
     expect(html).toContain('<code>npm test</code>');
+    expect(html).toContain('<code>chart.js</code>');
+    expect(html).not.toContain('Open chart.js');
     expect(html).toContain('<a href="http://x.io/a.go"');
     expect(html).toContain('<code>cmd/reef/main.go</code>');
     expect(html).not.toContain('Open cmd/reef');

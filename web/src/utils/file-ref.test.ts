@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { fileLanguage, findFileRefs, parseFileRef } from './file-ref';
+import { fileLanguage, findFileRefs, parseCodeRef, parseFileRef } from './file-ref';
 
 describe('parseFileRef', () => {
   it.each([
@@ -44,6 +44,30 @@ describe('parseFileRef', () => {
   ])('rejects %s', (text) => {
     expect(parseFileRef(text)).toBeNull();
   });
+});
+
+describe('parseCodeRef', () => {
+  it.each([
+    ['web/src/app.tsx', { path: 'web/src/app.tsx' }],
+    ['app.tsx:42', { path: 'app.tsx', line: 42 }],
+    ['main.go#L7', { path: 'main.go', line: 7 }],
+    ['README.md', { path: 'README.md' }],
+    ['CLAUDE.md', { path: 'CLAUDE.md' }],
+    ['Makefile', { path: 'Makefile' }],
+    ['Dockerfile', { path: 'Dockerfile' }],
+    ['.gitignore', { path: '.gitignore' }],
+    ['go.mod', { path: 'go.mod' }],
+    ['package.json', { path: 'package.json' }],
+  ])('reads %s', (text, want) => {
+    expect(parseCodeRef(text)).toEqual(want);
+  });
+
+  it.each(['chart.js', 'node.js', 'index.html', 'app.tsx', 'notes.md', 'app.tsx:0', 'v1.2.3'])(
+    'rejects %s',
+    (text) => {
+      expect(parseCodeRef(text)).toBeNull();
+    },
+  );
 });
 
 describe('findFileRefs', () => {
