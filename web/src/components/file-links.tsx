@@ -1,7 +1,7 @@
 import { createContext, useContext, type ComponentProps } from 'react';
 import type { Link, Parent, PhrasingContent, Root, RootContent } from 'mdast';
 import type { ExtraProps } from 'react-markdown';
-import { findFileRefs, parseFileRef, type FileRef } from '@/utils/file-ref';
+import { findFileRefs, parseCodeRef, parseFileRef, type FileRef } from '@/utils/file-ref';
 
 export const FileLinkContext = createContext<((path: string, line?: number) => void) | null>(null);
 
@@ -19,7 +19,7 @@ function fileLink(ref: FileRef, children: PhrasingContent[], kind: string): Link
 
 function link(node: RootContent): RootContent[] {
   if (node.type === 'inlineCode') {
-    const ref = parseFileRef(node.value);
+    const ref = parseCodeRef(node.value);
     return ref ? [fileLink(ref, [node], 'code')] : [node];
   }
   if (node.type === 'link') {
@@ -46,7 +46,6 @@ function link(node: RootContent): RootContent[] {
   return [node];
 }
 
-// remarkFileLinks turns file paths in inline code, relative links and plain text into buttons.
 export function remarkFileLinks() {
   return (tree: Root) => {
     tree.children = tree.children.flatMap(link);

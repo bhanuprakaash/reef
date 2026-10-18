@@ -84,7 +84,6 @@ const style = [
   '[&_h5]:mt-[0.5em] [&_h5]:text-[14.5px] [&_h5]:font-medium [&_h5]:text-soft',
   '[&_h6]:mt-[0.5em] [&_h6]:text-[14.5px] [&_h6]:font-medium [&_h6]:text-muted',
 
-  // Full-width prose runs past a comfortable line length; code and tables keep the whole width.
   '[&>:is(p,ul,ol,blockquote,h1,h2,h3,h4,h5,h6)]:max-w-[80ch]',
 
   '[&_strong]:font-semibold',
@@ -114,13 +113,6 @@ const style = [
   '[&_img]:max-w-full [&_img]:rounded-lg',
 ].join(' ');
 
-// A cell holding only a number reads better right-aligned, with figures that line up.
-const number = /^[\s$€£+-]*\d[\d,]*(?:\.\d+)?\s*(?:%|ms|s|x|k|m|kb|mb|gb)?$/i;
-
-function numeric(children: ReactNode) {
-  return typeof children === 'string' && number.test(children);
-}
-
 const components: Components = {
   a: ({ href, children }) => (
     <a href={href} target="_blank" rel="noreferrer">
@@ -147,13 +139,25 @@ const components: Components = {
       className={
         (props as { 'data-numeric'?: boolean })['data-numeric'] ? 'text-right' : 'text-left'
       }
-      onKeyDown={(e) => e.key === 'Enter' && e.currentTarget.click()}
+      onKeyDown={(e) => {
+        if (e.target !== e.currentTarget || (e.key !== 'Enter' && e.key !== ' ')) return;
+        e.preventDefault();
+        e.currentTarget.click();
+      }}
     >
       {children}
     </th>
   ),
-  td: ({ children }) => (
-    <td className={numeric(children) ? 'text-right tabular-nums' : undefined}>{children}</td>
+  td: ({ children, ...props }) => (
+    <td
+      className={
+        (props as { 'data-numeric'?: boolean })['data-numeric']
+          ? 'text-right tabular-nums'
+          : undefined
+      }
+    >
+      {children}
+    </td>
   ),
 };
 

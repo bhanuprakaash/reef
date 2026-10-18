@@ -21,6 +21,7 @@ function errorText(error: Error) {
 
 function Code({ code, lang, line }: { code: string; lang: string; line?: number }) {
   const [lines, setLines] = useState<{ code: string; lines: Line[] } | null>(null);
+  const box = useRef<HTMLDivElement>(null);
   const target = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -34,7 +35,10 @@ function Code({ code, lang, line }: { code: string; lang: string; line?: number 
   }, [code, lang]);
 
   useEffect(() => {
-    target.current?.scrollIntoView({ block: 'center' });
+    const row = target.current;
+    if (!box.current || !row) return;
+    const offset = row.getBoundingClientRect().top - box.current.getBoundingClientRect().top;
+    box.current.scrollTop += offset - (box.current.clientHeight - row.offsetHeight) / 2;
   }, [code, line]);
 
   const done = lines?.code === code ? lines.lines : null;
@@ -42,26 +46,28 @@ function Code({ code, lang, line }: { code: string; lang: string; line?: number 
     done ?? code.split('\n').map((text) => [{ content: text, style: undefined }]);
 
   return (
-    <pre className="min-w-max py-2 font-mono text-[12.5px] leading-[1.55]">
-      <code>
-        {rows.map((row, i) => (
-          <div
-            key={i}
-            ref={i + 1 === line ? target : undefined}
-            className={`flex min-h-[1.55em] ${i + 1 === line ? 'bg-current/[0.1]' : ''}`}
-          >
-            <span className="w-12 shrink-0 select-none pr-3 text-right text-faint">{i + 1}</span>
-            <span className="pr-4">
-              {row.map((token, j) => (
-                <span key={j} className="shiki-token" style={token.style}>
-                  {token.content}
-                </span>
-              ))}
-            </span>
-          </div>
-        ))}
-      </code>
-    </pre>
+    <div ref={box} className="min-h-0 flex-1 overflow-auto">
+      <pre className="min-w-max py-2 font-mono text-[12.5px] leading-[1.55]">
+        <code>
+          {rows.map((row, i) => (
+            <div
+              key={i}
+              ref={i + 1 === line ? target : undefined}
+              className={`flex min-h-[1.55em] ${i + 1 === line ? 'bg-current/[0.1]' : ''}`}
+            >
+              <span className="w-12 shrink-0 select-none pr-3 text-right text-faint">{i + 1}</span>
+              <span className="pr-4">
+                {row.map((token, j) => (
+                  <span key={j} className="shiki-token" style={token.style}>
+                    {token.content}
+                  </span>
+                ))}
+              </span>
+            </div>
+          ))}
+        </code>
+      </pre>
+    </div>
   );
 }
 
@@ -117,13 +123,11 @@ export function FilePanel({
         </p>
       )}
       {file.data && (
-        <div className="min-h-0 flex-1 overflow-auto">
-          <Code
-            code={file.data.content.replace(/\n$/, '')}
-            lang={fileLanguage(file.data.path)}
-            line={line}
-          />
-        </div>
+        <Code
+          code={file.data.content.replace(/\n$/, '')}
+          lang={fileLanguage(file.data.path)}
+          line={line}
+        />
       )}
     </aside>
   );

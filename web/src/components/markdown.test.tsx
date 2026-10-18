@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { Markdown } from './markdown';
+import { Markdown } from '@/components/markdown';
 
 const text = [
   '**bold** and `inline`',
@@ -48,6 +48,14 @@ describe('Markdown', () => {
     expect(html).toMatch(/<th[^>]*class="text-right"[^>]*>n<\/th>/);
   });
 
+  it('aligns every cell of a numeric column the same way, formatted or not', () => {
+    const html = renderToStaticMarkup(<Markdown>{'| n |\n| - |\n| **5** |\n| -3 |'}</Markdown>);
+
+    expect(html).toMatch(/<th[^>]*class="text-right"[^>]*>n<\/th>/);
+    expect(html).toContain('<td class="text-right tabular-nums"><strong>5</strong></td>');
+    expect(html).toContain('<td class="text-right tabular-nums">-3</td>');
+  });
+
   it('keeps single newlines as line breaks and does not render raw html', () => {
     const html = renderToStaticMarkup(<Markdown>{'line one\nline two <b>x</b>'}</Markdown>);
 
@@ -57,12 +65,12 @@ describe('Markdown', () => {
 });
 
 describe('Markdown rich fences', () => {
-  it('shows an invalid or half-written chart as code with a note', () => {
+  it('holds a placeholder, not a note, for a chart that does not parse yet', () => {
     for (const body of ['{"type":"bar","labels":["a"', '{"type":"radar"}']) {
       const html = renderToStaticMarkup(<Markdown>{'```chart\n' + body + '\n```'}</Markdown>);
 
-      expect(html).toContain('>chart</span>');
-      expect(html).toContain('<p class="text-[12px] text-muted">Not a valid chart</p>');
+      expect(html).toContain('aria-hidden="true"');
+      expect(html).not.toContain('Not a valid chart');
       expect(html).not.toContain('<canvas');
     }
   });
@@ -85,13 +93,13 @@ describe('Markdown rich fences', () => {
     expect(html).not.toContain('<pre');
   });
 
-  it('previews html in an iframe with an empty sandbox, never inline', () => {
+  it('previews html in an iframe with an empty sandbox and a policy first, never inline', () => {
     const html = renderToStaticMarkup(
       <Markdown>{'```html\n<b>x</b><script>alert(1)</script>\n```'}</Markdown>,
     );
 
     expect(html).toContain(
-      '<iframe sandbox="" srcDoc="&lt;b&gt;x&lt;/b&gt;&lt;script&gt;alert(1)&lt;/script&gt;"',
+      '<iframe sandbox="" srcDoc="&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; img-src data:; style-src &#x27;unsafe-inline&#x27;&quot;&gt;&lt;b&gt;x&lt;/b&gt;&lt;script&gt;alert(1)&lt;/script&gt;"',
     );
     expect(html).not.toContain('<b>');
     expect(html).not.toContain('<script>');

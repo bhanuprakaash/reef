@@ -49,13 +49,18 @@ function highlighter() {
     import('shiki/engine/javascript'),
     import('shiki/themes/github-light-default.mjs'),
     import('shiki/themes/github-dark-default.mjs'),
-  ]).then(([core, engine, light, dark]) =>
-    core.createHighlighterCore({
-      themes: [light, dark],
-      langs: [],
-      engine: engine.createJavaScriptRegexEngine(),
-    }),
-  );
+  ])
+    .then(([core, engine, light, dark]) =>
+      core.createHighlighterCore({
+        themes: [light, dark],
+        langs: [],
+        engine: engine.createJavaScriptRegexEngine(),
+      }),
+    )
+    .catch((error: unknown) => {
+      loading = null;
+      throw error;
+    });
   return loading;
 }
 
@@ -66,9 +71,12 @@ function toLine(tokens: ThemedToken[]): Line {
   }));
 }
 
-// highlight returns one entry per line with both themes as CSS variables (--shiki-light,
-// --shiki-dark), or null for a language it does not ship.
+// Tokenising runs on the main thread; past these sizes it would freeze the window.
+const maxChars = 100_000;
+const maxLines = 2000;
+
 export async function highlight(code: string, lang: string): Promise<Line[] | null> {
+  if (code.length > maxChars || code.split('\n').length > maxLines) return null;
   const name = aliases[lang] ?? lang;
   const load = grammars[name];
   if (!load) return null;

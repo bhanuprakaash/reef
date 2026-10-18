@@ -1,21 +1,34 @@
-import { useEffect, useState } from 'react';
+import { Fragment, useEffect, useRef, useState } from 'react';
 import { CopyButton } from '@/components/copy-button';
 import { highlight, type Line } from '@/lib/highlight';
 
 export function CodeBlock({ code, lang }: { code: string; lang: string }) {
-  const [lines, setLines] = useState<{ code: string; lines: Line[] } | null>(null);
+  const [shown, setShown] = useState<{ code: string; lines: Line[] } | null>(null);
+  const drawn = useRef(false);
 
+  // A streaming reply changes the code on every chunk: highlight once it pauses, and until then
+  // keep the last highlighted lines with the new text after them.
   useEffect(() => {
     let live = true;
-    highlight(code, lang)
-      .then((result) => live && result && setLines({ code, lines: result }))
-      .catch(() => undefined);
+    const timer = setTimeout(
+      () => {
+        highlight(code, lang)
+          .then((lines) => {
+            if (!live) return;
+            drawn.current = lines !== null;
+            setShown(lines && { code, lines });
+          })
+          .catch(() => undefined);
+      },
+      drawn.current ? 150 : 0,
+    );
     return () => {
       live = false;
+      clearTimeout(timer);
     };
   }, [code, lang]);
 
-  const done = lines?.code === code ? lines.lines : null;
+  const rest = shown && code.startsWith(shown.code) ? code.slice(shown.code.length) : null;
 
   return (
     <div className="overflow-hidden rounded-lg border border-current/10 bg-current/[0.05]">
@@ -25,17 +38,23 @@ export function CodeBlock({ code, lang }: { code: string; lang: string }) {
       </div>
       <pre className="overflow-x-auto px-3.5 py-3 font-mono text-[12.5px] leading-[1.55]">
         <code>
-          {done
-            ? done.map((line, i) => (
-                <span key={i} className="block min-h-[1.55em]">
+          {shown && rest !== null ? (
+            <>
+              {shown.lines.map((line, i) => (
+                <Fragment key={i}>
+                  {i > 0 && '\n'}
                   {line.map((token, j) => (
                     <span key={j} className="shiki-token" style={token.style}>
                       {token.content}
                     </span>
                   ))}
-                </span>
-              ))
-            : code}
+                </Fragment>
+              ))}
+              {rest}
+            </>
+          ) : (
+            code
+          )}
         </code>
       </pre>
     </div>
