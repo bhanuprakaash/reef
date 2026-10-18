@@ -187,6 +187,56 @@ func TestDirectStopWhileQueuedRecipientStopped(t *testing.T) {
 	sub.want(t, _idleFrame)
 }
 
+// TestDirectRejectedApprovalRecordsFailedResponse rejects a gated direct wake: nobody runs,
+// and the request gets a failed response with body "rejected" so it reads differently from a
+// completed exchange.
+func TestDirectRejectedApprovalRecordsFailedResponse(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	roles := []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
+	}
+	if _, err := env.st.ApplyTeam(ctx, store.Team{Name: "core", Roles: roles,
+		Gates: []store.Gate{{From: "lead", To: "architect", On: true}}}); err != nil {
+		t.Fatal(err)
+	}
+	env.fake.onRun = func(role, text string, parent *int64) {
+		if role == "lead" {
+			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
+				ChannelID: int64(id), From: "lead", To: "architect", Body: "private ask",
+			}); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	var held []store.Approval
+	for deadline := time.Now().Add(5 * time.Second); len(held) == 0 && time.Now().Before(deadline); {
+		held, _ = env.st.PendingApprovals(ctx, int64(id))
+		time.Sleep(10 * time.Millisecond)
+	}
+	if len(held) != 1 || held[0].DirectMessageID == nil {
+		t.Fatalf("approvals = %+v, want one holding the direct request", held)
+	}
+	status, _ := do(t, http.MethodPost,
+		fmt.Sprintf("%s/channels/%d/approvals/%d", env.url, id, held[0].ID), `{"approve":false}`)
+	if status != 204 {
+		t.Fatalf("reject = %d, want 204", status)
+	}
+	for f := sub.next(t); f != "direct {}"; f = sub.next(t) {
+	}
+	direct, err := env.st.DirectMessages(ctx, int64(id), 0)
+	if err != nil || len(direct) != 2 {
+		t.Fatalf("direct = %+v, %v", direct, err)
+	}
+	if got := direct[1]; got.Status != store.DirectFailed || got.Body != "rejected" ||
+		got.From != "architect" || got.To != "lead" {
+		t.Errorf("response = %+v, want failed architect->lead with body rejected", got)
+	}
+}
+
 // TestDirectHopCapHoldThenContinue drives direct exchanges until the shared hop cap pauses
 // the channel with exactly one hold, then Continue runs the pending direct wake and preserves
 // private identity (a direct response, not a public message).

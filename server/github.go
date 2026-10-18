@@ -468,7 +468,7 @@ func (s *server) noteFeature(ctx context.Context, featureID int64, body string) 
 	}); err != nil {
 		return false, err
 	}
-	s.notifyMessage(ch.ID)
+	s.notify(ch.ID, "note")
 	return true, nil
 }
 

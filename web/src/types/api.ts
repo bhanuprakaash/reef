@@ -105,6 +105,7 @@ export type Turn = {
   status: string;
   error: string;
   wakeText: string;
+  directMessageId?: number | null;
   retried: boolean;
   checkpoint: string | null;
   startedAt: string;
@@ -143,8 +144,22 @@ export type Approval = {
   from: string;
   to: string;
   messageId: number;
+  directMessageId?: number;
   text: string;
   status: string;
+  createdAt: string;
+};
+
+export type DirectMessage = {
+  id: number;
+  channelId: number;
+  chainId: number;
+  replyToId: number | null;
+  sourceMessageId: number | null;
+  from: string;
+  to: string;
+  body: string;
+  status: 'sent' | 'done' | 'failed';
   createdAt: string;
 };
 

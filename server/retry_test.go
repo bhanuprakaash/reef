@@ -82,7 +82,10 @@ func TestRetry_DirectTurnKeepsReplyPrivate(t *testing.T) {
 		t.Fatalf("retry = %d %q, want 202", status, body)
 	}
 	sub.want(t, _idleFrame)
-	sub.wantTurns(t, "architect", "lead")
+	for _, role := range []string{"architect", "lead"} {
+		sub.want(t, `turn {"role":"`+role+`","status":"running","direct":true}`,
+			`agent {"kind":"text","text":"hi"}`, `turn {"role":"`+role+`","status":"done","direct":true}`)
+	}
 	direct, err := env.st.DirectMessages(ctx, int64(channelID), 0)
 	if err != nil || len(direct) != 3 || direct[1].Status != store.DirectFailed ||
 		direct[2].Status != store.DirectDone || direct[2].ReplyToID == nil ||

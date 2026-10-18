@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -11,9 +11,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -1843,6 +1843,151 @@ async function pr() {
   );
   await main.getByRole('button', { name: 'PR #12 merged' }).waitFor({ timeout: 15000 });
   check(true, 'the header chip follows to merged', sql(`select body from message where channel_id = ${cid} and author = 'reef' order by id desc limit 1`));
+}
+
+// Teammates' direct messages show as one compact item in the channel, never as bubbles. The
+// gated team holds the lead's direct request for approval, and the fake architect answers slowly.
+async function coordination() {
+  if ((await fetch(`${base}/teams/gated`)).status !== 200) throw new Error('apply the team gated first (see features/teams.md)');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const { id: cid } = await newTeamChannel('gated', 'coordination room');
+  const panel = page.getByRole('complementary', { name: 'Coordination' });
+  const items = page.getByRole('button', { name: /^lead and architect (are coordinating|coordinated) · \d+ messages?/i });
+  const direct = () => getJson(`/channels/${cid}/direct-messages`);
+  const stateOf = async (item) => (await item.innerText()).split('\n').at(-1).trim();
+  const until = async (item, state, timeout = 120000) => {
+    const end = Date.now() + timeout;
+    while (Date.now() < end) {
+      if ((await item.count()) > 0 && (await stateOf(item)) === state) return true;
+      await page.waitForTimeout(250);
+    }
+    return false;
+  };
+  const phoneWide = () => page.viewportSize().width < 768;
+  let chains = 0;
+
+  // One exchange: the item waits for approval, the panel shows it, Approve runs the architect.
+  async function exchange(label, text) {
+    await send(text);
+    chains += 1;
+    const item = items.nth(chains - 1);
+    check(await until(item, 'waiting approval'), `${label}: one item says waiting approval`, (await items.allInnerTexts()).join(' | '));
+    await shot(`${label}-waiting`);
+    check((await page.getByRole('button', { name: 'Approve' }).count()) === 0, `${label}: the channel shows no Approve row for the private request`);
+    await item.click();
+    await panel.waitFor();
+    await shot(`${label}-panel`);
+    return item;
+  }
+
+  // Desktop: first exchange completes.
+  const item1 = await exchange('desktop-1', 'COORDINATE the login review with the architect.');
+  const rows = (await panel.getByRole('listitem').allInnerTexts()).map((t) => t.toLowerCase());
+  check(
+    rows.length === 1 && rows[0].includes('lead → architect') && rows[0].includes('sent') && rows[0].includes('please review the login plan and tell me if it holds.'),
+    'the panel lists the request with sender, recipient, time and delivery status',
+    rows.join(' | '),
+  );
+  check(
+    (await panel.getByRole('button', { name: 'Approve' }).count()) === 1 && (await panel.getByRole('button', { name: 'Reject' }).count()) === 1,
+    'the panel offers Approve and Reject while waiting approval',
+  );
+  const userMessage = (await getJson(`/messages?channel=${cid}`)).find((m) => m.author === 'user');
+  const stored = (await direct())[0];
+  check(stored.sourceMessageId === userMessage.id, 'the direct request stores the public message it was sent from', `sourceMessageId ${stored.sourceMessageId}, message ${userMessage.id}`);
+  await panel.getByRole('button', { name: 'Open the message that started it' }).click();
+  await page.getByRole('complementary', { name: 'Thread' }).getByText('COORDINATE the login review').waitFor();
+  await shot('desktop-1-source');
+  check(true, 'the source link opens the thread of the public message');
+  await page.getByRole('button', { name: 'Close thread' }).click();
+  await item1.click();
+  await panel.getByRole('button', { name: 'Approve' }).click();
+  check(await until(item1, 'working', 30000), 'Approve runs the architect and the same item says working');
+  await shot('desktop-1-working');
+  check(await until(item1, 'completed'), 'the answer completes the exchange');
+  const done = await direct();
+  const itemText = (await item1.innerText()).replace(/\s+/g, ' ').toLowerCase();
+  check(
+    done.length === 2 && itemText.includes('lead and architect coordinated · 2 messages') && (await items.count()) === 1,
+    'the same item counts 2 messages instead of adding another',
+    itemText,
+  );
+  await shot('desktop-1-completed');
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+  check(
+    (await page.getByText('Please review the login plan').count()) === 0 && (await page.getByText('Plan holds').count()) === 0,
+    'no direct message renders as a bubble in the channel',
+  );
+
+  // Desktop: the second exchange is stopped and retried.
+  const item2 = await exchange('desktop-2', 'COORDINATE the login review once more.');
+  await panel.getByRole('button', { name: 'Approve' }).click();
+  check(await until(item2, 'working', 30000), 'the second exchange runs');
+  await page.getByRole('button', { name: 'Stop' }).click();
+  check(await until(item2, 'stopped', 30000), 'Stop turns the item to stopped');
+  await shot('desktop-2-stopped');
+  check((await panel.getByRole('button', { name: 'Retry' }).count()) === 1, 'the panel offers Retry for the stopped exchange');
+  await panel.getByRole('button', { name: 'Retry' }).click();
+  check(await until(item2, 'completed'), 'Retry runs the architect again and the exchange completes');
+  const all = await direct();
+  const secondChain = all.filter((m) => m.chainId === all[2].chainId);
+  check(secondChain.map((m) => m.status).join(',') === 'sent,failed,done', 'the retried exchange keeps the failed attempt and the answer', secondChain.map((m) => m.status).join(','));
+  await shot('desktop-2-retried');
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+
+  // Desktop: a recipient whose agent fails.
+  const item3 = await exchange('desktop-3', 'COORDINATE the failing review with the architect.');
+  await panel.getByRole('button', { name: 'Approve' }).click();
+  check(await until(item3, 'failed'), 'a recipient whose agent fails turns the item to failed');
+  await shot('desktop-3-failed');
+  check((await panel.getByRole('button', { name: 'Retry' }).count()) === 1, 'the panel offers Retry for the failed exchange');
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+
+  // Phone: the same items and panel at 390x844.
+  await page.setViewportSize({ width: 390, height: 844 });
+  check((await items.count()) === 3, 'the phone width shows the same three items', (await items.allInnerTexts()).join(' | '));
+  await shot('phone-items');
+  const item4 = await exchange('phone', 'COORDINATE the login review on the phone.');
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  check(wide <= 0 && phoneWide(), 'the panel has no horizontal scroll at 390 px', `page overflow ${wide}`);
+  await panel.getByRole('button', { name: 'Approve' }).click();
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+  check(await until(item4, 'working', 30000), 'the phone item says working');
+  await shot('phone-working');
+  await page.getByRole('button', { name: 'Stop' }).click();
+  check(await until(item4, 'stopped', 30000), 'the phone item says stopped');
+  await item4.click();
+  await panel.getByRole('button', { name: 'Retry' }).waitFor();
+  await shot('phone-stopped');
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+  check(
+    sql(`select count(*) from turn where channel_id = ${cid} and status = 'failed' and error = 'interrupted'`) === '2',
+    'both stopped exchanges stored an interrupted turn',
+  );
+
+  // The architect runs again, so the stopped turn can no longer be retried; it still reads stopped.
+  const item5 = await exchange('phone-2', 'COORDINATE the failing review once more.');
+  await panel.getByRole('button', { name: 'Approve' }).click();
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+  check(await until(item5, 'failed'), 'the phone item of a failing recipient says failed');
+  const kept = await stateOf(item4);
+  check(kept === 'stopped', 'an earlier stopped item stays stopped after a later turn of its role', kept);
+  await item4.click();
+  await panel.waitFor();
+  check((await panel.getByRole('button', { name: 'Retry' }).count()) === 0, 'it no longer offers Retry');
+  await shot('phone-stopped-later');
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+
+  // Reject stores a failed response the item reads as rejected, with no Retry.
+  const item6 = await exchange('phone-3', 'COORDINATE the login review and expect a refusal.');
+  await panel.getByRole('button', { name: 'Reject' }).click();
+  check(await until(item6, 'rejected', 30000), 'Reject turns the item to rejected');
+  const last = (await direct()).at(-1);
+  check(last.status === 'failed' && last.body === 'rejected' && last.from === 'architect', 'the rejection is stored as a failed architect response', JSON.stringify(last));
+  check((await panel.getByRole('button', { name: 'Retry' }).count()) === 0, 'a rejected exchange offers no Retry');
+  await shot('phone-rejected');
 }
 
 try {

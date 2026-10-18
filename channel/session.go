@@ -591,7 +591,11 @@ func (s *Session) directExchanges(ctx context.Context) (string, error) {
 		if r := []rune(body); len(r) > _maxDirectRunes {
 			body = string(r[:_maxDirectRunes]) + "…"
 		}
-		fmt.Fprintf(&b, "[direct %d] %s -> %s: %s\n", m.ChainID, m.From, m.To, body)
+		attempt := ""
+		if m.Status == store.DirectFailed {
+			attempt = " (failed)"
+		}
+		fmt.Fprintf(&b, "[direct %d] %s -> %s%s: %s\n", m.ChainID, m.From, m.To, attempt, body)
 	}
 	b.WriteString(_directAsk)
 	return b.String(), nil

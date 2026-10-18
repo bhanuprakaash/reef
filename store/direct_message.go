@@ -11,19 +11,22 @@ import (
 
 // DirectMessage is a private message between two roles in one channel. A request starts a
 // chain; its one automatic response points back to it and shares its chain.
+// SourceMessageID is the public message whose wake the sender was answering when it sent
+// the request, nil for a chain that did not start from one; a response keeps it.
 type DirectMessage struct {
-	ID        int64     `json:"id"`
-	ChannelID int64     `json:"channelId"`
-	ChainID   int64     `json:"chainId"`
-	ReplyToID *int64    `json:"replyToId"`
-	From      string    `json:"from"`
-	To        string    `json:"to"`
-	Body      string    `json:"body"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID              int64     `json:"id"`
+	ChannelID       int64     `json:"channelId"`
+	ChainID         int64     `json:"chainId"`
+	ReplyToID       *int64    `json:"replyToId"`
+	SourceMessageID *int64    `json:"sourceMessageId"`
+	From            string    `json:"from"`
+	To              string    `json:"to"`
+	Body            string    `json:"body"`
+	Status          string    `json:"status"`
+	CreatedAt       time.Time `json:"createdAt"`
 }
 
-const _directCols = "id, channel_id, chain_id, reply_to_id, from_role, to_role, body, status, created_at"
+const _directCols = "id, channel_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, created_at"
 
 const (
 	DirectSent   = "sent"
@@ -58,8 +61,8 @@ func (s *Store) CreateDirectMessage(ctx context.Context, m DirectMessage) (Direc
 	}
 	defer func() { _ = tx.Rollback() }()
 	res, err := tx.ExecContext(ctx,
-		"INSERT INTO direct_message (channel_id, from_role, to_role, body, status, created_at) VALUES (?, ?, ?, ?, ?, ?)",
-		m.ChannelID, m.From, m.To, m.Body, DirectSent, now.Format(time.RFC3339Nano))
+		"INSERT INTO direct_message (channel_id, source_message_id, from_role, to_role, body, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		m.ChannelID, m.SourceMessageID, m.From, m.To, m.Body, DirectSent, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return DirectMessage{}, s.writeErr(ctx, "insert direct message", err, ErrInvalid,
 			parent{table: "channel", id: &m.ChannelID})
@@ -117,12 +120,13 @@ func (s *Store) createDirectResponse(
 	}
 	now := time.Now().UTC()
 	m := DirectMessage{ChannelID: request.ChannelID, ChainID: request.ChainID,
-		ReplyToID: &request.ID, From: from, To: request.From, Body: body, Status: status, CreatedAt: now}
+		ReplyToID: &request.ID, SourceMessageID: request.SourceMessageID,
+		From: from, To: request.From, Body: body, Status: status, CreatedAt: now}
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO direct_message
-		(channel_id, chain_id, reply_to_id, from_role, to_role, body, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ChannelID, m.ChainID, m.ReplyToID, m.From, m.To, m.Body, m.Status,
+		(channel_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.ChannelID, m.ChainID, m.ReplyToID, m.SourceMessageID, m.From, m.To, m.Body, m.Status,
 		now.Format(time.RFC3339Nano))
 	if err != nil {
 		if isUnique(err) {
@@ -188,8 +192,8 @@ func (s *Store) LastDirectMessageID(ctx context.Context, channelID int64) (int64
 func scanDirect(r interface{ Scan(...any) error }) (DirectMessage, error) {
 	var m DirectMessage
 	var created string
-	if err := r.Scan(&m.ID, &m.ChannelID, &m.ChainID, &m.ReplyToID, &m.From, &m.To,
-		&m.Body, &m.Status, &created); err != nil {
+	if err := r.Scan(&m.ID, &m.ChannelID, &m.ChainID, &m.ReplyToID, &m.SourceMessageID,
+		&m.From, &m.To, &m.Body, &m.Status, &created); err != nil {
 		return DirectMessage{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

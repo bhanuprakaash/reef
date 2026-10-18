@@ -445,7 +445,7 @@ A channel ends explicitly, never on a timer. The user types `/wrap` in `reef cha
    decision index: `retire` lists decisions that are stale or duplicate, and `replaces` on
    a new decision lists older ones it amends. When the channel has direct messages, the
    prompt starts with all of them as plain text, one line each, `[direct 1] developer ->
-   tester: use the sqlite fixture` (a body is cut at 1000 characters; only the newest 100 are
+   tester: use the sqlite fixture`, with ` (failed)` after the recipient for a failed attempt (a body is cut at 1000 characters; only the newest 100 are
    listed; none are listed when there are none), and asks the agent to propose the decisions
    made in them that are not recorded yet and a brief that reflects the direct work that is
    complete. A promote turn gets the same list.

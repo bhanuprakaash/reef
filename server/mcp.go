@@ -457,10 +457,23 @@ func (m *mcpServer) sendToRole(
 	if err != nil {
 		return nil, store.DirectMessage{}, err
 	}
+	var source *int64
 	for _, t := range running {
 		if t.WakeText == "" {
 			return nil, store.DirectMessage{}, fmt.Errorf("channel %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
 		}
+		if t.Role != m.tok.Role {
+			continue
+		}
+		if t.DirectMessageID == nil {
+			source = wakeSource(t.WakeText)
+			continue
+		}
+		woken, err := m.st.DirectMessage(ctx, *t.DirectMessageID)
+		if err != nil {
+			return nil, store.DirectMessage{}, err
+		}
+		source = woken.SourceMessageID
 	}
 	team, err := m.st.Team(ctx, ch.Team)
 	if err != nil {
@@ -481,7 +494,7 @@ func (m *mcpServer) sendToRole(
 		return nil, store.DirectMessage{}, fmt.Errorf("%w: role %q is not in this channel's team", store.ErrInvalid, in.To)
 	}
 	dm, err := m.st.CreateDirectMessage(ctx, store.DirectMessage{
-		ChannelID: m.tok.ChannelID, From: m.tok.Role, To: in.To, Body: in.Body,
+		ChannelID: m.tok.ChannelID, SourceMessageID: source, From: m.tok.Role, To: in.To, Body: in.Body,
 	})
 	return nil, dm, err
 }

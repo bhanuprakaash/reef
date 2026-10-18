@@ -899,6 +899,9 @@ func TestSession_WrapIncludesDirectExchanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.CreateFailedDirectResponse(ctx, req.ID, "tester", "half an answer"); err != nil {
+		t.Fatal(err)
+	}
 	if _, err := st.CreateDirectResponse(ctx, req.ID, "tester", "fixture works"); err != nil {
 		t.Fatal(err)
 	}
@@ -915,6 +918,7 @@ func TestSession_WrapIncludesDirectExchanges(t *testing.T) {
 	}
 	want := "Direct exchanges in this channel, private between two teammates:\n" +
 		"[direct 1] developer -> tester: use the sqlite fixture\n" +
+		"[direct 1] tester -> developer (failed): half an answer\n" +
 		"[direct 1] tester -> developer: fixture works\n" +
 		"Propose the decisions made in these exchanges that are not recorded yet, and a brief " +
 		"that reflects the direct work that is complete.\n\n" + _wrapPrompt

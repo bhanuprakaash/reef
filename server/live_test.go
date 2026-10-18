@@ -605,7 +605,12 @@ func TestSend_DirectRequestGetsOnePrivateResponse(t *testing.T) {
 	sub := subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "go")
 	sub.want(t, _idleFrame)
-	sub.wantTurns(t, "lead", "architect", "lead")
+	sub.wantTurns(t, "lead")
+	for _, role := range []string{"architect", "lead"} {
+		sub.want(t, `turn {"role":"`+role+`","status":"running","direct":true}`,
+			`agent {"kind":"text","text":"hi"}`,
+			`turn {"role":"`+role+`","status":"done","direct":true}`)
+	}
 
 	direct, err := env.st.DirectMessages(context.Background(), int64(id), 0)
 	if err != nil || len(direct) != 2 || direct[0].From != "lead" ||

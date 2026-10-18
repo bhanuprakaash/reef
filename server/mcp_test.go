@@ -507,7 +507,7 @@ func TestMCPDirectMessages(t *testing.T) {
 	callLead := callTool(t, st, lead)
 	got, isErr := callLead("send_to_role", map[string]any{"to": "developer", "body": "build it"})
 	if want := `{"body":"build it","chainId":1,"channelId":5,"createdAt":"T","from":"lead",` +
-		`"id":1,"replyToId":null,"status":"sent","to":"developer"}`; got != want || isErr {
+		`"id":1,"replyToId":null,"sourceMessageId":null,"status":"sent","to":"developer"}`; got != want || isErr {
 		t.Fatalf("send_to_role = %q (error %v), want %q", got, isErr, want)
 	}
 	if msgs, err := st.Messages(ctx, ch.ID, 0); err != nil || len(msgs) != 0 {
@@ -517,7 +517,7 @@ func TestMCPDirectMessages(t *testing.T) {
 	callDeveloper := callTool(t, st, developer)
 	got, isErr = callDeveloper("read_direct_messages", nil)
 	if want := `{"messages":[{"body":"build it","chainId":1,"channelId":5,"createdAt":"T",` +
-		`"from":"lead","id":1,"replyToId":null,"status":"sent","to":"developer"}]}`; got != want || isErr {
+		`"from":"lead","id":1,"replyToId":null,"sourceMessageId":null,"status":"sent","to":"developer"}]}`; got != want || isErr {
 		t.Errorf("developer read = %q (error %v), want %q", got, isErr, want)
 	}
 	tester, err := st.CreateToken(ctx, ch.ID, "tester")

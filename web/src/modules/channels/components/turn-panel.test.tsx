@@ -40,4 +40,21 @@ describe('TurnPanel', () => {
     expect(markup).toContain('Failed: interrupted');
     expect(markup).not.toContain('Once upon');
   });
+
+  it('shows nothing of what a direct turn says or runs', () => {
+    const turn = {
+      status: 'running' as const,
+      direct: true,
+      items: [
+        { type: 'text' as const, text: 'Secret reply' },
+        { type: 'tool' as const, tool: bash },
+      ],
+    };
+
+    const markup = renderToStaticMarkup(<TurnPanel turn={turn} role="lead" onClose={() => {}} />);
+
+    expect(markup).toContain('working now');
+    expect(markup).not.toContain('Secret reply');
+    expect(markup).not.toContain('npm test');
+  });
 });

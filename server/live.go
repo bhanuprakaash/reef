@@ -49,6 +49,7 @@ type turnState struct {
 	Status string `json:"status"`
 	Error  string `json:"error,omitempty"`
 	Note   string `json:"note,omitempty"`
+	Direct bool   `json:"direct,omitempty"`
 }
 
 type pauseState struct {
@@ -139,6 +140,7 @@ type chain struct {
 type directFail struct {
 	id   int64
 	role string
+	body string
 }
 
 func (s *server) liveRoutes(mux *http.ServeMux) {
@@ -190,16 +192,17 @@ func (s *server) lookup(id int64) *live {
 	return s.lives[id]
 }
 
-// notifyMessage tells an open stream on the channel that a message was posted outside a turn,
-// such as a github poll note, so the window refreshes without a reload. A channel nobody has
-// opened yet has no entry and is a no-op.
-func (s *server) notifyMessage(id int64) {
+// notify tells an open stream on the channel that something changed outside a turn, such as a
+// github poll note ("note") or a failed direct response recorded after the chain's last turn
+// frame ("direct"), so the window refreshes without a reload. A channel nobody has opened yet
+// has no entry and is a no-op.
+func (s *server) notify(id int64, event string) {
 	l := s.lookup(id)
 	if l == nil {
 		return
 	}
 	l.mu.Lock()
-	l.publishLocked("note", struct{}{})
+	l.publishLocked(event, struct{}{})
 	l.mu.Unlock()
 }
 
@@ -400,13 +403,13 @@ func (s *server) runOne(
 			err = sess.RunAs(ctx, w.role, w.text, w.parent, onEvent)
 		}
 	}
-	end = turnState{Role: w.role, Status: "done"}
+	end = turnState{Role: w.role, Status: "done", Direct: w.direct != nil}
 	if errors.Is(err, channel.ErrNoProposal) {
 		err = nil
 		end.Note = channel.ErrNoProposal.Error()
 	}
 	if err != nil {
-		end = turnState{Role: w.role, Status: "failed", Error: err.Error()}
+		end = turnState{Role: w.role, Status: "failed", Error: err.Error(), Direct: w.direct != nil}
 		if ctx.Err() != nil {
 			end.Error = "interrupted"
 		}
@@ -680,6 +683,9 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if !*in.Approve && a.DirectMessageID != nil {
+		s.rejectDirect(r.Context(), id, a)
+	}
 	if *in.Approve {
 		ctx := context.WithoutCancel(r.Context())
 		wk, err := s.wakeOf(r.Context(), a)
@@ -710,6 +716,21 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		l.mu.Unlock()
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// rejectDirect gives the request held by a rejected direct approval a failed response with
+// body "rejected", so the message list tells a rejection from a delivery that completed.
+func (s *server) rejectDirect(ctx context.Context, channelID int64, a store.Approval) {
+	ctx = context.WithoutCancel(ctx)
+	dm, err := s.st.DirectMessage(ctx, *a.DirectMessageID)
+	if err == nil && dm.ReplyToID == nil {
+		err = recordFailedDirect(ctx, s.st, dm.ID, a.To, "rejected")
+	}
+	if err != nil {
+		log.Printf("reject direct message %d: %v", *a.DirectMessageID, err)
+		return
+	}
+	s.notify(channelID, "direct")
 }
 
 func (s *server) stop(w http.ResponseWriter, r *http.Request) {
@@ -859,12 +880,13 @@ func (s *server) close() {
 }
 
 func (c *chain) release(err error) error {
+	stopped := c.ctx.Err() != nil
 	c.cancel()
 	var directFailed []directFail
 	var approvals []int64
 	if c.l != nil {
 		c.l.mu.Lock()
-		directFailed, approvals = c.shedLocked(nil)
+		directFailed, approvals = c.shedLocked(nil, stopped)
 		// Only the chain that still owns the live state may retire it. An older chain
 		// whose teardown ran late must not clear a newer chain's starting/running state.
 		mine := c.gen == c.l.activeGen
@@ -888,9 +910,12 @@ func (c *chain) release(err error) error {
 // active-turn hint when this chain still owns the live state.
 func (c *chain) finalize(mine bool, directFailed []directFail, approvals []int64) {
 	for _, f := range directFailed {
-		if err := recordFailedDirect(context.WithoutCancel(c.ctx), c.s.st, f.id, f.role); err != nil {
+		if err := recordFailedDirect(context.WithoutCancel(c.ctx), c.s.st, f.id, f.role, f.body); err != nil {
 			log.Printf("direct response for %d: %v", f.id, err)
 		}
+	}
+	if len(directFailed) > 0 {
+		c.s.notify(c.id, "direct")
 	}
 	for _, aid := range approvals {
 		if err := c.s.st.ReopenApproval(context.WithoutCancel(c.ctx), aid); err != nil {
@@ -907,17 +932,21 @@ func (c *chain) finalize(mine bool, directFailed []directFail, approvals []int64
 
 // shedLocked restores the state of the wakes a chain ends without running, including the
 // wake of the leftover queue: an approved wake goes back to pending, a direct wake records a
-// failed response so its sender sees that delivery did not complete, and a public wake is
-// kept as held. It returns the deferred store work for the caller to perform outside the
-// channel lock.
-func (c *chain) shedLocked(left []wake) (directFailed []directFail, approvals []int64) {
+// failed response so its sender sees that delivery did not complete (body "stopped" when
+// the chain was stopped), and a public wake is kept as held. It returns the deferred store
+// work for the caller to perform outside the channel lock.
+func (c *chain) shedLocked(left []wake, stopped bool) (directFailed []directFail, approvals []int64) {
+	body := ""
+	if stopped {
+		body = "stopped"
+	}
 	for _, w := range c.l.queued {
 		if w.approval != 0 {
 			approvals = append(approvals, w.approval)
 			continue
 		}
 		if w.direct != nil {
-			directFailed = append(directFailed, directFail{w.direct.ID, w.role})
+			directFailed = append(directFailed, directFail{w.direct.ID, w.role, body})
 			continue
 		}
 		c.l.held = append(c.l.held, w)
@@ -929,7 +958,7 @@ func (c *chain) shedLocked(left []wake) (directFailed []directFail, approvals []
 			continue
 		}
 		if w.direct != nil {
-			directFailed = append(directFailed, directFail{w.direct.ID, w.role})
+			directFailed = append(directFailed, directFail{w.direct.ID, w.role, body})
 			continue
 		}
 		c.l.held = append(c.l.held, w)
@@ -1013,7 +1042,8 @@ func (c *chain) start(
 	if c.unpause {
 		l.publishLocked("pause", pauseState{})
 	}
-	l.publishLocked("turn", turnState{Role: queue[0].role, Status: "running"})
+	l.publishLocked("turn", turnState{
+		Role: queue[0].role, Status: "running", Direct: queue[0].direct != nil})
 	l.mu.Unlock()
 	go c.runTurn(sess, kind, queue, after, afterDirect)
 	return nil
@@ -1048,7 +1078,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 	// the chain dies outside a turn (failed or stopped turn), and nil when a stall or cap
 	// error already moved the queue to the channel's held ones.
 	finish := func(remaining []wake) {
-		directFailed, approvals := c.shedLocked(remaining)
+		directFailed, approvals := c.shedLocked(remaining, c.ctx.Err() != nil)
 		mine := c.gen == l.activeGen
 		if mine {
 			// Only the chain that still owns the live state may retire it; an older
@@ -1133,7 +1163,8 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 			finish(nil)
 			return
 		}
-		l.publishLocked("turn", turnState{Role: queue[0].role, Status: "running"})
+		l.publishLocked("turn", turnState{
+			Role: queue[0].role, Status: "running", Direct: queue[0].direct != nil})
 		l.mu.Unlock()
 	}
 }
@@ -1203,10 +1234,12 @@ func newFrame(event string, v any) (frame, bool) {
 	return frame{event: event, data: data}, true
 }
 
-// recordFailedDirect stores an empty failed direct response unless one already exists. A
+// recordFailedDirect stores a failed direct response with body unless one already exists. A
 // conflict is expected when a response was already recorded; any other error is returned.
-func recordFailedDirect(ctx context.Context, st *store.Store, directID int64, role string) error {
-	if _, err := st.CreateFailedDirectResponse(ctx, directID, role, ""); err != nil &&
+func recordFailedDirect(
+	ctx context.Context, st *store.Store, directID int64, role, body string,
+) error {
+	if _, err := st.CreateFailedDirectResponse(ctx, directID, role, body); err != nil &&
 		!errors.Is(err, store.ErrConflict) {
 		return err
 	}

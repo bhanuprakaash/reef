@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/bhanuprakaash/reef/channel"
@@ -13,6 +15,22 @@ import (
 const (
 	_userAuthor = "user"
 )
+
+var _wakeHeader = regexp.MustCompile(`^\[channel \d+, message (\d+)[,\]]`)
+
+// wakeSource returns the id of the public message a wake text starts with, from the header
+// route writes, or nil when text is not a public wake.
+func wakeSource(text string) *int64 {
+	m := _wakeHeader.FindStringSubmatch(text)
+	if m == nil {
+		return nil
+	}
+	id, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &id
+}
 
 // wake is a turn to run: role answers text, and its reply goes in the thread of parent.
 // from is the author of the message messageID that woke it; gated is set when the team
