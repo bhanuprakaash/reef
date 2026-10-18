@@ -280,8 +280,10 @@ holds a message body. Its shape:
    `none`.
 6. One closing line that names the tools for details.
 7. When the team has two or more roles, a `## Team` section: `Your team: @lead, @architect.`
-   It says that `post_to_channel` and @mentions are shared, while `send_to_role` coordinates
-   privately with one teammate and gets one automatic direct response. A public message that wakes you starts with `[channel N, message
+   It says that `post_to_channel` and @mentions are shared (decisions, blockers, user questions
+   and outcomes belong there), while `send_to_role` coordinates in detail with one teammate and
+   gets one automatic direct response, and that an `Asked together:` line names every role one
+   message woke. A public message that wakes you starts with `[channel N, message
    N]` or `[channel N, message N, thread N]`; your plain reply goes where the header says (a
    top-level reply starts your own thread), and `post_to_channel` takes the header's `thread` as
    its `parent` when there is one.

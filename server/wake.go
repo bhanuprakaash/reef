@@ -142,6 +142,13 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 			}
 			text = b.String() + "\n" + text
 		}
+		if len(woken) > 1 {
+			asked := make([]string, len(woken))
+			for i, role := range woken {
+				asked[i] = "@" + role
+			}
+			header += "\nAsked together: " + strings.Join(asked, ", ")
+		}
 		for _, role := range woken {
 			gated := team.Gated(m.Author, role)
 			if i := slices.IndexFunc(ws, func(w wake) bool {

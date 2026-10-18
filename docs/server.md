@@ -656,7 +656,9 @@ no model. In order:
    the user owns the thread, it goes to the lead. An agent's reply in a thread has no owner
    rule: it wakes only the roles it mentions.
 2. Otherwise every `@name` in the body that is a role of the team goes to that role, each
-   once.
+   once; the sender and unknown names are skipped. The message is stored once. When it wakes
+   more than one role, each wake's header is followed by `Asked together: @a, @b` naming all of
+   them.
 3. Otherwise a message from the user goes to the lead.
 4. Otherwise nobody: a message from an agent that names no one wakes no one, in a thread or not.
 
