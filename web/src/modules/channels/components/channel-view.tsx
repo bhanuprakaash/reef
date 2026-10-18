@@ -49,13 +49,15 @@ type Props = {
   onBrowserDriver?: (driver: { role: string; face?: string; action: string } | null) => void;
 };
 
+type Thread = { kind: 'thread'; rootId: number };
+
 type Side =
-  | { kind: 'thread'; rootId: number }
+  | Thread
   | { kind: 'turn' }
   | { kind: 'inspector' }
   | { kind: 'diff' }
   | { kind: 'pr' }
-  | { kind: 'file'; path: string; line?: number }
+  | { kind: 'file'; path: string; line?: number; back?: Thread }
   | null;
 
 export function ChannelView({
@@ -117,7 +119,8 @@ export function ChannelView({
     setSide(next);
     setTeamOpen(false);
   };
-  const openFile = (path: string, line?: number) => openSide({ kind: 'file', path, line });
+  const openFile = (path: string, line?: number) =>
+    openSide({ kind: 'file', path, line, back: side?.kind === 'thread' ? side : undefined });
   const file = side?.kind === 'file' ? side : undefined;
   const wide = side?.kind === 'diff';
   const fullSheet = thread !== undefined || wide || turnOpen || file !== undefined;
@@ -325,7 +328,7 @@ export function ChannelView({
                 channelId={channel.id}
                 path={file.path}
                 line={file.line}
-                onClose={closeSide}
+                onClose={() => setSide(file.back ?? null)}
               />
             )}
             {side?.kind === 'pr' && channel.featureId !== null && (

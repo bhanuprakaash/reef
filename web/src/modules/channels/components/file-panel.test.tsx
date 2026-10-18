@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiError } from '@/lib/api-client';
-import { FilePanel } from './file-panel';
+import { FilePanel } from '@/modules/channels/components/file-panel';
 
 const { useFile } = vi.hoisted(() => ({ useFile: vi.fn() }));
 
