@@ -2,7 +2,6 @@ import { isValidElement, useContext, type ReactNode } from 'react';
 import type { Parent, PhrasingContent, Root } from 'mdast';
 import type { Components } from 'react-markdown';
 import ReactMarkdown from 'react-markdown';
-import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
 import { ChartBlock } from '@/components/chart-block';
 import { CodeBlock } from '@/components/code-block';
@@ -32,6 +31,27 @@ function mentions(nodes: PhrasingContent[]): PhrasingContent[] {
     }
     return [node];
   });
+}
+
+// A single newline in a message is a line break, as in a chat.
+function remarkBreaks() {
+  return (tree: Root) => {
+    const walk = (parent: Parent) => {
+      parent.children = parent.children.flatMap((child): typeof parent.children => {
+        if (child.type !== 'text') {
+          if ('children' in child) walk(child as Parent);
+          return [child];
+        }
+        const lines = child.value.split(/[\t ]*\r?\n[\t ]*/);
+        if (lines.length === 1) return [child];
+        return lines.flatMap((line, i): typeof parent.children => [
+          ...(i > 0 ? [{ type: 'break' as const }] : []),
+          ...(line ? [{ type: 'text' as const, value: line }] : []),
+        ]);
+      });
+    };
+    walk(tree);
+  };
 }
 
 function remarkMentions() {
