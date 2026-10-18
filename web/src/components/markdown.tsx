@@ -7,7 +7,6 @@ import { ChartBlock } from '@/components/chart-block';
 import { CodeBlock } from '@/components/code-block';
 import { DataTable } from '@/components/data-table';
 import { HtmlBlock } from '@/components/html-block';
-import { MermaidBlock } from '@/components/mermaid-block';
 import { FileLink, FileLinkContext, remarkFileLinks } from '@/components/file-links';
 import { splitMentions } from '@/utils/split-mentions';
 
@@ -126,7 +125,6 @@ const components: Components = {
     const lang = /language-([\w+-]+)/.exec(code?.props.className ?? '')?.[1] ?? '';
     const body = String(code?.props.children ?? '').replace(/\n$/, '');
     if (lang === 'chart') return <ChartBlock code={body} />;
-    if (lang === 'mermaid') return <MermaidBlock code={body} />;
     if (lang === 'html') return <HtmlBlock code={body} />;
     return <CodeBlock code={body} lang={lang} />;
   },

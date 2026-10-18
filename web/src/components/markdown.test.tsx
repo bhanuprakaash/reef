@@ -86,13 +86,6 @@ describe('Markdown rich fences', () => {
     expect(html).toContain('<tr><th>a</th><td>4</td></tr>');
   });
 
-  it('holds a placeholder for a mermaid diagram until it is drawn', () => {
-    const html = renderToStaticMarkup(<Markdown>{'```mermaid\ngraph TD\n```'}</Markdown>);
-
-    expect(html).toContain('aria-hidden="true"');
-    expect(html).not.toContain('<pre');
-  });
-
   it('previews html in an iframe with an empty sandbox and a policy first, never inline', () => {
     const html = renderToStaticMarkup(
       <Markdown>{'```html\n<b>x</b><script>alert(1)</script>\n```'}</Markdown>,
