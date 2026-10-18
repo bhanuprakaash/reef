@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -186,6 +187,27 @@ func TestGetChannelFile_FifoDoesNotBlock(t *testing.T) {
 	body := strings.TrimSpace(string(b))
 	if want := `{"error":"invalid: path is not a regular file"}`; res.StatusCode != 400 || body != want {
 		t.Errorf("GET fifo = %d %s, want 400 %s", res.StatusCode, body, want)
+	}
+}
+
+func TestGetChannelFile_SocketIsNotRegular(t *testing.T) {
+	ts := newTestServer(t)
+	project := t.TempDir()
+	l, err := net.Listen("unix", filepath.Join(project, "sock"))
+	if err != nil {
+		t.Skipf("unix socket path too long: %v", err)
+	}
+	defer func() { _ = l.Close() }()
+	do(t, http.MethodPost, ts.URL+"/projects", fmt.Sprintf(`{"name":"app","path":%q}`, project))
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"s"}`)
+
+	res, err := http.Get(ts.URL + "/channels/1/file?path=sock")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = res.Body.Close() }()
+	if res.StatusCode != 400 {
+		t.Errorf("GET socket = %d, want 400", res.StatusCode)
 	}
 }
 

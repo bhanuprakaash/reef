@@ -128,7 +128,10 @@ func (s *server) getChannelFile(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		target, _ = filepath.Rel(realDir, target)
-		if f, err = root.OpenFile(target, flag, 0); err != nil {
+		if f, err = root.OpenFile(target, flag, 0); errors.Is(err, syscall.ENXIO) || errors.Is(err, syscall.EOPNOTSUPP) {
+			writeError(w, fmt.Errorf("%w: path is not a regular file", store.ErrInvalid))
+			return
+		} else if err != nil {
 			writeError(w, fmt.Errorf("open channel %d file: %w", id, err))
 			return
 		}
