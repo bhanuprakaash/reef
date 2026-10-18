@@ -56,22 +56,12 @@ export function parseFileRef(text: string): FileRef | null {
   return line > 0 ? { path, line } : { path };
 }
 
-const bare = new Set([
-  ...Object.keys(names),
-  'README.md',
-  'CLAUDE.md',
-  'AGENTS.md',
-  'go.mod',
-  'go.sum',
-  'package.json',
-]);
-
-// Inline code such as `chart.js` or `index.html` names a library or a page as often as a file, so
-// a name without a folder or a line counts only when it is a well-known file.
+// `chart.js` and `node.js` name a library more often than a file, so a bare .js name needs a
+// folder or a line; any other name in inline code is taken as a file.
 export function parseCodeRef(text: string): FileRef | null {
   const found = parseFileRef(text);
-  if (!found || found.path.includes('/') || found.line || bare.has(found.path)) return found;
-  return null;
+  if (!found || found.path.includes('/') || found.line) return found;
+  return /\.js$/i.test(found.path) ? null : found;
 }
 
 export type FoundRef = FileRef & { start: number; end: number };

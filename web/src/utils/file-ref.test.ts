@@ -58,16 +58,17 @@ describe('parseCodeRef', () => {
     ['.gitignore', { path: '.gitignore' }],
     ['go.mod', { path: 'go.mod' }],
     ['package.json', { path: 'package.json' }],
+    ['index.html', { path: 'index.html' }],
+    ['main.go', { path: 'main.go' }],
+    ['lib/chart.js', { path: 'lib/chart.js' }],
+    ['chart.js:12', { path: 'chart.js', line: 12 }],
   ])('reads %s', (text, want) => {
     expect(parseCodeRef(text)).toEqual(want);
   });
 
-  it.each(['chart.js', 'node.js', 'index.html', 'app.tsx', 'notes.md', 'app.tsx:0', 'v1.2.3'])(
-    'rejects %s',
-    (text) => {
-      expect(parseCodeRef(text)).toBeNull();
-    },
-  );
+  it.each(['chart.js', 'node.js', 'v1.2.3', 'e.g.', 'npm test'])('rejects %s', (text) => {
+    expect(parseCodeRef(text)).toBeNull();
+  });
 });
 
 describe('findFileRefs', () => {
