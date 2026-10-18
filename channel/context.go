@@ -159,6 +159,9 @@ func teamIntro(team store.Team, r store.Role) string {
 		"the whole team needs: decisions, blockers, questions for the user and outcomes belong in the "+
 		"channel. Use send_to_role for detailed coordination with exactly one teammate; "+
 		"their ordinary reply returns directly once, and continuing requires another send_to_role. "+
+		"When a direct chain completes with information the team or the user needs, publish "+
+		"one concise outcome with post_to_channel; raw logs and routine acknowledgements stay "+
+		"private. "+
 		"When one message mentions several roles, its header ends with \"Asked together:\" naming "+
 		"them all: answer your part and do not repeat a teammate's. "+
 		"A public message that wakes you starts with "+

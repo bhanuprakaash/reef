@@ -166,22 +166,22 @@ func TestMCPTools(t *testing.T) {
 			name: "search skips another feature",
 			tool: "search_sessions",
 			give: map[string]any{"query": "SESSIONS"},
-			want: `{"hits":[{"author":"developer","channelId":2,"messageId":2,` +
+			want: `{"hits":[{"author":"developer","channelId":2,"kind":"public","messageId":2,` +
 				`"snippet":"100% sure, use_sessions"},{"author":"user","channelId":1,` +
-				`"messageId":1,"snippet":"use sessions for auth"}]}`,
+				`"kind":"public","messageId":1,"snippet":"use sessions for auth"}]}`,
 		},
 		{
 			name: "search treats underscore as text",
 			tool: "search_sessions",
 			give: map[string]any{"query": "use_s"},
-			want: `{"hits":[{"author":"developer","channelId":2,"messageId":2,` +
+			want: `{"hits":[{"author":"developer","channelId":2,"kind":"public","messageId":2,` +
 				`"snippet":"100% sure, use_sessions"}]}`,
 		},
 		{
 			name: "search limit",
 			tool: "search_sessions",
 			give: map[string]any{"query": "sessions", "limit": 1},
-			want: `{"hits":[{"author":"developer","channelId":2,"messageId":2,` +
+			want: `{"hits":[{"author":"developer","channelId":2,"kind":"public","messageId":2,` +
 				`"snippet":"100% sure, use_sessions"}]}`,
 		},
 		{

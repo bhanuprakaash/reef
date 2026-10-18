@@ -477,6 +477,7 @@ tool calls.
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
 | `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `toolCalls` (`name`, `input`, `result`) | 404 |
 | `GET /channels/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the channel, oldest first; each has `id`, `channelId`, `chainId`, `replyToId`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `createdAt` | 400 bad id, 404 |
+| `GET /search` | `?feature=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the feature's public messages and all its direct messages, newest first, `[]` when none. Each hit has `channelId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `feature`, missing `q` |
 | `POST /channels/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
@@ -705,7 +706,9 @@ reply is one direct response in the same chain (`replyToId` points to the reques
 the sender with `source: direct response`. The sender's ordinary reply to that response is
 not stored or routed. A further exchange requires an explicit `send_to_role`. The user reads
 all direct records with `GET /channels/{id}/direct-messages`; an MCP token reads only records
-whose `from` or `to` is its role. Partial output from a failed recipient turn is appended as
+whose `from` or `to` is its role. `GET /search` finds public and direct messages together for
+the user; the MCP `search_sessions` returns a direct hit only to its sender or recipient.
+Wrap-up and promote prompts list the channel's direct messages. Partial output from a failed recipient turn is appended as
 a `failed` response attempt: it is inspectable but never routed. Retry appends a `done`
 response; a partial unique index allows only one `done` response per request, and only that
 response wakes the sender. Public `GET /messages` history is unchanged.

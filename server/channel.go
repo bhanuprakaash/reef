@@ -23,6 +23,8 @@ func (s *server) channelRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/channels/{id}/inspector", methodNotAllowed)
 	mux.HandleFunc("GET /channels/{id}/direct-messages", s.listDirectMessages)
 	mux.HandleFunc("/channels/{id}/direct-messages", methodNotAllowed)
+	mux.HandleFunc("GET /search", s.search)
+	mux.HandleFunc("/search", methodNotAllowed)
 	mux.HandleFunc("GET /messages", s.listMessages)
 	mux.HandleFunc("POST /messages", s.createMessage)
 	mux.HandleFunc("/messages", methodNotAllowed)
@@ -53,6 +55,41 @@ func (s *server) listDirectMessages(w http.ResponseWriter, r *http.Request) {
 		msgs = []store.DirectMessage{}
 	}
 	writeJSON(w, http.StatusOK, msgs)
+}
+
+func (s *server) search(w http.ResponseWriter, r *http.Request) {
+	featureID, err := queryID(r, "feature")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if featureID == nil {
+		writeError(w, fmt.Errorf("%w: feature is required", store.ErrInvalid))
+		return
+	}
+	q := r.URL.Query().Get("q")
+	if q == "" {
+		writeError(w, fmt.Errorf("%w: q is required", store.ErrInvalid))
+		return
+	}
+	limit := int64(_defaultSearchLimit)
+	n, err := queryID(r, "limit")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if n != nil && *n > 0 {
+		limit = *n
+	}
+	hits, err := s.st.SearchHistory(r.Context(), *featureID, q, int(limit), "")
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if hits == nil {
+		hits = []store.MessageHit{}
+	}
+	writeJSON(w, http.StatusOK, hits)
 }
 
 func (s *server) listChannels(w http.ResponseWriter, r *http.Request) {

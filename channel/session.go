@@ -67,6 +67,13 @@ const (
 		"retire with the ids of decisions that are stale or duplicate, and replaces on a " +
 		"new decision that amends older ones. " +
 		"Then reply with one line saying it is proposed."
+	_maxDirectLines = 100
+	_maxDirectRunes = 1000
+
+	_directIntro = "Direct exchanges in this channel, private between two teammates:\n"
+	_directAsk   = "Propose the decisions made in these exchanges that are not recorded yet, " +
+		"and a brief that reflects the direct work that is complete.\n\n"
+
 	_promotePrompt = "This quick session is now feature %q (%s). Call the propose_wrap tool " +
 		"once with the first brief (goal, status, key decisions, open questions) written from " +
 		"this session, your own notes on the feature, and the decisions made so far. " +
@@ -544,13 +551,17 @@ func (s *Session) propose(
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, err
 	}
+	direct, err := s.directExchanges(context.WithoutCancel(ctx))
+	if err != nil {
+		return store.Proposal{}, err
+	}
 	m, err := s.member(ctx, s.ch.Role, "", nil, nil)
 	if err != nil {
 		return store.Proposal{}, err
 	}
 	m.run.NoWake = true
 	defer func() { m.run.NoWake = false }()
-	if err := s.run(ctx, m, runInput{text: prompt, onEvent: onEvent}); err != nil {
+	if err := s.run(ctx, m, runInput{text: direct + prompt, onEvent: onEvent}); err != nil {
 		return store.Proposal{}, err
 	}
 	p, err := s.st.PendingProposal(ctx, s.ch.ID)
@@ -561,6 +572,29 @@ func (s *Session) propose(
 		return store.Proposal{}, ErrNoProposal
 	}
 	return p, nil
+}
+
+// directExchanges is the channel's newest direct messages as plain text for a wrap-up or
+// promote prompt, or empty when there are none.
+func (s *Session) directExchanges(ctx context.Context) (string, error) {
+	msgs, err := s.st.DirectMessages(ctx, s.ch.ID, 0)
+	if err != nil || len(msgs) == 0 {
+		return "", err
+	}
+	if len(msgs) > _maxDirectLines {
+		msgs = msgs[len(msgs)-_maxDirectLines:]
+	}
+	var b strings.Builder
+	b.WriteString(_directIntro)
+	for _, m := range msgs {
+		body := strings.TrimSpace(m.Body)
+		if r := []rune(body); len(r) > _maxDirectRunes {
+			body = string(r[:_maxDirectRunes]) + "…"
+		}
+		fmt.Fprintf(&b, "[direct %d] %s -> %s: %s\n", m.ChainID, m.From, m.To, body)
+	}
+	b.WriteString(_directAsk)
+	return b.String(), nil
 }
 
 func (m *member) close(st *store.Store) error {

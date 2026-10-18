@@ -174,6 +174,28 @@ Details are on demand through the reef MCP tools read_decision, read_thread and 
 	}
 }
 
+func TestContext_OmitsDirectMessages(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "earlier", Role: "lead", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateDirectMessage(ctx, store.DirectMessage{
+		ChannelID: ch.ID, From: "developer", To: "tester", Body: "private fixture detail"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Context(ctx, st, f.ID, "tester")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "private fixture detail") || strings.Contains(got, "[direct") ||
+		strings.Contains(got, "earlier") {
+		t.Errorf("Context = %q, want no direct message and no channel that only has one", got)
+	}
+}
+
 func TestContext_FixesFeature(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
@@ -328,7 +350,9 @@ func TestTeamIntro(t *testing.T) {
 		"for work the whole team needs: decisions, blockers, questions for the user and outcomes " +
 		"belong in the channel. Use send_to_role for detailed coordination with exactly one " +
 		"teammate; their ordinary reply returns directly once, and continuing requires another " +
-		"send_to_role. When one message mentions several roles, its header ends with " +
+		"send_to_role. When a direct chain completes with information the team or the user needs, " +
+		"publish one concise outcome with post_to_channel; raw logs and routine acknowledgements " +
+		"stay private. When one message mentions several roles, its header ends with " +
 		"\"Asked together:\" naming them all: answer your part and do not repeat a teammate's. " +
 		"A public message that wakes you starts with [channel N, message N] or " +
 		"[channel N, message N, thread N]: your " +

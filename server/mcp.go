@@ -361,7 +361,7 @@ func (m *mcpServer) searchSessions(
 	if in.Limit <= 0 {
 		in.Limit = _defaultSearchLimit
 	}
-	hits, err := m.st.SearchMessages(ctx, f.ID, in.Query, in.Limit)
+	hits, err := m.st.SearchHistory(ctx, f.ID, in.Query, in.Limit, m.tok.Role)
 	return nil, searchOut{Hits: hits}, err
 }
 
