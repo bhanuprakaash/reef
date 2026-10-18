@@ -6,10 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"unicode/utf8"
 
 	"github.com/bhanuprakaash/reef/channel"
@@ -75,70 +77,73 @@ func (s *server) getChannelFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p := r.URL.Query().Get("path")
-	if p == "" || strings.ContainsRune(p, 0) {
+	if p == "" {
 		writeError(w, fmt.Errorf("%w: path is required", store.ErrInvalid))
 		return
 	}
-	root, slug, err := channel.WorkDir(r.Context(), s.st, s.dataDir, id)
+	if strings.ContainsRune(p, 0) {
+		writeError(w, fmt.Errorf("%w: path has a NUL byte", store.ErrInvalid))
+		return
+	}
+	dir, err := channel.FileDir(r.Context(), s.st, s.dataDir, id)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if _, err := os.Stat(filepath.Join(root, ".git")); slug != "" && err != nil {
-		ch, err := s.st.Channel(r.Context(), id)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		pr, err := s.st.Project(r.Context(), ch.ProjectID)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		root = pr.Path
-	}
-	realRoot, err := filepath.EvalSymlinks(root)
+	realDir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		writeError(w, fmt.Errorf("channel %d folder: %w", id, err))
 		return
 	}
-	full := filepath.Clean(p)
-	if !filepath.IsAbs(full) {
-		full = filepath.Join(root, full)
+	outside := fmt.Errorf("%w: path is outside the channel's folder", store.ErrInvalid)
+	rel := filepath.Clean(p)
+	if filepath.IsAbs(rel) {
+		switch {
+		case within(dir, rel):
+			rel, _ = filepath.Rel(dir, rel)
+		case within(realDir, rel):
+			rel, _ = filepath.Rel(realDir, rel)
+		default:
+			writeError(w, outside)
+			return
+		}
 	}
-	base := root
-	if !within(base, full) {
-		base = realRoot
-	}
-	if !within(base, full) {
-		writeError(w, fmt.Errorf("%w: path is outside the channel's folder", store.ErrInvalid))
+	root, err := os.OpenRoot(realDir)
+	if err != nil {
+		writeError(w, fmt.Errorf("channel %d folder: %w", id, err))
 		return
 	}
-	target, err := filepath.EvalSymlinks(full)
-	if err != nil {
+	defer func() { _ = root.Close() }()
+	const flag = os.O_RDONLY | syscall.O_NONBLOCK
+	f, err := root.OpenFile(rel, flag, 0)
+	if errors.Is(err, fs.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 		writeError(w, fmt.Errorf("file: %w", store.ErrNotFound))
 		return
 	}
-	if !within(realRoot, target) {
-		writeError(w, fmt.Errorf("%w: path is outside the channel's folder", store.ErrInvalid))
-		return
-	}
-	fi, err := os.Stat(target)
 	if err != nil {
-		writeError(w, fmt.Errorf("file: %w", store.ErrNotFound))
+		// os.Root refuses an absolute symlink even when it points inside the root.
+		target, terr := filepath.EvalSymlinks(filepath.Join(realDir, rel))
+		if terr != nil || !within(realDir, target) {
+			writeError(w, outside)
+			return
+		}
+		target, _ = filepath.Rel(realDir, target)
+		if f, err = root.OpenFile(target, flag, 0); err != nil {
+			writeError(w, fmt.Errorf("open channel %d file: %w", id, err))
+			return
+		}
+	}
+	defer func() { _ = f.Close() }()
+	fi, err := f.Stat()
+	if err != nil {
+		writeError(w, fmt.Errorf("stat channel %d file: %w", id, err))
 		return
 	}
 	if !fi.Mode().IsRegular() {
 		writeError(w, fmt.Errorf("%w: path is not a regular file", store.ErrInvalid))
 		return
 	}
-	f, err := os.Open(target)
-	if err != nil {
-		writeError(w, fmt.Errorf("open channel %d file: %w", id, err))
-		return
-	}
-	defer func() { _ = f.Close() }()
-	data, err := io.ReadAll(io.LimitReader(f, _fileCap))
+	data, err := io.ReadAll(io.LimitReader(f, _fileCap+1))
 	if err != nil {
 		writeError(w, fmt.Errorf("read channel %d file: %w", id, err))
 		return
@@ -147,8 +152,9 @@ func (s *server) getChannelFile(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusUnsupportedMediaType, map[string]string{"error": "binary file"})
 		return
 	}
-	truncated := fi.Size() > _fileCap
+	truncated := len(data) > _fileCap
 	if truncated {
+		data = data[:_fileCap]
 		i := len(data) - 1
 		for i > 0 && i > len(data)-utf8.UTFMax && !utf8.RuneStart(data[i]) {
 			i--
@@ -156,11 +162,6 @@ func (s *server) getChannelFile(w http.ResponseWriter, r *http.Request) {
 		if !utf8.FullRune(data[i:]) {
 			data = data[:i]
 		}
-	}
-	rel, err := filepath.Rel(base, full)
-	if err != nil {
-		writeError(w, err)
-		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"path": filepath.ToSlash(rel), "content": string(data), "size": fi.Size(),

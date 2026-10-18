@@ -525,7 +525,8 @@ worktree once that exists, else the project folder.
 
 `path` is relative to that folder, or absolute and inside it. Symlinks are resolved on both
 sides; a path that ends up outside the folder, `..` included, is 400, and so is a directory,
-a fifo or a device. A missing file is 404. A file with a NUL byte in its first 8 KiB is
+a fifo or a device. A missing file is 404; a symlink that points outside is 400 even when its
+target is missing. A file with a NUL byte in its first 8 KiB is
 binary and gets 415.
 
 The answer is `{"path": "src/main.go", "content": "...", "size": 1834, "truncated": false}`.

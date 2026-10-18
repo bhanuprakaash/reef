@@ -434,22 +434,42 @@ func (s *Session) member(
 func WorkDir(
 	ctx context.Context, st *store.Store, dataDir string, channelID int64,
 ) (dir, slug string, err error) {
+	dir, slug, _, err = workDir(ctx, st, dataDir, channelID)
+	return dir, slug, err
+}
+
+// FileDir is the folder the files of channel channelID are read from: WorkDir once the
+// feature's worktree exists, else the project folder.
+func FileDir(ctx context.Context, st *store.Store, dataDir string, channelID int64) (string, error) {
+	dir, slug, project, err := workDir(ctx, st, dataDir, channelID)
+	if err != nil {
+		return "", err
+	}
+	if _, err := os.Stat(filepath.Join(dir, ".git")); slug != "" && err != nil {
+		return project, nil
+	}
+	return dir, nil
+}
+
+func workDir(
+	ctx context.Context, st *store.Store, dataDir string, channelID int64,
+) (dir, slug, project string, err error) {
 	ch, err := st.Channel(ctx, channelID)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	p, err := st.Project(ctx, ch.ProjectID)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
 	if ch.FeatureID == nil {
-		return p.Path, "", nil
+		return p.Path, "", p.Path, nil
 	}
 	f, err := st.Feature(ctx, *ch.FeatureID)
 	if err != nil {
-		return "", "", err
+		return "", "", "", err
 	}
-	return worktree.Path(dataDir, p.ID, f.Slug), f.Slug, nil
+	return worktree.Path(dataDir, p.ID, f.Slug), f.Slug, p.Path, nil
 }
 
 // roleSetup is the team's role called name. The lead is the channel's role; it takes the
