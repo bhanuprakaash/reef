@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { Markdown } from './markdown';
+import { Markdown } from '@/components/markdown';
 
 const text = [
   '**bold** and `inline`',
@@ -26,9 +26,8 @@ describe('Markdown', () => {
     expect(html).toContain('<strong>bold</strong>');
     expect(html).toContain('<code>inline</code>');
     expect(html).toContain('<li>two</li>');
-    expect(html).toContain(
-      '<pre><code class="language-go">fmt.Println(&quot;hi&quot;)\n</code></pre>',
-    );
+    expect(html).toContain('<code>fmt.Println(&quot;hi&quot;)</code>');
+    expect(html).toContain('>go</span>');
     expect(html).toContain(
       '<a href="https://example.com" target="_blank" rel="noreferrer">docs</a>',
     );
@@ -38,8 +37,23 @@ describe('Markdown', () => {
     const html = renderToStaticMarkup(<Markdown>{text}</Markdown>);
 
     expect(html).toMatch(/<div class="[^"]*overflow-x-auto[^"]*"><table>/);
-    expect(html).toMatch(/<th class="text-left">a<\/th>/);
+    expect(html).toMatch(/<th[^>]*class="text-right"[^>]*>a<\/th>/);
     expect(html).toMatch(/<td class="[^"]*text-right[^"]*">2<\/td>/);
+  });
+
+  it('left-aligns the header of a column that holds text', () => {
+    const html = renderToStaticMarkup(<Markdown>{'| name | n |\n| - | - |\n| x | 1 |'}</Markdown>);
+
+    expect(html).toMatch(/<th[^>]*class="text-left"[^>]*>name<\/th>/);
+    expect(html).toMatch(/<th[^>]*class="text-right"[^>]*>n<\/th>/);
+  });
+
+  it('aligns every cell of a numeric column the same way, formatted or not', () => {
+    const html = renderToStaticMarkup(<Markdown>{'| n |\n| - |\n| **5** |\n| -3 |'}</Markdown>);
+
+    expect(html).toMatch(/<th[^>]*class="text-right"[^>]*>n<\/th>/);
+    expect(html).toContain('<td class="text-right tabular-nums"><strong>5</strong></td>');
+    expect(html).toContain('<td class="text-right tabular-nums">-3</td>');
   });
 
   it('keeps single newlines as line breaks and does not render raw html', () => {
@@ -47,6 +61,41 @@ describe('Markdown', () => {
 
     expect(html).toContain('line one<br/>\nline two');
     expect(html).not.toContain('<b>');
+  });
+});
+
+describe('Markdown rich fences', () => {
+  it('holds a placeholder, not a note, for a chart that does not parse yet', () => {
+    for (const body of ['{"type":"bar","labels":["a"', '{"type":"radar"}']) {
+      const html = renderToStaticMarkup(<Markdown>{'```chart\n' + body + '\n```'}</Markdown>);
+
+      expect(html).toContain('aria-hidden="true"');
+      expect(html).not.toContain('Not a valid chart');
+      expect(html).not.toContain('<canvas');
+    }
+  });
+
+  it('draws a valid chart on a labelled canvas with a hidden data table', () => {
+    const html = renderToStaticMarkup(
+      <Markdown>
+        {'```chart\n{"type":"line","title":"Load","labels":["a"],"datasets":[{"data":[4]}]}\n```'}
+      </Markdown>,
+    );
+
+    expect(html).toContain('<canvas role="img" aria-label="Load"></canvas>');
+    expect(html).toContain('<tr><th>a</th><td>4</td></tr>');
+  });
+
+  it('previews html in an iframe with an empty sandbox and a policy first, never inline', () => {
+    const html = renderToStaticMarkup(
+      <Markdown>{'```html\n<b>x</b><script>alert(1)</script>\n```'}</Markdown>,
+    );
+
+    expect(html).toContain(
+      '<iframe sandbox="" srcDoc="&lt;meta http-equiv=&quot;Content-Security-Policy&quot; content=&quot;default-src &#x27;none&#x27;; img-src data:; style-src &#x27;unsafe-inline&#x27;&quot;&gt;&lt;b&gt;x&lt;/b&gt;&lt;script&gt;alert(1)&lt;/script&gt;"',
+    );
+    expect(html).not.toContain('<b>');
+    expect(html).not.toContain('<script>');
   });
 });
 

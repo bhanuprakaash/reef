@@ -5,3 +5,4 @@ export const projectMemoryKey = (projectId: number) => ['project-memory', projec
 export const inspectorKey = (channelId: number) => ['inspector', channelId];
 export const skillsKey = (projectId: number) => ['skills', projectId];
 export const featurePrKey = (featureId: number) => ['feature-pr', featureId];
+export const fileKey = (channelId: number, path: string) => ['file', channelId, path];

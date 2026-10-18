@@ -233,6 +233,13 @@ export type FeaturePR = {
   files: { path: string; additions: number; deletions: number }[];
 };
 
+export type ChannelFile = {
+  path: string;
+  content: string;
+  size: number;
+  truncated: boolean;
+};
+
 export type TaskStatus = 'todo' | 'doing' | 'done';
 
 export type Task = {
