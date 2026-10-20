@@ -918,9 +918,23 @@ func (c *chain) finalize(mine bool, directFailed []directFail, approvals []int64
 		c.s.notify(c.id, "direct")
 	}
 	for _, aid := range approvals {
-		if err := c.s.st.ReopenApproval(context.WithoutCancel(c.ctx), aid); err != nil {
-			log.Printf("reopen approval %d of channel %d: %v", aid, c.id, err)
+		ctx := context.WithoutCancel(c.ctx)
+		err := c.s.st.ReopenApproval(ctx, aid)
+		var a store.Approval
+		if err == nil {
+			a, err = c.s.st.Approval(ctx, c.id, aid)
 		}
+		if errors.Is(err, store.ErrNotFound) {
+			// A hold that continue claimed is not a gate approval: no event.
+			continue
+		}
+		if err != nil {
+			log.Printf("reopen approval %d of channel %d: %v", aid, c.id, err)
+			continue
+		}
+		c.l.mu.Lock()
+		c.l.publishLocked("approval", a)
+		c.l.mu.Unlock()
 	}
 	if mine && c.ownsActiveTurn {
 		c.ownsActiveTurn = false

@@ -51,7 +51,7 @@ Preconditions:
 - Baseline from the README, plus `node` and a Chrome: `/Applications/Google Chrome.app` on macOS; on Linux Playwright's Chromium with `REEF_VERIFY_CHROME` set (see `SKILL.md`, Window). Check it like `doctor` would: `"$REEF_VERIFY_CHROME" --version` prints a version. `error while loading shared libraries` means the system libraries are missing: `npx playwright@1.64.0 install-deps chromium`.
 - The web app is built before `$H build`: `(cd web && npm ci && npm run build)`. The binary embeds `web/dist`; without it every page is 503 `UI not built`.
 - The server starts with the model set, because it starts the `claude` agents: `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H serve-start --data-name ui`.
-- `ui teams` also needs the teams `duo` and `gated` applied to the `ui` folder: `$H reef --data-name ui -- team apply ...` before `serve-start` (files and commands in `teams.md`, Window).
+- `ui teams` also needs the teams `duo`, `gated` and `full` applied to the `ui` folder: `$H reef --data-name ui -- team apply ...` before `serve-start` (files and commands in `teams.md`, Window).
 - `ui inbox` needs `gated` too, and reads the badge as `1`, so it fails on a server that already lists other items: run it first, or on its own folder (`$H reef --data-name inbox -- team apply $E/gated.json`, then `serve-start --data-name inbox`).
 - `ui first-run` needs a server with no profile and no project: run it on its own folder (`serve-start --data-name first-run`).
 - `ui inspector` needs the team `full` applied to the `ui` folder: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.

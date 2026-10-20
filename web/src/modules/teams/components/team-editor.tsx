@@ -3,6 +3,7 @@ import { useUpdateTeam } from '@/modules/teams/api/update-team';
 import { AddGateRow } from '@/modules/teams/components/add-gate-row';
 import { AddRoleRow } from '@/modules/teams/components/add-role-row';
 import { RolePanel } from '@/modules/teams/components/role-panel';
+import { gateRows } from '@/modules/teams/utils/gates';
 import type { Gate, Role, Skills, Team } from '@/types/api';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
 import { Button } from '@/components/button';
@@ -39,6 +40,10 @@ export function TeamEditor({ team, skills, noProject, onSaved, onDuplicate }: Pr
   if (team !== loaded && !unsaved) load(team);
 
   const current = selected === null ? undefined : roles[selected];
+  const rows = gateRows(
+    roles.map((r) => r.name),
+    gates,
+  );
 
   function updateRole(i: number, role: Role) {
     setRoles(roles.map((r, idx) => (idx === i ? role : r)));
@@ -142,7 +147,7 @@ export function TeamEditor({ team, skills, noProject, onSaved, onDuplicate }: Pr
           <p className="mb-3 text-[12.5px] text-muted">
             Work waits for you before it passes between these roles.
           </p>
-          {gates.map((gate, i) => (
+          {rows.map(({ gate, listed, isDefault }) => (
             <div
               key={`${gate.from}-${gate.to}`}
               className="flex min-h-11 items-center gap-2 border-b border-hairline text-[13px] text-soft last:border-b-0"
@@ -153,22 +158,28 @@ export function TeamEditor({ team, skills, noProject, onSaved, onDuplicate }: Pr
               <Toggle
                 label={`Gate ${gate.from} to ${gate.to}`}
                 checked={gate.on}
-                onChange={(on) => updateGate(i, { ...gate, on })}
+                onChange={(on) =>
+                  listed >= 0
+                    ? updateGate(listed, { ...gate, on })
+                    : setGates([...gates, { ...gate, on }])
+                }
               />
-              <Button
-                variant="ghost"
-                size="sm"
-                type="button"
-                aria-label={`Remove gate ${gate.from} to ${gate.to}`}
-                onClick={() => removeGate(i)}
-              >
-                Remove
-              </Button>
+              {!isDefault && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  type="button"
+                  aria-label={`Remove gate ${gate.from} to ${gate.to}`}
+                  onClick={() => removeGate(listed)}
+                >
+                  Remove
+                </Button>
+              )}
             </div>
           ))}
           <AddGateRow
             roles={roles.map((r) => r.name).filter(Boolean)}
-            gates={gates}
+            gates={rows.map((r) => r.gate)}
             onAdd={(gate) => setGates([...gates, gate])}
           />
         </section>

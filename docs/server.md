@@ -87,7 +87,9 @@ logged in and on `PATH`.
   on a click, to show desktop notifications and then shows one for each item that is new
   since the page loaded.
 - Teams (`/teams`): lists teams and edits one's roles, faces and gates, saving with
-  `PUT /teams/{name}`. An opened role shows its persona, skills, allowed tools, permission
+  `PUT /teams/{name}`. Each gate has a switch, on or off: the list shows the team's own gates and
+  the [default gates](#gate) between its roles, and switching a default one saves a gate with
+  that `on`. An opened role shows its persona, skills, allowed tools, permission
   mode and MCP servers. Skills are picked from the current project's `GET /skills` list for the
   role's backend; a picked name that is not on disk shows as missing. Allowed tools are
   checkboxes (`Read`, `Grep`, `Glob`, `Edit`, `Write`, `Bash`, `WebFetch`, `WebSearch`, and
@@ -680,13 +682,13 @@ for a top-level message, or `[channel 3, message 12, thread 9]` for a reply: the
 waking message and, for a reply, its thread root. Then comes the user's text as it is, or
 `<author> wrote: <body>` for an agent's message. For a message in a thread, the earlier messages of the thread (`Thread so
 far:`) come between the line and the text; they are the conversation being answered, so they
-stay in the prompt. One routing pass wakes a role once for each thread: when several messages
-in the same thread, or several top-level messages, wake the same role, for example a
-`post_to_channel` that names `@architect` and a reply that does too, their texts are joined in
-id order into one prompt. A top-level message and a reply in a thread that name the same role
-wake it twice. The woken role's reply is stored in the thread the header names (`parentId` is the
-thread root). When a top-level message woke the role, the reply is top-level too: it is the root
-of a thread the role owns, and the user's reply in it goes to the role.
+stay in the prompt. One routing pass wakes a role once: when several messages, top-level or in
+any thread, wake the same role, for example a `post_to_channel` that names `@architect` and a
+reply that does too, their texts are joined in id order into one prompt, so a gate holds one
+approval for them. The woken role's reply is stored in the thread the header of the first
+message names (`parentId` is the thread root). When a top-level message woke the role, the
+reply is top-level too: it is the root of a thread the role owns, and the user's reply in it
+goes to the role.
 
 The first turn and the wakes after it are one chain. They run one at a time, in the order
 the messages were stored, and the messages each turn stores are routed in turn and queued at
@@ -695,8 +697,9 @@ the end. The channel has a turn running until the chain is done, so a `wrap`, a 
 or an approve while any chain starts or runs, is accepted: the message is stored at once, and its wakes, or the approved
 wake, join the end of the chain's queue and run after the current turn and the wakes it
 queued. Turns still run one at a time. If the chain ends first (a failed turn, a stop, a
-pause, the hop cap) or never starts, a queued approval is pending again and a queued message's wakes are held,
-not run. A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
+routing failure) or never starts, a queued approval is pending again and a queued message's wakes are held,
+not run. When the hop cap or the token budget stops the next wake, an approved wake is held
+with the others and `continue` runs it (see [Caps](#caps)). A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
 lead's reply says `@architect ...`; the architect runs and posts a plan, a new thread it
 owns; the chain ends because the plan names no one. The lead gets no turn after the plan.
 
@@ -751,7 +754,8 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Six kinds
 - `pause`: `{"reason":"..."}` when a cap pauses the channel: when a send finds the
   token budget used, or when the hop cap holds a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
 - `approval`: an [approval](#approval) as JSON, `pending` when a gate holds a wake, and again
-  with `approved` or `rejected` when it is decided.
+  with `approved` or `rejected` when it is decided, and `pending` again when a chain ends
+  without running a wake that was approved and queued.
 - `note`: `{}`, sent when a message is posted outside a turn, such as a [GitHub
   poll](#github-poll) note, so a subscriber knows to re-read `GET /messages`.
 - `direct`: `{}`, sent when a chain ends without running a queued direct wake and gives it a

@@ -1520,10 +1520,12 @@ async function wrap() {
 
 async function teams() {
   const missing = [];
-  for (const name of ['duo', 'gated']) if ((await fetch(`${base}/teams/${name}`)).status !== 200) missing.push(name);
+  for (const name of ['duo', 'gated', 'full']) if ((await fetch(`${base}/teams/${name}`)).status !== 200) missing.push(name);
   if (missing.length) throw new Error(`apply the teams first: missing ${missing.join(', ')} (see features/teams.md)`);
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
+  const featureUrl = page.url();
+  const projectId = sql('select max(id) from project');
 
   const { id: cid, options } = await newTeamChannel('duo', 'duo room', 'team-picked');
   check(options.includes('duo') && options.includes('gated') && options.includes('solo'), 'the New channel form lists the teams', options.join(', '));
@@ -1594,6 +1596,54 @@ async function teams() {
     'the approval is stored as approved',
     `approvals: ${sql(`select id,from_role,to_role,status from approval where channel_id=${gid}`)}; turns: ${sql(`select group_concat(role) from (select role from turn where channel_id=${gid} order by id)`)}`,
   );
+
+  // The switch of a default gate on /teams: team full lists no gates, so lead to developer is
+  // on by default. Off lets the lead's wake of the developer run, on holds it again.
+  const flipGate = async (on, step) => {
+    await page.evaluate((id) => localStorage.setItem('reef.sidebar.projectId', id), projectId);
+    await page.goto(`${base}/teams`);
+    await main.getByRole('button', { name: 'full', exact: true }).click();
+    const gateSwitch = main.getByRole('switch', { name: 'Gate lead to developer' });
+    await gateSwitch.waitFor();
+    check(
+      (await gateSwitch.getAttribute('aria-checked')) === String(!on) &&
+        (await main.getByRole('button', { name: 'Remove gate lead to developer' }).count()) === 0,
+      `the default lead to developer gate has a switch, ${on ? 'off' : 'on'}, and no Remove`,
+    );
+    await gateSwitch.click();
+    await main.getByRole('button', { name: 'Save team' }).click();
+    await page.getByText('Saved').waitFor();
+    await shot(step);
+    const enabled = sql(`select enabled from gate where team_id = (select id from team where name = 'full') and from_role = 'lead' and to_role = 'developer'`);
+    check(enabled === (on ? '1' : '0'), `saving the switch ${on ? 'on' : 'off'} stores the gate ${on ? 'on' : 'off'}`, `enabled ${enabled}`);
+    await page.goto(featureUrl);
+    await page.getByRole('heading', { name: 'Login', level: 1 }).waitFor();
+  };
+  const handoff =
+    'Reply with exactly one line and nothing else: an at sign immediately followed by the word developer, then a space, then the words: reply with one word, use no tools.';
+  const roles = (id) => sql(`select group_concat(role) from (select role from turn where channel_id=${id} order by id)`);
+  await flipGate(false, 'gate-switched-off');
+  const { id: oid } = await newTeamChannel('full', 'open room');
+  await send(handoff);
+  check(await workingAs('developer'), 'with the gate off the developer runs');
+  await idle();
+  check(
+    sql(`select count(*) from approval where channel_id=${oid}`) === '0' && roles(oid) === 'lead,developer',
+    'with the gate off no approval is stored and the turns are lead, developer',
+    `approvals: ${sql(`select count(*) from approval where channel_id=${oid}`)}; turns: ${roles(oid)}`,
+  );
+  await shot('gate-off-ran');
+  await flipGate(true, 'gate-switched-on');
+  const { id: hid } = await newTeamChannel('full', 'held room');
+  await send(handoff);
+  await main.getByRole('button', { name: 'Approve' }).waitFor({ timeout: 240000 });
+  await idle();
+  check(
+    sql(`select from_role||'>'||to_role||' '||status from approval where channel_id=${hid}`) === 'lead>developer pending' && roles(hid) === 'lead',
+    'with the gate on again the wake is held and the developer has not run',
+    `approvals: ${sql(`select from_role,to_role,status from approval where channel_id=${hid}`)}; turns: ${roles(hid)}`,
+  );
+  await shot('gate-on-held');
 }
 
 // Dispatches a native HTML5 drag sequence (dragstart on `card`, dragover and drop on
