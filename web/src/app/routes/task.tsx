@@ -11,6 +11,7 @@ import type { TaskStatus } from '@/types/api';
 import { BackButton } from '@/components/back-button';
 import { Card } from '@/components/card';
 import { SegmentedControl } from '@/components/segmented-control';
+import { Select } from '@/components/select';
 
 const statuses = [
   { value: 'todo', label: 'To do' },
@@ -50,6 +51,7 @@ export function TaskPage() {
   const features = useFeatures();
   const projects = useProjects();
   const update = useUpdateTask();
+  const move = useUpdateTask();
 
   if (task.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (task.isError) return <p className="text-sm text-danger">{task.error.message}</p>;
@@ -92,13 +94,20 @@ export function TaskPage() {
           <dd>{project?.name}</dd>
           <dt className="text-muted">Feature</dt>
           <dd>
-            {feature ? (
-              <Link to={`/features/${feature.id}`} className="hover:underline">
-                {feature.name}
-              </Link>
-            ) : (
-              'None'
-            )}
+            <Select
+              aria-label="Feature"
+              value={t.featureId === null ? '' : String(t.featureId)}
+              onChange={(value) =>
+                move.mutate({ task: t, featureId: value === '' ? null : Number(value) })
+              }
+              options={[
+                { value: '', label: 'No feature' },
+                ...(features.data ?? [])
+                  .filter((f) => f.projectId === t.projectId)
+                  .map((f) => ({ value: String(f.id), label: f.name })),
+              ]}
+            />
+            {move.isError && <p className="text-xs text-danger">{move.error.message}</p>}
           </dd>
           {feature && (
             <>

@@ -427,6 +427,24 @@ async function fixes() {
     'the task page has no Edit button and blur saves its details inline',
     `body ${JSON.stringify(sql(`select body from task where id=${tid}`))}`,
   );
+  const featureSelect = main.getByRole('combobox', { name: 'Feature', exact: true });
+  await pick('Feature', 'No feature', main);
+  await featureSelect.getByText('No feature').waitFor();
+  await shot('task-no-feature');
+  check(
+    sql(`select feature_id is null from task where id=${tid}`) === '1',
+    'the task page Feature select moves the task to no feature',
+    `feature_id null: ${sql(`select feature_id is null from task where id=${tid}`)}`,
+  );
+  await pick('Feature', name, main);
+  await page.reload();
+  await featureSelect.getByText(name).waitFor();
+  await shot('task-feature-back');
+  check(
+    sql(`select feature_id from task where id=${tid}`) === fid,
+    'the Feature select moves the task back to its feature and it survives a reload',
+    `feature_id ${sql(`select feature_id from task where id=${tid}`)}, want ${fid}`,
+  );
   await page.goto(base + `/features/${fid}`);
   await main.getByText('0 of 2 done').waitFor();
   await main.locator('li', { hasText: 'fix one' }).getByRole('checkbox').click();
