@@ -9,6 +9,7 @@ export REEF_VERIFY_RUN
 
 REPO=$(pwd)
 CDP="$REPO/.claude/skills/verify-reef/scripts/cdp.mjs"
+MAIN_EVAL="$REPO/.claude/skills/verify-reef/scripts/main-eval.mjs"
 D="$E/desktop"
 HOME_DIR="$S/home"
 case $(uname) in
@@ -44,6 +45,8 @@ cdp() { # cdp EXPR [WINDOW]: a dead app fails at once, so the retry loops below 
 	kill -0 "${app:-0}" 2>/dev/null || { echo "the app is not running" >&2; return 1; }
 	node "$CDP" "$cdp_port" "$app_port" "$1" "${2:-}"
 }
+
+mainjs() { node "$MAIN_EVAL" "$inspect_port" "$1"; }
 
 # shot NAME: the whole screen (Xvfb's on Linux) to $D/NAME.png; prints its standard deviation,
 # 0 for a blank screen.
@@ -162,7 +165,8 @@ record "$page_pid"
 # --- launch: on a free port (REEF_PORT) and its own X display, beside any other app or run ---
 app_port=$(free_port)
 cdp_port=$(free_port)
-app_cmd=(env -u XDG_CONFIG_HOME HOME="$HOME_DIR" REEF_PORT="$app_port" REEF_DATA="$DATA" "$electron" "$REPO/desktop" --remote-debugging-port="$cdp_port")
+inspect_port=$(free_port)
+app_cmd=(env -u XDG_CONFIG_HOME HOME="$HOME_DIR" REEF_PORT="$app_port" REEF_DATA="$DATA" "$electron" "$REPO/desktop" --remote-debugging-port="$cdp_port" --inspect="$inspect_port")
 launch='echo "$DISPLAY" >"$1/app.display"; echo "${XAUTHORITY:-}" >"$1/app.xauth"; echo $$ >"$1/app.pid"; shift; exec "$@"'
 if [ "$(uname)" = Darwin ]; then
 	bash -c "$launch" _ "$S" "${app_cmd[@]}" </dev/null >"$D/app.log" 2>&1 &
@@ -218,6 +222,13 @@ for _ in $(seq 50); do
 	case $ui in *"\"object http://127.0.0.1:$app_port/ true\"") break ;; esac
 	sleep 0.2
 done
+# Without a profile the window shows the first-run page, which has no browser pane.
+curl -s -o /dev/null -X PUT -H 'Content-Type: application/json' "http://127.0.0.1:$app_port/profile" -d '{"name":"verify","occupation":"Developer","style":[]}'
+cdp 'location.reload()' >/dev/null 2>&1
+for _ in $(seq 50); do
+	[ "$(cdp "!!document.querySelector('button[aria-label=Browser]')" 2>&1)" = true ] && break
+	sleep 0.2
+done
 sd=$(shot window)
 check desktop-window "$(case $ui in *"\"object http://127.0.0.1:$app_port/ true\"") nonzero "$sd" && echo 1 ;; esac)" \
 	"main window: $ui; screenshot std dev $sd ($D/window.png)"
@@ -271,6 +282,34 @@ mcp browser_navigate "{\"url\":\"$URL\"}" >/dev/null
 out=$(mcp browser_click "{\"ref\":\"$btn\"}")
 check browser-stale-ref "$([ -n "$btn" ] && case $out in *"isError=true ref $btn is not on the page; take a new snapshot"*) echo 1 ;; esac)" \
 	"click $btn after a new navigation: $(grep -m1 '^<' <<<"$out") ($E/reef-mcp.log)"
+
+# --- the native view stays exactly on the pane: its bounds (window pixels, from the main process) equal the pane
+# container's rect (CSS pixels, from the page) times the page zoom, after the window is resized and zoomed ---
+pane_rect="(() => { const r = document.querySelector('aside[aria-label=Browser]').lastElementChild.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })()"
+view_bounds='(() => { const b = w.contentView.children[0].getBounds(); return [b.x, b.y, b.width, b.height, w.webContents.getZoomFactor()]; })()'
+: >"$D/pane-bounds.txt"
+bounds_ok=1
+pane_bounds() { # pane_bounds STEP: the view must be within 1 px of the pane's container
+	sleep 0.6
+	pane=$(cdp "$pane_rect" 2>&1) view=$(mainjs "$view_bounds" 2>&1)
+	line=$(python3 -I -c 'import json, sys
+pane, view = json.loads(sys.argv[2]), json.loads(sys.argv[3])
+zoom = view[4]
+want = [n * zoom for n in pane]
+ok = all(abs(a - b) <= 1 for a, b in zip(want, view[:4])) and view[2] > 0
+print(("ok" if ok else "BAD"), sys.argv[1] + ":", "pane x zoom", [round(n, 1) for n in want], "view", view[:4], "zoom", zoom)' "$1" "$pane" "$view" 2>&1) || line="BAD $1: pane $pane view $view"
+	echo "$line" >>"$D/pane-bounds.txt"
+	case $line in ok*) ;; *) bounds_ok=0 ;; esac
+}
+pane_bounds start
+mainjs 'w.setContentSize(1000, 700)' >/dev/null
+pane_bounds "window 1000x700"
+mainjs 'w.webContents.setZoomFactor(1.25)' >/dev/null
+pane_bounds "zoom 1.25"
+mainjs 'w.webContents.setZoomFactor(1)' >/dev/null
+mainjs 'w.setContentSize(1200, 800)' >/dev/null
+pane_bounds "back to 1200x800, zoom 1"
+check browser-bounds "$bounds_ok" "$(grep -c '^ok' "$D/pane-bounds.txt") of $(wc -l <"$D/pane-bounds.txt" | tr -d ' ') steps put the view within 1 px of the pane ($D/pane-bounds.txt)"
 
 # --- terminal pane on the feature's worktree ---
 js_wt=$(python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$WT")
