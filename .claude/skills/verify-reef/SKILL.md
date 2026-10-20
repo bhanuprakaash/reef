@@ -312,6 +312,7 @@ REEF_VERIFY_RUN=<id> $H ui workshop  # /teams page edits a role's persona, keeps
 REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, types, Enter shows Captured and clears the box, a task row is stored; a failing request shows its error
 REEF_VERIFY_RUN=<id> $H ui coordination # direct messages show as one item (waiting approval, working, completed, stopped, rejected, Retry) with a Coordination panel and a source-message link, at 1280x800 and 390x844 (needs `gated`)
 REEF_VERIFY_RUN=<id> $H ui pr        # the header PR chip opens the PR panel: checks, Merge disabled while not mergeable, confirm dialog, merged state (fake gh, see features/window.md)
+REEF_VERIFY_RUN=<id> $H ui team      # full team: the header avatars ring the working role, the team opens as a popover that leaves the channel width alone, Escape / outside click / X close it (needs `full`)
 ```
 
 `teams` needs the teams `duo` and `gated` (and `inbox` needs `gated`) applied to the `ui` folder first: run

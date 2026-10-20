@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -11,9 +11,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, team };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -1988,6 +1988,51 @@ async function coordination() {
   check(last.status === 'failed' && last.body === 'rejected' && last.from === 'architect', 'the rejection is stored as a failed architect response', JSON.stringify(last));
   check((await panel.getByRole('button', { name: 'Retry' }).count()) === 0, 'a rejected exchange offers no Retry');
   await shot('phone-rejected');
+}
+
+// The team is a popover from the header: the working role rings in the header avatars, the channel keeps its width.
+async function team() {
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  await newTeamChannel('full', 'team room');
+  await send('Say ok in one word.');
+  await workingAs('lead');
+  await idle();
+  await send('@developer Use the Write tool to create the file d.txt containing the word yes. Then reply done.');
+  const running = await workingAs('developer');
+  check(running, 'the developer turn is running');
+  const avatars = main.getByRole('button', { name: 'Show team' });
+  check((await avatars.locator('.c-ring').count()) === 1, 'the header avatars ring one role while it works');
+  check((await page.getByText('working…', { exact: true }).count()) === 0, 'no floating working badge');
+  const panel = page.getByRole('complementary', { name: 'Team' });
+  check((await panel.count()) === 0, 'the team column is gone: nothing open until asked');
+  const channel = main.locator('section').first();
+  const before = await channel.boundingBox();
+  await shot('closed-working');
+  await main.getByRole('button', { name: 'Team', exact: true }).click();
+  await panel.waitFor();
+  const pop = await panel.locator('xpath=../..').boundingBox();
+  const head = await main.locator('header').boundingBox();
+  const after = await channel.boundingBox();
+  check(pop.width === 320 && pop.y >= head.y + head.height && pop.x + pop.width <= 1200, 'the popover is 320 px wide under the header, inside the window', JSON.stringify(pop));
+  check(after.width === before.width, 'opening it does not change the channel width', `${before.width} -> ${after.width}`);
+  const rows = await panel.getByRole('listitem').allInnerTexts();
+  check(rows.length === 4 && rows.some((r) => /developer[\s\S]*working/i.test(r)), 'it lists four roles and the developer as working', rows.join(' | ').replace(/\n/g, ' '));
+  await shot('popover-working');
+  await page.keyboard.press('Escape');
+  await panel.waitFor({ state: 'hidden' });
+  await avatars.click();
+  await panel.waitFor();
+  await page.mouse.click(300, 600);
+  await panel.waitFor({ state: 'hidden' });
+  check(true, 'Escape and a click outside both close the popover');
+  await main.getByRole('button', { name: 'Team', exact: true }).click();
+  await panel.getByRole('button', { name: 'Close team' }).click();
+  await panel.waitFor({ state: 'hidden' });
+  check(true, 'its X closes it');
+  await idle();
+  check((await avatars.locator('.c-ring').count()) === 0, 'the ring goes when the turn ends');
+  await shot('idle');
 }
 
 try {
