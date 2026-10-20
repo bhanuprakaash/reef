@@ -476,6 +476,9 @@ func WorkDir(
 func (s *Session) roleSetup(team store.Team, name string) (store.Role, error) {
 	if name == s.ch.Role {
 		lead := team.Roles[0]
+		if lead.Backend != s.ch.Backend {
+			lead.Provider = ""
+		}
 		lead.Name, lead.Backend, lead.PermissionMode = name, s.ch.Backend, s.ch.PermissionMode
 		return lead, nil
 	}

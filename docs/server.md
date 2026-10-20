@@ -389,8 +389,8 @@ adapters use when a role names no provider.
 A role runs a provider's binary by naming it in `provider`. The check runs when the team is
 applied (the provider exists, its `kind` is the role's `backend` and its folder still holds the
 binary) and again when the role's agent starts, because the provider may be removed after
-that, and because a channel's lead takes the channel's `backend`, not the lead role's. A start
-that fails the check is a `failed` turn whose `error` says why, for example `role developer:
+that. A channel's lead takes the channel's `backend`; when that differs from the lead role's,
+the role's `provider` is ignored and the `PATH` binary runs. A start that fails the check is a `failed` turn whose `error` says why, for example `role developer:
 provider "work" is not installed`; nothing falls back to the `PATH` binary, as that would run
 a different one than the user picked. A role with no `provider` is unchanged.
 
