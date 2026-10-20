@@ -21,14 +21,14 @@ Example: an auth guard failed on a particular date when tenant configuration was
 
 Do not produce five duplicate copies of the same underlying event.
 
-## Direct conversation context
+## Direct conversations and on-demand retrieval
 
-A **Teammate** (the user-facing name for an individual agent) can have multiple independent direct conversations. Each conversation has its own history and an optional project association. General chats need no project; a project-associated chat may retrieve relevant authorised project findings, decisions, work history and traces on demand. A project selection scopes retrieval for that conversation, not the Teammate's global memory. A conversation transcript does not automatically become personal memory. The policy for switching a conversation between projects, including whether to require a fresh session, remains open; cross-project information must not leak through old context or summaries.
+A **Teammate** (the user-facing name for an individual agent) can have multiple independent direct conversations. Each conversation is ordinary session history, without required project IDs, a project selector, or a predefined project association. The user may discuss one project, multiple projects, or unrelated topics in the same conversation. Based on the current question, the Teammate can retrieve relevant memories and traces on demand. The memory service resolves references, checks permissions, preserves provenance and returns bounded context; mentioning a project does not grant access. A transcript does not automatically become the Teammate's personal memory. Knowledge extracted from it receives its own role-aware ownership and scope.
 
 ## Logical scopes
 
 - **Teammate (internal: agent):** persistent identity, general expertise, appropriately promoted reusable lessons and history.
-- **Direct conversation:** separate session history and optional project-scoped working context; not automatically permanent personal knowledge.
+- **Direct conversation:** independent session history without mandatory project linkage; relevant authorised knowledge is retrieved on demand and is not automatically permanent personal knowledge.
 - **Team:** collective experience, responsibilities, handoffs and operating lessons, not copies of all member/project data.
 - **Project:** technical facts, architecture, conventions and accepted decisions.
 - **Space:** discussion context, conclusions and open questions.
@@ -59,7 +59,7 @@ Graph relationships describe connections, **not authorization**. Enforce access 
 
 ## Retrieval direction
 
-Given actor, active role, team, project, work item, space, objective and context budget: filter authorized knowledge, search relevant records, expand useful graph relationships, rank by relevance/evidence/recency, and return compact sourced context. Deeper detail should remain available on demand through a narrow memory API/MCP interface. Do not inject the full graph or all prior history into a system prompt.
+Given the actor, current request, conversational context, applicable permissions and context budget (resolving relevant entities such as projects or work items when needed): filter authorized knowledge, search relevant records, expand useful graph relationships, rank by relevance/evidence/recency, and return compact sourced context. Deeper detail should remain available on demand through a narrow memory API/MCP interface. Do not inject the full graph or all prior history into a system prompt.
 
 ## Independent evaluation plan
 
