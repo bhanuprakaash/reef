@@ -585,3 +585,11 @@ func TestInterruptBeforeStart(t *testing.T) {
 		t.Error("Start after Interrupt succeeded")
 	}
 }
+
+func TestBin(t *testing.T) {
+	a := fakeClaude(t, "argv")
+	err := a.Start(context.Background(), agent.Config{Cwd: t.TempDir(), Bin: "/nonexistent/claude"})
+	if err == nil || !strings.Contains(err.Error(), "/nonexistent/claude") {
+		t.Errorf("Start error = %v, want it to name /nonexistent/claude, not the claude on PATH", err)
+	}
+}

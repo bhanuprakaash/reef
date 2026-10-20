@@ -403,7 +403,8 @@ func (s *Session) member(
 		MCPServers:      servers,
 	}
 	var preamble string
-	if ctx.Err() == nil && slug != "" {
+	cfg.Bin, err = s.st.RoleBin(wctx, r)
+	if err == nil && ctx.Err() == nil && slug != "" {
 		var p store.Project
 		if p, err = s.st.Project(wctx, s.project.ID); err == nil {
 			err = EnsureWorktree(ctx, s.trees, p, cwd, slug)

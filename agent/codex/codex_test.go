@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -547,5 +548,13 @@ func TestAgent_BreakBetweenMessages(t *testing.T) {
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("events = %+v, want %+v", got, want)
+	}
+}
+
+func TestBin(t *testing.T) {
+	a := fake(t, "")
+	err := a.Start(context.Background(), agent.Config{Cwd: t.TempDir(), Bin: "/nonexistent/codex"})
+	if err == nil || !strings.Contains(err.Error(), "/nonexistent/codex") {
+		t.Errorf("Start error = %v, want it to name /nonexistent/codex, not the codex on PATH", err)
 	}
 }

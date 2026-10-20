@@ -38,7 +38,8 @@ func faces() []string {
 
 // Role is one teammate's setup. Face picks the creature the window draws for the role; empty
 // means the default for its name. Model names the model the backend runs the role on; empty is
-// the backend's default. Tools are the backend's allowed tools. Write says whether the
+// the backend's default. Provider names an added install (see Provider) whose binary the role
+// runs; empty is the claude or codex found on PATH. Tools are the backend's allowed tools. Write says whether the
 // role may change files: without it the backend's tools and sandbox are held to read-only.
 type Role struct {
 	Name           string            `json:"name"`
@@ -50,6 +51,7 @@ type Role struct {
 	Skills         []string          `json:"skills"`
 	Face           string            `json:"face,omitempty"`
 	Model          string            `json:"model,omitempty"`
+	Provider       string            `json:"provider,omitempty"`
 	Tools          []string          `json:"tools"`
 	MCPServers     []agent.MCPServer `json:"mcpServers"`
 }
@@ -92,6 +94,9 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 			return Team{}, err
 		}
 		t.Roles[i].Skills = names
+		if _, err := s.RoleBin(ctx, r); err != nil {
+			return Team{}, err
+		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -142,9 +147,9 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 		}
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO role (team_id, name, persona, skills, face, tools, mcp_servers, backend, "+
-				"permission_mode, lead, write, model) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				"permission_mode, lead, write, model, provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 			id, r.Name, r.Persona, string(skills), r.Face, string(tools), string(servers), r.Backend,
-			r.PermissionMode, r.Lead, r.Write, r.Model); err != nil {
+			r.PermissionMode, r.Lead, r.Write, r.Model, r.Provider); err != nil {
 			return Team{}, fmt.Errorf("insert role %s: %w", r.Name, err)
 		}
 	}
@@ -157,7 +162,7 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 // Team returns the team with the name, lead first, or ErrNotFound.
 func (s *Store) Team(ctx context.Context, name string) (Team, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT role.name, lead, write, backend, permission_mode, persona, skills, face, model, tools, mcp_servers "+
+		"SELECT role.name, lead, write, backend, permission_mode, persona, skills, face, model, provider, tools, mcp_servers "+
 			"FROM role JOIN team ON team.id = team_id WHERE team.name = ? ORDER BY lead DESC, role.id",
 		name)
 	if err != nil {
@@ -313,7 +318,7 @@ func scanRole(r interface{ Scan(...any) error }) (Role, error) {
 	var ro Role
 	var skills, tools, servers string
 	if err := r.Scan(&ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Persona,
-		&skills, &ro.Face, &ro.Model, &tools, &servers); err != nil {
+		&skills, &ro.Face, &ro.Model, &ro.Provider, &tools, &servers); err != nil {
 		return Role{}, err
 	}
 	if err := json.Unmarshal([]byte(skills), &ro.Skills); err != nil {

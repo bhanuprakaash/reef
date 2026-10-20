@@ -155,7 +155,8 @@ migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql)
 migration 10 [`010_role_write.sql`](../store/migrations/010_role_write.sql) (`role.write`) and
 migration 11 [`011_turn_wake.sql`](../store/migrations/011_turn_wake.sql) (`turn.wake_text`, `turn.wake_parent`, `turn.retried`) and
 migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`) and
-migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`).
+migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`) and
+migration 32 [`032_provider.sql`](../store/migrations/032_provider.sql) (`provider`, `role.provider`).
 Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 
 ### project
@@ -360,6 +361,7 @@ through the same validation. Migration 6 seeds the team `solo`, with one role, `
 | `backend` | string | required; `claude` or `codex` |
 | `permissionMode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`. The same rule as a channel's `permissionMode` |
 | `model` | string | optional; the model the role runs on, passed to the backend when its agent starts or resumes: claude `--model NAME` (`opus`, `sonnet`, `haiku` or a full model id), codex the thread `model`. Left out or `""` is the backend default |
+| `provider` | string | optional; the `name` of an added [provider](#provider) whose binary the role runs instead of the `claude` or `codex` on `PATH`. It must exist and have `kind` equal to the role's `backend`, else the team is `invalid`. Left out or `""` runs the one on `PATH` |
 | `persona` | string | goes at the start of the role's first prompt, and again, marked as changed, at its next wake once it or `skills` differs from what the role's session last got |
 | `skills` | array of strings | names of skills, one per entry, trimmed; each is letters, digits, `:`, `_` or `-`, and an empty, repeated or other name is `invalid`. They go after the persona, under `Your skills:`. claude: a role that picks skills may use only these. `--allowedTools` gets `Skill(name)` for each and `--disallowedTools` gets `Skill(name)` for every other claude skill on disk (the scan of `GET /skills`, taken when the role's session starts, with the role's working folder). A role that picks none keeps every skill and gets no skill rule. Skill rules only add entries to the `write` and `tools` rules. codex: prompt only. A team file or `PUT` body that gives `skills` as a string is `invalid` |
 | `face` | string | optional; the creature the window draws for the role: `jellyfish`, `whale`, `penguin`, `shark`, `octopus`, `turtle`, `seahorse`, `otter`, `clownfish`, `manta-ray` or `pebble`. Left out, the window picks one by the role's name (`lead` jellyfish, `architect` whale, `developer` penguin, `tester` shark, else `pebble`). Any other value is `invalid` |
@@ -369,6 +371,27 @@ through the same validation. Migration 6 seeds the team `solo`, with one role, `
 A channel's lead takes the channel's own `backend` and `permissionMode`, which `POST
 /channels` filled from the lead role unless the request set them. The other roles use their
 own.
+
+### provider
+
+A claude or codex install the user added, next to the ones found on `PATH`. The ones on `PATH`
+are not stored: `GET /providers` finds them each time, with `exec.LookPath`, the same lookup the
+adapters use when a role names no provider.
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `name` | string | required; unique; letters, digits, `_` and `-` only, and not `claude` or `codex` (those name the ones on `PATH`) |
+| `kind` | string | required; `claude` or `codex` |
+| `folder` | string | required; an absolute path to an existing folder that holds an executable named like the kind: `FOLDER/KIND`, else `FOLDER/bin/KIND` |
+| `createdAt` | string | |
+
+A role runs a provider's binary by naming it in `provider`. The check runs when the team is
+applied (the provider exists, its `kind` is the role's `backend` and its folder still holds the
+binary) and again when the role's agent starts, because the provider may be removed after
+that, and because a channel's lead takes the channel's `backend`, not the lead role's. A start
+that fails the check is a `failed` turn whose `error` says why, for example `role developer:
+provider "work" is not installed`; nothing falls back to the `PATH` binary, as that would run
+a different one than the user picked. A role with no `provider` is unchanged.
 
 ### gate
 
@@ -481,6 +504,9 @@ tool calls.
 | `GET /features/{id}/pr` | | 200 `{"pr": {"number", "title", "state": "OPEN"\|"MERGED"\|"CLOSED", "url", "isDraft", "reviewDecision", "base", "head", "canMerge", "checks": [{"name", "state": "pass"\|"fail"\|"pending"}], "body", "additions", "deletions", "files": [{"path", "additions", "deletions"}]}}`, from `gh pr view feature/<slug>` run in the project's folder; `canMerge` is true only when `state` is `OPEN` and gh calls it `MERGEABLE`; `{"pr": null}` when the branch has no PR | 404, 502 gh is not on `PATH` or failed, with its text |
 | `POST /features/{id}/pr/merge` | no body needed | 200 the same body as `GET /features/{id}/pr`, after `gh pr merge <number> --merge` (a merge commit) | 404 no feature or no PR, 409 gh refused, with its text, 502 |
 | `GET /skills?project={id}` | `project` is required | 200 `{"claude":[...],"codex":[...]}`, each a list of `{name, description}` read from disk, never stored. claude: `~/.claude/skills`, the project's `.claude/skills` and the skills of the plugins in `~/.claude/plugins/installed_plugins.json` installed for the user or for the project path, named `plugin:skill`. codex: `~/.agents/skills` and the project's `.agents/skills`. A name found twice is listed once; each list is ordered by name. A skill whose name is not letters, digits, `:`, `_` or `-`, or whose file cannot be read, is left out, and a malformed `installed_plugins.json` gives no plugin skills; each is logged and the rest are listed | 400 `project` missing or not a number, 404 |
+| `GET /providers` | | 200 the detected `claude` and `codex` (those found on `PATH`), then the added ones oldest first, each `{name, kind, detected, folder, path, version, createdAt}`. `detected` is `true` for the ones on `PATH`, which have no `folder` or `createdAt`. `path` is the binary that would run (left out when an added install's binary is gone). `version` is the trimmed output of `path --version`, run for all of them at once with a 3 s limit, and left out when it fails or is late. Models and login state are not listed | |
+| `POST /providers` | `name`, `kind`, `folder` | 201 the added provider, in the shape `GET` gives | 400 bad name, `kind` not `claude` or `codex`, `folder` not an absolute path to a folder, or no executable of that kind in it; 409 `name` is taken, or is `claude` or `codex` |
+| `DELETE /providers/{name}` | | 204; roles that name it keep the name and fail to start (see [provider](#provider)) | 400 `claude` or `codex` (the ones on `PATH` cannot be removed), 404 |
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
 | `GET /teams/{name}` | | 200, with `mcp` instead of `mcpServers` as above; each role shows `write` | 404 |
 | `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; a role may also list `mcpRemove`, the `{name, label}` of each stored MCP server to drop, as `GET` showed it; servers it does not list are kept); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones, minus those in its `mcpRemove`; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists, or a server in `mcpRemove` no longer matches a stored one by name and label (the team changed since it was loaded; nothing is applied) |

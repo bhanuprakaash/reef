@@ -100,6 +100,7 @@ func newHandler(
 	s.featureRoutes(mux)
 	s.channelRoutes(mux)
 	s.teamRoutes(mux)
+	s.providerRoutes(mux)
 	s.skillRoutes(mux)
 	s.liveRoutes(mux)
 	s.turnOpRoutes(mux)

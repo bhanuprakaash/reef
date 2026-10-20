@@ -34,6 +34,8 @@ live, Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 - `wrap-wakes-nobody` a `/wrap` turn whose reply says `@architect` starts no architect turn.
 - `restart-held` after a restart a pending approval is still pending and can be approved; a hop-cap pause stays, and `continue` runs the held wake.
 - `codex-teammate` a role on `codex` is woken and its reply is stored (driven with the codex test fixture, not a real codex).
+- `provider-rest` `GET /providers` lists the detected `claude` and `codex` with `path` and `version`; `POST /providers` adds a second claude from another folder and it appears with its folder and version; a bad kind, a relative or missing folder, a folder with no executable of the kind, a bad name, a duplicate name and the name `claude` are rejected with an error; `DELETE` removes an added one and refuses `claude` and `codex`.
+- `provider-role` a role with `"provider":"NAME"` runs that install's binary: with two wrapper folders that each log a marker and `exec` the fake `claude`, only the named install's marker appears and a role with no provider logs none. A team that names an unknown provider, or one of the other kind, is `invalid`; a removed provider, or a channel `backend` that differs from the install's kind, gives a `failed` turn with the reason, not a run of the `PATH` binary.
 - `window-teams` the window picks a team, names the running teammate, opens a Thread pane from a root's Reply button, shows `N replies in thread` on the root in the main list, and shows Approve and Reject, and the switch of a default gate on `/teams` turns it off and on (`$H ui teams`, see Window below).
 
 ## How to get to it (user POV)
@@ -190,6 +192,26 @@ Window (`$H ui teams` drives New channel, Thread and Gate; the hop cap is by han
 - **Hop cap.** In a `pingpong` channel, after seven turns the cap banner shows `Paused: hop cap: 6 agent hops without a user message` and the composer stays enabled (other pauses disable it); sending a message clears the banner; Continue runs the held wake.
 
 When done: `$H cleanup`.
+
+Providers (data folder `providers`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name providers`, scratch cwd a git repo). Make two installs, each a folder with an executable `claude` that answers `--version` itself and otherwise logs a marker and runs the fake:
+
+```sh
+for m in A B; do mkdir -p $E/prov$m; cat > $E/prov$m/claude <<EOF
+#!/bin/sh
+if [ "\$1" = "--version" ]; then echo "$m-9.0.0 (Claude Code)"; exit 0; fi
+echo "$m ran in \$(pwd)" >> $E/markers.log
+exec $S/fake/claude "\$@"
+EOF
+chmod +x $E/prov$m/claude; done; : > $E/markers.log; mkdir -p $E/emptydir
+printf '{"name":"provteam","roles":[{"name":"lead","lead":true,"backend":"claude","provider":"installB","persona":"You are the lead."}]}' > $E/provteam.json
+printf '{"name":"plainteam","roles":[{"name":"lead","lead":true,"backend":"claude","persona":"You are the lead."}]}' > $E/plainteam.json
+```
+
+- **List.** `$H api GET /providers` is 200 with `claude` (`detected:true`, `path` the fake, `version` `0.0.0 (Claude Code) fake`) and `codex` with its path and version.
+- **Add and reject.** `POST /providers` `{"name":"installA","kind":"claude","folder":"'$E'/provA"}` and the same for `installB` with `provB` are 201 with `version` `A-9.0.0 (Claude Code)` and `B-9.0.0 ...`; `GET /providers` lists both after the two detected. These are 400: `kind` `gemini` (`provider kind must be claude or codex`), folder `/nonexistent` (`not a directory`), folder `relative` (`not an absolute path`), `$E/emptydir` (`no claude binary in ...`), kind `codex` on `provA` (`no codex binary in ...`), name `my x`. These are 409: `installA` again, name `claude`.
+- **Team checks.** `$H reef --data-name providers -- team apply` of a file whose role says `"provider":"nope"` is `reef: invalid: role lead: provider "nope" is not installed`, exit 1; `"backend":"codex","provider":"installB"` is `... provider "installB" is a claude install, the role runs on codex`. Apply `provteam.json` and `plainteam.json`; `GET /teams/provteam` shows `"provider":"installB"`.
+- **Runs that binary.** `POST /projects` `{"name":"prov","path":"'$S'/cwd"}` and `POST /features` `{"projectId":1,"slug":"prov","name":"Prov"}`. `POST /channels` `{"projectId":1,"featureId":1,"name":"on B","team":"provteam"}` (id 1), `POST /channels/1/send` `{"text":"Say ok in one word"}`, wait for a done turn: `cat $E/markers.log` is one line, `B ran in <data>/worktrees/1/prov`. Channel 2 on `plainteam` and the same send: `markers.log` is still one line and `fake-claude.log` has a second `replay` line.
+- **Removed or mismatched.** `DELETE /providers/installA` and `installB` are 204, `claude` and `codex` are 400, `ghost` is 404. A new channel 3 on `provteam` and a send gives a `failed` turn whose `error` is `invalid: role lead: provider "installB" is not installed`, and `markers.log` is unchanged. Add `installB` again; channel 4 `{"team":"provteam","backend":"codex"}` and a send gives a `failed` turn with `provider "installB" is a claude install, the role runs on codex`.
 
 ## Gotchas
 
