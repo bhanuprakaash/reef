@@ -44,6 +44,13 @@ type member struct {
 	dir   string
 }
 
+type runInput struct {
+	text    string
+	parent  *int64
+	direct  *store.DirectMessage
+	onEvent func(agent.Event)
+}
+
 // TokenEnv carries the token to the channel's reef mcp. WrapCommand is the text that asks
 // for a wrap-up; PromoteCommand is the stored message of a promote turn.
 const (
@@ -51,10 +58,22 @@ const (
 	WrapCommand    = "/wrap"
 	PromoteCommand = "/promote"
 
-	_wrapPrompt = "Wrap up this channel. Call the propose_wrap tool once with the full " +
-		"rewritten brief (goal, status, key decisions, open questions), your own notes on " +
-		"this feature, and the decisions made in this channel that are not recorded yet. " +
+	_wrapPrompt = "Wrap up this channel. Call the get_brief tool first. Then call the " +
+		"propose_wrap tool once with the full brief rewritten as the latest brief plus what " +
+		"this channel achieved (goal, status, key decisions, open questions): keep what still " +
+		"holds, make status where the feature is now, not a history, drop what is done or no " +
+		"longer true, and keep it short. Add your own notes on this feature, and the decisions " +
+		"made in this channel that are not recorded yet. Review the decision index: pass " +
+		"retire with the ids of decisions that are stale or duplicate, and replaces on a " +
+		"new decision that amends older ones. " +
 		"Then reply with one line saying it is proposed."
+	_maxDirectLines = 100
+	_maxDirectRunes = 1000
+
+	_directIntro = "Direct exchanges in this channel, private between two teammates:\n"
+	_directAsk   = "Propose the decisions made in these exchanges that are not recorded yet, " +
+		"and a brief that reflects the direct work that is complete.\n\n"
+
 	_promotePrompt = "This quick session is now feature %q (%s). Call the propose_wrap tool " +
 		"once with the first brief (goal, status, key decisions, open questions) written from " +
 		"this session, your own notes on the feature, and the decisions made so far. " +
@@ -111,7 +130,7 @@ func open(
 
 // Start starts or resumes the lead now instead of at its first turn.
 func (s *Session) Start(ctx context.Context) error {
-	_, err := s.member(ctx, s.ch.Role, "", nil)
+	_, err := s.member(ctx, s.ch.Role, "", nil, nil)
 	return err
 }
 
@@ -146,11 +165,11 @@ func (s *Session) Run(
 func (s *Session) RunAs(
 	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
 ) error {
-	m, err := s.member(ctx, role, text, parent)
+	m, err := s.member(ctx, role, text, parent, nil)
 	if err != nil {
 		return err
 	}
-	err = s.run(ctx, m, text, parent, onEvent)
+	err = s.run(ctx, m, runInput{text: text, parent: parent, onEvent: onEvent})
 	if role == s.ch.Role {
 		return err
 	}
@@ -161,14 +180,41 @@ func (s *Session) RunAs(
 	return err
 }
 
+// RunDirectAs runs a role for a direct message, keeping the request/response boundary in
+// Runner while applying the same role setup, worktree access and session lifetime as RunAs.
+func (s *Session) RunDirectAs(
+	ctx context.Context, role, text string, dm store.DirectMessage, onEvent func(agent.Event),
+) error {
+	m, err := s.member(ctx, role, text, nil, dm.IDRef())
+	if err != nil {
+		if _, rerr := s.st.CreateFailedDirectResponse(ctx, dm.ID, role, ""); rerr != nil &&
+			!errors.Is(rerr, store.ErrConflict) {
+			log.Printf("direct response for %d: %v", dm.ID, rerr)
+		}
+		return err
+	}
+	err = s.run(ctx, m, runInput{text: text, direct: &dm, onEvent: onEvent})
+	if role != s.ch.Role {
+		delete(s.members, role)
+		if closeErr := m.close(s.st); closeErr != nil {
+			log.Printf("close %s of channel %d: %v", role, s.ch.ID, closeErr)
+		}
+	}
+	return err
+}
+
 // run runs a turn of m, holding m's tree when it writes and counting as a reader of it when
 // it does not. A ctx cancelled while it waits leaves an interrupted turn.
-func (s *Session) run(
-	ctx context.Context, m *member, text string, parent *int64, onEvent func(agent.Event),
-) error {
+func (s *Session) run(ctx context.Context, m *member, in runInput) error {
+	run := func() error {
+		if in.direct != nil {
+			return m.run.RunDirect(ctx, in.text, *in.direct, in.onEvent)
+		}
+		return m.run.Run(ctx, in.text, in.parent, in.onEvent)
+	}
 	if !m.write {
 		defer s.trees.Read(m.dir)()
-		return m.run.Run(ctx, text, parent, onEvent)
+		return run()
 	}
 	unlock, err := s.trees.Lock(ctx, m.dir)
 	if err != nil {
@@ -176,20 +222,29 @@ func (s *Session) run(
 		if ctx.Err() != nil {
 			reason = "interrupted"
 		}
-		ferr := s.failTurn(ctx, m.run.role, m.run.backend, reason, m.run.wake(text), parent)
+		ferr := s.failTurn(ctx, m.run.role, m.run.backend, reason, m.run.wake(in.text),
+			in.parent, in.direct.IDRef())
+		if in.direct != nil {
+			if _, rerr := s.st.CreateFailedDirectResponse(
+				context.WithoutCancel(ctx), in.direct.ID, m.run.role, "",
+			); rerr != nil && !errors.Is(rerr, store.ErrConflict) {
+				ferr = errors.Join(ferr, rerr)
+			}
+		}
 		return errors.Join(err, ferr)
 	}
 	defer unlock()
-	return m.run.Run(ctx, text, parent, onEvent)
+	return run()
 }
 
 // failTurn stores a failed turn of role for a turn that never started.
 func (s *Session) failTurn(
-	ctx context.Context, role, backend, reason, text string, parent *int64,
+	ctx context.Context, role, backend, reason, text string, parent, directMessageID *int64,
 ) error {
 	ctx = context.WithoutCancel(ctx)
 	t, err := s.st.CreateTurn(ctx, store.Turn{
 		ChannelID: s.ch.ID, Role: role, Backend: backend, WakeText: text, WakeParent: parent,
+		DirectMessageID: directMessageID,
 	})
 	if err != nil {
 		return err
@@ -274,7 +329,7 @@ func (s *Session) closeMembers() error {
 // starting for, and so does a ctx cancelled before it starts: the turn is interrupted. The
 // store is read even then, as Run stores its turn.
 func (s *Session) member(
-	ctx context.Context, role, text string, parent *int64,
+	ctx context.Context, role, text string, parent, directMessageID *int64,
 ) (_ *member, err error) {
 	wctx := context.WithoutCancel(ctx)
 	team, err := s.st.Team(wctx, s.ch.Team)
@@ -380,7 +435,7 @@ func (s *Session) member(
 		if ctx.Err() != nil {
 			reason = "interrupted"
 		}
-		return nil, errors.Join(err, s.failTurn(wctx, role, r.Backend, reason, text, parent))
+		return nil, errors.Join(err, s.failTurn(wctx, role, r.Backend, reason, text, parent, directMessageID))
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.OnPrompt = s.onPrompt
@@ -496,20 +551,54 @@ func (s *Session) propose(
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return store.Proposal{}, err
 	}
-	m, err := s.member(ctx, s.ch.Role, "", nil)
+	direct, err := s.directExchanges(context.WithoutCancel(ctx))
+	if err != nil {
+		return store.Proposal{}, err
+	}
+	m, err := s.member(ctx, s.ch.Role, "", nil, nil)
 	if err != nil {
 		return store.Proposal{}, err
 	}
 	m.run.NoWake = true
 	defer func() { m.run.NoWake = false }()
-	if err := s.run(ctx, m, prompt, nil, onEvent); err != nil {
+	if err := s.run(ctx, m, runInput{text: direct + prompt, onEvent: onEvent}); err != nil {
 		return store.Proposal{}, err
 	}
 	p, err := s.st.PendingProposal(ctx, s.ch.ID)
-	if errors.Is(err, store.ErrNotFound) || (err == nil && p.ID == before.ID) {
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return store.Proposal{}, err
+	}
+	if err != nil || p.ID == before.ID || p.Kind != store.ProposalWrap {
 		return store.Proposal{}, ErrNoProposal
 	}
-	return p, err
+	return p, nil
+}
+
+// directExchanges is the channel's newest direct messages as plain text for a wrap-up or
+// promote prompt, or empty when there are none.
+func (s *Session) directExchanges(ctx context.Context) (string, error) {
+	msgs, err := s.st.DirectMessages(ctx, s.ch.ID, 0)
+	if err != nil || len(msgs) == 0 {
+		return "", err
+	}
+	if len(msgs) > _maxDirectLines {
+		msgs = msgs[len(msgs)-_maxDirectLines:]
+	}
+	var b strings.Builder
+	b.WriteString(_directIntro)
+	for _, m := range msgs {
+		body := strings.TrimSpace(m.Body)
+		if r := []rune(body); len(r) > _maxDirectRunes {
+			body = string(r[:_maxDirectRunes]) + "…"
+		}
+		attempt := ""
+		if m.Status == store.DirectFailed {
+			attempt = " (failed)"
+		}
+		fmt.Fprintf(&b, "[direct %d] %s -> %s%s: %s\n", m.ChainID, m.From, m.To, attempt, body)
+	}
+	b.WriteString(_directAsk)
+	return b.String(), nil
 }
 
 func (m *member) close(st *store.Store) error {

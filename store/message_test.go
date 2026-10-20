@@ -88,3 +88,87 @@ func TestMessages_Thread(t *testing.T) {
 		t.Errorf("ThreadOwner(99) err = %v, want ErrNotFound", err)
 	}
 }
+
+func TestDirectMessages_RequestAndResponse(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "work"}); err != nil {
+		t.Fatal(err)
+	}
+
+	req, err := s.CreateDirectMessage(ctx, DirectMessage{
+		ChannelID: 1, From: "lead", To: "developer", Body: "build it",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if req.ChainID != req.ID || req.ReplyToID != nil {
+		t.Errorf("request = %+v, want its own chain and no reply", req)
+	}
+	if req.Status != DirectSent {
+		t.Errorf("request status = %q, want %q", req.Status, DirectSent)
+	}
+	res, err := s.CreateDirectResponse(ctx, req.ID, "developer", "done")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.ChainID != req.ID || res.ReplyToID == nil || *res.ReplyToID != req.ID ||
+		res.From != "developer" || res.To != "lead" || res.Status != DirectDone {
+		t.Errorf("response = %+v, want developer to lead in chain %d", res, req.ID)
+	}
+	got, err := s.DirectMessages(ctx, 1, 0)
+	if err != nil || len(got) != 2 || got[0].Body != "build it" || got[1].Body != "done" {
+		t.Errorf("DirectMessages = %+v, %v, want request and response", got, err)
+	}
+	participated, err := s.DirectMessagesForRole(ctx, 1, "developer", 0)
+	if err != nil || len(participated) != 2 {
+		t.Errorf("DirectMessagesForRole(developer) = %+v, %v, want both", participated, err)
+	}
+	other, err := s.DirectMessagesForRole(ctx, 1, "tester", 0)
+	if err != nil || len(other) != 0 {
+		t.Errorf("DirectMessagesForRole(tester) = %+v, %v, want none", other, err)
+	}
+}
+
+func TestDirectMessages_RequestGetsOnlyOneResponse(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "work"}); err != nil {
+		t.Fatal(err)
+	}
+	req, err := s.CreateDirectMessage(ctx, DirectMessage{
+		ChannelID: 1, From: "lead", To: "developer", Body: "build it",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if failed, err := s.CreateFailedDirectResponse(ctx, req.ID, "developer", "par"); err != nil {
+		t.Fatal(err)
+	} else if failed.Status != DirectFailed {
+		t.Errorf("failed response status = %q, want %q", failed.Status, DirectFailed)
+	}
+	if _, err := s.CreateDirectResponse(ctx, req.ID, "developer", "done"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateDirectResponse(ctx, req.ID, "developer", "done again"); !errors.Is(err, ErrConflict) {
+		t.Errorf("second response error = %v, want ErrConflict", err)
+	}
+	msgs, err := s.DirectMessages(ctx, 1, 0)
+	if err != nil || len(msgs) != 3 {
+		t.Errorf("direct messages = %+v, %v, want request, failed attempt and one done response", msgs, err)
+	}
+}

@@ -32,7 +32,7 @@ const (
 const (
 	_turnCols = "id, channel_id, role, backend, session_id, status, error, " +
 		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, " +
-		"wake_text, wake_parent, retried, checkpoint, sent, model, cost_usd, prompt"
+		"wake_text, wake_parent, retried, checkpoint, sent, model, cost_usd, prompt, direct_message_id"
 )
 
 // Turn is one agent run in a channel. It starts running and ends once, as
@@ -53,8 +53,10 @@ type Turn struct {
 	EndedAt    *time.Time  `json:"endedAt"`
 	WakeText   string      `json:"wakeText"`
 	WakeParent *int64      `json:"wakeParent"`
-	Retried    bool        `json:"retried"`
-	Sent       bool        `json:"sent"`
+	// DirectMessageID is the private wake this turn answers, nil for a public wake.
+	DirectMessageID *int64 `json:"directMessageId"`
+	Retried         bool   `json:"retried"`
+	Sent            bool   `json:"sent"`
 	// Checkpoint is the git ref of the snapshot taken before the turn ran, nil for a
 	// turn that has none.
 	Checkpoint *string `json:"checkpoint"`
@@ -86,12 +88,13 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO turn (channel_id, role, backend, session_id, status, started_at, "+
-			"wake_text, wake_parent) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?)",
+			"wake_text, wake_parent, direct_message_id) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?)",
 		t.ChannelID, t.Role, t.Backend, t.SessionID, _turnRunning, now.Format(time.RFC3339Nano),
-		t.WakeText, t.WakeParent)
+		t.WakeText, t.WakeParent, t.DirectMessageID)
 	if err != nil {
 		return Turn{}, s.writeErr(ctx, "insert turn", err, ErrInvalid,
-			parent{table: "channel", id: &t.ChannelID}, parent{table: "message", id: t.WakeParent})
+			parent{table: "channel", id: &t.ChannelID}, parent{table: "message", id: t.WakeParent},
+			parent{table: "direct_message", id: t.DirectMessageID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -100,7 +103,7 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 	return Turn{
 		ID: id, ChannelID: t.ChannelID, Role: t.Role, Backend: t.Backend,
 		SessionID: t.SessionID, Status: _turnRunning, StartedAt: now,
-		WakeText: t.WakeText, WakeParent: t.WakeParent,
+		WakeText: t.WakeText, WakeParent: t.WakeParent, DirectMessageID: t.DirectMessageID,
 	}, nil
 }
 
@@ -299,6 +302,30 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(channelID int64)
 			return nil, fmt.Errorf("fail running turns: %w", err)
 		}
 		t.Status, t.Error, t.EndedAt = _turnFailed, _restartError, &now
+		if _, err := tx.ExecContext(ctx, "UPDATE channel SET active_turn = '' WHERE id = ?", t.ChannelID); err != nil {
+			return nil, fmt.Errorf("fail running turns: %w", err)
+		}
+		if t.DirectMessageID != nil {
+			// The turn was woken by a direct message. If that message is the original
+			// request (no reply_to), leave a failed response so the sender sees that
+			// delivery did not complete. A missing original message is not an error:
+			// there is nothing to answer.
+			var replyTo sql.NullInt64
+			scanErr := tx.QueryRowContext(ctx,
+				"SELECT reply_to_id FROM direct_message WHERE id = ?",
+				*t.DirectMessageID).Scan(&replyTo)
+			switch {
+			case errors.Is(scanErr, sql.ErrNoRows):
+				// missing original direct message: nothing to respond to.
+			case scanErr != nil:
+				return nil, fmt.Errorf("fail running turns: %w", scanErr)
+			case !replyTo.Valid:
+				if _, err := s.CreateFailedDirectResponseTx(ctx, tx, *t.DirectMessageID,
+					t.Role, ""); err != nil {
+					return nil, fmt.Errorf("fail running turns: %w", err)
+				}
+			}
+		}
 		label := "turn"
 		if len(names) == 0 {
 			label = "Turn"
@@ -352,7 +379,7 @@ func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 	if err := r.Scan(&t.ID, &t.ChannelID, &t.Role, &t.Backend, &t.SessionID, &t.Status, &t.Error,
 		&t.Usage.InputTokens, &t.Usage.OutputTokens, &t.Usage.CacheReadTokens,
 		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried,
-		&checkpoint, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt); err != nil {
+		&checkpoint, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID); err != nil {
 		return Turn{}, err
 	}
 	t.WakeText = wake.String

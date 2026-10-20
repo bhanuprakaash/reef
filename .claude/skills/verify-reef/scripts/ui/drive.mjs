@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|queue BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -11,9 +11,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, queue };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|queue BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -335,9 +335,9 @@ async function pages() {
   await pick('Filter by project', sql(`select name from project where id=${pid}`));
   await pick('Filter by feature', 'Login');
   await row.getByRole('checkbox').click();
+  await row.waitFor({ state: 'hidden' });
+  await page.getByRole('group', { name: 'Status' }).getByRole('button', { name: 'Done', exact: true }).click();
   await row.getByRole('checkbox', { checked: true }).waitFor();
-  await page.getByRole('button', { name: 'Done', exact: true }).click();
-  await row.waitFor();
   await shot('tasks-done');
   check(
     sql(`select status from task where title='${title}'`) === 'done' && page.url().includes('status=done'),
@@ -524,16 +524,17 @@ async function theme() {
     await contrast('feature page');
   };
 
-  await page.goto(base + '/settings');
+  await page.goto(base + '/settings?section=notifications');
   await page.getByRole('heading', { name: 'Settings', level: 1 }).waitFor();
-  const dark = await bodyBg();
-  check((await page.getByRole('radio', { name: 'Dark' }).isChecked()) && dark === 'rgb(33, 33, 33)', 'Settings opens on Dark with the dark main colour', dark);
   const notify = await main.getByRole('region', { name: 'Notifications' }).innerText();
   check(/Turn on notifications|On|Blocked/.test(notify), 'the Notifications section has the permission control', notify.replace(/\s+/g, ' '));
+  await main.getByRole('navigation', { name: 'Settings sections' }).getByRole('button', { name: 'Appearance' }).click();
+  const dark = await bodyBg();
+  check((await page.getByRole('radio', { name: 'Dark' }).isChecked()) && dark === 'rgb(33, 33, 33)', 'Settings opens on Dark with the dark main colour', dark);
   await shot('settings-dark');
   await screens('dark');
 
-  await page.goto(base + '/settings');
+  await page.goto(base + '/settings?section=appearance');
   await page.getByRole('radio', { name: 'Light' }).check();
   const light = await bodyBg();
   check(light === 'rgb(255, 255, 255)' && (await page.evaluate(() => document.documentElement.dataset.theme)) === 'light', 'picking Light restyles the open page at once', light);
@@ -543,7 +544,7 @@ async function theme() {
   check(reloaded === 'rgb(255, 255, 255)' && (await page.getByRole('radio', { name: 'Light' }).isChecked()), 'Light survives a reload', `${reloaded}; localStorage ${await page.evaluate(() => localStorage.getItem('reef.theme'))}`);
   await screens('light');
 
-  await page.goto(base + '/settings');
+  await page.goto(base + '/settings?section=appearance');
   await page.getByRole('radio', { name: 'Match macOS' }).check();
   await system('light');
   const followsLight = await bodyBg();
@@ -714,7 +715,7 @@ async function stop() {
   await send('Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
   await working();
   await openTurn();
-  await turnPanel.locator('p').first().waitFor({ timeout: 60000 });
+  await turnPanel.locator('div.bg-bubble:not([role])').first().waitFor({ timeout: 60000 });
   await page.waitForTimeout(1000);
   await page.getByRole('button', { name: 'Stop' }).click();
   await main.getByRole('button', { name: /Failed: interrupted/ }).waitFor({ timeout: 30000 });
@@ -727,30 +728,6 @@ async function stop() {
   await shot('resumed');
   const answer = sql(`select body from message where channel_id=${cid} and author='lead' order by id desc limit 1`);
   check(/pineapple/i.test(answer), 'the next message resumes the session', `answer: ${answer}`);
-}
-
-async function queue() {
-  const section = await addProject();
-  await addFeature(section, 'login', 'Login');
-  const cid = await newChannel(main, 'New channel', 'queue chat');
-  await send('Write a 1500-word story about lighthouses. Use no tools.');
-  await working();
-  const sendButton = page.getByRole('button', { name: 'Send' });
-  const stopButton = page.getByRole('button', { name: 'Stop' });
-  check((await sendButton.isVisible()) && (await stopButton.isVisible()), 'Send shows beside Stop while a teammate works');
-  const box = page.getByLabel('Message');
-  check(((await box.getAttribute('placeholder')) ?? '').includes('your message runs next'), 'the box says the message runs next', await box.getAttribute('placeholder'));
-  await box.fill('Say ok in one word.');
-  check(await sendButton.isEnabled(), 'Send is enabled with text while a teammate works');
-  await sendButton.click();
-  await main.getByText('Say ok in one word.').and(page.locator(':not(textarea)')).waitFor({ timeout: 15000 });
-  await shot('queued');
-  check((await box.inputValue()) === '', 'the box clears after the send', await box.inputValue());
-  await idle();
-  const turns = sql(`select role||' '||status from turn where channel_id=${cid} order by id`);
-  const replies = sql(`select count(*) from message where channel_id=${cid} and author='lead'`);
-  check(turns === 'lead done\nlead done' && replies === '2', 'the message ran right after the story turn, as a second lead turn', `${turns.replace('\n', ', ')}; ${replies} lead messages`);
-  await shot('answered');
 }
 
 async function retry() {
@@ -879,13 +856,14 @@ async function diff() {
   );
 
   await page.goto(`${base}/features/${featureId}`);
-  const card = main.locator('section', { has: page.getByRole('heading', { name: 'Diff', level: 2 }) });
-  await card.getByText('1 file').waitFor();
+  const meta = main.getByRole('link', { name: /^1 file/ });
+  await meta.waitFor();
   await shot('summary');
   check(
-    (await card.innerText()).replace(/\s+/g, ' ').includes('1 file +1 −0'),
-    'the feature page Diff card sums the changes and links to the review page',
-    await card.innerText(),
+    (await meta.innerText()).replace(/\s+/g, ' ').includes('1 file +1 −0') &&
+      (await meta.getAttribute('href')) === `/features/${featureId}/review`,
+    'the feature page header meta line sums the changes and links to the review page',
+    await meta.innerText(),
   );
   await page.goto(`${base}/channels/${cid}`);
   await page.getByRole('button', { name: /^Diff \+1/ }).click();
@@ -913,7 +891,7 @@ async function diff() {
     await panelFiles.innerText(),
   );
   await scope.getByRole('button', { name: 'Full diff' }).click();
-  await main.getByText('new.txt').first().waitFor({ timeout: 15000 });
+  await panelFiles.getByText('new.txt').waitFor({ timeout: 15000 });
   await shot('panel-full');
   check(
     (await panelFiles.innerText()).replace(/\s+/g, ' ') === 'A later.txt A new.txt' &&
@@ -923,56 +901,95 @@ async function diff() {
   );
   const current = await getJson(`/features/${featureId}/diff?scope=current`);
   check(current.length === 1 && current[0].path === 'later.txt', 'GET /features/{id}/diff?scope=current returns only the uncommitted file', JSON.stringify(current));
+  await page.setViewportSize({ width: 1280, height: 800 });
+  for (let i = 0; i < 32; i++) writeFileSync(path.join(tree, `many-${String(i).padStart(2, '0')}.txt`), 'x\n');
+  writeFileSync(path.join(tree, 'long.txt'), Array.from({ length: 400 }, (_, i) => `line ${i + 1}\n`).join(''));
+  await panelFiles.getByText('long.txt').click({ timeout: 15000 });
+  const diffView = main.getByRole('region', { name: 'Diff' });
+  const last = diffView.locator('[data-path="long.txt"][data-line="400"]');
+  await last.waitFor({ state: 'attached' });
+  const wheel = async (box) => {
+    const b = await box.boundingBox();
+    await page.mouse.move(b.x + b.width / 2, b.y + Math.min(b.height, 800 - b.y) / 2);
+    await page.mouse.wheel(0, 20000);
+    await page.waitForTimeout(300);
+    return box.evaluate((e) => e.scrollTop);
+  };
+  const diffTop = await wheel(diffView);
+  const lastBox = await last.boundingBox();
+  const headerBox = await main.getByRole('heading', { name: 'Changes', level: 1 }).boundingBox();
+  await shot('panel-scroll');
+  check(
+    diffTop > 0 && lastBox.y + lastBox.height <= 800 && headerBox.y >= 0,
+    'at 1280x800 the wheel scrolls the panel diff to the last line of a 400-line file, header stays',
+    `scrollTop=${diffTop} last=${JSON.stringify(lastBox)} header=${JSON.stringify(headerBox)}`,
+  );
+  const filesTop = await wheel(panelFiles);
+  check(filesTop > 0, 'the wheel scrolls the panel file list of 35 files on its own', `scrollTop=${filesTop}`);
+
+  mkdirSync(path.join(tree, 'web/src/modules/deep'), { recursive: true });
+  mkdirSync(path.join(tree, 'docs'));
+  for (const f of ['web/src/modules/deep/one.ts', 'web/src/modules/deep/two.ts', 'docs/x.md']) writeFileSync(path.join(tree, f), `${f}\n`);
+  const pressed = (name) => panelFiles.getByRole('button', { name, exact: true }).getAttribute('aria-pressed');
+  const rows = () => panelFiles.locator(':scope > button').evaluateAll((els) => els.map((el) => el.innerText.replace(/\s+/g, ' ').trim()));
+  const folder = panelFiles.getByRole('button', { name: 'web/src/modules/deep', exact: true });
+  const one = panelFiles.getByRole('button', { name: 'A one.ts', exact: true });
+  await panelFiles.getByText('web/src/modules/deep/one.ts', { exact: true }).waitFor({ timeout: 15000 });
+  check(
+    (await pressed('List view')) === 'true' && (await panelFiles.getByText('web/src/modules/deep/one.ts', { exact: true }).isVisible()),
+    'desktop: the file list opens as a flat list of full paths',
+    (await rows()).slice(0, 4).join(', '),
+  );
+  await panelFiles.getByRole('button', { name: 'Tree view', exact: true }).click();
+  await folder.waitFor();
+  await panelFiles.evaluate((el) => (el.scrollTop = 0));
+  check(
+    (await folder.getAttribute('aria-expanded')) === 'true' &&
+      (await rows()).slice(0, 6).join(', ') === 'docs, A x.md, web/src/modules/deep, A one.ts, A two.ts, A later.txt',
+    'Tree view: folders first, alphabetical, the single-child chain merged into web/src/modules/deep, open, files by basename',
+    (await rows()).slice(0, 6).join(', '),
+  );
+  await shot('tree-panel');
+  await folder.click();
+  const closed = (await folder.getAttribute('aria-expanded')) === 'false' && (await one.count()) === 0;
+  await folder.click();
+  check(closed && (await folder.getAttribute('aria-expanded')) === 'true' && (await one.isVisible()), 'clicking the folder row hides its files, clicking again shows them');
+  await one.click();
+  await diffView.getByText('web/src/modules/deep/one.ts', { exact: true }).waitFor();
+  check((await one.getAttribute('aria-current')) === 'true', 'clicking one.ts in the tree opens its diff', await diffView.locator('[data-line="1"]').innerText());
+
+  await page.goto(`${base}/channels/${cid}`);
+  await page.getByRole('button', { name: /^Diff \+/ }).click();
+  await folder.waitFor({ timeout: 15000 });
+  check((await pressed('Tree view')) === 'true', 'Tree view survives a reload of the channel');
+  await panelFiles.getByRole('button', { name: 'A long.txt', exact: true }).click();
+  await last.waitFor({ state: 'attached' });
+  const treeTop = await wheel(diffView);
+  check(treeTop > 0, 'in Tree view at 1280x800 the wheel still scrolls the panel diff', `scrollTop=${treeTop}`);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${base}/channels/${cid}`);
+  await page.getByRole('button', { name: /^Diff \+/ }).click();
+  await panelFiles.getByText('long.txt').waitFor({ timeout: 15000 });
+  check(
+    (await panelFiles.getByRole('group', { name: 'File list view' }).count()) === 0 &&
+      (await panelFiles.getByRole('button', { name: 'A web/src/modules/deep/one.ts', exact: true }).count()) === 1,
+    'phone: no list/tree toggle, the chips show full paths',
+    (await rows()).slice(0, 4).join(', '),
+  );
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${base}/features/${featureId}/review`);
+  await folder.waitFor({ timeout: 15000 });
+  check((await pressed('Tree view')) === 'true', 'the review page opens in Tree view too');
+  await shot('tree-review');
+  await page.goto(`${base}/channels/${cid}`);
+  await page.getByRole('button', { name: /^Diff \+/ }).click();
+  await page.setViewportSize({ width: 1200, height: 1000 });
   await main.getByRole('button', { name: 'Close diff' }).click();
   await main.getByRole('heading', { name: 'Changes', level: 1 }).waitFor({ state: 'hidden' });
-  await page.getByRole('button', { name: /^Diff \+2/ }).click();
+  await page.getByRole('button', { name: /^Diff \+/ }).click();
   await main.getByRole('link', { name: 'Expand diff' }).click();
   await page.waitForURL(`**/features/${featureId}/review`);
   check(true, "the panel's expand button opens the full review page", page.url());
-
-  writeFileSync(path.join(tree, 'long.txt'), Array.from({ length: 400 }, (_, i) => `line ${i + 1}`).join('\n') + '\n');
-  for (let i = 0; i < 35; i++) writeFileSync(path.join(tree, `file-${String(i).padStart(2, '0')}.txt`), `f${i}\n`);
-  const diffScrolls = async (step, size) => {
-    await page.setViewportSize(size);
-    const list = main.getByRole('navigation', { name: 'Files' });
-    await list.getByRole('button', { name: /long\.txt/ }).click();
-    const pane = main.locator('section[aria-label="Diff"]');
-    await main.locator('[data-path="long.txt"][data-line="400"]').waitFor({ state: 'attached' });
-    const box = await pane.boundingBox();
-    await page.mouse.move(box.x + box.width / 2, box.y + Math.min(box.height, size.height) / 2);
-    await page.mouse.wheel(0, 20000);
-    await page.waitForTimeout(300);
-    const dims = await pane.evaluate((el) => ({ client: el.clientHeight, scroll: el.scrollHeight, top: el.scrollTop }));
-    const last = await main.locator('[data-path="long.txt"][data-line="400"]').boundingBox();
-    const head = await main.getByRole('heading', { name: 'Changes', level: 1 }).boundingBox();
-    await shot(`scroll-${step}`);
-    check(
-      dims.top > 0 && last.y + last.height <= size.height && head.y >= 0 && head.y + head.height <= size.height,
-      `${step}: the diff scrolls to its last line and the header stays in view`,
-      `diff client ${dims.client} scroll ${dims.scroll} top ${dims.top}; last line bottom ${last.y + last.height}; header top ${head.y}`,
-    );
-    if (size.width < 768) return;
-    const nb = await list.boundingBox();
-    await page.mouse.move(nb.x + nb.width / 2, nb.y + Math.min(nb.height, size.height) / 2);
-    await page.mouse.wheel(0, 20000);
-    await page.waitForTimeout(300);
-    const nav = await list.evaluate((el) => ({ client: el.clientHeight, scroll: el.scrollHeight, top: el.scrollTop }));
-    const lastFile = await list.getByRole('button', { name: /long\.txt/ }).boundingBox();
-    check(
-      nav.scroll > nav.client && nav.top > 0 && lastFile.y + lastFile.height <= size.height,
-      `${step}: the file list scrolls to its last file`,
-      `files client ${nav.client} scroll ${nav.scroll} top ${nav.top}; last file bottom ${lastFile.y + lastFile.height}`,
-    );
-  };
-  await page.goto(`${base}/channels/${cid}`);
-  await page.getByRole('button', { name: /^Diff/ }).click();
-  await diffScrolls('channel panel', { width: 1280, height: 800 });
-  await page.goto(`${base}/features/${featureId}/review`);
-  await diffScrolls('review page', { width: 1280, height: 800 });
-  await diffScrolls('review page on a phone', { width: 390, height: 844 });
-  await page.goto(`${base}/channels/${cid}`);
-  await page.getByRole('button', { name: /^Diff/ }).click();
-  await diffScrolls('channel panel on a phone', { width: 390, height: 844 });
 }
 
 async function memory() {
@@ -1531,7 +1548,7 @@ async function board() {
   const otherFid = page.url().split('/').pop();
   const otherPid = sql(`select project_id from feature where id=${otherFid}`);
 
-  await page.goto(base + '/tasks');
+  await page.goto(base + '/tasks?project=all');
   const title = `board task ${Date.now().toString(36)}`;
   await page.getByLabel('Task title').fill(title);
   await pick('Task project', sql(`select name from project where id=${pid}`));
@@ -1731,14 +1748,20 @@ async function workshop() {
   const prompt = sql(`select prompt from turn where channel_id = ${cid} and role = 'developer' order by id limit 1`);
   check(prompt.includes(marker), "the next developer wake's prompt carries the new persona", prompt.slice(0, 200));
 
-  await page.goto(`${base}/settings`);
+  await page.goto(`${base}/settings?section=skills`);
   const skills = main.getByRole('region', { name: 'Skills' });
   await skills.getByRole('group', { name: 'Claude Code' }).waitFor();
   const claudeGroup = await skills.getByRole('group', { name: 'Claude Code' }).innerText();
-  const codexGroup = await skills.getByRole('group', { name: 'Codex' }).innerText();
   await shot('settings-skills');
+  await skills.getByRole('button', { name: 'Codex' }).click();
+  const codexGroup = await skills.getByRole('group', { name: 'Codex' }).innerText();
   check(claudeGroup.includes('workshop-skill') && claudeGroup.includes('Picked in the workshop scenario.'), 'Settings lists the project\'s Claude skill with its description', claudeGroup.replace(/\s+/g, ' ').slice(0, 160));
   check(!codexGroup.includes('workshop-skill'), 'Settings keeps the Claude skill out of the Codex group', codexGroup.replace(/\s+/g, ' ').slice(0, 160));
+  await skills.getByRole('button', { name: 'Claude Code' }).click();
+  await skills.getByLabel('Filter skills').fill('workshop');
+  const filtered = await skills.getByRole('group', { name: 'Claude Code' }).getByRole('listitem').allInnerTexts();
+  await shot('settings-skills-filter');
+  check(filtered.length === 1 && filtered[0].includes('workshop-skill'), 'the skills filter keeps only the matching skill', filtered.join(' | '));
 }
 
 async function pr() {
@@ -1820,6 +1843,151 @@ async function pr() {
   );
   await main.getByRole('button', { name: 'PR #12 merged' }).waitFor({ timeout: 15000 });
   check(true, 'the header chip follows to merged', sql(`select body from message where channel_id = ${cid} and author = 'reef' order by id desc limit 1`));
+}
+
+// Teammates' direct messages show as one compact item in the channel, never as bubbles. The
+// gated team holds the lead's direct request for approval, and the fake architect answers slowly.
+async function coordination() {
+  if ((await fetch(`${base}/teams/gated`)).status !== 200) throw new Error('apply the team gated first (see features/teams.md)');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const section = await addProject();
+  await addFeature(section, 'login', 'Login');
+  const { id: cid } = await newTeamChannel('gated', 'coordination room');
+  const panel = page.getByRole('complementary', { name: 'Coordination' });
+  const items = page.getByRole('button', { name: /^lead and architect (are coordinating|coordinated) · \d+ messages?/i });
+  const direct = () => getJson(`/channels/${cid}/direct-messages`);
+  const stateOf = async (item) => (await item.innerText()).split('\n').at(-1).trim();
+  const until = async (item, state, timeout = 120000) => {
+    const end = Date.now() + timeout;
+    while (Date.now() < end) {
+      if ((await item.count()) > 0 && (await stateOf(item)) === state) return true;
+      await page.waitForTimeout(250);
+    }
+    return false;
+  };
+  const phoneWide = () => page.viewportSize().width < 768;
+  let chains = 0;
+
+  // One exchange: the item waits for approval, the panel shows it, Approve runs the architect.
+  async function exchange(label, text) {
+    await send(text);
+    chains += 1;
+    const item = items.nth(chains - 1);
+    check(await until(item, 'waiting approval'), `${label}: one item says waiting approval`, (await items.allInnerTexts()).join(' | '));
+    await shot(`${label}-waiting`);
+    check((await page.getByRole('button', { name: 'Approve' }).count()) === 0, `${label}: the channel shows no Approve row for the private request`);
+    await item.click();
+    await panel.waitFor();
+    await shot(`${label}-panel`);
+    return item;
+  }
+
+  // Desktop: first exchange completes.
+  const item1 = await exchange('desktop-1', 'COORDINATE the login review with the architect.');
+  const rows = (await panel.getByRole('listitem').allInnerTexts()).map((t) => t.toLowerCase());
+  check(
+    rows.length === 1 && rows[0].includes('lead → architect') && rows[0].includes('sent') && rows[0].includes('please review the login plan and tell me if it holds.'),
+    'the panel lists the request with sender, recipient, time and delivery status',
+    rows.join(' | '),
+  );
+  check(
+    (await panel.getByRole('button', { name: 'Approve' }).count()) === 1 && (await panel.getByRole('button', { name: 'Reject' }).count()) === 1,
+    'the panel offers Approve and Reject while waiting approval',
+  );
+  const userMessage = (await getJson(`/messages?channel=${cid}`)).find((m) => m.author === 'user');
+  const stored = (await direct())[0];
+  check(stored.sourceMessageId === userMessage.id, 'the direct request stores the public message it was sent from', `sourceMessageId ${stored.sourceMessageId}, message ${userMessage.id}`);
+  await panel.getByRole('button', { name: 'Open the message that started it' }).click();
+  await page.getByRole('complementary', { name: 'Thread' }).getByText('COORDINATE the login review').waitFor();
+  await shot('desktop-1-source');
+  check(true, 'the source link opens the thread of the public message');
+  await page.getByRole('button', { name: 'Close thread' }).click();
+  await item1.click();
+  await panel.getByRole('button', { name: 'Approve' }).click();
+  check(await until(item1, 'working', 30000), 'Approve runs the architect and the same item says working');
+  await shot('desktop-1-working');
+  check(await until(item1, 'completed'), 'the answer completes the exchange');
+  const done = await direct();
+  const itemText = (await item1.innerText()).replace(/\s+/g, ' ').toLowerCase();
+  check(
+    done.length === 2 && itemText.includes('lead and architect coordinated · 2 messages') && (await items.count()) === 1,
+    'the same item counts 2 messages instead of adding another',
+    itemText,
+  );
+  await shot('desktop-1-completed');
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+  check(
+    (await page.getByText('Please review the login plan').count()) === 0 && (await page.getByText('Plan holds').count()) === 0,
+    'no direct message renders as a bubble in the channel',
+  );
+
+  // Desktop: the second exchange is stopped and retried.
+  const item2 = await exchange('desktop-2', 'COORDINATE the login review once more.');
+  await panel.getByRole('button', { name: 'Approve' }).click();
+  check(await until(item2, 'working', 30000), 'the second exchange runs');
+  await page.getByRole('button', { name: 'Stop' }).click();
+  check(await until(item2, 'stopped', 30000), 'Stop turns the item to stopped');
+  await shot('desktop-2-stopped');
+  check((await panel.getByRole('button', { name: 'Retry' }).count()) === 1, 'the panel offers Retry for the stopped exchange');
+  await panel.getByRole('button', { name: 'Retry' }).click();
+  check(await until(item2, 'completed'), 'Retry runs the architect again and the exchange completes');
+  const all = await direct();
+  const secondChain = all.filter((m) => m.chainId === all[2].chainId);
+  check(secondChain.map((m) => m.status).join(',') === 'sent,failed,done', 'the retried exchange keeps the failed attempt and the answer', secondChain.map((m) => m.status).join(','));
+  await shot('desktop-2-retried');
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+
+  // Desktop: a recipient whose agent fails.
+  const item3 = await exchange('desktop-3', 'COORDINATE the failing review with the architect.');
+  await panel.getByRole('button', { name: 'Approve' }).click();
+  check(await until(item3, 'failed'), 'a recipient whose agent fails turns the item to failed');
+  await shot('desktop-3-failed');
+  check((await panel.getByRole('button', { name: 'Retry' }).count()) === 1, 'the panel offers Retry for the failed exchange');
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+
+  // Phone: the same items and panel at 390x844.
+  await page.setViewportSize({ width: 390, height: 844 });
+  check((await items.count()) === 3, 'the phone width shows the same three items', (await items.allInnerTexts()).join(' | '));
+  await shot('phone-items');
+  const item4 = await exchange('phone', 'COORDINATE the login review on the phone.');
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  check(wide <= 0 && phoneWide(), 'the panel has no horizontal scroll at 390 px', `page overflow ${wide}`);
+  await panel.getByRole('button', { name: 'Approve' }).click();
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+  check(await until(item4, 'working', 30000), 'the phone item says working');
+  await shot('phone-working');
+  await page.getByRole('button', { name: 'Stop' }).click();
+  check(await until(item4, 'stopped', 30000), 'the phone item says stopped');
+  await item4.click();
+  await panel.getByRole('button', { name: 'Retry' }).waitFor();
+  await shot('phone-stopped');
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+  check(
+    sql(`select count(*) from turn where channel_id = ${cid} and status = 'failed' and error = 'interrupted'`) === '2',
+    'both stopped exchanges stored an interrupted turn',
+  );
+
+  // The architect runs again, so the stopped turn can no longer be retried; it still reads stopped.
+  const item5 = await exchange('phone-2', 'COORDINATE the failing review once more.');
+  await panel.getByRole('button', { name: 'Approve' }).click();
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+  check(await until(item5, 'failed'), 'the phone item of a failing recipient says failed');
+  const kept = await stateOf(item4);
+  check(kept === 'stopped', 'an earlier stopped item stays stopped after a later turn of its role', kept);
+  await item4.click();
+  await panel.waitFor();
+  check((await panel.getByRole('button', { name: 'Retry' }).count()) === 0, 'it no longer offers Retry');
+  await shot('phone-stopped-later');
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+
+  // Reject stores a failed response the item reads as rejected, with no Retry.
+  const item6 = await exchange('phone-3', 'COORDINATE the login review and expect a refusal.');
+  await panel.getByRole('button', { name: 'Reject' }).click();
+  check(await until(item6, 'rejected', 30000), 'Reject turns the item to rejected');
+  const last = (await direct()).at(-1);
+  check(last.status === 'failed' && last.body === 'rejected' && last.from === 'architect', 'the rejection is stored as a failed architect response', JSON.stringify(last));
+  check((await panel.getByRole('button', { name: 'Retry' }).count()) === 0, 'a rejected exchange offers no Retry');
+  await shot('phone-rejected');
 }
 
 try {

@@ -8,3 +8,11 @@ export function useTurns(channelId: number) {
     queryFn: () => api<Turn[]>(`/turns?channel=${channelId}&rollbackable=1`),
   });
 }
+
+export function useRunningTurns() {
+  return useQuery({
+    queryKey: ['turns', 'running'],
+    queryFn: () => api<Turn[]>('/turns?status=running'),
+    refetchInterval: 3000,
+  });
+}

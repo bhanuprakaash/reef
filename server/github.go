@@ -468,7 +468,7 @@ func (s *server) noteFeature(ctx context.Context, featureID int64, body string) 
 	}); err != nil {
 		return false, err
 	}
-	s.notifyMessage(ch.ID)
+	s.notify(ch.ID, "note")
 	return true, nil
 }
 
@@ -514,7 +514,7 @@ func (s *server) wakeDeveloper(
 		return nil
 	}
 	text := s.ghWakeText(ctx, pr, unwoken, ghPath, dir)
-	chain, ch, err := s.claim(ctx, ch.ID, _message)
+	chain, ch, err := s.claim(ctx, ch.ID)
 	if err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			s.logGhErrOnce(f.ID, fmt.Errorf("wake developer: %w", err))

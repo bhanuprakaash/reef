@@ -29,19 +29,21 @@ export function useLiveTurn(channelId: number): LiveTurn {
       void queryClient.invalidateQueries({ queryKey: ['channels', channelId] });
       void queryClient.invalidateQueries({ queryKey: ['proposal', channelId] });
       void queryClient.invalidateQueries({ queryKey: ['approvals', channelId] });
-      void queryClient.invalidateQueries({ queryKey: ['turns', channelId] });
+      void queryClient.invalidateQueries({ queryKey: ['direct-messages', channelId] });
+      void queryClient.invalidateQueries({ queryKey: ['turns'] });
     };
     source.addEventListener('turn', (e) => {
       const data: TurnData = JSON.parse(e.data);
       dispatch({ type: 'turn', ...data });
+      void queryClient.invalidateQueries({ queryKey: ['turns'] });
+      void queryClient.invalidateQueries({ queryKey: ['direct-messages', channelId] });
       if (data.status === 'done') {
         void refresh().then(() => dispatch('clear'));
         void queryClient.invalidateQueries({ queryKey: ['proposal', channelId] });
-        void queryClient.invalidateQueries({ queryKey: ['turns', channelId] });
         void queryClient.invalidateQueries({ queryKey: inspectorKey(channelId) });
+        void queryClient.invalidateQueries({ queryKey: ['features'] });
       } else if (data.status === 'failed') {
         void refresh();
-        void queryClient.invalidateQueries({ queryKey: ['turns', channelId] });
       }
     });
     source.addEventListener('pause', () => {
@@ -49,6 +51,9 @@ export function useLiveTurn(channelId: number): LiveTurn {
     });
     source.addEventListener('approval', () => {
       void queryClient.invalidateQueries({ queryKey: ['approvals', channelId] });
+    });
+    source.addEventListener('direct', () => {
+      void queryClient.invalidateQueries({ queryKey: ['direct-messages', channelId] });
     });
     source.addEventListener('note', () => {
       void refresh();

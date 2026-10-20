@@ -10,6 +10,7 @@ export function useContinueChannel() {
       Promise.all([
         queryClient.invalidateQueries({ queryKey: ['channels', channelId] }),
         queryClient.invalidateQueries({ queryKey: ['inbox'] }),
+        queryClient.invalidateQueries({ queryKey: ['turns'] }),
       ]),
   });
 }

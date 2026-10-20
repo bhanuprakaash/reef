@@ -51,4 +51,21 @@ describe('LiveTurn', () => {
     expect(markup).toContain('Failed: interrupted');
     expect(markup).not.toContain('Once upon');
   });
+
+  it('shows only that a direct turn is working, with no reply text or tool rows', () => {
+    const turn = {
+      status: 'running' as const,
+      direct: true,
+      items: [
+        { type: 'tool' as const, tool: { ...bash, input: { command: 'send secret' } } },
+        { type: 'text' as const, text: 'Secret reply' },
+      ],
+    };
+
+    const markup = renderToStaticMarkup(<LiveTurn turn={turn} role="tester" />);
+
+    expect(markup).toContain('is working');
+    expect(markup).not.toContain('Secret reply');
+    expect(markup).not.toContain('send secret');
+  });
 });

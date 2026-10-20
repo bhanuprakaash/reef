@@ -64,8 +64,8 @@ func wrapList(ctx context.Context, args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(stdout, "%d  %s  %d  %s  %s\n",
-			p.ID, f.Slug, p.ChannelID, p.Role, p.CreatedAt.Format(time.DateOnly)); err != nil {
+		if _, err := fmt.Fprintf(stdout, "%d  %s  %d  %s  %s  %s\n",
+			p.ID, f.Slug, p.ChannelID, p.Role, p.Kind, p.CreatedAt.Format(time.DateOnly)); err != nil {
 			return err
 		}
 	}
@@ -90,15 +90,15 @@ func wrapDecide(ctx context.Context, verb string, args []string, stdout io.Write
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintf(stdout, "proposal %d from %s\nstatus: %s\n\n%s",
-			p.ID, p.Role, p.Status, proposalBodyText(p))
+		_, err = fmt.Fprintf(stdout, "%s\nstatus: %s\n\n%s",
+			proposalTitle(p), p.Status, proposalBodyText(p))
 		return err
 	case "approve":
-		_, added, err := st.ApproveProposal(ctx, id)
+		p, added, err := st.ApproveProposal(ctx, id)
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintf(stdout, "approved: brief, notes and %d decisions saved\n", added)
+		_, err = fmt.Fprintln(stdout, approvedText(p, added))
 		return err
 	}
 	if _, err := st.RejectProposal(ctx, id); err != nil {

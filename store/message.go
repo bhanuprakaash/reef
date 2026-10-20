@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 )
@@ -23,12 +24,24 @@ type Message struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// MessageHit is one message that matched a search.
+// Kinds of search hit.
+const (
+	HitPublic = "public"
+	HitDirect = "direct"
+)
+
+// MessageHit is one message that matched a search. A direct hit also names the two roles
+// and the chain, and its MessageID is the direct message id.
 type MessageHit struct {
 	ChannelID int64  `json:"channelId"`
 	MessageID int64  `json:"messageId"`
+	Kind      string `json:"kind"`
 	Author    string `json:"author"`
+	From      string `json:"from,omitempty"`
+	To        string `json:"to,omitempty"`
+	ChainID   int64  `json:"chainId,omitempty"`
 	Snippet   string `json:"snippet"`
+	at        time.Time
 }
 
 // CreateMessage appends m to its channel.
@@ -178,7 +191,7 @@ func (s *Store) SearchMessages(
 	like := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT m.channel_id, m.id, m.author,
-		  substr(m.body, max(instr(lower(m.body), lower(?)) - 40, 1), 120)
+		  substr(m.body, max(instr(lower(m.body), lower(?)) - 40, 1), 120), m.created_at
 		FROM message m JOIN channel c ON c.id = m.channel_id
 		WHERE c.feature_id = ? AND m.body LIKE '%' || ? || '%' ESCAPE '\'
 		ORDER BY m.id DESC LIMIT ?`,
@@ -187,10 +200,66 @@ func (s *Store) SearchMessages(
 		return nil, fmt.Errorf("search messages: %w", err)
 	}
 	return scanAll(rows, func(r interface{ Scan(...any) error }) (MessageHit, error) {
-		var h MessageHit
-		err := r.Scan(&h.ChannelID, &h.MessageID, &h.Author, &h.Snippet)
+		h := MessageHit{Kind: HitPublic}
+		var created string
+		if err := r.Scan(&h.ChannelID, &h.MessageID, &h.Author, &h.Snippet, &created); err != nil {
+			return MessageHit{}, err
+		}
+		var err error
+		h.at, err = time.Parse(time.RFC3339Nano, created)
 		return h, err
 	})
+}
+
+// SearchDirectMessages is SearchMessages over direct messages. A role other than "" sees
+// only the messages it sent or received.
+func (s *Store) SearchDirectMessages(
+	ctx context.Context, featureID int64, query string, limit int, role string,
+) ([]MessageHit, error) {
+	like := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT d.channel_id, d.id, d.from_role, d.to_role, d.chain_id,
+		  substr(d.body, max(instr(lower(d.body), lower(?)) - 40, 1), 120), d.created_at
+		FROM direct_message d JOIN channel c ON c.id = d.channel_id
+		WHERE c.feature_id = ? AND d.body LIKE '%' || ? || '%' ESCAPE '\'
+		  AND (? = '' OR d.from_role = ? OR d.to_role = ?)
+		ORDER BY d.id DESC LIMIT ?`,
+		query, featureID, like, role, role, role, limit)
+	if err != nil {
+		return nil, fmt.Errorf("search direct messages: %w", err)
+	}
+	return scanAll(rows, func(r interface{ Scan(...any) error }) (MessageHit, error) {
+		h := MessageHit{Kind: HitDirect}
+		var created string
+		if err := r.Scan(&h.ChannelID, &h.MessageID, &h.From, &h.To, &h.ChainID,
+			&h.Snippet, &created); err != nil {
+			return MessageHit{}, err
+		}
+		h.Author = h.From
+		var err error
+		h.at, err = time.Parse(time.RFC3339Nano, created)
+		return h, err
+	})
+}
+
+// SearchHistory merges SearchMessages and SearchDirectMessages, newest first, up to limit.
+func (s *Store) SearchHistory(
+	ctx context.Context, featureID int64, query string, limit int, role string,
+) ([]MessageHit, error) {
+	hits, err := s.SearchMessages(ctx, featureID, query, limit)
+	if err != nil {
+		return nil, err
+	}
+	direct, err := s.SearchDirectMessages(ctx, featureID, query, limit, role)
+	if err != nil {
+		return nil, err
+	}
+	hits = append(hits, direct...)
+	sort.SliceStable(hits, func(i, j int) bool { return hits[i].at.After(hits[j].at) })
+	if len(hits) > limit {
+		hits = hits[:limit]
+	}
+	return hits, nil
 }
 
 func scanMessage(r interface{ Scan(...any) error }) (Message, error) {

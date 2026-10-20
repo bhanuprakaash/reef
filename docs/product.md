@@ -71,7 +71,7 @@ A channel is what the user opens as a session; inside, each teammate is its own 
 2. An @mention goes to that teammate
 3. Anything else from the user goes to the lead
 
-**How teammates talk.** Through the channel only, never directly. Each teammate gets an MCP tool from Reef, such as post\_to\_channel, to post results and @mention others. The router wakes the mentioned teammate; idle teammates cost nothing.
+**How teammates talk.** A teammate uses `post_to_channel` for progress, decisions, blockers and outcomes the whole team needs. It uses `send_to_role` for detailed one-to-one coordination. A direct request wakes one role; that role's ordinary reply returns directly once. Handling the response does not reply again automatically, so another exchange requires an explicit `send_to_role`. Direct exchanges stay under the channel and are inspectable by the user, while only participating roles can read them through Reef tools.
 
 **Example flow.** User asks lead for Google login → lead asks @architect for a plan → plan posted as a thread, user replies in the thread with questions → architect hands off to @developer → developer asks @architect a doubt → developer pings @tester → tester reports back.
 
@@ -103,7 +103,7 @@ Never preload history, only a summary; details are fetched on demand.
 
 **Session lifetime.** Within a channel each teammate's session persists and resumes. When it gets long it is compacted into role notes and continues fresh. Across channels sessions are not shared: a teammate's memory of other channels is its role notes, the brief and the on-demand tools, never the raw session. After 30 to 40 chats the architect still starts small and relevant.
 
-**Brief and role notes.** The agent writes them from the conversation and the shared understanding with the user; the user approves before they become the new brief. Decisions are append-only with author and source message.
+**Brief and role notes.** The agent writes them from the conversation and the shared understanding with the user; the user approves before they become the new brief. Decisions are never edited or deleted, but can be retired (decision 76); each has an author and source message.
 
 **Capturing decisions.** Both ways: the agent records decisions as it goes via `record_decision` (with the source message), and at wrap-up it proposes any it noticed but did not record; those are approved with the brief.
 
@@ -229,7 +229,13 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 68 | Geist is the font everywhere in the web UI, self-hosted in the build | The user finds it easier to read than the system font; bundling it keeps it working offline and makes the window, the desktop app and a browser match |
 | 69 | No role has a tool call cap; a turn runs until the agent ends it, Stop, or the token budget. Replaces 59 | The cap paused read-only roles mid-work as often as it stopped loops; Stop and the token budget already bound a turn |
 | 70 | A project may name a base branch, set on its page. A new feature worktree fetches it from `origin` and branches from `origin/<base>` (else the local branch); the feature diff and the agents' context use the same branch. Empty keeps decision 60. Existing feature branches are not moved. Extends 60 | sm2 work targets `dev`, not the default `main`, and a stale local branch gave stale features |
-| 71 | A message or an approval that arrives while a chain of message turns runs joins its queue and runs right after the turn that is running, ahead of the wakes the chain already routed, instead of a 409. One turn at a time stays. If the chain ends before a queued item runs, an approval is pending again and a message's wake is dropped (the message stays); a pause holds them. The message box shows Send beside Stop. Extends 25 | Prakash could not message while a teammate worked, and an approval for a gated member failed while another ran; running turns side by side would touch the session, the hop count, message order and the worktree lock |
+| 71 | A message or an approval that arrives while a message chain runs joins that chain's queue and runs after the current turn; turns still run one at a time. A wrap or promote turn running still refuses both. Extends 26 | The user and the lead can talk while a teammate works, and a busy channel must not lose an approval |
+| 72 | An approval that arrives while any chain starts or runs, a wrap or promote one included, joins that chain's queue and runs after its turn; if the chain ends or never starts, the approval is pending again. Messages keep decision 71. Extends 71 | Approving a gated wake while the channel was starting or wrapping up was 409 for no reason the user could act on |
+| 73 | Teammates may coordinate one-to-one with `send_to_role`; a request gets one automatic direct response, and continuing requires another explicit send. This replaces the "through the channel only" rule | Detailed handoffs stay out of the shared narrative, while the request/response boundary prevents automatic ping-pong loops |
+| 74 | An agent proposes a brief mid-channel with `propose_brief` when the user and the team agree on the goal, scope or plan. Approving it saves a brief version only: notes, decisions and the open channel stay. Extends 6 | The brief is about the feature, so it should change when the team agrees, not only when a channel ends |
+| 75 | An agent moves the feature's stage with the `set_stage` tool, with no approval, and Reef posts a `reef` note in the channel; a `fixes` feature has no stage. The context prompt lists the stages. Extends 2 | Agents see when the work moves; the user should not have to move the label by hand |
+| 76 | A decision is never edited or deleted, but it can be retired: `retiredAt`, and `replacedBy` when a newer decision replaces it. `record_decision` and a wrap decision take `replaces`; a wrap proposal takes `retire` for stale or duplicate ones; approving applies both. The context index and the feature page list live decisions only, retired ones fold under "Retired". Amends the append-only line in Context and memory | Stale and duplicate decisions bloated every prompt and the feature page, with no way to remove them |
+| 77 | A wrap-up or promote turn reads every direct exchange of its channel, and only that turn may read a pair's messages besides the pair and the user | The brief and decisions must reflect private work; wrap-up is user-approved, and roles still learn it only through the approved brief, decisions and public posts |
 
 ## Open questions
 

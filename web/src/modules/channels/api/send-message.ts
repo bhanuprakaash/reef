@@ -5,6 +5,10 @@ export function useSendMessage(channelId: number, parent?: number) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (text: string) => sendMessage(channelId, text, parent),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['messages', channelId] }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['messages', channelId] }),
+        queryClient.invalidateQueries({ queryKey: ['turns'] }),
+      ]),
   });
 }

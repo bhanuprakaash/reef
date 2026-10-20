@@ -3,18 +3,7 @@ import type { Channel } from '@/types/api';
 import { EmptyState } from '@/components/empty-state';
 import { StatusDot } from '@/components/status-dot';
 
-export function ChannelList({ channels }: { channels: Channel[] }) {
-  if (channels.length === 0) {
-    return (
-      <EmptyState
-        title="No channels yet"
-        body="Start one to talk to the team."
-        role="lead"
-        compact
-      />
-    );
-  }
-
+function Channels({ channels }: { channels: Channel[] }) {
   return (
     <ul className="text-[13px]">
       {channels.map((c) => (
@@ -30,5 +19,34 @@ export function ChannelList({ channels }: { channels: Channel[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+export function ChannelList({ channels }: { channels: Channel[] }) {
+  if (channels.length === 0) {
+    return (
+      <EmptyState
+        title="No channels yet"
+        body="Start one to talk to the team."
+        role="lead"
+        compact
+      />
+    );
+  }
+
+  const open = channels.filter((c) => c.closedAt === null);
+  const wrapped = channels.filter((c) => c.closedAt !== null);
+  return (
+    <>
+      {open.length > 0 && <Channels channels={open} />}
+      {wrapped.length > 0 && (
+        <details>
+          <summary className="cursor-pointer py-2 text-xs text-muted">
+            Wrapped ({wrapped.length})
+          </summary>
+          <Channels channels={wrapped} />
+        </details>
+      )}
+    </>
   );
 }

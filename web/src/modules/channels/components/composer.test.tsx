@@ -1,29 +1,27 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { Composer } from './composer';
 
-vi.mock('@/modules/channels/api/send-message', () => ({
-  useSendMessage: () => ({ isPending: false, isError: false, mutate: vi.fn() }),
-}));
-vi.mock('@/modules/channels/api/stop-channel', () => ({
-  useStopChannel: () => ({ isPending: false, mutate: vi.fn() }),
-}));
+function render(props: { running: boolean; working?: string }) {
+  return renderToStaticMarkup(
+    <QueryClientProvider client={new QueryClient()}>
+      <Composer channelId={1} paused={false} {...props} />
+    </QueryClientProvider>,
+  );
+}
 
 describe('Composer', () => {
-  it('shows Send beside Stop while a teammate works, and says the message runs next', () => {
-    const markup = renderToStaticMarkup(
-      <Composer channelId={1} running paused={false} working="developer" />,
-    );
-
-    expect(markup).toContain('aria-label="Stop"');
+  it('keeps Send next to Stop and says the message runs next while a teammate works', () => {
+    const markup = render({ running: true, working: 'developer' });
     expect(markup).toContain('aria-label="Send"');
+    expect(markup).toContain('aria-label="Stop"');
     expect(markup).toContain('placeholder="Developer is working… your message runs next"');
   });
 
-  it('shows only Send when nobody works', () => {
-    const markup = renderToStaticMarkup(<Composer channelId={1} running={false} paused={false} />);
-
-    expect(markup).not.toContain('aria-label="Stop"');
+  it('shows only Send when idle', () => {
+    const markup = render({ running: false });
     expect(markup).toContain('aria-label="Send"');
+    expect(markup).not.toContain('aria-label="Stop"');
   });
 });

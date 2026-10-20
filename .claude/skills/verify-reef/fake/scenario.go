@@ -15,9 +15,15 @@ func pat(s string) *regexp.Regexp { return regexp.MustCompile(s) }
 // _scenarios covers the prompts verify-reef's window scenarios (scripts/ui/drive.mjs) and
 // features/full-team.md send.
 var _scenarios = []scenario{
+	{"coordinate-send", "lead", pat(`COORDINATE the login review`)},
+	{"coordinate-fail", "lead", pat(`COORDINATE the failing review`)},
+	{"direct-review", "architect", pat(`wrote privately: Please review the login plan`)},
+	{"direct-fail", "architect", pat(`wrote privately: Please review the failing plan`)},
+	{"direct-noted", "lead", pat(`(?s)architect wrote privately: .*REVIEWED`)},
 	{"promote-propose-merge", "", pat(`now part of feature .* already has a brief`)},
 	{"promote-propose", "", pat(`This quick session is now feature`)},
-	{"wrap-propose", "", pat(`Wrap up this channel\. Call the propose_wrap tool`)},
+	{"wrap-propose", "", pat(`Wrap up this channel\.`)},
+	{"propose-brief", "", pat(`Call the propose_brief tool once`)},
 	{"design-codeword", "lead", pat(`codeword kiwi-77`)},
 	{"recall-codeword-decision", "architect", pat(`What codeword did I give you`)},
 	{"post-to-channel-thread", "architect", pat(`post_to_channel tool once with body: thread post`)},

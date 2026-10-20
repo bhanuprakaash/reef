@@ -11,7 +11,8 @@ export function StagePicker({ feature }: { feature: Feature }) {
 
   return (
     <Select
-      variant="pill"
+      variant="bare"
+      className="-ml-1"
       aria-label="Stage"
       prefix="Stage: "
       value={feature.stage}

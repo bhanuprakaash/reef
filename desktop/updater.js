@@ -4,7 +4,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-const RELEASE_URL = 'https://api.github.com/repos/bhanuprakaash/reef/releases/latest';
+// REEF_SOURCE=github switches back to GitHub releases.
+const SOURCES = {
+  gitlab: {
+    url: 'https://gitlab.com/api/v4/projects/bhanuprakashsaip%2Freef/releases/permalink/latest',
+    assets: (release) => release.assets?.links?.map((a) => ({ name: a.name, url: a.direct_asset_url })),
+  },
+  github: {
+    url: 'https://api.github.com/repos/bhanuprakaash/reef/releases/latest',
+    assets: (release) => release.assets?.map((a) => ({ name: a.name, url: a.browser_download_url })),
+  },
+};
+const SOURCE = SOURCES[process.env.REEF_SOURCE ?? 'gitlab'] ?? SOURCES.gitlab;
 const ASSET = 'Reef-mac-arm64.zip';
 const CHECK_EVERY = 60 * 60 * 1000;
 const IDLE_EVERY = 60 * 1000;
@@ -15,7 +26,7 @@ const run = promisify(execFile);
 
 // The scripts run after this app has exited, in a helper that outlives it, because a running
 // app cannot replace its own bundle. Arguments: pid, bundle, previous.app, failed marker, the
-// version that failed, pending marker; the swap adds the staged app, the old version and "open".
+// version that failed, pending marker; the swap adds the staged app and the old version.
 // REEF_DB and REEF_DB_BACKUP are the database and its copy from before the swap.
 const WAIT = String.raw`trap '' HUP TERM
 while kill -0 "$1" 2>/dev/null; do sleep 0.2; done
@@ -52,17 +63,15 @@ else
   printf '%s\n' "$5" > "$4"
 fi
 rm -rf "$(dirname "$7")"
-if [ "$9" = open ]; then
-  open "$2"
-  i=0
-  while [ -e "$6" ] && [ "$i" -lt ${OPEN_WATCH} ]; do sleep 1; i=$((i+1)); done
-  if [ -d "$3" ] && mv "$6" "$6.taken" 2>/dev/null; then
-    pkill -KILL -f "^$(printf '%s/Contents/' "$2" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
-    sleep 1
-    ` +
+open "$2"
+i=0
+while [ -e "$6" ] && [ "$i" -lt ${OPEN_WATCH} ]; do sleep 1; i=$((i+1)); done
+if [ -d "$3" ] && mv "$6" "$6.taken" 2>/dev/null; then
+  pkill -KILL -f "^$(printf '%s/Contents/' "$2" | sed 's/[][\.*^$+?(){}|]/\\&/g')"
+  sleep 1
+  ` +
   RESTORE +
-  String.raw`  fi
-fi
+  String.raw`fi
 `;
 const ROLLBACK = WAIT + RESTORE;
 
@@ -97,8 +106,7 @@ export function createUpdater(win, addr, dataDir) {
   const bundle = path.resolve(process.execPath, '../../..');
   let staged = null;
   let skipped = null;
-  let checking = false;
-  let unwritableLogged = false;
+  let inFlight = null;
   let swapping = false;
   let whenIdle = read(idleFile) === '1';
 
@@ -132,16 +140,16 @@ export function createUpdater(win, addr, dataDir) {
     if (staged && !win.isDestroyed()) win.webContents.send('update:ready', staged);
   }
 
-  function swap(open) {
+  function swap() {
     const stagedPath = stagedApp();
     if (!staged || !stagedPath || swapping) return false;
     swapping = true;
-    helper(SWAP, [failed, staged, pending, stagedPath, app.getVersion(), open ? 'open' : '']);
+    helper(SWAP, [failed, staged, pending, stagedPath, app.getVersion()]);
     return true;
   }
 
   function restart() {
-    if (swap(true)) app.quit();
+    if (swap()) app.quit();
   }
 
   async function stage(version, url) {
@@ -159,32 +167,38 @@ export function createUpdater(win, addr, dataDir) {
     staged = version;
   }
 
-  async function check() {
-    if (checking) return;
-    checking = true;
+  // Resolves 'ready' when an update is staged and 'current' when there is none; throws on failure.
+  function check() {
+    inFlight ??= fetchUpdate().finally(() => {
+      inFlight = null;
+    });
+    return inFlight;
+  }
+
+  async function fetchUpdate() {
+    const res = await fetch(SOURCE.url, {
+      headers: { Accept: 'application/json' },
+      signal: AbortSignal.timeout(TIMEOUT),
+    });
+    if (!res.ok) throw new Error(`${SOURCE.url}: ${res.status}`);
+    const release = await res.json();
+    const latest = parse(release.tag_name);
+    const asset = SOURCE.assets(release)?.find((a) => a.name === ASSET);
+    if (!latest || !asset) throw new Error(`release ${release.tag_name} has no usable ${ASSET}`);
+    const version = latest.join('.');
+    if (version === staged) return 'ready';
+    if (!isNewer(latest, parse(app.getVersion())) || version === skipped) return 'current';
+    if (!canReplaceBundle()) throw new Error(`${bundle} cannot be replaced from here`);
+    await stage(version, asset.url);
+    notify();
+    return 'ready';
+  }
+
+  async function backgroundCheck() {
     try {
-      const res = await fetch(RELEASE_URL, {
-        headers: { Accept: 'application/vnd.github+json' },
-        signal: AbortSignal.timeout(TIMEOUT),
-      });
-      if (!res.ok) throw new Error(`${RELEASE_URL}: ${res.status}`);
-      const release = await res.json();
-      const latest = parse(release.tag_name);
-      const asset = release.assets?.find((a) => a.name === ASSET);
-      if (!latest || !asset) throw new Error(`release ${release.tag_name} has no usable ${ASSET}`);
-      const version = latest.join('.');
-      if (!isNewer(latest, parse(app.getVersion())) || version === staged || version === skipped) return;
-      if (!canReplaceBundle()) {
-        if (!unwritableLogged) console.error(`update skipped: ${bundle} cannot be replaced from here`);
-        unwritableLogged = true;
-        return;
-      }
-      await stage(version, asset.browser_download_url);
-      notify();
+      await check();
     } catch (err) {
       console.error(`update check failed: ${err.message}`);
-    } finally {
-      checking = false;
     }
   }
 
@@ -199,6 +213,16 @@ export function createUpdater(win, addr, dataDir) {
   }
 
   ipcMain.handle('update:staged', () => staged);
+  ipcMain.handle('update:version', () => app.getVersion());
+  ipcMain.handle('update:check', async () => {
+    if (!app.isPackaged) return { status: 'error', message: 'Only the installed app updates itself' };
+    try {
+      const status = await check();
+      return { status, version: staged };
+    } catch (err) {
+      return { status: 'error', message: err.message };
+    }
+  });
   ipcMain.on('update:restart', restart);
   ipcMain.handle('update:get-when-idle', () => whenIdle);
   ipcMain.handle('update:set-when-idle', (_event, value) => {
@@ -209,6 +233,7 @@ export function createUpdater(win, addr, dataDir) {
 
   return {
     start() {
+      if (!app.isPackaged) return;
       fs.rmSync(pending, { force: true });
       if (!fs.existsSync(taken)) {
         for (const suffix of ['', '-wal', '-shm']) fs.rmSync(backupDb + suffix, { force: true });
@@ -222,13 +247,16 @@ export function createUpdater(win, addr, dataDir) {
           message: `Update to ${failedVersion} failed to start; still on ${app.getVersion()}`,
         });
       }
-      if (!app.isPackaged) return;
       const version = read(path.join(stagedDir, 'version'));
       const parsed = parse(version);
       if (parsed && isNewer(parsed, parse(app.getVersion())) && stagedApp()) staged = version;
       else fs.rmSync(stagedDir, { recursive: true, force: true });
-      check();
-      setInterval(check, CHECK_EVERY);
+      if (staged) {
+        restart();
+        return;
+      }
+      backgroundCheck();
+      setInterval(backgroundCheck, CHECK_EVERY);
       setInterval(applyWhenIdle, IDLE_EVERY);
     },
     rollBack() {
@@ -241,9 +269,6 @@ export function createUpdater(win, addr, dataDir) {
       }
       helper(ROLLBACK, [failed, versions[1], pending]);
       return true;
-    },
-    applyOnQuit() {
-      swap(false);
     },
   };
 }

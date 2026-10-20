@@ -14,9 +14,28 @@ const TokenBudget = 1_000_000
 // HopCap is how many turns woken by agent messages a channel runs between user messages.
 const HopCap = 6
 
+// Active-turn kinds stored on channel.active_turn, a live-state hint for processes
+// that cannot see the server's in-memory chain (such as reef mcp).
+const (
+	ActiveTurnNone     = ""
+	ActiveTurnStarting = "starting"
+	ActiveTurnMessage  = "message"
+	ActiveTurnWrap     = "wrap"
+	ActiveTurnPromote  = "promote"
+)
+
+// validActiveTurn reports whether kind is one of the stored active-turn kinds.
+func validActiveTurn(kind string) bool {
+	switch kind {
+	case ActiveTurnNone, ActiveTurnStarting, ActiveTurnMessage, ActiveTurnWrap, ActiveTurnPromote:
+		return true
+	}
+	return false
+}
+
 const _channelCols = "channel.id, channel.project_id, channel.feature_id, channel.name, " +
 	"channel.role, channel.backend, channel.permission_mode, channel.paused, " +
-	"channel.token_budget, channel.created_at, channel.closed_at, " +
+	"channel.token_budget, channel.created_at, channel.closed_at, channel.active_turn, " +
 	"COALESCE((SELECT name FROM team WHERE id = channel.team_id), '" + SoloTeam + "')"
 
 // Channel with a nil FeatureID is a quick session.
@@ -33,6 +52,10 @@ type Channel struct {
 	Team           string     `json:"team"`
 	CreatedAt      time.Time  `json:"createdAt"`
 	ClosedAt       *time.Time `json:"closedAt"`
+	// ActiveTurn is the kind of turn currently running on the channel ("message",
+	// "wrap", "promote", or "" when idle). It is a live-state hint for processes that
+	// cannot see the server's in-memory chain, such as reef mcp; it is not client data.
+	ActiveTurn string `json:"-"`
 }
 
 // ChannelPreview is a Channel with its newest message, nil when it has none.
@@ -358,8 +381,10 @@ func scanChannelPreview(r interface{ Scan(...any) error }) (ChannelPreview, erro
 	var p ChannelPreview
 	var created string
 	var author, body, lastCreated, closed sql.NullString
+	// active_turn is a server-side hint (not client data), so the preview reads it without
+	// exposing it: the channel JSON omits it.
 	if err := r.Scan(&p.ID, &p.ProjectID, &p.FeatureID, &p.Name, &p.Role, &p.Backend,
-		&p.PermissionMode, &p.Paused, &p.TokenBudget, &created, &closed, &p.Team,
+		&p.PermissionMode, &p.Paused, &p.TokenBudget, &created, &closed, &p.ActiveTurn, &p.Team,
 		&author, &body, &lastCreated); err != nil {
 		return ChannelPreview{}, err
 	}
@@ -387,7 +412,7 @@ func scanChannel(r interface{ Scan(...any) error }) (Channel, error) {
 	var created string
 	var closed sql.NullString
 	if err := r.Scan(&c.ID, &c.ProjectID, &c.FeatureID, &c.Name, &c.Role, &c.Backend,
-		&c.PermissionMode, &c.Paused, &c.TokenBudget, &created, &closed, &c.Team); err != nil {
+		&c.PermissionMode, &c.Paused, &c.TokenBudget, &created, &closed, &c.ActiveTurn, &c.Team); err != nil {
 		return Channel{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)
@@ -399,4 +424,66 @@ func scanChannel(r interface{ Scan(...any) error }) (Channel, error) {
 		return Channel{}, fmt.Errorf("channel %d: %w", c.ID, err)
 	}
 	return c, nil
+}
+
+// SetActiveTurn records the kind of turn currently running on channel id: "message",
+// "wrap", "promote" or "" when idle. It is a live-state hint for processes that cannot
+// see the server's in-memory chain, such as reef mcp.
+func (s *Store) SetActiveTurn(ctx context.Context, id int64, kind string) error {
+	if !validActiveTurn(kind) {
+		return fmt.Errorf("%w: unknown active turn kind %q", ErrInvalid, kind)
+	}
+	if _, err := s.db.ExecContext(ctx, "UPDATE channel SET active_turn = ? WHERE id = ?", kind, id); err != nil {
+		return fmt.Errorf("set active turn: %w", err)
+	}
+	return nil
+}
+
+// ClearActiveTurnIf clears channel id's active-turn hint when it still shows kind, and
+// leaves any other value alone. A chain knows the hint it last wrote and clears only that
+// value, so its teardown that runs after a newer chain claimed the channel cannot blank the
+// newer chain's hint. Clearing when the hint does not show kind is not an error.
+func (s *Store) ClearActiveTurnIf(ctx context.Context, id int64, kind string) error {
+	if !validActiveTurn(kind) {
+		return fmt.Errorf("%w: unknown active turn kind %q", ErrInvalid, kind)
+	}
+	if kind == ActiveTurnNone {
+		return nil
+	}
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE channel SET active_turn = '' WHERE id = ? AND active_turn = ?", id, kind); err != nil {
+		return fmt.Errorf("clear active turn: %w", err)
+	}
+	return nil
+}
+
+// ClearStaleActiveTurns resets active_turn for channels that are not live. keep returns
+// true for channels a live process still owns (such as reef chat), which are left alone.
+func (s *Store) ClearStaleActiveTurns(ctx context.Context, keep func(channelID int64) bool) error {
+	rows, err := s.db.QueryContext(ctx, "SELECT id FROM channel WHERE active_turn <> ''")
+	if err != nil {
+		return fmt.Errorf("list active turns: %w", err)
+	}
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("scan channel: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("list active turns: %w", err)
+	}
+	_ = rows.Close()
+	for _, id := range ids {
+		if keep != nil && keep(id) {
+			continue
+		}
+		if _, err := s.db.ExecContext(ctx, "UPDATE channel SET active_turn = '' WHERE id = ?", id); err != nil {
+			return fmt.Errorf("clear active turn: %w", err)
+		}
+	}
+	return nil
 }

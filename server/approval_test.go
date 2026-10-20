@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -9,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -281,6 +283,93 @@ func TestApproval_ApproveAtHopCapPausesAndStaysPending(t *testing.T) {
 	}
 }
 
+// TestApproval_ApproveWhileBusyRunsAfter: the lead wakes the architect and, gated, the
+// developer; approving the developer while the architect runs queues it behind that turn.
+func TestApproval_ApproveWhileBusyRunsAfter(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	roles := []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
+		{Name: "developer", Backend: "claude"},
+	}
+	_, err := env.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: roles,
+		Gates: []store.Gate{{From: "lead", To: "developer", On: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@developer build it", nil)
+			post("lead", "@architect block", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+
+	env.sendTo(t, id, "go")
+	<-env.fake.started
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
+	sub.next(t)
+	sub.want(t, `turn {"role":"lead","status":"done"}`,
+		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+
+	if status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`); status != 204 || body != "" {
+		t.Fatalf("approve while busy = %d %q, want 204", status, body)
+	}
+	if got := sub.next(t); !strings.Contains(got, `"id":1,`) || !strings.Contains(got, `"status":"approved"`) {
+		t.Errorf("frame = %s, want the approved approval", got)
+	}
+	if got := len(env.ranTexts()); got != 2 {
+		t.Errorf("turns run = %d, want 2: the developer waits for the architect", got)
+	}
+	env.fake.release <- struct{}{}
+	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"architect","status":"done"}`)
+	sub.wantTurns(t, "developer")
+	want := []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 3]\nlead wrote: @architect block",
+		"[channel 2, message 2]\nlead wrote: @developer build it",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
+	}
+	if a, err := env.st.Approval(context.Background(), int64(id), 1); err != nil || a.Status != store.ApprovalApproved {
+		t.Errorf("approval = %+v, %v, want approved", a, err)
+	}
+}
+
+func TestApproval_StopReturnsQueuedWakes(t *testing.T) {
+	env := newLiveEnv(t)
+	id, sub, approvals := env.gatedChannel(t)
+	env.sendTo(t, id, "block")
+	<-env.fake.started
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	if status, _ := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`); status != 204 {
+		t.Fatalf("approve while busy = %d, want 204", status)
+	}
+	if status, _ := env.sendTo(t, id, "again"); status != 202 {
+		t.Fatalf("send while busy = %d, want 202", status)
+	}
+
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+
+	status, body := do(t, http.MethodGet, approvals, "")
+	if status != 200 || !strings.Contains(body, `"id":1,`) || !strings.Contains(body, `"status":"pending"`) {
+		t.Errorf("approvals = %d %s, want approval 1 pending again", status, body)
+	}
+	l := env.h.s.lookup(int64(id))
+	l.mu.Lock()
+	held := slices.Clone(l.held)
+	l.mu.Unlock()
+	if len(held) != 1 || held[0].text != "[channel 2, message 4]\nagain" {
+		t.Errorf("held = %+v, want the wake of again", held)
+	}
+	if got := len(env.ranTexts()); got != 2 {
+		t.Errorf("turns run = %d, want 2: go and block only", got)
+	}
+}
+
 func TestApproval_DefaultTeamHasNoGateToArchitect(t *testing.T) {
 	env := newLiveEnv(t)
 	id, post := env.teamChannel(t)
@@ -348,5 +437,103 @@ func TestApproval_StoreFailurePausesAndContinueRetries(t *testing.T) {
 	}
 	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 1]\ngo"}) {
 		t.Errorf("ran = %q, want only go: the wake waits for approval", got)
+	}
+}
+
+func TestApproval_ApproveWhileStartingRunsAfter(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _, approvals := env.gatedChannel(t)
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	ran := make(chan struct{})
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "architect" {
+			close(ran)
+		}
+	}
+	var status int
+	var body string
+	env.open = func(context.Context) (session, error) {
+		status, body = do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
+		return env.fake, nil
+	}
+	if s, _ := env.sendTo(t, id, "again"); s != 202 {
+		t.Fatalf("send = %d, want 202", s)
+	}
+	if status != 204 || body != "" {
+		t.Fatalf("approve while starting = %d %q, want 204", status, body)
+	}
+	<-ran
+	want := []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 3]\nagain",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
+	}
+}
+
+func TestApproval_ApproveWhileStartingStaysPendingWhenStartFails(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _, approvals := env.gatedChannel(t)
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	var status int
+	env.open = func(context.Context) (session, error) {
+		status, _ = do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
+		return nil, errors.New("boom")
+	}
+	if s, _ := env.sendTo(t, id, "again"); s != 500 {
+		t.Fatalf("send = %d, want 500", s)
+	}
+	if status != 204 {
+		t.Fatalf("approve while starting = %d, want 204", status)
+	}
+	s, body := do(t, http.MethodGet, approvals, "")
+	if s != 200 || !strings.Contains(body, `"id":1,`) || !strings.Contains(body, `"status":"pending"`) {
+		t.Errorf("approvals = %d %s, want approval 1 pending again", s, body)
+	}
+}
+
+func TestApproval_ApproveWhileWrapRunsAfter(t *testing.T) {
+	env := newLiveEnv(t)
+	env.teamChannel(t)
+	_, err := env.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
+	}, Gates: []store.Gate{{From: "lead", To: "architect", On: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	do(t, http.MethodPost, env.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
+	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"featureId":1,"name":"w","team":"core"}`)
+	approvals := env.url + "/channels/3/approvals"
+	ran := make(chan struct{})
+	var status int
+	env.fake.onRun = func(role, text string, _ *int64) {
+		switch {
+		case role == "architect":
+			close(ran)
+		case strings.HasSuffix(text, "\ngo"):
+			if _, err := env.st.CreateMessage(context.Background(),
+				store.Message{ChannelID: 3, Author: "lead", Body: "@architect plan it"}); err != nil {
+				t.Error(err)
+			}
+		case text == channel.WrapCommand:
+			status, _ = do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
+		}
+	}
+	sub := subscribeTo(t, env.url, 3)
+	env.sendTo(t, 3, "go")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
+	sub.next(t)
+	sub.want(t, `turn {"role":"lead","status":"done"}`)
+	env.sendTo(t, 3, "/wrap")
+	<-ran
+	if status != 204 {
+		t.Fatalf("approve while wrapping = %d, want 204", status)
+	}
+	want := []string{"[channel 3, message 1]\ngo", "[channel 3, message 2]\nlead wrote: @architect plan it"}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
 	}
 }

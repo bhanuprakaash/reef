@@ -1,21 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
+import { ResizeHandle } from '@/components/resize-handle';
+import { useResizableWidth } from '@/lib/use-resizable-width';
 
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
-const WIDTH_KEY = 'reef.browserPane.width';
-const DEFAULT_WIDTH = 440;
 const MIN_WIDTH = 320;
-const MAX_SHARE = 0.5;
-
-function storedWidth() {
-  try {
-    const width = Number(localStorage.getItem(WIDTH_KEY));
-    return width >= MIN_WIDTH ? width : DEFAULT_WIDTH;
-  } catch {
-    return DEFAULT_WIDTH;
-  }
-}
 
 export type BrowserDriver = { role: string; face?: string; action: string };
 
@@ -77,7 +67,12 @@ export function BrowserPane({
   const [canGo, setCanGo] = useState({ back: false, forward: false });
   const [takenOver, setTakenOver] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [width, setWidth] = useState(storedWidth);
+  const { width, startResize } = useResizableWidth({
+    key: 'reef.browserPane.width',
+    initial: 440,
+    min: MIN_WIDTH,
+    maxShare: 0.5,
+  });
   const available = typeof window !== 'undefined' && window.reef != null;
 
   useEffect(() => {
@@ -85,24 +80,30 @@ export function BrowserPane({
     const container = containerRef.current;
     if (!reef || !container) return;
 
+    let last = '';
     const reportBounds = () => {
       // getBoundingClientRect returns a DOMRect, whose fields are accessors
       // that IPC's structured clone drops; send a plain object instead.
       const { x, y, width, height } = container.getBoundingClientRect();
+      const key = `${x},${y},${width},${height}`;
+      if (key === last) return;
+      last = key;
       reef.setBrowserBounds({ x, y, width, height });
     };
-    reportBounds();
-    const observer = new ResizeObserver(reportBounds);
-    observer.observe(container);
-    window.addEventListener('resize', reportBounds);
+    // The native view lives outside the DOM, so a move without a resize (a sibling
+    // panel opening, a scrollbar appearing) is invisible to ResizeObserver; check
+    // every frame and send only what changed.
+    let frame = requestAnimationFrame(function check() {
+      reportBounds();
+      frame = requestAnimationFrame(check);
+    });
     const stopNavigated = reef.onBrowserNavigated((state) => {
       setUrl(state.url);
       setCanGo({ back: state.canGoBack, forward: state.canGoForward });
     });
 
     return () => {
-      observer.disconnect();
-      window.removeEventListener('resize', reportBounds);
+      cancelAnimationFrame(frame);
       stopNavigated();
     };
   }, []);
@@ -116,33 +117,6 @@ export function BrowserPane({
       .catch((err: Error) =>
         setError(err.message.replace(/^Error invoking remote method '[^']*': (Error: )?/, '')),
       );
-  };
-
-  const startResize = (e: React.PointerEvent<HTMLDivElement>) => {
-    const handle = e.currentTarget;
-    const startX = e.clientX;
-    const startWidth = width;
-    const max = Math.max(MIN_WIDTH, window.innerWidth * MAX_SHARE);
-    let latest = startWidth;
-    handle.setPointerCapture(e.pointerId);
-    const move = (ev: PointerEvent) => {
-      if (ev.buttons === 0) return end();
-      latest = Math.round(Math.min(max, Math.max(MIN_WIDTH, startWidth + startX - ev.clientX)));
-      setWidth(latest);
-    };
-    const end = () => {
-      handle.removeEventListener('pointermove', move);
-      handle.removeEventListener('pointerup', end);
-      handle.removeEventListener('lostpointercapture', end);
-      try {
-        localStorage.setItem(WIDTH_KEY, String(latest));
-      } catch {
-        // storage can be blocked; the width then lasts until reload
-      }
-    };
-    handle.addEventListener('pointermove', move);
-    handle.addEventListener('pointerup', end);
-    handle.addEventListener('lostpointercapture', end);
   };
 
   const toggleTakeOver = async () => {
@@ -165,15 +139,7 @@ export function BrowserPane({
       style={{ width }}
       className={`${open ? 'flex' : 'hidden'} relative max-w-[50vw] min-w-[320px] shrink-0 flex-col border-l border-hairline bg-sidebar`}
     >
-      <div
-        role="separator"
-        aria-orientation="vertical"
-        aria-label="Resize browser"
-        onPointerDown={startResize}
-        className="group absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize touch-none"
-      >
-        <div className="mx-auto h-full w-0.5 bg-transparent group-hover:bg-line group-active:bg-line" />
-      </div>
+      <ResizeHandle label="Resize browser" onPointerDown={startResize} />
       <form
         onSubmit={navigate}
         className="app-drag flex min-h-14 items-center gap-1.5 border-b border-hairline px-2.5 py-2"

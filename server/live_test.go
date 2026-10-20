@@ -37,6 +37,19 @@ type fakeSession struct {
 	mu  sync.Mutex
 	ran []string
 	say func()
+
+	// directStart receives a signal each time a direct turn starts, so tests can
+	// synchronize on direct-turn execution without sleeping. It is buffered so a start
+	// is never lost.
+	directStart chan struct{}
+	// directRelease, when non-nil, is waited on by RunDirectAs before it completes.
+	directRelease chan struct{}
+	// directFail, when non-nil, makes RunDirectAs fail with it and, for a request,
+	// leaves a failed direct response so the sender can see that delivery failed.
+	directFail    error
+	directMu      sync.Mutex
+	directRunning int32
+	directMax     int32
 }
 
 func (f *fakeSession) Say(ctx context.Context, body string, parent *int64) (store.Message, error) {
@@ -70,6 +83,52 @@ func (f *fakeSession) RunAs(
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (f *fakeSession) RunDirectAs(
+	ctx context.Context, role, text string, dm store.DirectMessage, onEvent func(agent.Event),
+) error {
+	f.mu.Lock()
+	f.ran = append(f.ran, text)
+	f.mu.Unlock()
+	if f.onRun != nil {
+		f.onRun(role, text, nil)
+	}
+	if f.directRelease != nil {
+		f.directMu.Lock()
+		f.directRunning++
+		if f.directRunning > f.directMax {
+			f.directMax = f.directRunning
+		}
+		f.directMu.Unlock()
+		select {
+		case f.directStart <- struct{}{}:
+		default:
+		}
+		select {
+		case <-f.directRelease:
+		case <-ctx.Done():
+			if dm.ReplyToID == nil {
+				_, _ = f.st.CreateFailedDirectResponse(context.WithoutCancel(ctx), dm.ID, role, "")
+			}
+			return ctx.Err()
+		}
+		f.directMu.Lock()
+		f.directRunning--
+		f.directMu.Unlock()
+	}
+	if f.directFail != nil {
+		if dm.ReplyToID == nil {
+			_, _ = f.st.CreateFailedDirectResponse(ctx, dm.ID, role, "")
+		}
+		return f.directFail
+	}
+	onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
+	if dm.ReplyToID == nil {
+		_, err := f.st.CreateDirectResponse(ctx, dm.ID, role, "hi")
+		return err
+	}
+	return nil
 }
 
 func (f *fakeSession) Wrap(_ context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
@@ -126,6 +185,13 @@ func (r runnerSession) RunAs(
 	return r.run.Run(ctx, text, parent, onEvent)
 }
 
+func (r runnerSession) RunDirectAs(
+	ctx context.Context, _ string, text string, dm store.DirectMessage,
+	onEvent func(agent.Event),
+) error {
+	return r.run.RunDirect(ctx, text, dm, onEvent)
+}
+
 func (r runnerSession) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
 	return store.Proposal{}, r.run.Run(ctx, channel.PromoteCommand, nil, onEvent)
 }
@@ -161,7 +227,7 @@ func newLiveEnv(t *testing.T) *liveEnv {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	env := &liveEnv{dir: dir, fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{})}}
+	env := &liveEnv{dir: dir, fake: &fakeSession{started: make(chan struct{}, 1), release: make(chan struct{}), directStart: make(chan struct{}, 2)}}
 	env.st, env.fake.st = st, st
 	env.serve(t)
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"reef","path":"`+t.TempDir()+`"}`)
@@ -523,6 +589,54 @@ func TestSend_WakesByPost(t *testing.T) {
 	}
 }
 
+func TestSend_DirectRequestGetsOnePrivateResponse(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	var sent atomic.Bool
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" && sent.CompareAndSwap(false, true) {
+			if _, err := env.st.CreateDirectMessage(context.Background(), store.DirectMessage{
+				ChannelID: int64(id), From: "lead", To: "architect", Body: "design it",
+			}); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead")
+	for _, role := range []string{"architect", "lead"} {
+		sub.want(t, `turn {"role":"`+role+`","status":"running","direct":true}`,
+			`agent {"kind":"text","text":"hi"}`,
+			`turn {"role":"`+role+`","status":"done","direct":true}`)
+	}
+
+	direct, err := env.st.DirectMessages(context.Background(), int64(id), 0)
+	if err != nil || len(direct) != 2 || direct[0].From != "lead" ||
+		direct[1].From != "architect" || direct[1].To != "lead" {
+		t.Errorf("direct messages = %+v, %v, want one request and one response", direct, err)
+	}
+	public, err := env.st.Messages(context.Background(), int64(id), 0)
+	if err != nil || len(public) != 1 || public[0].Author != "user" {
+		t.Errorf("public messages = %+v, %v, want only the user's message", public, err)
+	}
+	status, body := do(t, http.MethodGet,
+		env.url+fmt.Sprintf("/channels/%d/direct-messages", id), "")
+	if status != 200 || !strings.Contains(body, `"from":"lead","to":"architect","body":"design it"`) ||
+		!strings.Contains(body, `"from":"architect","to":"lead","body":"hi"`) {
+		t.Errorf("GET direct messages = %d %s, want both sides of the exchange", status, body)
+	}
+	want := []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, direct message 1, chain 1, source: direct request]\nlead wrote privately: design it",
+		"[channel 2, direct message 2, chain 1, source: direct response]\narchitect wrote privately: hi",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
+	}
+}
+
 func TestSend_OneWakePerRole(t *testing.T) {
 	env := newLiveEnv(t)
 	id, post := env.teamChannel(t)
@@ -616,6 +730,119 @@ func TestSend_MentionsWakeEachRole(t *testing.T) {
 		`turn {"role":"lead","status":"done"}`)
 }
 
+func TestSend_SeveralMentionsShareOneMessage(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, parent *int64) {
+		post(role, role+" says "+map[string]string{"architect": "SQLite", "lead": "Postgres"}[role], parent)
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "@architect @lead @architect @ghost which database")
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "architect", "lead")
+	body := "@architect @lead @architect @ghost which database"
+	header := "[channel 2, message 1]\nAsked together: @architect, @lead\n"
+	want := []string{header + body, header + body}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q: one wake each, both naming the full set", got, want)
+	}
+	msgs, err := env.st.Messages(context.Background(), int64(id), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range msgs {
+		got = append(got, fmt.Sprintf("%d %s %v %q", m.ID, m.Author, m.ParentID, m.Body))
+	}
+	wantMsgs := []string{
+		`1 user <nil> "` + body + `"`,
+		`2 architect <nil> "architect says SQLite"`,
+		`3 lead <nil> "lead says Postgres"`,
+	}
+	if !slices.Equal(got, wantMsgs) {
+		t.Errorf("messages = %q, want %q: one user message, then both disagreeing replies public", got, wantMsgs)
+	}
+	direct, err := env.st.DirectMessages(context.Background(), int64(id), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(direct) != 0 {
+		t.Errorf("direct messages = %d, want 0: @ghost and repeats create none", len(direct))
+	}
+}
+
+func TestSend_ThreadReplyKeepsOwnerOverMentions(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	post("architect", "the plan", nil)
+	sub := subscribeTo(t, env.url, id)
+	if status, body := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/send", env.url, id),
+		`{"text":"@lead @architect why?","parent":1}`); status != 202 {
+		t.Fatalf("send = %d %s, want 202", status, body)
+	}
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "architect")
+	want := []string{"[channel 2, message 2, thread 1]\nThread so far:\narchitect: the plan\n\n@lead @architect why?"}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q: only the thread owner wakes, no Asked together line", got, want)
+	}
+}
+
+func TestSend_SeveralMentionsInThreadKeepThread(t *testing.T) {
+	env := newLiveEnv(t)
+	_, err := env.st.ApplyTeam(context.Background(), store.Team{Name: "trio", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "architect", Backend: "claude"},
+		{Name: "tester", Backend: "claude"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"name":"t","team":"trio"}`)
+	env.fake.onRun = func(role, _ string, parent *int64) {
+		if role == "lead" {
+			one := int64(1)
+			_, err := env.st.CreateMessage(context.Background(), store.Message{
+				ChannelID: 2, ParentID: &one, Author: "lead", Body: "@architect @tester @lead split it",
+			})
+			if err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	sub := subscribeTo(t, env.url, 2)
+	env.sendTo(t, 2, "go")
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead", "architect", "tester")
+	post := "[channel 2, message 2, thread 1]\nAsked together: @architect, @tester\n" +
+		"Thread so far:\nuser: go\n\nlead wrote: @architect @tester @lead split it"
+	want := []string{"[channel 2, message 1]\ngo", post, post}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q: both recipients see the thread and the full set, not the sender", got, want)
+	}
+}
+
+func TestSend_SelfMentionDoesNotWakeSender(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, parent *int64) {
+		if role == "lead" {
+			post("lead", "@lead @architect over to you", parent)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead", "architect")
+	want := []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @lead @architect over to you",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q: lead's own mention wakes nobody", got, want)
+	}
+}
+
 func TestSend_WhileWakeChainRuns(t *testing.T) {
 	env := newLiveEnv(t)
 	id, post := env.teamChannel(t)
@@ -632,19 +859,19 @@ func TestSend_WhileWakeChainRuns(t *testing.T) {
 		`turn {"role":"lead","status":"done"}`,
 		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
-	status, body := env.sendTo(t, id, "again")
-	if status != 202 || body != "" {
-		t.Errorf("send during the wake = %d %s, want 202", status, body)
+	if status, body := env.sendTo(t, id, "again"); status != 202 || body != "" {
+		t.Fatalf("send during the wake = %d %q, want 202", status, body)
 	}
 	env.fake.release <- struct{}{}
 	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"architect","status":"done"}`)
 	sub.wantTurns(t, "lead")
-	if got := env.ranTexts(); !slices.Equal(got, []string{
+	want := []string{
 		"[channel 2, message 1]\ngo",
 		"[channel 2, message 2]\nlead wrote: @architect block",
 		"[channel 2, message 3]\nagain",
-	}) {
-		t.Errorf("ran = %q, want the lead to answer again after the architect", got)
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
 	}
 }
 
@@ -688,19 +915,20 @@ func TestSend_WhileRunning(t *testing.T) {
 
 	status, body := env.send(t, "again")
 	if status != 202 || body != "" {
-		t.Errorf("send = %d %s, want 202", status, body)
+		t.Fatalf("send = %d %q, want 202", status, body)
 	}
-	msgs, err := env.st.Messages(context.Background(), 1, 0)
-	if err != nil || len(msgs) != 2 || msgs[1].Body != "again" {
-		t.Errorf("messages = %+v, %v, want the second message stored at once", msgs, err)
+	if _, body := do(t, http.MethodGet, env.url+"/messages?channel=1", ""); !strings.Contains(body, `"body":"again"`) {
+		t.Errorf("messages = %s, want again stored before the turn ends", body)
+	}
+	if got := env.ranTexts(); len(got) != 1 {
+		t.Errorf("ran = %q, want only block: again waits for the turn", got)
 	}
 	env.fake.release <- struct{}{}
 	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
 	sub.wantTurns(t, "lead")
-	if got := env.ranTexts(); !slices.Equal(got, []string{
-		"[channel 1, message 1]\nblock", "[channel 1, message 2]\nagain",
-	}) {
-		t.Errorf("ran = %q, want the second message to run after the first", got)
+	want := []string{"[channel 1, message 1]\nblock", "[channel 1, message 2]\nagain"}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
 	}
 }
 

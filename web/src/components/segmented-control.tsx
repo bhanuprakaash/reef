@@ -1,6 +1,8 @@
+import type { ReactNode } from 'react';
+
 type Props<T extends string> = {
   label: string;
-  options: { value: T; label: string }[];
+  options: { value: T; label: ReactNode; ariaLabel?: string }[];
   value: T;
   onChange: (value: T) => void;
   className?: string;
@@ -23,6 +25,7 @@ export function SegmentedControl<T extends string>({
         <button
           key={o.value}
           type="button"
+          aria-label={o.ariaLabel}
           aria-pressed={o.value === value}
           onClick={() => onChange(o.value)}
           className={`h-11 md:h-[30px] rounded-lg px-3.5 text-[13px] ${o.value === value ? 'bg-raised text-fg' : 'text-muted'}`}

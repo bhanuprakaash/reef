@@ -3,7 +3,9 @@ package server
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/bhanuprakaash/reef/channel"
@@ -14,18 +16,77 @@ const (
 	_userAuthor = "user"
 )
 
+var _wakeHeader = regexp.MustCompile(`^\[channel \d+, message (\d+)[,\]]`)
+
+// wakeSource returns the id of the public message a wake text starts with, from the header
+// route writes, or nil when text is not a public wake.
+func wakeSource(text string) *int64 {
+	m := _wakeHeader.FindStringSubmatch(text)
+	if m == nil {
+		return nil
+	}
+	id, err := strconv.ParseInt(m[1], 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &id
+}
+
 // wake is a turn to run: role answers text, and its reply goes in the thread of parent.
 // from is the author of the message messageID that woke it; gated is set when the team
-// holds wakes from that author to role for approval. approval is the id of the approval an
-// approved wake came from, or 0.
+// holds wakes from that author to role for approval.
 type wake struct {
 	from      string
 	messageID int64
 	gated     bool
-	approval  int64
 	role      string
 	text      string
 	parent    *int64
+	direct    *store.DirectMessage
+	// approval is the id of the approval a wake was released by, when it was.
+	approval int64
+}
+
+func (s *server) directWakes(
+	ctx context.Context, channelID, after int64, author string,
+) ([]wake, int64, error) {
+	msgs, err := s.st.DirectMessages(ctx, channelID, after)
+	if err != nil {
+		return nil, after, err
+	}
+	if len(msgs) > 0 {
+		after = msgs[len(msgs)-1].ID
+	}
+	ch, err := s.st.Channel(ctx, channelID)
+	if err != nil {
+		return nil, after, err
+	}
+	team, err := s.st.Team(ctx, ch.Team)
+	if err != nil {
+		return nil, after, err
+	}
+	ws := make([]wake, 0, len(msgs))
+	for i := range msgs {
+		m := msgs[i]
+		if m.From != author {
+			continue
+		}
+		if m.Status == store.DirectFailed {
+			continue
+		}
+		source := "direct request"
+		if m.ReplyToID != nil {
+			source = "direct response"
+		}
+		text := fmt.Sprintf("[channel %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
+			channelID, m.ID, m.ChainID, source, m.From, m.Body)
+		gated := team.Gated(m.From, m.To)
+		ws = append(ws, wake{
+			from: m.From, messageID: m.ID, gated: gated,
+			role: m.To, text: text, direct: &msgs[i],
+		})
+	}
+	return ws, after, nil
 }
 
 // wakes routes the messages of channel id stored after the message with id after. It also
@@ -98,6 +159,13 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 				}
 			}
 			text = b.String() + "\n" + text
+		}
+		if len(woken) > 1 {
+			asked := make([]string, len(woken))
+			for i, role := range woken {
+				asked[i] = "@" + role
+			}
+			header += "\nAsked together: " + strings.Join(asked, ", ")
 		}
 		for _, role := range woken {
 			gated := team.Gated(m.Author, role)

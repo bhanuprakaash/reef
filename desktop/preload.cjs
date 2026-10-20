@@ -28,6 +28,8 @@ contextBridge.exposeInMainWorld('reef', {
     });
     return () => ipcRenderer.removeListener('update:ready', listener);
   },
+  getVersion: () => ipcRenderer.invoke('update:version'),
+  checkForUpdate: () => ipcRenderer.invoke('update:check'),
   restartToUpdate: () => ipcRenderer.send('update:restart'),
   getUpdateWhenIdle: () => ipcRenderer.invoke('update:get-when-idle'),
   setUpdateWhenIdle: (value) => ipcRenderer.invoke('update:set-when-idle', value),

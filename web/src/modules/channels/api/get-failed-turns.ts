@@ -8,3 +8,10 @@ export function useFailedTurns(channelId: number) {
     queryFn: () => api<Turn[]>(`/turns?channel=${channelId}&retryable=1`),
   });
 }
+
+export function useAllFailedTurns(channelId: number) {
+  return useQuery({
+    queryKey: ['turns', channelId, 'all-failed'],
+    queryFn: () => api<Turn[]>(`/turns?channel=${channelId}&status=failed`),
+  });
+}

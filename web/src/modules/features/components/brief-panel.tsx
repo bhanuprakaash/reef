@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useLayoutEffect, useRef, useState } from 'react';
 import type { Brief } from '@/types/api';
 import { Card } from '@/components/card';
 import { Markdown } from '@/components/markdown';
@@ -6,8 +6,16 @@ import { EmptyState } from '@/components/empty-state';
 
 export function BriefPanel({ versions }: { versions: Brief[] }) {
   const [showHistory, setShowHistory] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [overflows, setOverflows] = useState(false);
+  const body = useRef<HTMLDivElement>(null);
   const latest = versions[versions.length - 1];
   const older = versions.slice(0, -1).reverse();
+
+  useLayoutEffect(() => {
+    const el = body.current;
+    if (el && !expanded) setOverflows(el.scrollHeight > el.clientHeight);
+  }, [latest?.body, expanded]);
 
   return (
     <Card
@@ -44,9 +52,22 @@ export function BriefPanel({ versions }: { versions: Brief[] }) {
         />
       ) : (
         <div className="space-y-3">
-          <div className="text-[15px] leading-relaxed text-soft">
+          <div
+            ref={body}
+            className={`text-[15px] leading-relaxed text-soft ${expanded ? '' : 'max-h-52 overflow-hidden'} ${overflows && !expanded ? 'mask-[linear-gradient(to_bottom,black_75%,transparent)]' : ''}`}
+          >
             <Markdown>{latest.body}</Markdown>
           </div>
+          {(overflows || expanded) && (
+            <button
+              type="button"
+              aria-expanded={expanded}
+              className="border-b border-line text-xs text-soft"
+              onClick={() => setExpanded(!expanded)}
+            >
+              {expanded ? 'Show less' : 'Show all'}
+            </button>
+          )}
           {showHistory && (
             <ul className="space-y-2 border-t border-hairline pt-3">
               {older.map((b, i) => (

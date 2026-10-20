@@ -12,6 +12,7 @@ type Props = {
   working: string | null;
   waiting: string[];
   brief?: string;
+  onClose: () => void;
 };
 
 const backendLabel: Record<string, string> = { claude: 'Claude Code', codex: 'Codex' };
@@ -24,7 +25,15 @@ const stateLabel: Record<CreatureState, string> = {
   failed: 'failed',
 };
 
-export function TeamPanel({ channelId, featureId, roles, working, waiting, brief }: Props) {
+export function TeamPanel({
+  channelId,
+  featureId,
+  roles,
+  working,
+  waiting,
+  brief,
+  onClose,
+}: Props) {
   const inspector = useInspector(channelId, true);
 
   function stateOf(role: Role): CreatureState {
@@ -36,7 +45,28 @@ export function TeamPanel({ channelId, featureId, roles, working, waiting, brief
   return (
     <aside aria-label="Team" className="space-y-6">
       <div>
-        <h2 className="mb-2 text-[13px] text-muted">Team</h2>
+        <div className="mb-2 flex items-center">
+          <h2 className="text-[13px] text-muted">Team</h2>
+          <button
+            type="button"
+            aria-label="Close team"
+            onClick={onClose}
+            className="ml-auto flex size-8 items-center justify-center rounded-field text-soft hover:bg-card max-md:hidden"
+          >
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              aria-hidden="true"
+            >
+              <path d="M6 6l12 12M18 6L6 18" />
+            </svg>
+          </button>
+        </div>
         <ul className="space-y-0.5">
           {roles.map((role) => {
             const state = stateOf(role);

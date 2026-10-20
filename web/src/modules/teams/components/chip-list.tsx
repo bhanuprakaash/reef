@@ -33,9 +33,9 @@ export function ChipList({
 
   return (
     <div className="min-w-0">
-      <div className="mb-2 text-xs text-muted">
+      <div className="mb-2 text-[11px] uppercase tracking-[0.08em] text-muted">
         {label}
-        {hint && <span className="text-asleep"> ({hint})</span>}
+        {hint && <span className="normal-case tracking-normal text-asleep"> ({hint})</span>}
       </div>
       <div className="flex flex-wrap gap-1.5">
         {values.map((value, i) => (

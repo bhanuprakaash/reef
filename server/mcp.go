@@ -25,9 +25,10 @@ type (
 		Notes string `json:"notes" jsonschema:"your role's notes on this feature, empty if none"`
 	}
 	decideIn struct {
-		Body      string `json:"body" jsonschema:"the decision"`
-		Why       string `json:"why,omitempty" jsonschema:"the reason for it"`
-		MessageID *int64 `json:"messageId,omitempty" jsonschema:"id of the message it came from"`
+		Body      string  `json:"body" jsonschema:"the decision"`
+		Why       string  `json:"why,omitempty" jsonschema:"the reason for it"`
+		MessageID *int64  `json:"messageId,omitempty" jsonschema:"id of the message it came from"`
+		Replaces  []int64 `json:"replaces,omitempty" jsonschema:"ids of live decisions this one amends or replaces; they are retired"`
 	}
 	taskIn struct {
 		Title string `json:"title" jsonschema:"short task title"`
@@ -70,10 +71,27 @@ type (
 		Body   string `json:"body" jsonschema:"the message; @mention a teammate to hand work over"`
 		Parent *int64 `json:"parent,omitempty" jsonschema:"id of a top-level message to reply to in its thread; omit to post at the top level"`
 	}
+	stageIn struct {
+		Stage string `json:"stage" jsonschema:"the stage the work has moved to: ideation, grill, plan, tickets, implement, testing, live-testing or post-release"`
+	}
+	directIn struct {
+		To   string `json:"to" jsonschema:"exactly one teammate role"`
+		Body string `json:"body" jsonschema:"the private message for that teammate"`
+	}
+	directListIn struct {
+		After int64 `json:"after,omitempty" jsonschema:"only direct messages with a larger id"`
+	}
+	directListOut struct {
+		Messages []store.DirectMessage `json:"messages"`
+	}
 	wrapIn struct {
 		Brief     string                   `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
 		Notes     string                   `json:"notes" jsonschema:"your own notes on this feature"`
-		Decisions []store.ProposedDecision `json:"decisions" jsonschema:"decisions made in this channel that are not recorded yet"`
+		Decisions []store.ProposedDecision `json:"decisions" jsonschema:"decisions made in this channel that are not recorded yet; replaces on one lists the earlier decisions it amends or replaces"`
+		Retire    []int64                  `json:"retire,omitempty" jsonschema:"ids of live decisions that are stale or duplicate"`
+	}
+	briefIn struct {
+		Brief string `json:"brief" jsonschema:"the full brief: goal, status, key decisions, open questions"`
 	}
 	wrapOut struct {
 		ID      int64  `json:"id" jsonschema:"proposal id"`
@@ -107,8 +125,10 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 	}, m.getBrief)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "record_decision",
-		Description: "Record a decision made on this feature, with why " +
-			"and the message it came from.",
+		Description: "Record a decision made on this feature, with why and the message it " +
+			"came from. A decision is a choice about how the feature works, not progress, " +
+			"proof or a won't-fix list. Pass replaces when it amends or replaces earlier " +
+			"decisions: they are retired.",
 	}, m.recordDecision)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "add_task",
@@ -133,8 +153,9 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 			"Returns channel and message ids; read more with read_thread.",
 	}, m.searchSessions)
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "read_decision",
-		Description: "Read one decision of this feature in full.",
+		Name: "read_decision",
+		Description: "Read one decision of this feature in full, with retiredAt and " +
+			"replacedBy when it is retired.",
 	}, m.readDecision)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "read_thread",
@@ -147,12 +168,35 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 			"them when your turn ends; a post that mentions nobody wakes no one.",
 	}, m.postToChannel)
 	mcp.AddTool(srv, &mcp.Tool{
+		Name: "set_stage",
+		Description: "Move this feature to the next journey stage when the work moves there. " +
+			"The channel sees a note; nothing needs approval.",
+	}, m.setStage)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "send_to_role",
+		Description: "Send a private message to exactly one teammate. The teammate's ordinary " +
+			"reply comes back privately once; use send_to_role again to continue.",
+	}, m.sendToRole)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "read_direct_messages",
+		Description: "Read private messages in this channel that you sent or received.",
+	}, m.readDirectMessages)
+	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_wrap",
 		Description: "Propose how to wrap up this channel; the user approves it before " +
 			"anything is saved. brief is the full rewritten brief (goal, status, key " +
 			"decisions, open questions), notes are your own notes for this feature, " +
-			"decisions are ones made in this channel that are not recorded yet.",
+			"decisions are ones made in this channel that are not recorded yet, each with " +
+			"replaces for earlier decisions it amends or replaces. retire lists ids of " +
+			"decisions that are stale or duplicate.",
 	}, m.proposeWrap)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "propose_brief",
+		Description: "Propose a new brief for this feature when the user and the team agree " +
+			"on its goal, scope or plan; the user approves it before it is saved. brief is " +
+			"the full brief (goal, status, key decisions, open questions). The channel goes " +
+			"on; use propose_wrap only to end it.",
+	}, m.proposeBrief)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "browser_navigate",
 		Description: "Open a URL in the shared browser pane. The user watches it live.",
@@ -227,7 +271,7 @@ func (m *mcpServer) recordDecision(
 	}
 	d, err := m.st.CreateDecision(ctx, store.Decision{
 		FeatureID: f.ID, MessageID: in.MessageID, Body: in.Body, Why: in.Why,
-		Author: m.tok.Role,
+		Author: m.tok.Role, Replaces: in.Replaces,
 	})
 	return nil, d, err
 }
@@ -317,7 +361,7 @@ func (m *mcpServer) searchSessions(
 	if in.Limit <= 0 {
 		in.Limit = _defaultSearchLimit
 	}
-	hits, err := m.st.SearchMessages(ctx, f.ID, in.Query, in.Limit)
+	hits, err := m.st.SearchHistory(ctx, f.ID, in.Query, in.Limit, m.tok.Role)
 	return nil, searchOut{Hits: hits}, err
 }
 
@@ -371,6 +415,100 @@ func (m *mcpServer) postToChannel(
 	return nil, msg, err
 }
 
+func (m *mcpServer) setStage(
+	ctx context.Context, _ *mcp.CallToolRequest, in stageIn,
+) (*mcp.CallToolResult, store.Feature, error) {
+	f, err := m.feature(ctx)
+	if err != nil {
+		return nil, store.Feature{}, err
+	}
+	was := f.Stage
+	f, err = m.st.SetFeatureStage(ctx, f.ID, in.Stage)
+	if err != nil || f.Stage == was {
+		return nil, f, err
+	}
+	_, err = m.st.CreateMessage(ctx, store.Message{
+		ChannelID: m.tok.ChannelID, Author: store.ReefAuthor,
+		Body: fmt.Sprintf("%s moved the stage to %s", m.tok.Role, f.Stage),
+	})
+	return nil, f, err
+}
+
+func (m *mcpServer) sendToRole(
+	ctx context.Context, _ *mcp.CallToolRequest, in directIn,
+) (*mcp.CallToolResult, store.DirectMessage, error) {
+	if in.To == m.tok.Role {
+		return nil, store.DirectMessage{}, fmt.Errorf("%w: cannot send a direct message to yourself", store.ErrInvalid)
+	}
+	ch, err := m.st.Channel(ctx, m.tok.ChannelID)
+	if err != nil {
+		return nil, store.DirectMessage{}, err
+	}
+	if ch.ClosedAt != nil {
+		return nil, store.DirectMessage{}, fmt.Errorf("channel %d is closed: %w", ch.ID, store.ErrConflict)
+	}
+	if ch.ActiveTurn == store.ActiveTurnStarting {
+		return nil, store.DirectMessage{}, fmt.Errorf("channel %d is starting: %w", ch.ID, store.ErrConflict)
+	}
+	if ch.ActiveTurn == store.ActiveTurnWrap || ch.ActiveTurn == store.ActiveTurnPromote {
+		return nil, store.DirectMessage{}, fmt.Errorf("channel %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
+	}
+	running, err := m.st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID, Status: "running"})
+	if err != nil {
+		return nil, store.DirectMessage{}, err
+	}
+	var source *int64
+	for _, t := range running {
+		if t.WakeText == "" {
+			return nil, store.DirectMessage{}, fmt.Errorf("channel %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
+		}
+		if t.Role != m.tok.Role {
+			continue
+		}
+		if t.DirectMessageID == nil {
+			source = wakeSource(t.WakeText)
+			continue
+		}
+		woken, err := m.st.DirectMessage(ctx, *t.DirectMessageID)
+		if err != nil {
+			return nil, store.DirectMessage{}, err
+		}
+		source = woken.SourceMessageID
+	}
+	team, err := m.st.Team(ctx, ch.Team)
+	if err != nil {
+		return nil, store.DirectMessage{}, err
+	}
+	found := false
+	for _, role := range team.Roles {
+		name := role.Name
+		if role.Lead {
+			name = ch.Role
+		}
+		if name == in.To {
+			found = true
+			break
+		}
+	}
+	if !found {
+		return nil, store.DirectMessage{}, fmt.Errorf("%w: role %q is not in this channel's team", store.ErrInvalid, in.To)
+	}
+	dm, err := m.st.CreateDirectMessage(ctx, store.DirectMessage{
+		ChannelID: m.tok.ChannelID, SourceMessageID: source, From: m.tok.Role, To: in.To, Body: in.Body,
+	})
+	return nil, dm, err
+}
+
+func (m *mcpServer) readDirectMessages(
+	ctx context.Context, _ *mcp.CallToolRequest, in directListIn,
+) (*mcp.CallToolResult, directListOut, error) {
+	msgs, err := m.st.DirectMessagesForRole(ctx, m.tok.ChannelID, m.tok.Role, in.After)
+	if msgs == nil {
+		msgs = []store.DirectMessage{}
+	}
+	return nil, directListOut{Messages: msgs}, err
+}
+
 func (m *mcpServer) proposeWrap(
 	ctx context.Context, _ *mcp.CallToolRequest, in wrapIn,
 ) (*mcp.CallToolResult, wrapOut, error) {
@@ -379,7 +517,22 @@ func (m *mcpServer) proposeWrap(
 	}
 	p, err := m.st.CreateProposal(ctx, store.Proposal{
 		ChannelID: m.tok.ChannelID, Role: m.tok.Role, Brief: in.Brief, Notes: in.Notes,
-		Decisions: in.Decisions,
+		Decisions: in.Decisions, Retire: in.Retire,
+	})
+	if err != nil {
+		return nil, wrapOut{}, err
+	}
+	return nil, wrapOut{ID: p.ID, Message: "proposal saved; the user will approve it"}, nil
+}
+
+func (m *mcpServer) proposeBrief(
+	ctx context.Context, _ *mcp.CallToolRequest, in briefIn,
+) (*mcp.CallToolResult, wrapOut, error) {
+	if _, err := m.feature(ctx); err != nil {
+		return nil, wrapOut{}, err
+	}
+	p, err := m.st.CreateProposal(ctx, store.Proposal{
+		ChannelID: m.tok.ChannelID, Role: m.tok.Role, Kind: store.ProposalBrief, Brief: in.Brief,
 	})
 	if err != nil {
 		return nil, wrapOut{}, err

@@ -20,7 +20,7 @@ export function TeamsPage() {
   const team = teams.data?.find((t) => t.name === name);
 
   return (
-    <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6 py-6">
+    <div className="group mx-auto flex w-full max-w-[1200px] flex-col gap-6 py-6 md:has-[[aria-label=Role]]:pr-[444px]">
       <header className="flex flex-wrap items-center gap-3">
         <div>
           <h1 className="text-[32px] font-normal tracking-[-0.02em]">Teams</h1>

@@ -48,6 +48,8 @@ export type Decision = {
   why: string;
   author: string;
   createdAt: string;
+  retiredAt: string | null;
+  replacedBy: number | null;
 };
 
 export type Channel = {
@@ -71,15 +73,18 @@ export type ChannelPreview = Channel & {
 export type ProposedDecision = {
   body: string;
   why: string;
+  replaces?: number[];
 };
 
 export type Proposal = {
   id: number;
   channelId: number;
   role: string;
+  kind: 'wrap' | 'brief';
   brief: string;
   notes: string;
   decisions: ProposedDecision[];
+  retire: number[];
   status: string;
   createdAt: string;
 };
@@ -100,6 +105,7 @@ export type Turn = {
   status: string;
   error: string;
   wakeText: string;
+  directMessageId?: number | null;
   retried: boolean;
   checkpoint: string | null;
   startedAt: string;
@@ -138,8 +144,22 @@ export type Approval = {
   from: string;
   to: string;
   messageId: number;
+  directMessageId?: number;
   text: string;
   status: string;
+  createdAt: string;
+};
+
+export type DirectMessage = {
+  id: number;
+  channelId: number;
+  chainId: number;
+  replyToId: number | null;
+  sourceMessageId: number | null;
+  from: string;
+  to: string;
+  body: string;
+  status: 'sent' | 'done' | 'failed';
   createdAt: string;
 };
 

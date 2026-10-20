@@ -243,7 +243,7 @@ func decideWrap(
 		return true, err
 	}
 	if a := strings.ToLower(answer); a == "y" || a == "yes" {
-		_, added, err := st.ApproveProposal(ctx, p.ID)
+		p, added, err := st.ApproveProposal(ctx, p.ID)
 		if err != nil {
 			if errors.Is(err, store.ErrInvalid) {
 				_, err = fmt.Fprintf(stdout, "reef: %s\n\n", strings.TrimPrefix(err.Error(), "invalid: "))
@@ -251,7 +251,7 @@ func decideWrap(
 			}
 			return false, err
 		}
-		_, err = fmt.Fprintf(stdout, "approved: brief, notes and %d decisions saved\n\n", added)
+		_, err = fmt.Fprintf(stdout, "%s\n\n", approvedText(p, added))
 		return false, err
 	}
 	if _, err := st.RejectProposal(ctx, p.ID); err != nil {
@@ -266,12 +266,27 @@ func decideWrap(
 }
 
 func proposalText(p store.Proposal) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "proposal %d from %s\n\n%s", p.ID, p.Role, proposalBodyText(p))
-	return b.String()
+	return proposalTitle(p) + "\n\n" + proposalBodyText(p)
+}
+
+func proposalTitle(p store.Proposal) string {
+	if p.Kind == store.ProposalBrief {
+		return fmt.Sprintf("brief update %d from %s", p.ID, p.Role)
+	}
+	return fmt.Sprintf("proposal %d from %s", p.ID, p.Role)
+}
+
+func approvedText(p store.Proposal, added int) string {
+	if p.Kind == store.ProposalBrief {
+		return "approved: brief saved"
+	}
+	return fmt.Sprintf("approved: brief, notes and %d decisions saved", added)
 }
 
 func proposalBodyText(p store.Proposal) string {
+	if p.Kind == store.ProposalBrief {
+		return fmt.Sprintf("brief:\n%s\n", p.Brief)
+	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "brief:\n%s\n\nnotes:\n%s\n\ndecisions:\n", p.Brief, p.Notes)
 	for _, d := range p.Decisions {
@@ -279,7 +294,13 @@ func proposalBodyText(p store.Proposal) string {
 		if d.Why != "" {
 			fmt.Fprintf(&b, " (%s)", d.Why)
 		}
+		if len(d.Replaces) > 0 {
+			fmt.Fprintf(&b, " [replaces %v]", d.Replaces)
+		}
 		b.WriteString("\n")
+	}
+	if len(p.Retire) > 0 {
+		fmt.Fprintf(&b, "\nretire decisions: %v\n", p.Retire)
 	}
 	return b.String()
 }

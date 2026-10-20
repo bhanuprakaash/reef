@@ -69,7 +69,11 @@ logged in and on `PATH`.
   count, and a side panel for the team, a thread, the inspector, the pull request or the diff (its expand button opens
   the review page). The header's `PR #N` chip opens the pull request panel: title, state, base and head, review, checks and
   Open on GitHub; Merge asks to confirm, then does `POST /features/{id}/pr/merge`. The running turn names its
-  teammate. A wake held at a gate shows Approve and Reject; a pause from the hop cap shows in
+  teammate. Teammates' direct messages (`GET /channels/{id}/direct-messages`) are never bubbles: each conversation
+  between two roles (from one public source message, or from none) is one compact item at the time of its
+  first message, saying working, waiting approval, paused, failed, stopped, rejected or completed (the state of
+  its newest chain) with its message count; a direct wake's approval shows there, not as a channel row; it opens a Coordination panel with the exchange, a link to
+  the public message it began from, and Approve or Reject, Continue or Retry for its state. A wake held at a gate shows Approve and Reject; a pause from the hop cap shows in
   the cap banner. A channel with rollbackable turns (`GET /turns?channel=ID&rollbackable=1`)
   lists Checkpoints; Roll back on a row asks to confirm, then does `POST /turns/{id}/rollback`.
   A checkpoint taken in another tree, such as a quick session's turn after a promote, is not
@@ -115,7 +119,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
-| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a wrap or promote running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; `retry` of a turn that is not [retryable](#channels-live), or on a channel with a turn running or paused; `rollback` on a channel with a turn running or open in a `reef chat`, on a tree other than the checkpoint's, or on a tree a turn runs on; an approval that is not pending, or one approved while a wrap or promote runs or the channel is paused |
+| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a wrap or promote turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; `retry` of a turn that is not [retryable](#channels-live), or on a channel with a turn running or paused; `rollback` on a channel with a turn running or open in a `reef chat`, on a tree other than the checkpoint's, or on a tree a turn runs on; an approval that is not pending, or one approved while the channel is paused |
 | 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
 | 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
@@ -271,6 +275,7 @@ One agent run in a channel.
 | `endedAt` | string? | `null` while running |
 | `wakeText` | string | default `""`; the text the turn ran: the wake, without the context prompt. Empty for a turn from before this field existed and for a wrap-up or promote turn |
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
+| `directMessageId` | number? | the direct request or response the turn was woken by; `null` for a public wake. Kept so retry preserves private reply routing |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
 | `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<turn id>`. `null` for a turn of a role without `write`, for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
 | `model` | string | default `""`; the backend's model name, set from the agent's first event once the turn ends |
@@ -301,6 +306,9 @@ delete; deleting the turn deletes its tool calls.
 | `why` | string | default `""` |
 | `author` | string | required |
 | `createdAt` | string | |
+| `retiredAt` | string? | `null` while the decision is live. Set when it is retired: stale, duplicate or replaced. A retired decision is never edited or deleted, and still reads |
+| `replacedBy` | number? | the decision that replaced it, if one did; `null` for a plain retire |
+| `replaces` | array? | input to create, echoed in its response and never in a read: ids of live decisions of the same feature that the new decision retires, with their `replacedBy` set to it. Any other id is `invalid: decision 9 is not a live decision of feature 1` and nothing is written |
 
 ### task
 
@@ -374,7 +382,8 @@ A wake that waits at a gate. The SQL table is `approval`.
 | `channelId` | number | |
 | `from` | string | the role whose message woke it |
 | `to` | string | the role that would run |
-| `messageId` | number | the message that woke it |
+| `messageId` | number | the message that woke it; `0` for a direct wake |
+| `directMessageId` | number? | the direct message that woke it, when the wake is direct |
 | `text` | string | the prompt the wake will run, for example `[channel 5, message 28]\nlead wrote: @architect design a form` |
 | `status` | string | `pending`, `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
@@ -399,8 +408,10 @@ them, and the one that made a token deletes it when its session ends. See
 ### proposal
 
 A wrap-up proposal: the new brief, the role's notes and the decisions to record.
-`propose_wrap` makes one. `reef chat` prompts for approval, and `reef wrap approve` or
-`reef wrap reject` decides it; the server offers the same over REST (see [Wrap-up and
+`propose_wrap` makes one. `propose_brief` makes a brief proposal: only the brief, made
+mid-channel. Approving it adds a brief version and leaves the notes, the decisions and the
+channel as they are; the channel's agent is not stopped. A channel has one pending proposal at most: a new wrap rejects the older pending ones of any kind, a new brief rejects the older pending briefs and is refused with `invalid: channel 1 has a wrap-up waiting for approval` while a wrap is pending, and approving a brief on a closed channel is `invalid: channel 1 is closed`. `reef chat` prompts for approval,
+and `reef wrap approve` or `reef wrap reject` decides it; the server offers the same over REST (see [Wrap-up and
 promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 
 | Field | JSON | Notes |
@@ -408,9 +419,11 @@ promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 | `id` | number | |
 | `channelId` | number | required; must be a channel of a feature. Deleting the channel deletes the proposal |
 | `role` | string | required; author of the brief, notes and decisions it applies |
+| `kind` | string | `wrap` (default) or `brief`; any other is `invalid: unknown proposal kind "x"` |
 | `brief` | string | required, not empty; the full new brief |
 | `notes` | string | may be empty; replaces the role's notes |
-| `decisions` | array | `{"body", "why"}` each, `body` required. The SQL column holds them as JSON text |
+| `decisions` | array | `{"body", "why", "replaces"}` each, `body` required; `replaces` is optional, ids of live decisions it retires. Approving applies it only for a decision it adds: one skipped because a live decision of the feature has its body retires nothing. The SQL column holds them as JSON text |
+| `retire` | array | ids of live decisions that are stale or duplicate; approving sets their `retiredAt`. `[]` by default. The SQL column holds them as JSON text. A wrap whose `retire` or `replaces` has an id that is not a live decision of the channel's feature is `invalid: decision 9 is not a live decision of feature 1` and is not saved. An id claimed twice (in `retire` and a `replaces`, or two `replaces`) is kept for its first claim, replaces before `retire`. At approve an id that is already retired is skipped; an id that is not a decision of the feature fails the whole approve with 400 |
 | `status` | string | `pending` (default), `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 | `decidedAt` | string? | `null` while pending |
@@ -464,18 +477,20 @@ tool calls.
 | `GET /channels/{id}` | | 200 | 404 |
 | `PUT /channels/{id}` | `name` (required), `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the channel's backend and applies the next time its agent starts | 200 | 400 bad JSON or permission mode, 404 |
 | `DELETE /channels/{id}` | stops the channel first if it is live; a send during the delete is 404 | 204 | 404 |
-| `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body; a send while a chain of message turns runs is stored at once and runs after the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 a wrap or promote running, channel closed, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
+| `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body; while a message chain runs the message is stored at once and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 wrap or promote turn running, channel closed, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
 | `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `toolCalls` (`name`, `input`, `result`) | 404 |
+| `GET /channels/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the channel, oldest first; each has `id`, `channelId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `createdAt` | 400 bad id, 404 |
+| `GET /search` | `?feature=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the feature's public messages and all its direct messages, newest first, `[]` when none. Each hit has `channelId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `feature`, missing `q` |
 | `POST /channels/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
 | `GET /channels/{id}/approvals` | | 200 the channel's pending gate approvals, oldest first; `[]` when none | 404 |
-| `POST /channels/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body | 400 no `approve`, 404 no such approval in this channel, 409 not pending, or approve while a wrap or promote runs, the channel is paused or 6 hops ran (it stays pending), 503 |
+| `POST /channels/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body; approve while a chain starts or runs queues the wake behind the current turn | 400 no `approve`, 404 no such approval in this channel, 409 not pending, or approve while the channel is paused or 6 hops ran (it stays pending), 503 |
 | `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
 | `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
 | `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
-| `POST /proposals/{id}/approve` | no body needed | 200 the proposal and `decisionsAdded`; the proposal's channel is closed and its agent stopped | 400 already decided, 404 |
+| `POST /proposals/{id}/approve` | no body needed | 200 the proposal and `decisionsAdded`; a wrap closes the proposal's channel and stops its agent, a brief proposal does neither | 400 already decided, 404 |
 | `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
 | `GET /messages` | `?channel=ID` (required), `?after=ID` (only newer ids) | 200, each with `parentId` | 400 no channel, 404 unknown channel |
 | `POST /messages` | `channelId`, `parentId`, `author`, `body` | 201 | 400 unknown channel, missing field, or a `parentId` that is not a top-level message of that channel |
@@ -485,16 +500,16 @@ tool calls.
 | `PUT /tasks/{id}` | `title`, `body`, `status`, `featureId` | 200 | 400, 404 |
 | `DELETE /tasks/{id}` | | 204 | 404 |
 | `GET /turns` | `?channel=ID`, `?status=running\|done\|failed`, `?retryable=1` (only the turns `retry` accepts), `?rollbackable=1` (needs `channel`; only the turns with a `checkpoint` taken in the tree the channel runs in now, so `rollback` is not a 409 for the tree) | 200 | 400 bad id or status, or `rollbackable` without a channel, 404 `rollbackable` on an unknown channel |
-| `POST /turns` | `channelId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent` | 201 | 400 bad backend or unknown channel or message |
+| `POST /turns` | `channelId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent`, `directMessageId` | 201 | 400 bad backend or unknown channel, public message or direct message |
 | `GET /turns/{id}` | | 200 | 404 |
 | `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId`. With no `status`, only `sessionId` is set and the turn stays `running` | 200 | 400 bad status, negative usage, empty `sessionId` without a status, `error` or `usage` without a status, or already ended; 404 |
-| `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not retryable (see [Channels live](#channels-live)), or a channel with a turn running or paused, 503 |
+| `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not retryable (see [Channels live](#channels-live)), or as send for a channel with a turn running or paused, 503 |
 | `GET /inbox` | | 200 the items waiting on the user, newest first; `[]` when none. See [Inbox](#inbox) | |
 | `GET /inbox/events` | | 200 `text/event-stream` | |
 | `POST /channels/{id}/dismiss` | `messageId` | 204, no body; the channel's `waiting` item for that message is hidden, see [Inbox](#inbox) | 400 bad body, 404 unknown channel or a message that is not the channel's |
 | `POST /turns/{id}/rollback` | no body needed | 204, no body; the channel's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the channel has a turn running, a `reef chat` has it open, its tree is not the one the checkpoint was taken in, or a turn of any role runs on the tree, 503 |
-| `GET /decisions` | `?feature=ID` (required) | 200 | 400 no feature, 404 unknown feature |
-| `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author` | 201 | 400 missing field, unknown feature, or a message of another feature |
+| `GET /decisions` | `?feature=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy` | 400 no feature, 404 unknown feature |
+| `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author`, `replaces` | 201 | 400 missing field, unknown feature, a message of another feature, or a `replaces` id that is not a live decision of the feature |
 | `GET /decisions/{id}` | | 200 | 404 |
 
 A `POST` with no body (`stop`, `continue`, `wrap`, `approve`, `reject`) still needs
@@ -619,9 +634,10 @@ a message wakes them.
   From the start of that stop until the delete is done, a send to the channel is 404
   `channel 1 is being deleted`, so no agent starts for a channel that is going away.
 - Server shutdown does the same for every channel before it stops listening.
-- A turn keeps the wake it ran as `wakeText` and `wakeParent`. `POST /turns/{id}/retry` on a
+- A turn keeps the wake it ran as `wakeText`, `wakeParent` and `directMessageId`. `POST /turns/{id}/retry` on a
   `failed` turn runs that wake again for the same role as a new turn in a new chain, the way an
-  approve does, with no new user message: the new turn answers in the same thread, and what its
+  approve does, with no new user message: the new turn answers in the same public thread or
+  direct exchange, and what its
   reply wakes is routed as usual. The failed turn is marked `retried` before the turn starts, so a
   second retry is 409; if the turn cannot start, the mark is taken back. Nothing retries a
   turn by itself. A turn is retryable when it is `failed`, not `retried`, has a `wakeText`, and
@@ -645,7 +661,9 @@ no model. In order:
    the user owns the thread, it goes to the lead. An agent's reply in a thread has no owner
    rule: it wakes only the roles it mentions.
 2. Otherwise every `@name` in the body that is a role of the team goes to that role, each
-   once.
+   once; the sender and unknown names are skipped. The message is stored once. When it wakes
+   more than one role, each wake's header is followed by `Asked together: @a, @b` naming all of
+   them.
 3. Otherwise a message from the user goes to the lead.
 4. Otherwise nobody: a message from an agent that names no one wakes no one, in a thread or not.
 
@@ -672,17 +690,37 @@ of a thread the role owns, and the user's reply in it goes to the role.
 
 The first turn and the wakes after it are one chain. They run one at a time, in the order
 the messages were stored, and the messages each turn stores are routed in turn and queued at
-the end. The channel has a turn running until the chain is done, so a `wrap`, a `promote`,
-a `continue`, a `retry` or a `rollback` during the chain is 409. A `send` or an approve
-during a chain of message turns joins the chain instead (a send waits for a chain that is still starting, so it is stored after the message that starts it): the message is stored at once, and
-its wakes (the approval's wake) run after the turn that is running, ahead of the wakes the
-chain has routed, in the order they arrived. A queued wake is checked, and counted as a hop,
-when it is about to run, like any other. If the chain ends before a queued wake runs, an
-approval is pending again, and a message stays stored but its wake is dropped, as the wakes
-still waiting are when a turn fails or is stopped. A chain that ends in a pause holds the
-queued messages' wakes with the rest, and puts a queued approval back to pending. A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
+the end. The channel has a turn running until the chain is done, so a `wrap`, a `promote`, a
+`continue`, a `rollback` or a `close` during the chain is 409. A `send` during a message chain,
+or an approve while any chain starts or runs, is accepted: the message is stored at once, and its wakes, or the approved
+wake, join the end of the chain's queue and run after the current turn and the wakes it
+queued. Turns still run one at a time. If the chain ends first (a failed turn, a stop, a
+pause, the hop cap) or never starts, a queued approval is pending again and a queued message's wakes are held,
+not run. A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
 lead's reply says `@architect ...`; the architect runs and posts a plan, a new thread it
 owns; the chain ends because the plan names no one. The lead gets no turn after the plan.
+
+`send_to_role` stores a direct request outside the public `message` table. When its sender's
+turn ends, only the named role wakes. A direct wake is gated the same way a public one is:
+a gate that is on holds it as a pending approval, and rejection wakes nobody. Reaching the
+hop or token cap pauses the chain with the held direct wakes. Direct and public wakes share
+the channel's hop count, so switching between them never resets it. Its prompt starts `[channel N, direct message N, chain
+N, source: direct request]`, names the sender, and carries the body. The recipient's ordinary
+reply is one direct response in the same chain (`replyToId` points to the request) and wakes
+the sender with `source: direct response`. The sender's ordinary reply to that response is
+not stored or routed. A further exchange requires an explicit `send_to_role`. The user reads
+all direct records with `GET /channels/{id}/direct-messages`; an MCP token reads only records
+whose `from` or `to` is its role. `GET /search` finds public and direct messages together for
+the user; the MCP `search_sessions` returns a direct hit only to its sender or recipient.
+Rejecting the approval of a direct wake, and a stop that sheds a queued direct wake, each give the request a `failed`
+response with body `rejected` or `stopped`, so the window tells them from a delivery that failed. Wrap-up and promote prompts list the
+channel's direct messages, marking a `failed` attempt `(failed)`. Partial output from a failed recipient turn is appended as
+a `failed` response attempt: it is inspectable but never routed. Retry appends a `done`
+response; a partial unique index allows only one `done` response per request, and only that
+response wakes the sender. `sourceMessageId` is the public message whose wake the sender was answering when it called
+`send_to_role`, read from the sender's running turn; a request sent from a direct wake keeps the
+source of that wake, and a request sent outside a turn has `null`. A response keeps the source of
+its request. Public `GET /messages` history is unchanged.
 
 ### Gates
 
@@ -690,23 +728,25 @@ A wake from a role to another is checked against the team's gates (see [gate](#g
 wake across a gate that is on does not run. The server stores an [approval](#approval) with
 the prompt it would have run and goes on with the rest of the chain. `GET
 /channels/{id}/approvals` lists the pending ones. `POST /channels/{id}/approvals/{aid}` with
-`{"approve":true}` runs the wake as a new chain, or queues it behind the chain that runs
-(it needs a channel that is not paused, else 409 and the approval stays pending). An approve at 6 hops pauses the channel for
+`{"approve":true}` runs the wake as a new chain (it needs an idle channel that is not
+paused, else 409 and the approval stays pending), or queues it on the chain that is starting or
+running, a wrap or promote one included. An approve at 6 hops pauses the channel for
 the hop cap, answers 409 and reopens the approval. With `{"approve":false}` it only marks the
-approval `rejected`. A decided approval is 409. Pending approvals are stored, so they survive a
+approval `rejected`; for a direct wake it also records the `rejected` failed response. A decided approval is 409. Pending approvals are stored, so they survive a
 restart.
 
 ### Events
 
 `GET /channels/{id}/events` is a Server-Sent Events stream. It works for a channel that
-is not live: it waits. A `: keepalive` comment comes every 15 seconds. Five kinds of event:
+is not live: it waits. A `: keepalive` comment comes every 15 seconds. Six kinds of event:
 
 - `turn`: `{"role":"architect","status":"running"}` when a turn of that role starts, then
   `{"role":"architect","status":"done"}` or `{"role":"architect","status":"failed","error":"interrupted"}`
   when it ends. A chain of wakes sends one pair for each turn, with no `idle` between them. A
   wrap or promote turn in which the agent made no proposal ends `{"role":"lead","status":"done","note":"no
   proposal made"}`. `{"status":"idle"}` has no role. It is sent only when a subscriber
-  connects and no turn runs.
+  connects and no turn runs. A turn woken by a direct message carries `"direct":true` in each of its frames; the window shows such a turn
+  as working only, without its text or tool calls.
 - `agent`: one [agent event](agents.md) as JSON, as it comes, from the turn that is running.
 - `pause`: `{"reason":"..."}` when a cap pauses the channel: when a send finds the
   token budget used, or when the hop cap holds a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
@@ -714,6 +754,9 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Five kind
   with `approved` or `rejected` when it is decided.
 - `note`: `{}`, sent when a message is posted outside a turn, such as a [GitHub
   poll](#github-poll) note, so a subscriber knows to re-read `GET /messages`.
+- `direct`: `{}`, sent when a chain ends without running a queued direct wake and gives it a
+  `failed` response after the last `turn` event, and when a rejected approval of a direct wake does the same, so a subscriber knows to re-read `GET /channels/{id}/direct-messages`. Every
+  other change to a direct message happens before a `turn` event that ends its turn.
 
 A subscriber is brought up to date when it connects, so a reconnect needs no other
 request to know the state. The server keeps the events of the running chain in memory. A
@@ -782,7 +825,8 @@ turn of [`Session.Wrap`](../channel/session.go) (see [memory.md](memory.md#wrap-
 agent calls `propose_wrap`; when the turn is done, `GET /channels/{id}/proposal` returns the
 pending proposal, or 404 when the agent made none. `POST /proposals/{id}/approve` and
 `/reject` decide it with the same effect as `reef wrap approve` and `reject`. Approve
-also returns `decisionsAdded`, the decisions it saved, closes the channel (`closedAt`) and stops its agent; a closed channel refuses sends, wraps and wakes with 409 until `POST /channels/{id}/reopen`. A proposal that is already decided is
+also returns `decisionsAdded`, the decisions it saved, closes the channel (`closedAt`) and stops its agent; a closed channel refuses sends, wraps and wakes with 409 until `POST /channels/{id}/reopen`. A brief proposal (`propose_brief`, `kind` `brief`) does not close the channel or block its turns or a wrap; only a
+pending wrap blocks another wrap (409 `channel 2 has a wrap-up waiting for approval`). A proposal that is already decided is
 400, like `invalid: proposal 1 is already approved` in the CLI.
 
 `POST /channels/{id}/promote` turns a quick session into a feature. It takes `{"slug":
@@ -901,7 +945,9 @@ The API has no way to change or remove these rows.
 - Messages and decisions: create and read only. `PUT`, `PATCH` and `DELETE` on
   `/messages/{id}` and `/decisions/{id}` return 405. The only way a message or decision
   goes away is a cascade from its channel or feature. Deleting a channel does not delete
-  its decisions; they only lose `messageId`.
+  its decisions; they only lose `messageId`. A decision's body is never edited, but it can
+  be retired (`retiredAt`, `replacedBy`) by a new decision that replaces it or by an
+  approved proposal; see decision 76.
 - Briefs: `PUT /features/{id}/brief` adds a version and never edits one. Old versions
   stay in `/brief/versions`. Role notes are not versioned; `PUT` replaces them.
 - Turns: created `running`, may get a `sessionId` while running, ended once with `PATCH`

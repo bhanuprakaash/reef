@@ -47,13 +47,14 @@ export function ApprovalRows({
 }) {
   const approvals = useApprovals(channelId);
   const decide = useDecideApproval();
+  const rows = approvals.data?.filter((a) => !a.directMessageId);
 
-  if (!approvals.data?.length) return null;
+  if (!rows?.length) return null;
 
   return (
     <div className="space-y-2">
       <ul className="space-y-2">
-        {approvals.data.map((a) => (
+        {rows.map((a) => (
           <li
             key={a.id}
             id={approvalAnchor(a.id)}

@@ -143,6 +143,11 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	if len(failed) > 0 {
 		logger.Printf("marked %d running turns failed: server restarted", len(failed))
 	}
+	if err := st.ClearStaleActiveTurns(ctx, func(channelID int64) bool {
+		return channel.InUse(data, channelID)
+	}); err != nil {
+		return fmt.Errorf("clear active turns: %w", err)
+	}
 
 	ui, err := web.Dist()
 	if err != nil {

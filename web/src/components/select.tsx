@@ -44,6 +44,7 @@ export function Select({
   const id = useId();
   const trigger = useRef<HTMLButtonElement>(null);
   const popover = useRef<HTMLDivElement>(null);
+  const origin = useRef({ top: 0, left: 0 });
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(-1);
   const selected = options.find((o) => o.value === value);
@@ -72,6 +73,7 @@ export function Select({
     const el = popover.current;
     if (!open || !t || !el) return;
     const r = t.getBoundingClientRect();
+    origin.current = { top: r.top, left: r.left };
     el.style.minWidth = `${Math.max(r.width, 150)}px`;
     el.style.maxHeight = '';
     const height = el.offsetHeight;
@@ -90,6 +92,11 @@ export function Select({
     if (!open) return;
     const close = (e: Event) => {
       if (e.target instanceof Node && popover.current?.contains(e.target)) return;
+      // A scroll event can arrive a frame after the scroll that already moved the trigger.
+      const r = trigger.current?.getBoundingClientRect();
+      if (e.type === 'scroll' && r?.top === origin.current.top && r.left === origin.current.left) {
+        return;
+      }
       setOpen(false);
     };
     window.addEventListener('resize', close);
@@ -101,7 +108,13 @@ export function Select({
   }, [open]);
 
   useEffect(() => {
-    if (open) popover.current?.querySelector('[data-active]')?.scrollIntoView({ block: 'nearest' });
+    const list = popover.current;
+    const item = list?.querySelector<HTMLElement>('[data-active]');
+    if (!open || !list || !item) return;
+    const bottom = item.offsetTop + item.offsetHeight;
+    if (item.offsetTop < list.scrollTop) list.scrollTop = item.offsetTop;
+    else if (bottom > list.scrollTop + list.clientHeight)
+      list.scrollTop = bottom - list.clientHeight;
   }, [open, active]);
 
   function onKeyDown(e: KeyboardEvent) {
@@ -170,7 +183,7 @@ export function Select({
           style={{ visibility: 'hidden' }}
           onMouseDown={(e) => e.preventDefault()}
           onClick={(e) => e.preventDefault()}
-          className="fixed z-50 overflow-y-auto rounded-menu border border-line bg-card p-1.5 text-sm text-fg shadow-menu"
+          className="fixed z-50 max-w-[min(420px,calc(100vw-16px))] overflow-y-auto rounded-menu border border-line bg-card p-1.5 text-sm text-fg shadow-menu"
         >
           {options.map((o, i) => (
             <div key={o.value} role="presentation">
@@ -190,8 +203,12 @@ export function Select({
                 onClick={() => pick(i)}
                 className={`flex h-9 cursor-pointer items-center gap-2.5 rounded-lg px-2.5 aria-disabled:cursor-not-allowed aria-disabled:text-faint ${i === active ? 'bg-hover' : ''}`}
               >
-                <span className="truncate">{o.label}</span>
-                {o.hint && <span className="ml-auto pl-2 text-xs text-muted">{o.hint}</span>}
+                <span className="max-w-full shrink-0 truncate">{o.label}</span>
+                {o.hint && (
+                  <span title={o.hint} className="ml-auto min-w-0 truncate pl-2 text-xs text-muted">
+                    {o.hint}
+                  </span>
+                )}
                 {o.value === value && (
                   <svg
                     className={`size-3.5 shrink-0 ${o.hint ? '' : 'ml-auto'}`}

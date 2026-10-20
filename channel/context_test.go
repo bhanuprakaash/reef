@@ -106,6 +106,7 @@ func TestContext(t *testing.T) {
 	want := `You are the architect on feature "Login" (login) in project "shop".
 Goal: Google login
 Stage: ideation
+Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
 
 ## Brief
 Use Google OAuth.
@@ -127,7 +128,7 @@ channel 2: build, ` + day + `, 2 messages
 ### Open tasks
 task 1 [todo]: write tests
 
-Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision.
+Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
 `
 	if got != want {
 		t.Errorf("Context =\n%s\nwant\n%s", got, want)
@@ -147,6 +148,7 @@ func TestContext_EmptyFeature(t *testing.T) {
 	want := `You are the architect on feature "Login" (login) in project "shop".
 Goal: Google login
 Stage: ideation
+Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
 
 ## Brief
 No brief yet.
@@ -165,10 +167,32 @@ none
 ### Open tasks
 none
 
-Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision.
+Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
 `
 	if got != want {
 		t.Errorf("Context =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestContext_OmitsDirectMessages(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "earlier", Role: "lead", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateDirectMessage(ctx, store.DirectMessage{
+		ChannelID: ch.ID, From: "developer", To: "tester", Body: "private fixture detail"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := Context(ctx, st, f.ID, "tester")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "private fixture detail") || strings.Contains(got, "[direct") ||
+		strings.Contains(got, "earlier") {
+		t.Errorf("Context = %q, want no direct message and no channel that only has one", got)
 	}
 }
 
@@ -322,10 +346,16 @@ func TestContext_DecisionFirstLine(t *testing.T) {
 func TestTeamIntro(t *testing.T) {
 	lead, architect := store.Role{Name: "lead", Lead: true}, store.Role{Name: "architect"}
 	team := store.Team{Name: "core", Roles: []store.Role{lead, architect}}
-	const common = "\n## Team\nYour team: @lead, @architect. To hand work to a teammate, " +
-		"@mention them in a message: that wakes them. Your reply, and anything you send with " +
-		"post_to_channel, is posted to the channel; nobody sees anything else. A message that " +
-		"wakes you starts with [channel N, message N] or [channel N, message N, thread N]: your " +
+	const common = "\n## Team\nYour team: @lead, @architect. Use post_to_channel and @mentions " +
+		"for work the whole team needs: decisions, blockers, questions for the user and outcomes " +
+		"belong in the channel. Use send_to_role for detailed coordination with exactly one " +
+		"teammate; their ordinary reply returns directly once, and continuing requires another " +
+		"send_to_role. When a direct chain completes with information the team or the user needs, " +
+		"publish one concise outcome with post_to_channel; raw logs and routine acknowledgements " +
+		"stay private. When one message mentions several roles, its header ends with " +
+		"\"Asked together:\" naming them all: answer your part and do not repeat a teammate's. " +
+		"A public message that wakes you starts with [channel N, message N] or " +
+		"[channel N, message N, thread N]: your " +
 		"plain reply goes where the header says, a top-level one starting your own thread; pass " +
 		"thread as the parent of post_to_channel when the header has one.\n"
 	tests := []struct {

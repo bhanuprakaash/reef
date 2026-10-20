@@ -184,7 +184,7 @@ func TestProposalRoutes(t *testing.T) {
 
 	propose("first brief")
 	status, body := do(t, http.MethodGet, env.url+"/channels/2/proposal", "")
-	if status != 200 || !strings.Contains(body, `"id":1,"channelId":2,"role":"lead","brief":"first brief"`) {
+	if status != 200 || !strings.Contains(body, `"id":1,"channelId":2,"role":"lead","kind":"wrap","brief":"first brief"`) {
 		t.Fatalf("proposal = %d %s, want proposal 1", status, body)
 	}
 	status, body = do(t, http.MethodPost, env.url+"/proposals/1/approve", "")
