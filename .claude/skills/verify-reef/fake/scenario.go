@@ -56,6 +56,7 @@ var _scenarios = []scenario{
 	{"numbers-600", "", pat(`numbers from 1 to 600`)},
 	{"numbers-300", "", pat(`numbers from 1 to 300`)},
 	{"one-word", "", pat(`(?i)reply with (exactly )?one(\s+other)? word`)},
+	{"subagent-read", "", pat(`Use the Agent tool to start a subagent that reads the file sub\.txt`)},
 	{"list-read-summarize", "", pat(`List the files in this directory with a tool`)},
 	{"brief-goal", "", pat(`(?i)what is the goal of this feature`)},
 	{"say-ok-one-word", "", pat(`Say ok in one word`)},

@@ -424,7 +424,7 @@ func TestToolCall(t *testing.T) {
 	if _, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "architect", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
-	tc, err := s.CreateToolCall(ctx, 1, "Bash", `{"command":"ls"}`)
+	tc, err := s.CreateToolCall(ctx, 1, 0, "Bash", `{"command":"ls"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -458,7 +458,7 @@ func TestCreateToolCall_CutsLongInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	long := strings.Repeat("a", 5000)
-	tc, err := s.CreateToolCall(ctx, 1, "Bash", long)
+	tc, err := s.CreateToolCall(ctx, 1, 0, "Bash", long)
 	if err != nil {
 		t.Fatal(err)
 	}

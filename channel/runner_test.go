@@ -564,6 +564,42 @@ func TestRunner_RecordsModelCostPromptAndToolCalls(t *testing.T) {
 	}
 }
 
+func TestRunner_RecordsSubagentToolCallParent(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8),
+		script: []agent.Event{
+			{Kind: agent.KindToolCall, ToolID: "a1", ToolName: "Agent", Input: []byte(`{}`)},
+			{Kind: agent.KindToolCall, ToolID: "b1", ParentToolID: "a1", ToolName: "Read", Input: []byte(`{}`)},
+			{Kind: agent.KindToolCall, ToolID: "c1", ParentToolID: "gone", ToolName: "Bash", Input: []byte(`{}`)},
+			{Kind: agent.KindTurnEnd},
+		},
+	}
+	r := NewRunner(st, sa, ch.ID, "developer", "claude", "")
+	if err := sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+
+	calls, err := st.ToolCalls(bg, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var parents []int64
+	for _, c := range calls {
+		parents = append(parents, c.ParentID)
+	}
+	if want := []int64{0, 1, 0}; !reflect.DeepEqual(parents, want) {
+		t.Errorf("parent ids = %v, want %v", parents, want)
+	}
+}
+
 func TestRunner_FailedTurnStoresCost(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)

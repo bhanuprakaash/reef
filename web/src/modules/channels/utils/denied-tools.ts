@@ -1,4 +1,4 @@
-import type { InspectorTurn } from '@/types/api';
+import type { InspectorToolCall, InspectorTurn } from '@/types/api';
 
 export type Denial = { turnId: number; role: string; pattern: string; needsWrite: boolean };
 
@@ -20,6 +20,10 @@ function bashPattern(input: string): string | null {
   return /^[\w./-]+$/.test(word) ? `Bash(${word}:*)` : null;
 }
 
+function withChildren(call: InspectorToolCall): InspectorToolCall[] {
+  return [call, ...(call.children ?? []).flatMap(withChildren)];
+}
+
 export function deniedTools(turns: InspectorTurn[]): Denial[] {
   const latest = new Map<string, InspectorTurn>();
   for (const turn of turns) {
@@ -28,7 +32,7 @@ export function deniedTools(turns: InspectorTurn[]): Denial[] {
   const found: Denial[] = [];
   for (const turn of latest.values()) {
     if (turn.status === 'running') continue;
-    for (const call of turn.toolCalls) {
+    for (const call of turn.toolCalls.flatMap(withChildren)) {
       const disabled = _disabled.exec(call.result)?.[1];
       let pattern: string | null = null;
       if (call.name === 'Bash') {

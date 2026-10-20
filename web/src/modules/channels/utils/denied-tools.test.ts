@@ -22,6 +22,25 @@ describe('deniedTools', () => {
     ]);
   });
 
+  it('finds a tool a subagent was refused, nested under its Agent call', () => {
+    const nested = {
+      id: 1,
+      role: 'lead',
+      status: 'done',
+      toolCalls: [
+        {
+          name: 'Agent',
+          input: '{}',
+          result: 'done',
+          children: [{ name: 'WebFetch', input: '{}', result: notGranted }],
+        },
+      ],
+    } as InspectorTurn;
+    expect(deniedTools([nested])).toEqual([
+      { turnId: 1, role: 'lead', pattern: 'WebFetch', needsWrite: false },
+    ]);
+  });
+
   it('derives a Bash pattern from the command word', () => {
     const calls: [string, string, string][] = [
       ['Bash', '{"command":"npm --version"}', 'This command requires approval'],

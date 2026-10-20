@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|first-run BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -12,9 +12,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, denials, 'first-run': firstRun };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, denials, subagent, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -1217,6 +1217,60 @@ async function inspector() {
     'the developer turn shows a tool call with its input and result',
     body,
   );
+}
+
+async function subagent() {
+  writeFileSync(path.join(projectDir, 'sub.txt'), 'sub-hello\n');
+  // The channel runs in a worktree, which only has what is committed.
+  const git = (...args) => execFileSync('git', ['-C', projectDir, '-c', 'user.name=reef', '-c', 'user.email=reef@example.com', ...args], { stdio: 'pipe' });
+  git('init', '-q');
+  git('add', 'sub.txt');
+  git('commit', '-q', '--allow-empty', '-m', 'sub.txt');
+  const section = await addProject();
+  await addFeature(section, 'subagent', 'Subagent');
+  const cid = await newChannel(main, 'New channel', 'subagent room');
+  await send(
+    'Use the Agent tool to start a subagent that reads the file sub.txt in the current directory with the Read tool. Then tell me its contents.',
+  );
+  await working();
+  await openTurn();
+  const group = turnPanel.locator('details', { has: page.locator('summary', { hasText: /^sub-agent/ }) });
+  await group.locator('summary', { hasText: /^sub-agent/ }).waitFor({ timeout: 120000 });
+  const agentRow = turnPanel.locator('details', { has: page.locator('summary', { hasText: /^Agent/ }) }).first();
+  const label = await agentRow.locator('summary').first().innerText();
+  check(/^Agent\s+\S+/.test(label) && !label.includes('{'), 'the Agent call shows as a subagent row labelled from its input', label);
+  const child = group.first().locator('summary', { hasText: /Read/ });
+  await child.waitFor({ timeout: 30000 });
+  const open = await group.first().evaluate((el) => el.open);
+  check(open, 'while the subagent runs its nested tool calls are shown under it', await group.first().innerText());
+  await shot('turn-panel');
+  await group.first().evaluate((el) => !el.open || new Promise((res) => el.addEventListener('toggle', res, { once: true })));
+  check(!(await group.first().evaluate((el) => el.open)), 'when the Agent call is done its group collapses', await group.first().locator('summary').first().innerText());
+  await shot('turn-panel-done');
+  await idle();
+
+  const json = await getJson(`/channels/${cid}/inspector`);
+  const calls = json.turns.flatMap((t) => t.toolCalls);
+  const call = calls.find((c) => c.name === 'Agent');
+  const nested = (call?.children ?? []).map((c) => c.name);
+  check(nested.length > 0 && nested.includes('Read') && !calls.some((c) => c.name === 'Read'), 'the inspector API nests the subagent tool calls under the Agent call', JSON.stringify(call));
+  const stored = sql(`select count(*) from tool_call where parent_id is not null`);
+  check(Number(stored) > 0, 'the subagent tool calls are stored with the Agent call as parent', `tool_call rows with a parent: ${stored}`);
+
+  await main.getByRole('button', { name: 'Inspector' }).click();
+  const panel = page.getByRole('complementary', { name: 'Inspector' });
+  const turnRow = panel.locator('details').filter({ hasText: 'Prompt' }).first();
+  await turnRow.locator('summary').first().click();
+  const iGroup = turnRow.locator('details', { has: page.locator('summary', { hasText: /^sub-agent/ }) });
+  await iGroup.locator('summary').waitFor();
+  check(!(await iGroup.evaluate((el) => el.open)), 'a finished turn in the inspector shows the subagent group collapsed', await iGroup.locator('summary').innerText());
+  const input = JSON.parse(call.input);
+  const want = [input.subagent_type, input.description].filter(Boolean).join(' · ');
+  check((await panel.innerText()).includes(`Agent ${want}`), 'the inspector labels the Agent call from its input', want);
+  await shot('inspector-collapsed');
+  await iGroup.locator('summary').click();
+  check(await iGroup.evaluate((el) => el.open), 'expanding the group shows the nested calls', await iGroup.innerText());
+  await shot('inspector-expanded');
 }
 
 async function review() {

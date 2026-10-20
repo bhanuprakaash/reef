@@ -205,6 +205,7 @@ export type InspectorToolCall = {
   name: string;
   input: string;
   result: string;
+  children?: InspectorToolCall[];
 };
 
 export type InspectorTurn = {
