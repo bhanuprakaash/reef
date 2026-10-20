@@ -38,6 +38,8 @@ var _scenarios = []scenario{
 	{"google-tester-woken", "tester", pat(`Implemented per the architect's plan`)},
 	{"google-lead-final", "lead", pat(`(?s)tester wrote: .*TestGoogleAuthRedirect`)},
 	{"run-checks", "tester", pat(`run the checks`)},
+	{"webfetch-allowed", "", pat(`WebFetch tool again`)},
+	{"webfetch-denied", "", pat(`WebFetch tool to fetch`)},
 	{"write-refused", "", pat(`file t\.txt containing the word nope`)},
 	{"write-d", "", pat(`file d\.txt containing the word yes`)},
 	{"write-file", "", pat(`create new\.txt in the current directory containing the word hi`)},

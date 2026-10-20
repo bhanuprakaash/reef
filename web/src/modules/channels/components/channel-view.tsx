@@ -16,6 +16,7 @@ import { ChannelHeader } from '@/modules/channels/components/channel-header';
 import { CheckpointRows } from '@/modules/channels/components/checkpoint-rows';
 import { Composer } from '@/modules/channels/components/composer';
 import { CoordinationPanel } from '@/modules/channels/components/coordination-panel';
+import { DeniedToolRows } from '@/modules/channels/components/denied-tool-rows';
 import { FailedTurnRows } from '@/modules/channels/components/failed-turn-rows';
 import { InspectorPanel } from '@/modules/channels/components/inspector-panel';
 import { LiveTurn } from '@/modules/channels/components/live-turn';
@@ -228,6 +229,7 @@ export function ChannelView({
                 paused={channel.paused !== ''}
               />
               <CheckpointRows channelId={channel.id} running={running} />
+              <DeniedToolRows channel={channel} roles={roles} running={running} />
               <ApprovalRows channelId={channel.id} faces={faces} />
               <ProposalPanel channelId={channel.id} featureId={channel.featureId} faces={faces} />
             </div>

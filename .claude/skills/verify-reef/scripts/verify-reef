@@ -685,7 +685,7 @@ cmd_ui() {
 	ui="$REPO/.claude/skills/verify-reef/scripts/ui"
 	[ -d "$ui/node_modules" ] || (cd "$ui" && npm ci >&2) || fail "npm ci failed in $ui"
 	mkdir -p "$EV/ui"
-	REEF_UI_DATA=$(cat "$SCR/serve.data") REEF_UI_PROJECT=$CWD REEF_UI_PROOF=$EV/ui \
+	REEF_UI_DATA=$(cat "$SCR/serve.data") REEF_UI_PROJECT=$CWD REEF_UI_PROOF=$EV/ui REEF_FAKE_LOG=$EV/fake-claude.log \
 		node "$ui/drive.mjs" "$1" "http://$(cat "$SCR/serve.addr")" 2>&1 | tee "$EV/ui-$1.log"
 	exit "${PIPESTATUS[0]}"
 }

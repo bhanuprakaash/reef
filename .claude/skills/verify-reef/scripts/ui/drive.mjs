@@ -1,9 +1,10 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|first-run BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
 // REEF_FAKE_GH (pr only: the folder the server's fake gh keeps its PR in, see fake-gh/gh).
+// REEF_FAKE_LOG (denials only: the fake claude's log, one line per turn with its args).
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -11,9 +12,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, 'first-run': firstRun };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, denials, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -2148,6 +2149,89 @@ async function coordination() {
   check(last.status === 'failed' && last.body === 'rejected' && last.from === 'architect', 'the rejection is stored as a failed architect response', JSON.stringify(last));
   check((await panel.getByRole('button', { name: 'Retry' }).count()) === 0, 'a rejected exchange offers no Retry');
   await shot('phone-rejected');
+}
+
+async function denials() {
+  const roles = [
+    { name: 'lead', lead: true, backend: 'claude', tools: ['Read'], persona: 'You are the lead. Do what the user asks with the tools you have, then answer in one short sentence.' },
+    { name: 'reviewer', backend: 'claude', tools: ['Read'], persona: 'You are the reviewer. Do what the user asks with the tools you have, then answer in one short sentence. Never @mention anyone.' },
+  ];
+  const putTeam = (r) =>
+    fetch(`${base}/teams/denials`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'denials', roles: r }) });
+  check((await putTeam(roles)).status === 200, 'the team denials is applied: a lead and a read-only reviewer, both allowed only Read');
+  const toolsOf = async (role) => (await getJson('/teams/denials')).roles.find((r) => r.name === role).tools.join(',');
+  const turnLines = (role) =>
+    readFileSync(process.env.REEF_FAKE_LOG ?? '/dev/null', 'utf8').split('\n').filter((l) => l.includes(` role=${role} `));
+  const allowed = (line) => /--allowedTools (\S+)/.exec(line)?.[1];
+  const pidOf = (line) => /pid=(\d+)/.exec(line)?.[1];
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const section = await addProject();
+  await addFeature(section, 'fetch', 'Fetch');
+  const { id: cid } = await newTeamChannel('denials', 'denials room');
+  const card = main.getByRole('listitem').filter({ hasText: / was denied [A-Z]/ });
+  const add = card.getByRole('button', { name: 'Add to role' });
+  const ask = async (text) => {
+    await send(text);
+    await working();
+    await idle();
+  };
+  const fetchPrompt = (who, again) => `${who}Use the WebFetch tool ${again ? 'again ' : ''}to fetch https://example.com and tell me its title.`;
+
+  await ask(fetchPrompt('@reviewer ', false));
+  await card.waitFor({ timeout: 15000 });
+  check((await card.innerText()).replace(/\s+/g, ' ').includes('Reviewer was denied WebFetch') && (await add.count()) === 1, "a denied tool call shows 'Reviewer was denied WebFetch' with Add to role", (await card.innerText()).replace(/\s+/g, ' '));
+  await shot('reviewer-denied');
+  check(await toolsOf('reviewer') === 'Read', 'the reviewer row still allows only Read', await toolsOf('reviewer'));
+  await add.click();
+  await card.getByText('Added', { exact: true }).waitFor();
+  check((await add.count()) === 0 && (await toolsOf('reviewer')) === 'Read,WebFetch', 'Add to role stores WebFetch in the reviewer row and the card says Added', await toolsOf('reviewer'));
+  await shot('reviewer-added');
+  await page.reload();
+  await card.getByText('Added', { exact: true }).waitFor();
+  check((await add.count()) === 0, 'after a reload the card still says Added and offers no second Add');
+
+  await ask(fetchPrompt('@reviewer ', true));
+  const lines = turnLines('reviewer');
+  const [before, after] = [lines.at(-2), lines.at(-1)];
+  check(!allowed(before).includes('WebFetch') && allowed(after).includes('WebFetch'), 'the reviewer next start gets WebFetch in --allowedTools', `${allowed(before)} -> ${allowed(after)}`);
+  const result = sql(`select result from tool_call where turn_id = (select max(id) from turn where channel_id = ${cid} and role = 'reviewer') and name = 'WebFetch'`);
+  check(result.startsWith('The page title is'), 'the next wake runs WebFetch successfully', result);
+  check((await card.count()) === 0, 'the card is gone once the role has a newer turn');
+  await shot('reviewer-retried');
+
+  await ask('@reviewer Use the Write tool to create the file t.txt containing the word nope. If that is refused, try once with Bash. Say what happened.');
+  await card.waitFor({ timeout: 15000 });
+  const text = (await card.innerText()).replace(/\s+/g, ' ');
+  check(text.includes('Reviewer was denied Write') && text.includes('Needs write access') && (await add.count()) === 0, 'a read-only role denied Write shows Needs write access and no Add', text);
+  await shot('write-denied');
+
+  const flipped = roles.map((r) => (r.name === 'reviewer' ? { ...r, backend: 'codex', tools: [] } : r));
+  await putTeam(flipped);
+  await page.reload();
+  await card.getByText('Codex ignores allowed tools').waitFor();
+  check((await add.count()) === 0, 'a codex role shows no Add');
+  await page.waitForTimeout(500);
+  await shot('codex-denied');
+  await putTeam(roles);
+
+  const leadCard = card.filter({ hasText: 'Lead was denied' });
+  const leadAdd = leadCard.getByRole('button', { name: 'Add to role' });
+  await ask(fetchPrompt('', false));
+  await leadCard.waitFor({ timeout: 15000 });
+  check((await leadCard.innerText()).replace(/\s+/g, ' ').includes('Lead was denied WebFetch') && (await leadAdd.count()) === 1, "a denied lead shows 'Lead was denied WebFetch' with Add to role");
+  await shot('lead-denied');
+  await leadAdd.click();
+  await leadCard.getByText('Added', { exact: true }).waitFor();
+  check((await toolsOf('lead')) === 'Read,WebFetch', 'Add to role stores WebFetch in the lead row', await toolsOf('lead'));
+
+  await ask(fetchPrompt('', true));
+  const lead = turnLines('lead');
+  check(pidOf(lead.at(-2)) !== pidOf(lead.at(-1)) && allowed(lead.at(-1)).includes('WebFetch'), 'the lead agent restarted and got WebFetch in --allowedTools', `pid ${pidOf(lead.at(-2))} -> ${pidOf(lead.at(-1))}, ${allowed(lead.at(-1))}`);
+  const leadResult = sql(`select result from tool_call where turn_id = (select max(id) from turn where channel_id = ${cid} and role = 'lead') and name = 'WebFetch'`);
+  check(leadResult.startsWith('The page title is'), 'the lead next wake runs WebFetch successfully', leadResult);
+  check(sql(`select count(*) from turn where channel_id = ${cid} and status = 'failed'`) === '0', 'no turn failed');
+  await shot('lead-retried');
 }
 
 try {

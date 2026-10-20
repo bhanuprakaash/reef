@@ -76,6 +76,15 @@ logged in and on `PATH`.
   the public message it began from, and Approve or Reject, Continue or Retry for its state. A wake held at a gate shows Approve and Reject; a pause from the hop cap shows in
   the cap banner. A channel with rollbackable turns (`GET /turns?channel=ID&rollbackable=1`)
   lists Checkpoints; Roll back on a row asks to confirm, then does `POST /turns/{id}/rollback`.
+  A role whose newest ended turn has a tool call that claude refused for lack of permission (the
+  result says it "requested permissions to use X" or "requires approval", or that an edit tool "is
+  disabled for this session"), read from `GET /channels/{id}/inspector`, gets a card
+  "<Role> was denied <tool>" under the messages. A `Bash` call shows as `Bash(<first word>:*)`, and a
+  compound command shows no card. Add to role reads `GET /teams/{name}`, appends the pattern to that role's
+  `tools` and saves with `PUT /teams/{name}`; the card then says Added. The next wake of a specialist
+  starts with it in `--allowedTools`; the lead keeps its agent between turns, so Add for the lead also
+  does `POST /channels/{id}/stop`. Add is disabled while a turn runs. A read-only role refused an
+  edit tool shows "Needs write access" and a codex role "Codex ignores allowed tools", both with no Add.
   A checkpoint taken in another tree, such as a quick session's turn after a promote, is not
   listed. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
   reply is the stored message, so the live block does not repeat it.

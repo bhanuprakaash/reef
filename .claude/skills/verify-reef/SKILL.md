@@ -311,6 +311,7 @@ REEF_VERIFY_RUN=<id> $H ui fixes     # Fixes feature: no stage bar, two tasks, o
 REEF_VERIFY_RUN=<id> $H ui workshop  # /teams page edits a role's persona, keeps its mcpServers, shows reef team apply's errors, copies a team, next developer wake uses the new persona
 REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, types, Enter shows Captured and clears the box, a task row is stored; a failing request shows its error
 REEF_VERIFY_RUN=<id> $H ui coordination # direct messages show as one item (waiting approval, working, completed, stopped, rejected, Retry) with a Coordination panel and a source-message link, at 1280x800 and 390x844 (needs `gated`)
+REEF_VERIFY_RUN=<id> $H ui denials # a refused tool call shows a card with Add to role: the role row gets the pattern, its next start has it in --allowedTools; write-needing and codex roles get no Add (fake claude only)
 REEF_VERIFY_RUN=<id> $H ui pr        # the header PR chip opens the PR panel: checks, Merge disabled while not mergeable, confirm dialog, merged state (fake gh, see features/window.md)
 ```
 
@@ -438,7 +439,7 @@ Evidence goes to `~/.reef-verify/<id>/`, outside scratch. Cleanup never touches 
 | `build.txt` | repo, HEAD sha, dirty file count, binary paths (`reef-agent`, `reef`, the fake `claude`) |
 | `doctor.txt` | the doctor lines |
 | `pre-pids.txt` | `claude`/`codex`/`reef-agent` pids before any drive |
-| `fake-claude.log` | fake mode: one line per turn (role, scenario, cwd, session); record mode: `recorded <name>` or `not recorded` per prompt |
+| `fake-claude.log` | fake mode: one line per turn (role, scenario, cwd, session, args); record mode: `recorded <name>` or `not recorded` per prompt |
 | `<name>.jsonl` | `reef-agent` stdout, one Event per line |
 | `<name>.stderr` | `reef-agent` stderr (`reef-agent: agent error: ...`, usage text) |
 | `<name>.meta` | args, cwd, `ANTHROPIC_MODEL`, exit, elapsed, SIGINT time, event kind counts, last line, child count, orphans, new pids since doctor |
