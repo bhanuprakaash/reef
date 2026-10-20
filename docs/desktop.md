@@ -155,7 +155,7 @@ app chosen the toggle runs `open -a <app> <path>` in the main process (`terminal
 same worktree the pane would use, with the same Open terminal step first when a feature has no
 worktree, then switches itself off; no xterm pane opens, and a failed `open` shows its error in
 the pane until the toggle is pressed or the page changes. The choice is kept in the window's
-`localStorage` (`reef.terminalApp`), not on the server.
+`localStorage` (`reef.terminalApp`), not on the server. The path must be an absolute path to an existing folder, else `open` is not run; the app name is passed as typed, so Custom is deliberately open.
 
 ## Back and forward
 

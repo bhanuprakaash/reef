@@ -15,6 +15,9 @@ export function installedTerminalApps() {
 
 // Opens cwd in a terminal app with `open -a`. Resolves to the error text, empty when it launched.
 export function launchTerminalApp(app, cwd, PATH) {
+  if (typeof cwd !== 'string' || !path.isAbsolute(cwd) || !fs.statSync(cwd, { throwIfNoEntry: false })?.isDirectory()) {
+    return Promise.resolve(`${cwd} is not an absolute path to an existing folder`);
+  }
   return new Promise((resolve) => {
     execFile('open', ['-a', app, cwd], { env: { ...process.env, PATH } }, (error, _stdout, stderr) => {
       resolve(error ? stderr.trim() || error.message : '');
