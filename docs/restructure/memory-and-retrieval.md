@@ -25,6 +25,10 @@ Do not produce five duplicate copies of the same underlying event.
 
 A **Teammate** (the user-facing name for an individual agent) can have multiple independent direct conversations. Each conversation is ordinary session history, without required project IDs, a project selector, or a predefined project association. The user may discuss one project, multiple projects, or unrelated topics in the same conversation. Based on the current question, the Teammate can retrieve relevant memories and traces on demand. The memory service resolves references, checks permissions, preserves provenance and returns bounded context; mentioning a project does not grant access. A transcript does not automatically become the Teammate's personal memory. Knowledge extracted from it receives its own role-aware ownership and scope.
 
+## Teammate consultations and handoffs
+
+A bounded **Ask a Teammate** consultation is linked to its originating conversation, with an attributed question, only the necessary authorised context, response and provenance. It is not automatically a new direct chat or Work Item. The recipient's role governs the perspective and authority of any candidate knowledge it contributes. Cross-Teammate communication must not bypass scope/access rules, and a returned answer is not automatically an accepted fact. A conversation or consultation can later support a global Work Item assigned to an individual or Team, preserving evidence without copying whole transcripts into personal/team memory.
+
 ## Logical scopes
 
 - **Teammate (internal: agent):** persistent identity, general expertise, appropriately promoted reusable lessons and history.
