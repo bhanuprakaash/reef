@@ -7,7 +7,7 @@
 1. [Why restructure?](#why-restructure)
 2. [Proposed domain concepts](#proposed-domain-concepts)
 3. [Teammates and teams](#teammates-and-teams)
-4. [Direct conversations and optional project context](#direct-conversations-and-optional-project-context)
+4. [Direct conversations without mandatory context association](#direct-conversations-without-mandatory-context-association)
 5. [Spaces, channels, and work](#spaces-channels-and-work)
 6. [Memory and retrieval service](memory-and-retrieval.md)
 7. [Reef context and prompt cleanup](#reef-context-and-prompt-cleanup)
@@ -23,7 +23,7 @@ We want persistent, individually recognizable Teammates that can collaborate acr
 ## Proposed domain concepts
 
 - **Teammate:** The chosen user-facing term for one persistent individual AI collaborator, with expertise, instructions, tools, scripts, capabilities, and history. **Agent** may remain an internal technical term. Do not use **employee** in the product model; users should not need to understand templates or runtime instances.
-- **Direct conversation:** One independent, persistent chat session with one Teammate. A Teammate can have many conversations, each with its own history and optional project association.
+- **Direct conversation:** One independent, persistent chat session with one Teammate. A Teammate can have many conversations, each with its own history. It has no mandatory project, team, feature, work-item, or project-ID association.
 - **Team:** A composition of existing agents, with responsibilities, coordination rules, and collective experience. An agent may join multiple teams without being cloned.
 - **Project:** A repository or project boundary with its own durable technical knowledge, decisions, and conventions.
 - **Space:** A persistent place to invite agents or teams and discuss, investigate, brainstorm, and plan. A discussion need not create work or follow prescribed stages.
@@ -39,14 +39,14 @@ Create Teammates independently, then add them to teams. A single Teammate may pa
 
 Team templates are not a required initial user-facing concept. Direct conversations do not require a team or Space.
 
-## Direct conversations and optional project context
+## Direct conversations without mandatory context association
 
-- Open a Teammate directly and create any number of separate conversations, like ordinary chat sessions. Each has its own history and can be resumed independently; creating a new chat does not clone the Teammate.
-- A conversation can start without a project for general discussion. Offer a conversation-level project selector/toggle to associate it with Project A, B, etc. This is not a global change to the Teammate's identity.
-- When a project is selected, Reef should provide relevant **authorised** project context and enable on-demand retrieval of project history/traces, decisions, findings and related work. Do not blindly inject all project history into the system prompt.
-- A conversation's history is not automatically promoted into the Teammate's permanent personal memory. Any extracted knowledge follows the role-aware memory policy and scope boundaries described in [Memory and retrieval service](memory-and-retrieval.md).
-- Switching or removing a project association needs an explicit context-boundary policy: previously visible private content must not silently become accessible in another project. Whether switching in place or requiring a fresh conversation remains an open UX/security decision.
-- A direct conversation may later produce a work item or lead to a multi-participant Space, but neither is mandatory.
+- Open a Teammate directly and create any number of separate, resumable ordinary chat sessions. A new conversation does not clone the Teammate.
+- A conversation is just a conversation: do not require or persist a project selector, project-ID list, team, feature, work-item link, or predefined context scope as part of the direct-conversation model.
+- A user may discuss any topic, including one project, multiple projects, or none, and change topics naturally in the same conversation.
+- The Teammate can request relevant memory and traces on demand based on the user's question and the ongoing conversation. Retrieval resolves entities, relevance, provenance and permissions; it must not assume that every project mentioned is authorised or inject whole project histories.
+- The conversation transcript is history, not automatically permanent personal memory. Extracted findings retain their own proper source, role, scope and access policy in the memory graph.
+- Conversations can yield work or lead to collaborative Spaces, but neither is mandatory.
 
 ## Spaces, channels, and work
 
@@ -59,7 +59,6 @@ Separately audit the existing channel/session prompt path: locally, an unexpecte
 ## Boundaries and unresolved questions
 
 - What knowledge may move from project/work scope into a Teammate's general memory, and under whose approval?
-- How should changing a direct conversation's project association behave, including history visibility and session reset?
 - How are agent/team roles, authority, evidence, and access permissions represented?
 - What are the precise Space, Team, Work and Channel lifecycle rules?
 - How should automated routing and execution approval work?
