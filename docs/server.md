@@ -156,7 +156,8 @@ migration 10 [`010_role_write.sql`](../store/migrations/010_role_write.sql) (`ro
 migration 11 [`011_turn_wake.sql`](../store/migrations/011_turn_wake.sql) (`turn.wake_text`, `turn.wake_parent`, `turn.retried`) and
 migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`) and
 migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`) and
-migration 32 [`032_provider.sql`](../store/migrations/032_provider.sql) (`provider`, `role.provider`).
+migration 32 [`032_provider.sql`](../store/migrations/032_provider.sql) (`provider`, `role.provider`) and
+migration 33 [`033_channel_name_auto.sql`](../store/migrations/033_channel_name_auto.sql) (`channel.name_auto`).
 Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 
 ### project
@@ -511,9 +512,9 @@ tool calls.
 | `GET /teams/{name}` | | 200, with `mcp` instead of `mcpServers` as above; each role shows `write` | 404 |
 | `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; a role may also list `mcpRemove`, the `{name, label}` of each stored MCP server to drop, as `GET` showed it; servers it does not list are kept); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones, minus those in its `mcpRemove`; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists, or a server in `mcpRemove` no longer matches a stored one by name and label (the team changed since it was loaded; nothing is applied) |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 each channel also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
-| `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
+| `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role). A `name` is required; one that is the new-channel form's default, `<backend or team> <hh:mm>` (`claude 14:32`, `claude 02:32 PM`), marks the channel as waiting for a provider name, see [Channel names](#channel-names) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
-| `PUT /channels/{id}` | `name` (required), `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the channel's backend and applies the next time its agent starts | 200 | 400 bad JSON or permission mode, 404 |
+| `PUT /channels/{id}` | `name` (required), `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the channel's backend and applies the next time its agent starts. A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or permission mode, 404 |
 | `DELETE /channels/{id}` | stops the channel first if it is live; a send during the delete is 404 | 204 | 404 |
 | `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body; while a message chain runs the message is stored at once and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 wrap or promote turn running, channel closed, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
@@ -774,10 +775,23 @@ the hop cap, answers 409 and reopens the approval. With `{"approve":false}` it o
 approval `rejected`; for a direct wake it also records the `rejected` failed response. A decided approval is 409. Pending approvals are stored, so they survive a
 restart.
 
+### Channel names
+
+A channel created with the new-channel form's default name has `channel.name_auto` set to 1.
+The first user message sent to it (`POST /channels/{id}/send`, not a wrap or promote command)
+takes the one naming attempt (`name_auto` 2) and asks the channel's backend, in the background, for a name: one
+throwaway turn in one shared empty folder (`reef-name` in the temp folder), with no tools (claude on `haiku`, codex
+`read-only`), so it makes no turn or message. The reply is cut to the convention: its first
+line, lowercase words of letters and digits (a hyphen splits words), at most four words and 40 characters
+(`fix login redirect loop`). The name is stored only if the attempt is still the channel's, in one
+statement, and `name_auto` goes to 0; a `PUT /channels/{id}` with another name, which sets
+`name_auto` to 0, got there first and wins. A failed call, an empty name or a stopped server keeps the
+current name and is not tried again. Channels that existed before the column keep `name_auto` 0.
+
 ### Events
 
 `GET /channels/{id}/events` is a Server-Sent Events stream. It works for a channel that
-is not live: it waits. A `: keepalive` comment comes every 15 seconds. Six kinds of event:
+is not live: it waits. A `: keepalive` comment comes every 15 seconds. Seven kinds of event:
 
 - `turn`: `{"role":"architect","status":"running"}` when a turn of that role starts, then
   `{"role":"architect","status":"done"}` or `{"role":"architect","status":"failed","error":"interrupted"}`
@@ -794,6 +808,7 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Six kinds
   without running a wake that was approved and queued.
 - `note`: `{}`, sent when a message is posted outside a turn, such as a [GitHub
   poll](#github-poll) note, so a subscriber knows to re-read `GET /messages`.
+- `name`: `{}`, sent when the provider's name replaces a channel's default name, so a subscriber knows to re-read `GET /channels`.
 - `direct`: `{}`, sent when a chain ends without running a queued direct wake and gives it a
   `failed` response after the last `turn` event, and when a rejected approval of a direct wake does the same, so a subscriber knows to re-read `GET /channels/{id}/direct-messages`. Every
   other change to a direct message happens before a `turn` event that ends its turn.

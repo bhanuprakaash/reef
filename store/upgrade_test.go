@@ -36,8 +36,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 32 {
-		t.Errorf("user_version = %d, want 32", version)
+	if version != 33 {
+		t.Errorf("user_version = %d, want 33", version)
 	}
 
 	at := func(h, m, sec, ns int) time.Time {
@@ -145,8 +145,8 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 32 {
-		t.Errorf("user_version = %d, want 32", version)
+	if version != 33 {
+		t.Errorf("user_version = %d, want 33", version)
 	}
 	as, err := s.PendingApprovals(ctx, 1)
 	if err != nil {
@@ -154,5 +154,32 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	}
 	if len(as) != 1 || as[0].Kind != ApprovalGate || as[0].Text != "plan it" {
 		t.Errorf("approvals = %+v, want the one approval with kind gate", as)
+	}
+}
+
+func TestOpen_UpgradeLeavesChannelNamesUserSet(t *testing.T) {
+	dir := t.TempDir()
+	fixture, err := os.ReadFile(filepath.Join("testdata", "v1.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "reef.db"), fixture, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	var pending int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM channel WHERE name_auto <> 0").Scan(&pending); err != nil {
+		t.Fatal(err)
+	}
+	if pending != 0 {
+		t.Errorf("channels the provider may rename = %d, want 0", pending)
+	}
+	if ok, err := s.ClaimName(context.Background(), 1); err != nil || ok {
+		t.Errorf("ClaimName on an upgraded channel = %v, %v, want false", ok, err)
 	}
 }

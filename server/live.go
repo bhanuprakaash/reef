@@ -21,6 +21,8 @@ import (
 
 const _keepAlive = 15 * time.Second
 
+const _nameTimeout = time.Minute
+
 var errStopping = errors.New("server is stopping")
 
 const _hopReasonPrefix = "hop cap:"
@@ -339,6 +341,9 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 	if err != nil {
 		return c.release(err)
 	}
+	if t.kind == _message {
+		s.nameChannel(ctx, id, ch.Backend, t.text)
+	}
 	queue := []wake{{from: _userAuthor, role: role, text: t.text, parent: t.parent}}
 	if t.kind == _message {
 		if queue, err = s.route(ctx, id, []store.Message{msg}, _userAuthor); err != nil {
@@ -346,6 +351,38 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 		}
 	}
 	return c.start(ctx, sess, t.kind, queue, msg.ID)
+}
+
+// nameChannel starts the one attempt to name a channel created with a default name, from its
+// first user message. The name lands only if no rename ended the attempt first; a failed
+// attempt keeps the name the channel has.
+func (s *server) nameChannel(ctx context.Context, id int64, backend, text string) {
+	ok, err := s.st.ClaimName(ctx, id)
+	if err != nil {
+		log.Printf("claim name of channel %d: %v", id, err)
+		return
+	}
+	if !ok || !s.begin() {
+		return
+	}
+	go func() {
+		defer s.wg.Done()
+		nctx, cancel := context.WithTimeout(s.ctx, _nameTimeout)
+		defer cancel()
+		name, err := s.name(nctx, backend, text)
+		if err != nil {
+			log.Printf("name channel %d: %v", id, err)
+			name = ""
+		}
+		applied, err := s.st.FinishName(context.Background(), id, name)
+		if err != nil {
+			log.Printf("name channel %d: %v", id, err)
+			return
+		}
+		if applied && name != "" {
+			s.notify(id, "name")
+		}
+	}()
 }
 
 // queueMessage stores the message of t and queues its wakes behind the turn a running message

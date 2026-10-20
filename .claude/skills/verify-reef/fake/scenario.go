@@ -15,6 +15,8 @@ func pat(s string) *regexp.Regexp { return regexp.MustCompile(s) }
 // _scenarios covers the prompts verify-reef's window scenarios (scripts/ui/drive.mjs) and
 // features/full-team.md send.
 var _scenarios = []scenario{
+	{"name-fail", "", pat(`(?s)^Name this chat channel.*naming-fail`)},
+	{"name-login", "", pat(`^Name this chat channel`)},
 	{"coordinate-send", "lead", pat(`COORDINATE the login review`)},
 	{"coordinate-fail", "lead", pat(`COORDINATE the failing review`)},
 	{"direct-review", "architect", pat(`wrote privately: Please review the login plan`)},

@@ -1,10 +1,10 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|first-run BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
 // REEF_FAKE_GH (pr only: the folder the server's fake gh keeps its PR in, see fake-gh/gh).
-// REEF_FAKE_LOG (denials only: the fake claude's log, one line per turn with its args).
+// REEF_FAKE_LOG (denials and naming only: the fake claude's log, one line per turn with its args).
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -12,9 +12,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, denials, subagent, composer, 'first-run': firstRun };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, denials, subagent, composer, naming, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -2418,6 +2418,71 @@ async function composer() {
     await shot(`resize-${width}`);
   }
   await field.fill('');
+}
+
+// A channel started with its name left empty gets a name from its provider after the first
+// message; a typed name or a rename is never replaced.
+async function naming() {
+  await addProject();
+  const probe = 'naming-probe: fix the login redirect loop. Answer in one or two sentences, use no tools.';
+  const proposals = () =>
+    (readFileSync(process.env.REEF_FAKE_LOG ?? '/dev/null', 'utf8').match(/scenario=name-login/g) ?? []).length;
+  const startUnnamed = async () => {
+    const was = page.url();
+    await aside.getByRole('button', { name: 'New channel' }).click();
+    await pick('Backend', 'claude', aside);
+    await aside.getByRole('button', { name: 'Start' }).click();
+    await page.waitForURL((u) => u.href !== was && /\/channels\/\d+$/.test(u.pathname));
+    return page.url().split('/').pop();
+  };
+  const row = (id) => sql(`select name, name_auto from channel where id=${id}`);
+  const settled = async (id) => {
+    for (let i = 0; i < 100 && sql(`select name_auto from channel where id=${id}`) !== '0'; i++) await page.waitForTimeout(200);
+  };
+
+  const first = await startUnnamed();
+  const placeholder = row(first);
+  check(/^claude \d.*\|1$/.test(placeholder), 'a channel started with an empty name has a placeholder name and waits for a proposal', placeholder);
+  await shot('placeholder');
+  await send(probe);
+  await working();
+  await idle();
+  await aside.getByText('fix login redirect loop', { exact: true }).waitFor({ timeout: 20000 });
+  await main.getByRole('heading', { name: /fix login redirect loop/, level: 1 }).waitFor();
+  await shot('named');
+  check(row(first) === 'fix login redirect loop|0', 'the provider name replaces the placeholder in the database, the sidebar and the channel header', row(first));
+  const turns = sql(`select count(*) from turn where channel_id=${first}`);
+  const messages = sql(`select author from message where channel_id=${first} order by id`).split('\n').join(',');
+  check(turns === '1' && messages === 'user,lead', 'the naming call is not stored as a turn or a message', `turns: ${turns}, messages: ${messages}`);
+
+  const second = await startUnnamed();
+  await send('naming-fail: say hi. Answer in one or two sentences, use no tools.');
+  await working();
+  await idle();
+  await settled(second);
+  check(/^claude \d.*\|0$/.test(row(second)), 'a failed proposal keeps the placeholder name', row(second));
+  await exchange('Say it again.');
+  const done = sql(`select count(*) from turn where channel_id=${second} and status='done'`);
+  check(done === '2', 'the channel keeps working after a failed proposal', `done turns: ${done}`);
+  await shot('failed-proposal');
+
+  const before = proposals();
+  const typed = await newChannel(aside, 'New channel', 'typed chat');
+  await send(probe);
+  await working();
+  await idle();
+  await page.waitForTimeout(2000);
+  check(row(typed) === 'typed chat|0' && proposals() === before, 'a typed name is kept and no proposal is asked for', `${row(typed)}; proposals ${before} -> ${proposals()}`);
+
+  const project = (await getJson('/projects')).at(-1).id;
+  const post = (method, route, body) =>
+    fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const created = await (await post('POST', '/channels', { projectId: project, name: 'claude 02:32 PM', backend: 'claude' })).json();
+  await post('POST', `/channels/${created.id}/send`, { text: probe });
+  const renamed = await post('PUT', `/channels/${created.id}`, { name: 'mine' });
+  for (let i = 0; i < 150 && sql(`select count(*) from message where channel_id=${created.id} and author<>'user'`) === '0'; i++) await page.waitForTimeout(200);
+  await page.waitForTimeout(2000);
+  check(renamed.status === 200 && row(created.id) === 'mine|0', 'a rename sent right after the first message is never overwritten', `${row(created.id)}; PUT ${renamed.status}`);
 }
 
 try {

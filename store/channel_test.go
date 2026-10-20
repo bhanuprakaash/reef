@@ -156,3 +156,91 @@ func TestCheckPromote_ChangesNothing(t *testing.T) {
 		t.Errorf("CheckPromote on a channel with a feature = %v, want ErrInvalid", err)
 	}
 }
+
+func TestChannel_NameSteps(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	p, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	mk := func(name string) int64 {
+		t.Helper()
+		c, err := s.CreateChannel(ctx, Channel{ProjectID: p.ID, Name: name, Backend: "claude"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c.ID
+	}
+
+	typed := mk("typed")
+	if ok, err := s.ClaimName(ctx, typed); err != nil || ok {
+		t.Errorf("ClaimName on a user-named channel = %v, %v, want false", ok, err)
+	}
+
+	pending := mk("claude 02:32 PM")
+	if err := s.MarkNamePending(ctx, pending); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.ClaimName(ctx, pending); err != nil || !ok {
+		t.Fatalf("first ClaimName = %v, %v, want true", ok, err)
+	}
+	if ok, err := s.ClaimName(ctx, pending); err != nil || ok {
+		t.Errorf("second ClaimName = %v, %v, want false", ok, err)
+	}
+	if ok, err := s.FinishName(ctx, pending, "login redirect"); err != nil || !ok {
+		t.Fatalf("FinishName = %v, %v, want true", ok, err)
+	}
+	if c, err := s.Channel(ctx, pending); err != nil || c.Name != "login redirect" {
+		t.Errorf("name = %q, %v, want login redirect", c.Name, err)
+	}
+	if ok, err := s.FinishName(ctx, pending, "again"); err != nil || ok {
+		t.Errorf("second FinishName = %v, %v, want false", ok, err)
+	}
+
+	failed := mk("claude 02:33 PM")
+	if err := s.MarkNamePending(ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ClaimName(ctx, failed); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.FinishName(ctx, failed, ""); err != nil || !ok {
+		t.Fatalf("FinishName with no name = %v, %v, want true", ok, err)
+	}
+	if c, err := s.Channel(ctx, failed); err != nil || c.Name != "claude 02:33 PM" {
+		t.Errorf("name = %q, %v, want the default name kept", c.Name, err)
+	}
+
+	renamed := mk("claude 02:34 PM")
+	if err := s.MarkNamePending(ctx, renamed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ClaimName(ctx, renamed); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateChannel(ctx, Channel{ID: renamed, Name: "mine"}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.FinishName(ctx, renamed, "proposed"); err != nil || ok {
+		t.Errorf("FinishName after a rename = %v, %v, want false", ok, err)
+	}
+	if c, err := s.Channel(ctx, renamed); err != nil || c.Name != "mine" {
+		t.Errorf("name = %q, %v, want mine", c.Name, err)
+	}
+
+	same := mk("claude 02:35 PM")
+	if err := s.MarkNamePending(ctx, same); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.UpdateChannel(ctx, Channel{ID: same, Name: "claude 02:35 PM", PermissionMode: "acceptEdits"}); err != nil {
+		t.Fatal(err)
+	}
+	if ok, err := s.ClaimName(ctx, same); err != nil || !ok {
+		t.Errorf("ClaimName after an update that kept the name = %v, %v, want true", ok, err)
+	}
+}
