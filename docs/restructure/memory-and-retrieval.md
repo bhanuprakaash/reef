@@ -21,9 +21,14 @@ Example: an auth guard failed on a particular date when tenant configuration was
 
 Do not produce five duplicate copies of the same underlying event.
 
+## Direct conversation context
+
+A **Teammate** (the user-facing name for an individual agent) can have multiple independent direct conversations. Each conversation has its own history and an optional project association. General chats need no project; a project-associated chat may retrieve relevant authorised project findings, decisions, work history and traces on demand. A project selection scopes retrieval for that conversation, not the Teammate's global memory. A conversation transcript does not automatically become personal memory. The policy for switching a conversation between projects, including whether to require a fresh session, remains open; cross-project information must not leak through old context or summaries.
+
 ## Logical scopes
 
-- **Agent:** persistent identity, general expertise, appropriately promoted reusable lessons and history.
+- **Teammate (internal: agent):** persistent identity, general expertise, appropriately promoted reusable lessons and history.
+- **Direct conversation:** separate session history and optional project-scoped working context; not automatically permanent personal knowledge.
 - **Team:** collective experience, responsibilities, handoffs and operating lessons, not copies of all member/project data.
 - **Project:** technical facts, architecture, conventions and accepted decisions.
 - **Space:** discussion context, conclusions and open questions.
