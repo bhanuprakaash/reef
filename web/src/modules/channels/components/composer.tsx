@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 'react';
 import { useSendMessage } from '@/modules/channels/api/send-message';
 import { useStopChannel } from '@/modules/channels/api/stop-channel';
 import { useMessages } from '@/lib/api/get-messages';
@@ -6,6 +6,8 @@ import { useDraft } from '@/modules/channels/hooks/use-draft';
 import { stepHistory } from '@/modules/channels/utils/history-step';
 import { splitMentions } from '@/utils/split-mentions';
 import { findMention, insertMention } from '@/modules/channels/utils/mention';
+import { insertFiles, withPaths } from '@/modules/channels/utils/file-path';
+import { ClipboardChip } from '@/modules/channels/components/clipboard-chip';
 import { Button } from '@/components/button';
 import { Creature, type CreatureState } from '@/components/creature';
 import { Menu } from '@/components/menu';
@@ -49,6 +51,9 @@ export function Composer({
   const [caret, setCaret] = useState(0);
   const [active, setActive] = useState(0);
   const [closed, setClosed] = useState(false);
+  const [dragging, setDragging] = useState(false);
+  const [clip, setClip] = useState<string | null>(null);
+  const [nameOnly, setNameOnly] = useState(false);
   const field = useRef<HTMLTextAreaElement>(null);
   const mirror = useRef<HTMLDivElement>(null);
   const picked = useRef<number | null>(null);
@@ -73,10 +78,44 @@ export function Composer({
     picked.current = null;
   }, [text]);
 
+  useEffect(() => {
+    const reef = window.reef;
+    if (!reef) return;
+    const check = () => void reef.clipboardFile().then(setClip);
+    check();
+    window.addEventListener('focus', check);
+    return () => window.removeEventListener('focus', check);
+  }, []);
+
+  function attach(files: { path: string; name: string }[]) {
+    const next = insertFiles(text, caret, files);
+    setText(next.text);
+    setCaret(next.caret);
+    setNameOnly(next.nameOnly);
+    picked.current = next.caret;
+    field.current?.focus();
+  }
+
+  function dropFiles(e: DragEvent) {
+    e.preventDefault();
+    setDragging(false);
+    if (paused || e.dataTransfer.files.length === 0) return;
+    attach(withPaths([...e.dataTransfer.files], window.reef));
+  }
+
+  function hasFiles(e: DragEvent) {
+    return !paused && e.dataTransfer.types.includes('Files');
+  }
+
   function submit() {
     const trimmed = text.trim();
     if (trimmed === '' || paused || send.isPending) return;
-    send.mutate(trimmed, { onSuccess: () => setText('') });
+    send.mutate(trimmed, {
+      onSuccess: () => {
+        setText('');
+        setNameOnly(false);
+      },
+    });
   }
 
   function pick(name: string) {
@@ -135,17 +174,44 @@ export function Composer({
           ))}
         </Menu>
       )}
-      <div className="flex min-h-14 items-center gap-2.5 rounded-pill border border-hover bg-field p-1.5">
+      {clip && !paused && (
+        <div className="px-1.5">
+          <ClipboardChip
+            path={clip}
+            onPaste={() => {
+              attach([{ path: clip, name: clip }]);
+              setClip(null);
+            }}
+          />
+        </div>
+      )}
+      <div
+        className={`flex min-h-14 items-end gap-2.5 rounded-composer border bg-field p-1.5 ${dragging ? 'border-dashed border-mention' : 'border-hover'}`}
+        onDragEnter={(e) => {
+          if (!hasFiles(e)) return;
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragOver={(e) => {
+          if (!hasFiles(e)) return;
+          e.preventDefault();
+          setDragging(true);
+        }}
+        onDragLeave={(e) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+        }}
+        onDrop={dropFiles}
+      >
         <Button type="button" size="icon" aria-label="Attach" disabled className="shrink-0">
           <svg {...icon} strokeWidth={1.7}>
             <path d="M12 5v14M5 12h14" />
           </svg>
         </Button>
-        <div className="grid min-w-0 flex-1">
+        <div className="grid min-w-0 flex-1 py-2.5 md:py-2">
           <div
             ref={mirror}
             aria-hidden
-            className={`col-start-1 row-start-1 max-h-40 min-w-0 overflow-hidden whitespace-pre-wrap break-words text-[15.5px] ${paused ? 'text-faint' : 'text-fg'}`}
+            className={`col-start-1 row-start-1 max-h-40 min-w-0 overflow-hidden whitespace-pre-wrap break-words [scrollbar-gutter:stable] text-[15.5px] ${paused ? 'text-faint' : 'text-fg'}`}
           >
             {splitMentions(paused ? '' : text).map((piece, i) =>
               piece.mention ? (
@@ -161,8 +227,8 @@ export function Composer({
           <textarea
             ref={field}
             rows={1}
-            className="field-sizing-content col-start-1 row-start-1 max-h-40 w-full min-w-0 resize-none bg-transparent text-[15.5px] text-transparent caret-fg outline-none placeholder:text-muted disabled:cursor-not-allowed disabled:text-transparent"
-            placeholder={placeholder}
+            className="field-sizing-content col-start-1 row-start-1 max-h-40 w-full [scrollbar-gutter:stable] min-w-0 resize-none bg-transparent text-[15.5px] text-transparent caret-fg outline-none placeholder:overflow-hidden placeholder:text-ellipsis placeholder:whitespace-nowrap placeholder:text-muted disabled:cursor-not-allowed disabled:text-transparent"
+            placeholder={dragging ? 'Drop to add the file path' : placeholder}
             aria-label={parent === undefined ? 'Message' : 'Reply'}
             disabled={paused}
             value={paused ? '' : text}
@@ -176,6 +242,11 @@ export function Composer({
               if (mirror.current) mirror.current.scrollTop = e.currentTarget.scrollTop;
             }}
             onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+            onPaste={(e) => {
+              if (e.clipboardData.files.length === 0) return;
+              e.preventDefault();
+              attach(withPaths([...e.clipboardData.files], window.reef));
+            }}
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing) return;
               if (open) {
@@ -242,6 +313,9 @@ export function Composer({
           </svg>
         </Button>
       </div>
+      {nameOnly && (
+        <p className="px-4 text-xs text-muted">No file path here: only the file name was added.</p>
+      )}
     </form>
   );
 }

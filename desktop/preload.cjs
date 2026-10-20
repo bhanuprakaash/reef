@@ -1,6 +1,6 @@
 // A sandboxed preload script runs as CommonJS even in an ES module project, so
 // this file stays .cjs and uses require.
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // window.reef lets the renderer position the browser pane's native view and
 // drive it from the address bar. A plain browser pointed at reef serve has no
@@ -8,6 +8,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('reef', {
   capture: () => ipcRenderer.invoke('capture:open'),
   chooseFolder: () => ipcRenderer.invoke('folder:choose'),
+  pathForFile: (file) => webUtils.getPathForFile(file),
+  clipboardFile: () => ipcRenderer.invoke('clipboard:file'),
   setTheme: (theme) => ipcRenderer.send('theme:set', theme),
   setBrowserBounds: (rect) => ipcRenderer.send('browser:bounds', rect),
   navigateBrowser: (url) => ipcRenderer.invoke('browser:navigate', url),

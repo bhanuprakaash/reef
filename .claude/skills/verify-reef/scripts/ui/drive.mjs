@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|first-run BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -12,9 +12,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, denials, subagent, 'first-run': firstRun };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, denials, subagent, composer, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -2286,6 +2286,138 @@ async function denials() {
   check(leadResult.startsWith('The page title is'), 'the lead next wake runs WebFetch successfully', leadResult);
   check(sql(`select count(*) from turn where channel_id = ${cid} and status = 'failed'`) === '0', 'no turn failed');
   await shot('lead-retried');
+}
+
+async function composer() {
+  const section = await addProject();
+  await addFeature(section, 'compose', 'Compose');
+  await newChannel(main, 'New channel', 'compose chat');
+  const field = main.getByLabel('Message');
+  const box = field.locator('xpath=ancestor::div[contains(@class,"bg-field")][1]');
+  const geometry = () =>
+    box.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius);
+      return { height: Math.round(r.height), left: Math.round(r.left), right: Math.round(r.right), radius: Math.min(radius, r.height / 2) };
+    });
+  const lines = (n) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n');
+  const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  // A synthetic drag or paste of one file: headless Chrome cannot start a real drag from the desktop.
+  const fire = (target, type, name) =>
+    target.evaluate(
+      (el, [type, name]) => {
+        const data = new DataTransfer();
+        data.items.add(new File(['x'], name, { type: 'image/png' }));
+        const init = { bubbles: true, cancelable: true };
+        el.dispatchEvent(type === 'paste' ? new ClipboardEvent('paste', { ...init, clipboardData: data }) : new DragEvent(type, { ...init, dataTransfer: data }));
+      },
+      [type, name],
+    );
+  const views = [['desktop', 1280, 800], ['phone', 390, 844]];
+
+  for (const [label, width, height] of views) {
+    await page.setViewportSize({ width, height });
+    await page.goto(page.url());
+    await field.waitFor();
+    await field.fill('');
+    await page.waitForTimeout(600);
+    await shot(`${label}-empty`);
+    const empty = await geometry();
+    await field.fill('one line');
+    const one = await geometry();
+    await shot(`${label}-one-line`);
+    await field.fill(lines(30));
+    const many = await geometry();
+    const scrolls = await field.evaluate((el) => el.scrollHeight > el.clientHeight);
+    await shot(`${label}-many-lines`);
+    check(empty.height === one.height, `${label}: the empty box is as high as one line, the placeholder does not wrap`, `${empty.height}px empty, ${one.height}px with one line`);
+    check(many.radius === one.radius && many.radius < many.height / 2 - 20, `${label}: the corner radius is the same at 1 and 30 lines`, `${one.radius}px at ${one.height}px high, ${many.radius}px at ${many.height}px`);
+    check(many.height <= 220 && many.height > one.height, `${label}: the box grows then stops at the cap`, `${one.height}px -> ${many.height}px`);
+    check(scrolls, `${label}: the text scrolls inside the capped box`);
+    check(many.left >= 0 && many.right <= width && (await noOverflow()), `${label}: the box stays inside the window, no horizontal scroll`, `${many.left}..${many.right} of ${width}`);
+
+    await field.fill('look at');
+    await fire(box, 'dragenter', 'shot.png');
+    await page.waitForTimeout(200);
+    const cls = (await box.getAttribute('class')) ?? '';
+    check(cls.includes('border-dashed') && (await field.getAttribute('placeholder')) === 'Drop to add the file path', `${label}: dragging a file over the box shows the drop state`);
+    await fire(box, 'dragover', 'shot.png');
+    await shot(`${label}-drag`);
+    await fire(box, 'drop', 'shot.png');
+    check((await field.inputValue()) === 'look at shot.png ' && !((await box.getAttribute('class')) ?? '').includes('border-dashed'), `${label}: a drop in a plain browser inserts the file name and ends the drop state`, JSON.stringify(await field.inputValue()));
+    check((await main.getByText('No file path here: only the file name was added.').count()) === 1, `${label}: the browser says it has no path`);
+    await shot(`${label}-dropped-name`);
+    await field.fill('');
+    await fire(field, 'dragenter', 'on-text.png');
+    await fire(field, 'dragover', 'on-text.png');
+    await page.waitForTimeout(200);
+    check(((await box.getAttribute('class')) ?? '').includes('border-dashed'), `${label}: a drag over the text area itself shows the drop state`);
+    await fire(field, 'drop', 'on-text.png');
+    check((await field.inputValue()) === 'on-text.png ', `${label}: a drop on the text area itself inserts the file name`, JSON.stringify(await field.inputValue()));
+    await field.fill('');
+    await fire(field, 'paste', 'clip.png');
+    check((await field.inputValue()) === 'clip.png ', `${label}: pasting a file in a plain browser inserts the file name`, JSON.stringify(await field.inputValue()));
+    check((await page.getByRole('button', { name: /Paste file from clipboard/ }).count()) === 0, `${label}: a plain browser shows no clipboard chip`);
+    await field.fill('');
+  }
+
+  // The desktop bridge is a stub: only the real Electron app has webUtils and the clipboard (see the desktop check by hand).
+  await page.addInitScript(() => {
+    window.__clip = null;
+    const bridge = {
+      pathForFile: (file) => `/Users/ada/Desktop/${file.name}`,
+      clipboardFile: async () => window.__clip,
+    };
+    window.reef = new Proxy(bridge, {
+      get: (target, key) => target[key] ?? (String(key).startsWith('on') ? () => () => {} : async () => null),
+    });
+  });
+  for (const [label, width, height] of views) {
+    await page.setViewportSize({ width, height });
+    await page.goto(page.url());
+    await field.waitFor();
+    const chip = page.getByRole('button', { name: /Paste file from clipboard/ });
+    check((await chip.count()) === 0, `${label}: no chip while the clipboard has no file`);
+    await page.evaluate(() => {
+      window.__clip = '/Users/ada/Desktop/my shot.png';
+      window.dispatchEvent(new Event('focus'));
+    });
+    await chip.waitFor({ timeout: 5000 });
+    await page.waitForTimeout(600);
+    check((await chip.innerText()).includes('my shot.png'), `${label}: the window focus shows a chip named after the clipboard file`, (await chip.innerText()).replace(/\n/g, ' '));
+    await shot(`${label}-chip`);
+    await field.fill('see');
+    await chip.click();
+    check((await field.inputValue()) === 'see "/Users/ada/Desktop/my shot.png" ' && (await chip.count()) === 0, `${label}: the chip pastes the quoted path at the caret and goes away`, JSON.stringify(await field.inputValue()));
+    await shot(`${label}-chip-pasted`);
+    await field.fill('');
+    await fire(box, 'dragenter', 'drop.png');
+    await fire(box, 'drop', 'drop.png');
+    check((await field.inputValue()) === '/Users/ada/Desktop/drop.png ', `${label}: a dropped file inserts its path`, JSON.stringify(await field.inputValue()));
+    check((await main.getByText('No file path here').count()) === 0, `${label}: no name-only note when the path is known`);
+    await field.fill('');
+    await fire(field, 'paste', 'clip.png');
+    check((await field.inputValue()) === '/Users/ada/Desktop/clip.png ', `${label}: a pasted file inserts its path`, JSON.stringify(await field.inputValue()));
+    await field.fill('');
+    await page.evaluate(() => {
+      window.__clip = null;
+      window.dispatchEvent(new Event('focus'));
+    });
+    await page.waitForTimeout(300);
+    check((await chip.count()) === 0, `${label}: the chip is gone once the clipboard has no file`);
+  }
+
+  // Resizing the window with text in the box: it keeps its radius and stays inside the window.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await field.fill('a few words that wrap when the box is narrow, a few words that wrap when the box is narrow\nsecond line');
+  for (const width of [1280, 1100, 900, 700, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.waitForTimeout(300);
+    const g = await geometry();
+    check(g.radius === 28 && g.left >= 0 && g.right <= width && (await noOverflow()), `resize ${width}: radius 28, box inside the window`, `${g.left}..${g.right}, ${g.height}px high`);
+    await shot(`resize-${width}`);
+  }
+  await field.fill('');
 }
 
 try {

@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createBrowser } from './browser.js';
+import { clipboardFile } from './clipboard-file.js';
 import { createTerminals, installedTerminalApps, launchTerminalApp } from './terminal.js';
 import { createUpdater } from './updater.js';
 
@@ -254,6 +255,7 @@ app.whenReady().then(async () => {
     });
     return canceled ? null : filePaths[0];
   });
+  ipcMain.handle('clipboard:file', clipboardFile);
   globalShortcut.register('CommandOrControl+Shift+Space', () => openCaptureWindow(win));
   await new Promise((resolve) => setTimeout(resolve, Math.max(0, splashAt + SPLASH_MIN - Date.now())));
   if (win.isDestroyed()) return;

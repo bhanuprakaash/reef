@@ -58,6 +58,16 @@ sidebar's top row. Dragging that row, a thin top strip or the browser pane's top
 window (`app-drag` in the web app; buttons and inputs inside stay clickable). The New project
 dialog's Choose button opens the native folder picker (`folder:choose`).
 
+## Files in the message box
+
+A file dropped on the message box or pasted into it (the `drop` and `paste` events) inserts its
+path: the page asks `window.reef.pathForFile(file)` (Electron's `webUtils.getPathForFile`, called
+in the preload script). A plain browser has no path, so the box inserts the file name and says so.
+The chip above the box, `File in clipboard <name> Paste`, comes from one source:
+`window.reef.clipboardFile()` asks the main process ([`clipboard-file.js`](../desktop/clipboard-file.js))
+for the `text/uri-list` entry Finder puts on the clipboard. The page asks when the window gains
+focus; a browser has no bridge and shows no chip. Only the first copied file shows.
+
 ## Browser pane
 
 One `WebContentsView` ([`desktop/browser.js`](../desktop/browser.js)), for the whole window,
