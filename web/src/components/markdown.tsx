@@ -1,9 +1,10 @@
-import type { ReactNode } from 'react';
+import { createContext, type ReactNode, useContext } from 'react';
 import type { Parent, PhrasingContent, Root } from 'mdast';
 import type { Components } from 'react-markdown';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
 import remarkGfm from 'remark-gfm';
+import { Hovercard } from '@/components/hovercard';
 import { splitMentions } from '@/utils/split-mentions';
 
 function mentions(nodes: PhrasingContent[]): PhrasingContent[] {
@@ -91,7 +92,34 @@ function numeric(children: ReactNode) {
   return typeof children === 'string' && number.test(children);
 }
 
+// Gives the card for an @mention of a known name, or null to leave the mention plain.
+export const MentionCards = createContext<(name: string) => ReactNode>(() => null);
+
+function Mention({ children }: { children: ReactNode }) {
+  const card = useContext(MentionCards)(String(children).slice(1));
+  if (card === null) return <span className="mention">{children}</span>;
+  return (
+    <Hovercard content={card}>
+      {(trigger) => (
+        <span
+          className="mention rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          tabIndex={0}
+          {...trigger}
+        >
+          {children}
+        </span>
+      )}
+    </Hovercard>
+  );
+}
+
 const components: Components = {
+  span: ({ className, children }) =>
+    className === 'mention' ? (
+      <Mention>{children}</Mention>
+    ) : (
+      <span className={className}>{children}</span>
+    ),
   a: ({ href, children }) => (
     <a href={href} target="_blank" rel="noreferrer">
       {children}

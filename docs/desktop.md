@@ -58,6 +58,16 @@ sidebar's top row. Dragging that row, a thin top strip or the browser pane's top
 window (`app-drag` in the web app; buttons and inputs inside stay clickable). The New project
 dialog's Choose button opens the native folder picker (`folder:choose`).
 
+## Files in the message box
+
+A file dropped on the message box or pasted into it (the `drop` and `paste` events) inserts its
+path: the page asks `window.reef.pathForFile(file)` (Electron's `webUtils.getPathForFile`, called
+in the preload script). A plain browser has no path, so the box inserts the file name and says so.
+The chip above the box, `File in clipboard <name> Paste`, comes from one source:
+`window.reef.clipboardFile()` asks the main process ([`clipboard-file.js`](../desktop/clipboard-file.js))
+for the `text/uri-list` entry Finder puts on the clipboard. The page asks when the window gains
+focus; a browser has no bridge and shows no chip. Only the first copied file shows.
+
 ## Browser pane
 
 One `WebContentsView` ([`desktop/browser.js`](../desktop/browser.js)), for the whole window,
@@ -137,6 +147,15 @@ directory, so a pane that closes and reopens on the same directory sees what it 
 that exits (the user typed `exit`, or it crashed) is dropped from that buffer, so reopening the
 same directory starts a fresh one instead of replaying a dead shell's last output; otherwise it
 keeps running until the app quits.
+
+Settings > Terminal chooses where the toggle opens a working tree: Built-in pane (the default), an
+installed Ghostty, iTerm, Terminal or Warp (found as `<Name>.app` in `/Applications`,
+`~/Applications` or `/System/Applications/Utilities`), or Custom, an app name typed in. With an
+app chosen the toggle runs `open -a <app> <path>` in the main process (`terminal:launch`) in the
+same worktree the pane would use, with the same Open terminal step first when a feature has no
+worktree, then switches itself off; no xterm pane opens, and a failed `open` shows its error in
+the pane until the toggle is pressed or the page changes. The choice is kept in the window's
+`localStorage` (`reef.terminalApp`), not on the server. The path must be an absolute path to an existing folder, else `open` is not run; the app name is passed as typed, so Custom is deliberately open.
 
 ## Back and forward
 

@@ -31,6 +31,25 @@ describe('RolePanel', () => {
     expect(markup).toContain('aria-label="Close role"');
   });
 
+  it('shows the role provider, or PATH when it names none', () => {
+    const providers = [{ name: 'work', kind: 'claude', detected: false, folder: '/w' }];
+    const render = (r: Role) =>
+      renderToStaticMarkup(
+        <RolePanel
+          role={r}
+          providers={providers}
+          onChange={() => {}}
+          onRemove={() => {}}
+          onClose={() => {}}
+        />,
+      );
+
+    expect(render(role)).toContain('Default (PATH)');
+    const markup = render({ ...role, provider: 'work' });
+    expect(markup).toContain('aria-label="developer provider"');
+    expect(markup).not.toContain('Default (PATH)');
+  });
+
   it('hides the tools of a codex role', () => {
     const markup = renderToStaticMarkup(
       <RolePanel
@@ -56,5 +75,18 @@ describe('TeamEditor', () => {
 
     expect(markup).toContain('2 tools');
     expect(markup).not.toContain('aria-label="Role"');
+  });
+
+  it('opens the panel of the role named by openRole', () => {
+    useUpdateTeam.mockReturnValue({ isPending: false, isSuccess: false, isError: false });
+    const team: Team = { name: 'solo', roles: [{ ...role, name: 'lead' }, role] };
+    const render = (openRole: string) =>
+      renderToStaticMarkup(
+        <TeamEditor team={team} openRole={openRole} onSaved={() => {}} onDuplicate={() => {}} />,
+      );
+
+    expect(render('developer')).toContain('aria-label="developer name"');
+    expect(render('developer')).not.toContain('aria-label="lead name"');
+    expect(render('nobody')).not.toContain('aria-label="Role"');
   });
 });

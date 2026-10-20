@@ -72,10 +72,19 @@ logged in and on `PATH`.
   teammate. Teammates' direct messages (`GET /channels/{id}/direct-messages`) are never bubbles: each conversation
   between two roles (from one public source message, or from none) is one compact item at the time of its
   first message, saying working, waiting approval, paused, failed, stopped, rejected or completed (the state of
-  its newest chain) with its message count; a direct wake's approval shows there, not as a channel row; it opens a Coordination panel with the exchange, a link to
+  its newest chain) with its message count; a direct wake's approval shows there, not as a channel row; it opens a Coordination panel with the exchange, the running direct turn's text and tool calls as they stream, a link to
   the public message it began from, and Approve or Reject, Continue or Retry for its state. A wake held at a gate shows Approve and Reject; a pause from the hop cap shows in
   the cap banner. A channel with rollbackable turns (`GET /turns?channel=ID&rollbackable=1`)
   lists Checkpoints; Roll back on a row asks to confirm, then does `POST /turns/{id}/rollback`.
+  A role whose newest ended turn has a tool call that claude refused for lack of permission (the
+  result says it "requested permissions to use X" or "requires approval", or that an edit tool "is
+  disabled for this session"), read from `GET /channels/{id}/inspector`, gets a card
+  "<Role> was denied <tool>" under the messages. A `Bash` call shows as `Bash(<first word>:*)`, and a
+  compound command shows no card. Add to role reads `GET /teams/{name}`, appends the pattern to that role's
+  `tools` and saves with `PUT /teams/{name}`; the card then says Added. The next wake of a specialist
+  starts with it in `--allowedTools`; the lead keeps its agent between turns, so Add for the lead also
+  does `POST /channels/{id}/stop`. Add is disabled while a turn runs. A read-only role refused an
+  edit tool shows "Needs write access" and a codex role "Codex ignores allowed tools", both with no Add.
   A checkpoint taken in another tree, such as a quick session's turn after a promote, is not
   listed. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
   reply is the stored message, so the live block does not repeat it.
@@ -87,7 +96,9 @@ logged in and on `PATH`.
   on a click, to show desktop notifications and then shows one for each item that is new
   since the page loaded.
 - Teams (`/teams`): lists teams and edits one's roles, faces and gates, saving with
-  `PUT /teams/{name}`. An opened role shows its persona, skills, allowed tools, permission
+  `PUT /teams/{name}`. Each gate has a switch, on or off: the list shows the team's own gates and
+  the [default gates](#gate) between its roles, and switching a default one saves a gate with
+  that `on`. An opened role shows its persona, skills, allowed tools, permission
   mode and MCP servers. Skills are picked from the current project's `GET /skills` list for the
   role's backend; a picked name that is not on disk shows as missing. Allowed tools are
   checkboxes (`Read`, `Grep`, `Glob`, `Edit`, `Write`, `Bash`, `WebFetch`, `WebSearch`, and
@@ -97,7 +108,7 @@ logged in and on `PATH`.
   rejected if that name is taken. "New team" asks for a name and a team to start from and
   sends the same `?from=` request. The hop and token caps are not team fields, so the
   page has no Caps section.
-- Settings (`/settings`): your name, occupation and working preferences (chips), the current project's skills read from disk, grouped Claude Code and Codex, each with its description, theme (dark, light or Match macOS, kept in `localStorage`)
+- Settings (`/settings`): your name, occupation and working preferences (chips), the current project's skills read from disk, grouped Claude Code and Codex, each with its description, the Providers section (the claude and codex found on `PATH`, each with path, version and models, and added installs with a folder and Remove; add one with a kind, a name and a folder, typed or picked with Choose… on desktop; a role picks one in Teams), theme (dark, light or Match macOS, kept in `localStorage`)
   and notifications.
 - First run: one page with two steps. Your name with an optional occupation and working preferences (saved with `PUT /profile`), then the first
   project. A name with no project starts at the project step; a project with no name asks only
@@ -144,7 +155,9 @@ migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql)
 migration 10 [`010_role_write.sql`](../store/migrations/010_role_write.sql) (`role.write`) and
 migration 11 [`011_turn_wake.sql`](../store/migrations/011_turn_wake.sql) (`turn.wake_text`, `turn.wake_parent`, `turn.retried`) and
 migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`) and
-migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`).
+migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`) and
+migration 32 [`032_provider.sql`](../store/migrations/032_provider.sql) (`provider`, `role.provider`) and
+migration 33 [`033_channel_name_auto.sql`](../store/migrations/033_channel_name_auto.sql) (`channel.name_auto`).
 Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 
 ### project
@@ -294,6 +307,7 @@ delete; deleting the turn deletes its tool calls.
 | `name` | string | the tool's name |
 | `input` | string | cut to 4 KB |
 | `result` | string | default `""` until the call's result arrives, then cut to 4 KB |
+| `parentId` | number? | the `Agent` call a claude subagent's call nests under, set from the event's `parentToolId`; absent for a top-level call, and for a call whose parent was not seen (shown flat) |
 
 ### decision
 
@@ -348,6 +362,7 @@ through the same validation. Migration 6 seeds the team `solo`, with one role, `
 | `backend` | string | required; `claude` or `codex` |
 | `permissionMode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`. The same rule as a channel's `permissionMode` |
 | `model` | string | optional; the model the role runs on, passed to the backend when its agent starts or resumes: claude `--model NAME` (`opus`, `sonnet`, `haiku` or a full model id), codex the thread `model`. Left out or `""` is the backend default |
+| `provider` | string | optional; the `name` of an added [provider](#provider) whose binary the role runs instead of the `claude` or `codex` on `PATH`. It must exist and have `kind` equal to the role's `backend`, else the team is `invalid`. Left out or `""` runs the one on `PATH` |
 | `persona` | string | goes at the start of the role's first prompt, and again, marked as changed, at its next wake once it or `skills` differs from what the role's session last got |
 | `skills` | array of strings | names of skills, one per entry, trimmed; each is letters, digits, `:`, `_` or `-`, and an empty, repeated or other name is `invalid`. They go after the persona, under `Your skills:`. claude: a role that picks skills may use only these. `--allowedTools` gets `Skill(name)` for each and `--disallowedTools` gets `Skill(name)` for every other claude skill on disk (the scan of `GET /skills`, taken when the role's session starts, with the role's working folder). A role that picks none keeps every skill and gets no skill rule. Skill rules only add entries to the `write` and `tools` rules. codex: prompt only. A team file or `PUT` body that gives `skills` as a string is `invalid` |
 | `face` | string | optional; the creature the window draws for the role: `jellyfish`, `whale`, `penguin`, `shark`, `octopus`, `turtle`, `seahorse`, `otter`, `clownfish`, `manta-ray` or `pebble`. Left out, the window picks one by the role's name (`lead` jellyfish, `architect` whale, `developer` penguin, `tester` shark, else `pebble`). Any other value is `invalid` |
@@ -357,6 +372,28 @@ through the same validation. Migration 6 seeds the team `solo`, with one role, `
 A channel's lead takes the channel's own `backend` and `permissionMode`, which `POST
 /channels` filled from the lead role unless the request set them. The other roles use their
 own.
+
+### provider
+
+A claude or codex install the user added, next to the ones found on `PATH`. The ones on `PATH`
+are not stored: `GET /providers` finds them each time, with `exec.LookPath`, the same lookup the
+adapters use when a role names no provider.
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `name` | string | required; unique; letters, digits, `_` and `-` only, and not `claude` or `codex` (those name the ones on `PATH`) |
+| `kind` | string | required; `claude` or `codex` |
+| `folder` | string | required; an absolute path to an existing folder that holds an executable named like the kind: `FOLDER/KIND`, else `FOLDER/bin/KIND` |
+| `createdAt` | string | |
+
+A role runs a provider's binary by naming it in `provider`. The check runs when the team is
+applied (the provider exists, its `kind` is the role's `backend` and its folder still holds the
+binary) and again when the role's agent starts, because the binary may be gone from the folder
+after that. A channel's lead takes the channel's `backend`; when that differs from the lead
+role's, the role's `provider` is ignored and the `PATH` binary runs. A start that fails the check
+is a `failed` turn whose `error` says why, for example `role developer: no claude binary in
+/opt/work`; nothing falls back to the `PATH` binary, as that would run a different one than the
+user picked. A role with no `provider` is unchanged. A provider a role names cannot be removed.
 
 ### gate
 
@@ -469,17 +506,20 @@ tool calls.
 | `GET /features/{id}/pr` | | 200 `{"pr": {"number", "title", "state": "OPEN"\|"MERGED"\|"CLOSED", "url", "isDraft", "reviewDecision", "base", "head", "canMerge", "checks": [{"name", "state": "pass"\|"fail"\|"pending"}], "body", "additions", "deletions", "files": [{"path", "additions", "deletions"}]}}`, from `gh pr view feature/<slug>` run in the project's folder; `canMerge` is true only when `state` is `OPEN` and gh calls it `MERGEABLE`; `{"pr": null}` when the branch has no PR | 404, 502 gh is not on `PATH` or failed, with its text |
 | `POST /features/{id}/pr/merge` | no body needed | 200 the same body as `GET /features/{id}/pr`, after `gh pr merge <number> --merge` (a merge commit) | 404 no feature or no PR, 409 gh refused, with its text, 502 |
 | `GET /skills?project={id}` | `project` is required | 200 `{"claude":[...],"codex":[...]}`, each a list of `{name, description}` read from disk, never stored. claude: `~/.claude/skills`, the project's `.claude/skills` and the skills of the plugins in `~/.claude/plugins/installed_plugins.json` installed for the user or for the project path, named `plugin:skill`. codex: `~/.agents/skills` and the project's `.agents/skills`. A name found twice is listed once; each list is ordered by name. A skill whose name is not letters, digits, `:`, `_` or `-`, or whose file cannot be read, is left out, and a malformed `installed_plugins.json` gives no plugin skills; each is logged and the rest are listed | 400 `project` missing or not a number, 404 |
+| `GET /providers` | | 200 the detected `claude` and `codex` (those found on `PATH`), then the added ones oldest first, each `{name, kind, detected, folder, path, version, createdAt}`. `detected` is `true` for the ones on `PATH`, which have no `folder` or `createdAt`. `path` is the binary that would run (left out when an added install's binary is gone). `version` is the trimmed output of `path --version`, run for all of them at once with a 3 s limit, and left out when it fails or is late. Models and login state are not listed | |
+| `POST /providers` | `name`, `kind`, `folder` | 201 the added provider, in the shape `GET` gives | 400 bad name, `kind` not `claude` or `codex`, `folder` not an absolute path to a folder, or no executable of that kind in it; 409 `name` is taken, or is `claude` or `codex` |
+| `DELETE /providers/{name}` | | 204 | 400 `claude` or `codex` (the ones on `PATH` cannot be removed), 404, 409 a role of some team still names it (the error names the role and team; change that role first) |
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
 | `GET /teams/{name}` | | 200, with `mcp` instead of `mcpServers` as above; each role shows `write` | 404 |
 | `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; a role may also list `mcpRemove`, the `{name, label}` of each stored MCP server to drop, as `GET` showed it; servers it does not list are kept); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones, minus those in its `mcpRemove`; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists, or a server in `mcpRemove` no longer matches a stored one by name and label (the team changed since it was loaded; nothing is applied) |
 | `GET /channels` | `?project=ID`, `?feature=ID` | 200 each channel also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
-| `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
+| `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role). A `name` is required; one that is the new-channel form's default, `<backend or team> <hh:mm>` (`claude 14:32`, `claude 02:32 PM`), marks the channel as waiting for a provider name, see [Channel names](#channel-names) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /channels/{id}` | | 200 | 404 |
-| `PUT /channels/{id}` | `name` (required), `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the channel's backend and applies the next time its agent starts | 200 | 400 bad JSON or permission mode, 404 |
+| `PUT /channels/{id}` | `name` (required), `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the channel's backend and applies the next time its agent starts. A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or permission mode, 404 |
 | `DELETE /channels/{id}` | stops the channel first if it is live; a send during the delete is 404 | 204 | 404 |
 | `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body; while a message chain runs the message is stored at once and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 wrap or promote turn running, channel closed, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
-| `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `toolCalls` (`name`, `input`, `result`) | 404 |
+| `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
 | `GET /channels/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the channel, oldest first; each has `id`, `channelId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `createdAt` | 400 bad id, 404 |
 | `GET /search` | `?feature=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the feature's public messages and all its direct messages, newest first, `[]` when none. Each hit has `channelId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `feature`, missing `q` |
 | `POST /channels/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
@@ -680,13 +720,13 @@ for a top-level message, or `[channel 3, message 12, thread 9]` for a reply: the
 waking message and, for a reply, its thread root. Then comes the user's text as it is, or
 `<author> wrote: <body>` for an agent's message. For a message in a thread, the earlier messages of the thread (`Thread so
 far:`) come between the line and the text; they are the conversation being answered, so they
-stay in the prompt. One routing pass wakes a role once for each thread: when several messages
-in the same thread, or several top-level messages, wake the same role, for example a
-`post_to_channel` that names `@architect` and a reply that does too, their texts are joined in
-id order into one prompt. A top-level message and a reply in a thread that name the same role
-wake it twice. The woken role's reply is stored in the thread the header names (`parentId` is the
-thread root). When a top-level message woke the role, the reply is top-level too: it is the root
-of a thread the role owns, and the user's reply in it goes to the role.
+stay in the prompt. One routing pass wakes a role once: when several messages, top-level or in
+any thread, wake the same role, for example a `post_to_channel` that names `@architect` and a
+reply that does too, their texts are joined in id order into one prompt, so a gate holds one
+approval for them. The woken role's reply is stored in the thread the header of the first
+message names (`parentId` is the thread root). When a top-level message woke the role, the
+reply is top-level too: it is the root of a thread the role owns, and the user's reply in it
+goes to the role.
 
 The first turn and the wakes after it are one chain. They run one at a time, in the order
 the messages were stored, and the messages each turn stores are routed in turn and queued at
@@ -695,8 +735,9 @@ the end. The channel has a turn running until the chain is done, so a `wrap`, a 
 or an approve while any chain starts or runs, is accepted: the message is stored at once, and its wakes, or the approved
 wake, join the end of the chain's queue and run after the current turn and the wakes it
 queued. Turns still run one at a time. If the chain ends first (a failed turn, a stop, a
-pause, the hop cap) or never starts, a queued approval is pending again and a queued message's wakes are held,
-not run. A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
+routing failure) or never starts, a queued approval is pending again and a queued message's wakes are held,
+not run. When the hop cap or the token budget stops the next wake, an approved wake is held
+with the others and `continue` runs it (see [Caps](#caps)). A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
 lead's reply says `@architect ...`; the architect runs and posts a plan, a new thread it
 owns; the chain ends because the plan names no one. The lead gets no turn after the plan.
 
@@ -735,25 +776,40 @@ the hop cap, answers 409 and reopens the approval. With `{"approve":false}` it o
 approval `rejected`; for a direct wake it also records the `rejected` failed response. A decided approval is 409. Pending approvals are stored, so they survive a
 restart.
 
+### Channel names
+
+A channel created with the new-channel form's default name has `channel.name_auto` set to 1.
+The first user message sent to it (`POST /channels/{id}/send`, not a wrap or promote command)
+takes the one naming attempt (`name_auto` 2) and asks the channel's backend, in the background, for a name: one
+throwaway turn in one shared empty folder (`reef-name` in the temp folder), with no tools (claude on `haiku`, codex
+`read-only`), so it makes no turn or message. The reply is cut to the convention: its first
+line, lowercase words of letters and digits (a hyphen splits words), at most four words and 40 characters
+(`fix login redirect loop`). The name is stored only if the attempt is still the channel's, in one
+statement, and `name_auto` goes to 0; a `PUT /channels/{id}` with another name, which sets
+`name_auto` to 0, got there first and wins. A failed call, an empty name or a stopped server keeps the
+current name and is not tried again. Channels that existed before the column keep `name_auto` 0.
+
 ### Events
 
 `GET /channels/{id}/events` is a Server-Sent Events stream. It works for a channel that
-is not live: it waits. A `: keepalive` comment comes every 15 seconds. Six kinds of event:
+is not live: it waits. A `: keepalive` comment comes every 15 seconds. Seven kinds of event:
 
 - `turn`: `{"role":"architect","status":"running"}` when a turn of that role starts, then
   `{"role":"architect","status":"done"}` or `{"role":"architect","status":"failed","error":"interrupted"}`
   when it ends. A chain of wakes sends one pair for each turn, with no `idle` between them. A
   wrap or promote turn in which the agent made no proposal ends `{"role":"lead","status":"done","note":"no
   proposal made"}`. `{"status":"idle"}` has no role. It is sent only when a subscriber
-  connects and no turn runs. A turn woken by a direct message carries `"direct":true` in each of its frames; the window shows such a turn
-  as working only, without its text or tool calls.
+  connects and no turn runs. A turn woken by a direct message carries `"direct":true` in each of its frames; the channel shows such a turn
+  as working only, without its text or tool calls; the open Coordination panel of its exchange shows its text and tool rows live while it runs, and only the stored direct messages once it ends.
 - `agent`: one [agent event](agents.md) as JSON, as it comes, from the turn that is running.
 - `pause`: `{"reason":"..."}` when a cap pauses the channel: when a send finds the
   token budget used, or when the hop cap holds a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
 - `approval`: an [approval](#approval) as JSON, `pending` when a gate holds a wake, and again
-  with `approved` or `rejected` when it is decided.
+  with `approved` or `rejected` when it is decided, and `pending` again when a chain ends
+  without running a wake that was approved and queued.
 - `note`: `{}`, sent when a message is posted outside a turn, such as a [GitHub
   poll](#github-poll) note, so a subscriber knows to re-read `GET /messages`.
+- `name`: `{}`, sent when the provider's name replaces a channel's default name, so a subscriber knows to re-read `GET /channels`.
 - `direct`: `{}`, sent when a chain ends without running a queued direct wake and gives it a
   `failed` response after the last `turn` event, and when a rejected approval of a direct wake does the same, so a subscriber knows to re-read `GET /channels/{id}/direct-messages`. Every
   other change to a direct message happens before a `turn` event that ends its turn.

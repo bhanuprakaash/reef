@@ -3,6 +3,7 @@ import { useOutletContext, useParams } from 'react-router';
 import { FeatureStageChip } from '@/app/feature-stage';
 import type { LayoutContext } from '@/app/layout';
 import { FeatureTerminal } from '@/app/feature-terminal';
+import { MentionCardsProvider } from '@/app/mention-hovercard';
 import { ReviewDiff } from '@/app/review-diff';
 import { TerminalPane } from '@/app/terminal-pane';
 import { useTerminal } from '@/app/use-terminal';
@@ -65,21 +66,23 @@ export function ChannelPage() {
     onBrowserDriver: setBrowserDriver,
   };
   return (
-    <div className="-m-4 flex h-screen flex-col md:-m-6">
-      {featureId === null ? (
-        <ChannelView key={id} {...props} />
-      ) : (
-        <FeatureChannelView key={id} featureId={featureId} {...props} />
-      )}
-      {terminal.open && (
-        <div className="shrink-0 border-t border-hairline">
-          {featureId === null ? (
-            project && <TerminalPane cwd={project.path} onHide={terminal.hide} />
-          ) : (
-            <FeatureTerminal key={featureId} featureId={featureId} onHide={terminal.hide} />
-          )}
-        </div>
-      )}
-    </div>
+    <MentionCardsProvider channelId={id} team={channel.data.team}>
+      <div className="-m-4 flex h-screen flex-col md:-m-6">
+        {featureId === null ? (
+          <ChannelView key={id} {...props} />
+        ) : (
+          <FeatureChannelView key={id} featureId={featureId} {...props} />
+        )}
+        {terminal.open && (
+          <div className="shrink-0 border-t border-hairline">
+            {featureId === null ? (
+              project && <TerminalPane cwd={project.path} onHide={terminal.hide} />
+            ) : (
+              <FeatureTerminal key={featureId} featureId={featureId} onHide={terminal.hide} />
+            )}
+          </div>
+        )}
+      </div>
+    </MentionCardsProvider>
   );
 }

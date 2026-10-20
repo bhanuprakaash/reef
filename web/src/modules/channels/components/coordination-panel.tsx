@@ -1,7 +1,10 @@
 import { useContinueChannel } from '@/lib/api/continue-channel';
 import { useDecideApproval } from '@/lib/api/decide-approval';
 import { useRetryTurn } from '@/lib/api/retry-turn';
+import { Bubble } from '@/modules/channels/components/bubble';
+import { ToolRow } from '@/modules/channels/components/tool-row';
 import { dotFor, type Chain } from '@/modules/channels/utils/direct-chains';
+import type { LiveTurn } from '@/modules/channels/utils/fold-events';
 import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
 import { StatusDot } from '@/components/status-dot';
@@ -9,6 +12,7 @@ import { StatusDot } from '@/components/status-dot';
 type Props = {
   channelId: number;
   chain: Chain;
+  live?: LiveTurn;
   faces: Record<string, string | undefined>;
   running: boolean;
   paused: boolean;
@@ -20,6 +24,7 @@ type Props = {
 export function CoordinationPanel({
   channelId,
   chain,
+  live,
   faces,
   running,
   paused,
@@ -106,6 +111,19 @@ export function CoordinationPanel({
             </li>
           ))}
         </ol>
+        {live && (
+          <div className="flex flex-col items-start gap-2.5">
+            {live.items.map((item, i) =>
+              item.type === 'text' ? (
+                <Bubble key={i}>{item.text}</Bubble>
+              ) : (
+                <div key={item.tool.id} className="w-full">
+                  <ToolRow tool={item.tool} />
+                </div>
+              ),
+            )}
+          </div>
+        )}
         {approval && (
           <div className="flex gap-3">
             <Button

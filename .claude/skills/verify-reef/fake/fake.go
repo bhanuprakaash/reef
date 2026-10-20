@@ -293,8 +293,9 @@ func recordingsDir() string {
 }
 
 func logTurn(fakeLog *os.File, role, scenario, cwd, sid string) {
-	fmt.Fprintf(fakeLog, "%s pid=%d mode=fake role=%s scenario=%s cwd=%s session=%s\n",
-		time.Now().Format(time.RFC3339), os.Getpid(), orNone(role), scenario, cwd, sid)
+	fmt.Fprintf(fakeLog, "%s pid=%d mode=fake role=%s scenario=%s cwd=%s session=%s args=%s\n",
+		time.Now().Format(time.RFC3339), os.Getpid(), orNone(role), scenario, cwd, sid,
+		strings.Join(os.Args[1:], " "))
 }
 
 func orNone(s string) string {

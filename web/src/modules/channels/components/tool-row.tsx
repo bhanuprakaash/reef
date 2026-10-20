@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import type { Tool } from '@/modules/channels/utils/fold-events';
+import { subagentLabel } from '@/modules/channels/utils/subagent-label';
 import { summarizeInput } from '@/modules/channels/utils/summarize-input';
 
 function Mark({ tool }: { tool: Tool }) {
@@ -56,12 +57,9 @@ export function ToolRow({ tool }: { tool: Tool }) {
         <summary className="flex cursor-pointer gap-2.5">
           <Mark tool={tool} />
           {tool.name}
-          <span className="min-w-0 flex-1 truncate text-soft">{summarizeInput(tool.input)}</span>
-          {tool.children.length > 0 && (
-            <span>
-              sub-agent · {tool.children.length} {tool.children.length === 1 ? 'tool' : 'tools'}
-            </span>
-          )}
+          <span className="min-w-0 flex-1 truncate text-soft">
+            {subagentLabel(tool.name, tool.input) ?? summarizeInput(tool.input)}
+          </span>
         </summary>
         <div className="mt-1.5 space-y-2 rounded-lg bg-field px-2.5 py-2">
           <Section title="Input">{JSON.stringify(tool.input, null, 2)}</Section>
@@ -73,11 +71,16 @@ export function ToolRow({ tool }: { tool: Tool }) {
         </div>
       </details>
       {tool.children.length > 0 && (
-        <div className="ml-1.5 mt-1.5 space-y-0.5 border-l border-line pl-3">
-          {tool.children.map((c) => (
-            <ToolRow key={c.id} tool={c} />
-          ))}
-        </div>
+        <details open={!tool.done} className="ml-1.5 mt-1.5">
+          <summary className="cursor-pointer">
+            sub-agent · {tool.children.length} {tool.children.length === 1 ? 'tool' : 'tools'}
+          </summary>
+          <div className="mt-1.5 space-y-0.5 border-l border-line pl-3">
+            {tool.children.map((c) => (
+              <ToolRow key={c.id} tool={c} />
+            ))}
+          </div>
+        </details>
       )}
     </div>
   );

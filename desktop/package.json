@@ -11,6 +11,7 @@
     "email": "bhanuprakashsai7@gmail.com"
   },
   "scripts": {
+    "test": "node --test",
     "postinstall": "node postinstall.js",
     "start": "go build -o bin/reef ../cmd/reef && electron .",
     "build:web": "npm --prefix ../web ci && npm --prefix ../web run build",

@@ -18,21 +18,23 @@ type inspectorRole struct {
 
 // inspectorTurn is one turn with what the inspector shows of it.
 type inspectorTurn struct {
-	ID        int64               `json:"id"`
-	Role      string              `json:"role"`
-	StartedAt time.Time           `json:"startedAt"`
-	Status    string              `json:"status"`
-	Model     string              `json:"model"`
-	Usage     agent.Usage         `json:"usage"`
-	CostUSD   *float64            `json:"costUsd"`
-	Prompt    string              `json:"prompt"`
-	ToolCalls []inspectorToolCall `json:"toolCalls"`
+	ID        int64                `json:"id"`
+	Role      string               `json:"role"`
+	StartedAt time.Time            `json:"startedAt"`
+	Status    string               `json:"status"`
+	Model     string               `json:"model"`
+	Usage     agent.Usage          `json:"usage"`
+	CostUSD   *float64             `json:"costUsd"`
+	Prompt    string               `json:"prompt"`
+	ToolCalls []*inspectorToolCall `json:"toolCalls"`
 }
 
+// inspectorToolCall is one tool call; a subagent's calls are the Children of its Agent call.
 type inspectorToolCall struct {
-	Name   string `json:"name"`
-	Input  string `json:"input"`
-	Result string `json:"result"`
+	Name     string               `json:"name"`
+	Input    string               `json:"input"`
+	Result   string               `json:"result"`
+	Children []*inspectorToolCall `json:"children,omitempty"`
 }
 
 type inspectorResponse struct {
@@ -80,9 +82,16 @@ func (s *server) getInspector(w http.ResponseWriter, r *http.Request) {
 			writeError(w, err)
 			return
 		}
-		tcs := make([]inspectorToolCall, len(calls))
-		for i, c := range calls {
-			tcs[i] = inspectorToolCall{Name: c.Name, Input: c.Input, Result: c.Result}
+		byID := make(map[int64]*inspectorToolCall, len(calls))
+		tcs := make([]*inspectorToolCall, 0, len(calls))
+		for _, c := range calls {
+			tc := &inspectorToolCall{Name: c.Name, Input: c.Input, Result: c.Result}
+			byID[c.ID] = tc
+			if p, ok := byID[c.ParentID]; ok {
+				p.Children = append(p.Children, tc)
+			} else {
+				tcs = append(tcs, tc)
+			}
 		}
 		turnViews = append(turnViews, inspectorTurn{
 			ID: t.ID, Role: t.Role, StartedAt: t.StartedAt, Status: t.Status,

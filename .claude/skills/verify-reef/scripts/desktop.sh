@@ -9,6 +9,7 @@ export REEF_VERIFY_RUN
 
 REPO=$(pwd)
 CDP="$REPO/.claude/skills/verify-reef/scripts/cdp.mjs"
+MAIN_EVAL="$REPO/.claude/skills/verify-reef/scripts/main-eval.mjs"
 D="$E/desktop"
 HOME_DIR="$S/home"
 case $(uname) in
@@ -44,6 +45,8 @@ cdp() { # cdp EXPR [WINDOW]: a dead app fails at once, so the retry loops below 
 	kill -0 "${app:-0}" 2>/dev/null || { echo "the app is not running" >&2; return 1; }
 	node "$CDP" "$cdp_port" "$app_port" "$1" "${2:-}"
 }
+
+mainjs() { node "$MAIN_EVAL" "$inspect_port" "$1"; }
 
 # shot NAME: the whole screen (Xvfb's on Linux) to $D/NAME.png; prints its standard deviation,
 # 0 for a blank screen.
@@ -121,9 +124,11 @@ git -C "$S/cwd" rev-parse -q --verify HEAD >/dev/null 2>&1 || {
 }
 "$H" reef --data-name "$rel" -- project add >/dev/null 2>&1
 "$H" reef -- feature add term Terminal >/dev/null 2>&1
+"$H" reef -- feature add bare Bare >/dev/null 2>&1
 tok=$("$H" reef -- token term --role developer 2>/dev/null | sed -n 's/.*REEF_TOKEN=\([0-9a-f]*\).*/\1/p')
 row=$("$H" sql "select id || ' ' || project_id from feature where slug = 'term'" | tail -n 1)
 fid=${row% *} proj=${row#* }
+bare=$("$H" sql "select id from feature where slug = 'bare'" | tail -n 1)
 [ -n "$tok" ] && [ -n "$fid" ] || { echo "FAIL desktop-setup: no feature or token; see $E/reef.log"; exit 1; }
 WT="$DATA/worktrees/$proj/term"
 
@@ -162,7 +167,8 @@ record "$page_pid"
 # --- launch: on a free port (REEF_PORT) and its own X display, beside any other app or run ---
 app_port=$(free_port)
 cdp_port=$(free_port)
-app_cmd=(env -u XDG_CONFIG_HOME HOME="$HOME_DIR" REEF_PORT="$app_port" REEF_DATA="$DATA" "$electron" "$REPO/desktop" --remote-debugging-port="$cdp_port")
+inspect_port=$(free_port)
+app_cmd=(env -u XDG_CONFIG_HOME HOME="$HOME_DIR" REEF_PORT="$app_port" REEF_DATA="$DATA" "$electron" "$REPO/desktop" --remote-debugging-port="$cdp_port" --inspect="$inspect_port")
 launch='echo "$DISPLAY" >"$1/app.display"; echo "${XAUTHORITY:-}" >"$1/app.xauth"; echo $$ >"$1/app.pid"; shift; exec "$@"'
 if [ "$(uname)" = Darwin ]; then
 	bash -c "$launch" _ "$S" "${app_cmd[@]}" </dev/null >"$D/app.log" 2>&1 &
@@ -216,6 +222,13 @@ ui=""
 for _ in $(seq 50); do
 	ui=$(cdp 'typeof window.reef + " " + location.href + " " + (document.body.innerText.length > 0)' 2>&1)
 	case $ui in *"\"object http://127.0.0.1:$app_port/ true\"") break ;; esac
+	sleep 0.2
+done
+# Without a profile the window shows the first-run page, which has no browser pane.
+curl -s -o /dev/null -X PUT -H 'Content-Type: application/json' "http://127.0.0.1:$app_port/profile" -d '{"name":"verify","occupation":"Developer","style":[]}'
+cdp 'location.reload()' >/dev/null 2>&1
+for _ in $(seq 50); do
+	[ "$(cdp "!!document.querySelector('button[aria-label=Browser]')" 2>&1)" = true ] && break
 	sleep 0.2
 done
 sd=$(shot window)
@@ -272,6 +285,34 @@ out=$(mcp browser_click "{\"ref\":\"$btn\"}")
 check browser-stale-ref "$([ -n "$btn" ] && case $out in *"isError=true ref $btn is not on the page; take a new snapshot"*) echo 1 ;; esac)" \
 	"click $btn after a new navigation: $(grep -m1 '^<' <<<"$out") ($E/reef-mcp.log)"
 
+# --- the native view stays exactly on the pane: its bounds (window pixels, from the main process) equal the pane
+# container's rect (CSS pixels, from the page) times the page zoom, after the window is resized and zoomed ---
+pane_rect="(() => { const r = document.querySelector('aside[aria-label=Browser]').lastElementChild.getBoundingClientRect(); return [r.x, r.y, r.width, r.height]; })()"
+view_bounds='(() => { const b = w.contentView.children[0].getBounds(); return [b.x, b.y, b.width, b.height, w.webContents.getZoomFactor()]; })()'
+: >"$D/pane-bounds.txt"
+bounds_ok=1
+pane_bounds() { # pane_bounds STEP: the view must be within 1 px of the pane's container
+	sleep 0.6
+	pane=$(cdp "$pane_rect" 2>&1) view=$(mainjs "$view_bounds" 2>&1)
+	line=$(python3 -I -c 'import json, sys
+pane, view = json.loads(sys.argv[2]), json.loads(sys.argv[3])
+zoom = view[4]
+want = [n * zoom for n in pane]
+ok = all(abs(a - b) <= 1 for a, b in zip(want, view[:4])) and view[2] > 0
+print(("ok" if ok else "BAD"), sys.argv[1] + ":", "pane x zoom", [round(n, 1) for n in want], "view", view[:4], "zoom", zoom)' "$1" "$pane" "$view" 2>&1) || line="BAD $1: pane $pane view $view"
+	echo "$line" >>"$D/pane-bounds.txt"
+	case $line in ok*) ;; *) bounds_ok=0 ;; esac
+}
+pane_bounds start
+mainjs 'w.setContentSize(1000, 700)' >/dev/null
+pane_bounds "window 1000x700"
+mainjs 'w.webContents.setZoomFactor(1.25)' >/dev/null
+pane_bounds "zoom 1.25"
+mainjs 'w.webContents.setZoomFactor(1)' >/dev/null
+mainjs 'w.setContentSize(1200, 800)' >/dev/null
+pane_bounds "back to 1200x800, zoom 1"
+check browser-bounds "$bounds_ok" "$(grep -c '^ok' "$D/pane-bounds.txt") of $(wc -l <"$D/pane-bounds.txt" | tr -d ' ') steps put the view within 1 px of the pane ($D/pane-bounds.txt)"
+
 # --- terminal pane on the feature's worktree ---
 js_wt=$(python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$WT")
 # xterm paints only while the pane is on screen, so scroll it into view before each read.
@@ -307,6 +348,114 @@ sd=$(shot terminal)
 check terminal-feature "$([ -n "$shell" ] && [ "$cwd" = "$WT" ] && ! grep -q 'feature/term' <<<"$before" &&
 	tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}feature/term" && echo 1)" \
 	"shell pid ${shell:-none} (child of the app) cwd ${cwd:-none}; after pwd; git branch --show-current the pane shows $(tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}feature/term" || echo 'no ')$WT then feature/term ($D/terminal.txt, $D/terminal.png std dev $sd)"
+
+# --- terminal app: Settings > Terminal sends the toggle to `open -a <app> <worktree>` ---
+# The real open binary is never run: main's execFile is swapped for one that records its call.
+stub_open() { # stub_open DONE: execFile records its call, then DONE(cb) answers it
+	mainjs "(() => { const cp = process.mainModule.require('node:child_process'); globalThis.__realExecFile ??= cp.execFile; globalThis.__opened ??= [];
+  cp.execFile = (file, args, opts, cb) => { globalThis.__opened.push([file, ...args]); ($1)(cb); };
+  process.mainModule.require('node:module').syncBuiltinESMExports(); return 1; })()" >/dev/null
+}
+stub_open "(cb) => cb(null, '', '')"
+spa() { cdp "history.pushState({}, '', '$1'); dispatchEvent(new PopStateEvent('popstate')); location.pathname" >/dev/null; }
+opened_count() { mainjs 'globalThis.__opened.length' 2>/dev/null; }
+wait_opened() { # wait_opened N: until the stub has seen N calls
+	for _ in $(seq 40); do [ "$(opened_count)" -ge "$1" ] 2>/dev/null && return 0; sleep 0.2; done
+	return 1
+}
+click_toggle() {
+	for _ in $(seq 40); do
+		[ "$(cdp "(() => { const b = document.querySelector('button[aria-label=Terminal]'); if (b) b.click(); return !!b; })()" 2>&1)" = true ] && return 0
+		sleep 0.2
+	done
+	return 1
+}
+expect_apps='["Built-in pane"'
+for name in Ghostty iTerm Terminal Warp; do
+	for dir in /Applications "$HOME/Applications" /System/Applications/Utilities; do
+		[ -d "$dir/$name.app" ] && { expect_apps="$expect_apps,\"$name\""; break; }
+	done
+done
+expect_apps="$expect_apps,\"Custom\"]"
+spa '/settings?section=terminal'
+labels=""
+for _ in $(seq 25); do
+	labels=$(cdp "JSON.stringify([...document.querySelectorAll('[role=radiogroup] label')].map((l) => l.textContent))" 2>/dev/null)
+	[ -n "$labels" ] && [ "$labels" != '"[]"' ] && break
+	sleep 0.2
+done
+labels=$(python3 -I -c 'import json, sys; print(json.loads(sys.argv[1]))' "$labels" 2>/dev/null)
+cdp "[...document.querySelectorAll('[role=radiogroup] label')].find((l) => l.textContent === 'Custom').querySelector('input').click()" >/dev/null
+cdp "(() => { const t = document.querySelector('[aria-label=\"Custom terminal app\"]'); Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(t, 'FakeTerm'); t.dispatchEvent(new Event('input', { bubbles: true })); })()" >/dev/null
+sd=$(shot terminal-settings)
+check terminal-app-settings "$([ "$labels" = "$expect_apps" ] && [ "$(cdp "localStorage.getItem('reef.terminalApp')")" = '"FakeTerm"' ] && echo 1)" \
+	"Settings > Terminal lists $labels (installed apps here: $expect_apps); Custom FakeTerm is stored as reef.terminalApp ($D/terminal-settings.png std dev $sd)"
+
+spa "/features/$fid"
+click_toggle
+wait_opened 1
+sleep 1.5
+calls=$(mainjs 'JSON.stringify(globalThis.__opened)' 2>/dev/null)
+want=$(python3 -I -c 'import json, sys; print(json.dumps(json.dumps([["open", "-a", "FakeTerm", sys.argv[1]]], separators=(",", ":"))))' "$WT")
+xterm=$(cdp "!!document.querySelector('.xterm')")
+echo "$calls" >"$D/terminal-app-open.txt"
+check terminal-app-launch "$([ "$calls" = "$want" ] && [ "$xterm" = false ] && echo 1)" \
+	"with FakeTerm chosen the Terminal toggle ran open with $calls (want $want) and no xterm pane is open (xterm=$xterm; $D/terminal-app-open.txt)"
+
+cdp 'setTimeout(() => location.reload(), 0)' >/dev/null 2>&1
+for _ in $(seq 50); do [ "$(cdp "document.readyState + !!window.reef" 2>/dev/null)" = '"completetrue"' ] && break; sleep 0.2; done
+spa "/features/$fid"
+click_toggle
+wait_opened 2
+sleep 1.5
+after=$(opened_count)
+kept=$(cdp "localStorage.getItem('reef.terminalApp')")
+check terminal-app-reload "$([ "$kept" = '"FakeTerm"' ] && [ "$after" = 2 ] && [ "$(cdp "!!document.querySelector('.xterm')")" = false ] && echo 1)" \
+	"after a reload reef.terminalApp is $kept and the toggle ran open again ($after calls), still no xterm pane"
+
+spa "/features/$bare"
+click_toggle
+sleep 1.5
+bare_text=$(cdp "document.querySelector('section[aria-label=Terminal]')?.textContent ?? ''")
+check terminal-app-no-worktree "$([ "$(opened_count)" = 2 ] && [ ! -e "$DATA/worktrees/$proj/bare" ] && case $bare_text in *'No worktree yet'*) echo 1 ;; esac)" \
+	"on a feature with no worktree the toggle shows $bare_text, runs no open ($(opened_count) in all) and makes no $DATA/worktrees/$proj/bare"
+
+stub_open "(cb) => setTimeout(() => cb(null, '', ''), 1000)"
+spa "/features/$fid"
+click_toggle
+click_toggle
+sleep 2
+check terminal-app-twice "$([ "$(opened_count)" = 3 ] && [ "$(cdp "document.querySelector('button[aria-label=Terminal]').ariaPressed")" = '"false"' ] && echo 1)" \
+	"toggle on then off before open answers: one more open ($(opened_count) in all) and the toggle stays off"
+
+stub_open "(cb) => cb(new Error('exit 1'), '', 'Unable to find application named FakeTerm')"
+click_toggle
+err=""
+for _ in $(seq 25); do
+	err=$(cdp "document.querySelector('section[aria-label=Terminal]')?.textContent ?? ''" 2>/dev/null)
+	case $err in *Unable*) break ;; esac
+	sleep 0.2
+done
+spa "/features/$bare"
+spa "/features/$fid"
+sleep 1.5
+check terminal-app-error "$([ "$(opened_count)" = 4 ] && [ "$(cdp "document.querySelector('button[aria-label=Terminal]').ariaPressed")" = '"false"' ] && case $err in *'Unable to find application named FakeTerm'*) echo 1 ;; esac)" \
+	"a failed open shows $err in the pane; moving to another feature and back runs no open again ($(opened_count) in all) and the toggle is off"
+
+spa '/settings?section=terminal'
+for _ in $(seq 25); do
+	[ "$(cdp "!!document.querySelector('[role=radiogroup]')" 2>/dev/null)" = true ] && break
+	sleep 0.2
+done
+cdp "[...document.querySelectorAll('[role=radiogroup] label')].find((l) => l.textContent === 'Built-in pane').querySelector('input').click()" >/dev/null
+spa "/features/$fid"
+for _ in $(seq 25); do
+	[ "$(cdp "!!document.querySelector('.xterm')" 2>/dev/null)" = true ] && break
+	sleep 0.2
+done
+check terminal-builtin "$([ "$(cdp "localStorage.getItem('reef.terminalApp')")" = null ] && [ "$(cdp "!!document.querySelector('.xterm')")" = true ] && [ "$(opened_count)" = 4 ] && echo 1)" \
+	"choosing Built-in pane clears reef.terminalApp and the feature page shows the xterm pane again, with no further open call ($(opened_count) in all)"
+mainjs "(() => { const cp = process.mainModule.require('node:child_process'); cp.execFile = globalThis.__realExecFile; process.mainModule.require('node:module').syncBuiltinESMExports(); return 1; })()" >/dev/null
 
 # --- quick capture: the global shortcut and the sidebar button open the same window ---
 have_xdotool=$(command -v xdotool >/dev/null 2>&1 && echo 1 || echo 0)

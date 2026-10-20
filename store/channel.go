@@ -193,8 +193,9 @@ func (s *Store) UpdateChannel(ctx context.Context, c Channel) (Channel, error) {
 		return Channel{}, err
 	}
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE channel SET name = ?, permission_mode = ? WHERE id = ?",
-		c.Name, c.PermissionMode, c.ID)
+		"UPDATE channel SET name_auto = CASE WHEN name = ? THEN name_auto ELSE 0 END, "+
+			"name = ?, permission_mode = ? WHERE id = ?",
+		c.Name, c.Name, c.PermissionMode, c.ID)
 	if err != nil {
 		return Channel{}, fmt.Errorf("update channel: %w", err)
 	}
@@ -206,6 +207,49 @@ func (s *Store) UpdateChannel(ctx context.Context, c Channel) (Channel, error) {
 		return Channel{}, fmt.Errorf("channel %d: %w", c.ID, ErrNotFound)
 	}
 	return s.Channel(ctx, c.ID)
+}
+
+// Name steps of a channel whose name the provider may propose, stored on channel.name_auto.
+// A channel is user-named (0) unless it was created with a default name; a rename to any
+// other name puts it back to 0 in the same statement that sets the name.
+const (
+	_nameUser      = 0
+	_namePending   = 1
+	_nameProposing = 2
+)
+
+// MarkNamePending lets the provider propose a name for channel id, once.
+func (s *Store) MarkNamePending(ctx context.Context, id int64) error {
+	return s.setChannel(ctx, id, "name_auto = ?", _namePending)
+}
+
+// ClaimName reports whether the caller took the one naming attempt of channel id: true only
+// while the name is pending, so the first caller wins and a user-named channel is never claimed.
+func (s *Store) ClaimName(ctx context.Context, id int64) (bool, error) {
+	return s.nameStep(ctx, "UPDATE channel SET name_auto = ? WHERE id = ? AND name_auto = ?",
+		_nameProposing, id, _namePending)
+}
+
+// FinishName ends the attempt ClaimName began: it sets the name to name, or keeps the current
+// one when name is empty. It reports false, changing nothing, when a rename ended the attempt
+// first.
+func (s *Store) FinishName(ctx context.Context, id int64, name string) (bool, error) {
+	return s.nameStep(ctx,
+		"UPDATE channel SET name = COALESCE(NULLIF(?, ''), name), name_auto = ? "+
+			"WHERE id = ? AND name_auto = ?",
+		name, _nameUser, id, _nameProposing)
+}
+
+func (s *Store) nameStep(ctx context.Context, query string, args ...any) (bool, error) {
+	res, err := s.db.ExecContext(ctx, query, args...)
+	if err != nil {
+		return false, fmt.Errorf("update channel name: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("update channel name: %w", err)
+	}
+	return n > 0, nil
 }
 
 // PromoteChannel attaches quick session id to feature f: the existing one when f.ID

@@ -1,10 +1,12 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
 	"net/http"
+	"regexp"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -130,6 +132,7 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 	if in.Team == "" {
 		in.Team = store.SoloTeam
 	}
+	autoName := isDefaultName(in.Name, cmp.Or(in.Backend, in.Team))
 	team, err := s.st.Team(r.Context(), in.Team)
 	if errors.Is(err, store.ErrNotFound) {
 		err = fmt.Errorf("%w: unknown team %s", store.ErrInvalid, in.Team)
@@ -155,7 +158,21 @@ func (s *server) createChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if autoName {
+		if err := s.st.MarkNamePending(r.Context(), c.ID); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
 	writeJSON(w, http.StatusCreated, c)
+}
+
+// isDefaultName reports whether name is what the new-channel form sends when its name field
+// is empty: the backend (or the team when there is none), a space and the time as hours and
+// minutes, with AM or PM in a 12-hour locale.
+func isDefaultName(name, prefix string) bool {
+	return regexp.MustCompile(`^` + regexp.QuoteMeta(prefix) +
+		` \d{1,2}:\d{2}([\s\x{202f}\x{a0}]?[AaPp][Mm])?$`).MatchString(name)
 }
 
 func (s *server) getChannel(w http.ResponseWriter, r *http.Request) {

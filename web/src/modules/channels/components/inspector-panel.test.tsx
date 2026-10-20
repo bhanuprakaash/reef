@@ -97,4 +97,44 @@ describe('InspectorPanel', () => {
 
     expect(markup).toContain('2 turns');
   });
+
+  it('shows a subagent call by its type with its nested calls in a closed group', () => {
+    useInspector.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: {
+        roles: [{ role: 'developer', turns: 1, usage, costUsd: 0.1 }],
+        turns: [
+          {
+            id: 7,
+            role: 'developer',
+            startedAt: '2026-10-20T10:00:00Z',
+            status: 'done',
+            model: 'claude-opus-5-5',
+            usage,
+            costUsd: 0.1,
+            prompt: 'do it',
+            toolCalls: [
+              { name: 'Bash', input: '{"command":"ls"}', result: 'a.txt' },
+              {
+                name: 'Agent',
+                input: '{"description":"Comment pass","subagent_type":"comment-sicko"}',
+                result: 'nothing removed',
+                children: [{ name: 'Read', input: '{"file_path":"a.go"}', result: 'package a' }],
+              },
+            ],
+          },
+        ],
+      },
+    });
+
+    const markup = renderToStaticMarkup(
+      <InspectorPanel channelId={1} faces={{}} onClose={() => {}} />,
+    );
+
+    expect(markup).toContain('Agent comment-sicko · Comment pass');
+    expect(markup).toContain('sub-agent · 1 tool<');
+    expect(markup).toContain('<details class="mt-1.5"><summary class="cursor-pointer">sub-agent');
+    expect(markup).toContain('<div class="text-soft">Bash</div>');
+  });
 });

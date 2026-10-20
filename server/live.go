@@ -21,6 +21,8 @@ import (
 
 const _keepAlive = 15 * time.Second
 
+const _nameTimeout = time.Minute
+
 var errStopping = errors.New("server is stopping")
 
 const _hopReasonPrefix = "hop cap:"
@@ -339,6 +341,9 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 	if err != nil {
 		return c.release(err)
 	}
+	if t.kind == _message {
+		s.nameChannel(ctx, id, ch.Backend, t.text)
+	}
 	queue := []wake{{from: _userAuthor, role: role, text: t.text, parent: t.parent}}
 	if t.kind == _message {
 		if queue, err = s.route(ctx, id, []store.Message{msg}, _userAuthor); err != nil {
@@ -346,6 +351,38 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 		}
 	}
 	return c.start(ctx, sess, t.kind, queue, msg.ID)
+}
+
+// nameChannel starts the one attempt to name a channel created with a default name, from its
+// first user message. The name lands only if no rename ended the attempt first; a failed
+// attempt keeps the name the channel has.
+func (s *server) nameChannel(ctx context.Context, id int64, backend, text string) {
+	ok, err := s.st.ClaimName(ctx, id)
+	if err != nil {
+		log.Printf("claim name of channel %d: %v", id, err)
+		return
+	}
+	if !ok || !s.begin() {
+		return
+	}
+	go func() {
+		defer s.wg.Done()
+		nctx, cancel := context.WithTimeout(s.ctx, _nameTimeout)
+		defer cancel()
+		name, err := s.name(nctx, backend, text)
+		if err != nil {
+			log.Printf("name channel %d: %v", id, err)
+			name = ""
+		}
+		applied, err := s.st.FinishName(context.Background(), id, name)
+		if err != nil {
+			log.Printf("name channel %d: %v", id, err)
+			return
+		}
+		if applied && name != "" {
+			s.notify(id, "name")
+		}
+	}()
 }
 
 // queueMessage stores the message of t and queues its wakes behind the turn a running message
@@ -918,9 +955,23 @@ func (c *chain) finalize(mine bool, directFailed []directFail, approvals []int64
 		c.s.notify(c.id, "direct")
 	}
 	for _, aid := range approvals {
-		if err := c.s.st.ReopenApproval(context.WithoutCancel(c.ctx), aid); err != nil {
-			log.Printf("reopen approval %d of channel %d: %v", aid, c.id, err)
+		ctx := context.WithoutCancel(c.ctx)
+		err := c.s.st.ReopenApproval(ctx, aid)
+		var a store.Approval
+		if err == nil {
+			a, err = c.s.st.Approval(ctx, c.id, aid)
 		}
+		if errors.Is(err, store.ErrNotFound) {
+			// A hold that continue claimed is not a gate approval: no event.
+			continue
+		}
+		if err != nil {
+			log.Printf("reopen approval %d of channel %d: %v", aid, c.id, err)
+			continue
+		}
+		c.l.mu.Lock()
+		c.l.publishLocked("approval", a)
+		c.l.mu.Unlock()
 	}
 	if mine && c.ownsActiveTurn {
 		c.ownsActiveTurn = false

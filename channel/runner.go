@@ -128,7 +128,12 @@ func (r *Runner) Run(
 			case agent.KindText:
 				reply.WriteString(ev.Text)
 			case agent.KindToolCall:
-				tc, err := r.st.CreateToolCall(wctx, turn.ID, ev.ToolName, string(ev.Input))
+				var parentRow int64
+				if ev.ParentToolID != "" {
+					parentRow = toolRows[ev.ParentToolID]
+				}
+				tc, err := r.st.CreateToolCall(
+					wctx, turn.ID, parentRow, ev.ToolName, string(ev.Input))
 				if err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}

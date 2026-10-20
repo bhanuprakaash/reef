@@ -32,6 +32,7 @@ type Agent interface {
 // Config is how a session starts.
 type Config struct {
 	Cwd             string
+	Bin             string               // backend executable; empty is claude or codex from PATH
 	PermissionMode  string               // backend-specific value, passed through
 	Model           string               // backend-specific model name; empty is the backend's default
 	Tools           []string             // tools allowed without asking; codex ignores it

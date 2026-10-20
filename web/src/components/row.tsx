@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import type { ComponentProps, ReactNode } from 'react';
 import { Link } from 'react-router';
 
 export function Row(props: {
@@ -9,9 +9,11 @@ export function Row(props: {
   live?: ReactNode;
   aside?: ReactNode;
   preview: string;
+  trigger?: ComponentProps<'a'>;
 }) {
   return (
     <Link
+      {...props.trigger}
       to={props.to}
       className={`flex items-center gap-3 rounded-xl px-2.5 py-[9px] ${props.active ? 'bg-active' : 'hover:bg-hover/50'}`}
     >
