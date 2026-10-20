@@ -15,6 +15,7 @@ const badge = 'inline-flex h-[30px] items-center rounded-pill border px-3 text-x
 
 type Props = {
   team: Team;
+  openRole?: string;
   skills?: Skills;
   providers?: Provider[];
   noProject?: boolean;
@@ -22,12 +23,23 @@ type Props = {
   onDuplicate: () => void;
 };
 
-export function TeamEditor({ team, skills, providers, noProject, onSaved, onDuplicate }: Props) {
+export function TeamEditor({
+  team,
+  openRole,
+  skills,
+  providers,
+  noProject,
+  onSaved,
+  onDuplicate,
+}: Props) {
   const [loaded, setLoaded] = useState(team);
   const [roles, setRoles] = useState<Role[]>(team.roles);
   const [keys, setKeys] = useState(() => team.roles.map((_, i) => i));
   const [gates, setGates] = useState<Gate[]>(team.gates ?? []);
-  const [selected, setSelected] = useState<number | null>(null);
+  const [selected, setSelected] = useState<number | null>(() => {
+    const i = team.roles.findIndex((r) => r.name === openRole);
+    return i < 0 ? null : i;
+  });
   const save = useUpdateTeam();
 
   function load(t: Team) {

@@ -62,6 +62,7 @@ export function TeamsPage() {
           <TeamEditor
             key={team.name}
             team={team}
+            openRole={params.get('role') ?? undefined}
             skills={skills.data}
             providers={providers.data}
             noProject={!project}

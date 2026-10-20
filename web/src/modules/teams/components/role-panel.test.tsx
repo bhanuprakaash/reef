@@ -76,4 +76,17 @@ describe('TeamEditor', () => {
     expect(markup).toContain('2 tools');
     expect(markup).not.toContain('aria-label="Role"');
   });
+
+  it('opens the panel of the role named by openRole', () => {
+    useUpdateTeam.mockReturnValue({ isPending: false, isSuccess: false, isError: false });
+    const team: Team = { name: 'solo', roles: [{ ...role, name: 'lead' }, role] };
+    const render = (openRole: string) =>
+      renderToStaticMarkup(
+        <TeamEditor team={team} openRole={openRole} onSaved={() => {}} onDuplicate={() => {}} />,
+      );
+
+    expect(render('developer')).toContain('aria-label="developer name"');
+    expect(render('developer')).not.toContain('aria-label="lead name"');
+    expect(render('nobody')).not.toContain('aria-label="Role"');
+  });
 });

@@ -46,4 +46,19 @@ describe('HovercardPanel', () => {
     );
     expect(markup).toContain('left:308px;bottom:10px');
   });
+
+  it('flips to the trigger left when the card would run past the right edge', () => {
+    const edge = { top: 100, left: 900, right: 960, bottom: 140 } as DOMRect;
+    const render = (innerWidth: number) => {
+      vi.stubGlobal('window', { innerHeight: 800, innerWidth });
+      return renderToStaticMarkup(
+        <HovercardPanel id="a" anchor={edge}>
+          x
+        </HovercardPanel>,
+      );
+    };
+
+    expect(render(1280)).toContain('left:968px;top:100px;width:288px');
+    expect(render(1000)).toContain('right:108px;top:100px;width:288px');
+  });
 });

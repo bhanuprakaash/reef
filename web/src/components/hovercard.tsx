@@ -20,9 +20,11 @@ export type HovercardTrigger = {
 };
 
 const GAP = 8;
+const WIDTH = 288;
 
 // The card sits beside the trigger, level with its top edge, or with its bottom edge when the
 // trigger is in the lower half of the window, so it never covers the pointer or runs off screen.
+// A trigger too near the right edge puts it on the trigger's left instead.
 export function HovercardPanel({
   id,
   anchor,
@@ -37,6 +39,7 @@ export function HovercardPanel({
   children: ReactNode;
 }) {
   const below = anchor.top > window.innerHeight / 2;
+  const flip = anchor.right + GAP + WIDTH > window.innerWidth;
   return (
     <div
       id={id}
@@ -44,10 +47,11 @@ export function HovercardPanel({
       onPointerEnter={onPointerEnter}
       onPointerLeave={onPointerLeave}
       style={{
-        left: anchor.right + GAP,
+        ...(flip ? { right: window.innerWidth - anchor.left + GAP } : { left: anchor.right + GAP }),
         ...(below ? { bottom: window.innerHeight - anchor.bottom } : { top: anchor.top }),
+        width: WIDTH,
       }}
-      className="fixed z-50 w-72 rounded-menu border border-line bg-card p-3.5 text-sm text-fg shadow-menu [--creature-ring:var(--color-card)]"
+      className="fixed z-50 rounded-menu border border-line bg-card p-3.5 text-sm text-fg shadow-menu [--creature-ring:var(--color-card)]"
     >
       {children}
     </div>

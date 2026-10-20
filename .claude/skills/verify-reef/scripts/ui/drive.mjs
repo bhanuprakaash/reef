@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|hovercard|providers|first-run BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|hovercard|mention|providers|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -13,9 +13,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, denials, subagent, composer, naming, hovercard, providers, 'first-run': firstRun };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, denials, subagent, composer, naming, hovercard, mention, providers, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|hovercard|providers|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|hovercard|mention|providers|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -2639,6 +2639,210 @@ async function hovercard() {
   }
   await page.waitForTimeout(500);
   check((await phoneRow.evaluate((el) => el === document.activeElement)) && (await tip.count()) === 0, 'phone layout: keyboard focus on a channel shows no card');
+  await shot('phone');
+}
+
+async function mention() {
+  if ((await fetch(`${base}/teams/full`)).status !== 200) throw new Error('apply the team full first (see features/window.md)');
+  ensureRepo();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const section = await addProject();
+  await addFeature(section, 'mention', 'Mention');
+  const { id: cid } = await newTeamChannel('full', 'mention chat');
+  await send('@lead and @developer, @nobody too: remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools. @tester ');
+  await working();
+
+  const tip = page.getByRole('tooltip');
+  const at = (name) => main.locator('.mention', { hasText: name, hasNotText: /^$/ }).first();
+  const away = () => page.mouse.move(640, 760);
+  const flat = async () => (await tip.innerText()).replace(/\s+/g, ' ').trim();
+  const team = await getJson('/teams/full');
+  const defaults = [['lead', 'developer'], ['architect', 'developer'], ['developer', 'tester'], ['tester', 'developer']];
+  const gatesOf = (name) => {
+    const names = team.roles.map((r) => r.name);
+    const edges = new Map(defaults.filter(([f, t]) => names.includes(f) && names.includes(t)).map(([f, t]) => [`${f}>${t}`, true]));
+    for (const g of team.gates ?? []) edges.set(`${g.from}>${g.to}`, g.on);
+    return [...edges].filter(([k, on]) => on && k.split('>').includes(name)).length;
+  };
+  const expected = async (name) => {
+    const role = team.roles.find((r) => r.name === name);
+    const running = (await getJson('/turns?status=running')).filter((t) => String(t.channelId) === cid).map((t) => t.role);
+    const models = { sonnet: 'Sonnet', opus: 'Opus', haiku: 'Haiku' };
+    const backend = role.backend === 'claude' ? 'Claude Code' : 'Codex';
+    const model = role.model ? ((role.backend === 'claude' && models[role.model]) || role.model) : 'default model';
+    const tools = role.backend === 'claude' ? ` Tools ${role.tools.length}` : '';
+    return `${name} ${backend} · ${model} Edit ${role.persona.split('\n')[0]} State ${running.includes(name) ? 'Working' : 'Idle'} Access ${role.write ? 'Can write' : 'Read-only'}${tools} Gates ${gatesOf(name)}`;
+  };
+  const sameCard = (shown, want) => shown.toLowerCase() === want.toLowerCase();
+  const lead = at('@lead');
+  const developer = at('@developer');
+  const nobody = at('@nobody');
+  check((await team.roles.every((r) => r.name !== 'nobody')) && (await lead.count()) === 1 && (await nobody.count()) === 1, 'the message shows @lead, @developer, @nobody and @tester as mentions, and the team has no nobody');
+
+  await page.waitForTimeout(3500);
+  await away();
+  await lead.hover();
+  await page.waitForTimeout(150);
+  check((await tip.count()) === 0, 'the card waits out its delay: nothing 150 ms after the pointer lands');
+  await tip.waitFor({ timeout: 3000 });
+  await shot('working-dark');
+  const shownLead = await flat();
+  check(sameCard(shownLead, await expected('lead')) && shownLead.includes('State Working'), '@lead while the lead turn runs: role, backend and model, persona, Working, access, tools and gates match /teams/full and /turns?status=running', shownLead);
+  check(/Tools 3 Gates 1$/.test(shownLead) && /Read-only/.test(shownLead), 'the lead has 3 tools, is read-only and has the default lead to developer gate', shownLead);
+  const leadFace = await tip.locator('svg').first().innerHTML();
+  const [m, t] = [await lead.boundingBox(), await tip.boundingBox()];
+  check(t.x >= m.x + m.width, 'the card sits beside the mention, not over it', `mention right ${m.x + m.width}, card left ${t.x}`);
+  const described = await lead.getAttribute('aria-describedby');
+  check(described !== null && described === (await tip.getAttribute('id')), 'the mention is described by the card (role tooltip)', described);
+  await tip.hover();
+  await page.waitForTimeout(500);
+  check(await tip.isVisible(), 'moving the pointer from the mention onto the card keeps it open');
+  await away();
+  await tip.waitFor({ state: 'hidden', timeout: 2000 });
+  check((await lead.getAttribute('aria-describedby')) === null, 'the card closes when the pointer leaves, and the description goes');
+
+  await developer.hover();
+  await tip.waitFor({ timeout: 3000 });
+  const shownDev = await flat();
+  check(sameCard(shownDev, await expected('developer')) && shownDev.includes('State Idle') && shownDev.includes('Can write') && /Tools 6 Gates 4$/.test(shownDev), '@developer while only the lead runs: Idle, can write, 6 tools, 4 gates, matching /teams/full', shownDev);
+  await shot('idle-developer');
+  await page.keyboard.press('Escape');
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  check(true, 'Escape closes the card');
+  await away();
+
+  await nobody.hover();
+  await page.waitForTimeout(900);
+  check((await tip.count()) === 0 && (await nobody.getAttribute('tabindex')) === null, '@nobody (no such role in the team) shows no card and is not a tab stop');
+
+  await lead.hover();
+  await tip.waitFor();
+  await lead.click();
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  await page.waitForTimeout(700);
+  check((await tip.count()) === 0, 'clicking the mention closes the card and it does not come back under a still pointer');
+  await away();
+
+  const toMention = async (target) => {
+    await page.getByLabel('Message').focus();
+    for (let i = 0; i < 80; i++) {
+      await page.keyboard.press('Shift+Tab');
+      if (await target.evaluate((el) => el === document.activeElement)) return true;
+    }
+    return false;
+  };
+  check(await toMention(lead), 'Shift+Tab from the message box reaches the @lead mention');
+  await tip.waitFor({ timeout: 1000 });
+  check((await lead.getAttribute('aria-describedby')) === (await tip.getAttribute('id')), 'keyboard focus on the mention shows the card, described by it');
+  await page.keyboard.press('Shift+Tab');
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  check(true, 'moving focus off the mention closes the card');
+
+  await developer.hover();
+  await tip.waitFor();
+  await page.goBack();
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  await page.goForward();
+  await lead.waitFor();
+  await away();
+  await page.waitForTimeout(700);
+  check((await tip.count()) === 0, 'navigating (back) closes the card');
+
+  await idle();
+  await away();
+  await lead.hover();
+  await tip.waitFor({ timeout: 3000 });
+  const calmLead = await flat();
+  check(sameCard(calmLead, await expected('lead')) && calmLead.includes('State Idle') && (await getJson('/turns?status=running')).every((t) => String(t.channelId) !== cid), '@lead once the turn is done: Idle, matching /turns?status=running', calmLead);
+  await shot('idle-lead');
+  await away();
+  await tip.waitFor({ state: 'hidden', timeout: 2000 });
+
+  await developer.hover();
+  await tip.waitFor();
+  const devFace = await tip.locator('svg').first().innerHTML();
+  await tip.getByRole('link', { name: 'Edit' }).click();
+  await page.waitForURL(/\/teams\?/);
+  const url = new URL(page.url());
+  check(url.pathname === '/teams' && url.searchParams.get('team') === 'full' && url.searchParams.get('role') === 'developer', 'Edit opens /teams with team=full and role=developer', page.url());
+  const panel = page.getByRole('complementary', { name: 'Role' }).or(page.locator('[aria-label=Role]'));
+  await panel.first().waitFor({ timeout: 5000 });
+  const row = main.getByRole('button', { name: /^developer/ });
+  check((await row.getAttribute('aria-pressed')) === 'true' && (await panel.first().getByLabel('developer name').inputValue()) === 'developer', 'the developer row is selected and its role panel is open');
+  check((await main.getByRole('button', { name: /^lead/ }).getAttribute('aria-pressed')) === 'false', 'no other role is selected');
+  check((await row.locator('svg').first().innerHTML()) === devFace && devFace !== leadFace, "the card's creature is the one the team page shows for developer, and differs from the lead's");
+  await shot('edit');
+  await page.goBack();
+  await lead.waitFor();
+
+  // The Thread pane is the right 400 px of the window: its mentions are the ones near the edge.
+  const pane = page.getByRole('complementary', { name: 'Thread' });
+  const edge = async () => {
+    if ((await pane.count()) === 0) await main.getByRole('button', { name: /reply in thread|replies in thread|^Reply$/ }).first().click();
+    await pane.waitFor();
+    let best = null;
+    for (const name of ['@lead', '@developer', '@tester']) {
+      const el = pane.locator('.mention', { hasText: name }).first();
+      const box = await el.boundingBox();
+      if (!best || box.x + box.width > best.box.x + best.box.width) best = { el, name, box };
+    }
+    return best;
+  };
+  await away();
+  const near = await edge();
+  const tester = near.el;
+  await tester.hover();
+  await tip.waitFor({ timeout: 3000 });
+  const [tm, tt] = [await tester.boundingBox(), await tip.boundingBox()];
+  const width = 1280;
+  check(tm.x + tm.width + 8 + tt.width > width, `the ${near.name} mention in the Thread pane is so near the right edge that a card on its right would run off the window`, `mention right ${tm.x + tm.width}, card ${tt.width} wide`);
+  check(tt.x >= 0 && tt.x + tt.width <= width && tt.x + tt.width <= tm.x, 'the card flipped to the mention left and stays inside the window', `card ${tt.x}..${tt.x + tt.width}, mention left ${tm.x}`);
+  const edgeRole = near.name.slice(1);
+  check(sameCard(await flat(), await expected(edgeRole)), `${near.name} card matches /teams/full`, await flat());
+  await shot('edge-dark');
+  await away();
+
+  await page.evaluate(() => localStorage.setItem('reef.theme', 'light'));
+  await page.reload();
+  const lightEdge = await edge();
+  await lightEdge.el.hover();
+  await tip.waitFor();
+  await page.waitForTimeout(300);
+  check((await page.evaluate(() => document.documentElement.dataset.theme)) === 'light', 'light theme is on for the card');
+  await shot('edge-light');
+  await contrast('mention card');
+  await away();
+  await tip.waitFor({ state: 'hidden', timeout: 2000 });
+  await lead.hover();
+  await tip.waitFor();
+  await page.waitForTimeout(300);
+  check((await flat()).startsWith('Lead '), 'the @lead card opens in light too');
+  await shot('light');
+  await away();
+  await page.evaluate(() => localStorage.setItem('reef.theme', 'dark'));
+  await page.reload();
+  const darkEdge = await edge();
+  await darkEdge.el.hover();
+  await tip.waitFor();
+  await page.waitForTimeout(300);
+  await contrast('mention card');
+  await away();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${base}/channels/${cid}`);
+  const phoneLead = main.locator('.mention', { hasText: '@lead' }).first();
+  await phoneLead.waitFor();
+  await phoneLead.hover();
+  await page.waitForTimeout(900);
+  check((await tip.count()) === 0, 'phone layout (390x844): hovering a mention shows no card');
+  await page.mouse.move(5, 5);
+  await page.getByLabel('Message').focus();
+  for (let i = 0; i < 80; i++) {
+    await page.keyboard.press('Shift+Tab');
+    if (await phoneLead.evaluate((el) => el === document.activeElement)) break;
+  }
+  await page.waitForTimeout(500);
+  check((await phoneLead.evaluate((el) => el === document.activeElement)) && (await tip.count()) === 0, 'phone layout: keyboard focus on a mention shows no card');
   await shot('phone');
 }
 
