@@ -1307,7 +1307,7 @@ func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
 			ags[0].cfg.Bin, ags[1].cfg.Bin, dir)
 	}
 
-	if err := st.DeleteProvider(ctx, "work"); err != nil {
+	if err := os.Remove(filepath.Join(dir, "claude")); err != nil {
 		t.Fatal(err)
 	}
 	s2, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
@@ -1316,12 +1316,12 @@ func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
 	}
 	defer func() { _ = s2.Close() }()
 	err = s2.RunAs(ctx, "architect", "again", nil, discard)
-	if !errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), `provider "work" is not installed`) {
-		t.Fatalf("RunAs with a removed provider error = %v, want provider \"work\" is not installed", err)
+	if !errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), "no claude binary in "+dir) {
+		t.Fatalf("RunAs with a removed binary error = %v, want no claude binary in %s", err, dir)
 	}
 	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID, Status: "failed"})
 	if err != nil || len(turns) != 1 || turns[0].Role != "architect" ||
-		!strings.Contains(turns[0].Error, `provider "work" is not installed`) {
-		t.Errorf("failed turns = %+v, %v, want one architect turn naming the missing provider", turns, err)
+		!strings.Contains(turns[0].Error, "no claude binary in "+dir) {
+		t.Errorf("failed turns = %+v, %v, want one architect turn naming the missing binary", turns, err)
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -91,6 +92,13 @@ func TestStore_ProviderBinAndDelete(t *testing.T) {
 	lead.Backend, lead.Provider = "codex", "gone"
 	if _, err := st.ApplyTeam(ctx, Team{Name: "t", Roles: []Role{lead}}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("ApplyTeam with an unknown provider error = %v, want ErrInvalid", err)
+	}
+	err = st.DeleteProvider(ctx, "cx")
+	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "used by role lead of team t") {
+		t.Errorf("DeleteProvider of a provider a role names error = %v, want ErrConflict naming role lead of team t", err)
+	}
+	if _, err := st.ApplyTeam(ctx, Team{Name: "t", Roles: []Role{{Name: "lead", Lead: true, Backend: "codex"}}}); err != nil {
+		t.Fatal(err)
 	}
 	if err := st.DeleteProvider(ctx, "cx"); err != nil {
 		t.Fatal(err)

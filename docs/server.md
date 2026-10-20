@@ -388,11 +388,12 @@ adapters use when a role names no provider.
 
 A role runs a provider's binary by naming it in `provider`. The check runs when the team is
 applied (the provider exists, its `kind` is the role's `backend` and its folder still holds the
-binary) and again when the role's agent starts, because the provider may be removed after
-that. A channel's lead takes the channel's `backend`; when that differs from the lead role's,
-the role's `provider` is ignored and the `PATH` binary runs. A start that fails the check is a `failed` turn whose `error` says why, for example `role developer:
-provider "work" is not installed`; nothing falls back to the `PATH` binary, as that would run
-a different one than the user picked. A role with no `provider` is unchanged.
+binary) and again when the role's agent starts, because the binary may be gone from the folder
+after that. A channel's lead takes the channel's `backend`; when that differs from the lead
+role's, the role's `provider` is ignored and the `PATH` binary runs. A start that fails the check
+is a `failed` turn whose `error` says why, for example `role developer: no claude binary in
+/opt/work`; nothing falls back to the `PATH` binary, as that would run a different one than the
+user picked. A role with no `provider` is unchanged. A provider a role names cannot be removed.
 
 ### gate
 
@@ -507,7 +508,7 @@ tool calls.
 | `GET /skills?project={id}` | `project` is required | 200 `{"claude":[...],"codex":[...]}`, each a list of `{name, description}` read from disk, never stored. claude: `~/.claude/skills`, the project's `.claude/skills` and the skills of the plugins in `~/.claude/plugins/installed_plugins.json` installed for the user or for the project path, named `plugin:skill`. codex: `~/.agents/skills` and the project's `.agents/skills`. A name found twice is listed once; each list is ordered by name. A skill whose name is not letters, digits, `:`, `_` or `-`, or whose file cannot be read, is left out, and a malformed `installed_plugins.json` gives no plugin skills; each is logged and the rest are listed | 400 `project` missing or not a number, 404 |
 | `GET /providers` | | 200 the detected `claude` and `codex` (those found on `PATH`), then the added ones oldest first, each `{name, kind, detected, folder, path, version, createdAt}`. `detected` is `true` for the ones on `PATH`, which have no `folder` or `createdAt`. `path` is the binary that would run (left out when an added install's binary is gone). `version` is the trimmed output of `path --version`, run for all of them at once with a 3 s limit, and left out when it fails or is late. Models and login state are not listed | |
 | `POST /providers` | `name`, `kind`, `folder` | 201 the added provider, in the shape `GET` gives | 400 bad name, `kind` not `claude` or `codex`, `folder` not an absolute path to a folder, or no executable of that kind in it; 409 `name` is taken, or is `claude` or `codex` |
-| `DELETE /providers/{name}` | | 204; roles that name it keep the name and fail to start (see [provider](#provider)) | 400 `claude` or `codex` (the ones on `PATH` cannot be removed), 404 |
+| `DELETE /providers/{name}` | | 204 | 400 `claude` or `codex` (the ones on `PATH` cannot be removed), 404, 409 a role of some team still names it (the error names the role and team; change that role first) |
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
 | `GET /teams/{name}` | | 200, with `mcp` instead of `mcpServers` as above; each role shows `write` | 404 |
 | `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; a role may also list `mcpRemove`, the `{name, label}` of each stored MCP server to drop, as `GET` showed it; servers it does not list are kept); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones, minus those in its `mcpRemove`; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists, or a server in `mcpRemove` no longer matches a stored one by name and label (the team changed since it was loaded; nothing is applied) |

@@ -106,9 +106,20 @@ func (s *Store) RoleBin(ctx context.Context, r Role) (string, error) {
 	return p.Bin()
 }
 
-// DeleteProvider removes the added provider with the name, or fails with ErrNotFound. Roles
-// that name it keep the name and fail to start.
+// DeleteProvider removes the added provider with the name, or fails with ErrNotFound. It fails
+// with ErrConflict while a role names the provider.
 func (s *Store) DeleteProvider(ctx context.Context, name string) error {
+	var team, role string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT team.name, role.name FROM role JOIN team ON team.id = role.team_id WHERE role.provider = ?",
+		name).Scan(&team, &role)
+	if err == nil {
+		return fmt.Errorf("%w: provider %q is used by role %s of team %s; change that role first",
+			ErrConflict, name, role, team)
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("delete provider: %w", err)
+	}
 	res, err := s.db.ExecContext(ctx, "DELETE FROM provider WHERE name = ?", name)
 	if err != nil {
 		return fmt.Errorf("delete provider: %w", err)
