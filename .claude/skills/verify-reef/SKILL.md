@@ -311,6 +311,7 @@ REEF_VERIFY_RUN=<id> $H ui fixes     # Fixes feature: no stage bar, two tasks, o
 REEF_VERIFY_RUN=<id> $H ui workshop  # /teams page edits a role's persona, keeps its mcpServers, shows reef team apply's errors, copies a team, next developer wake uses the new persona
 REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, types, Enter shows Captured and clears the box, a task row is stored; a failing request shows its error
 REEF_VERIFY_RUN=<id> $H ui coordination # direct messages show as one item (waiting approval, working, completed, stopped, rejected, Retry) with a Coordination panel and a source-message link, at 1280x800 and 390x844 (needs `gated`)
+REEF_VERIFY_RUN=<id> $H ui team      # full team: header avatars ring the working role; Team opens a popover without changing channel width; Escape, outside click and X close it (needs `full`)
 REEF_VERIFY_RUN=<id> $H ui denials # a refused tool call shows a card with Add to role: the role row gets the pattern, its next start has it in --allowedTools; write-needing and codex roles get no Add (fake claude only)
 REEF_VERIFY_RUN=<id> $H ui subagent  # a claude Agent call shows as a subagent row with its nested tool calls, collapsed once it is done, and the same in the inspector (fake claude replay of `subagent-read`)
 REEF_VERIFY_RUN=<id> $H ui composer  # message box: one corner radius from 1 line to the height cap, no wrap of the placeholder, dropped or pasted files insert their path (stub desktop bridge) or their name, the clipboard chip, resize 1280 to 390
@@ -511,7 +512,7 @@ claude, above).
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr\|coordination\|subagent\|composer\|naming\|hovercard\|mention\|providers` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |

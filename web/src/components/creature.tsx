@@ -452,12 +452,22 @@ type GroupAvatarProps = {
   roles: string[];
   faces?: Record<string, string | undefined>;
   size: number;
+  working?: string | null;
 };
 
-export function GroupAvatar({ roles, faces, size }: GroupAvatarProps) {
+export function GroupAvatar({ roles, faces, size, working }: GroupAvatarProps) {
   const shown = roles.slice(0, 3);
   if (shown.length < 2) {
-    return <Creature role={shown[0] ?? ''} face={faces?.[shown[0]]} size={size} />;
+    const busy = working === shown[0];
+    return (
+      <Creature
+        role={shown[0] ?? ''}
+        face={faces?.[shown[0]]}
+        state={busy ? 'working' : 'idle'}
+        size={size}
+        animate={busy}
+      />
+    );
   }
   return (
     <svg
@@ -465,15 +475,27 @@ export function GroupAvatar({ roles, faces, size }: GroupAvatarProps) {
       height={size}
       viewBox="0 0 64 64"
       aria-hidden="true"
-      className="shrink-0 overflow-visible"
+      className={`shrink-0 overflow-visible${working ? ' creature-live' : ''}`}
     >
       {shown.map((role, i) => {
         const s = stacks[shown.length - 2][i];
+        const busy = role === working;
         return (
           <g key={i}>
             <circle cx={s.cx} cy={s.cy} r={s.r} fill="var(--creature-ring)" />
+            {busy && (
+              <circle
+                className="c-ring"
+                cx={s.cx}
+                cy={s.cy}
+                r={s.r}
+                fill="none"
+                stroke="var(--color-working)"
+                strokeWidth="3"
+              />
+            )}
             <g transform={`translate(${s.x} ${s.y}) scale(${s.scale})`}>
-              <Body role={role} face={faces?.[role]} state="idle" />
+              <Body role={role} face={faces?.[role]} state={busy ? 'working' : 'idle'} />
             </g>
           </g>
         );

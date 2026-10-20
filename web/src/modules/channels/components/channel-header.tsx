@@ -12,6 +12,7 @@ type Props = {
   scope: ReactNode;
   roles: string[];
   faces: Record<string, string | undefined>;
+  working: string | null;
   pullRequest: PullRequest | null;
   onPullRequest: () => void;
   pullRequestOpen: boolean;
@@ -24,8 +25,6 @@ type Props = {
   onPromote: () => void;
   onInspector: () => void;
   onTeam: () => void;
-  teamHidden: boolean;
-  browserOpen?: boolean;
 };
 
 const phoneIcon = 'max-md:size-11 max-md:px-0';
@@ -35,6 +34,7 @@ export function ChannelHeader({
   scope,
   roles,
   faces,
+  working,
   pullRequest,
   onPullRequest,
   pullRequestOpen,
@@ -47,8 +47,6 @@ export function ChannelHeader({
   onPromote,
   onInspector,
   onTeam,
-  teamHidden,
-  browserOpen,
 }: Props) {
   return (
     <header className="flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-2 pr-2 md:pl-[22px] md:pr-4 in-data-desktop:pr-[88px]!">
@@ -71,7 +69,14 @@ export function ChannelHeader({
           <path d="M15 5l-7 7 7 7" />
         </svg>
       </Link>
-      <GroupAvatar roles={roles} faces={faces} size={26} />
+      <button
+        type="button"
+        onClick={onTeam}
+        aria-label="Show team"
+        className="flex shrink-0 items-center justify-center rounded-field max-md:size-11"
+      >
+        <GroupAvatar roles={roles} faces={faces} size={26} working={working} />
+      </button>
       <div className="flex min-w-0 flex-1 flex-col md:flex-none md:flex-row md:items-center md:gap-2.5">
         <h1 className="truncate text-base font-normal">
           <span aria-hidden="true">#</span>
@@ -149,7 +154,7 @@ export function ChannelHeader({
           type="button"
           onClick={onTeam}
           aria-label="Team"
-          className={`${teamHidden ? '' : browserOpen ? 'min-[1540px]:hidden' : 'min-[1100px]:hidden'} ${phoneIcon}`}
+          className={phoneIcon}
         >
           <svg
             width="20"
