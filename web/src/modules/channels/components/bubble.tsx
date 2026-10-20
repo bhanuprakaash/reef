@@ -8,7 +8,7 @@ export function Bubble({ own, ringed, children }: Props) {
       className={
         own
           ? `max-w-[75%] self-end rounded-[22px] bg-pill px-[18px] [--mention:var(--color-mention-on-pill)] py-2.5 text-pill-ink ${ringed ? 'ring-2 ring-fg ring-offset-2 ring-offset-main' : ''}`
-          : `w-full ${ringed ? '-ml-3 border-l-2 border-fg pl-2.5' : ''}`
+          : `max-w-[90%] rounded-[22px] bg-bubble px-[18px] py-3 ${ringed ? 'ring-2 ring-fg' : ''}`
       }
     >
       <Markdown>{children}</Markdown>
