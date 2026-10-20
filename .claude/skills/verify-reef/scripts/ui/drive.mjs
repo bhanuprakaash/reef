@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -11,9 +11,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -486,6 +486,29 @@ async function capture() {
   await err.waitFor({ timeout: 15000 });
   await shot('error');
   check(true, 'a capture whose request fails shows the error', await err.innerText());
+}
+
+async function firstRun() {
+  await page.goto(base + '/');
+  await page.getByLabel('Your name').waitFor();
+  await page.getByLabel('Your name').fill('Tester');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  const folder = page.getByLabel('Repo folder');
+  await folder.waitFor();
+  check((await page.getByRole('button', { name: 'Choose…' }).count()) === 0, 'plain browser has no folder picker');
+  await shot('browser');
+
+  await page.addInitScript(() => {
+    window.reef = {
+      chooseFolder: async () => '/chosen/repo',
+      setTheme: () => {},
+      onUpdateReady: () => () => {},
+    };
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Choose…' }).click();
+  check((await folder.inputValue()) === '/chosen/repo', 'desktop folder picker fills the repo path', await folder.inputValue());
+  await shot('picker');
 }
 
 async function contrast(screen) {
