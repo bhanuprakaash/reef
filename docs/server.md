@@ -72,7 +72,7 @@ logged in and on `PATH`.
   teammate. Teammates' direct messages (`GET /channels/{id}/direct-messages`) are never bubbles: each conversation
   between two roles (from one public source message, or from none) is one compact item at the time of its
   first message, saying working, waiting approval, paused, failed, stopped, rejected or completed (the state of
-  its newest chain) with its message count; a direct wake's approval shows there, not as a channel row; it opens a Coordination panel with the exchange, a link to
+  its newest chain) with its message count; a direct wake's approval shows there, not as a channel row; it opens a Coordination panel with the exchange, the running direct turn's text and tool calls as they stream, a link to
   the public message it began from, and Approve or Reject, Continue or Retry for its state. A wake held at a gate shows Approve and Reject; a pause from the hop cap shows in
   the cap banner. A channel with rollbackable turns (`GET /turns?channel=ID&rollbackable=1`)
   lists Checkpoints; Roll back on a row asks to confirm, then does `POST /turns/{id}/rollback`.
@@ -745,8 +745,8 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Six kinds
   when it ends. A chain of wakes sends one pair for each turn, with no `idle` between them. A
   wrap or promote turn in which the agent made no proposal ends `{"role":"lead","status":"done","note":"no
   proposal made"}`. `{"status":"idle"}` has no role. It is sent only when a subscriber
-  connects and no turn runs. A turn woken by a direct message carries `"direct":true` in each of its frames; the window shows such a turn
-  as working only, without its text or tool calls.
+  connects and no turn runs. A turn woken by a direct message carries `"direct":true` in each of its frames; the channel shows such a turn
+  as working only, without its text or tool calls; the open Coordination panel of its exchange shows its text and tool rows live while it runs, and only the stored direct messages once it ends.
 - `agent`: one [agent event](agents.md) as JSON, as it comes, from the turn that is running.
 - `pause`: `{"reason":"..."}` when a cap pauses the channel: when a send finds the
   token budget used, or when the hop cap holds a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.

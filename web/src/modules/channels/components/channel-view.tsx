@@ -111,6 +111,11 @@ export function ChannelView({
     running: running || turn.status === 'done' ? turn.role : undefined,
   });
   const chain = side?.kind === 'direct' ? chains.find((c) => c.id === side.chainId) : undefined;
+  const wake = (direct.data ?? []).filter((m) => m.to === turn.role).at(-1);
+  const liveDirect =
+    turn.direct && running && wake && chain?.messages.some((m) => m.id === wake.id)
+      ? turn
+      : undefined;
   const turnOpen = side?.kind === 'turn' && turn.status !== 'idle';
   if (side?.kind === 'turn' && turn.status === 'idle') setSide(null);
 
@@ -328,6 +333,7 @@ export function ChannelView({
                 key={chain.id}
                 channelId={channel.id}
                 chain={chain}
+                live={liveDirect}
                 faces={faces}
                 running={running}
                 paused={channel.paused !== ''}

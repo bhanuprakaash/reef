@@ -124,4 +124,45 @@ describe('CoordinationPanel', () => {
     expect(markup).not.toContain('Retry');
     expect(markup).not.toContain('Approve');
   });
+
+  it('shows the text and tool rows of the running direct turn, and nothing without one', () => {
+    const [chain] = groupChains([request], { ...none, running: 'tester' });
+    const live = {
+      status: 'running' as const,
+      direct: true,
+      items: [
+        { type: 'text' as const, text: 'Checking the build' },
+        {
+          type: 'tool' as const,
+          tool: {
+            id: 't1',
+            name: 'Bash',
+            input: { command: 'npm test' },
+            done: false,
+            output: '',
+            isError: false,
+            children: [],
+          },
+        },
+      ],
+    };
+    const html = (turn?: typeof live) =>
+      renderToStaticMarkup(
+        <CoordinationPanel
+          channelId={2}
+          chain={chain}
+          live={turn}
+          faces={{}}
+          running
+          paused={false}
+          reason=""
+          onOpenSource={() => {}}
+          onClose={() => {}}
+        />,
+      );
+
+    expect(html(live)).toContain('Checking the build');
+    expect(html(live)).toContain('npm test');
+    expect(html()).not.toContain('Checking the build');
+  });
 });

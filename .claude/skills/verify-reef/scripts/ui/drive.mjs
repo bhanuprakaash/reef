@@ -1981,7 +1981,42 @@ async function coordination() {
   await panel.getByRole('button', { name: 'Approve' }).click();
   check(await until(item1, 'working', 30000), 'Approve runs the architect and the same item says working');
   await shot('desktop-1-working');
+  // The open panel shows the running architect turn growing, one fake chunk a second.
+  const liveText = async () => ((await panel.innerText()).match(/Reviewing the plan[^]*/) ?? [''])[0].replace(/\s+/g, ' ').trim();
+  const grown = [];
+  let inChannel = false;
+  let midShot = false;
+  const counts = [];
+  const t0 = Date.now();
+  for (const end = t0 + 15000; Date.now() < end && !grown.at(-1)?.includes('REVIEWED'); await page.waitForTimeout(200)) {
+    const text = await liveText();
+    counts.push(((await panel.innerText()).match(/Plan holds/g) ?? []).length);
+    if (!midShot && Date.now() - t0 > 2500) {
+      midShot = true;
+      await shot('desktop-1-mid');
+    }
+    if (text && text !== grown.at(-1)) {
+      grown.push(text);
+      if (await main.locator('section').getByText('Reviewing the plan').count()) inChannel = true;
+      console.log(`panel at ${Date.now() - t0} ms: ${text}`);
+      if (grown.length <= 2) await shot(`desktop-1-live-${grown.length}`);
+    }
+  }
+  check(
+    grown.length >= 3 && grown.slice(1).every((t, i) => t.startsWith(grown[i])) && !grown[0].includes('Plan holds'),
+    'the open Coordination panel shows the running direct turn text growing mid-turn',
+    grown.join(' | '),
+  );
+  check(!inChannel, 'the channel narrative still shows no direct text while the panel grows');
+  // From the live copy until the turn ends and the stored answer lands, the answer never shows twice.
+  for (let settled = 0; settled < 8 && counts.length < 300; await page.waitForTimeout(200)) {
+    counts.push(((await panel.innerText()).match(/Plan holds/g) ?? []).length);
+    if ((await stateOf(item1)) === 'completed') settled += 1;
+  }
+  check(Math.max(...counts) === 1, 'the answer shows at most once while the live turn hands over to the stored one', counts.join(','));
   check(await until(item1, 'completed'), 'the answer completes the exchange');
+  const stored1 = (await panel.innerText()).match(/Plan holds/g) ?? [];
+  check(stored1.length === 1 && (await panel.getByRole('listitem').count()) === 2, 'after the turn the panel shows the stored response once, with no live copy', (await panel.innerText()).replace(/\s+/g, ' '));
   const done = await direct();
   const itemText = (await item1.innerText()).replace(/\s+/g, ' ').toLowerCase();
   check(
