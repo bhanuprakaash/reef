@@ -56,13 +56,14 @@ describe('TaskPage', () => {
     expect(markup).toContain('#7');
     expect(markup).toContain('Fix the login');
     expect(markup).toMatch(/aria-pressed="true"[^>]*>Doing</);
-    expect(markup).toMatch(/class="[^"]*whitespace-pre-wrap[^"]*">First line\nSecond line</);
+    expect(markup).toMatch(/aria-label="Edit task details">First line\nSecond line<\/button>/);
     expect(markup).toMatch(/<a [^>]*href="\/features\/3"[^>]*>Login<\/a>/);
     expect(markup).toContain('feature/login');
     expect(markup).toContain('>dev<');
     expect(markup).toContain('/data/worktrees/login');
     expect(markup).toContain('No changes yet');
-    expect(markup).toContain('Edit');
+    expect(markup).toContain('aria-label="Edit task title"');
+    expect(markup).not.toMatch(/>Edit<\/button>/);
     expect(markup).toContain(new Date(task.createdAt).toLocaleString());
     expect(markup).toContain(new Date(task.updatedAt).toLocaleString());
   });

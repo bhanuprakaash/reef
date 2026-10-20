@@ -325,7 +325,7 @@ async function pages() {
   check(stage === 'Live testing' && bar === 'Live testing', 'stage survives a reload', `select ${stage}, bar ${bar}, row ${sql(`select stage from feature where id=${fid}`)}`);
   await page.goto(base + '/tasks');
   const title = `ui task ${Date.now().toString(36)}`;
-  await page.getByLabel('Task title').fill(title);
+  await page.getByLabel('Task title', { exact: true }).fill(title);
   const pid = sql(`select project_id from feature where id=${fid}`);
   await pick('Task project', sql(`select name from project where id=${pid}`));
   await pick('Task feature', 'Login');
@@ -367,12 +367,64 @@ async function fixes() {
   await page.goto(base + '/tasks');
   const pid = sql(`select project_id from feature where id=${fid}`);
   for (const title of ['fix one', 'fix two']) {
-    await page.getByLabel('Task title').fill(title);
+    await page.getByLabel('Task title', { exact: true }).fill(title);
     await pick('Task project', sql(`select name from project where id=${pid}`));
     await pick('Task feature', name);
     await page.getByRole('button', { name: 'Add task' }).click();
     await main.locator('li', { hasText: title }).waitFor();
   }
+  const tid = sql(`select id from task where title='fix one' and feature_id=${fid}`);
+  const taskRow = main.locator('li', { has: page.getByRole('link', { name: `#${tid}`, exact: true }) });
+  check(
+    (await main.getByRole('button', { name: 'Edit', exact: true }).count()) === 0,
+    'the tasks list has no Edit button',
+  );
+  await taskRow.getByRole('button', { name: 'Edit task title' }).click();
+  const titleInput = taskRow.getByRole('textbox', { name: 'Task title' });
+  await titleInput.fill('discarded title');
+  await titleInput.press('Escape');
+  await page.waitForTimeout(500);
+  check(
+    (await taskRow.getByRole('button', { name: 'Edit task title' }).innerText()) === 'fix one' &&
+      sql(`select title from task where id=${tid}`) === 'fix one',
+    'Escape cancels a task title edit',
+    `task row and database still show ${sql(`select title from task where id=${tid}`)}`,
+  );
+  await taskRow.getByRole('button', { name: 'Edit task title' }).click();
+  await titleInput.fill('fix one renamed');
+  await titleInput.press('Enter');
+  await page.getByText('fix one renamed', { exact: true }).waitFor();
+  await page.reload();
+  await main.getByText('fix one renamed', { exact: true }).waitFor();
+  const renamed = await getJson(`/tasks/${tid}`);
+  await shot('inline-edit');
+  check(
+    renamed.title === 'fix one renamed',
+    'Enter saves a task title through the task API and the title survives reload',
+    `GET /tasks/${tid} returned ${renamed.title}`,
+  );
+  await page.goto(base + '/tasks?view=board');
+  await main.getByText('fix one renamed', { exact: true }).waitFor();
+  await shot('board-no-edit');
+  check(
+    (await main.getByRole('button', { name: 'Edit', exact: true }).count()) === 0,
+    'the tasks board has no Edit button',
+  );
+  await page.goto(base + `/tasks/${tid}`);
+  await main.getByRole('button', { name: 'Edit task details' }).click();
+  const details = main.getByRole('textbox', { name: 'Task details' });
+  await details.fill('line one\nline two');
+  await details.blur();
+  await main.getByRole('button', { name: 'Edit task details' }).waitFor();
+  await page.reload();
+  await main.getByText('line two').waitFor();
+  await shot('task-body-edit');
+  check(
+    (await main.getByRole('button', { name: 'Edit', exact: true }).count()) === 0 &&
+      sql(`select body from task where id=${tid}`) === 'line one\nline two',
+    'the task page has no Edit button and blur saves its details inline',
+    `body ${JSON.stringify(sql(`select body from task where id=${tid}`))}`,
+  );
   await page.goto(base + `/features/${fid}`);
   await main.getByText('0 of 2 done').waitFor();
   await main.locator('li', { hasText: 'fix one' }).getByRole('checkbox').click();
@@ -1550,14 +1602,14 @@ async function board() {
 
   await page.goto(base + '/tasks?project=all');
   const title = `board task ${Date.now().toString(36)}`;
-  await page.getByLabel('Task title').fill(title);
+  await page.getByLabel('Task title', { exact: true }).fill(title);
   await pick('Task project', sql(`select name from project where id=${pid}`));
   await pick('Task feature', 'Board feature');
   await page.getByRole('button', { name: 'Add task' }).click();
   await page.getByText(title).waitFor();
 
   const otherTitle = `board other ${Date.now().toString(36)}`;
-  await page.getByLabel('Task title').fill(otherTitle);
+  await page.getByLabel('Task title', { exact: true }).fill(otherTitle);
   await pick('Task project', sql(`select name from project where id=${otherPid}`));
   await pick('Task feature', 'Other feature');
   await page.getByRole('button', { name: 'Add task' }).click();

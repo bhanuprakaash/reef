@@ -20,7 +20,7 @@ const task: Task = {
 };
 
 describe('TaskBoard', () => {
-  it('links #N and the title to the task page and clamps the body to two lines', () => {
+  it('links #N to the task page and makes the title and body editable in place', () => {
     useUpdateTask.mockReturnValue({ isPending: false, isError: false });
 
     const markup = renderToStaticMarkup(
@@ -29,7 +29,9 @@ describe('TaskBoard', () => {
       </MemoryRouter>,
     );
 
-    expect(markup).toMatch(/<a [^>]*href="\/tasks\/12"[^>]*>.*#12.*Fix the login.*<\/a>/s);
-    expect(markup).toMatch(/class="[^"]*line-clamp-2[^"]*">The body of the task</);
+    expect(markup).toMatch(/<a [^>]*href="\/tasks\/12"[^>]*>.*#12.*<\/a>/s);
+    expect(markup).toContain('aria-label="Edit task title"');
+    expect(markup).toContain('aria-label="Edit task details"');
+    expect(markup).toMatch(/class="[^"]*line-clamp-2[^"]*"[^>]*>The body of the task</);
   });
 });
