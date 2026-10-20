@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|first-run BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|hovercard|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -12,9 +12,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, denials, subagent, composer, naming, 'first-run': firstRun };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, denials, subagent, composer, naming, hovercard, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|hovercard|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -2483,6 +2483,162 @@ async function naming() {
   for (let i = 0; i < 150 && sql(`select count(*) from message where channel_id=${created.id} and author<>'user'`) === '0'; i++) await page.waitForTimeout(200);
   await page.waitForTimeout(2000);
   check(renamed.status === 200 && row(created.id) === 'mine|0', 'a rename sent right after the first message is never overwritten', `${row(created.id)}; PUT ${renamed.status}`);
+}
+
+async function hovercard() {
+  if ((await fetch(`${base}/teams/full`)).status !== 200) throw new Error('apply the team full first (see features/window.md)');
+  ensureRepo();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const section = await addProject();
+  const slug = await addFeature(section, 'hover', 'Hover');
+  const featureId = page.url().split('/').pop();
+  const { id: cid } = await newTeamChannel('full', 'hover chat');
+  await send('@developer Use the Write tool to create the file d.txt containing the word yes. Then reply done.');
+  await working();
+  await idle();
+
+  const row = aside.getByRole('link', { name: /#hover chat/ });
+  const tip = page.getByRole('tooltip');
+  const away = () => page.mouse.move(900, 700);
+  const flat = async () => (await tip.innerText()).replace(/\s+/g, ' ').toLowerCase();
+  const roles = (await getJson('/teams/full')).roles.map((r) => r.name);
+  const expected = async () => {
+    let state;
+    const files = await getJson(`/features/${featureId}/diff`);
+    const lines = files.flatMap((f) => f.hunks.flatMap((h) => h.lines));
+    const running = (await getJson('/turns?status=running')).filter((t) => String(t.channelId) === cid).map((t) => t.role);
+    const kinds = (await getJson('/inbox')).filter((i) => String(i.channelId) === cid).map((i) => i.kind);
+    state = kinds.includes('approval') ? 'waiting for your approval' : kinds.includes('failed') ? 'a turn failed' : running.length ? 'working' : kinds.includes('waiting') ? 'waiting for you' : 'idle';
+    const n = files.length;
+    const changes = n ? `${n} file${n === 1 ? '' : 's'} +${lines.filter((l) => l.kind === 'add').length} −${lines.filter((l) => l.kind === 'del').length}` : 'no changes yet';
+    return `#hover chat ${state} branch feature/${sql(`select slug from feature where id=${featureId}`)} changes ${changes} ${roles.map((r) => `${r} ${running.includes(r) ? 'working' : 'idle'}`).join(' ')}`;
+  };
+
+  await away();
+  await row.hover();
+  await page.waitForTimeout(150);
+  check((await tip.count()) === 0, 'the card waits out its delay: nothing 150 ms after the pointer lands');
+  await tip.waitFor({ timeout: 3000 });
+  await shot('waiting');
+  const idleText = await flat();
+  check(idleText === (await expected()), 'waiting channel: name, state, branch, changes and every role match REST and SQLite', idleText);
+  check(slug.startsWith('hover-') && idleText.startsWith('#hover chat waiting for you') && /1 file \+1 −0/.test(idleText), 'the finished developer turn left a waiting item, so the card says waiting for you; the diff has d.txt with its one added line', idleText);
+  const [r, t] = [await row.boundingBox(), await tip.boundingBox()];
+  check(t.x >= r.x + r.width, 'the card sits beside the row, not over it', `row right ${r.x + r.width}, card left ${t.x}`);
+  const described = await row.getAttribute('aria-describedby');
+  check(described !== null && described === (await tip.getAttribute('id')), 'the row is described by the card (role tooltip)', described);
+
+  await tip.hover();
+  await page.waitForTimeout(500);
+  check(await tip.isVisible(), 'moving the pointer from the row onto the card keeps it open');
+  await away();
+  await tip.waitFor({ state: 'hidden', timeout: 2000 });
+  check((await row.getAttribute('aria-describedby')) === null, 'the card closes when the pointer leaves, and the description goes');
+
+  for (const i of (await getJson('/inbox')).filter((i) => String(i.channelId) === cid && i.kind === 'waiting')) {
+    await fetch(`${base}/channels/${cid}/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: i.messageId }) });
+  }
+  await row.getByRole('img', { name: 'needs you' }).waitFor({ state: 'hidden', timeout: 15000 });
+  await row.hover();
+  await tip.waitFor();
+  await shot('idle');
+  const calm = await flat();
+  check(calm.startsWith('#hover chat idle branch') && calm === (await expected()), 'idle channel: once the waiting item is dismissed the card says idle and still matches REST', calm);
+  await page.keyboard.press('Escape');
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  check(true, 'Escape closes the card');
+
+  await away();
+  await row.hover();
+  await tip.waitFor();
+  await row.click();
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  await page.waitForTimeout(700);
+  check((await tip.count()) === 0, 'clicking the row closes the card and it does not come back under a still pointer');
+
+  await away();
+  await row.hover();
+  await tip.waitFor();
+  await page.goBack();
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  await page.goForward();
+  await row.waitFor();
+  await page.waitForTimeout(700);
+  check((await tip.count()) === 0, 'navigating (back) closes the card');
+
+  await away();
+  const toRow = async () => {
+    await aside.getByRole('searchbox', { name: 'Search' }).focus();
+    for (let i = 0; i < 60; i++) {
+      await page.keyboard.press('Tab');
+      if (await row.evaluate((el) => el === document.activeElement)) return true;
+    }
+    return false;
+  };
+  check(await toRow(), 'Tab reaches the channel row');
+  await tip.waitFor({ timeout: 1000 });
+  check((await row.getAttribute('aria-describedby')) === (await tip.getAttribute('id')), 'keyboard focus on the row shows the card, described by it');
+  await page.keyboard.press('Shift+Tab');
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  check(true, 'moving focus off the row closes the card');
+
+  await fetch(`${base}/channels/${cid}/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.' }),
+  });
+  for (let i = 0; i < 100 && !(await getJson('/turns?status=running')).some((x) => String(x.channelId) === cid); i++) await page.waitForTimeout(100);
+  await row.getByRole('img', { name: /is working$/ }).waitFor({ timeout: 10000 });
+  await away();
+  await row.hover();
+  await tip.waitFor({ timeout: 3000 });
+  await page.waitForTimeout(300);
+  const runningText = await flat();
+  await shot('running');
+  const stillRunning = (await getJson('/turns?status=running')).filter((x) => String(x.channelId) === cid);
+  check(stillRunning.length === 1 && runningText === (await expected()), 'running turn: state Working and the running role shown working, matching /turns?status=running', `${runningText}; running ${JSON.stringify(stillRunning.map((x) => x.role))}`);
+  await away();
+  await working();
+  await idle();
+
+  await page.evaluate(() => localStorage.setItem('reef.theme', 'light'));
+  await page.reload();
+  await row.waitFor();
+  await row.hover();
+  await tip.waitFor();
+  await page.waitForTimeout(300);
+  await shot('light');
+  check((await page.evaluate(() => document.documentElement.dataset.theme)) === 'light', 'light theme is on for the card');
+  const tipLow = await tip.evaluate((el) => {
+    const bg = getComputedStyle(el).backgroundColor;
+    return { bg, text: getComputedStyle(el).color };
+  });
+  check(tipLow.bg === 'rgb(244, 244, 245)', 'the card takes the light card colour', JSON.stringify(tipLow));
+  await contrast('hovercard');
+  await away();
+  await page.evaluate(() => localStorage.setItem('reef.theme', 'dark'));
+  await page.reload();
+  await row.hover();
+  await tip.waitFor();
+  await contrast('hovercard');
+  await shot('dark');
+  await away();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${base}/channels`);
+  const phoneRow = main.getByRole('link', { name: /#hover chat/ }).first();
+  await phoneRow.waitFor();
+  await phoneRow.hover();
+  await page.waitForTimeout(900);
+  check((await tip.count()) === 0, 'phone layout (390x844): hovering a channel shows no card');
+  await page.mouse.move(5, 5);
+  for (let i = 0; i < 60; i++) {
+    await page.keyboard.press('Tab');
+    if (await phoneRow.evaluate((el) => el === document.activeElement)) break;
+  }
+  await page.waitForTimeout(500);
+  check((await phoneRow.evaluate((el) => el === document.activeElement)) && (await tip.count()) === 0, 'phone layout: keyboard focus on a channel shows no card');
+  await shot('phone');
 }
 
 try {
