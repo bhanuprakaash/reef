@@ -345,12 +345,15 @@ export function createBrowser(win, reefPort) {
     if (socketPath) fs.rmSync(socketPath, { force: true });
   }
 
+  // The renderer measures in CSS pixels, which the page's zoom scales; the view's bounds are
+  // window pixels.
   function setBounds(rect) {
+    const zoom = win.webContents.getZoomFactor();
     view.setBounds({
-      x: Math.round(rect.x),
-      y: Math.round(rect.y),
-      width: Math.round(rect.width),
-      height: Math.round(rect.height),
+      x: Math.round(rect.x * zoom),
+      y: Math.round(rect.y * zoom),
+      width: Math.round(rect.width * zoom),
+      height: Math.round(rect.height * zoom),
     });
   }
 
