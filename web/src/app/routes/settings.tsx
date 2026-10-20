@@ -8,6 +8,7 @@ import { Toggle } from '@/components/toggle';
 import { useProfile } from '@/lib/api/get-profile';
 import { useSkills } from '@/lib/api/get-skills';
 import { useCurrentProject } from '@/lib/current-project';
+import { setTerminalApp, useTerminalApp } from '@/lib/terminal-app';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { usePutProfile } from '@/lib/api/put-profile';
 import type { SkillInfo } from '@/types/api';
@@ -306,10 +307,77 @@ function NotificationsSection() {
   );
 }
 
+function TerminalSection() {
+  const app = useTerminalApp();
+  const [installed, setInstalled] = useState<string[] | null>(null);
+  const [custom, setCustom] = useState(false);
+  useEffect(() => {
+    void window.reef?.terminalApps().then(setInstalled);
+  }, []);
+  const isCustom = installed !== null && (custom || (app !== null && !installed.includes(app)));
+  const choices = [
+    { label: 'Built-in pane', checked: !isCustom && app === null, app: null },
+    ...(installed ?? []).map((name) => ({
+      label: name,
+      checked: !isCustom && app === name,
+      app: name,
+    })),
+  ];
+
+  return (
+    <Section title="Terminal">
+      <p className="text-[13px] text-muted">
+        Where the Terminal toggle opens a feature&apos;s worktree.
+      </p>
+      {installed && (
+        <div role="radiogroup" aria-label="Terminal app" className="flex flex-col gap-2">
+          {choices.map((c) => (
+            <label key={c.label} className="flex items-center gap-1.5 text-[13px]">
+              <input
+                type="radio"
+                name="terminal-app"
+                checked={c.checked}
+                onChange={() => {
+                  setCustom(false);
+                  setTerminalApp(c.app);
+                }}
+                className="accent-fg"
+              />
+              {c.label}
+            </label>
+          ))}
+          <label className="flex items-center gap-1.5 text-[13px]">
+            <input
+              type="radio"
+              name="terminal-app"
+              checked={isCustom}
+              onChange={() => {
+                setCustom(true);
+                setTerminalApp(null);
+              }}
+              className="accent-fg"
+            />
+            Custom
+          </label>
+          {isCustom && (
+            <TextField
+              aria-label="Custom terminal app"
+              placeholder="App name, e.g. Kitty"
+              value={app ?? ''}
+              onChange={(e) => setTerminalApp(e.target.value || null)}
+            />
+          )}
+        </div>
+      )}
+    </Section>
+  );
+}
+
 const sections = [
   { id: 'profile', title: 'Profile', pane: <NameSection /> },
   { id: 'appearance', title: 'Appearance', pane: <AppearanceSection /> },
   { id: 'notifications', title: 'Notifications', pane: <NotificationsSection /> },
+  { id: 'terminal', title: 'Terminal', pane: <TerminalSection />, desktopOnly: true },
   { id: 'updates', title: 'Updates', pane: <UpdateSection />, desktopOnly: true },
   { id: 'skills', title: 'Skills', pane: <SkillsSection /> },
 ];

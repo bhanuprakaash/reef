@@ -22,6 +22,13 @@ stops everything it started. Contract: `docs/desktop.md`.
 - `browser-stale-ref` after a new navigation, `browser_click` on a ref of the old snapshot fails with `ref eM is not on the page; take a new snapshot`.
 - `browser-bounds` the native view's bounds (read from the main process over `--inspect`) equal the pane container's rect times the page zoom, within 1 px, at start, after the window is resized to 1000x700, at page zoom 1.25 (the view's bounds are window pixels, the page's are zoomed CSS pixels), and back at 1200x800.
 - `terminal-feature` opening `/features/<id>` and turning on the window's Terminal toggle shows "No worktree yet" (neither viewing the page nor the toggle makes a worktree), and its Open terminal button starts a login shell, a child of the app, whose cwd is the feature's worktree `<data>/worktrees/<project id>/term`; after `pwd; git branch --show-current` the pane shows that path then `feature/term`.
+- `terminal-app-settings` Settings > Terminal lists Built-in pane, then each of Ghostty, iTerm, Terminal and Warp that is installed (an `<Name>.app` in `/Applications`, `~/Applications` or `/System/Applications/Utilities`), then Custom; choosing Custom and typing `FakeTerm` stores `reef.terminalApp`.
+- `terminal-app-launch` with that app chosen, the Terminal toggle on the feature page makes main run `open -a FakeTerm <worktree>` (main's `execFile` is swapped for a recorder over `--inspect`, so no real app starts) and no xterm pane opens.
+- `terminal-app-reload` after a reload the choice is still stored and the toggle runs `open` again, once (each count waits 1.5 s for a late second call, so a launch run twice by React StrictMode fails it; run `desktop` with `NODE_ENV=development` for React's development build, where StrictMode is on).
+- `terminal-app-no-worktree` on a second feature with no worktree the toggle shows "No worktree yet", runs no `open` and makes no worktree.
+- `terminal-app-twice` with `open` answering after 1 s, the toggle turned on then off at once runs `open` once and stays off.
+- `terminal-app-error` with `open` failing, the toggle shows its error in the pane; moving to another feature and back runs no `open` again and the toggle is off.
+- `terminal-builtin` choosing Built-in pane clears the choice and the feature page shows the xterm pane again, with no further `open`.
 - `desktop-quit` after SIGTERM to the app, xvfb-run, the app and every process it had (Electron helpers, `reef serve`, the shell) are gone, and so is `browser.sock`.
 - `browser-unavailable` with the app closed, `browser_snapshot` fails with `browser unavailable: the Reef app is not open`.
 - `capture-shortcut` `CommandOrControl+Shift+Space`, sent for real with `xdotool key`, opens the capture window (a screenshot of it is not blank). Skipped on a Mac (user check) or noted when `xdotool` is not installed.
@@ -52,7 +59,7 @@ Acceptance lines of the quick capture ticket: "the shortcut opens the capture wi
 ## Driving it with verify-reef
 
 - `id=$($H build)`, `REEF_VERIFY_RUN=$id $H doctor`, then `REEF_VERIFY_RUN=$id $H desktop`. It prints one line per id above and exits 1 on any `FAIL`. Then `REEF_VERIFY_RUN=$id $H cleanup`.
-- Quote each `PASS`/`FAIL` line with its file: `desktop/start.txt`, the `reef-mcp.log` lines, `desktop/snapshot-*.txt`, `console.txt`, `network.txt`, `pane-bounds.txt`, `terminal.txt`, `quit.txt`; open `window.png`, `window-page.png` (the pane shows `hello reef-typed`), `terminal.png`, `capture-shortcut.png`/`capture-button.png` and the `mcp-browser_screenshot-*.png`.
+- Quote each `PASS`/`FAIL` line with its file: `desktop/start.txt`, the `reef-mcp.log` lines, `desktop/snapshot-*.txt`, `console.txt`, `network.txt`, `pane-bounds.txt`, `terminal.txt`, `terminal-app-open.txt`, `quit.txt`; open `window.png`, `window-page.png` (the pane shows `hello reef-typed`), `terminal.png`, `capture-shortcut.png`/`capture-button.png` and the `mcp-browser_screenshot-*.png`.
 - To see a `FAIL` is real, `kill -KILL` the app's pid (`app=` in `desktop/start.txt`) once `desktop-start` has passed: the browser lines fail with `browser unavailable`, `desktop-quit` lists the `reef serve` left alive and `browser.sock` still there. `cleanup` then kills that `reef serve`.
 
 ## Gotchas

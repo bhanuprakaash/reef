@@ -1,13 +1,48 @@
 import { FitAddon } from '@xterm/addon-fit';
 import { Terminal } from '@xterm/xterm';
-import { useEffect, useRef } from 'react';
+import { useEffect, useEffectEvent, useRef, useState } from 'react';
 import { Button } from '@/components/button';
+import { useTerminalApp } from '@/lib/terminal-app';
 import '@xterm/xterm/css/xterm.css';
 
 // TerminalPane runs the shell for cwd (a feature's worktree, or a project checkout for a
-// quick session) in an xterm.js terminal backed by node-pty in the desktop app. A plain
-// browser pointed at reef serve has no window.reef, so it renders nothing there.
-export function TerminalPane({ cwd, onHide }: { cwd: string; onHide?: () => void }) {
+// quick session) in an xterm.js terminal backed by node-pty in the desktop app, or opens cwd
+// in the terminal app chosen in settings. A plain browser pointed at reef serve has no
+// window.reef, so it renders nothing there.
+export function TerminalPane(props: { cwd: string; onHide?: () => void }) {
+  const app = useTerminalApp();
+  return app ? <LaunchTerminal app={app} {...props} /> : <XtermPane {...props} />;
+}
+
+function LaunchTerminal({ app, cwd, onHide }: { app: string; cwd: string; onHide?: () => void }) {
+  const [error, setError] = useState('');
+  const launched = useRef(false);
+  const launch = useEffectEvent(() => {
+    void window.reef?.launchTerminalApp(app, cwd).then((message) => {
+      if (message) setError(message);
+      else onHide?.();
+    });
+  });
+  useEffect(() => {
+    if (launched.current) return;
+    launched.current = true;
+    launch();
+  }, []);
+
+  if (!error) return null;
+  return (
+    <section aria-label="Terminal" className="bg-terminal">
+      <div className="flex items-center gap-3 px-4 py-3 text-[12.5px] text-danger">
+        <span>{error}</span>
+        <Button type="button" size="sm" className="ml-auto" onClick={onHide}>
+          Hide
+        </Button>
+      </div>
+    </section>
+  );
+}
+
+function XtermPane({ cwd, onHide }: { cwd: string; onHide?: () => void }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal>(null);
   const available = typeof window !== 'undefined' && window.reef != null;

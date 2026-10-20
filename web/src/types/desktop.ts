@@ -30,6 +30,8 @@ export type ReefBridge = {
   openTerminal: (cwd: string, cols: number, rows: number) => Promise<string>;
   writeTerminal: (cwd: string, data: string) => void;
   resizeTerminal: (cwd: string, cols: number, rows: number) => void;
+  terminalApps: () => Promise<string[]>;
+  launchTerminalApp: (app: string, cwd: string) => Promise<string>;
   onTerminalData: (cwd: string, callback: (data: string) => void) => () => void;
 };
 

@@ -138,6 +138,15 @@ that exits (the user typed `exit`, or it crashed) is dropped from that buffer, s
 same directory starts a fresh one instead of replaying a dead shell's last output; otherwise it
 keeps running until the app quits.
 
+Settings > Terminal chooses where the toggle opens a working tree: Built-in pane (the default), an
+installed Ghostty, iTerm, Terminal or Warp (found as `<Name>.app` in `/Applications`,
+`~/Applications` or `/System/Applications/Utilities`), or Custom, an app name typed in. With an
+app chosen the toggle runs `open -a <app> <path>` in the main process (`terminal:launch`) in the
+same worktree the pane would use, with the same Open terminal step first when a feature has no
+worktree, then switches itself off; no xterm pane opens, and a failed `open` shows its error in
+the pane until the toggle is pressed or the page changes. The choice is kept in the window's
+`localStorage` (`reef.terminalApp`), not on the server.
+
 ## Back and forward
 
 The window has no browser toolbar, so detail pages (feature, review, project) start with a Back

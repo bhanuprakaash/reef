@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('reef', {
   openTerminal: (cwd, cols, rows) => ipcRenderer.invoke('terminal:open', cwd, cols, rows),
   writeTerminal: (cwd, data) => ipcRenderer.send('terminal:write', cwd, data),
   resizeTerminal: (cwd, cols, rows) => ipcRenderer.send('terminal:resize', cwd, cols, rows),
+  terminalApps: () => ipcRenderer.invoke('terminal:apps'),
+  launchTerminalApp: (app, cwd) => ipcRenderer.invoke('terminal:launch', app, cwd),
   onTerminalData: (cwd, callback) => {
     const listener = (_event, key, data) => {
       if (key === cwd) callback(data);
