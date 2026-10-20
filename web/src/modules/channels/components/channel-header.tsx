@@ -12,6 +12,7 @@ type Props = {
   scope: ReactNode;
   roles: string[];
   faces: Record<string, string | undefined>;
+  working: string | null;
   pullRequest: PullRequest | null;
   onPullRequest: () => void;
   pullRequestOpen: boolean;
@@ -35,6 +36,7 @@ export function ChannelHeader({
   scope,
   roles,
   faces,
+  working,
   pullRequest,
   onPullRequest,
   pullRequestOpen,
@@ -71,7 +73,7 @@ export function ChannelHeader({
           <path d="M15 5l-7 7 7 7" />
         </svg>
       </Link>
-      <GroupAvatar roles={roles} faces={faces} size={26} />
+      <GroupAvatar roles={roles} faces={faces} size={26} working={working} />
       <div className="flex min-w-0 flex-1 flex-col md:flex-none md:flex-row md:items-center md:gap-2.5">
         <h1 className="truncate text-base font-normal">
           <span aria-hidden="true">#</span>

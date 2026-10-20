@@ -25,7 +25,6 @@ import { PrPanel } from '@/modules/channels/components/pr-panel';
 import { PromoteForm } from '@/modules/channels/components/promote-form';
 import { ProposalPanel } from '@/modules/channels/components/proposal-panel';
 import { TeamPanel } from '@/modules/channels/components/team-panel';
-import { WorkingBadge } from '@/modules/channels/components/working-badge';
 import { ThreadPane } from '@/modules/channels/components/thread-pane';
 import { TurnPanel } from '@/modules/channels/components/turn-panel';
 import { useLiveTurn } from '@/modules/channels/hooks/use-live-turn';
@@ -142,6 +141,7 @@ export function ChannelView({
         scope={scope}
         roles={roles.length > 0 ? roles.map((r) => r.name) : [channel.role]}
         faces={faces}
+        working={running ? working : null}
         pullRequest={latestPullRequest(messages.data ?? [])}
         onPullRequest={() => openSide(side?.kind === 'pr' ? null : { kind: 'pr' })}
         pullRequestOpen={side?.kind === 'pr'}
@@ -174,20 +174,6 @@ export function ChannelView({
       )}
       <div className="relative flex min-h-0 flex-1">
         <section className="flex min-w-0 flex-1 flex-col">
-          {running && showTeam && !teamOpen && (
-            <WorkingBadge
-              role={working}
-              face={face}
-              className={
-                teamHidden
-                  ? 'max-md:hidden'
-                  : browserOpen
-                    ? 'max-md:hidden min-[1540px]:hidden'
-                    : 'max-md:hidden min-[1100px]:hidden'
-              }
-            />
-          )}
-
           <div
             ref={box}
             onScroll={onScroll}
