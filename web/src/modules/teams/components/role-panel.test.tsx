@@ -31,6 +31,25 @@ describe('RolePanel', () => {
     expect(markup).toContain('aria-label="Close role"');
   });
 
+  it('shows the role provider, or PATH when it names none', () => {
+    const providers = [{ name: 'work', kind: 'claude', detected: false, folder: '/w' }];
+    const render = (r: Role) =>
+      renderToStaticMarkup(
+        <RolePanel
+          role={r}
+          providers={providers}
+          onChange={() => {}}
+          onRemove={() => {}}
+          onClose={() => {}}
+        />,
+      );
+
+    expect(render(role)).toContain('Default (PATH)');
+    const markup = render({ ...role, provider: 'work' });
+    expect(markup).toContain('aria-label="developer provider"');
+    expect(markup).not.toContain('Default (PATH)');
+  });
+
   it('hides the tools of a codex role', () => {
     const markup = renderToStaticMarkup(
       <RolePanel

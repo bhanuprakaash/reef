@@ -10,6 +10,8 @@ import { useSkills } from '@/lib/api/get-skills';
 import { useCurrentProject } from '@/lib/current-project';
 import { setTerminalApp, useTerminalApp } from '@/lib/terminal-app';
 import { useProjects } from '@/modules/projects/api/get-projects';
+import { AddProviderForm } from '@/modules/providers/components/add-provider-form';
+import { ProviderList } from '@/modules/providers/components/provider-list';
 import { usePutProfile } from '@/lib/api/put-profile';
 import type { SkillInfo } from '@/types/api';
 import { getTheme, setTheme, type Theme } from '@/lib/theme';
@@ -379,6 +381,16 @@ const sections = [
   { id: 'notifications', title: 'Notifications', pane: <NotificationsSection /> },
   { id: 'terminal', title: 'Terminal', pane: <TerminalSection />, desktopOnly: true },
   { id: 'updates', title: 'Updates', pane: <UpdateSection />, desktopOnly: true },
+  {
+    id: 'providers',
+    title: 'Providers',
+    pane: (
+      <Section title="Providers">
+        <ProviderList />
+        <AddProviderForm />
+      </Section>
+    ),
+  },
   { id: 'skills', title: 'Skills', pane: <SkillsSection /> },
 ];
 

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
+import { useProviders } from '@/lib/api/get-providers';
 import { useSkills } from '@/lib/api/get-skills';
 import { useTeams } from '@/lib/api/get-teams';
 import { useCurrentProject } from '@/lib/current-project';
@@ -15,6 +16,7 @@ export function TeamsPage() {
   const projects = useProjects();
   const [project] = useCurrentProject(projects.data);
   const skills = useSkills(project?.id);
+  const providers = useProviders();
   const [creating, setCreating] = useState<{ from?: string } | null>(null);
   const name = params.get('team') || (teams.data?.[0]?.name ?? '');
   const team = teams.data?.find((t) => t.name === name);
@@ -61,6 +63,7 @@ export function TeamsPage() {
             key={team.name}
             team={team}
             skills={skills.data}
+            providers={providers.data}
             noProject={!project}
             onSaved={(n) => setParams({ team: n })}
             onDuplicate={() => setCreating({ from: team.name })}

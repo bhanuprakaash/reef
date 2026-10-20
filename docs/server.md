@@ -108,7 +108,7 @@ logged in and on `PATH`.
   rejected if that name is taken. "New team" asks for a name and a team to start from and
   sends the same `?from=` request. The hop and token caps are not team fields, so the
   page has no Caps section.
-- Settings (`/settings`): your name, occupation and working preferences (chips), the current project's skills read from disk, grouped Claude Code and Codex, each with its description, theme (dark, light or Match macOS, kept in `localStorage`)
+- Settings (`/settings`): your name, occupation and working preferences (chips), the current project's skills read from disk, grouped Claude Code and Codex, each with its description, the Providers section (the claude and codex found on `PATH`, each with path, version and models, and added installs with a folder and Remove; add one with a kind, a name and a folder, typed or picked with Choose… on desktop; a role picks one in Teams), theme (dark, light or Match macOS, kept in `localStorage`)
   and notifications.
 - First run: one page with two steps. Your name with an optional occupation and working preferences (saved with `PUT /profile`), then the first
   project. A name with no project starts at the project step; a project with no name asks only

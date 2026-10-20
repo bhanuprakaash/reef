@@ -1,10 +1,11 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|hovercard|first-run BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|hovercard|providers|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
 // REEF_FAKE_GH (pr only: the folder the server's fake gh keeps its PR in, see fake-gh/gh).
 // REEF_FAKE_LOG (denials and naming only: the fake claude's log, one line per turn with its args).
+// REEF_UI_FAKE (providers only: the folder holding the fake claude, used as a second install).
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -12,9 +13,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, denials, subagent, composer, naming, hovercard, 'first-run': firstRun };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, denials, subagent, composer, naming, hovercard, providers, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|hovercard|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|denials|subagent|composer|naming|hovercard|providers|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -2639,6 +2640,121 @@ async function hovercard() {
   await page.waitForTimeout(500);
   check((await phoneRow.evaluate((el) => el === document.activeElement)) && (await tip.count()) === 0, 'phone layout: keyboard focus on a channel shows no card');
   await shot('phone');
+}
+
+async function providers() {
+  const fakeDir = process.env.REEF_UI_FAKE;
+  if (!fakeDir || !existsSync(path.join(fakeDir, 'claude'))) throw new Error('set REEF_UI_FAKE to the folder with the fake claude (verify-reef ui does)');
+  const name = `work-${Date.now().toString(36)}`;
+  const teamName = `providers-${Date.now().toString(36)}`;
+  const putTeam = (body) =>
+    fetch(`${base}/teams/${teamName}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: teamName, ...body }) });
+  const roleOf = async () => (await getJson(`/teams/${teamName}`)).roles.find((r) => r.name === 'lead');
+  const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const setTheme = (t) => page.evaluate((t) => localStorage.setItem('reef.theme', t), t);
+  const lead = { name: 'lead', lead: true, backend: 'claude', persona: 'You are the lead.' };
+  check((await putTeam({ roles: [lead] })).status === 200, `the team ${teamName} is applied: one claude lead`);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await addProject();
+  await page.goto(`${base}/settings?section=providers`);
+  const pane = main.getByRole('region', { name: 'Providers' });
+  const rows = pane.getByRole('listitem');
+  await pane.getByRole('heading', { name: 'Providers' }).waitFor();
+  await rows.first().waitFor();
+  const detected = (await getJson('/providers')).filter((p) => p.detected);
+  const text = (await rows.allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+  check(detected.length > 0 && detected.every((p) => text.some((t) => t.includes(p.name) && t.includes('Found on PATH') && t.includes(p.path))), 'the page lists every detected install with its path', text.join(' | '));
+  check(detected.every((p) => !p.version || text.some((t) => t.includes(p.version))), 'a detected install shows its version when the server has one', JSON.stringify(detected.map((p) => p.version ?? null)));
+  check(text.some((t) => t.includes('Default, Opus, Sonnet, Haiku')), 'a claude install lists the model names the role panel offers');
+  check((await rows.filter({ hasText: 'Found on PATH' }).getByRole('button', { name: /^Remove/ }).count()) === 0, 'a detected install has no Remove');
+  await shot('desktop-dark-list');
+
+  const form = pane.getByRole('form', { name: 'Add provider' });
+  const kind = (k) => form.getByRole('group', { name: 'Kind' }).getByRole('button', { name: k, exact: true }).click();
+  const fill = async (k, folder, n) => {
+    await kind(k);
+    await form.getByLabel('Folder').fill(folder);
+    await form.getByLabel('Name', { exact: true }).fill(n);
+    await form.getByRole('button', { name: 'Add provider' }).click();
+  };
+  const bad = async (label, pattern, k, folder, n) => {
+    await fill(k, folder, n);
+    const msg = await errorText(pattern, 15000);
+    check(!!msg, label, msg ?? '(not shown)');
+  };
+  check((await page.getByRole('button', { name: 'Choose…' }).count()) === 0, 'a plain browser has no Choose button, the folder is typed');
+  await bad('a folder that does not exist shows the server error inline', /not a directory/, 'claude', '/nonexistent-reef-ui', name);
+  await bad('a folder without the kind binary shows the server error inline', /no codex binary/, 'codex', fakeDir, name);
+  await bad('a name taken by the one on PATH shows the server error inline', /taken by the one found on PATH/, 'claude', fakeDir, 'claude');
+  await shot('desktop-dark-error');
+  check((await getJson('/providers')).every((p) => p.detected), 'none of the bad adds stored a provider');
+
+  await fill('claude', fakeDir, name);
+  const added = rows.filter({ hasText: name });
+  await added.waitFor();
+  const stored = (await getJson('/providers')).find((p) => p.name === name);
+  const addedText = (await added.innerText()).replace(/\s+/g, ' ');
+  check(stored && !stored.detected && stored.folder === fakeDir && addedText.includes(fakeDir) && addedText.includes('Added') && (await added.getByRole('button', { name: `Remove ${name}` }).count()) === 1, 'adding the fake claude folder shows it as Added with its folder and a Remove', addedText);
+  check((await form.getByLabel('Folder').inputValue()) === '' && (await form.getByLabel('Name', { exact: true }).inputValue()) === '', 'the form clears after a successful add');
+  await shot('desktop-dark-added');
+  await bad('the same name again shows the conflict inline', /already exists/, 'claude', fakeDir, name);
+
+  await page.goto(`${base}/teams?team=${teamName}`);
+  await main.getByRole('button', { name: /^lead/ }).click();
+  const select = page.getByRole('combobox', { name: 'lead provider', exact: true });
+  await select.waitFor();
+  check((await select.innerText()).trim() === 'Default (PATH)', 'a role with no provider shows Default (PATH)');
+  await select.click();
+  const offered = await page.getByRole('listbox', { name: 'lead provider', exact: true }).getByRole('option').allInnerTexts();
+  check(offered.join('|') === `Default (PATH)|${name}`, 'the claude role is offered PATH and the added claude install, not the detected one', offered.join('|'));
+  await page.getByRole('listbox', { name: 'lead provider', exact: true }).getByRole('option', { name, exact: true }).click();
+  await shot('desktop-dark-role');
+  await main.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+  check((await roleOf()).provider === name, 'saving the team stores the provider on the role (GET /teams)', JSON.stringify((await roleOf()).provider));
+  await page.reload();
+  await main.getByRole('button', { name: /^lead/ }).click();
+  check((await page.getByRole('combobox', { name: 'lead provider', exact: true }).innerText()).trim() === name, 'after a reload the role shows its provider');
+
+  await pick('lead backend', 'Codex', main);
+  check((await page.getByRole('combobox', { name: 'lead provider', exact: true }).innerText()).trim() === 'Default (PATH)', 'changing the backend to Codex resets a claude provider');
+  await pick('lead backend', 'Claude Code', main);
+  await main.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+  check(!(await roleOf()).provider, 'saving the reset role leaves no provider', JSON.stringify(await roleOf().then((r) => r.provider ?? null)));
+  await pick('lead provider', name, main);
+  await main.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+
+  for (const [label, width, height] of [['desktop', 1280, 800], ['phone', 390, 844]]) {
+    await page.setViewportSize({ width, height });
+    for (const mode of ['dark', 'light']) {
+      await setTheme(mode);
+      await page.goto(`${base}/settings?section=providers`);
+      await added.waitFor();
+      await page.waitForTimeout(400);
+      check(await noOverflow(), `${label} ${mode}: Settings Providers has no horizontal scroll`);
+      await shot(`${label}-${mode}-page`);
+      await page.goto(`${base}/teams?team=${teamName}`);
+      await main.getByRole('button', { name: /^lead/ }).click();
+      await page.getByRole('combobox', { name: 'lead provider', exact: true }).waitFor();
+      await page.waitForTimeout(400);
+      check(await noOverflow(), `${label} ${mode}: the role panel has no horizontal scroll`);
+      await shot(`${label}-${mode}-role-panel`);
+    }
+  }
+  await setTheme('dark');
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${base}/settings?section=providers`);
+  await added.getByRole('button', { name: `Remove ${name}` }).click();
+  await added.waitFor({ state: 'detached' });
+  check((await getJson('/providers')).every((p) => p.name !== name), 'Remove deletes the added install', JSON.stringify((await getJson('/providers')).map((p) => p.name)));
+  await shot('desktop-dark-removed');
+  await page.goto(`${base}/teams?team=${teamName}`);
+  await main.getByRole('button', { name: /^lead/ }).click();
+  check((await page.getByRole('combobox', { name: 'lead provider', exact: true }).innerText()).trim() === name, 'a role keeps the name of a removed provider, as the server does');
 }
 
 try {

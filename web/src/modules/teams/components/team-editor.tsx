@@ -4,7 +4,7 @@ import { AddGateRow } from '@/modules/teams/components/add-gate-row';
 import { AddRoleRow } from '@/modules/teams/components/add-role-row';
 import { RolePanel } from '@/modules/teams/components/role-panel';
 import { gateRows } from '@/modules/teams/utils/gates';
-import type { Gate, Role, Skills, Team } from '@/types/api';
+import type { Gate, Provider, Role, Skills, Team } from '@/types/api';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
 import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
@@ -16,12 +16,13 @@ const badge = 'inline-flex h-[30px] items-center rounded-pill border px-3 text-x
 type Props = {
   team: Team;
   skills?: Skills;
+  providers?: Provider[];
   noProject?: boolean;
   onSaved: (name: string) => void;
   onDuplicate: () => void;
 };
 
-export function TeamEditor({ team, skills, noProject, onSaved, onDuplicate }: Props) {
+export function TeamEditor({ team, skills, providers, noProject, onSaved, onDuplicate }: Props) {
   const [loaded, setLoaded] = useState(team);
   const [roles, setRoles] = useState<Role[]>(team.roles);
   const [keys, setKeys] = useState(() => team.roles.map((_, i) => i));
@@ -190,6 +191,7 @@ export function TeamEditor({ team, skills, noProject, onSaved, onDuplicate }: Pr
           key={keys[selected]}
           role={current}
           skills={skills}
+          providers={providers}
           noProject={noProject}
           onChange={(r) => updateRole(selected, r)}
           onRemove={() => removeRole(selected)}
