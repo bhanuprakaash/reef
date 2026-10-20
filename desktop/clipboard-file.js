@@ -7,5 +7,10 @@ export async function clipboardFile() {
   if (!item?.types.includes('text/uri-list')) return null;
   const list = await (await item.getType('text/uri-list')).text();
   const url = list.split(/\r?\n/)[0];
-  return url.startsWith('file://') ? fileURLToPath(url) : null;
+  if (!url.startsWith('file://')) return null;
+  try {
+    return fileURLToPath(url);
+  } catch {
+    return null;
+  }
 }

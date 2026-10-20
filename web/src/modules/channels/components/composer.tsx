@@ -23,6 +23,17 @@ type Props = {
   working?: string;
 };
 
+type DropEvent = {
+  preventDefault: () => void;
+  dataTransfer: { files: Iterable<File> & { length: number } };
+};
+
+export function filesFromDrop(event: DropEvent, paused: boolean) {
+  if (paused || event.dataTransfer.files.length === 0) return [];
+  event.preventDefault();
+  return [...event.dataTransfer.files];
+}
+
 const icon = {
   width: 18,
   height: 18,
@@ -80,12 +91,16 @@ export function Composer({
 
   useEffect(() => {
     const reef = window.reef;
-    if (!reef) return;
-    const check = () => void reef.clipboardFile().then(setClip);
+    if (!reef || parent !== undefined) return;
+    const check = () =>
+      void reef
+        .clipboardFile()
+        .then(setClip)
+        .catch(() => setClip(null));
     check();
     window.addEventListener('focus', check);
     return () => window.removeEventListener('focus', check);
-  }, []);
+  }, [parent]);
 
   function attach(files: { path: string; name: string }[]) {
     const next = insertFiles(text, caret, files);
@@ -97,10 +112,10 @@ export function Composer({
   }
 
   function dropFiles(e: DragEvent) {
-    e.preventDefault();
     setDragging(false);
-    if (paused || e.dataTransfer.files.length === 0) return;
-    attach(withPaths([...e.dataTransfer.files], window.reef));
+    const files = filesFromDrop(e, paused);
+    if (files.length === 0) return;
+    attach(withPaths(files, window.reef));
   }
 
   function hasFiles(e: DragEvent) {
