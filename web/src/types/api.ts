@@ -116,6 +116,7 @@ export type Role = {
   lead: boolean;
   write: boolean;
   backend: string;
+  provider?: string;
   permissionMode: string;
   persona: string;
   skills: string[];
@@ -124,6 +125,16 @@ export type Role = {
   tools: string[];
   mcp: { name: string; label: string }[];
   mcpRemove?: { name: string; label: string }[];
+};
+
+export type Provider = {
+  name: string;
+  kind: string;
+  detected: boolean;
+  path?: string;
+  version?: string;
+  folder?: string;
+  createdAt?: string;
 };
 
 export type SkillInfo = { name: string; description: string };
@@ -205,6 +216,7 @@ export type InspectorToolCall = {
   name: string;
   input: string;
   result: string;
+  children?: InspectorToolCall[];
 };
 
 export type InspectorTurn = {

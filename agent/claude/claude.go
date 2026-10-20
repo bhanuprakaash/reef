@@ -236,7 +236,11 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 	}
 	args = append(args, extra...)
 
-	cmd := exec.Command("claude", args...)
+	bin := cfg.Bin
+	if bin == "" {
+		bin = "claude"
+	}
+	cmd := exec.Command(bin, args...)
 	cmd.Dir = cfg.Cwd
 	cmd.Env = append(os.Environ(), cfg.Env...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 import { useUpdateTask } from '@/modules/tasks/api/update-task';
 import type { Feature, Project, Task } from '@/types/api';
 import { EmptyState } from '@/components/empty-state';
+import { InlineTaskField } from './inline-task-field';
 
 type Props = {
   tasks: Task[];
@@ -72,15 +73,19 @@ export function TaskList({ tasks, projects = [], features, compact, allProjects 
                         disabled={update.isPending}
                         onChange={() => update.mutate({ task, status: done ? 'todo' : 'done' })}
                       />
-                      <Link
-                        to={`/tasks/${task.id}`}
-                        className="flex min-w-0 flex-1 gap-1.5 py-1.5 hover:underline"
-                      >
-                        <span className="shrink-0 text-muted">#{task.id}</span>
-                        <span className={`truncate ${done ? 'line-through' : ''}`}>
-                          {task.title}
-                        </span>
-                      </Link>
+                      <div className="flex min-w-0 flex-1 items-baseline gap-1.5 py-1.5">
+                        <Link
+                          to={`/tasks/${task.id}`}
+                          className="shrink-0 text-muted hover:underline"
+                        >
+                          <span className="shrink-0 text-muted">#{task.id}</span>
+                        </Link>
+                        <InlineTaskField
+                          task={task}
+                          field="title"
+                          className={`truncate hover:underline ${done ? 'line-through' : ''}`}
+                        />
+                      </div>
                       {task.status === 'doing' && (
                         <span className="flex h-[22px] items-center rounded-pill bg-working/15 px-[9px] text-xs text-working">
                           doing

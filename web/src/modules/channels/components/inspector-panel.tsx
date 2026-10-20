@@ -1,6 +1,7 @@
 import { useInspector } from '@/modules/channels/api/get-inspector';
 import { formatTokens } from '@/modules/channels/utils/format-tokens';
-import type { InspectorTurn, Usage } from '@/types/api';
+import { subagentLabel } from '@/modules/channels/utils/subagent-label';
+import type { InspectorToolCall, InspectorTurn, Usage } from '@/types/api';
 import { Creature } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 
@@ -16,6 +17,40 @@ function turnsLabel(n: number) {
 
 function tokens(usage: Pick<Usage, 'inputTokens' | 'outputTokens'>) {
   return formatTokens(usage.inputTokens + usage.outputTokens);
+}
+
+function callLabel(call: InspectorToolCall) {
+  let input: unknown;
+  try {
+    input = JSON.parse(call.input);
+  } catch {
+    return undefined;
+  }
+  return subagentLabel(call.name, input);
+}
+
+function ToolCallRow({ call }: { call: InspectorToolCall }) {
+  const label = callLabel(call);
+  const children = call.children ?? [];
+  return (
+    <div>
+      <div className="text-soft">{label ? `${call.name} ${label}` : call.name}</div>
+      {children.length > 0 && (
+        <details className="mt-1.5">
+          <summary className="cursor-pointer">
+            sub-agent · {children.length} {children.length === 1 ? 'tool' : 'tools'}
+          </summary>
+          <div className="ml-1.5 mt-1.5 space-y-2 border-l border-line pl-3">
+            {children.map((child, i) => (
+              <ToolCallRow key={i} call={child} />
+            ))}
+          </div>
+        </details>
+      )}
+      <pre className="overflow-x-auto whitespace-pre-wrap">{call.input}</pre>
+      <pre className="overflow-x-auto whitespace-pre-wrap">{call.result}</pre>
+    </div>
+  );
 }
 
 function TurnRow({
@@ -56,11 +91,7 @@ function TurnRow({
         {turn.toolCalls.length > 0 && (
           <div className="space-y-2 rounded-field bg-main px-2.5 py-2 font-mono text-muted">
             {turn.toolCalls.map((call, i) => (
-              <div key={i}>
-                <div className="text-soft">{call.name}</div>
-                <pre className="overflow-x-auto whitespace-pre-wrap">{call.input}</pre>
-                <pre className="overflow-x-auto whitespace-pre-wrap">{call.result}</pre>
-              </div>
+              <ToolCallRow key={i} call={call} />
             ))}
           </div>
         )}

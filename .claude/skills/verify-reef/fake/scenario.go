@@ -15,6 +15,8 @@ func pat(s string) *regexp.Regexp { return regexp.MustCompile(s) }
 // _scenarios covers the prompts verify-reef's window scenarios (scripts/ui/drive.mjs) and
 // features/full-team.md send.
 var _scenarios = []scenario{
+	{"name-fail", "", pat(`(?s)^Name this chat channel.*naming-fail`)},
+	{"name-login", "", pat(`^Name this chat channel`)},
 	{"coordinate-send", "lead", pat(`COORDINATE the login review`)},
 	{"coordinate-fail", "lead", pat(`COORDINATE the failing review`)},
 	{"direct-review", "architect", pat(`wrote privately: Please review the login plan`)},
@@ -38,6 +40,8 @@ var _scenarios = []scenario{
 	{"google-tester-woken", "tester", pat(`Implemented per the architect's plan`)},
 	{"google-lead-final", "lead", pat(`(?s)tester wrote: .*TestGoogleAuthRedirect`)},
 	{"run-checks", "tester", pat(`run the checks`)},
+	{"webfetch-allowed", "", pat(`WebFetch tool again`)},
+	{"webfetch-denied", "", pat(`WebFetch tool to fetch`)},
 	{"write-refused", "", pat(`file t\.txt containing the word nope`)},
 	{"write-d", "", pat(`file d\.txt containing the word yes`)},
 	{"write-file", "", pat(`create new\.txt in the current directory containing the word hi`)},
@@ -54,6 +58,7 @@ var _scenarios = []scenario{
 	{"numbers-600", "", pat(`numbers from 1 to 600`)},
 	{"numbers-300", "", pat(`numbers from 1 to 300`)},
 	{"one-word", "", pat(`(?i)reply with (exactly )?one(\s+other)? word`)},
+	{"subagent-read", "", pat(`Use the Agent tool to start a subagent that reads the file sub\.txt`)},
 	{"list-read-summarize", "", pat(`List the files in this directory with a tool`)},
 	{"brief-goal", "", pat(`(?i)what is the goal of this feature`)},
 	{"say-ok-one-word", "", pat(`Say ok in one word`)},

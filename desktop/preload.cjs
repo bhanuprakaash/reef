@@ -1,6 +1,6 @@
 // A sandboxed preload script runs as CommonJS even in an ES module project, so
 // this file stays .cjs and uses require.
-const { contextBridge, ipcRenderer } = require('electron');
+const { contextBridge, ipcRenderer, webUtils } = require('electron');
 
 // window.reef lets the renderer position the browser pane's native view and
 // drive it from the address bar. A plain browser pointed at reef serve has no
@@ -8,6 +8,8 @@ const { contextBridge, ipcRenderer } = require('electron');
 contextBridge.exposeInMainWorld('reef', {
   capture: () => ipcRenderer.invoke('capture:open'),
   chooseFolder: () => ipcRenderer.invoke('folder:choose'),
+  pathForFile: (file) => webUtils.getPathForFile(file),
+  clipboardFile: () => ipcRenderer.invoke('clipboard:file'),
   setTheme: (theme) => ipcRenderer.send('theme:set', theme),
   setBrowserBounds: (rect) => ipcRenderer.send('browser:bounds', rect),
   navigateBrowser: (url) => ipcRenderer.invoke('browser:navigate', url),
@@ -36,6 +38,8 @@ contextBridge.exposeInMainWorld('reef', {
   openTerminal: (cwd, cols, rows) => ipcRenderer.invoke('terminal:open', cwd, cols, rows),
   writeTerminal: (cwd, data) => ipcRenderer.send('terminal:write', cwd, data),
   resizeTerminal: (cwd, cols, rows) => ipcRenderer.send('terminal:resize', cwd, cols, rows),
+  terminalApps: () => ipcRenderer.invoke('terminal:apps'),
+  launchTerminalApp: (app, cwd) => ipcRenderer.invoke('terminal:launch', app, cwd),
   onTerminalData: (cwd, callback) => {
     const listener = (_event, key, data) => {
       if (key === cwd) callback(data);

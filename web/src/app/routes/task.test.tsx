@@ -4,10 +4,17 @@ import { describe, expect, it, vi } from 'vitest';
 import type { Task } from '@/types/api';
 import { TaskPage } from './task';
 
-const { useTask, useFeatures, useProjects } = vi.hoisted(() => ({
+const { useTask, useFeatures, useProjects, mutate, selects } = vi.hoisted(() => ({
   useTask: vi.fn(),
   useFeatures: vi.fn(),
   useProjects: vi.fn(),
+  mutate: vi.fn(),
+  selects: [] as {
+    'aria-label': string;
+    value: string;
+    options: { value: string; label: string }[];
+    onChange: (value: string) => void;
+  }[],
 }));
 
 vi.mock('@/modules/tasks/api/get-task', () => ({ useTask }));
@@ -18,7 +25,13 @@ vi.mock('@/modules/features/api/get-worktree', () => ({
 }));
 vi.mock('@/modules/features/api/get-diff', () => ({ useDiff: () => ({ data: [] }) }));
 vi.mock('@/modules/tasks/api/update-task', () => ({
-  useUpdateTask: () => ({ isError: false, mutate: vi.fn() }),
+  useUpdateTask: () => ({ isError: false, mutate }),
+}));
+vi.mock('@/components/select', () => ({
+  Select: (props: (typeof selects)[number]) => {
+    selects.push(props);
+    return null;
+  },
 }));
 
 const task: Task = {
@@ -56,13 +69,14 @@ describe('TaskPage', () => {
     expect(markup).toContain('#7');
     expect(markup).toContain('Fix the login');
     expect(markup).toMatch(/aria-pressed="true"[^>]*>Doing</);
-    expect(markup).toMatch(/class="[^"]*whitespace-pre-wrap[^"]*">First line\nSecond line</);
+    expect(markup).toMatch(/aria-label="Edit task details">First line\nSecond line<\/button>/);
     expect(markup).toMatch(/<a [^>]*href="\/features\/3"[^>]*>Login<\/a>/);
     expect(markup).toContain('feature/login');
     expect(markup).toContain('>dev<');
     expect(markup).toContain('/data/worktrees/login');
     expect(markup).toContain('No changes yet');
-    expect(markup).toContain('Edit');
+    expect(markup).toContain('aria-label="Edit task title"');
+    expect(markup).not.toMatch(/>Edit<\/button>/);
     expect(markup).toContain(new Date(task.createdAt).toLocaleString());
     expect(markup).toContain(new Date(task.updatedAt).toLocaleString());
   });
@@ -77,5 +91,29 @@ describe('TaskPage', () => {
     useProjects.mockReturnValue({ data: [] });
 
     expect(render()).toContain('task not found');
+  });
+
+  it('moves the task to another feature of its project, or to none', () => {
+    useTask.mockReturnValue({ isPending: false, isError: false, data: task });
+    useFeatures.mockReturnValue({
+      data: [
+        { id: 3, projectId: 1, name: 'Login', slug: 'login', kind: 'fixes', stage: 'build' },
+        { id: 4, projectId: 1, name: 'Billing', slug: 'billing', kind: 'fixes', stage: 'build' },
+        { id: 5, projectId: 2, name: 'Other', slug: 'other', kind: 'fixes', stage: 'build' },
+      ],
+    });
+    useProjects.mockReturnValue({ data: [{ id: 1, name: 'Reef', baseBranch: 'dev' }] });
+    selects.length = 0;
+    mutate.mockClear();
+
+    render();
+    const select = selects.find((s) => s['aria-label'] === 'Feature');
+
+    expect(select?.value).toBe('3');
+    expect(select?.options.map((o) => o.label)).toEqual(['No feature', 'Login', 'Billing']);
+    select?.onChange('4');
+    select?.onChange('');
+    expect(mutate).toHaveBeenNthCalledWith(1, { task, featureId: 4 });
+    expect(mutate).toHaveBeenNthCalledWith(2, { task, featureId: null });
   });
 });

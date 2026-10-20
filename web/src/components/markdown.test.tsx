@@ -1,6 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import { Markdown } from './markdown';
+import { MemoryRouter } from 'react-router';
+import { Markdown, MentionCards } from './markdown';
 
 const text = [
   '**bold** and `inline`',
@@ -65,5 +66,20 @@ describe('Markdown mentions', () => {
     expect(html).toContain('<code>@code</code>');
     expect(html).not.toContain('mention">@l');
     expect(html).not.toContain('mention">@x');
+  });
+});
+
+describe('Markdown mention cards', () => {
+  it('gives a mention with a card a focus stop and leaves other mentions plain', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <MentionCards.Provider value={(name) => (name === 'lead' ? <p>card</p> : null)}>
+          <Markdown>{'@lead then @nobody'}</Markdown>
+        </MentionCards.Provider>
+      </MemoryRouter>,
+    );
+
+    expect(html).toMatch(/<span class="mention [^"]*" tabindex="0">@lead<\/span>/);
+    expect(html).toContain('<span class="mention">@nobody</span>');
   });
 });

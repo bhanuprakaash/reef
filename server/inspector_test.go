@@ -35,7 +35,7 @@ func TestGetInspector(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	tc, err := st.CreateToolCall(ctx, 1, "Bash", `{"command":"ls"}`)
+	tc, err := st.CreateToolCall(ctx, 1, 0, "Bash", `{"command":"ls"}`)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,6 +61,46 @@ func TestGetInspector(t *testing.T) {
 	status, body = do(t, http.MethodGet, ts.URL+"/channels/9/inspector", "")
 	if status != 404 {
 		t.Errorf("unknown channel: status = %d, body = %s", status, body)
+	}
+}
+
+func TestGetInspectorNestsSubagentToolCalls(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	h := New(st, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"c","backend":"claude"}`)
+	if _, err := st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "developer", Backend: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	agentCall, err := st.CreateToolCall(ctx, 1, 0, "Agent", `{"subagent_type":"comment-sicko"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateToolCall(ctx, 1, agentCall.ID, "Read", `{"file_path":"a.go"}`); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateToolCall(ctx, 1, 0, "Bash", `{"command":"ls"}`); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodGet, ts.URL+"/channels/1/inspector", "")
+	if status != 200 {
+		t.Fatalf("status = %d, body = %s", status, body)
+	}
+	want := `"toolCalls":[{"name":"Agent","input":"{\"subagent_type\":\"comment-sicko\"}","result":"",` +
+		`"children":[{"name":"Read","input":"{\"file_path\":\"a.go\"}","result":""}]},` +
+		`{"name":"Bash","input":"{\"command\":\"ls\"}","result":""}]`
+	if !strings.Contains(body, want) {
+		t.Errorf("body = %s, want it to contain %s", body, want)
 	}
 }
 

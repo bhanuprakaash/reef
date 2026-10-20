@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { useDiff } from '@/modules/features/api/get-diff';
 import { useFeatures } from '@/modules/features/api/get-features';
@@ -7,13 +6,12 @@ import { diffCounts } from '@/modules/features/utils/diff-counts';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { useTask } from '@/modules/tasks/api/get-task';
 import { useUpdateTask } from '@/modules/tasks/api/update-task';
-import { TaskForm } from '@/modules/tasks/components/task-form';
+import { InlineTaskField } from '@/modules/tasks/components/inline-task-field';
 import type { TaskStatus } from '@/types/api';
 import { BackButton } from '@/components/back-button';
-import { Button } from '@/components/button';
 import { Card } from '@/components/card';
-import { Dialog } from '@/components/dialog';
 import { SegmentedControl } from '@/components/segmented-control';
+import { Select } from '@/components/select';
 
 const statuses = [
   { value: 'todo', label: 'To do' },
@@ -53,7 +51,7 @@ export function TaskPage() {
   const features = useFeatures();
   const projects = useProjects();
   const update = useUpdateTask();
-  const [editing, setEditing] = useState(false);
+  const move = useUpdateTask();
 
   if (task.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (task.isError) return <p className="text-sm text-danger">{task.error.message}</p>;
@@ -76,12 +74,9 @@ export function TaskPage() {
           </div>
           <h1 className="flex gap-2.5 text-[32px] leading-[1.1] font-normal tracking-[-0.02em]">
             <span className="text-muted">#{t.id}</span>
-            <span>{t.title}</span>
+            <InlineTaskField task={t} field="title" className="text-left" />
           </h1>
         </div>
-        <Button type="button" onClick={() => setEditing(true)}>
-          Edit
-        </Button>
       </header>
       <div>
         <SegmentedControl
@@ -92,24 +87,27 @@ export function TaskPage() {
         />
         {update.isError && <p className="mt-2 text-sm text-danger">{update.error.message}</p>}
       </div>
-      {t.body ? (
-        <p className="text-sm whitespace-pre-wrap">{t.body}</p>
-      ) : (
-        <p className="text-sm text-faint">No details yet.</p>
-      )}
+      <InlineTaskField task={t} field="body" multiline className="text-sm whitespace-pre-wrap" />
       <Card title="Details">
         <dl className="grid grid-cols-[auto_1fr] gap-x-6 gap-y-2 text-sm">
           <dt className="text-muted">Project</dt>
           <dd>{project?.name}</dd>
           <dt className="text-muted">Feature</dt>
           <dd>
-            {feature ? (
-              <Link to={`/features/${feature.id}`} className="hover:underline">
-                {feature.name}
-              </Link>
-            ) : (
-              'None'
-            )}
+            <Select
+              aria-label="Feature"
+              value={t.featureId === null ? '' : String(t.featureId)}
+              onChange={(value) =>
+                move.mutate({ task: t, featureId: value === '' ? null : Number(value) })
+              }
+              options={[
+                { value: '', label: 'No feature' },
+                ...(features.data ?? [])
+                  .filter((f) => f.projectId === t.projectId)
+                  .map((f) => ({ value: String(f.id), label: f.name })),
+              ]}
+            />
+            {move.isError && <p className="text-xs text-danger">{move.error.message}</p>}
           </dd>
           {feature && (
             <>
@@ -132,11 +130,6 @@ export function TaskPage() {
           <dd>{new Date(t.updatedAt).toLocaleString()}</dd>
         </dl>
       </Card>
-      <Dialog open={editing} onClose={() => setEditing(false)} title="Edit task">
-        {editing && (
-          <TaskForm task={t} features={features.data ?? []} onDone={() => setEditing(false)} />
-        )}
-      </Dialog>
     </div>
   );
 }

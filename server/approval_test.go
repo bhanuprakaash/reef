@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/store"
@@ -536,4 +537,136 @@ func TestApproval_ApproveWhileWrapRunsAfter(t *testing.T) {
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
 	}
+}
+
+func TestApproval_TwoGatedWakesBothRunWhenBothApproved(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	roles := []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
+		{Name: "developer", Backend: "claude"},
+	}
+	_, err := env.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: roles,
+		Gates: []store.Gate{{From: "lead", To: "architect", On: true}, {From: "lead", To: "developer", On: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.fake.onRun = func(role, text string, _ *int64) {
+		if role == "lead" && strings.HasSuffix(text, "\ngo") {
+			post("lead", "@architect plan it", nil)
+			post("lead", "@developer build it", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
+	sub.next(t)
+	sub.next(t)
+	sub.want(t, `turn {"role":"lead","status":"done"}`)
+
+	for _, aid := range []string{"1", "2"} {
+		if status, body := do(t, http.MethodPost, approvals+"/"+aid, `{"approve":true}`); status != 204 {
+			t.Fatalf("approve %s = %d %s, want 204", aid, status, body)
+		}
+	}
+	waitRan(t, env, 3)
+	want := []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
+		"[channel 2, message 3]\nlead wrote: @developer build it",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
+	}
+}
+
+func waitRan(t *testing.T, env *liveEnv, n int) {
+	t.Helper()
+	for range 200 {
+		if len(env.ranTexts()) >= n {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestApproval_ThreadAndTopLevelMentionHoldOneWake(t *testing.T) {
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	roles := []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "developer", Backend: "claude"},
+	}
+	if _, err := env.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: roles}); err != nil {
+		t.Fatal(err)
+	}
+	env.fake.onRun = func(role, text string, _ *int64) {
+		if role == "lead" && strings.HasSuffix(text, "\ngo") {
+			one := int64(1)
+			post("lead", "@developer build it", &one)
+			post("lead", "handed to @developer", nil)
+		}
+	}
+	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	env.sendTo(t, id, "go")
+	waitRan(t, env, 1)
+	waitIdle(t, env, id)
+
+	_, body := do(t, http.MethodGet, approvals, "")
+	if n := strings.Count(body, `"to":"developer"`); n != 1 {
+		t.Fatalf("approvals = %s, want one for the developer, got %d", body, n)
+	}
+	if status, _ := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`); status != 204 {
+		t.Fatalf("approve = %d, want 204", status)
+	}
+	waitRan(t, env, 2)
+	waitIdle(t, env, id)
+	if got := len(env.ranTexts()); got != 2 {
+		t.Errorf("turns run = %d, want 2: the lead and one developer turn", got)
+	}
+
+	env.sendTo(t, id, "go")
+	waitRan(t, env, 3)
+	env.wantInbox(t, "approval 2 lead wants to wake developer")
+	if status, _ := do(t, http.MethodPost, approvals+"/2", `{"approve":false}`); status != 204 {
+		t.Fatalf("reject = %d, want 204", status)
+	}
+	env.wantInbox(t)
+}
+
+func waitIdle(t *testing.T, env *liveEnv, id int) {
+	t.Helper()
+	for range 200 {
+		if l := env.h.s.lookup(int64(id)); l == nil || !l.running() && func() bool {
+			l.mu.Lock()
+			defer l.mu.Unlock()
+			return l.state == _idle
+		}() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("channel did not go idle")
+}
+
+func TestApproval_StopTellsSubscribersQueuedApprovalIsPendingAgain(t *testing.T) {
+	env := newLiveEnv(t)
+	id, sub, approvals := env.gatedChannel(t)
+	env.sendTo(t, id, "block")
+	<-env.fake.started
+	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
+	if status, _ := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`); status != 204 {
+		t.Fatalf("approve while busy = %d, want 204", status)
+	}
+	sub.next(t)
+
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+
+	for range 4 {
+		if got := sub.next(t); strings.HasPrefix(got, "approval ") && strings.Contains(got, `"status":"pending"`) {
+			return
+		}
+	}
+	t.Error("no pending approval frame after the stop returned the queued approval")
 }

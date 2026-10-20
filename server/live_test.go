@@ -694,7 +694,7 @@ func TestSend_RoutesOnlyItsOwnMessage(t *testing.T) {
 	}
 }
 
-func TestSend_OneWakePerRoleAndThread(t *testing.T) {
+func TestSend_OneWakePerRoleAcrossThreads(t *testing.T) {
 	env := newLiveEnv(t)
 	id, post := env.teamChannel(t)
 	env.fake.onRun = func(role, _ string, _ *int64) {
@@ -707,14 +707,14 @@ func TestSend_OneWakePerRoleAndThread(t *testing.T) {
 	sub := subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "go")
 	sub.want(t, _idleFrame)
-	sub.wantTurns(t, "lead", "architect", "architect")
+	sub.wantTurns(t, "lead", "architect")
 	want := []string{
 		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect one",
-		"[channel 2, message 3, thread 1]\nThread so far:\nuser: go\n\nlead wrote: @architect two",
+		"[channel 2, message 2]\nlead wrote: @architect one\n\n" +
+			"[channel 2, message 3, thread 1]\nThread so far:\nuser: go\n\nlead wrote: @architect two",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
-		t.Errorf("ran = %q, want %q: a top-level post and a thread reply wake the architect twice", got, want)
+		t.Errorf("ran = %q, want %q: a top-level post and a thread reply wake the architect once", got, want)
 	}
 }
 

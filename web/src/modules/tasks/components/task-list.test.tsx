@@ -29,11 +29,17 @@ function render(tasks: Task[] = [task]) {
 }
 
 describe('TaskList', () => {
-  it('links #N and the title to the task page and leaves the body out of the row', () => {
+  it('links #N to the task page and makes the title editable in place', () => {
     const markup = render();
 
-    expect(markup).toMatch(/<a [^>]*href="\/tasks\/12"[^>]*>.*#12.*Fix the login.*<\/a>/s);
+    expect(markup).toMatch(/<a [^>]*href="\/tasks\/12"[^>]*>.*#12.*<\/a>/s);
+    expect(markup).toContain('aria-label="Edit task title"');
+    expect(markup).toContain('Fix the login');
     expect(markup).not.toContain('The body of the task');
+  });
+
+  it('does not render an Edit button for tasks', () => {
+    expect(render()).not.toMatch(/>Edit<\/button>/);
   });
 
   it('keeps the link outside the checkbox label so clicking it does not tick the task', () => {

@@ -1215,3 +1215,113 @@ func TestSession_PromoteIntoFeatureWithBrief(t *testing.T) {
 		t.Errorf("prompts = %q, want one with %q", ag.prompts, want)
 	}
 }
+
+func TestSession_LeadOnAnotherBackendIgnoresItsRoleProvider(t *testing.T) {
+	for _, tc := range []struct {
+		backend  string
+		provider bool
+	}{{"codex", false}, {"claude", true}} {
+		t.Run(tc.backend, func(t *testing.T) {
+			ctx := context.Background()
+			st, f := openStore(t)
+			dir := t.TempDir()
+			if err := os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := st.CreateProvider(ctx, store.Provider{Name: "work", Kind: "claude", Folder: dir}); err != nil {
+				t.Fatal(err)
+			}
+			lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Provider: "work"}
+			if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+				t.Fatal(err)
+			}
+			ch, err := st.CreateChannel(ctx, store.Channel{
+				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead",
+				Backend: tc.backend, Team: "core",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			ag := newRecordingAgent()
+			mk := func(string) (agent.Agent, error) { return ag, nil }
+			s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			if err := s.RunAs(ctx, "lead", "hi", nil, discard); err != nil {
+				t.Fatal(err)
+			}
+			want := ""
+			if tc.provider {
+				want = filepath.Join(dir, "claude")
+			}
+			if ag.cfg.Bin != want {
+				t.Errorf("Bin on a %s channel = %q, want %q", tc.backend, ag.cfg.Bin, want)
+			}
+		})
+	}
+}
+
+func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	dir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(dir, "claude"), []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateProvider(ctx, store.Provider{Name: "work", Kind: "claude", Folder: dir}); err != nil {
+		t.Fatal(err)
+	}
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
+	architect := store.Role{Name: "architect", Backend: "claude", Provider: "work"}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	mk := func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	}
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.RunAs(ctx, "lead", "hi", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.RunAs(ctx, "architect", "plan it", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if ags[0].cfg.Bin != "" || ags[1].cfg.Bin != filepath.Join(dir, "claude") {
+		t.Errorf("Bin of lead, architect = %q, %q, want empty and %s/claude",
+			ags[0].cfg.Bin, ags[1].cfg.Bin, dir)
+	}
+
+	if err := os.Remove(filepath.Join(dir, "claude")); err != nil {
+		t.Fatal(err)
+	}
+	s2, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s2.Close() }()
+	err = s2.RunAs(ctx, "architect", "again", nil, discard)
+	if !errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), "no claude binary in "+dir) {
+		t.Fatalf("RunAs with a removed binary error = %v, want no claude binary in %s", err, dir)
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID, Status: "failed"})
+	if err != nil || len(turns) != 1 || turns[0].Role != "architect" ||
+		!strings.Contains(turns[0].Error, "no claude binary in "+dir) {
+		t.Errorf("failed turns = %+v, %v, want one architect turn naming the missing binary", turns, err)
+	}
+}

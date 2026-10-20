@@ -34,7 +34,9 @@ live, Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 - `wrap-wakes-nobody` a `/wrap` turn whose reply says `@architect` starts no architect turn.
 - `restart-held` after a restart a pending approval is still pending and can be approved; a hop-cap pause stays, and `continue` runs the held wake.
 - `codex-teammate` a role on `codex` is woken and its reply is stored (driven with the codex test fixture, not a real codex).
-- `window-teams` the window picks a team, names the running teammate, opens a Thread pane from a root's Reply button, shows `N replies in thread` on the root in the main list, and shows Approve and Reject (`$H ui teams`, see Window below).
+- `provider-rest` `GET /providers` lists the detected `claude` and `codex` with `path` and `version`; `POST /providers` adds a second claude from another folder and it appears with its folder and version; a bad kind, a relative or missing folder, a folder with no executable of the kind, a bad name, a duplicate name and the name `claude` are rejected with an error; `DELETE` removes an added one and refuses `claude` and `codex`.
+- `provider-role` a role with `"provider":"NAME"` runs that install's binary: with two wrapper folders that each log a marker and `exec` the fake `claude`, only the named install's marker appears and a role with no provider logs none. A team that names an unknown provider, or one of the other kind, is `invalid`; a removed provider, or a channel `backend` that differs from the install's kind, gives a `failed` turn with the reason, not a run of the `PATH` binary.
+- `window-teams` the window picks a team, names the running teammate, opens a Thread pane from a root's Reply button, shows `N replies in thread` on the root in the main list, and shows Approve and Reject, and the switch of a default gate on `/teams` turns it off and on (`$H ui teams`, see Window below).
 
 ## How to get to it (user POV)
 
@@ -181,14 +183,35 @@ Channel role as lead, a new folder `role` (`route-channel-role`). `reef chat` ma
 - **Setup.** `$H serve-stop`. `$H reef --data-name role -- project add`, `$H reef -- feature add roles Roles`. `ANTHROPIC_MODEL=sonnet $H reef -- chat roles --role developer --backend claude` prints `channel 1: resume with reef chat --channel 1`, `exit: 0` (stdin is empty, so no turn runs). `$H sql "select channel.id, channel.role, team.name from channel join team on team.id = team_id"` is `1|developer|solo`. `ANTHROPIC_MODEL=sonnet $H serve-start --data-name role`, set `A`.
 - **`@lead` wakes the channel role.** `$H api POST /channels/1/send '{"text":"@lead hi"}'` is 202, `wait_done 1 1`. `$H sql "select id, role, status from turn"` is one row, `1|developer|done`. `$H sql "select role from token"` is `developer` only: no `lead` token. `pgrep -P $(cat $S/serve.pid) -x claude | wc -l` is `1`, the developer's process, which stays like a lead's. The developer's reply may name `@lead` too; it wakes no one.
 
-Window (`$H ui teams` drives New channel, Thread and Gate; the hop cap is by hand). Setup: the scenario needs `duo` and `gated` applied to the server's data folder, so write `duo.json` and `gated.json` as above and, before the server starts: `$H reef --data-name ui -- team apply $E/duo.json`, `$H reef -- team apply $E/gated.json`, then `ANTHROPIC_MODEL=sonnet $H serve-start --data-name ui` (`reef team apply` may also run while the server is up). Without the teams it prints `FAIL teams: scenario aborted | apply the teams first`. Then `$H ui teams`, with `REEF_VERIFY_CHROME` on Linux (see `window.md`). The steps, in the scenario or by hand in a browser:
+Window (`$H ui teams` drives New channel, Thread and Gate; the hop cap is by hand). Setup: the scenario needs `duo`, `gated` and `full` applied to the server's data folder, so write `duo.json` and `gated.json` as above and, before the server starts: `$H reef --data-name ui -- team apply $E/duo.json`, `$H reef -- team apply $E/gated.json`, `$H reef -- team apply $PWD/teams/full.json`, then `ANTHROPIC_MODEL=sonnet $H serve-start --data-name ui` (`reef team apply` may also run while the server is up). Without the teams it prints `FAIL teams: scenario aborted | apply the teams first`. Then `$H ui teams`, with `REEF_VERIFY_CHROME` on Linux (see `window.md`). The steps, in the scenario or by hand in a browser:
 
 - **New channel.** The New channel form has a team picker listing `duo`, `gated`, `solo` (and any other applied team). Pick `duo`, create the channel: the sidebar shows it, `GET /channels/<id>` has `"team":"duo"`.
 - **Thread.** Send `DESIGN a short plan for a login form.`. While each teammate runs, the live turn names it: `Lead is working...`, then `Architect is working...`. When it ends, the architect's message has a Reply button; a Thread pane opens on click; reply there. The architect (not the lead) answers in the pane, and the main list shows the root with an `N replies in thread` button; the replies appear only in the Thread pane.
 - **Gate.** In a `gated` channel, after the lead mentions the architect, a row `lead → architect: <body of the waking message>` shows Approve and Reject. Approve runs the architect and the row goes; Reject removes the row.
+- **Gate switch.** `/teams`, team `full` (it lists no gates): the default `Gate lead to developer` shows as a switch, on, with no Remove. Switch it off and Save team: `gate.enabled` is `0`, and in a new `full` channel the lead's `@developer reply with one word, use no tools.` (the `$P` of `full-team.md`) runs the developer with no row in `approval`. Switch it on and Save team: `enabled` is `1`, and the next channel holds the wake as a pending `lead → developer` approval with no developer turn.
 - **Hop cap.** In a `pingpong` channel, after seven turns the cap banner shows `Paused: hop cap: 6 agent hops without a user message` and the composer stays enabled (other pauses disable it); sending a message clears the banner; Continue runs the held wake.
 
 When done: `$H cleanup`.
+
+Providers (data folder `providers`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name providers`, scratch cwd a git repo). Make two installs, each a folder with an executable `claude` that answers `--version` itself and otherwise logs a marker and runs the fake:
+
+```sh
+for m in A B; do mkdir -p $E/prov$m; cat > $E/prov$m/claude <<EOF
+#!/bin/sh
+if [ "\$1" = "--version" ]; then echo "$m-9.0.0 (Claude Code)"; exit 0; fi
+echo "$m ran in \$(pwd)" >> $E/markers.log
+exec $S/fake/claude "\$@"
+EOF
+chmod +x $E/prov$m/claude; done; : > $E/markers.log; mkdir -p $E/emptydir
+printf '{"name":"provteam","roles":[{"name":"lead","lead":true,"backend":"claude","provider":"installB","persona":"You are the lead."}]}' > $E/provteam.json
+printf '{"name":"plainteam","roles":[{"name":"lead","lead":true,"backend":"claude","persona":"You are the lead."}]}' > $E/plainteam.json
+```
+
+- **List.** `$H api GET /providers` is 200 with `claude` (`detected:true`, `path` the fake, `version` `0.0.0 (Claude Code) fake`) and `codex` with its path and version.
+- **Add and reject.** `POST /providers` `{"name":"installA","kind":"claude","folder":"'$E'/provA"}` and the same for `installB` with `provB` are 201 with `version` `A-9.0.0 (Claude Code)` and `B-9.0.0 ...`; `GET /providers` lists both after the two detected. These are 400: `kind` `gemini` (`provider kind must be claude or codex`), folder `/nonexistent` (`not a directory`), folder `relative` (`not an absolute path`), `$E/emptydir` (`no claude binary in ...`), kind `codex` on `provA` (`no codex binary in ...`), name `my x`. These are 409: `installA` again, name `claude`.
+- **Team checks.** `$H reef --data-name providers -- team apply` of a file whose role says `"provider":"nope"` is `reef: invalid: role lead: provider "nope" is not installed`, exit 1; `"backend":"codex","provider":"installB"` is `... provider "installB" is a claude install, the role runs on codex`. Apply `provteam.json` and `plainteam.json`; `GET /teams/provteam` shows `"provider":"installB"`.
+- **Runs that binary.** `POST /projects` `{"name":"prov","path":"'$S'/cwd"}` and `POST /features` `{"projectId":1,"slug":"prov","name":"Prov"}`. `POST /channels` `{"projectId":1,"featureId":1,"name":"on B","team":"provteam"}` (id 1), `POST /channels/1/send` `{"text":"Say ok in one word"}`, wait for a done turn: `cat $E/markers.log` is one line, `B ran in <data>/worktrees/1/prov`. Channel 2 on `plainteam` and the same send: `markers.log` is still one line and `fake-claude.log` has a second `replay` line.
+- **Removed or mismatched.** `DELETE /providers/installA` and `installB` are 204, `claude` and `codex` are 400, `ghost` is 404. A new channel 3 on `provteam` and a send gives a `failed` turn whose `error` is `invalid: role lead: provider "installB" is not installed`, and `markers.log` is unchanged. Add `installB` again; channel 4 `{"team":"provteam","backend":"codex"}` and a send gives a `failed` turn with `provider "installB" is a claude install, the role runs on codex`.
 
 ## Gotchas
 

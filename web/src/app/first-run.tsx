@@ -71,14 +71,24 @@ function ProjectStep() {
         <label htmlFor="first-run-path" className="block text-[12.5px] text-muted">
           Repo folder
         </label>
-        <TextField
-          id="first-run-path"
-          className="w-full font-mono"
-          placeholder="/Users/you/code/project"
-          value={path}
-          onChange={(e) => setPath(e.target.value)}
-          required
-        />
+        <div className="flex gap-2">
+          <TextField
+            id="first-run-path"
+            className="min-w-0 flex-1 font-mono"
+            placeholder="/Users/you/code/project"
+            value={path}
+            onChange={(e) => setPath(e.target.value)}
+            required
+          />
+          {window.reef && (
+            <Button
+              type="button"
+              onClick={() => void window.reef?.chooseFolder().then((p) => p && setPath(p))}
+            >
+              Choose…
+            </Button>
+          )}
+        </div>
       </div>
       <div className="space-y-1.5">
         <label htmlFor="first-run-name" className="block text-[12.5px] text-muted">

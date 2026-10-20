@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Outlet, useNavigate } from 'react-router';
+import { Outlet, useLocation, useNavigate } from 'react-router';
 import { BrowserPane, type BrowserDriver } from '@/app/browser-pane';
 import { FirstRun } from '@/app/first-run';
 import { PaneToggles } from '@/app/pane-toggles';
@@ -7,13 +7,14 @@ import { Sidebar } from '@/app/sidebar';
 import { TabBar } from '@/app/tab-bar';
 import { Unreachable } from '@/app/unreachable';
 import { useProfile } from '@/lib/api/get-profile';
+import { useTerminalApp } from '@/lib/terminal-app';
 import { useStoredFlag } from '@/lib/use-stored-flag';
 import { useProjects } from '@/modules/projects/api/get-projects';
 
 export type LayoutContext = {
   browserOpen: boolean;
   terminalOpen: boolean;
-  toggleTerminal: () => void;
+  hideTerminal: () => void;
   setHasTerminal: (has: boolean) => void;
   setBrowserDriver: (driver: BrowserDriver | null) => void;
 };
@@ -21,7 +22,18 @@ export type LayoutContext = {
 export function Layout() {
   const projects = useProjects();
   const [browserOpen, toggleBrowser] = useStoredFlag('reef.browserPane.open');
-  const [terminalOpen, toggleTerminal] = useStoredFlag('reef.terminalPane.open');
+  const [paneOpen, togglePane] = useStoredFlag('reef.terminalPane.open');
+  const { pathname } = useLocation();
+  const [launching, setLaunching] = useState(false);
+  const [launchPath, setLaunchPath] = useState(pathname);
+  if (launchPath !== pathname) {
+    setLaunchPath(pathname);
+    setLaunching(false);
+  }
+  const external = useTerminalApp() !== null;
+  const terminalOpen = external ? launching : paneOpen;
+  const toggleTerminal = external ? () => setLaunching((on) => !on) : togglePane;
+  const hideTerminal = external ? () => setLaunching(false) : togglePane;
   const [hasTerminal, setHasTerminal] = useState(false);
   const [browserDriver, setBrowserDriver] = useState<BrowserDriver | null>(null);
   const profile = useProfile();
@@ -55,7 +67,7 @@ export function Layout() {
               {
                 browserOpen,
                 terminalOpen: desktop && terminalOpen,
-                toggleTerminal,
+                hideTerminal,
                 setHasTerminal,
                 setBrowserDriver,
               } satisfies LayoutContext

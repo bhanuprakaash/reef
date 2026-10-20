@@ -30,7 +30,8 @@ Interrupt() error                     // stop the turn and the process
   closes to count it. A second call is a no-op. Tool processes in their own process group
   may outlive a forced kill. To go on, `Resume` on a new `Agent` with the id from the last `session` event.
 - `Config`: `Cwd`, `PermissionMode` (backend-specific, passed through), `Model` (a model name,
-  passed through; empty is the backend's default), `Tools` (tools allowed
+  passed through; empty is the backend's default), `Bin` (the backend executable to run; empty
+  is `claude` or `codex` from `PATH`; `reef-agent` has no flag for it), `Tools` (tools allowed
   without asking; Codex ignores it), `DisallowedTools` (tools denied even when settings allow
   them; Codex ignores it, its sandbox decides), `MCPServers` (stdio `Command`/`Args`/`Env` or HTTP `URL`),
   `Env` (`KEY=value`, added to `os.Environ`).

@@ -1,9 +1,10 @@
 import { useEffect, type ReactNode } from 'react';
-import type { Role, Skills } from '@/types/api';
+import type { Provider, Role, Skills } from '@/types/api';
 import { ChipList } from '@/modules/teams/components/chip-list';
 import { CreaturePicker } from '@/modules/teams/components/creature-picker';
 import { SkillPicker } from '@/modules/teams/components/skill-picker';
 import { ToolPicker } from '@/modules/teams/components/tool-picker';
+import { providerOptions, providerFor } from '@/modules/teams/utils/providers';
 import { backendOptions } from '@/modules/teams/utils/backend-label';
 import { Button } from '@/components/button';
 import { creatureName } from '@/components/creature';
@@ -11,10 +12,12 @@ import { Select } from '@/components/select';
 import { TextArea } from '@/components/text-area';
 import { TextField } from '@/components/text-field';
 import { Toggle } from '@/components/toggle';
+import { claudeModels } from '@/utils/models';
 
 type Props = {
   role: Role;
   skills?: Skills;
+  providers?: Provider[];
   noProject?: boolean;
   onChange: (role: Role) => void;
   onRemove: () => void;
@@ -31,13 +34,6 @@ function modeOptions(role: Role) {
   if (!values.includes(role.permissionMode)) values.push(role.permissionMode);
   return values.map((value) => ({ value, label: value || 'Backend default' }));
 }
-
-const claudeModels = [
-  { value: '', label: 'Default' },
-  { value: 'opus', label: 'Opus' },
-  { value: 'sonnet', label: 'Sonnet' },
-  { value: 'haiku', label: 'Haiku' },
-];
 
 function claudeModelOptions(model: string) {
   return claudeModels.some((o) => o.value === model)
@@ -74,7 +70,15 @@ function SettingRow({
   );
 }
 
-export function RolePanel({ role, skills, noProject, onChange, onRemove, onClose }: Props) {
+export function RolePanel({
+  role,
+  skills,
+  providers = [],
+  noProject,
+  onChange,
+  onRemove,
+  onClose,
+}: Props) {
   const label = role.name || 'role';
 
   useEffect(() => {
@@ -161,12 +165,22 @@ export function RolePanel({ role, skills, noProject, onChange, onRemove, onClose
               onChange({
                 ...role,
                 backend,
+                provider: providerFor(role.provider, backend, providers),
                 permissionMode: (modes[backend] ?? []).includes(role.permissionMode)
                   ? role.permissionMode
                   : '',
                 model: '',
               })
             }
+          />
+        </SettingRow>
+        <SettingRow title="Provider" hint="Add installs in Settings.">
+          <Select
+            variant="pill"
+            aria-label={`${label} provider`}
+            value={role.provider ?? ''}
+            options={providerOptions(role, providers)}
+            onChange={(provider) => onChange({ ...role, provider: provider || undefined })}
           />
         </SettingRow>
         <SettingRow title="Model">

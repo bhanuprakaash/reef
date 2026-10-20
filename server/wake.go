@@ -107,7 +107,8 @@ func (s *server) wakes(ctx context.Context, id, after int64, author string) ([]w
 // written by author are routed. A user message runs as its own text; an agent message as
 // "<author> wrote: <body>". Each starts with a line naming the channel and the message, and
 // its thread root when it is a reply; a message in a thread comes with the thread before it.
-// A role woken by several messages in the same thread gets one wake, their texts in id order.
+// A role woken by several messages gets one wake, their texts in id order; it replies where
+// the first one did.
 func (s *server) route(ctx context.Context, id int64, msgs []store.Message, author string) ([]wake, error) {
 	ch, err := s.st.Channel(ctx, id)
 	if err != nil {
@@ -169,11 +170,10 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 		}
 		for _, role := range woken {
 			gated := team.Gated(m.Author, role)
-			if i := slices.IndexFunc(ws, func(w wake) bool {
-				return w.role == role && sameParent(w.parent, m.ParentID)
-			}); i >= 0 {
+			if i := slices.IndexFunc(ws, func(w wake) bool { return w.role == role }); i >= 0 {
 				ws[i].text += "\n\n" + header + "\n" + text
 				ws[i].gated = ws[i].gated || gated
+				ws[i].messageID = m.ID
 				continue
 			}
 			ws = append(ws, wake{
@@ -183,8 +183,4 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 		}
 	}
 	return ws, nil
-}
-
-func sameParent(a, b *int64) bool {
-	return a == b || a != nil && b != nil && *a == *b
 }

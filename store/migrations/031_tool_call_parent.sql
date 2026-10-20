@@ -1,0 +1,1 @@
+ALTER TABLE tool_call ADD COLUMN parent_id INTEGER REFERENCES tool_call(id) ON DELETE CASCADE;

@@ -25,6 +25,8 @@ type server struct {
 	dataDir string
 	trees   *channel.Trees
 	open    func(ctx context.Context, channelID int64) (session, error)
+	// name proposes a channel name from its first message, with the channel's backend.
+	name func(ctx context.Context, backend, message string) (string, error)
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -79,7 +81,8 @@ func newHandler(
 ) *Handler {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
-		st: st, dataDir: dataDir, trees: trees, open: open, ctx: ctx, cancel: cancel,
+		st: st, dataDir: dataDir, trees: trees, open: open, name: channel.ProposeName,
+		ctx: ctx, cancel: cancel,
 		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{},
 		inboxWake: make(chan struct{}), ghFeatureErrLogged: map[int64]string{},
 	}
@@ -100,6 +103,7 @@ func newHandler(
 	s.featureRoutes(mux)
 	s.channelRoutes(mux)
 	s.teamRoutes(mux)
+	s.providerRoutes(mux)
 	s.skillRoutes(mux)
 	s.liveRoutes(mux)
 	s.turnOpRoutes(mux)

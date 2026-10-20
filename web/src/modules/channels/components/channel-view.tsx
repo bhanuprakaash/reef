@@ -15,6 +15,7 @@ import { ChannelHeader } from '@/modules/channels/components/channel-header';
 import { CheckpointRows } from '@/modules/channels/components/checkpoint-rows';
 import { Composer } from '@/modules/channels/components/composer';
 import { CoordinationPanel } from '@/modules/channels/components/coordination-panel';
+import { DeniedToolRows } from '@/modules/channels/components/denied-tool-rows';
 import { FailedTurnRows } from '@/modules/channels/components/failed-turn-rows';
 import { InspectorPanel } from '@/modules/channels/components/inspector-panel';
 import { LiveTurn } from '@/modules/channels/components/live-turn';
@@ -108,6 +109,11 @@ export function ChannelView({
     running: running || turn.status === 'done' ? turn.role : undefined,
   });
   const chain = side?.kind === 'direct' ? chains.find((c) => c.id === side.chainId) : undefined;
+  const wake = (direct.data ?? []).filter((m) => m.to === turn.role).at(-1);
+  const liveDirect =
+    turn.direct && running && wake && chain?.messages.some((m) => m.id === wake.id)
+      ? turn
+      : undefined;
   const turnOpen = side?.kind === 'turn' && turn.status !== 'idle';
   if (side?.kind === 'turn' && turn.status === 'idle') setSide(null);
 
@@ -211,6 +217,7 @@ export function ChannelView({
                 paused={channel.paused !== ''}
               />
               <CheckpointRows channelId={channel.id} running={running} />
+              <DeniedToolRows channel={channel} roles={roles} running={running} />
               <ApprovalRows channelId={channel.id} faces={faces} />
               <ProposalPanel channelId={channel.id} featureId={channel.featureId} faces={faces} />
             </div>
@@ -317,6 +324,7 @@ export function ChannelView({
                   key={chain.id}
                   channelId={channel.id}
                   chain={chain}
+                  live={liveDirect}
                   faces={faces}
                   running={running}
                   paused={channel.paused !== ''}

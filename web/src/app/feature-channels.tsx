@@ -1,9 +1,11 @@
 import { useQuery } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
+import { ChannelCard } from '@/app/channel-hovercard';
 import { FeatureStageChip } from '@/app/feature-stage';
 import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
+import { Hovercard } from '@/components/hovercard';
 import { Row } from '@/components/row';
 import { StatusDot } from '@/components/status-dot';
 import { channelsQuery } from '@/lib/api/get-channels';
@@ -162,27 +164,44 @@ export function FeatureChannels({ project, query }: { project: Project; query: s
     const faces = roleFaces(teams.data, c.team);
     const roles = Object.keys(faces);
     const role = working.get(c.id);
+    const feature = features.data?.find((f) => f.id === c.featureId);
+    const roleNames = (running.data ?? []).filter((t) => t.channelId === c.id).map((t) => t.role);
     return (
-      <Row
-        to={`/channels/${c.id}`}
-        active={pathname === `/channels/${c.id}`}
-        avatar={
-          <span className="relative flex-none">
-            <GroupAvatar roles={roles.length > 0 ? roles : [c.role]} faces={faces} size={30} />
-            {waiting.some((i) => i.channelId === c.id) && (
-              <span
-                role="img"
-                aria-label="needs you"
-                className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-sidebar bg-needs-you"
-              />
-            )}
-          </span>
+      <Hovercard
+        content={
+          <ChannelCard
+            channel={c}
+            feature={feature}
+            faces={faces}
+            working={roleNames}
+            waiting={waiting.filter((i) => i.channelId === c.id).map((i) => i.kind)}
+          />
         }
-        title={named}
-        live={role ? <StatusDot status="working" label={`${role} is working`} /> : undefined}
-        aside={c.lastMessage && rowTime(c.lastMessage.createdAt)}
-        preview={c.lastMessage ? oneLine(c.lastMessage) : 'No messages yet'}
-      />
+      >
+        {(trigger) => (
+          <Row
+            trigger={trigger}
+            to={`/channels/${c.id}`}
+            active={pathname === `/channels/${c.id}`}
+            avatar={
+              <span className="relative flex-none">
+                <GroupAvatar roles={roles.length > 0 ? roles : [c.role]} faces={faces} size={30} />
+                {waiting.some((i) => i.channelId === c.id) && (
+                  <span
+                    role="img"
+                    aria-label="needs you"
+                    className="absolute -top-0.5 -right-0.5 size-2.5 rounded-full border-2 border-sidebar bg-needs-you"
+                  />
+                )}
+              </span>
+            }
+            title={named}
+            live={role ? <StatusDot status="working" label={`${role} is working`} /> : undefined}
+            aside={c.lastMessage && rowTime(c.lastMessage.createdAt)}
+            preview={c.lastMessage ? oneLine(c.lastMessage) : 'No messages yet'}
+          />
+        )}
+      </Hovercard>
     );
   }
 

@@ -403,7 +403,8 @@ func (s *Session) member(
 		MCPServers:      servers,
 	}
 	var preamble string
-	if ctx.Err() == nil && slug != "" {
+	cfg.Bin, err = s.st.RoleBin(wctx, r)
+	if err == nil && ctx.Err() == nil && slug != "" {
 		var p store.Project
 		if p, err = s.st.Project(wctx, s.project.ID); err == nil {
 			err = EnsureWorktree(ctx, s.trees, p, cwd, slug)
@@ -475,6 +476,9 @@ func WorkDir(
 func (s *Session) roleSetup(team store.Team, name string) (store.Role, error) {
 	if name == s.ch.Role {
 		lead := team.Roles[0]
+		if lead.Backend != s.ch.Backend {
+			lead.Provider = ""
+		}
 		lead.Name, lead.Backend, lead.PermissionMode = name, s.ch.Backend, s.ch.PermissionMode
 		return lead, nil
 	}

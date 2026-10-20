@@ -239,7 +239,11 @@ func (a *Agent) spawn(
 		return nil, errors.New("codex agent already used")
 	}
 	a.used = true
-	cmd := exec.Command("codex", "app-server")
+	bin := cfg.Bin
+	if bin == "" {
+		bin = "codex"
+	}
+	cmd := exec.Command(bin, "app-server")
 	cmd.Dir = cfg.Cwd
 	cmd.Env = append(os.Environ(), cfg.Env...)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}

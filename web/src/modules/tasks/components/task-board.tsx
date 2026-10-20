@@ -4,6 +4,7 @@ import { Link } from 'react-router';
 import { useUpdateTask } from '@/modules/tasks/api/update-task';
 import type { Feature, Task, TaskStatus } from '@/types/api';
 import { Select } from '@/components/select';
+import { InlineTaskField } from './inline-task-field';
 
 const COLUMNS: { status: TaskStatus; label: string }[] = [
   { status: 'todo', label: 'Todo' },
@@ -59,15 +60,28 @@ export function TaskBoard({ tasks, features }: Props) {
                     onDragStart={(e) => e.dataTransfer.setData('text/plain', String(task.id))}
                     className={`flex flex-col gap-2 rounded-menu px-3.5 py-3 ${done ? 'bg-main text-muted' : 'bg-card'}`}
                   >
-                    <Link
-                      to={`/tasks/${task.id}`}
-                      draggable={false}
-                      className="flex gap-1.5 hover:underline"
-                    >
-                      <span className="text-muted">#{task.id}</span>
-                      <span className={done ? 'line-through' : ''}>{task.title}</span>
-                    </Link>
-                    {task.body && <p className="line-clamp-2 text-xs text-muted">{task.body}</p>}
+                    <div className="flex items-baseline gap-1.5">
+                      <Link
+                        to={`/tasks/${task.id}`}
+                        draggable={false}
+                        className="text-muted hover:underline"
+                      >
+                        <span className="text-muted">#{task.id}</span>
+                      </Link>
+                      <InlineTaskField
+                        task={task}
+                        field="title"
+                        className={`hover:underline ${done ? 'line-through' : ''}`}
+                      />
+                    </div>
+                    {task.body && (
+                      <InlineTaskField
+                        task={task}
+                        field="body"
+                        multiline
+                        className="line-clamp-2 text-xs text-muted hover:underline"
+                      />
+                    )}
                     <div className="flex items-center gap-2 text-xs text-muted">
                       {feature && (
                         <span className="flex h-5 items-center rounded-pill bg-track px-2">

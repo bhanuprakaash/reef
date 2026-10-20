@@ -1,9 +1,11 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team BASE_URL
+// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|hovercard|mention|providers|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
 // REEF_FAKE_GH (pr only: the folder the server's fake gh keeps its PR in, see fake-gh/gh).
+// REEF_FAKE_LOG (denials and naming only: the fake claude's log, one line per turn with its args).
+// REEF_UI_FAKE (providers only: the folder holding the fake claude, used as a second install).
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from 'node:fs';
@@ -11,9 +13,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, team };
+const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, fixes, pr, coordination, team, denials, subagent, composer, naming, hovercard, mention, providers, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team BASE_URL');
+  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|hovercard|mention|providers|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -325,7 +327,7 @@ async function pages() {
   check(stage === 'Live testing' && bar === 'Live testing', 'stage survives a reload', `select ${stage}, bar ${bar}, row ${sql(`select stage from feature where id=${fid}`)}`);
   await page.goto(base + '/tasks');
   const title = `ui task ${Date.now().toString(36)}`;
-  await page.getByLabel('Task title').fill(title);
+  await page.getByLabel('Task title', { exact: true }).fill(title);
   const pid = sql(`select project_id from feature where id=${fid}`);
   await pick('Task project', sql(`select name from project where id=${pid}`));
   await pick('Task feature', 'Login');
@@ -367,12 +369,82 @@ async function fixes() {
   await page.goto(base + '/tasks');
   const pid = sql(`select project_id from feature where id=${fid}`);
   for (const title of ['fix one', 'fix two']) {
-    await page.getByLabel('Task title').fill(title);
+    await page.getByLabel('Task title', { exact: true }).fill(title);
     await pick('Task project', sql(`select name from project where id=${pid}`));
     await pick('Task feature', name);
     await page.getByRole('button', { name: 'Add task' }).click();
     await main.locator('li', { hasText: title }).waitFor();
   }
+  const tid = sql(`select id from task where title='fix one' and feature_id=${fid}`);
+  const taskRow = main.locator('li', { has: page.getByRole('link', { name: `#${tid}`, exact: true }) });
+  check(
+    (await main.getByRole('button', { name: 'Edit', exact: true }).count()) === 0,
+    'the tasks list has no Edit button',
+  );
+  await taskRow.getByRole('button', { name: 'Edit task title' }).click();
+  const titleInput = taskRow.getByRole('textbox', { name: 'Task title' });
+  await titleInput.fill('discarded title');
+  await titleInput.press('Escape');
+  await page.waitForTimeout(500);
+  check(
+    (await taskRow.getByRole('button', { name: 'Edit task title' }).innerText()) === 'fix one' &&
+      sql(`select title from task where id=${tid}`) === 'fix one',
+    'Escape cancels a task title edit',
+    `task row and database still show ${sql(`select title from task where id=${tid}`)}`,
+  );
+  await taskRow.getByRole('button', { name: 'Edit task title' }).click();
+  await titleInput.fill('fix one renamed');
+  await titleInput.press('Enter');
+  await page.getByText('fix one renamed', { exact: true }).waitFor();
+  await page.reload();
+  await main.getByText('fix one renamed', { exact: true }).waitFor();
+  const renamed = await getJson(`/tasks/${tid}`);
+  await shot('inline-edit');
+  check(
+    renamed.title === 'fix one renamed',
+    'Enter saves a task title through the task API and the title survives reload',
+    `GET /tasks/${tid} returned ${renamed.title}`,
+  );
+  await page.goto(base + '/tasks?view=board');
+  await main.getByText('fix one renamed', { exact: true }).waitFor();
+  await shot('board-no-edit');
+  check(
+    (await main.getByRole('button', { name: 'Edit', exact: true }).count()) === 0,
+    'the tasks board has no Edit button',
+  );
+  await page.goto(base + `/tasks/${tid}`);
+  await main.getByRole('button', { name: 'Edit task details' }).click();
+  const details = main.getByRole('textbox', { name: 'Task details' });
+  await details.fill('line one\nline two');
+  await details.blur();
+  await main.getByRole('button', { name: 'Edit task details' }).waitFor();
+  await page.reload();
+  await main.getByText('line two').waitFor();
+  await shot('task-body-edit');
+  check(
+    (await main.getByRole('button', { name: 'Edit', exact: true }).count()) === 0 &&
+      sql(`select body from task where id=${tid}`) === 'line one\nline two',
+    'the task page has no Edit button and blur saves its details inline',
+    `body ${JSON.stringify(sql(`select body from task where id=${tid}`))}`,
+  );
+  const featureSelect = main.getByRole('combobox', { name: 'Feature', exact: true });
+  await pick('Feature', 'No feature', main);
+  await featureSelect.getByText('No feature').waitFor();
+  await shot('task-no-feature');
+  check(
+    sql(`select feature_id is null from task where id=${tid}`) === '1',
+    'the task page Feature select moves the task to no feature',
+    `feature_id null: ${sql(`select feature_id is null from task where id=${tid}`)}`,
+  );
+  await pick('Feature', name, main);
+  await page.reload();
+  await featureSelect.getByText(name).waitFor();
+  await shot('task-feature-back');
+  check(
+    sql(`select feature_id from task where id=${tid}`) === fid,
+    'the Feature select moves the task back to its feature and it survives a reload',
+    `feature_id ${sql(`select feature_id from task where id=${tid}`)}, want ${fid}`,
+  );
   await page.goto(base + `/features/${fid}`);
   await main.getByText('0 of 2 done').waitFor();
   await main.locator('li', { hasText: 'fix one' }).getByRole('checkbox').click();
@@ -434,6 +506,29 @@ async function capture() {
   await err.waitFor({ timeout: 15000 });
   await shot('error');
   check(true, 'a capture whose request fails shows the error', await err.innerText());
+}
+
+async function firstRun() {
+  await page.goto(base + '/');
+  await page.getByLabel('Your name').waitFor();
+  await page.getByLabel('Your name').fill('Tester');
+  await page.getByRole('button', { name: 'Continue' }).click();
+  const folder = page.getByLabel('Repo folder');
+  await folder.waitFor();
+  check((await page.getByRole('button', { name: 'Choose…' }).count()) === 0, 'plain browser has no folder picker');
+  await shot('browser');
+
+  await page.addInitScript(() => {
+    window.reef = {
+      chooseFolder: async () => '/chosen/repo',
+      setTheme: () => {},
+      onUpdateReady: () => () => {},
+    };
+  });
+  await page.reload();
+  await page.getByRole('button', { name: 'Choose…' }).click();
+  check((await folder.inputValue()) === '/chosen/repo', 'desktop folder picker fills the repo path', await folder.inputValue());
+  await shot('picker');
 }
 
 async function contrast(screen) {
@@ -1143,6 +1238,60 @@ async function inspector() {
   );
 }
 
+async function subagent() {
+  writeFileSync(path.join(projectDir, 'sub.txt'), 'sub-hello\n');
+  // The channel runs in a worktree, which only has what is committed.
+  const git = (...args) => execFileSync('git', ['-C', projectDir, '-c', 'user.name=reef', '-c', 'user.email=reef@example.com', ...args], { stdio: 'pipe' });
+  git('init', '-q');
+  git('add', 'sub.txt');
+  git('commit', '-q', '--allow-empty', '-m', 'sub.txt');
+  const section = await addProject();
+  await addFeature(section, 'subagent', 'Subagent');
+  const cid = await newChannel(main, 'New channel', 'subagent room');
+  await send(
+    'Use the Agent tool to start a subagent that reads the file sub.txt in the current directory with the Read tool. Then tell me its contents.',
+  );
+  await working();
+  await openTurn();
+  const group = turnPanel.locator('details', { has: page.locator('summary', { hasText: /^sub-agent/ }) });
+  await group.locator('summary', { hasText: /^sub-agent/ }).waitFor({ timeout: 120000 });
+  const agentRow = turnPanel.locator('details', { has: page.locator('summary', { hasText: /^Agent/ }) }).first();
+  const label = await agentRow.locator('summary').first().innerText();
+  check(/^Agent\s+\S+/.test(label) && !label.includes('{'), 'the Agent call shows as a subagent row labelled from its input', label);
+  const child = group.first().locator('summary', { hasText: /Read/ });
+  await child.waitFor({ timeout: 30000 });
+  const open = await group.first().evaluate((el) => el.open);
+  check(open, 'while the subagent runs its nested tool calls are shown under it', await group.first().innerText());
+  await shot('turn-panel');
+  await group.first().evaluate((el) => !el.open || new Promise((res) => el.addEventListener('toggle', res, { once: true })));
+  check(!(await group.first().evaluate((el) => el.open)), 'when the Agent call is done its group collapses', await group.first().locator('summary').first().innerText());
+  await shot('turn-panel-done');
+  await idle();
+
+  const json = await getJson(`/channels/${cid}/inspector`);
+  const calls = json.turns.flatMap((t) => t.toolCalls);
+  const call = calls.find((c) => c.name === 'Agent');
+  const nested = (call?.children ?? []).map((c) => c.name);
+  check(nested.length > 0 && nested.includes('Read') && !calls.some((c) => c.name === 'Read'), 'the inspector API nests the subagent tool calls under the Agent call', JSON.stringify(call));
+  const stored = sql(`select count(*) from tool_call where parent_id is not null`);
+  check(Number(stored) > 0, 'the subagent tool calls are stored with the Agent call as parent', `tool_call rows with a parent: ${stored}`);
+
+  await main.getByRole('button', { name: 'Inspector' }).click();
+  const panel = page.getByRole('complementary', { name: 'Inspector' });
+  const turnRow = panel.locator('details').filter({ hasText: 'Prompt' }).first();
+  await turnRow.locator('summary').first().click();
+  const iGroup = turnRow.locator('details', { has: page.locator('summary', { hasText: /^sub-agent/ }) });
+  await iGroup.locator('summary').waitFor();
+  check(!(await iGroup.evaluate((el) => el.open)), 'a finished turn in the inspector shows the subagent group collapsed', await iGroup.locator('summary').innerText());
+  const input = JSON.parse(call.input);
+  const want = [input.subagent_type, input.description].filter(Boolean).join(' · ');
+  check((await panel.innerText()).includes(`Agent ${want}`), 'the inspector labels the Agent call from its input', want);
+  await shot('inspector-collapsed');
+  await iGroup.locator('summary').click();
+  check(await iGroup.evaluate((el) => el.open), 'expanding the group shows the nested calls', await iGroup.innerText());
+  await shot('inspector-expanded');
+}
+
 async function review() {
   if ((await fetch(`${base}/teams/full`)).status !== 200) {
     throw new Error('apply the team full first (teams/full.json, see features/teams.md)');
@@ -1445,10 +1594,12 @@ async function wrap() {
 
 async function teams() {
   const missing = [];
-  for (const name of ['duo', 'gated']) if ((await fetch(`${base}/teams/${name}`)).status !== 200) missing.push(name);
+  for (const name of ['duo', 'gated', 'full']) if ((await fetch(`${base}/teams/${name}`)).status !== 200) missing.push(name);
   if (missing.length) throw new Error(`apply the teams first: missing ${missing.join(', ')} (see features/teams.md)`);
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
+  const featureUrl = page.url();
+  const projectId = sql('select max(id) from project');
 
   const { id: cid, options } = await newTeamChannel('duo', 'duo room', 'team-picked');
   check(options.includes('duo') && options.includes('gated') && options.includes('solo'), 'the New channel form lists the teams', options.join(', '));
@@ -1519,6 +1670,54 @@ async function teams() {
     'the approval is stored as approved',
     `approvals: ${sql(`select id,from_role,to_role,status from approval where channel_id=${gid}`)}; turns: ${sql(`select group_concat(role) from (select role from turn where channel_id=${gid} order by id)`)}`,
   );
+
+  // The switch of a default gate on /teams: team full lists no gates, so lead to developer is
+  // on by default. Off lets the lead's wake of the developer run, on holds it again.
+  const flipGate = async (on, step) => {
+    await page.evaluate((id) => localStorage.setItem('reef.sidebar.projectId', id), projectId);
+    await page.goto(`${base}/teams`);
+    await main.getByRole('button', { name: 'full', exact: true }).click();
+    const gateSwitch = main.getByRole('switch', { name: 'Gate lead to developer' });
+    await gateSwitch.waitFor();
+    check(
+      (await gateSwitch.getAttribute('aria-checked')) === String(!on) &&
+        (await main.getByRole('button', { name: 'Remove gate lead to developer' }).count()) === 0,
+      `the default lead to developer gate has a switch, ${on ? 'off' : 'on'}, and no Remove`,
+    );
+    await gateSwitch.click();
+    await main.getByRole('button', { name: 'Save team' }).click();
+    await page.getByText('Saved').waitFor();
+    await shot(step);
+    const enabled = sql(`select enabled from gate where team_id = (select id from team where name = 'full') and from_role = 'lead' and to_role = 'developer'`);
+    check(enabled === (on ? '1' : '0'), `saving the switch ${on ? 'on' : 'off'} stores the gate ${on ? 'on' : 'off'}`, `enabled ${enabled}`);
+    await page.goto(featureUrl);
+    await page.getByRole('heading', { name: 'Login', level: 1 }).waitFor();
+  };
+  const handoff =
+    'Reply with exactly one line and nothing else: an at sign immediately followed by the word developer, then a space, then the words: reply with one word, use no tools.';
+  const roles = (id) => sql(`select group_concat(role) from (select role from turn where channel_id=${id} order by id)`);
+  await flipGate(false, 'gate-switched-off');
+  const { id: oid } = await newTeamChannel('full', 'open room');
+  await send(handoff);
+  check(await workingAs('developer'), 'with the gate off the developer runs');
+  await idle();
+  check(
+    sql(`select count(*) from approval where channel_id=${oid}`) === '0' && roles(oid) === 'lead,developer',
+    'with the gate off no approval is stored and the turns are lead, developer',
+    `approvals: ${sql(`select count(*) from approval where channel_id=${oid}`)}; turns: ${roles(oid)}`,
+  );
+  await shot('gate-off-ran');
+  await flipGate(true, 'gate-switched-on');
+  const { id: hid } = await newTeamChannel('full', 'held room');
+  await send(handoff);
+  await main.getByRole('button', { name: 'Approve' }).waitFor({ timeout: 240000 });
+  await idle();
+  check(
+    sql(`select from_role||'>'||to_role||' '||status from approval where channel_id=${hid}`) === 'lead>developer pending' && roles(hid) === 'lead',
+    'with the gate on again the wake is held and the developer has not run',
+    `approvals: ${sql(`select from_role,to_role,status from approval where channel_id=${hid}`)}; turns: ${roles(hid)}`,
+  );
+  await shot('gate-on-held');
 }
 
 // Dispatches a native HTML5 drag sequence (dragstart on `card`, dragover and drop on
@@ -1550,14 +1749,14 @@ async function board() {
 
   await page.goto(base + '/tasks?project=all');
   const title = `board task ${Date.now().toString(36)}`;
-  await page.getByLabel('Task title').fill(title);
+  await page.getByLabel('Task title', { exact: true }).fill(title);
   await pick('Task project', sql(`select name from project where id=${pid}`));
   await pick('Task feature', 'Board feature');
   await page.getByRole('button', { name: 'Add task' }).click();
   await page.getByText(title).waitFor();
 
   const otherTitle = `board other ${Date.now().toString(36)}`;
-  await page.getByLabel('Task title').fill(otherTitle);
+  await page.getByLabel('Task title', { exact: true }).fill(otherTitle);
   await pick('Task project', sql(`select name from project where id=${otherPid}`));
   await pick('Task feature', 'Other feature');
   await page.getByRole('button', { name: 'Add task' }).click();
@@ -1906,7 +2105,42 @@ async function coordination() {
   await panel.getByRole('button', { name: 'Approve' }).click();
   check(await until(item1, 'working', 30000), 'Approve runs the architect and the same item says working');
   await shot('desktop-1-working');
+  // The open panel shows the running architect turn growing, one fake chunk a second.
+  const liveText = async () => ((await panel.innerText()).match(/Reviewing the plan[^]*/) ?? [''])[0].replace(/\s+/g, ' ').trim();
+  const grown = [];
+  let inChannel = false;
+  let midShot = false;
+  const counts = [];
+  const t0 = Date.now();
+  for (const end = t0 + 15000; Date.now() < end && !grown.at(-1)?.includes('REVIEWED'); await page.waitForTimeout(200)) {
+    const text = await liveText();
+    counts.push(((await panel.innerText()).match(/Plan holds/g) ?? []).length);
+    if (!midShot && Date.now() - t0 > 2500) {
+      midShot = true;
+      await shot('desktop-1-mid');
+    }
+    if (text && text !== grown.at(-1)) {
+      grown.push(text);
+      if (await main.locator('section').getByText('Reviewing the plan').count()) inChannel = true;
+      console.log(`panel at ${Date.now() - t0} ms: ${text}`);
+      if (grown.length <= 2) await shot(`desktop-1-live-${grown.length}`);
+    }
+  }
+  check(
+    grown.length >= 3 && grown.slice(1).every((t, i) => t.startsWith(grown[i])) && !grown[0].includes('Plan holds'),
+    'the open Coordination panel shows the running direct turn text growing mid-turn',
+    grown.join(' | '),
+  );
+  check(!inChannel, 'the channel narrative still shows no direct text while the panel grows');
+  // From the live copy until the turn ends and the stored answer lands, the answer never shows twice.
+  for (let settled = 0; settled < 8 && counts.length < 300; await page.waitForTimeout(200)) {
+    counts.push(((await panel.innerText()).match(/Plan holds/g) ?? []).length);
+    if ((await stateOf(item1)) === 'completed') settled += 1;
+  }
+  check(Math.max(...counts) === 1, 'the answer shows at most once while the live turn hands over to the stored one', counts.join(','));
   check(await until(item1, 'completed'), 'the answer completes the exchange');
+  const stored1 = (await panel.innerText()).match(/Plan holds/g) ?? [];
+  check(stored1.length === 1 && (await panel.getByRole('listitem').count()) === 2, 'after the turn the panel shows the stored response once, with no live copy', (await panel.innerText()).replace(/\s+/g, ' '));
   const done = await direct();
   const itemText = (await item1.innerText()).replace(/\s+/g, ' ').toLowerCase();
   check(
@@ -1990,7 +2224,6 @@ async function coordination() {
   await shot('phone-rejected');
 }
 
-// The team is a popover from the header: the working role rings in the header avatars, the channel keeps its width.
 async function team() {
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
@@ -2033,6 +2266,761 @@ async function team() {
   await idle();
   check((await avatars.locator('.c-ring').count()) === 0, 'the ring goes when the turn ends');
   await shot('idle');
+}
+
+async function denials() {
+  const roles = [
+    { name: 'lead', lead: true, backend: 'claude', tools: ['Read'], persona: 'You are the lead. Do what the user asks with the tools you have, then answer in one short sentence.' },
+    { name: 'reviewer', backend: 'claude', tools: ['Read'], persona: 'You are the reviewer. Do what the user asks with the tools you have, then answer in one short sentence. Never @mention anyone.' },
+  ];
+  const putTeam = (r) =>
+    fetch(`${base}/teams/denials`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'denials', roles: r }) });
+  check((await putTeam(roles)).status === 200, 'the team denials is applied: a lead and a read-only reviewer, both allowed only Read');
+  const toolsOf = async (role) => (await getJson('/teams/denials')).roles.find((r) => r.name === role).tools.join(',');
+  const turnLines = (role) =>
+    readFileSync(process.env.REEF_FAKE_LOG ?? '/dev/null', 'utf8').split('\n').filter((l) => l.includes(` role=${role} `));
+  const allowed = (line) => /--allowedTools (\S+)/.exec(line)?.[1];
+  const pidOf = (line) => /pid=(\d+)/.exec(line)?.[1];
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const section = await addProject();
+  await addFeature(section, 'fetch', 'Fetch');
+  const { id: cid } = await newTeamChannel('denials', 'denials room');
+  const card = main.getByRole('listitem').filter({ hasText: / was denied [A-Z]/ });
+  const add = card.getByRole('button', { name: 'Add to role' });
+  const ask = async (text) => {
+    await send(text);
+    await working();
+    await idle();
+  };
+  const fetchPrompt = (who, again) => `${who}Use the WebFetch tool ${again ? 'again ' : ''}to fetch https://example.com and tell me its title.`;
+
+  await ask(fetchPrompt('@reviewer ', false));
+  await card.waitFor({ timeout: 15000 });
+  check((await card.innerText()).replace(/\s+/g, ' ').includes('Reviewer was denied WebFetch') && (await add.count()) === 1, "a denied tool call shows 'Reviewer was denied WebFetch' with Add to role", (await card.innerText()).replace(/\s+/g, ' '));
+  await shot('reviewer-denied');
+  check(await toolsOf('reviewer') === 'Read', 'the reviewer row still allows only Read', await toolsOf('reviewer'));
+  await add.click();
+  await card.getByText('Added', { exact: true }).waitFor();
+  check((await add.count()) === 0 && (await toolsOf('reviewer')) === 'Read,WebFetch', 'Add to role stores WebFetch in the reviewer row and the card says Added', await toolsOf('reviewer'));
+  await shot('reviewer-added');
+  await page.reload();
+  await card.getByText('Added', { exact: true }).waitFor();
+  check((await add.count()) === 0, 'after a reload the card still says Added and offers no second Add');
+
+  await ask(fetchPrompt('@reviewer ', true));
+  const lines = turnLines('reviewer');
+  const [before, after] = [lines.at(-2), lines.at(-1)];
+  check(!allowed(before).includes('WebFetch') && allowed(after).includes('WebFetch'), 'the reviewer next start gets WebFetch in --allowedTools', `${allowed(before)} -> ${allowed(after)}`);
+  const result = sql(`select result from tool_call where turn_id = (select max(id) from turn where channel_id = ${cid} and role = 'reviewer') and name = 'WebFetch'`);
+  check(result.startsWith('The page title is'), 'the next wake runs WebFetch successfully', result);
+  check((await card.count()) === 0, 'the card is gone once the role has a newer turn');
+  await shot('reviewer-retried');
+
+  await ask('@reviewer Use the Write tool to create the file t.txt containing the word nope. If that is refused, try once with Bash. Say what happened.');
+  await card.waitFor({ timeout: 15000 });
+  const text = (await card.innerText()).replace(/\s+/g, ' ');
+  check(text.includes('Reviewer was denied Write') && text.includes('Needs write access') && (await add.count()) === 0, 'a read-only role denied Write shows Needs write access and no Add', text);
+  await shot('write-denied');
+
+  const flipped = roles.map((r) => (r.name === 'reviewer' ? { ...r, backend: 'codex', tools: [] } : r));
+  await putTeam(flipped);
+  await page.reload();
+  await card.getByText('Codex ignores allowed tools').waitFor();
+  check((await add.count()) === 0, 'a codex role shows no Add');
+  await page.waitForTimeout(500);
+  await shot('codex-denied');
+  await putTeam(roles);
+
+  const leadCard = card.filter({ hasText: 'Lead was denied' });
+  const leadAdd = leadCard.getByRole('button', { name: 'Add to role' });
+  await ask(fetchPrompt('', false));
+  await leadCard.waitFor({ timeout: 15000 });
+  check((await leadCard.innerText()).replace(/\s+/g, ' ').includes('Lead was denied WebFetch') && (await leadAdd.count()) === 1, "a denied lead shows 'Lead was denied WebFetch' with Add to role");
+  await shot('lead-denied');
+  await leadAdd.click();
+  await leadCard.getByText('Added', { exact: true }).waitFor();
+  check((await toolsOf('lead')) === 'Read,WebFetch', 'Add to role stores WebFetch in the lead row', await toolsOf('lead'));
+
+  await ask(fetchPrompt('', true));
+  const lead = turnLines('lead');
+  check(pidOf(lead.at(-2)) !== pidOf(lead.at(-1)) && allowed(lead.at(-1)).includes('WebFetch'), 'the lead agent restarted and got WebFetch in --allowedTools', `pid ${pidOf(lead.at(-2))} -> ${pidOf(lead.at(-1))}, ${allowed(lead.at(-1))}`);
+  const leadResult = sql(`select result from tool_call where turn_id = (select max(id) from turn where channel_id = ${cid} and role = 'lead') and name = 'WebFetch'`);
+  check(leadResult.startsWith('The page title is'), 'the lead next wake runs WebFetch successfully', leadResult);
+  check(sql(`select count(*) from turn where channel_id = ${cid} and status = 'failed'`) === '0', 'no turn failed');
+  await shot('lead-retried');
+}
+
+async function composer() {
+  const section = await addProject();
+  await addFeature(section, 'compose', 'Compose');
+  await newChannel(main, 'New channel', 'compose chat');
+  const field = main.getByLabel('Message');
+  const box = field.locator('xpath=ancestor::div[contains(@class,"bg-field")][1]');
+  const geometry = () =>
+    box.evaluate((el) => {
+      const r = el.getBoundingClientRect();
+      const radius = parseFloat(getComputedStyle(el).borderTopLeftRadius);
+      return { height: Math.round(r.height), left: Math.round(r.left), right: Math.round(r.right), radius: Math.min(radius, r.height / 2) };
+    });
+  const lines = (n) => Array.from({ length: n }, (_, i) => `line ${i + 1}`).join('\n');
+  const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  // A synthetic drag or paste of one file: headless Chrome cannot start a real drag from the desktop.
+  const fire = (target, type, name) =>
+    target.evaluate(
+      (el, [type, name]) => {
+        const data = new DataTransfer();
+        data.items.add(new File(['x'], name, { type: 'image/png' }));
+        const init = { bubbles: true, cancelable: true };
+        el.dispatchEvent(type === 'paste' ? new ClipboardEvent('paste', { ...init, clipboardData: data }) : new DragEvent(type, { ...init, dataTransfer: data }));
+      },
+      [type, name],
+    );
+  const views = [['desktop', 1280, 800], ['phone', 390, 844]];
+
+  for (const [label, width, height] of views) {
+    await page.setViewportSize({ width, height });
+    await page.goto(page.url());
+    await field.waitFor();
+    await field.fill('');
+    await page.waitForTimeout(600);
+    await shot(`${label}-empty`);
+    const empty = await geometry();
+    await field.fill('one line');
+    const one = await geometry();
+    await shot(`${label}-one-line`);
+    await field.fill(lines(30));
+    const many = await geometry();
+    const scrolls = await field.evaluate((el) => el.scrollHeight > el.clientHeight);
+    await shot(`${label}-many-lines`);
+    check(empty.height === one.height, `${label}: the empty box is as high as one line, the placeholder does not wrap`, `${empty.height}px empty, ${one.height}px with one line`);
+    check(many.radius === one.radius && many.radius < many.height / 2 - 20, `${label}: the corner radius is the same at 1 and 30 lines`, `${one.radius}px at ${one.height}px high, ${many.radius}px at ${many.height}px`);
+    check(many.height <= 220 && many.height > one.height, `${label}: the box grows then stops at the cap`, `${one.height}px -> ${many.height}px`);
+    check(scrolls, `${label}: the text scrolls inside the capped box`);
+    check(many.left >= 0 && many.right <= width && (await noOverflow()), `${label}: the box stays inside the window, no horizontal scroll`, `${many.left}..${many.right} of ${width}`);
+
+    await field.fill('look at');
+    await fire(box, 'dragenter', 'shot.png');
+    await page.waitForTimeout(200);
+    const cls = (await box.getAttribute('class')) ?? '';
+    check(cls.includes('border-dashed') && (await field.getAttribute('placeholder')) === 'Drop to add the file path', `${label}: dragging a file over the box shows the drop state`);
+    await fire(box, 'dragover', 'shot.png');
+    await shot(`${label}-drag`);
+    await fire(box, 'drop', 'shot.png');
+    check((await field.inputValue()) === 'look at shot.png ' && !((await box.getAttribute('class')) ?? '').includes('border-dashed'), `${label}: a drop in a plain browser inserts the file name and ends the drop state`, JSON.stringify(await field.inputValue()));
+    check((await main.getByText('No file path here: only the file name was added.').count()) === 1, `${label}: the browser says it has no path`);
+    await shot(`${label}-dropped-name`);
+    await field.fill('');
+    await fire(field, 'dragenter', 'on-text.png');
+    await fire(field, 'dragover', 'on-text.png');
+    await page.waitForTimeout(200);
+    check(((await box.getAttribute('class')) ?? '').includes('border-dashed'), `${label}: a drag over the text area itself shows the drop state`);
+    await fire(field, 'drop', 'on-text.png');
+    check((await field.inputValue()) === 'on-text.png ', `${label}: a drop on the text area itself inserts the file name`, JSON.stringify(await field.inputValue()));
+    await field.fill('');
+    await fire(field, 'paste', 'clip.png');
+    check((await field.inputValue()) === 'clip.png ', `${label}: pasting a file in a plain browser inserts the file name`, JSON.stringify(await field.inputValue()));
+    check((await page.getByRole('button', { name: /Paste file from clipboard/ }).count()) === 0, `${label}: a plain browser shows no clipboard chip`);
+    await field.fill('');
+  }
+
+  // The desktop bridge is a stub: only the real Electron app has webUtils and the clipboard (see the desktop check by hand).
+  await page.addInitScript(() => {
+    window.__clip = null;
+    const bridge = {
+      pathForFile: (file) => `/Users/ada/Desktop/${file.name}`,
+      clipboardFile: async () => window.__clip,
+    };
+    window.reef = new Proxy(bridge, {
+      get: (target, key) => target[key] ?? (String(key).startsWith('on') ? () => () => {} : async () => null),
+    });
+  });
+  for (const [label, width, height] of views) {
+    await page.setViewportSize({ width, height });
+    await page.goto(page.url());
+    await field.waitFor();
+    const chip = page.getByRole('button', { name: /Paste file from clipboard/ });
+    check((await chip.count()) === 0, `${label}: no chip while the clipboard has no file`);
+    await page.evaluate(() => {
+      window.__clip = '/Users/ada/Desktop/my shot.png';
+      window.dispatchEvent(new Event('focus'));
+    });
+    await chip.waitFor({ timeout: 5000 });
+    await page.waitForTimeout(600);
+    check((await chip.innerText()).includes('my shot.png'), `${label}: the window focus shows a chip named after the clipboard file`, (await chip.innerText()).replace(/\n/g, ' '));
+    await shot(`${label}-chip`);
+    await field.fill('see');
+    await chip.click();
+    check((await field.inputValue()) === 'see "/Users/ada/Desktop/my shot.png" ' && (await chip.count()) === 0, `${label}: the chip pastes the quoted path at the caret and goes away`, JSON.stringify(await field.inputValue()));
+    await shot(`${label}-chip-pasted`);
+    await field.fill('');
+    await fire(box, 'dragenter', 'drop.png');
+    await fire(box, 'drop', 'drop.png');
+    check((await field.inputValue()) === '/Users/ada/Desktop/drop.png ', `${label}: a dropped file inserts its path`, JSON.stringify(await field.inputValue()));
+    check((await main.getByText('No file path here').count()) === 0, `${label}: no name-only note when the path is known`);
+    await field.fill('');
+    await fire(field, 'paste', 'clip.png');
+    check((await field.inputValue()) === '/Users/ada/Desktop/clip.png ', `${label}: a pasted file inserts its path`, JSON.stringify(await field.inputValue()));
+    await field.fill('');
+    await page.evaluate(() => {
+      window.__clip = null;
+      window.dispatchEvent(new Event('focus'));
+    });
+    await page.waitForTimeout(300);
+    check((await chip.count()) === 0, `${label}: the chip is gone once the clipboard has no file`);
+  }
+
+  // Resizing the window with text in the box: it keeps its radius and stays inside the window.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await field.fill('a few words that wrap when the box is narrow, a few words that wrap when the box is narrow\nsecond line');
+  for (const width of [1280, 1100, 900, 700, 390]) {
+    await page.setViewportSize({ width, height: 800 });
+    await page.waitForTimeout(300);
+    const g = await geometry();
+    check(g.radius === 28 && g.left >= 0 && g.right <= width && (await noOverflow()), `resize ${width}: radius 28, box inside the window`, `${g.left}..${g.right}, ${g.height}px high`);
+    await shot(`resize-${width}`);
+  }
+  await field.fill('');
+}
+
+// A channel started with its name left empty gets a name from its provider after the first
+// message; a typed name or a rename is never replaced.
+async function naming() {
+  await addProject();
+  const probe = 'naming-probe: fix the login redirect loop. Answer in one or two sentences, use no tools.';
+  const proposals = () =>
+    (readFileSync(process.env.REEF_FAKE_LOG ?? '/dev/null', 'utf8').match(/scenario=name-login/g) ?? []).length;
+  const startUnnamed = async () => {
+    const was = page.url();
+    await aside.getByRole('button', { name: 'New channel' }).click();
+    await pick('Backend', 'claude', aside);
+    await aside.getByRole('button', { name: 'Start' }).click();
+    await page.waitForURL((u) => u.href !== was && /\/channels\/\d+$/.test(u.pathname));
+    return page.url().split('/').pop();
+  };
+  const row = (id) => sql(`select name, name_auto from channel where id=${id}`);
+  const settled = async (id) => {
+    for (let i = 0; i < 100 && sql(`select name_auto from channel where id=${id}`) !== '0'; i++) await page.waitForTimeout(200);
+  };
+
+  const first = await startUnnamed();
+  const placeholder = row(first);
+  check(/^claude \d.*\|1$/.test(placeholder), 'a channel started with an empty name has a placeholder name and waits for a proposal', placeholder);
+  await shot('placeholder');
+  await send(probe);
+  await working();
+  await idle();
+  await aside.getByText('fix login redirect loop', { exact: true }).waitFor({ timeout: 20000 });
+  await main.getByRole('heading', { name: /fix login redirect loop/, level: 1 }).waitFor();
+  await shot('named');
+  check(row(first) === 'fix login redirect loop|0', 'the provider name replaces the placeholder in the database, the sidebar and the channel header', row(first));
+  const turns = sql(`select count(*) from turn where channel_id=${first}`);
+  const messages = sql(`select author from message where channel_id=${first} order by id`).split('\n').join(',');
+  check(turns === '1' && messages === 'user,lead', 'the naming call is not stored as a turn or a message', `turns: ${turns}, messages: ${messages}`);
+
+  const second = await startUnnamed();
+  await send('naming-fail: say hi. Answer in one or two sentences, use no tools.');
+  await working();
+  await idle();
+  await settled(second);
+  check(/^claude \d.*\|0$/.test(row(second)), 'a failed proposal keeps the placeholder name', row(second));
+  await exchange('Say it again.');
+  const done = sql(`select count(*) from turn where channel_id=${second} and status='done'`);
+  check(done === '2', 'the channel keeps working after a failed proposal', `done turns: ${done}`);
+  await shot('failed-proposal');
+
+  const before = proposals();
+  const typed = await newChannel(aside, 'New channel', 'typed chat');
+  await send(probe);
+  await working();
+  await idle();
+  await page.waitForTimeout(2000);
+  check(row(typed) === 'typed chat|0' && proposals() === before, 'a typed name is kept and no proposal is asked for', `${row(typed)}; proposals ${before} -> ${proposals()}`);
+
+  const project = (await getJson('/projects')).at(-1).id;
+  const post = (method, route, body) =>
+    fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const created = await (await post('POST', '/channels', { projectId: project, name: 'claude 02:32 PM', backend: 'claude' })).json();
+  await post('POST', `/channels/${created.id}/send`, { text: probe });
+  const renamed = await post('PUT', `/channels/${created.id}`, { name: 'mine' });
+  for (let i = 0; i < 150 && sql(`select count(*) from message where channel_id=${created.id} and author<>'user'`) === '0'; i++) await page.waitForTimeout(200);
+  await page.waitForTimeout(2000);
+  check(renamed.status === 200 && row(created.id) === 'mine|0', 'a rename sent right after the first message is never overwritten', `${row(created.id)}; PUT ${renamed.status}`);
+}
+
+async function hovercard() {
+  if ((await fetch(`${base}/teams/full`)).status !== 200) throw new Error('apply the team full first (see features/window.md)');
+  ensureRepo();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const section = await addProject();
+  const slug = await addFeature(section, 'hover', 'Hover');
+  const featureId = page.url().split('/').pop();
+  const { id: cid } = await newTeamChannel('full', 'hover chat');
+  await send('@developer Use the Write tool to create the file d.txt containing the word yes. Then reply done.');
+  await working();
+  await idle();
+
+  const row = aside.getByRole('link', { name: /#hover chat/ });
+  const tip = page.getByRole('tooltip');
+  const away = () => page.mouse.move(900, 700);
+  const flat = async () => (await tip.innerText()).replace(/\s+/g, ' ').toLowerCase();
+  const roles = (await getJson('/teams/full')).roles.map((r) => r.name);
+  const expected = async () => {
+    let state;
+    const files = await getJson(`/features/${featureId}/diff`);
+    const lines = files.flatMap((f) => f.hunks.flatMap((h) => h.lines));
+    const running = (await getJson('/turns?status=running')).filter((t) => String(t.channelId) === cid).map((t) => t.role);
+    const kinds = (await getJson('/inbox')).filter((i) => String(i.channelId) === cid).map((i) => i.kind);
+    state = kinds.includes('approval') ? 'waiting for your approval' : kinds.includes('failed') ? 'a turn failed' : running.length ? 'working' : kinds.includes('waiting') ? 'waiting for you' : 'idle';
+    const n = files.length;
+    const changes = n ? `${n} file${n === 1 ? '' : 's'} +${lines.filter((l) => l.kind === 'add').length} −${lines.filter((l) => l.kind === 'del').length}` : 'no changes yet';
+    return `#hover chat ${state} branch feature/${sql(`select slug from feature where id=${featureId}`)} changes ${changes} ${roles.map((r) => `${r} ${running.includes(r) ? 'working' : 'idle'}`).join(' ')}`;
+  };
+
+  await away();
+  await row.hover();
+  await page.waitForTimeout(150);
+  check((await tip.count()) === 0, 'the card waits out its delay: nothing 150 ms after the pointer lands');
+  await tip.waitFor({ timeout: 3000 });
+  await shot('waiting');
+  const idleText = await flat();
+  check(idleText === (await expected()), 'waiting channel: name, state, branch, changes and every role match REST and SQLite', idleText);
+  check(slug.startsWith('hover-') && idleText.startsWith('#hover chat waiting for you') && /1 file \+1 −0/.test(idleText), 'the finished developer turn left a waiting item, so the card says waiting for you; the diff has d.txt with its one added line', idleText);
+  const [r, t] = [await row.boundingBox(), await tip.boundingBox()];
+  check(t.x >= r.x + r.width, 'the card sits beside the row, not over it', `row right ${r.x + r.width}, card left ${t.x}`);
+  const described = await row.getAttribute('aria-describedby');
+  check(described !== null && described === (await tip.getAttribute('id')), 'the row is described by the card (role tooltip)', described);
+
+  await tip.hover();
+  await page.waitForTimeout(500);
+  check(await tip.isVisible(), 'moving the pointer from the row onto the card keeps it open');
+  await away();
+  await tip.waitFor({ state: 'hidden', timeout: 2000 });
+  check((await row.getAttribute('aria-describedby')) === null, 'the card closes when the pointer leaves, and the description goes');
+
+  for (const i of (await getJson('/inbox')).filter((i) => String(i.channelId) === cid && i.kind === 'waiting')) {
+    await fetch(`${base}/channels/${cid}/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: i.messageId }) });
+  }
+  await row.getByRole('img', { name: 'needs you' }).waitFor({ state: 'hidden', timeout: 15000 });
+  await row.hover();
+  await tip.waitFor();
+  await shot('idle');
+  const calm = await flat();
+  check(calm.startsWith('#hover chat idle branch') && calm === (await expected()), 'idle channel: once the waiting item is dismissed the card says idle and still matches REST', calm);
+  await page.keyboard.press('Escape');
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  check(true, 'Escape closes the card');
+
+  await away();
+  await row.hover();
+  await tip.waitFor();
+  await row.click();
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  await page.waitForTimeout(700);
+  check((await tip.count()) === 0, 'clicking the row closes the card and it does not come back under a still pointer');
+
+  await away();
+  await row.hover();
+  await tip.waitFor();
+  await page.goBack();
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  await page.goForward();
+  await row.waitFor();
+  await page.waitForTimeout(700);
+  check((await tip.count()) === 0, 'navigating (back) closes the card');
+
+  await away();
+  const toRow = async () => {
+    await aside.getByRole('searchbox', { name: 'Search' }).focus();
+    for (let i = 0; i < 60; i++) {
+      await page.keyboard.press('Tab');
+      if (await row.evaluate((el) => el === document.activeElement)) return true;
+    }
+    return false;
+  };
+  check(await toRow(), 'Tab reaches the channel row');
+  await tip.waitFor({ timeout: 1000 });
+  check((await row.getAttribute('aria-describedby')) === (await tip.getAttribute('id')), 'keyboard focus on the row shows the card, described by it');
+  await page.keyboard.press('Shift+Tab');
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  check(true, 'moving focus off the row closes the card');
+
+  await fetch(`${base}/channels/${cid}/send`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text: 'Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.' }),
+  });
+  for (let i = 0; i < 100 && !(await getJson('/turns?status=running')).some((x) => String(x.channelId) === cid); i++) await page.waitForTimeout(100);
+  await row.getByRole('img', { name: /is working$/ }).waitFor({ timeout: 10000 });
+  await away();
+  await row.hover();
+  await tip.waitFor({ timeout: 3000 });
+  await page.waitForTimeout(300);
+  const runningText = await flat();
+  await shot('running');
+  const stillRunning = (await getJson('/turns?status=running')).filter((x) => String(x.channelId) === cid);
+  check(stillRunning.length === 1 && runningText === (await expected()), 'running turn: state Working and the running role shown working, matching /turns?status=running', `${runningText}; running ${JSON.stringify(stillRunning.map((x) => x.role))}`);
+  await away();
+  await working();
+  await idle();
+
+  await page.evaluate(() => localStorage.setItem('reef.theme', 'light'));
+  await page.reload();
+  await row.waitFor();
+  await row.hover();
+  await tip.waitFor();
+  await page.waitForTimeout(300);
+  await shot('light');
+  check((await page.evaluate(() => document.documentElement.dataset.theme)) === 'light', 'light theme is on for the card');
+  const tipLow = await tip.evaluate((el) => {
+    const bg = getComputedStyle(el).backgroundColor;
+    return { bg, text: getComputedStyle(el).color };
+  });
+  check(tipLow.bg === 'rgb(244, 244, 245)', 'the card takes the light card colour', JSON.stringify(tipLow));
+  await contrast('hovercard');
+  await away();
+  await page.evaluate(() => localStorage.setItem('reef.theme', 'dark'));
+  await page.reload();
+  await row.hover();
+  await tip.waitFor();
+  await contrast('hovercard');
+  await shot('dark');
+  await away();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${base}/channels`);
+  const phoneRow = main.getByRole('link', { name: /#hover chat/ }).first();
+  await phoneRow.waitFor();
+  await phoneRow.hover();
+  await page.waitForTimeout(900);
+  check((await tip.count()) === 0, 'phone layout (390x844): hovering a channel shows no card');
+  await page.mouse.move(5, 5);
+  for (let i = 0; i < 60; i++) {
+    await page.keyboard.press('Tab');
+    if (await phoneRow.evaluate((el) => el === document.activeElement)) break;
+  }
+  await page.waitForTimeout(500);
+  check((await phoneRow.evaluate((el) => el === document.activeElement)) && (await tip.count()) === 0, 'phone layout: keyboard focus on a channel shows no card');
+  await shot('phone');
+}
+
+async function mention() {
+  if ((await fetch(`${base}/teams/full`)).status !== 200) throw new Error('apply the team full first (see features/window.md)');
+  ensureRepo();
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const section = await addProject();
+  await addFeature(section, 'mention', 'Mention');
+  const { id: cid } = await newTeamChannel('full', 'mention chat');
+  await send('@lead and @developer, @nobody too: remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools. @tester ');
+  await working();
+
+  const tip = page.getByRole('tooltip');
+  const at = (name) => main.locator('.mention', { hasText: name, hasNotText: /^$/ }).first();
+  const away = () => page.mouse.move(640, 760);
+  const flat = async () => (await tip.innerText()).replace(/\s+/g, ' ').trim();
+  const team = await getJson('/teams/full');
+  const defaults = [['lead', 'developer'], ['architect', 'developer'], ['developer', 'tester'], ['tester', 'developer']];
+  const gatesOf = (name) => {
+    const names = team.roles.map((r) => r.name);
+    const edges = new Map(defaults.filter(([f, t]) => names.includes(f) && names.includes(t)).map(([f, t]) => [`${f}>${t}`, true]));
+    for (const g of team.gates ?? []) edges.set(`${g.from}>${g.to}`, g.on);
+    return [...edges].filter(([k, on]) => on && k.split('>').includes(name)).length;
+  };
+  const expected = async (name) => {
+    const role = team.roles.find((r) => r.name === name);
+    const running = (await getJson('/turns?status=running')).filter((t) => String(t.channelId) === cid).map((t) => t.role);
+    const models = { sonnet: 'Sonnet', opus: 'Opus', haiku: 'Haiku' };
+    const backend = role.backend === 'claude' ? 'Claude Code' : 'Codex';
+    const model = role.model ? ((role.backend === 'claude' && models[role.model]) || role.model) : 'default model';
+    const tools = role.backend === 'claude' ? ` Tools ${role.tools.length}` : '';
+    return `${name} ${backend} · ${model} Edit ${role.persona.split('\n')[0]} State ${running.includes(name) ? 'Working' : 'Idle'} Access ${role.write ? 'Can write' : 'Read-only'}${tools} Gates ${gatesOf(name)}`;
+  };
+  const sameCard = (shown, want) => shown.toLowerCase() === want.toLowerCase();
+  const lead = at('@lead');
+  const developer = at('@developer');
+  const nobody = at('@nobody');
+  check((await team.roles.every((r) => r.name !== 'nobody')) && (await lead.count()) === 1 && (await nobody.count()) === 1, 'the message shows @lead, @developer, @nobody and @tester as mentions, and the team has no nobody');
+
+  await page.waitForTimeout(3500);
+  await away();
+  await lead.hover();
+  await page.waitForTimeout(150);
+  check((await tip.count()) === 0, 'the card waits out its delay: nothing 150 ms after the pointer lands');
+  await tip.waitFor({ timeout: 3000 });
+  await shot('working-dark');
+  const shownLead = await flat();
+  check(sameCard(shownLead, await expected('lead')) && shownLead.includes('State Working'), '@lead while the lead turn runs: role, backend and model, persona, Working, access, tools and gates match /teams/full and /turns?status=running', shownLead);
+  check(/Tools 3 Gates 1$/.test(shownLead) && /Read-only/.test(shownLead), 'the lead has 3 tools, is read-only and has the default lead to developer gate', shownLead);
+  const leadFace = await tip.locator('svg').first().innerHTML();
+  const [m, t] = [await lead.boundingBox(), await tip.boundingBox()];
+  check(t.x >= m.x + m.width, 'the card sits beside the mention, not over it', `mention right ${m.x + m.width}, card left ${t.x}`);
+  const described = await lead.getAttribute('aria-describedby');
+  check(described !== null && described === (await tip.getAttribute('id')), 'the mention is described by the card (role tooltip)', described);
+  await tip.hover();
+  await page.waitForTimeout(500);
+  check(await tip.isVisible(), 'moving the pointer from the mention onto the card keeps it open');
+  await away();
+  await tip.waitFor({ state: 'hidden', timeout: 2000 });
+  check((await lead.getAttribute('aria-describedby')) === null, 'the card closes when the pointer leaves, and the description goes');
+
+  await developer.hover();
+  await tip.waitFor({ timeout: 3000 });
+  const shownDev = await flat();
+  check(sameCard(shownDev, await expected('developer')) && shownDev.includes('State Idle') && shownDev.includes('Can write') && /Tools 6 Gates 4$/.test(shownDev), '@developer while only the lead runs: Idle, can write, 6 tools, 4 gates, matching /teams/full', shownDev);
+  await shot('idle-developer');
+  await page.keyboard.press('Escape');
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  check(true, 'Escape closes the card');
+  await away();
+
+  await nobody.hover();
+  await page.waitForTimeout(900);
+  check((await tip.count()) === 0 && (await nobody.getAttribute('tabindex')) === null, '@nobody (no such role in the team) shows no card and is not a tab stop');
+
+  await lead.hover();
+  await tip.waitFor();
+  await lead.click();
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  await page.waitForTimeout(700);
+  check((await tip.count()) === 0, 'clicking the mention closes the card and it does not come back under a still pointer');
+  await away();
+
+  const toMention = async (target) => {
+    await page.getByLabel('Message').focus();
+    for (let i = 0; i < 80; i++) {
+      await page.keyboard.press('Shift+Tab');
+      if (await target.evaluate((el) => el === document.activeElement)) return true;
+    }
+    return false;
+  };
+  check(await toMention(lead), 'Shift+Tab from the message box reaches the @lead mention');
+  await tip.waitFor({ timeout: 1000 });
+  check((await lead.getAttribute('aria-describedby')) === (await tip.getAttribute('id')), 'keyboard focus on the mention shows the card, described by it');
+  await page.keyboard.press('Shift+Tab');
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  check(true, 'moving focus off the mention closes the card');
+
+  await developer.hover();
+  await tip.waitFor();
+  await page.goBack();
+  await tip.waitFor({ state: 'hidden', timeout: 1000 });
+  await page.goForward();
+  await lead.waitFor();
+  await away();
+  await page.waitForTimeout(700);
+  check((await tip.count()) === 0, 'navigating (back) closes the card');
+
+  await idle();
+  await away();
+  await lead.hover();
+  await tip.waitFor({ timeout: 3000 });
+  const calmLead = await flat();
+  check(sameCard(calmLead, await expected('lead')) && calmLead.includes('State Idle') && (await getJson('/turns?status=running')).every((t) => String(t.channelId) !== cid), '@lead once the turn is done: Idle, matching /turns?status=running', calmLead);
+  await shot('idle-lead');
+  await away();
+  await tip.waitFor({ state: 'hidden', timeout: 2000 });
+
+  await developer.hover();
+  await tip.waitFor();
+  const devFace = await tip.locator('svg').first().innerHTML();
+  await tip.getByRole('link', { name: 'Edit' }).click();
+  await page.waitForURL(/\/teams\?/);
+  const url = new URL(page.url());
+  check(url.pathname === '/teams' && url.searchParams.get('team') === 'full' && url.searchParams.get('role') === 'developer', 'Edit opens /teams with team=full and role=developer', page.url());
+  const panel = page.getByRole('complementary', { name: 'Role' }).or(page.locator('[aria-label=Role]'));
+  await panel.first().waitFor({ timeout: 5000 });
+  const row = main.getByRole('button', { name: /^developer/ });
+  check((await row.getAttribute('aria-pressed')) === 'true' && (await panel.first().getByLabel('developer name').inputValue()) === 'developer', 'the developer row is selected and its role panel is open');
+  check((await main.getByRole('button', { name: /^lead/ }).getAttribute('aria-pressed')) === 'false', 'no other role is selected');
+  check((await row.locator('svg').first().innerHTML()) === devFace && devFace !== leadFace, "the card's creature is the one the team page shows for developer, and differs from the lead's");
+  await shot('edit');
+  await page.goBack();
+  await lead.waitFor();
+
+  // The Thread pane is the right 400 px of the window: its mentions are the ones near the edge.
+  const pane = page.getByRole('complementary', { name: 'Thread' });
+  const edge = async () => {
+    if ((await pane.count()) === 0) await main.getByRole('button', { name: /reply in thread|replies in thread|^Reply$/ }).first().click();
+    await pane.waitFor();
+    let best = null;
+    for (const name of ['@lead', '@developer', '@tester']) {
+      const el = pane.locator('.mention', { hasText: name }).first();
+      const box = await el.boundingBox();
+      if (!best || box.x + box.width > best.box.x + best.box.width) best = { el, name, box };
+    }
+    return best;
+  };
+  await away();
+  const near = await edge();
+  const tester = near.el;
+  await tester.hover();
+  await tip.waitFor({ timeout: 3000 });
+  const [tm, tt] = [await tester.boundingBox(), await tip.boundingBox()];
+  const width = 1280;
+  check(tm.x + tm.width + 8 + tt.width > width, `the ${near.name} mention in the Thread pane is so near the right edge that a card on its right would run off the window`, `mention right ${tm.x + tm.width}, card ${tt.width} wide`);
+  check(tt.x >= 0 && tt.x + tt.width <= width && tt.x + tt.width <= tm.x, 'the card flipped to the mention left and stays inside the window', `card ${tt.x}..${tt.x + tt.width}, mention left ${tm.x}`);
+  const edgeRole = near.name.slice(1);
+  check(sameCard(await flat(), await expected(edgeRole)), `${near.name} card matches /teams/full`, await flat());
+  await shot('edge-dark');
+  await away();
+
+  await page.evaluate(() => localStorage.setItem('reef.theme', 'light'));
+  await page.reload();
+  const lightEdge = await edge();
+  await lightEdge.el.hover();
+  await tip.waitFor();
+  await page.waitForTimeout(300);
+  check((await page.evaluate(() => document.documentElement.dataset.theme)) === 'light', 'light theme is on for the card');
+  await shot('edge-light');
+  await contrast('mention card');
+  await away();
+  await tip.waitFor({ state: 'hidden', timeout: 2000 });
+  await lead.hover();
+  await tip.waitFor();
+  await page.waitForTimeout(300);
+  check((await flat()).startsWith('Lead '), 'the @lead card opens in light too');
+  await shot('light');
+  await away();
+  await page.evaluate(() => localStorage.setItem('reef.theme', 'dark'));
+  await page.reload();
+  const darkEdge = await edge();
+  await darkEdge.el.hover();
+  await tip.waitFor();
+  await page.waitForTimeout(300);
+  await contrast('mention card');
+  await away();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${base}/channels/${cid}`);
+  const phoneLead = main.locator('.mention', { hasText: '@lead' }).first();
+  await phoneLead.waitFor();
+  await phoneLead.hover();
+  await page.waitForTimeout(900);
+  check((await tip.count()) === 0, 'phone layout (390x844): hovering a mention shows no card');
+  await page.mouse.move(5, 5);
+  await page.getByLabel('Message').focus();
+  for (let i = 0; i < 80; i++) {
+    await page.keyboard.press('Shift+Tab');
+    if (await phoneLead.evaluate((el) => el === document.activeElement)) break;
+  }
+  await page.waitForTimeout(500);
+  check((await phoneLead.evaluate((el) => el === document.activeElement)) && (await tip.count()) === 0, 'phone layout: keyboard focus on a mention shows no card');
+  await shot('phone');
+}
+
+async function providers() {
+  const fakeDir = process.env.REEF_UI_FAKE;
+  if (!fakeDir || !existsSync(path.join(fakeDir, 'claude'))) throw new Error('set REEF_UI_FAKE to the folder with the fake claude (verify-reef ui does)');
+  const name = `work-${Date.now().toString(36)}`;
+  const teamName = `providers-${Date.now().toString(36)}`;
+  const putTeam = (body) =>
+    fetch(`${base}/teams/${teamName}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: teamName, ...body }) });
+  const roleOf = async () => (await getJson(`/teams/${teamName}`)).roles.find((r) => r.name === 'lead');
+  const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const setTheme = (t) => page.evaluate((t) => localStorage.setItem('reef.theme', t), t);
+  const lead = { name: 'lead', lead: true, backend: 'claude', persona: 'You are the lead.' };
+  check((await putTeam({ roles: [lead] })).status === 200, `the team ${teamName} is applied: one claude lead`);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await addProject();
+  await page.goto(`${base}/settings?section=providers`);
+  const pane = main.getByRole('region', { name: 'Providers' });
+  const rows = pane.getByRole('listitem');
+  await pane.getByRole('heading', { name: 'Providers' }).waitFor();
+  await rows.first().waitFor();
+  const detected = (await getJson('/providers')).filter((p) => p.detected);
+  const text = (await rows.allInnerTexts()).map((t) => t.replace(/\s+/g, ' '));
+  check(detected.length > 0 && detected.every((p) => text.some((t) => t.includes(p.name) && t.includes('Found on PATH') && t.includes(p.path))), 'the page lists every detected install with its path', text.join(' | '));
+  check(detected.every((p) => !p.version || text.some((t) => t.includes(p.version))), 'a detected install shows its version when the server has one', JSON.stringify(detected.map((p) => p.version ?? null)));
+  check(text.some((t) => t.includes('Default, Opus, Sonnet, Haiku')), 'a claude install lists the model names the role panel offers');
+  check((await rows.filter({ hasText: 'Found on PATH' }).getByRole('button', { name: /^Remove/ }).count()) === 0, 'a detected install has no Remove');
+  await shot('desktop-dark-list');
+
+  const form = pane.getByRole('form', { name: 'Add provider' });
+  const kind = (k) => form.getByRole('group', { name: 'Kind' }).getByRole('button', { name: k, exact: true }).click();
+  const fill = async (k, folder, n) => {
+    await kind(k);
+    await form.getByLabel('Folder').fill(folder);
+    await form.getByLabel('Name', { exact: true }).fill(n);
+    await form.getByRole('button', { name: 'Add provider' }).click();
+  };
+  const bad = async (label, pattern, k, folder, n) => {
+    await fill(k, folder, n);
+    const msg = await errorText(pattern, 15000);
+    check(!!msg, label, msg ?? '(not shown)');
+  };
+  check((await page.getByRole('button', { name: 'Choose…' }).count()) === 0, 'a plain browser has no Choose button, the folder is typed');
+  await bad('a folder that does not exist shows the server error inline', /not a directory/, 'claude', '/nonexistent-reef-ui', name);
+  await bad('a folder without the kind binary shows the server error inline', /no codex binary/, 'codex', fakeDir, name);
+  await bad('a name taken by the one on PATH shows the server error inline', /taken by the one found on PATH/, 'claude', fakeDir, 'claude');
+  await shot('desktop-dark-error');
+  check((await getJson('/providers')).every((p) => p.detected), 'none of the bad adds stored a provider');
+
+  await fill('claude', fakeDir, name);
+  const added = rows.filter({ hasText: name });
+  await added.waitFor();
+  const stored = (await getJson('/providers')).find((p) => p.name === name);
+  const addedText = (await added.innerText()).replace(/\s+/g, ' ');
+  check(stored && !stored.detected && stored.folder === fakeDir && addedText.includes(fakeDir) && addedText.includes('Added') && (await added.getByRole('button', { name: `Remove ${name}` }).count()) === 1, 'adding the fake claude folder shows it as Added with its folder and a Remove', addedText);
+  check((await form.getByLabel('Folder').inputValue()) === '' && (await form.getByLabel('Name', { exact: true }).inputValue()) === '', 'the form clears after a successful add');
+  await shot('desktop-dark-added');
+  await bad('the same name again shows the conflict inline', /already exists/, 'claude', fakeDir, name);
+
+  await page.goto(`${base}/teams?team=${teamName}`);
+  await main.getByRole('button', { name: /^lead/ }).click();
+  const select = page.getByRole('combobox', { name: 'lead provider', exact: true });
+  await select.waitFor();
+  check((await select.innerText()).trim() === 'Default (PATH)', 'a role with no provider shows Default (PATH)');
+  await select.click();
+  const offered = await page.getByRole('listbox', { name: 'lead provider', exact: true }).getByRole('option').allInnerTexts();
+  check(offered.join('|') === `Default (PATH)|${name}`, 'the claude role is offered PATH and the added claude install, not the detected one', offered.join('|'));
+  await page.getByRole('listbox', { name: 'lead provider', exact: true }).getByRole('option', { name, exact: true }).click();
+  await shot('desktop-dark-role');
+  await main.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+  check((await roleOf()).provider === name, 'saving the team stores the provider on the role (GET /teams)', JSON.stringify((await roleOf()).provider));
+  await page.reload();
+  await main.getByRole('button', { name: /^lead/ }).click();
+  check((await page.getByRole('combobox', { name: 'lead provider', exact: true }).innerText()).trim() === name, 'after a reload the role shows its provider');
+
+  await pick('lead backend', 'Codex', main);
+  check((await page.getByRole('combobox', { name: 'lead provider', exact: true }).innerText()).trim() === 'Default (PATH)', 'changing the backend to Codex resets a claude provider');
+  await pick('lead backend', 'Claude Code', main);
+  await main.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+  check(!(await roleOf()).provider, 'saving the reset role leaves no provider', JSON.stringify(await roleOf().then((r) => r.provider ?? null)));
+  await pick('lead provider', name, main);
+  await main.getByRole('button', { name: 'Save' }).click();
+  await page.getByText('Saved').waitFor();
+
+  for (const [label, width, height] of [['desktop', 1280, 800], ['phone', 390, 844]]) {
+    await page.setViewportSize({ width, height });
+    for (const mode of ['dark', 'light']) {
+      await setTheme(mode);
+      await page.goto(`${base}/settings?section=providers`);
+      await added.waitFor();
+      await page.waitForTimeout(400);
+      check(await noOverflow(), `${label} ${mode}: Settings Providers has no horizontal scroll`);
+      await shot(`${label}-${mode}-page`);
+      await page.goto(`${base}/teams?team=${teamName}`);
+      await main.getByRole('button', { name: /^lead/ }).click();
+      await page.getByRole('combobox', { name: 'lead provider', exact: true }).waitFor();
+      await page.waitForTimeout(400);
+      check(await noOverflow(), `${label} ${mode}: the role panel has no horizontal scroll`);
+      await shot(`${label}-${mode}-role-panel`);
+    }
+  }
+  await setTheme('dark');
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${base}/settings?section=providers`);
+  await added.getByRole('button', { name: `Remove ${name}` }).click();
+  await added.waitFor({ state: 'detached' });
+  check((await getJson('/providers')).every((p) => p.name !== name), 'Remove deletes the added install', JSON.stringify((await getJson('/providers')).map((p) => p.name)));
+  await shot('desktop-dark-removed');
+  await page.goto(`${base}/teams?team=${teamName}`);
+  await main.getByRole('button', { name: /^lead/ }).click();
+  check((await page.getByRole('combobox', { name: 'lead provider', exact: true }).innerText()).trim() === name, 'a role keeps the name of a removed provider, as the server does');
 }
 
 try {
