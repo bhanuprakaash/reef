@@ -6,22 +6,24 @@
 
 1. [Why restructure?](#why-restructure)
 2. [Proposed domain concepts](#proposed-domain-concepts)
-3. [Agent and team model](#agent-and-team-model)
-4. [Spaces, channels, and work](#spaces-channels-and-work)
-5. [Memory and retrieval service](memory-and-retrieval.md)
-6. [Reef context and prompt cleanup](#reef-context-and-prompt-cleanup)
-7. [Boundaries and unresolved questions](#boundaries-and-unresolved-questions)
-8. [Proposed exploration sequence](#proposed-exploration-sequence)
+3. [Teammates and teams](#teammates-and-teams)
+4. [Direct conversations and optional project context](#direct-conversations-and-optional-project-context)
+5. [Spaces, channels, and work](#spaces-channels-and-work)
+6. [Memory and retrieval service](memory-and-retrieval.md)
+7. [Reef context and prompt cleanup](#reef-context-and-prompt-cleanup)
+8. [Boundaries and unresolved questions](#boundaries-and-unresolved-questions)
+9. [Proposed exploration sequence](#proposed-exploration-sequence)
 
 ## Why restructure?
 
 Reef currently centers much of its workflow and memory on a Feature and its channels, roles, notes, and stages. Real company work is broader: investigations, hotfixes, incidents, bugs, maintenance, ideas, and features. A Feature should not be a prerequisite for collaboration or execution. A feature can remain an optional kind of work, rather than the universal container.
 
-We want persistent, individually recognizable agents that can collaborate across teams and projects without leaking unrelated context.
+We want persistent, individually recognizable Teammates that can collaborate across teams and projects without leaking unrelated context.
 
 ## Proposed domain concepts
 
-- **Agent:** A first-class, persistent individual identity with expertise, instructions, tools, scripts, capabilities, and history. A user should not need to understand templates or runtime instances.
+- **Teammate:** The chosen user-facing term for one persistent individual AI collaborator, with expertise, instructions, tools, scripts, capabilities, and history. **Agent** may remain an internal technical term. Do not use **employee** in the product model; users should not need to understand templates or runtime instances.
+- **Direct conversation:** One independent, persistent chat session with one Teammate. A Teammate can have many conversations, each with its own history and optional project association.
 - **Team:** A composition of existing agents, with responsibilities, coordination rules, and collective experience. An agent may join multiple teams without being cloned.
 - **Project:** A repository or project boundary with its own durable technical knowledge, decisions, and conventions.
 - **Space:** A persistent place to invite agents or teams and discuss, investigate, brainstorm, and plan. A discussion need not create work or follow prescribed stages.
@@ -31,11 +33,20 @@ We want persistent, individually recognizable agents that can collaborate across
 
 Names and precise boundaries remain open to discussion.
 
-## Agent and team model
+## Teammates and teams
 
-Create agents independently, then add them to teams. A single agent may participate in several teams with different responsibilities. The visible model is one identity, many memberships; execution sessions and working contexts are isolated internally. An agent's general knowledge does not imply automatic access to all prior teams' private context. Teams may remember collective handoffs and operating lessons without copying entire project histories.
+Create Teammates independently, then add them to teams. A single Teammate may participate in several teams with different responsibilities. The visible model is one identity, many memberships; execution sessions and working contexts are isolated internally. A Teammate's general knowledge does not imply automatic access to all prior teams' private context. Teams may remember collective handoffs and operating lessons without copying entire project histories.
 
-Team templates are not a required initial user-facing concept. One-to-one agent conversations should not require a team.
+Team templates are not a required initial user-facing concept. Direct conversations do not require a team or Space.
+
+## Direct conversations and optional project context
+
+- Open a Teammate directly and create any number of separate conversations, like ordinary chat sessions. Each has its own history and can be resumed independently; creating a new chat does not clone the Teammate.
+- A conversation can start without a project for general discussion. Offer a conversation-level project selector/toggle to associate it with Project A, B, etc. This is not a global change to the Teammate's identity.
+- When a project is selected, Reef should provide relevant **authorised** project context and enable on-demand retrieval of project history/traces, decisions, findings and related work. Do not blindly inject all project history into the system prompt.
+- A conversation's history is not automatically promoted into the Teammate's permanent personal memory. Any extracted knowledge follows the role-aware memory policy and scope boundaries described in [Memory and retrieval service](memory-and-retrieval.md).
+- Switching or removing a project association needs an explicit context-boundary policy: previously visible private content must not silently become accessible in another project. Whether switching in place or requiring a fresh conversation remains an open UX/security decision.
+- A direct conversation may later produce a work item or lead to a multi-participant Space, but neither is mandatory.
 
 ## Spaces, channels, and work
 
@@ -47,7 +58,8 @@ Separately audit the existing channel/session prompt path: locally, an unexpecte
 
 ## Boundaries and unresolved questions
 
-- What knowledge may move from project/work scope into an agent's general memory, and under whose approval?
+- What knowledge may move from project/work scope into a Teammate's general memory, and under whose approval?
+- How should changing a direct conversation's project association behave, including history visibility and session reset?
 - How are agent/team roles, authority, evidence, and access permissions represented?
 - What are the precise Space, Team, Work and Channel lifecycle rules?
 - How should automated routing and execution approval work?
