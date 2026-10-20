@@ -4,7 +4,18 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { promisify } from 'node:util';
 
-const RELEASE_URL = 'https://api.github.com/repos/bhanuprakaash/reef/releases/latest';
+// REEF_SOURCE=github switches back to GitHub releases.
+const SOURCES = {
+  gitlab: {
+    url: 'https://gitlab.com/api/v4/projects/bhanuprakashsaip%2Freef/releases/permalink/latest',
+    assets: (release) => release.assets?.links?.map((a) => ({ name: a.name, url: a.direct_asset_url })),
+  },
+  github: {
+    url: 'https://api.github.com/repos/bhanuprakaash/reef/releases/latest',
+    assets: (release) => release.assets?.map((a) => ({ name: a.name, url: a.browser_download_url })),
+  },
+};
+const SOURCE = SOURCES[process.env.REEF_SOURCE ?? 'gitlab'] ?? SOURCES.gitlab;
 const ASSET = 'Reef-mac-arm64.zip';
 const CHECK_EVERY = 60 * 60 * 1000;
 const IDLE_EVERY = 60 * 1000;
@@ -165,20 +176,20 @@ export function createUpdater(win, addr, dataDir) {
   }
 
   async function fetchUpdate() {
-    const res = await fetch(RELEASE_URL, {
-      headers: { Accept: 'application/vnd.github+json' },
+    const res = await fetch(SOURCE.url, {
+      headers: { Accept: 'application/json' },
       signal: AbortSignal.timeout(TIMEOUT),
     });
-    if (!res.ok) throw new Error(`${RELEASE_URL}: ${res.status}`);
+    if (!res.ok) throw new Error(`${SOURCE.url}: ${res.status}`);
     const release = await res.json();
     const latest = parse(release.tag_name);
-    const asset = release.assets?.find((a) => a.name === ASSET);
+    const asset = SOURCE.assets(release)?.find((a) => a.name === ASSET);
     if (!latest || !asset) throw new Error(`release ${release.tag_name} has no usable ${ASSET}`);
     const version = latest.join('.');
     if (version === staged) return 'ready';
     if (!isNewer(latest, parse(app.getVersion())) || version === skipped) return 'current';
     if (!canReplaceBundle()) throw new Error(`${bundle} cannot be replaced from here`);
-    await stage(version, asset.browser_download_url);
+    await stage(version, asset.url);
     notify();
     return 'ready';
   }
