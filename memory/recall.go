@@ -16,9 +16,8 @@ const (
 	_viaDirect    = "direct"
 )
 
-// Query is what a caller asks Recall. Scopes are the shelves the asker may
-// see. Scope, when set, narrows the search to that one shelf; if it is not
-// one of Scopes, nothing matches. A Limit of zero or less means 10.
+// Query is what a caller asks Recall. Scope, when set, narrows to one of Scopes; if it is
+// not one of them, nothing matches. A Limit of zero or less means 10.
 type Query struct {
 	Scopes []Ref
 	Text   string
@@ -26,8 +25,8 @@ type Query struct {
 	Scope  *Ref
 }
 
-// Hit is one recalled item. Via is "direct" for a text or meaning match, or
-// the link it was reached through, such as "replaces memory:4".
+// Hit is one recalled item. Via is "direct", or the link it was reached through, such as
+// "replaces memory:4".
 type Hit struct {
 	ID         int64
 	Kind, Body string
@@ -42,10 +41,9 @@ type neighbour struct {
 	via string
 }
 
-// Recall fuses word and meaning matches by reciprocal rank fusion, then adds
-// the items one link away from the best of them. Links to a project or team
-// are never followed: they reach everything on the shelf. Hits are best score
-// first, accepted before retired, newer first, cut at the limit.
+// Recall fuses word and meaning matches by reciprocal rank fusion, then adds items one
+// link away from the best. Links to a project or team are never followed: they reach
+// everything on the shelf.
 func (s *Store) Recall(ctx context.Context, q Query) ([]Hit, error) {
 	limit := q.Limit
 	if limit <= 0 {
@@ -64,7 +62,7 @@ func (s *Store) Recall(ctx context.Context, q Query) ([]Hit, error) {
 	if err != nil {
 		return nil, err
 	}
-	// Embeddings are optional: if the vector side fails, words alone answer.
+	// A failing embedder must not fail recall: words alone answer.
 	meaning, _ := s.Nearest(ctx, q.Text, f, _candidates)
 
 	found := make(map[int64]*Hit)
@@ -108,8 +106,6 @@ func (s *Store) Recall(ctx context.Context, q Query) ([]Hit, error) {
 	return hits[:min(limit, len(hits))], nil
 }
 
-// neighbours returns the items one link away from id: those it links to, those
-// linking to it, and those sharing a link target with it other than a hub.
 func (s *Store) neighbours(ctx context.Context, id int64) ([]neighbour, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT CAST(to_id AS INTEGER), rel || ' memory:' || to_id
@@ -140,8 +136,6 @@ func (s *Store) neighbours(ctx context.Context, id int64) ([]neighbour, error) {
 	return out, nil
 }
 
-// load reads the items in found that pass f. Expanded items are checked here,
-// the same way direct ones were.
 func (s *Store) load(ctx context.Context, f Filter, found map[int64]*Hit) ([]Hit, error) {
 	where, args := f.where()
 	marks := make([]string, 0, len(found))
@@ -173,8 +167,6 @@ func (s *Store) load(ctx context.Context, f Filter, found map[int64]*Hit) ([]Hit
 	return hits, nil
 }
 
-// before reports whether a ranks ahead of b: higher score, then accepted over
-// retired, then newer.
 func before(a, b Hit) bool {
 	if a.Score != b.Score {
 		return a.Score > b.Score

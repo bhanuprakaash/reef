@@ -7,9 +7,8 @@ import (
 	"unicode"
 )
 
-// Search returns accepted items that match any word of query, best first,
-// then accepted before retired, then newer first on a tie. Retired items are included, marked by Status, when
-// f.IncludeRetired is set. Candidates are never returned.
+// Search returns items that match any word of query, best first; ties go to accepted
+// before retired, then newer. Retired items appear only when f.IncludeRetired is set.
 func (s *Store) Search(ctx context.Context, query string, f Filter) ([]Match, error) {
 	words := terms(query)
 	if len(words) == 0 || len(f.Scopes) == 0 {
@@ -44,7 +43,6 @@ func (s *Store) Search(ctx context.Context, query string, f Filter) ([]Match, er
 	return hits, nil
 }
 
-// terms splits s into lowercase words of letters and digits.
 func terms(s string) []string {
 	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)

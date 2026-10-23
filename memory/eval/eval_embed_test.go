@@ -8,8 +8,7 @@ import (
 	"github.com/bhanuprakaash/reef/memory"
 )
 
-// newEmbedder reads REEF_EMBED_PROVIDER and REEF_EMBED_KEY. Without a key it
-// returns nil, so the scenarios that need meaning search are skipped.
+// Without REEF_EMBED_KEY it returns nil, which skips the scenarios that need meaning search.
 func newEmbedder() (memory.Embedder, error) {
 	key := os.Getenv("REEF_EMBED_KEY")
 	if key == "" {

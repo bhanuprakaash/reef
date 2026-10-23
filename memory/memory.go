@@ -42,10 +42,9 @@ const (
 )
 
 var (
-	// ErrNotFound is wrapped when the id asked for matches no item.
+	// ErrNotFound is wrapped when the id matches no item.
 	ErrNotFound = errors.New("not found")
-	// ErrInvalid is wrapped when the caller's input is wrong or the item is in
-	// the wrong state for the call.
+	// ErrInvalid is wrapped for bad input or an item in the wrong state.
 	ErrInvalid = errors.New("invalid")
 )
 
@@ -63,8 +62,7 @@ var (
 	_rels = map[string]bool{RelAbout: true, RelSource: true, RelReplaces: true, RelRelated: true}
 )
 
-// Ref points at something by kind and id. Both are plain strings; nothing
-// checks that the target exists.
+// Ref points at a target by kind and id; nothing checks that it exists.
 type Ref struct{ Kind, ID string }
 
 // Link is one edge from an item to a target.
@@ -97,8 +95,7 @@ type Item struct {
 	Links           []Link
 }
 
-// Result is what Remember returns. Similar lists the stored items that look
-// like the new one; it is nil when there are none.
+// Result is what Remember returns. Similar is nil when nothing looks like the new item.
 type Result struct {
 	Item    Item
 	Similar []Similar
@@ -110,8 +107,7 @@ type Store struct {
 	embed Embedder
 }
 
-// Open creates the memory tables in db if they are missing. A nil e stores no
-// vectors.
+// Open creates the memory tables in db if missing. A nil e stores no vectors.
 func Open(db *sql.DB, e Embedder) (*Store, error) {
 	if _, err := db.Exec(_schema); err != nil {
 		return nil, fmt.Errorf("create memory tables: %w", err)
@@ -122,10 +118,9 @@ func Open(db *sql.DB, e Embedder) (*Store, error) {
 	return &Store{db: db, embed: e}, nil
 }
 
-// Remember writes one item with its links. Each id in n.Replaces must be a
-// live item; it is retired and points at the new one. If any step fails,
-// nothing is written. Items that look like the new one are reported in
-// Result.Similar; the write happens anyway.
+// Remember writes one item with its links, all or nothing. Each id in n.Replaces must be a
+// live item; it is retired and points at the new one. Lookalikes are reported in
+// Result.Similar but never block the write.
 func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) {
 	if err := validate(w, n); err != nil {
 		return Result{}, err
@@ -141,7 +136,6 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 		})
 	}
 
-	// A failed embed leaves the vector empty for Backfill.
 	vec, _ := s.embed.Embed(ctx, embedText(n.Body, n.Why))
 	var blob []byte
 	if vec != nil {
@@ -214,7 +208,7 @@ func (s *Store) Accept(ctx context.Context, id int64) error {
 	return checkChanged(ctx, s.db, res, id, "not a candidate")
 }
 
-// Scopes returns every scope that holds at least one item, whatever its status.
+// Scopes returns every scope that holds an item of any status.
 func (s *Store) Scopes(ctx context.Context) ([]Ref, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT DISTINCT scope_kind, scope_id FROM memory ORDER BY scope_kind, scope_id`)
@@ -263,14 +257,11 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
-// _acceptedRoles lists the roles whose writes of a kind are accepted. A kind
-// with no entry is accepted from any role.
+// A kind with no entry is accepted from any role.
 var _acceptedRoles = map[string]map[string]bool{
 	KindConvention: {"architect": true, "lead": true},
 }
 
-// statusFor is the status a write gets. The user is always accepted; anyone
-// else is a candidate in team scope or when their role may not write the kind.
 func statusFor(w Writer, kind string) string {
 	if w.Author == "user" {
 		return StatusAccepted
@@ -311,7 +302,6 @@ type querier interface {
 const _selectItem = `SELECT id, kind, body, why, scope_kind, scope_id, author, role, status,
 	retired_at, replaced_by, created_at FROM memory`
 
-// retire marks a live item retired. replacedBy is nil when nothing replaces it.
 func retire(ctx context.Context, q querier, id int64, replacedBy *int64, now string) error {
 	res, err := q.ExecContext(ctx,
 		`UPDATE memory SET status = ?, retired_at = ?, replaced_by = ?
@@ -323,8 +313,6 @@ func retire(ctx context.Context, q querier, id int64, replacedBy *int64, now str
 	return checkChanged(ctx, q, res, id, "already retired")
 }
 
-// checkChanged turns an update that touched no row into ErrNotFound when the
-// id is missing, or into ErrInvalid with reason when the item exists but was in the wrong state.
 func checkChanged(ctx context.Context, q querier, res sql.Result, id int64, reason string) error {
 	n, err := res.RowsAffected()
 	if err != nil {

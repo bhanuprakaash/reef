@@ -17,10 +17,6 @@ type Similar struct {
 	Body string
 }
 
-// lookalikes returns the accepted items in w's scope that look like n, best
-// first, never ones n replaces. With a vector it is every item at or above the
-// cosine threshold. Without one it is the top word match, when it holds enough
-// of n's words.
 func (s *Store) lookalikes(ctx context.Context, w Writer, n Note, vec []float32) ([]Similar, error) {
 	f := Filter{Scopes: []Ref{w.Scope}}
 	if vec != nil {

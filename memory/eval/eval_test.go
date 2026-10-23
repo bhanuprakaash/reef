@@ -1,10 +1,8 @@
 // Package eval scores memory.Recall against the scenarios in fixture.json.
 //
-// The overall recall@10 and MRR line is printed to stdout, which `go test`
-// hides for a passing package given by path: run it with -v, or from inside
-// this directory. -v also prints one line per scenario. Scenarios marked
-// needs_embedder run only with `-tags embed` and REEF_EMBED_PROVIDER and
-// REEF_EMBED_KEY set; every other scenario runs without an embedder.
+// The recall@10 and MRR line goes to stdout, which `go test` hides for a passing package
+// given by path: run with -v or from this directory. Scenarios marked needs_embedder run
+// only with `-tags embed` and REEF_EMBED_PROVIDER and REEF_EMBED_KEY set.
 package eval
 
 import (
@@ -112,10 +110,6 @@ func TestRecall(t *testing.T) {
 	}
 }
 
-// run seeds a fresh database with the scenario's items and asks its query. It
-// fails the test at once on a forbidden item, or on expected items out of order
-// when the scenario is ordered. It returns recall@10 and the reciprocal rank
-// of the first expected item.
 func run(t *testing.T, sc scenario, e memory.Embedder) (recall, mrr float64) {
 	t.Helper()
 	if len(sc.Expect) == 0 {

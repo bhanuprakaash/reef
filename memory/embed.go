@@ -24,8 +24,7 @@ const (
 	_voyageModel = "voyage-3-lite"
 )
 
-// Embedder turns text into a vector. A nil vector with a nil error means the
-// embedder produces none.
+// Embedder turns text into a vector. A nil vector with a nil error means none.
 type Embedder interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
 }
@@ -63,9 +62,8 @@ func (e voyageEmbedder) Embed(ctx context.Context, text string) ([]float32, erro
 		}{_voyageModel, []string{text}})
 }
 
-// NewEmbedder returns the embedder c names. An empty key or provider gives the
-// none embedder; an unknown provider is an error. A nil hc means
-// http.DefaultClient.
+// NewEmbedder returns the embedder c names. An empty key or provider gives the none
+// embedder; an unknown provider is an error. A nil hc means http.DefaultClient.
 func NewEmbedder(c EmbedConfig, hc *http.Client) (Embedder, error) {
 	if hc == nil {
 		hc = http.DefaultClient
@@ -86,8 +84,7 @@ func NewEmbedder(c EmbedConfig, hc *http.Client) (Embedder, error) {
 	return noneEmbedder{}, nil
 }
 
-// postEmbedding sends body to url and returns data[0].embedding, the response
-// shape OpenAI and Voyage share. Errors carry the status code, never the key.
+// Errors carry the status code, never the key.
 func postEmbedding(
 	ctx context.Context, hc *http.Client, name, url, key string, body any,
 ) ([]float32, error) {
@@ -123,8 +120,8 @@ func postEmbedding(
 	return out.Data[0].Embedding, nil
 }
 
-// Backfill embeds every item that has no vector and returns how many it
-// filled. It stops at the first embed error.
+// Backfill embeds items that have no vector and returns how many it filled. It stops at
+// the first embed error.
 func (s *Store) Backfill(ctx context.Context) (int, error) {
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, body, why FROM memory WHERE vector IS NULL ORDER BY id`)
@@ -163,9 +160,8 @@ func (s *Store) Backfill(ctx context.Context) (int, error) {
 	return filled, nil
 }
 
-// Nearest returns up to k items that pass f and have a vector, closest to
-// query first, then accepted before retired, then newer first on a tie. Score
-// is the cosine similarity.
+// Nearest returns up to k items that pass f and have a vector, closest first. Score is
+// the cosine similarity; ties go to accepted before retired, then newer.
 func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]Match, error) {
 	if k <= 0 || len(f.Scopes) == 0 {
 		return nil, nil
@@ -187,8 +183,6 @@ func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]M
 	return hits, nil
 }
 
-// scoreVectors scores the stored vectors of the items that pass f against q,
-// closest first, then accepted before retired, then newer first on a tie. f must have at least one scope.
 func (s *Store) scoreVectors(ctx context.Context, q []float32, f Filter) ([]Match, error) {
 	where, args := f.where()
 	rows, err := s.db.QueryContext(ctx,
@@ -228,8 +222,6 @@ func (s *Store) scoreVectors(ctx context.Context, q []float32, f Filter) ([]Matc
 	return hits, nil
 }
 
-// embedItem stores the vector for item id. It reports false when the embedder
-// makes none.
 func (s *Store) embedItem(ctx context.Context, id int64, text string) (bool, error) {
 	v, err := s.embed.Embed(ctx, text)
 	if err != nil || v == nil {

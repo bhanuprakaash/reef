@@ -35,7 +35,6 @@ const (
 	_settingEmbeddingKey      = "embedding.key"
 )
 
-// listFlag is a flag that may repeat; each use adds one value.
 type listFlag []string
 
 func (l *listFlag) String() string { return strings.Join(*l, ",") }
@@ -45,8 +44,6 @@ func (l *listFlag) Set(v string) error {
 	return nil
 }
 
-// memoryCmd parses its flags and --data before looking for the subcommand word, so they can
-// come before or after it; bare `reef memory` means show.
 func memoryCmd(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
 	c := newCommand("reef memory", _memoryUsage, 0, 3)
 	project := c.fs.String("project", "", "")
@@ -307,7 +304,6 @@ func memoryPending(ctx context.Context, st *store.Store, stdout io.Writer) error
 	return nil
 }
 
-// memoryByRef opens the memory tables and parses ref as an item id.
 func memoryByRef(ctx context.Context, st *store.Store, ref string) (*memory.Store, int64, error) {
 	id, err := parseMemoryID(ref)
 	if err != nil {
@@ -317,7 +313,6 @@ func memoryByRef(ctx context.Context, st *store.Store, ref string) (*memory.Stor
 	return ms, id, err
 }
 
-// openMemory opens the memory tables with the embedder the embedding settings name.
 func openMemory(ctx context.Context, st *store.Store) (*memory.Store, error) {
 	provider, err := st.Setting(ctx, _settingEmbeddingProvider)
 	if err != nil {
@@ -346,8 +341,6 @@ func memoryEmbedShow(ctx context.Context, st *store.Store, stdout io.Writer) err
 	return err
 }
 
-// memoryEmbed saves the provider and key, then embeds every item that has no vector when
-// embedding was off before.
 func memoryEmbed(ctx context.Context, st *store.Store, provider, key string, stdout io.Writer) error {
 	switch provider {
 	case memory.ProviderNone:
@@ -403,7 +396,6 @@ func parseMemoryID(s string) (int64, error) {
 	return id, nil
 }
 
-// parseMemoryRef reads a kind:id value of the named flag.
 func parseMemoryRef(flag, s string) (memory.Ref, error) {
 	kind, id, ok := strings.Cut(s, ":")
 	if !ok || kind == "" || id == "" {
