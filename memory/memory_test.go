@@ -19,7 +19,7 @@ func openTest(t *testing.T) (*Store, *sql.DB) {
 	}
 	db.SetMaxOpenConns(1)
 	t.Cleanup(func() { _ = db.Close() })
-	s, err := Open(db)
+	s, err := Open(db, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,7 +45,7 @@ func count(t *testing.T, db *sql.DB, query string) int {
 
 func TestOpen_Idempotent(t *testing.T) {
 	s, db := openTest(t)
-	if _, err := Open(db); err != nil {
+	if _, err := Open(db, nil); err != nil {
 		t.Fatalf("second Open: %v", err)
 	}
 	if n := count(t, db, `SELECT count(*) FROM sqlite_master WHERE name IN ('memory', 'memory_link')`); n != 2 {
@@ -54,7 +54,7 @@ func TestOpen_Idempotent(t *testing.T) {
 	if _, err := s.Remember(context.Background(), writer(), Note{Kind: KindFact, Body: "x"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := Open(db); err != nil {
+	if _, err := Open(db, nil); err != nil {
 		t.Fatalf("Open with rows: %v", err)
 	}
 	if n := count(t, db, `SELECT count(*) FROM memory`); n != 1 {

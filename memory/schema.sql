@@ -10,7 +10,8 @@ CREATE TABLE IF NOT EXISTS memory (
     status TEXT NOT NULL CHECK (status IN ('candidate', 'accepted', 'retired')),
     retired_at TEXT,
     replaced_by INTEGER,
-    created_at TEXT NOT NULL
+    created_at TEXT NOT NULL,
+    vector BLOB
 );
 
 CREATE INDEX IF NOT EXISTS memory_scope ON memory (scope_kind, scope_id, status);

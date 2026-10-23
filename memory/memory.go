@@ -97,15 +97,20 @@ type Result struct{ Item Item }
 
 // Store reads and writes memory items in a database it was given.
 type Store struct {
-	db *sql.DB
+	db    *sql.DB
+	embed Embedder
 }
 
-// Open creates the memory tables in db if they are missing.
-func Open(db *sql.DB) (*Store, error) {
+// Open creates the memory tables in db if they are missing. A nil e stores no
+// vectors.
+func Open(db *sql.DB, e Embedder) (*Store, error) {
 	if _, err := db.Exec(_schema); err != nil {
 		return nil, fmt.Errorf("create memory tables: %w", err)
 	}
-	return &Store{db: db}, nil
+	if e == nil {
+		e = noneEmbedder{}
+	}
+	return &Store{db: db, embed: e}, nil
 }
 
 // Remember writes one item with its links. Each id in n.Replaces must be a
@@ -164,6 +169,8 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 	if err := tx.Commit(); err != nil {
 		return Result{}, fmt.Errorf("commit: %w", err)
 	}
+	// The item is already stored; a failed embed leaves the vector empty for Backfill.
+	_, _ = s.embedItem(ctx, id, embedText(n.Body, n.Why))
 	return Result{Item: item}, nil
 }
 
