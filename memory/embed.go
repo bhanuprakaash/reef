@@ -176,6 +176,19 @@ func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]M
 	if q == nil {
 		return nil, nil
 	}
+	hits, err := s.scoreVectors(ctx, q, f)
+	if err != nil {
+		return nil, err
+	}
+	if len(hits) > k {
+		hits = hits[:k]
+	}
+	return hits, nil
+}
+
+// scoreVectors scores the stored vectors of the items that pass f against q,
+// closest first, newer first on a tie. f must have at least one scope.
+func (s *Store) scoreVectors(ctx context.Context, q []float32, f Filter) ([]Match, error) {
 	where, args := f.where()
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT id, status, vector FROM memory WHERE vector IS NOT NULL AND `+where, args...)
@@ -208,9 +221,6 @@ func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]M
 		}
 		return hits[i].ID > hits[j].ID
 	})
-	if len(hits) > k {
-		hits = hits[:k]
-	}
 	return hits, nil
 }
 

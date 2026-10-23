@@ -11,14 +11,12 @@ import (
 // newer first on a tie. Retired items are included, marked by Status, when
 // f.IncludeRetired is set. Candidates are never returned.
 func (s *Store) Search(ctx context.Context, query string, f Filter) ([]Match, error) {
-	terms := strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
-		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
-	})
-	if len(terms) == 0 || len(f.Scopes) == 0 {
+	words := terms(query)
+	if len(words) == 0 || len(f.Scopes) == 0 {
 		return nil, nil
 	}
-	for i, t := range terms {
-		terms[i] = `"` + t + `"`
+	for i, t := range words {
+		words[i] = `"` + t + `"`
 	}
 
 	where, args := f.where()
@@ -27,7 +25,7 @@ func (s *Store) Search(ctx context.Context, query string, f Filter) ([]Match, er
 		 FROM memory_fts JOIN memory m ON m.id = memory_fts.rowid
 		 WHERE memory_fts MATCH ? AND `+where+`
 		 ORDER BY bm25(memory_fts), m.id DESC`,
-		append([]any{strings.Join(terms, " OR ")}, args...)...)
+		append([]any{strings.Join(words, " OR ")}, args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("search memory: %w", err)
 	}
@@ -44,4 +42,11 @@ func (s *Store) Search(ctx context.Context, query string, f Filter) ([]Match, er
 		return nil, fmt.Errorf("read hits: %w", err)
 	}
 	return hits, nil
+}
+
+// terms splits s into lowercase words of letters and digits.
+func terms(s string) []string {
+	return strings.FieldsFunc(strings.ToLower(s), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	})
 }

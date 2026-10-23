@@ -92,8 +92,12 @@ type Item struct {
 	Links           []Link
 }
 
-// Result is what Remember returns.
-type Result struct{ Item Item }
+// Result is what Remember returns. Similar lists the stored items that look
+// like the new one; it is nil when there are none.
+type Result struct {
+	Item    Item
+	Similar []Similar
+}
 
 // Store reads and writes memory items in a database it was given.
 type Store struct {
@@ -115,7 +119,8 @@ func Open(db *sql.DB, e Embedder) (*Store, error) {
 
 // Remember writes one item with its links. Each id in n.Replaces must be a
 // live item; it is retired and points at the new one. If any step fails,
-// nothing is written.
+// nothing is written. Items that look like the new one are reported in
+// Result.Similar; the write happens anyway.
 func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) {
 	if err := validate(w, n); err != nil {
 		return Result{}, err
@@ -131,6 +136,17 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 		})
 	}
 
+	// A failed embed leaves the vector empty for Backfill.
+	vec, _ := s.embed.Embed(ctx, embedText(n.Body, n.Why))
+	var blob []byte
+	if vec != nil {
+		blob = encodeVector(vec)
+	}
+	similar, err := s.lookalikes(ctx, w, n, vec)
+	if err != nil {
+		return Result{}, err
+	}
+
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return Result{}, fmt.Errorf("begin: %w", err)
@@ -139,10 +155,10 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO memory (kind, body, why, scope_kind, scope_id, author, role, status, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		`INSERT INTO memory (kind, body, why, scope_kind, scope_id, author, role, status, created_at, vector)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		n.Kind, n.Body, n.Why, w.Scope.Kind, w.Scope.ID, w.Author, w.Role,
-		statusFor(w, n.Kind), now)
+		statusFor(w, n.Kind), now, blob)
 	if err != nil {
 		return Result{}, fmt.Errorf("insert item: %w", err)
 	}
@@ -169,9 +185,7 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 	if err := tx.Commit(); err != nil {
 		return Result{}, fmt.Errorf("commit: %w", err)
 	}
-	// The item is already stored; a failed embed leaves the vector empty for Backfill.
-	_, _ = s.embedItem(ctx, id, embedText(n.Body, n.Why))
-	return Result{Item: item}, nil
+	return Result{Item: item, Similar: similar}, nil
 }
 
 // Read returns the item with its links.
