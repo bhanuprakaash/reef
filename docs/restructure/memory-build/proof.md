@@ -89,3 +89,28 @@ $ go test -count=1 -v -run 'TestNone|TestNearest|TestRemember_StoresWhen|TestEmb
 
 - No HTTP call with none: `TestNone_MakesNoHTTPCall` uses an http.Client whose transport fails the test on any request; Remember, Backfill, Nearest and Search all run.
 - Vendor shapes: `TestEmbedders_VendorShapes` checks POST /v1/embeddings, `Authorization: Bearer`, request bodies `{"model":"text-embedding-3-small","input":"hello"}` (OpenAI) and `{"model":"voyage-3-lite","input":["hello"]}` (Voyage), and parses `data[0].embedding`.
+
+## #27 Hybrid recall with link expansion
+
+Commit `5981813`.
+
+```
+$ go test -count=1 -run Recall -v ./memory | grep -E "^\s*--- "
+--- PASS: TestRecall_NoneEmbedderIsSearchPlusExpansion (0.00s)
+--- PASS: TestRecall_ExpansionReachesReplacedItem (0.00s)
+--- PASS: TestRecall_ExpansionSkipsHubs (0.01s)
+--- PASS: TestRecall_NewestAcceptedConflictFirst (0.00s)
+--- PASS: TestRecall_NeverExceedsLimit (0.01s)
+    --- PASS: TestRecall_NeverExceedsLimit/set (0.00s)
+    --- PASS: TestRecall_NeverExceedsLimit/default (0.00s)
+--- PASS: TestRecall_FusesMeaningMatches (0.00s)
+--- PASS: TestRecall_EmbedFailureFallsBackToWords (0.00s)
+--- PASS: TestRecall_ScopeRestriction (0.00s)
+    --- PASS: TestRecall_ScopeRestriction/all_visible (0.00s)
+    --- PASS: TestRecall_ScopeRestriction/restricted (0.00s)
+    --- PASS: TestRecall_ScopeRestriction/restricted_to_hidden (0.00s)
+    --- PASS: TestRecall_ScopeRestriction/none_visible (0.00s)
+```
+
+- Hub rule: `TestRecall_ExpansionSkipsHubs` seeds 50 items all linked `about project:1`, each also about its own work item, plus one more about work_item:7. Query `7` with limit 100 returns ids `[7 51]`, via `[direct, about work_item:7]`, not 50.
+- Replaced: query `failure` returns `[2 1]`, via `[direct, replaces memory:1]`, id 1 marked retired.
