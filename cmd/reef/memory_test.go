@@ -121,6 +121,57 @@ func TestCLI_MemoryItems(t *testing.T) {
 	}
 }
 
+func TestCLI_MemoryEachCommandHasItsOwnFlags(t *testing.T) {
+	const (
+		undefined = "flag provided but not defined: -"
+		retire    = "usage: reef memory retire <id> [--data DIR]"
+		approve   = "usage: reef memory approve <id> [--data DIR]"
+		pending   = "usage: reef memory pending [--data DIR]"
+		show      = "usage: reef memory [--project P] show [<id>] [--data DIR]"
+		set       = "usage: reef memory [--project P] set FILE|- [--data DIR]"
+		add       = `usage: reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--data DIR]`
+		recall    = `usage: reef memory recall "<q>" [--scope S] [--limit N] [--data DIR]`
+		embed     = "usage: reef memory embed [none|openai|voyage [--key K]] [--data DIR]"
+	)
+	tests := []struct {
+		name string
+		give []string
+		want string
+	}{
+		{"retire with a stray flag", []string{"memory", "retire", "1", "--why", "x", "--key", "zzz"},
+			undefined + "why\n" + retire},
+		{"approve with --scope", []string{"memory", "approve", "1", "--scope", "project:1"},
+			undefined + "scope\n" + approve},
+		{"pending with --limit", []string{"memory", "pending", "--limit", "3"},
+			undefined + "limit\n" + pending},
+		{"show with --scope", []string{"memory", "show", "--scope", "project:1"},
+			undefined + "scope\n" + show},
+		{"set with --key", []string{"memory", "set", "-", "--key", "k"}, undefined + "key\n" + set},
+		{"add with --limit",
+			[]string{"memory", "add", "fact", "x", "--scope", "project:1", "--limit", "3"},
+			undefined + "limit\n" + add},
+		{"add with --key", []string{"memory", "add", "fact", "x", "--scope", "project:1", "--key", "k"},
+			undefined + "key\n" + add},
+		{"recall with --why", []string{"memory", "recall", "x", "--why", "y"},
+			undefined + "why\n" + recall},
+		{"recall with a negative limit", []string{"memory", "recall", "x", "--limit", "-1"}, recall},
+		{"embed with --scope", []string{"memory", "embed", "openai", "--scope", "project:1"},
+			undefined + "scope\n" + embed},
+		{"embed --key without a provider", []string{"memory", "embed", "--key", "k"}, embed},
+		{"bare with a stray flag", []string{"memory", "--scope=project:1"},
+			undefined + "scope\n" + show},
+		{"unknown word", []string{"memory", "forget", "1"}, _memoryUsage},
+	}
+	dir := t.TempDir()
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := reef(t, dir, tt.give...); err == nil || err.Error() != tt.want {
+				t.Fatalf("reef %s: error = %v, want %q", strings.Join(tt.give, " "), err, tt.want)
+			}
+		})
+	}
+}
+
 // Not parallel: it swaps http.DefaultClient's transport.
 func TestCLI_MemoryEmbed(t *testing.T) {
 	type call struct{ host, auth string }

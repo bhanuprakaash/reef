@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -45,79 +46,56 @@ func (l *listFlag) Set(v string) error {
 }
 
 func memoryCmd(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
-	c := newCommand("reef memory", _memoryUsage, 0, 3)
+	sub, rest := memorySub(args)
+	switch sub {
+	case "show":
+		return memoryShow(ctx, rest, stdout)
+	case "set":
+		return memorySet(ctx, rest, stdin, stdout)
+	case "add":
+		return memoryAdd(ctx, rest, stdout)
+	case "recall":
+		return memoryRecall(ctx, rest, stdout)
+	case "retire":
+		return memoryRetire(ctx, rest, stdout)
+	case "approve":
+		return memoryApprove(ctx, rest, stdout)
+	case "pending":
+		return memoryPending(ctx, rest, stdout)
+	case "embed":
+		return memoryEmbed(ctx, rest, stdout)
+	}
+	return errors.New(_memoryUsage)
+}
+
+// memorySub splits the subcommand word off args; only --project and --data may come before
+// it. With no word the subcommand is show.
+func memorySub(args []string) (string, []string) {
+	for i := 0; i < len(args); i++ {
+		if !strings.HasPrefix(args[i], "-") {
+			return args[i], slices.Concat(args[:i], args[i+1:])
+		}
+		name := strings.TrimLeft(args[i], "-")
+		if (name == "project" || name == "data") && i+1 < len(args) {
+			i++
+		}
+	}
+	return "show", args
+}
+
+func memoryShow(ctx context.Context, args []string, stdout io.Writer) error {
+	c := newCommand("reef memory show", _memoryShowUsage, 0, 1)
 	project := c.fs.String("project", "", "")
-	scope := c.fs.String("scope", "", "")
-	role := c.fs.String("as", "", "")
-	why := c.fs.String("why", "", "")
-	limit := c.fs.Int("limit", 0, "")
-	key := c.fs.String("key", "", "")
-	var about, replaces listFlag
-	c.fs.Var(&about, "about", "")
-	c.fs.Var(&replaces, "replaces", "")
 	st, pos, err := c.open(args)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = st.Close() }()
 
-	sub, rest := "show", pos
-	if len(pos) > 0 {
-		sub, rest = pos[0], pos[1:]
+	if len(pos) == 1 {
+		return memoryItem(ctx, st, pos[0], stdout)
 	}
-	switch sub {
-	case "show":
-		switch len(rest) {
-		case 0:
-			return memoryShow(ctx, st, *project, stdout)
-		case 1:
-			return memoryItem(ctx, st, rest[0], stdout)
-		}
-		return errors.New(_memoryShowUsage)
-	case "set":
-		if len(rest) != 1 {
-			return errors.New(_memorySetUsage)
-		}
-		return memorySet(ctx, st, *project, rest[0], stdin, stdout)
-	case "add":
-		if len(rest) != 2 || *scope == "" {
-			return errors.New(_memoryAddUsage)
-		}
-		return memoryAdd(ctx, st, rest[0], rest[1], *scope, *role, *why, about, replaces, stdout)
-	case "recall":
-		if len(rest) != 1 {
-			return errors.New(_memoryRecallUsage)
-		}
-		return memoryRecall(ctx, st, rest[0], *scope, *limit, stdout)
-	case "retire":
-		if len(rest) != 1 {
-			return errors.New(_memoryRetireUsage)
-		}
-		return memoryRetire(ctx, st, rest[0], stdout)
-	case "approve":
-		if len(rest) != 1 {
-			return errors.New(_memoryApproveUsage)
-		}
-		return memoryApprove(ctx, st, rest[0], stdout)
-	case "pending":
-		if len(rest) != 0 {
-			return errors.New(_memoryPendingUsage)
-		}
-		return memoryPending(ctx, st, stdout)
-	case "embed":
-		if len(rest) > 1 || (len(rest) == 0 && *key != "") {
-			return errors.New(_memoryEmbedUsage)
-		}
-		if len(rest) == 0 {
-			return memoryEmbedShow(ctx, st, stdout)
-		}
-		return memoryEmbed(ctx, st, rest[0], *key, stdout)
-	}
-	return errors.New(_memoryUsage)
-}
-
-func memoryShow(ctx context.Context, st *store.Store, project string, stdout io.Writer) error {
-	p, err := memoryProject(ctx, st, project)
+	p, err := memoryProject(ctx, st, *project)
 	if err != nil {
 		return err
 	}
@@ -129,21 +107,30 @@ func memoryShow(ctx context.Context, st *store.Store, project string, stdout io.
 	return err
 }
 
-func memorySet(ctx context.Context, st *store.Store, project, file string, stdin io.Reader, stdout io.Writer) error {
-	p, err := memoryProject(ctx, st, project)
+func memorySet(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
+	c := newCommand("reef memory set", _memorySetUsage, 1, 1)
+	project := c.fs.String("project", "", "")
+	st, pos, err := c.open(args)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+
+	p, err := memoryProject(ctx, st, *project)
 	if err != nil {
 		return err
 	}
 	var body []byte
-	if file == "-" {
+	if pos[0] == "-" {
 		body, err = io.ReadAll(stdin)
 	} else {
-		body, err = os.ReadFile(file)
+		body, err = os.ReadFile(pos[0])
 	}
 	if err != nil {
 		return fmt.Errorf("read memory: %w", err)
 	}
-	if _, err := st.PutProjectMemory(ctx, store.ProjectMemory{ProjectID: p.ID, Body: string(body)}); err != nil {
+	if _, err := st.PutProjectMemory(ctx,
+		store.ProjectMemory{ProjectID: p.ID, Body: string(body)}); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(stdout, "saved memory for project %s\n", p.Name)
@@ -163,17 +150,32 @@ func memoryProject(ctx context.Context, st *store.Store, ref string) (store.Proj
 	return st.Project(ctx, id)
 }
 
-func memoryAdd(ctx context.Context, st *store.Store, kind, body, scope, role, why string,
-	about, replaces []string, stdout io.Writer) error {
+func memoryAdd(ctx context.Context, args []string, stdout io.Writer) error {
+	c := newCommand("reef memory add", _memoryAddUsage, 2, 2)
+	scope := c.fs.String("scope", "", "")
+	role := c.fs.String("as", "", "")
+	why := c.fs.String("why", "", "")
+	var about, replaces listFlag
+	c.fs.Var(&about, "about", "")
+	c.fs.Var(&replaces, "replaces", "")
+	st, pos, err := c.open(args)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+
+	if *scope == "" {
+		return errors.New(_memoryAddUsage)
+	}
 	ms, err := openMemory(ctx, st)
 	if err != nil {
 		return err
 	}
-	w := memory.Writer{Author: _cliAuthor, Role: role}
-	if w.Scope, err = parseMemoryRef("--scope", scope); err != nil {
+	w := memory.Writer{Author: _cliAuthor, Role: *role}
+	if w.Scope, err = parseMemoryRef("--scope", *scope); err != nil {
 		return err
 	}
-	n := memory.Note{Kind: kind, Body: body, Why: why}
+	n := memory.Note{Kind: pos[0], Body: pos[1], Why: *why}
 	for _, a := range about {
 		r, err := parseMemoryRef("--about", a)
 		if err != nil {
@@ -203,14 +205,26 @@ func memoryAdd(ctx context.Context, st *store.Store, kind, body, scope, role, wh
 	return nil
 }
 
-func memoryRecall(ctx context.Context, st *store.Store, text, scope string, limit int, stdout io.Writer) error {
+func memoryRecall(ctx context.Context, args []string, stdout io.Writer) error {
+	c := newCommand("reef memory recall", _memoryRecallUsage, 1, 1)
+	scope := c.fs.String("scope", "", "")
+	limit := c.fs.Int("limit", 0, "")
+	st, pos, err := c.open(args)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+
+	if *limit < 0 {
+		return errors.New(_memoryRecallUsage)
+	}
 	ms, err := openMemory(ctx, st)
 	if err != nil {
 		return err
 	}
-	q := memory.Query{Text: text, Limit: limit}
-	if scope != "" {
-		r, err := parseMemoryRef("--scope", scope)
+	q := memory.Query{Text: pos[0], Limit: *limit}
+	if *scope != "" {
+		r, err := parseMemoryRef("--scope", *scope)
 		if err != nil {
 			return err
 		}
@@ -263,8 +277,15 @@ func memoryItem(ctx context.Context, st *store.Store, ref string, stdout io.Writ
 	return err
 }
 
-func memoryRetire(ctx context.Context, st *store.Store, ref string, stdout io.Writer) error {
-	ms, id, err := memoryByRef(ctx, st, ref)
+func memoryRetire(ctx context.Context, args []string, stdout io.Writer) error {
+	c := newCommand("reef memory retire", _memoryRetireUsage, 1, 1)
+	st, pos, err := c.open(args)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+
+	ms, id, err := memoryByRef(ctx, st, pos[0])
 	if err != nil {
 		return err
 	}
@@ -275,8 +296,15 @@ func memoryRetire(ctx context.Context, st *store.Store, ref string, stdout io.Wr
 	return err
 }
 
-func memoryApprove(ctx context.Context, st *store.Store, ref string, stdout io.Writer) error {
-	ms, id, err := memoryByRef(ctx, st, ref)
+func memoryApprove(ctx context.Context, args []string, stdout io.Writer) error {
+	c := newCommand("reef memory approve", _memoryApproveUsage, 1, 1)
+	st, pos, err := c.open(args)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+
+	ms, id, err := memoryByRef(ctx, st, pos[0])
 	if err != nil {
 		return err
 	}
@@ -287,7 +315,14 @@ func memoryApprove(ctx context.Context, st *store.Store, ref string, stdout io.W
 	return err
 }
 
-func memoryPending(ctx context.Context, st *store.Store, stdout io.Writer) error {
+func memoryPending(ctx context.Context, args []string, stdout io.Writer) error {
+	c := newCommand("reef memory pending", _memoryPendingUsage, 0, 0)
+	st, _, err := c.open(args)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+
 	ms, err := openMemory(ctx, st)
 	if err != nil {
 		return err
@@ -341,7 +376,25 @@ func memoryEmbedShow(ctx context.Context, st *store.Store, stdout io.Writer) err
 	return err
 }
 
-func memoryEmbed(
+func memoryEmbed(ctx context.Context, args []string, stdout io.Writer) error {
+	c := newCommand("reef memory embed", _memoryEmbedUsage, 0, 1)
+	key := c.fs.String("key", "", "")
+	st, pos, err := c.open(args)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+
+	if len(pos) == 0 {
+		if *key != "" {
+			return errors.New(_memoryEmbedUsage)
+		}
+		return memoryEmbedShow(ctx, st, stdout)
+	}
+	return memoryEmbedSet(ctx, st, pos[0], *key, stdout)
+}
+
+func memoryEmbedSet(
 	ctx context.Context, st *store.Store, provider, key string, stdout io.Writer,
 ) error {
 	prev, err := st.Setting(ctx, _settingEmbeddingProvider)
