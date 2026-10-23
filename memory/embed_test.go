@@ -128,11 +128,11 @@ func TestNearest_OrdersByCosine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := ids(hits), []int64{2, 6}; !reflect.DeepEqual(got, want) {
+	if got, want := ids(hits), []int64{6, 2}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("with retired: ids = %v, want %v", got, want)
 	}
-	if hits[1].Status != StatusRetired {
-		t.Fatalf("status = %q, want retired", hits[1].Status)
+	if hits[0].Status != StatusRetired {
+		t.Fatalf("status = %q, want retired", hits[0].Status)
 	}
 
 	hits, err = s.Nearest(ctx, "want nothing", f, 3)
@@ -145,7 +145,7 @@ func TestNearest_OrdersByCosine(t *testing.T) {
 	}
 }
 
-func ids(hits []Hit) []int64 {
+func ids(hits []Match) []int64 {
 	out := make([]int64, len(hits))
 	for i, h := range hits {
 		out[i] = h.ID

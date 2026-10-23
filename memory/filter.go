@@ -10,8 +10,8 @@ type Filter struct {
 	IncludeRetired bool
 }
 
-// Hit is one search result.
-type Hit struct {
+// Match is one search result.
+type Match struct {
 	ID     int64
 	Score  float64
 	Status string

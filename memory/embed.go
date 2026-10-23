@@ -164,8 +164,8 @@ func (s *Store) Backfill(ctx context.Context) (int, error) {
 }
 
 // Nearest returns up to k items that pass f and have a vector, closest to
-// query first. Score is the cosine similarity.
-func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]Hit, error) {
+// query first, newer first on a tie. Score is the cosine similarity.
+func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]Match, error) {
 	if k <= 0 || len(f.Scopes) == 0 {
 		return nil, nil
 	}
@@ -183,10 +183,10 @@ func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]H
 		return nil, fmt.Errorf("query vectors: %w", err)
 	}
 	defer rows.Close()
-	var hits []Hit
+	var hits []Match
 	for rows.Next() {
 		var (
-			h    Hit
+			h    Match
 			blob []byte
 		)
 		if err := rows.Scan(&h.ID, &h.Status, &blob); err != nil {
@@ -206,7 +206,7 @@ func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]H
 		if hits[i].Score != hits[j].Score {
 			return hits[i].Score > hits[j].Score
 		}
-		return hits[i].ID < hits[j].ID
+		return hits[i].ID > hits[j].ID
 	})
 	if len(hits) > k {
 		hits = hits[:k]

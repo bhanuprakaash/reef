@@ -7,10 +7,10 @@ import (
 	"unicode"
 )
 
-// Search returns accepted items that match any word of query, best first.
-// Retired items are included, marked by Status, when f.IncludeRetired is set.
-// Candidates are never returned.
-func (s *Store) Search(ctx context.Context, query string, f Filter) ([]Hit, error) {
+// Search returns accepted items that match any word of query, best first and
+// newer first on a tie. Retired items are included, marked by Status, when
+// f.IncludeRetired is set. Candidates are never returned.
+func (s *Store) Search(ctx context.Context, query string, f Filter) ([]Match, error) {
 	terms := strings.FieldsFunc(strings.ToLower(query), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	})
@@ -26,15 +26,15 @@ func (s *Store) Search(ctx context.Context, query string, f Filter) ([]Hit, erro
 		`SELECT m.id, -bm25(memory_fts), m.status
 		 FROM memory_fts JOIN memory m ON m.id = memory_fts.rowid
 		 WHERE memory_fts MATCH ? AND `+where+`
-		 ORDER BY bm25(memory_fts), m.id`,
+		 ORDER BY bm25(memory_fts), m.id DESC`,
 		append([]any{strings.Join(terms, " OR ")}, args...)...)
 	if err != nil {
 		return nil, fmt.Errorf("search memory: %w", err)
 	}
 	defer rows.Close()
-	var hits []Hit
+	var hits []Match
 	for rows.Next() {
-		var h Hit
+		var h Match
 		if err := rows.Scan(&h.ID, &h.Score, &h.Status); err != nil {
 			return nil, fmt.Errorf("scan hit: %w", err)
 		}
