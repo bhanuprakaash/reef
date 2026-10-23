@@ -341,13 +341,18 @@ func memoryEmbedShow(ctx context.Context, st *store.Store, stdout io.Writer) err
 	return err
 }
 
-func memoryEmbed(ctx context.Context, st *store.Store, provider, key string, stdout io.Writer) error {
+func memoryEmbed(
+	ctx context.Context, st *store.Store, provider, key string, stdout io.Writer,
+) error {
+	prev, err := st.Setting(ctx, _settingEmbeddingProvider)
+	if err != nil {
+		return err
+	}
 	switch provider {
 	case memory.ProviderNone:
 		key = ""
 	case memory.ProviderOpenAI, memory.ProviderVoyage:
-		if key == "" {
-			var err error
+		if key == "" && prev == provider {
 			if key, err = st.Setting(ctx, _settingEmbeddingKey); err != nil {
 				return err
 			}
@@ -356,11 +361,8 @@ func memoryEmbed(ctx context.Context, st *store.Store, provider, key string, std
 			return fmt.Errorf("%w: embedding provider %s needs --key", memory.ErrInvalid, provider)
 		}
 	default:
-		return fmt.Errorf("%w: embedding provider %q is not none, openai or voyage", memory.ErrInvalid, provider)
-	}
-	prev, err := st.Setting(ctx, _settingEmbeddingProvider)
-	if err != nil {
-		return err
+		return fmt.Errorf("%w: embedding provider %q is not none, openai or voyage",
+			memory.ErrInvalid, provider)
 	}
 	if err := st.SetSetting(ctx, _settingEmbeddingProvider, provider); err != nil {
 		return err
@@ -368,13 +370,18 @@ func memoryEmbed(ctx context.Context, st *store.Store, provider, key string, std
 	if err := st.SetSetting(ctx, _settingEmbeddingKey, key); err != nil {
 		return err
 	}
-	if (prev != "" && prev != memory.ProviderNone) || provider == memory.ProviderNone {
+	if provider == memory.ProviderNone {
 		_, err = fmt.Fprintf(stdout, "embedding provider %s\n", provider)
 		return err
 	}
 	ms, err := openMemory(ctx, st)
 	if err != nil {
 		return err
+	}
+	if provider != prev {
+		if err := ms.ClearVectors(ctx); err != nil {
+			return err
+		}
 	}
 	n, err := ms.Backfill(ctx)
 	if err != nil {

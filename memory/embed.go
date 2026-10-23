@@ -160,6 +160,14 @@ func (s *Store) Backfill(ctx context.Context) (int, error) {
 	return filled, nil
 }
 
+// ClearVectors drops every stored vector, so Backfill re-embeds with the current provider.
+func (s *Store) ClearVectors(ctx context.Context) error {
+	if _, err := s.db.ExecContext(ctx, `UPDATE memory SET vector = NULL`); err != nil {
+		return fmt.Errorf("clear vectors: %w", err)
+	}
+	return nil
+}
+
 // Nearest returns up to k items that pass f and have a vector, closest first. Score is
 // the cosine similarity; ties go to accepted before retired, then newer.
 func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]Match, error) {

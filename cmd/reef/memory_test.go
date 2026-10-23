@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -122,13 +123,22 @@ func TestCLI_MemoryItems(t *testing.T) {
 
 // Not parallel: it swaps http.DefaultClient's transport.
 func TestCLI_MemoryEmbed(t *testing.T) {
-	var auth []string
+	type call struct{ host, auth string }
+	var calls []call
+	fail := false
 	old := http.DefaultClient.Transport
 	http.DefaultClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		auth = append(auth, r.Header.Get("Authorization"))
+		calls = append(calls, call{r.URL.Host, r.Header.Get("Authorization")})
+		if fail {
+			return &http.Response{StatusCode: http.StatusInternalServerError, Body: http.NoBody}, nil
+		}
+		body := `{"data":[{"embedding":[0.5,0.25]}]}`
+		if r.URL.Host == "api.voyageai.com" {
+			body = `{"data":[{"embedding":[0.5,0.25,0.125]}]}`
+		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
-			Body:       io.NopCloser(strings.NewReader(`{"data":[{"embedding":[0.5,0.25]}]}`)),
+			Body:       io.NopCloser(strings.NewReader(body)),
 		}, nil
 	})
 	t.Cleanup(func() { http.DefaultClient.Transport = old })
@@ -154,61 +164,95 @@ func TestCLI_MemoryEmbed(t *testing.T) {
 			outputs = append(outputs, err.Error())
 		}
 	}
-	vectors := func() int {
+	query := func(q string) string {
 		t.Helper()
 		st, err := store.Open(dir)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer func() { _ = st.Close() }()
-		var n int
-		if err := st.DB().QueryRow("SELECT count(*) FROM memory WHERE vector IS NOT NULL").Scan(&n); err != nil {
+		var got string
+		if err := st.DB().QueryRow(q).Scan(&got); err != nil {
 			t.Fatal(err)
 		}
-		return n
+		return got
 	}
+	const vectors = "SELECT count(*) FROM memory WHERE vector IS NOT NULL"
+	const sizes = "SELECT min(length(vector)) || '-' || max(length(vector)) FROM memory"
 
 	if got, want := do("memory", "embed"), "none\n"; got != want {
 		t.Fatalf("embed = %q, want %q", got, want)
 	}
 	do("memory", "add", "decision", "Use JWT for sessions", "--scope", "project:1")
-	if n := vectors(); n != 0 {
-		t.Fatalf("vectors with no provider = %d, want 0", n)
+	if n := query(vectors); n != "0" {
+		t.Fatalf("vectors with no provider = %s, want 0", n)
 	}
 	if got, want := do("memory", "embed", "openai", "--key", "sk-test-SECRET"),
 		"embedding provider openai; embedded 1 items\n"; got != want {
 		t.Fatalf("embed openai = %q, want %q", got, want)
 	}
-	if n := vectors(); n != 1 {
-		t.Fatalf("vectors after backfill = %d, want 1", n)
+	if n := query(vectors); n != "1" {
+		t.Fatalf("vectors after backfill = %s, want 1", n)
 	}
 	do("memory", "add", "decision", "Use cookie sessions", "--scope", "project:1")
-	if n := vectors(); n != 2 {
-		t.Fatalf("vectors after add = %d, want 2", n)
+	if n := query(vectors); n != "2" {
+		t.Fatalf("vectors after add = %s, want 2", n)
 	}
 	if got, want := do("memory", "embed"), "openai\n"; got != want {
 		t.Fatalf("embed = %q, want %q", got, want)
 	}
-	if got, want := do("memory", "embed", "openai"), "embedding provider openai\n"; got != want {
+	if got, want := do("memory", "embed", "openai"),
+		"embedding provider openai; embedded 0 items\n"; got != want {
 		t.Fatalf("embed openai again = %q, want %q", got, want)
 	}
-	if len(auth) == 0 {
-		t.Error("the embedding service was never called")
+
+	fails("invalid: embedding provider voyage needs --key", "memory", "embed", "voyage")
+	if got, want := do("memory", "embed"), "openai\n"; got != want {
+		t.Fatalf("embed after refused switch = %q, want %q", got, want)
 	}
-	for i, a := range auth {
-		if a != "Bearer sk-test-SECRET" {
-			t.Errorf("request %d Authorization = %q, want %q", i, a, "Bearer sk-test-SECRET")
+	if got, want := do("memory", "embed", "voyage", "--key", "vk-test-SECRET"),
+		"embedding provider voyage; embedded 2 items\n"; got != want {
+		t.Fatalf("embed voyage = %q, want %q", got, want)
+	}
+	if got, want := query(sizes), "12-12"; got != want {
+		t.Fatalf("vector bytes after switch to voyage = %s, want %s", got, want)
+	}
+
+	fail = true
+	fails("embed 1: openai embeddings: status 500",
+		"memory", "embed", "openai", "--key", "sk-2-SECRET")
+	if n := query(vectors); n != "0" {
+		t.Fatalf("vectors after failed switch = %s, want 0", n)
+	}
+	fail = false
+	if got, want := do("memory", "embed", "openai"),
+		"embedding provider openai; embedded 2 items\n"; got != want {
+		t.Fatalf("embed openai retry = %q, want %q", got, want)
+	}
+	if got, want := query(sizes), "8-8"; got != want {
+		t.Fatalf("vector bytes after retry = %s, want %s", got, want)
+	}
+
+	wantAuth := map[string][]string{
+		"api.openai.com":   {"Bearer sk-test-SECRET", "Bearer sk-2-SECRET"},
+		"api.voyageai.com": {"Bearer vk-test-SECRET"},
+	}
+	for i, c := range calls {
+		if !slices.Contains(wantAuth[c.host], c.auth) {
+			t.Errorf("request %d to %s: Authorization = %q, want one of %q",
+				i, c.host, c.auth, wantAuth[c.host])
 		}
 	}
 
-	fails(`invalid: embedding provider "bogus" is not none, openai or voyage`, "memory", "embed", "bogus")
+	fails(`invalid: embedding provider "bogus" is not none, openai or voyage`,
+		"memory", "embed", "bogus")
 	if got, want := do("memory", "embed", "none"), "embedding provider none\n"; got != want {
 		t.Fatalf("embed none = %q, want %q", got, want)
 	}
 	fails("invalid: embedding provider voyage needs --key", "memory", "embed", "voyage")
 	for _, out := range outputs {
-		if strings.Contains(out, "sk-test-SECRET") {
-			t.Errorf("output %q shows the key", out)
+		if strings.Contains(out, "SECRET") {
+			t.Errorf("output %q shows a key", out)
 		}
 	}
 }
