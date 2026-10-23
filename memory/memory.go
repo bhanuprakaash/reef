@@ -218,9 +218,24 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
-// statusFor is where write authority will live: which writer may make which
-// kind accepted on write.
+// _acceptedRoles lists the roles whose writes of a kind are accepted. A kind
+// with no entry is accepted from any role.
+var _acceptedRoles = map[string]map[string]bool{
+	KindConvention: {"architect": true, "lead": true},
+}
+
+// statusFor is the status a write gets. The user is always accepted; anyone
+// else is a candidate in team scope or when their role may not write the kind.
 func statusFor(w Writer, kind string) string {
+	if w.Author == "user" {
+		return StatusAccepted
+	}
+	if w.Scope.Kind == ScopeTeam {
+		return StatusCandidate
+	}
+	if roles := _acceptedRoles[kind]; roles != nil && !roles[w.Role] {
+		return StatusCandidate
+	}
 	return StatusAccepted
 }
 

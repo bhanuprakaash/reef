@@ -97,6 +97,38 @@ func TestRemember_WritesItemAndLinks(t *testing.T) {
 	}
 }
 
+func TestRemember_Status(t *testing.T) {
+	project := Ref{Kind: ScopeProject, ID: "1"}
+	team := Ref{Kind: ScopeTeam, ID: "1"}
+	tests := []struct {
+		name string
+		give Writer
+		kind string
+		want string
+	}{
+		{"convention by developer", Writer{Author: "ada", Role: "developer", Scope: project}, KindConvention, "candidate"},
+		{"convention by architect", Writer{Author: "bo", Role: "architect", Scope: project}, KindConvention, "accepted"},
+		{"convention by user", Writer{Author: "user", Scope: project}, KindConvention, "accepted"},
+		{"decision by developer", Writer{Author: "ada", Role: "developer", Scope: project}, KindDecision, "accepted"},
+		{"decision by tester", Writer{Author: "cy", Role: "tester", Scope: project}, KindDecision, "accepted"},
+		{"finding by tester", Writer{Author: "cy", Role: "tester", Scope: project}, KindFinding, "accepted"},
+		{"lesson in team scope by lead", Writer{Author: "di", Role: "lead", Scope: team}, KindLesson, "candidate"},
+		{"lesson in project scope by developer", Writer{Author: "ada", Role: "developer", Scope: project}, KindLesson, "accepted"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			s, _ := openTest(t)
+			res, err := s.Remember(context.Background(), tt.give, Note{Kind: tt.kind, Body: "x"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if res.Item.Status != tt.want {
+				t.Fatalf("status = %q, want %q", res.Item.Status, tt.want)
+			}
+		})
+	}
+}
+
 func TestRemember_Invalid(t *testing.T) {
 	s, db := openTest(t)
 	tests := []struct {
@@ -222,7 +254,7 @@ func TestRetire_NothingReplacing(t *testing.T) {
 func TestAccept_CandidateBecomesAccepted(t *testing.T) {
 	s, db := openTest(t)
 	ctx := context.Background()
-	res, err := s.Remember(ctx, writer(), Note{Kind: KindConvention, Body: "tabs"})
+	res, err := s.Remember(ctx, writer(), Note{Kind: KindFact, Body: "tabs"})
 	if err != nil {
 		t.Fatal(err)
 	}
