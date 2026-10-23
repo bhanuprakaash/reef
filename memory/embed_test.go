@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 type fakeEmbedder struct {
@@ -260,6 +261,23 @@ func TestEmbedders_ErrorsNameStatusNotKey(t *testing.T) {
 				t.Fatalf("err = %v, want one with 401 and no key", err)
 			}
 		})
+	}
+}
+
+func TestNewEmbedder_DefaultClientTimesOut(t *testing.T) {
+	e, err := NewEmbedder(EmbedConfig{Provider: ProviderOpenAI, Key: "k"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e.(openAIEmbedder).hc.Timeout, 10*time.Second; got != want {
+		t.Fatalf("timeout = %v, want %v", got, want)
+	}
+	e, err = NewEmbedder(EmbedConfig{Provider: ProviderVoyage, Key: "k"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e.(voyageEmbedder).hc.Timeout, 10*time.Second; got != want {
+		t.Fatalf("voyage timeout = %v, want %v", got, want)
 	}
 }
 

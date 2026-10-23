@@ -5,11 +5,13 @@ import (
 	"context"
 	"encoding/binary"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"net/http"
 	"slices"
 	"sort"
+	"time"
 )
 
 const (
@@ -25,7 +27,12 @@ const (
 	_voyageModel = "voyage-3-lite"
 )
 
-const _minCosine = 0.3
+const (
+	_minCosine    = 0.3
+	_embedTimeout = 10 * time.Second
+)
+
+var _errEmbedQuery = errors.New("embed query")
 
 // Embedder turns text into a vector. A nil vector with a nil error means none.
 type Embedder interface {
@@ -66,10 +73,11 @@ func (e voyageEmbedder) Embed(ctx context.Context, text string) ([]float32, erro
 }
 
 // NewEmbedder returns the embedder c names. An empty key or provider gives the none
-// embedder; an unknown provider is an error. A nil hc means http.DefaultClient.
+// embedder; an unknown provider is an error. A nil hc means a client that gives up after
+// 10 seconds.
 func NewEmbedder(c EmbedConfig, hc *http.Client) (Embedder, error) {
 	if hc == nil {
-		hc = http.DefaultClient
+		hc = &http.Client{Timeout: _embedTimeout}
 	}
 	switch c.Provider {
 	case "", ProviderNone:
@@ -180,7 +188,7 @@ func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]M
 	}
 	q, err := s.embed.Embed(ctx, query)
 	if err != nil {
-		return nil, fmt.Errorf("embed query: %w", err)
+		return nil, fmt.Errorf("%w: %w", _errEmbedQuery, err)
 	}
 	if q == nil {
 		return nil, nil

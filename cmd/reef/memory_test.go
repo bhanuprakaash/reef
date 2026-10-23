@@ -172,13 +172,13 @@ func TestCLI_MemoryEachCommandHasItsOwnFlags(t *testing.T) {
 	}
 }
 
-// Not parallel: it swaps http.DefaultClient's transport.
+// Not parallel: it swaps http.DefaultTransport.
 func TestCLI_MemoryEmbed(t *testing.T) {
 	type call struct{ host, auth string }
 	var calls []call
 	fail := false
-	old := http.DefaultClient.Transport
-	http.DefaultClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+	old := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		calls = append(calls, call{r.URL.Host, r.Header.Get("Authorization")})
 		if fail {
 			return &http.Response{StatusCode: http.StatusInternalServerError, Body: http.NoBody}, nil
@@ -192,7 +192,7 @@ func TestCLI_MemoryEmbed(t *testing.T) {
 			Body:       io.NopCloser(strings.NewReader(body)),
 		}, nil
 	})
-	t.Cleanup(func() { http.DefaultClient.Transport = old })
+	t.Cleanup(func() { http.DefaultTransport = old })
 
 	dir := t.TempDir()
 	var outputs []string

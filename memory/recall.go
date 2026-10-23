@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"sort"
@@ -62,8 +63,11 @@ func (s *Store) Recall(ctx context.Context, q Query) ([]Hit, error) {
 	if err != nil {
 		return nil, err
 	}
+	meaning, err := s.Nearest(ctx, q.Text, f, _candidates)
 	// A failing embedder must not fail recall: words alone answer.
-	meaning, _ := s.Nearest(ctx, q.Text, f, _candidates)
+	if err != nil && !errors.Is(err, _errEmbedQuery) {
+		return nil, err
+	}
 
 	found := make(map[int64]*Hit)
 	for _, list := range [][]Match{words, meaning} {

@@ -2,9 +2,11 @@ package memory
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -242,6 +244,25 @@ func TestRecall_EmbedFailureFallsBackToWords(t *testing.T) {
 	hits := recall(t, s, Query{Scopes: []Ref{shelf}, Text: "cache"})
 	if got, want := hitIDs(hits), []int64{1}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("ids = %v, want %v", got, want)
+	}
+}
+
+type breakVectorsEmbedder struct{ db *sql.DB }
+
+func (b breakVectorsEmbedder) Embed(ctx context.Context, _ string) ([]float32, error) {
+	_, err := b.db.ExecContext(ctx, `ALTER TABLE memory RENAME COLUMN vector TO vec`)
+	return []float32{1, 0}, err
+}
+
+func TestRecall_VectorQueryErrorIsReturned(t *testing.T) {
+	s, db := openTest(t)
+	shelf := Ref{Kind: ScopeProject, ID: "1"}
+	put(t, s, shelf, Note{Body: "cache the token"})
+	s.embed = breakVectorsEmbedder{db}
+
+	_, err := s.Recall(context.Background(), Query{Scopes: []Ref{shelf}, Text: "cache"})
+	if err == nil || !strings.Contains(err.Error(), "query vectors") {
+		t.Fatalf("err = %v, want a query vectors error", err)
 	}
 }
 
