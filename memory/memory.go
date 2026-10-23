@@ -119,8 +119,9 @@ func Open(db *sql.DB, e Embedder) (*Store, error) {
 }
 
 // Remember writes one item with its links, all or nothing. Each id in n.Replaces must be a
-// live item; it is retired and points at the new one. Lookalikes are reported in
-// Result.Similar but never block the write.
+// live item. When the new item is accepted they are retired and point at it; when it is a
+// candidate they stay live until Accept. Lookalikes are reported in Result.Similar but
+// never block the write.
 func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) {
 	if err := validate(w, n); err != nil {
 		return Result{}, err
@@ -153,11 +154,11 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 	defer func() { _ = tx.Rollback() }()
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
+	status := statusFor(w, n.Kind)
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO memory (kind, body, why, scope_kind, scope_id, author, role, status, created_at, vector)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.Kind, n.Body, n.Why, w.Scope.Kind, w.Scope.ID, w.Author, w.Role,
-		statusFor(w, n.Kind), now, blob)
+		n.Kind, n.Body, n.Why, w.Scope.Kind, w.Scope.ID, w.Author, w.Role, status, now, blob)
 	if err != nil {
 		return Result{}, fmt.Errorf("insert item: %w", err)
 	}
@@ -173,7 +174,12 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 		}
 	}
 	for _, old := range n.Replaces {
-		if err := retire(ctx, tx, old, &id, now); err != nil {
+		if status == StatusCandidate {
+			err = checkLive(ctx, tx, old)
+		} else {
+			err = retire(ctx, tx, old, &id, now)
+		}
+		if err != nil {
 			return Result{}, fmt.Errorf("replace %d: %w", old, err)
 		}
 	}
@@ -197,15 +203,38 @@ func (s *Store) Retire(ctx context.Context, id int64) error {
 	return retire(ctx, s.db, id, nil, time.Now().UTC().Format(time.RFC3339Nano))
 }
 
-// Accept moves a candidate to accepted.
+// Accept moves a candidate to accepted and retires the items it replaces, skipping any
+// already retired.
 func (s *Store) Accept(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	res, err := tx.ExecContext(ctx,
 		`UPDATE memory SET status = ? WHERE id = ? AND status = ?`,
 		StatusAccepted, id, StatusCandidate)
 	if err != nil {
 		return fmt.Errorf("accept %d: %w", id, err)
 	}
-	return checkChanged(ctx, s.db, res, id, "not a candidate")
+	if err := checkChanged(ctx, tx, res, id, "not a candidate"); err != nil {
+		return err
+	}
+	old, err := replacesOf(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	for _, o := range old {
+		if err := retire(ctx, tx, o, &id, now); err != nil && !errors.Is(err, ErrInvalid) {
+			return fmt.Errorf("replace %d: %w", o, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit: %w", err)
+	}
+	return nil
 }
 
 // Scopes returns every scope that holds an item of any status.
@@ -311,6 +340,40 @@ func retire(ctx context.Context, q querier, id int64, replacedBy *int64, now str
 		return fmt.Errorf("retire %d: %w", id, err)
 	}
 	return checkChanged(ctx, q, res, id, "already retired")
+}
+
+func checkLive(ctx context.Context, q querier, id int64) error {
+	var status string
+	err := q.QueryRowContext(ctx, `SELECT status FROM memory WHERE id = ?`, id).Scan(&status)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("memory %d: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("check %d: %w", id, err)
+	}
+	if status == StatusRetired {
+		return fmt.Errorf("%w: memory %d is already retired", ErrInvalid, id)
+	}
+	return nil
+}
+
+func replacesOf(ctx context.Context, q querier, id int64) ([]int64, error) {
+	rows, err := q.QueryContext(ctx,
+		`SELECT CAST(to_id AS INTEGER) FROM memory_link
+		 WHERE from_id = ? AND rel = ? AND to_kind = 'memory' ORDER BY rowid`, id, RelReplaces)
+	if err != nil {
+		return nil, fmt.Errorf("query replaces of %d: %w", id, err)
+	}
+	defer rows.Close()
+	var out []int64
+	for rows.Next() {
+		var old int64
+		if err := rows.Scan(&old); err != nil {
+			return nil, fmt.Errorf("scan replaced: %w", err)
+		}
+		out = append(out, old)
+	}
+	return out, rows.Err()
 }
 
 func checkChanged(ctx context.Context, q querier, res sql.Result, id int64, reason string) error {

@@ -289,6 +289,72 @@ func TestAccept_CandidateBecomesAccepted(t *testing.T) {
 	}
 }
 
+func TestAccept_RetiresWhatTheCandidateReplaces(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	project := Ref{Kind: ScopeProject, ID: "1"}
+	if _, err := s.Remember(ctx, Writer{Author: "user", Scope: project},
+		Note{Kind: KindConvention, Body: "use tabs"}); err != nil {
+		t.Fatal(err)
+	}
+	res, err := s.Remember(ctx, Writer{Author: "ada", Role: "developer", Scope: project},
+		Note{Kind: KindConvention, Body: "use spaces", Replaces: []int64{1}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.Item.ID != 2 || res.Item.Status != StatusCandidate {
+		t.Fatalf("new item = %+v, want candidate 2", res.Item)
+	}
+	link := Link{Rel: RelReplaces, ToKind: "memory", ToID: "1"}
+	if res.Item.Links[len(res.Item.Links)-1] != link {
+		t.Fatalf("links = %+v, want the replaces link kept", res.Item.Links)
+	}
+
+	old, err := s.Read(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if old.Status != StatusAccepted || old.ReplacedBy != nil {
+		t.Fatalf("old after unapproved replace = %+v, want accepted", old)
+	}
+	hits := recall(t, s, Query{Scopes: []Ref{project}, Text: "tabs"})
+	if len(hits) == 0 || hits[0].ID != 1 || hits[0].Status != StatusAccepted {
+		t.Fatalf("recall of tabs = %+v, want accepted 1 first", hits)
+	}
+
+	if err := s.Accept(ctx, 2); err != nil {
+		t.Fatal(err)
+	}
+	if old, err = s.Read(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if old.Status != StatusRetired || old.RetiredAt == nil ||
+		old.ReplacedBy == nil || *old.ReplacedBy != 2 {
+		t.Fatalf("old after accept = %+v, want retired, replaced_by 2", old)
+	}
+}
+
+func TestRemember_CandidateReplacingRetiredFails(t *testing.T) {
+	s, db := openTest(t)
+	ctx := context.Background()
+	project := Ref{Kind: ScopeProject, ID: "1"}
+	if _, err := s.Remember(ctx, Writer{Author: "user", Scope: project},
+		Note{Kind: KindConvention, Body: "use tabs"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Retire(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	_, err := s.Remember(ctx, Writer{Author: "ada", Role: "developer", Scope: project},
+		Note{Kind: KindConvention, Body: "use spaces", Replaces: []int64{1}})
+	if !errors.Is(err, ErrInvalid) || err.Error() != "replace 1: invalid: memory 1 is already retired" {
+		t.Fatalf("err = %v, want replace 1: invalid: memory 1 is already retired", err)
+	}
+	if n := count(t, db, `SELECT count(*) FROM memory`); n != 1 {
+		t.Fatalf("items = %d, want 1", n)
+	}
+}
+
 func TestRead_Missing(t *testing.T) {
 	s, _ := openTest(t)
 	if _, err := s.Read(context.Background(), 1); !errors.Is(err, ErrNotFound) {
