@@ -220,3 +220,48 @@ blob body
 
 - Expanded via: `TestCLI_MemoryItems` checks `recall cookie` prints `1  retired  decision  project:1  replaces memory:1  Use JWT for sessions`.
 - docs/memory.md CLI table rows 84 to 89 list the new commands; rows 82 and 83 say the blob commands leave with the context assembler.
+
+## #31 Embedding settings
+
+Commit `4b4ff25`.
+
+```
+$ go test -count=1 ./store ./cmd/reef
+ok  	github.com/bhanuprakaash/reef/store	2.187s
+ok  	github.com/bhanuprakaash/reef/cmd/reef	1.183s
+
+$ go test -count=1 -v -run 'TestCLI_MemoryEmbed|TestSetting' ./cmd/reef ./store | grep -E '^--- '
+--- PASS: TestCLI_MemoryEmbed (0.03s)
+```
+
+- Vector with a key, none without: `TestCLI_MemoryEmbed` swaps `http.DefaultClient.Transport` for a fake that answers the OpenAI shape. `memory add` before any setting stores 0 vectors; `memory embed openai --key sk-test-SECRET` prints `embedding provider openai; embedded 1 items`; every item then has a vector; the next `memory add` stores one; the fake saw `Bearer sk-test-SECRET`.
+- Key never printed: the same test collects stdout and stderr of every command and finds no `sk-test-SECRET`.
+
+Real binary on a fresh data dir, key `sk-test-SECRET-7f3a` (fake; the real OpenAI API answered 429):
+
+```
+$ reef memory embed
+none
+$ reef memory add decision "Use sessions, not JWT" --scope project:1
+1  accepted  decision  project:1  Use sessions, not JWT
+vectors stored: 0
+$ reef memory embed openai --key <KEY>
+reef: embed 1: openai embeddings: status 429
+exit=1
+$ reef memory embed
+openai
+$ reef memory show 1
+1  accepted  decision  project:1  Use sessions, not JWT
+author  user
+$ reef memory recall sessions
+1  accepted  decision  project:1  direct  Use sessions, not JWT
+$ reef memory embed bogus
+reef: invalid: embedding provider "bogus" is not none, openai or voyage
+exit=1
+$ reef serve --addr 127.0.0.1:7791 ; curl /projects /providers /profile /features /channels /inbox /decisions /search?q=sessions
+(real JSON bodies, 701 bytes with the CLI output)
+grep -c key in CLI + REST + server log output: 0
+key stored in db: 1
+```
+
+- No REST route reads the `setting` table: `grep -rn setting server/*.go` matches only an unrelated GitHub comment and test name.
