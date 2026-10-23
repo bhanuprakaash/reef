@@ -50,7 +50,7 @@ Locally the channel system prompt reached roughly seven or eight screens. This i
 
 ## Open questions
 
-- Memory: data model, extraction, promotion from candidate to accepted, retrieval shape, how it replaces brief and role notes, SQLite versus a graph engine. Next discussion.
+- Memory: settled as R15–R27.
 - Ask a Teammate: depth, duration and cost limits.
 - Space continuation: what triggers a new Space for the same Work item.
 - Sub-item cap: whether a Team may create at most N sub-items under one parent without a Review. Deferred.
