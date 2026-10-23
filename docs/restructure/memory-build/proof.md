@@ -139,3 +139,84 @@ memory/lookalike.go:68:	if float64(found)/float64(len(want)) < _similarTermShare
 ```
 
 - Near-duplicate: "retry the upload three times" then "retry the upload three times on failure" returns similar `[{1 retry the upload three times}]` and the table holds 2 items.
+
+## #29 Eval harness
+
+Commits `37d02ca` (harness) and `f8f1131` (fix the eval found: a retired item outranked a live one on equal scores).
+
+```
+$ go test -count=1 ./memory/eval
+ok  	github.com/bhanuprakaash/reef/memory/eval	0.053s
+
+$ go test -count=1 -v ./memory/eval | grep -E "^eval:|SKIP|FAIL"
+eval: 26 scenarios, 3 skipped, recall@10=1.000 mrr=1.000 (thresholds 1.00, 1.00)
+    --- SKIP: TestRecall/synonym-login-expiry (0.00s)
+    --- SKIP: TestRecall/synonym-flaky-tests (0.00s)
+    --- SKIP: TestRecall/synonym-database-choice (0.00s)
+
+$ go test -count=1 -v ./memory/eval | grep -cE "^    --- PASS"
+26
+
+$ go test -count=1 -tags embed ./memory/eval   # no key in env: synonym cases skip
+ok  	github.com/bhanuprakaash/reef/memory/eval	0.052s
+```
+
+- Prints recall@10 and MRR: the `eval:` line. `go test` hides a passing package's output in package-list mode, so it shows with `-v` or from inside `memory/eval`.
+- Forbidden check: adding `burst` (which is returned) to the forbidden list of `direct-two-matches` failed with `forbidden burst returned; results: [limit burst]`; reverted.
+- Thresholds after the first green run: recall@10 1.0, MRR 0.98. After the tie fix: MRR 1.0. Recorded in the run file and in `memory/eval/fixture.json`.
+- Tie fix, test first: `TestRecall_LiveBeforeNewerRetiredOnEqualScore` failed with `ids = [2 1], want [1 2]` before the fix and passes after.
+- Not run: synonym cases against a real embedder (no key here).
+
+## #30 reef memory CLI
+
+Commit `de1fabc`.
+
+```
+$ go test -count=1 ./cmd/reef
+ok  	github.com/bhanuprakaash/reef/cmd/reef	1.161s
+
+$ go test -count=1 -v -run 'TestCLI_Memory' ./cmd/reef | grep -E '^--- '
+--- PASS: TestCLI_Memory (0.02s)
+--- PASS: TestCLI_MemoryItems (0.04s)
+```
+
+Real binary (`go build -o /tmp/reef-proof ./cmd/reef`) on a fresh data dir, from a fresh folder; every call has `--data $D`:
+
+```
+$ reef project add --name shop
+1  shop  /tmp/reef-proof-proj.6V6z
+$ reef memory add decision "Use sessions, not JWT" --scope project:1 --why stateless
+1  accepted  decision  project:1  Use sessions, not JWT
+$ reef memory add convention "Wrap errors with %w" --scope team:core --as developer
+2  accepted  convention  team:core  Wrap errors with %w
+$ reef memory add decision "Use signed cookie sessions" --scope project:1 --about work_item:12 --replaces 1
+3  accepted  decision  project:1  Use signed cookie sessions
+$ reef memory recall sessions
+3  accepted  decision  project:1  direct  Use signed cookie sessions
+1  retired  decision  project:1  direct  Use sessions, not JWT
+$ reef memory show 3
+3  accepted  decision  project:1  Use signed cookie sessions
+author  user
+link  about  work_item:12
+link  replaces  memory:1
+$ python3 sqlite: UPDATE memory SET status='candidate' WHERE id=2   # the CLI writes as user, so it never makes a candidate
+$ reef memory pending
+2  candidate  convention  team:core  Wrap errors with %w
+$ reef memory approve 2
+2  accepted
+$ reef memory pending
+$ reef memory approve 3
+reef: invalid: memory 3 is not a candidate
+exit=1
+$ reef memory retire 3
+3  retired
+$ echo "blob body" | reef memory set -
+saved memory for project shop
+$ reef memory
+blob body
+$ reef memory show
+blob body
+```
+
+- Expanded via: `TestCLI_MemoryItems` checks `recall cookie` prints `1  retired  decision  project:1  replaces memory:1  Use JWT for sessions`.
+- docs/memory.md CLI table rows 84 to 89 list the new commands; rows 82 and 83 say the blob commands leave with the context assembler.
