@@ -2,7 +2,7 @@
 
 [Back to restructuring index](index.md)
 
-> Status: design direction only. We will drill into implementation choices and tests separately before integrating anything with Reef.
+> Status: design direction only; next discussion. Reef is single-user (R1 in [decisions.md](decisions.md)), so the scope and access language below means relevance filtering, not access control. To be refined after the memory discussion.
 
 ## Intent
 
