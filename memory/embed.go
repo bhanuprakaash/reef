@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"math"
 	"net/http"
+	"slices"
 	"sort"
 )
 
@@ -23,6 +24,8 @@ const (
 	_voyageURL   = "https://api.voyageai.com/v1/embeddings"
 	_voyageModel = "voyage-3-lite"
 )
+
+const _minCosine = 0.3
 
 // Embedder turns text into a vector. A nil vector with a nil error means none.
 type Embedder interface {
@@ -168,8 +171,9 @@ func (s *Store) ClearVectors(ctx context.Context) error {
 	return nil
 }
 
-// Nearest returns up to k items that pass f and have a vector, closest first. Score is
-// the cosine similarity; ties go to accepted before retired, then newer.
+// Nearest returns up to k items that pass f and have a vector with a cosine similarity of
+// at least 0.3, closest first. Score is the cosine similarity; ties go to accepted before
+// retired, then newer.
 func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]Match, error) {
 	if k <= 0 || len(f.Scopes) == 0 {
 		return nil, nil
@@ -185,6 +189,7 @@ func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]M
 	if err != nil {
 		return nil, err
 	}
+	hits = slices.DeleteFunc(hits, func(h Match) bool { return h.Score < _minCosine })
 	if len(hits) > k {
 		hits = hits[:k]
 	}

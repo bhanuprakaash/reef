@@ -116,7 +116,7 @@ func TestNearest_OrdersByCosine(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got, want := ids(hits), []int64{2, 4, 1}; !reflect.DeepEqual(got, want) {
+	if got, want := ids(hits), []int64{2, 4}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("ids = %v, want %v", got, want)
 	}
 	if hits[0].Score < 0.99 || hits[0].Status != StatusAccepted {

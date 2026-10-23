@@ -195,10 +195,10 @@ func TestRecall_FusesMeaningMatches(t *testing.T) {
 	put(t, s, shelf, Note{Body: "deploy on friday"})
 
 	hits := recall(t, s, Query{Scopes: []Ref{shelf}, Text: "cache"})
-	if got, want := hitIDs(hits), []int64{1, 2, 3}; !reflect.DeepEqual(got, want) {
-		t.Fatalf("ids = %v, want %v", got, want)
+	if got, want := hitIDs(hits), []int64{1, 2}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ids = %v, want %v (item 3 is orthogonal to the query)", got, want)
 	}
-	if got, want := vias(hits), []string{"direct", "direct", "direct"}; !reflect.DeepEqual(got, want) {
+	if got, want := vias(hits), []string{"direct", "direct"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("via = %v, want %v", got, want)
 	}
 }

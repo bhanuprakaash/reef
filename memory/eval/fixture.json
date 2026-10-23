@@ -58,11 +58,12 @@
       "items": [
         { "ref": "expiry", "kind": "decision", "scope": "project:1", "body": "Sessions expire after fifteen minutes of inactivity" },
         { "ref": "exports", "kind": "fact", "scope": "project:1", "body": "Billing exports run nightly at 02:00 UTC" },
-        { "ref": "tests", "kind": "convention", "scope": "project:1", "body": "Name Go test files after the package under test" }
+        { "ref": "tests", "kind": "convention", "scope": "project:1", "body": "Name Go test files after the package under test" },
+        { "ref": "coffee", "kind": "fact", "scope": "project:1", "body": "The office coffee machine is descaled every March" }
       ],
       "query": { "text": "how long can a user stay signed in while idle", "scopes": ["project:1"] },
       "expect": ["expiry"],
-      "forbidden": []
+      "forbidden": ["coffee"]
     },
     {
       "name": "synonym-flaky-tests",
@@ -71,11 +72,12 @@
       "items": [
         { "ref": "flaky", "kind": "finding", "scope": "project:1", "body": "The checkout suite fails intermittently when run in parallel" },
         { "ref": "logo", "kind": "fact", "scope": "project:1", "body": "The logo is exported as SVG from the design file" },
-        { "ref": "retries", "kind": "finding", "scope": "project:1", "body": "The upload retries three times with backoff" }
+        { "ref": "retries", "kind": "finding", "scope": "project:1", "body": "The upload retries three times with backoff" },
+        { "ref": "coffee", "kind": "fact", "scope": "project:1", "body": "The office coffee machine is descaled every March" }
       ],
       "query": { "text": "unreliable concurrent test runs", "scopes": ["project:1"] },
       "expect": ["flaky"],
-      "forbidden": []
+      "forbidden": ["coffee"]
     },
     {
       "name": "synonym-database-choice",
@@ -84,11 +86,12 @@
       "items": [
         { "ref": "sqlite", "kind": "decision", "scope": "project:1", "body": "Store everything in a single SQLite file on the user's Mac", "why": "No server for one user" },
         { "ref": "css", "kind": "convention", "scope": "project:1", "body": "Style the settings page with the shared form components" },
-        { "ref": "exports", "kind": "fact", "scope": "project:1", "body": "Billing exports run nightly at 02:00 UTC" }
+        { "ref": "exports", "kind": "fact", "scope": "project:1", "body": "Billing exports run nightly at 02:00 UTC" },
+        { "ref": "coffee", "kind": "fact", "scope": "project:1", "body": "The office coffee machine is descaled every March" }
       ],
       "query": { "text": "where does persistent data live", "scopes": ["project:1"] },
       "expect": ["sqlite"],
-      "forbidden": []
+      "forbidden": ["coffee"]
     },
     {
       "name": "replaced-new-ranks-first",
