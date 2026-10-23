@@ -64,3 +64,28 @@ $ go test -count=1 -run Search -v ./memory | grep -E "^\s*--- "
 --- PASS: TestSearch_FindsLaterWrites (0.00s)
 --- PASS: TestSearch_QueryNeverBreaksSyntax (0.00s)
 ```
+
+## #26 Embeddings, optional
+
+Commit `97b297b`. The `none` test also runs Search: it was merged after the full-text search ticket.
+
+```
+$ go test -count=1 -v -run 'TestNone|TestNearest|TestRemember_StoresWhen|TestEmbedders|TestNewEmbedder' ./memory | grep -E '^\s*--- '
+--- PASS: TestNone_MakesNoHTTPCall (0.01s)
+    --- PASS: TestNone_MakesNoHTTPCall/empty_config (0.00s)
+    --- PASS: TestNone_MakesNoHTTPCall/provider_none_with_key (0.00s)
+    --- PASS: TestNone_MakesNoHTTPCall/openai_without_key (0.00s)
+    --- PASS: TestNone_MakesNoHTTPCall/voyage_without_key (0.00s)
+--- PASS: TestNearest_OrdersByCosine (0.00s)
+--- PASS: TestRemember_StoresWhenEmbedderFailsThenBackfills (0.00s)
+--- PASS: TestEmbedders_VendorShapes (0.00s)
+    --- PASS: TestEmbedders_VendorShapes/openai (0.00s)
+    --- PASS: TestEmbedders_VendorShapes/voyage (0.00s)
+--- PASS: TestEmbedders_ErrorsNameStatusNotKey (0.00s)
+    --- PASS: TestEmbedders_ErrorsNameStatusNotKey/openai (0.00s)
+    --- PASS: TestEmbedders_ErrorsNameStatusNotKey/voyage (0.00s)
+--- PASS: TestNewEmbedder_UnknownProvider (0.00s)
+```
+
+- No HTTP call with none: `TestNone_MakesNoHTTPCall` uses an http.Client whose transport fails the test on any request; Remember, Backfill, Nearest and Search all run.
+- Vendor shapes: `TestEmbedders_VendorShapes` checks POST /v1/embeddings, `Authorization: Bearer`, request bodies `{"model":"text-embedding-3-small","input":"hello"}` (OpenAI) and `{"model":"voyage-3-lite","input":["hello"]}` (Voyage), and parses `data[0].embedding`.
