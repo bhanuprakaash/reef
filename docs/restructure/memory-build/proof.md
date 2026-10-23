@@ -265,3 +265,90 @@ key stored in db: 1
 ```
 
 - No REST route reads the `setting` table: `grep -rn setting server/*.go` matches only an unrelated GitHub comment and test name.
+
+## Slice verification
+
+Branch tip `19dc312`.
+
+### Full gate
+
+```
+$ go vet ./...
+(no output)
+
+$ go test -count=1 ./... 2>&1 | grep -E '^(ok|FAIL|---)' | grep -v '^ok'
+--- FAIL: TestStartGitHubPoll_PollsOnceAtStart (5.04s)
+--- FAIL: TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh (10.04s)
+--- FAIL: TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart (0.04s)
+--- FAIL: TestPollGitHub_NoteNotLostBeforeFeatureHasChannel (0.04s)
+--- FAIL: TestPollGitHub_NotePublishesToOpenChannel (5.04s)
+--- FAIL: TestPollGitHub_NewCheckRunNotesAgain (0.04s)
+--- FAIL: TestPollGitHub_TwoRunsSameNameBothNoted (0.05s)
+--- FAIL: TestPollGitHub_TimedOutAndStartupFailureCountAsFailed (0.07s)
+--- FAIL: TestPollGitHub_FailedCheckWakesDeveloper (5.04s)
+--- FAIL: TestPollGitHub_SendNotRefusedDuringLogFetch (5.04s)
+--- FAIL: TestPollGitHub_FailedCheckWakeRetriesWhenChannelBusy (5.04s)
+--- FAIL: TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake (0.04s)
+--- FAIL: TestPollGitHub_TwoFailedChecksOneWake (5.04s)
+--- FAIL: TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap (5.05s)
+FAIL
+FAIL	github.com/bhanuprakaash/reef/server	63.040s
+FAIL
+
+$ go test -count=1 ./memory/... ./cmd/reef ./store
+ok  	github.com/bhanuprakaash/reef/memory	0.208s
+ok  	github.com/bhanuprakaash/reef/memory/eval	0.090s
+ok  	github.com/bhanuprakaash/reef/cmd/reef	1.256s
+ok  	github.com/bhanuprakaash/reef/store	2.264s
+
+$ go test -count=1 -v ./memory/eval | grep '^eval:'
+eval: 27 scenarios, 3 skipped, recall@10=1.000 mrr=1.000 (thresholds 1.00, 1.00)
+
+$ go list -deps ./memory/... | grep reef
+github.com/bhanuprakaash/reef/memory
+github.com/bhanuprakaash/reef/memory/eval
+
+$ git diff --stat 44bc27b HEAD -- channel server web
+(no output)
+```
+
+- `server/` failures are not from this branch: the branch changes nothing in server/, channel/ or web/. The same 14 GitHub-poll tests fail on `origin/main` and on the base `44bc27b`. Cause: `store/channel.go` `FeatureLatestChannel` selects 12 columns (no `c.active_turn`) and `scanChannel` scans 13; introduced by `2222c9e`. One-line fix: add `c.active_turn` after `c.closed_at`. Not fixed here: this build may not touch store/ beyond the setting table.
+- `TestDirectChainEndClearsActiveTurn` in server/ is flaky on `origin/main` too (failed 2 of 5 runs there, 3 of 5 on the base).
+- An opus agent re-ran all 39 acceptance lines of #23–#31 against the tip: 39 PASS. NOT RUN: the synonym eval cases and the vendor clients against a real API (no key). For #31 it put a local TLS proxy in the vendors' response shape in front of the real binary: `embedded 8 items`, every item with a vector; a switch to voyage cleared and refilled them; the key matched 0 times in all CLI output, 20 REST GET routes and the server log.
+
+### Interrogate (opus + sonnet) and comment-sicko
+
+Fixed (each with a test that failed first):
+- A candidate that replaced an item retired the accepted original at write time. Now `Accept` does the retire (`d60217d`). Both models.
+- `embed` reused a stored key for another vendor, never retried a failed backfill, and kept the old model's vectors. Now: key only for the same provider, vectors cleared on a provider change, backfill on every `embed <provider>` (`f535a4c`). Both models.
+- With embeddings on, every item became a direct hit. Now `Nearest` drops cosine under `_minCosine = 0.3` (`b436c60`). The value is a guess until the real-embedder eval runs. Opus.
+- Expanded neighbours scored parent/2 and never reached the top 10 when ten items matched. Now `s/(1+s)`, one rank below the parent (`c09ae25`); new eval scenario `replaced-reached-among-many-matches`. Opus.
+- Every `reef memory` subcommand accepted every flag. Now one flag set per subcommand (`52c470f`). Opus.
+- No HTTP timeout on embed calls; DB errors on the vector side were swallowed (`25059f2`). Both models.
+- From the gate: `memory embed` missing from the top-level usage; the embed eval with a key and no provider ran silently without an embedder.
+- comment-sicko trimmed narration comments (`9079ac8`).
+
+Skipped, with reasons:
+- Scope check on `replaces` (both): R1, scopes are relevance filters, not access control.
+- `Setting`/`SetSetting` in store (opus): #31 needs to read the table; the run rule allowed the setting table.
+- Lookalike does not call Recall (opus): settled in the run file; the check needs raw cosine and the top word match, which the fused score hides.
+- Conflict order only by exact tie (sonnet): "newest accepted of two conflicting findings" holds for equal scores; a recency term would be a new ranking decision.
+- Eval corpora are small, recall@10 near-vacuous (sonnet): the new many-matches scenario covers expansion; a shared distractor corpus is a follow-up.
+- `show <id>` detail rows are not id first (both): the docs table defines them; they describe one item.
+- `--key` on the command line (sonnet): the ticket names `--key K`.
+- Provider and key written in two statements (opus): one user, one process at a time.
+
+### Blast radius on store/
+
+The store change is the `DB()` accessor, migration 034 (`setting`) and its two methods. The fact it is safe because of: an existing data folder upgrades with its data intact. Proved with real binaries:
+
+```
+main binary:   project add, memory set, feature add      -> user_version 33
+branch binary: reef memory                               -> "Use Go."  (blob intact), user_version 34
+branch binary: memory add, memory embed                  -> "1  accepted  decision  project:1  Use sessions", "none"
+main binary:   reef memory                               -> reef: open store: migrate: database is newer than this reef (version 34, this reef knows 33)
+```
+
+- After this branch opens a data folder, `main`'s binary refuses it. Forward-only migrations work this way. Try the branch on a copy of your data folder.
+- Migration number 034 collides if `main` adds its own 034 before this merges.
+- No store table is named `memory`, `memory_link` or `memory_fts`, so `memory.Open` cannot collide with a store migration.
