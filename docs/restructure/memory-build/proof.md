@@ -114,3 +114,28 @@ $ go test -count=1 -run Recall -v ./memory | grep -E "^\s*--- "
 
 - Hub rule: `TestRecall_ExpansionSkipsHubs` seeds 50 items all linked `about project:1`, each also about its own work item, plus one more about work_item:7. Query `7` with limit 100 returns ids `[7 51]`, via `[direct, about work_item:7]`, not 50.
 - Replaced: query `failure` returns `[2 1]`, via `[direct, replaces memory:1]`, id 1 marked retired.
+
+## #28 Lookalike check on write
+
+Commit `76cebf6`.
+
+```
+$ go test -count=1 -run Lookalike -v ./memory | grep -E "^\s*--- "
+--- PASS: TestLookalike_NearDuplicateWithoutVectors (0.00s)
+--- PASS: TestLookalike_UnrelatedWithoutVectors (0.00s)
+    --- PASS: TestLookalike_UnrelatedWithoutVectors/no_shared_words (0.00s)
+    --- PASS: TestLookalike_UnrelatedWithoutVectors/under_the_term_share (0.00s)
+--- PASS: TestLookalike_OtherScopeIgnored (0.00s)
+--- PASS: TestLookalike_CosineThreshold (0.00s)
+--- PASS: TestLookalike_ReplacedItemNotReported (0.00s)
+    --- PASS: TestLookalike_ReplacedItemNotReported/words (0.00s)
+    --- PASS: TestLookalike_ReplacedItemNotReported/vectors (0.00s)
+
+$ grep -n "_similar" memory/*.go | grep -v _test
+memory/lookalike.go:10:	_similarCosine    = 0.92
+memory/lookalike.go:11:	_similarTermShare = 0.7
+memory/lookalike.go:33:			if h.Score < _similarCosine {
+memory/lookalike.go:68:	if float64(found)/float64(len(want)) < _similarTermShare {
+```
+
+- Near-duplicate: "retry the upload three times" then "retry the upload three times on failure" returns similar `[{1 retry the upload three times}]` and the table holds 2 items.
