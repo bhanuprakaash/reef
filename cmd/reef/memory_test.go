@@ -138,7 +138,8 @@ func TestCLI_MemoryEachCommandHasItsOwnFlags(t *testing.T) {
 		give []string
 		want string
 	}{
-		{"retire with a stray flag", []string{"memory", "retire", "1", "--why", "x", "--key", "zzz"},
+		{"retire with a stray flag",
+			[]string{"memory", "retire", "1", "--why", "x", "--key", "zzz"},
 			undefined + "why\n" + retire},
 		{"approve with --scope", []string{"memory", "approve", "1", "--scope", "project:1"},
 			undefined + "scope\n" + approve},
@@ -146,15 +147,18 @@ func TestCLI_MemoryEachCommandHasItsOwnFlags(t *testing.T) {
 			undefined + "limit\n" + pending},
 		{"show with --scope", []string{"memory", "show", "--scope", "project:1"},
 			undefined + "scope\n" + show},
-		{"set with --key", []string{"memory", "set", "-", "--key", "k"}, undefined + "key\n" + set},
+		{"set with --key", []string{"memory", "set", "-", "--key", "k"},
+			undefined + "key\n" + set},
 		{"add with --limit",
 			[]string{"memory", "add", "fact", "x", "--scope", "project:1", "--limit", "3"},
 			undefined + "limit\n" + add},
-		{"add with --key", []string{"memory", "add", "fact", "x", "--scope", "project:1", "--key", "k"},
+		{"add with --key",
+			[]string{"memory", "add", "fact", "x", "--scope", "project:1", "--key", "k"},
 			undefined + "key\n" + add},
 		{"recall with --why", []string{"memory", "recall", "x", "--why", "y"},
 			undefined + "why\n" + recall},
-		{"recall with a negative limit", []string{"memory", "recall", "x", "--limit", "-1"}, recall},
+		{"recall with a negative limit",
+			[]string{"memory", "recall", "x", "--limit", "-1"}, recall},
 		{"embed with --scope", []string{"memory", "embed", "openai", "--scope", "project:1"},
 			undefined + "scope\n" + embed},
 		{"embed --key without a provider", []string{"memory", "embed", "--key", "k"}, embed},
@@ -181,7 +185,9 @@ func TestCLI_MemoryEmbed(t *testing.T) {
 	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
 		calls = append(calls, call{r.URL.Host, r.Header.Get("Authorization")})
 		if fail {
-			return &http.Response{StatusCode: http.StatusInternalServerError, Body: http.NoBody}, nil
+			return &http.Response{
+				StatusCode: http.StatusInternalServerError, Body: http.NoBody,
+			}, nil
 		}
 		body := `{"data":[{"embedding":[0.5,0.25]}]}`
 		if r.URL.Host == "api.voyageai.com" {

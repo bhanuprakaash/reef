@@ -41,6 +41,9 @@ const (
 	StatusRetired   = "retired"
 )
 
+const _selectItem = `SELECT id, kind, body, why, scope_kind, scope_id, author, role, status,
+	retired_at, replaced_by, created_at FROM memory`
+
 var (
 	// ErrNotFound is wrapped when the id matches no item.
 	ErrNotFound = errors.New("not found")
@@ -60,6 +63,10 @@ var (
 		ScopeTeammate: true, ScopeSpace: true, ScopeConversation: true,
 	}
 	_rels = map[string]bool{RelAbout: true, RelSource: true, RelReplaces: true, RelRelated: true}
+	// A kind with no entry is accepted from any role.
+	_acceptedRoles = map[string]map[string]bool{
+		KindConvention: {"architect": true, "lead": true},
+	}
 )
 
 // Ref points at a target by kind and id; nothing checks that it exists.
@@ -105,6 +112,12 @@ type Result struct {
 type Store struct {
 	db    *sql.DB
 	embed Embedder
+}
+
+type querier interface {
+	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
+	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
 // Open creates the memory tables in db if missing. A nil e stores no vectors.
@@ -286,11 +299,6 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
-// A kind with no entry is accepted from any role.
-var _acceptedRoles = map[string]map[string]bool{
-	KindConvention: {"architect": true, "lead": true},
-}
-
 func statusFor(w Writer, kind string) string {
 	if w.Author == "user" {
 		return StatusAccepted
@@ -321,15 +329,6 @@ func validate(w Writer, n Note) error {
 	}
 	return nil
 }
-
-type querier interface {
-	ExecContext(ctx context.Context, query string, args ...any) (sql.Result, error)
-	QueryContext(ctx context.Context, query string, args ...any) (*sql.Rows, error)
-	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
-}
-
-const _selectItem = `SELECT id, kind, body, why, scope_kind, scope_id, author, role, status,
-	retired_at, replaced_by, created_at FROM memory`
 
 func retire(ctx context.Context, q querier, id int64, replacedBy *int64, now string) error {
 	res, err := q.ExecContext(ctx,

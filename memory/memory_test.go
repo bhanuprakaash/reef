@@ -347,8 +347,9 @@ func TestRemember_CandidateReplacingRetiredFails(t *testing.T) {
 	}
 	_, err := s.Remember(ctx, Writer{Author: "ada", Role: "developer", Scope: project},
 		Note{Kind: KindConvention, Body: "use spaces", Replaces: []int64{1}})
-	if !errors.Is(err, ErrInvalid) || err.Error() != "replace 1: invalid: memory 1 is already retired" {
-		t.Fatalf("err = %v, want replace 1: invalid: memory 1 is already retired", err)
+	const want = "replace 1: invalid: memory 1 is already retired"
+	if !errors.Is(err, ErrInvalid) || err.Error() != want {
+		t.Fatalf("err = %v, want %s", err, want)
 	}
 	if n := count(t, db, `SELECT count(*) FROM memory`); n != 1 {
 		t.Fatalf("items = %d, want 1", n)
