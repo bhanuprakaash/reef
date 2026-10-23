@@ -87,6 +87,8 @@ Rules for every command:
 | `reef memory retire <id>` | Retires a live item with nothing replacing it. Fails with `invalid: memory 3 is already retired` | `12  retired` |
 | `reef memory pending` | Lists the candidates waiting for approval | one item row per line, as for `add`; nothing when none |
 | `reef memory approve <id>` | Moves a candidate to `accepted`. Any other item fails with `invalid: memory 3 is not a candidate` | `12  accepted` |
+| `reef memory embed` | Prints the embedding provider: `none`, `openai` or `voyage`. The key is stored in `reef.db` and never printed | `openai`; `none` when unset |
+| `reef memory embed <provider> [--key K]` | Sets the embedding provider and stores its key in `reef.db`; the key is never printed. `openai` and `voyage` need `--key` unless one is already stored, else `invalid: embedding provider openai needs --key`; `none` clears the key. Switching from `none` to a provider embeds every item that has no vector once; a failure there exits 1 after the setting is saved | `embedding provider openai; embedded 12 items`, or `embedding provider openai` when nothing was backfilled |
 | `reef team apply FILE.json` | Creates a team from a file, or replaces the roles and gates of the team with that name (see Teams) | `applied team duo: lead*(claude) architect(claude)` |
 | `reef team list` | Lists the teams by name, each with its roles | `duo  lead*(claude) architect(claude)`: the lead has a `*` |
 | `reef context <feature> --role R` | Prints the context prompt for role `R` (see below) | the prompt |

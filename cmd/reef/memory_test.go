@@ -3,11 +3,19 @@ package main
 import (
 	"bytes"
 	"context"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/bhanuprakaash/reef/store"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestCLI_Memory(t *testing.T) {
 	dir := t.TempDir()
@@ -108,6 +116,99 @@ func TestCLI_MemoryItems(t *testing.T) {
 	for _, f := range failures {
 		if _, err := reef(t, dir, f.args...); err == nil || err.Error() != f.want {
 			t.Errorf("reef %s: error = %v, want %q", strings.Join(f.args, " "), err, f.want)
+		}
+	}
+}
+
+// Not parallel: it swaps http.DefaultClient's transport.
+func TestCLI_MemoryEmbed(t *testing.T) {
+	var auth []string
+	old := http.DefaultClient.Transport
+	http.DefaultClient.Transport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		auth = append(auth, r.Header.Get("Authorization"))
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       io.NopCloser(strings.NewReader(`{"data":[{"embedding":[0.5,0.25]}]}`)),
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultClient.Transport = old })
+
+	dir := t.TempDir()
+	var outputs []string
+	do := func(args ...string) string {
+		t.Helper()
+		out, err := reef(t, dir, args...)
+		if err != nil {
+			t.Fatalf("reef %s: %v", strings.Join(args, " "), err)
+		}
+		outputs = append(outputs, out)
+		return out
+	}
+	fails := func(want string, args ...string) {
+		t.Helper()
+		_, err := reef(t, dir, args...)
+		if err == nil || err.Error() != want {
+			t.Errorf("reef %s: error = %v, want %q", strings.Join(args, " "), err, want)
+		}
+		if err != nil {
+			outputs = append(outputs, err.Error())
+		}
+	}
+	vectors := func() int {
+		t.Helper()
+		st, err := store.Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = st.Close() }()
+		var n int
+		if err := st.DB().QueryRow("SELECT count(*) FROM memory WHERE vector IS NOT NULL").Scan(&n); err != nil {
+			t.Fatal(err)
+		}
+		return n
+	}
+
+	if got, want := do("memory", "embed"), "none\n"; got != want {
+		t.Fatalf("embed = %q, want %q", got, want)
+	}
+	do("memory", "add", "decision", "Use JWT for sessions", "--scope", "project:1")
+	if n := vectors(); n != 0 {
+		t.Fatalf("vectors with no provider = %d, want 0", n)
+	}
+	if got, want := do("memory", "embed", "openai", "--key", "sk-test-SECRET"),
+		"embedding provider openai; embedded 1 items\n"; got != want {
+		t.Fatalf("embed openai = %q, want %q", got, want)
+	}
+	if n := vectors(); n != 1 {
+		t.Fatalf("vectors after backfill = %d, want 1", n)
+	}
+	do("memory", "add", "decision", "Use cookie sessions", "--scope", "project:1")
+	if n := vectors(); n != 2 {
+		t.Fatalf("vectors after add = %d, want 2", n)
+	}
+	if got, want := do("memory", "embed"), "openai\n"; got != want {
+		t.Fatalf("embed = %q, want %q", got, want)
+	}
+	if got, want := do("memory", "embed", "openai"), "embedding provider openai\n"; got != want {
+		t.Fatalf("embed openai again = %q, want %q", got, want)
+	}
+	if len(auth) == 0 {
+		t.Error("the embedding service was never called")
+	}
+	for i, a := range auth {
+		if a != "Bearer sk-test-SECRET" {
+			t.Errorf("request %d Authorization = %q, want %q", i, a, "Bearer sk-test-SECRET")
+		}
+	}
+
+	fails(`invalid: embedding provider "bogus" is not none, openai or voyage`, "memory", "embed", "bogus")
+	if got, want := do("memory", "embed", "none"), "embedding provider none\n"; got != want {
+		t.Fatalf("embed none = %q, want %q", got, want)
+	}
+	fails("invalid: embedding provider voyage needs --key", "memory", "embed", "voyage")
+	for _, out := range outputs {
+		if strings.Contains(out, "sk-test-SECRET") {
+			t.Errorf("output %q shows the key", out)
 		}
 	}
 }

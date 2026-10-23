@@ -18,7 +18,8 @@ const (
 	_memoryUsage = `usage: reef memory [--project P] [show|set FILE|-] [--data DIR]
        reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W]
        reef memory recall "<q>" [--scope S] [--limit N]
-       reef memory show <id> | retire <id> | approve <id> | pending`
+       reef memory show <id> | retire <id> | approve <id> | pending
+       reef memory embed [none|openai|voyage [--key K]]`
 	_memoryShowUsage    = "usage: reef memory [--project P] show [<id>] [--data DIR]"
 	_memorySetUsage     = "usage: reef memory [--project P] set FILE|- [--data DIR]"
 	_memoryAddUsage     = `usage: reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--data DIR]`
@@ -26,6 +27,12 @@ const (
 	_memoryRetireUsage  = "usage: reef memory retire <id> [--data DIR]"
 	_memoryPendingUsage = "usage: reef memory pending [--data DIR]"
 	_memoryApproveUsage = "usage: reef memory approve <id> [--data DIR]"
+	_memoryEmbedUsage   = "usage: reef memory embed [none|openai|voyage [--key K]] [--data DIR]"
+)
+
+const (
+	_settingEmbeddingProvider = "embedding.provider"
+	_settingEmbeddingKey      = "embedding.key"
 )
 
 // listFlag is a flag that may repeat; each use adds one value.
@@ -47,6 +54,7 @@ func memoryCmd(ctx context.Context, args []string, stdin io.Reader, stdout io.Wr
 	role := c.fs.String("as", "", "")
 	why := c.fs.String("why", "", "")
 	limit := c.fs.Int("limit", 0, "")
+	key := c.fs.String("key", "", "")
 	var about, replaces listFlag
 	c.fs.Var(&about, "about", "")
 	c.fs.Var(&replaces, "replaces", "")
@@ -99,6 +107,14 @@ func memoryCmd(ctx context.Context, args []string, stdin io.Reader, stdout io.Wr
 			return errors.New(_memoryPendingUsage)
 		}
 		return memoryPending(ctx, st, stdout)
+	case "embed":
+		if len(rest) > 1 || (len(rest) == 0 && *key != "") {
+			return errors.New(_memoryEmbedUsage)
+		}
+		if len(rest) == 0 {
+			return memoryEmbedShow(ctx, st, stdout)
+		}
+		return memoryEmbed(ctx, st, rest[0], *key, stdout)
 	}
 	return errors.New(_memoryUsage)
 }
@@ -152,7 +168,7 @@ func memoryProject(ctx context.Context, st *store.Store, ref string) (store.Proj
 
 func memoryAdd(ctx context.Context, st *store.Store, kind, body, scope, role, why string,
 	about, replaces []string, stdout io.Writer) error {
-	ms, err := memory.Open(st.DB(), nil)
+	ms, err := openMemory(ctx, st)
 	if err != nil {
 		return err
 	}
@@ -191,7 +207,7 @@ func memoryAdd(ctx context.Context, st *store.Store, kind, body, scope, role, wh
 }
 
 func memoryRecall(ctx context.Context, st *store.Store, text, scope string, limit int, stdout io.Writer) error {
-	ms, err := memory.Open(st.DB(), nil)
+	ms, err := openMemory(ctx, st)
 	if err != nil {
 		return err
 	}
@@ -220,7 +236,7 @@ func memoryRecall(ctx context.Context, st *store.Store, text, scope string, limi
 }
 
 func memoryItem(ctx context.Context, st *store.Store, ref string, stdout io.Writer) error {
-	ms, id, err := memoryByRef(st, ref)
+	ms, id, err := memoryByRef(ctx, st, ref)
 	if err != nil {
 		return err
 	}
@@ -251,7 +267,7 @@ func memoryItem(ctx context.Context, st *store.Store, ref string, stdout io.Writ
 }
 
 func memoryRetire(ctx context.Context, st *store.Store, ref string, stdout io.Writer) error {
-	ms, id, err := memoryByRef(st, ref)
+	ms, id, err := memoryByRef(ctx, st, ref)
 	if err != nil {
 		return err
 	}
@@ -263,7 +279,7 @@ func memoryRetire(ctx context.Context, st *store.Store, ref string, stdout io.Wr
 }
 
 func memoryApprove(ctx context.Context, st *store.Store, ref string, stdout io.Writer) error {
-	ms, id, err := memoryByRef(st, ref)
+	ms, id, err := memoryByRef(ctx, st, ref)
 	if err != nil {
 		return err
 	}
@@ -275,7 +291,7 @@ func memoryApprove(ctx context.Context, st *store.Store, ref string, stdout io.W
 }
 
 func memoryPending(ctx context.Context, st *store.Store, stdout io.Writer) error {
-	ms, err := memory.Open(st.DB(), nil)
+	ms, err := openMemory(ctx, st)
 	if err != nil {
 		return err
 	}
@@ -292,13 +308,87 @@ func memoryPending(ctx context.Context, st *store.Store, stdout io.Writer) error
 }
 
 // memoryByRef opens the memory tables and parses ref as an item id.
-func memoryByRef(st *store.Store, ref string) (*memory.Store, int64, error) {
+func memoryByRef(ctx context.Context, st *store.Store, ref string) (*memory.Store, int64, error) {
 	id, err := parseMemoryID(ref)
 	if err != nil {
 		return nil, 0, err
 	}
-	ms, err := memory.Open(st.DB(), nil)
+	ms, err := openMemory(ctx, st)
 	return ms, id, err
+}
+
+// openMemory opens the memory tables with the embedder the embedding settings name.
+func openMemory(ctx context.Context, st *store.Store) (*memory.Store, error) {
+	provider, err := st.Setting(ctx, _settingEmbeddingProvider)
+	if err != nil {
+		return nil, err
+	}
+	key, err := st.Setting(ctx, _settingEmbeddingKey)
+	if err != nil {
+		return nil, err
+	}
+	e, err := memory.NewEmbedder(memory.EmbedConfig{Provider: provider, Key: key}, nil)
+	if err != nil {
+		return nil, err
+	}
+	return memory.Open(st.DB(), e)
+}
+
+func memoryEmbedShow(ctx context.Context, st *store.Store, stdout io.Writer) error {
+	provider, err := st.Setting(ctx, _settingEmbeddingProvider)
+	if err != nil {
+		return err
+	}
+	if provider == "" {
+		provider = memory.ProviderNone
+	}
+	_, err = fmt.Fprintln(stdout, provider)
+	return err
+}
+
+// memoryEmbed saves the provider and key, then embeds every item that has no vector when
+// embedding was off before.
+func memoryEmbed(ctx context.Context, st *store.Store, provider, key string, stdout io.Writer) error {
+	switch provider {
+	case memory.ProviderNone:
+		key = ""
+	case memory.ProviderOpenAI, memory.ProviderVoyage:
+		if key == "" {
+			var err error
+			if key, err = st.Setting(ctx, _settingEmbeddingKey); err != nil {
+				return err
+			}
+		}
+		if key == "" {
+			return fmt.Errorf("%w: embedding provider %s needs --key", memory.ErrInvalid, provider)
+		}
+	default:
+		return fmt.Errorf("%w: embedding provider %q is not none, openai or voyage", memory.ErrInvalid, provider)
+	}
+	prev, err := st.Setting(ctx, _settingEmbeddingProvider)
+	if err != nil {
+		return err
+	}
+	if err := st.SetSetting(ctx, _settingEmbeddingProvider, provider); err != nil {
+		return err
+	}
+	if err := st.SetSetting(ctx, _settingEmbeddingKey, key); err != nil {
+		return err
+	}
+	if (prev != "" && prev != memory.ProviderNone) || provider == memory.ProviderNone {
+		_, err = fmt.Fprintf(stdout, "embedding provider %s\n", provider)
+		return err
+	}
+	ms, err := openMemory(ctx, st)
+	if err != nil {
+		return err
+	}
+	n, err := ms.Backfill(ctx)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "embedding provider %s; embedded %d items\n", provider, n)
+	return err
 }
 
 func memoryRow(it memory.Item) string {
