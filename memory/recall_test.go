@@ -139,6 +139,21 @@ func TestRecall_NewestAcceptedConflictFirst(t *testing.T) {
 	}
 }
 
+func TestRecall_LiveBeforeNewerRetiredOnEqualScore(t *testing.T) {
+	s, _ := openTest(t)
+	shelf := Ref{Kind: ScopeProject, ID: "1"}
+	live := put(t, s, shelf, Note{Body: "Deploys go out on Tuesdays"})
+	stale := put(t, s, shelf, Note{Body: "Deploys go out on Fridays"})
+	if err := s.Retire(context.Background(), stale); err != nil {
+		t.Fatal(err)
+	}
+
+	hits := recall(t, s, Query{Scopes: []Ref{shelf}, Text: "deploys"})
+	if got, want := hitIDs(hits), []int64{live, stale}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ids = %v, want %v", got, want)
+	}
+}
+
 func TestRecall_NeverExceedsLimit(t *testing.T) {
 	s, _ := openTest(t)
 	shelf := Ref{Kind: ScopeProject, ID: "1"}

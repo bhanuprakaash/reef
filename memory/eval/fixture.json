@@ -1,5 +1,5 @@
 {
-  "thresholds": { "recall_at_10": 1.0, "mrr": 0.98 },
+  "thresholds": { "recall_at_10": 1.0, "mrr": 1.0 },
   "scenarios": [
     {
       "name": "direct-sessions-not-jwt",
@@ -133,7 +133,8 @@
         { "ref": "stale", "kind": "decision", "scope": "project:1", "body": "Deploys go out on Fridays", "retire": true }
       ],
       "query": { "text": "deploys", "scopes": ["project:1"] },
-      "expect": ["live"]
+      "expect": ["live", "stale"],
+      "ordered": true
     },
     {
       "name": "retired-stays-readable",

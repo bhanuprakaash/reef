@@ -7,8 +7,8 @@ import (
 	"unicode"
 )
 
-// Search returns accepted items that match any word of query, best first and
-// newer first on a tie. Retired items are included, marked by Status, when
+// Search returns accepted items that match any word of query, best first,
+// then accepted before retired, then newer first on a tie. Retired items are included, marked by Status, when
 // f.IncludeRetired is set. Candidates are never returned.
 func (s *Store) Search(ctx context.Context, query string, f Filter) ([]Match, error) {
 	words := terms(query)
@@ -24,8 +24,8 @@ func (s *Store) Search(ctx context.Context, query string, f Filter) ([]Match, er
 		`SELECT m.id, -bm25(memory_fts), m.status
 		 FROM memory_fts JOIN memory m ON m.id = memory_fts.rowid
 		 WHERE memory_fts MATCH ? AND `+where+`
-		 ORDER BY bm25(memory_fts), m.id DESC`,
-		append([]any{strings.Join(words, " OR ")}, args...)...)
+		 ORDER BY bm25(memory_fts), m.status = ? DESC, m.id DESC`,
+		append(append([]any{strings.Join(words, " OR ")}, args...), StatusAccepted)...)
 	if err != nil {
 		return nil, fmt.Errorf("search memory: %w", err)
 	}

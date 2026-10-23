@@ -94,8 +94,8 @@ func TestSearch_RetiredAndCandidates(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(hits) != 2 || hits[0].ID != 2 || hits[0].Status != StatusRetired || hits[1].ID != 1 {
-		t.Fatalf("with retired hits = %+v, want ids 2 (retired), 1 (accepted)", hits)
+	if len(hits) != 2 || hits[0].ID != 1 || hits[1].ID != 2 || hits[1].Status != StatusRetired {
+		t.Fatalf("with retired hits = %+v, want ids 1 (accepted), 2 (retired)", hits)
 	}
 }
 

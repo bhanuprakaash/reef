@@ -164,7 +164,8 @@ func (s *Store) Backfill(ctx context.Context) (int, error) {
 }
 
 // Nearest returns up to k items that pass f and have a vector, closest to
-// query first, newer first on a tie. Score is the cosine similarity.
+// query first, then accepted before retired, then newer first on a tie. Score
+// is the cosine similarity.
 func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]Match, error) {
 	if k <= 0 || len(f.Scopes) == 0 {
 		return nil, nil
@@ -187,7 +188,7 @@ func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]M
 }
 
 // scoreVectors scores the stored vectors of the items that pass f against q,
-// closest first, newer first on a tie. f must have at least one scope.
+// closest first, then accepted before retired, then newer first on a tie. f must have at least one scope.
 func (s *Store) scoreVectors(ctx context.Context, q []float32, f Filter) ([]Match, error) {
 	where, args := f.where()
 	rows, err := s.db.QueryContext(ctx,
@@ -218,6 +219,9 @@ func (s *Store) scoreVectors(ctx context.Context, q []float32, f Filter) ([]Matc
 	sort.Slice(hits, func(i, j int) bool {
 		if hits[i].Score != hits[j].Score {
 			return hits[i].Score > hits[j].Score
+		}
+		if (hits[i].Status == StatusAccepted) != (hits[j].Status == StatusAccepted) {
+			return hits[i].Status == StatusAccepted
 		}
 		return hits[i].ID > hits[j].ID
 	})
