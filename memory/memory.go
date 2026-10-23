@@ -41,8 +41,13 @@ const (
 	StatusRetired   = "retired"
 )
 
-// ErrNotFound is wrapped when the id asked for matches no item.
-var ErrNotFound = errors.New("not found")
+var (
+	// ErrNotFound is wrapped when the id asked for matches no item.
+	ErrNotFound = errors.New("not found")
+	// ErrInvalid is wrapped when the caller's input is wrong or the item is in
+	// the wrong state for the call.
+	ErrInvalid = errors.New("invalid")
+)
 
 //go:embed schema.sql
 var _schema string
@@ -209,6 +214,25 @@ func (s *Store) Accept(ctx context.Context, id int64) error {
 	return checkChanged(ctx, s.db, res, id, "not a candidate")
 }
 
+// Scopes returns every scope that holds at least one item, whatever its status.
+func (s *Store) Scopes(ctx context.Context) ([]Ref, error) {
+	rows, err := s.db.QueryContext(ctx,
+		`SELECT DISTINCT scope_kind, scope_id FROM memory ORDER BY scope_kind, scope_id`)
+	if err != nil {
+		return nil, fmt.Errorf("query scopes: %w", err)
+	}
+	defer rows.Close()
+	var out []Ref
+	for rows.Next() {
+		var r Ref
+		if err := rows.Scan(&r.Kind, &r.ID); err != nil {
+			return nil, fmt.Errorf("scan scope: %w", err)
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 // Pending returns the candidates waiting for the user, oldest first.
 func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	rows, err := s.db.QueryContext(ctx,
@@ -262,17 +286,17 @@ func statusFor(w Writer, kind string) string {
 
 func validate(w Writer, n Note) error {
 	if !_kinds[n.Kind] {
-		return fmt.Errorf("invalid kind %q", n.Kind)
+		return fmt.Errorf("%w: unknown kind %q", ErrInvalid, n.Kind)
 	}
 	if n.Body == "" {
-		return errors.New("empty body")
+		return fmt.Errorf("%w: body is required", ErrInvalid)
 	}
 	if !_scopeKinds[w.Scope.Kind] {
-		return fmt.Errorf("invalid scope kind %q", w.Scope.Kind)
+		return fmt.Errorf("%w: unknown scope kind %q", ErrInvalid, w.Scope.Kind)
 	}
 	for _, l := range w.Links {
 		if !_rels[l.Rel] {
-			return fmt.Errorf("invalid link rel %q", l.Rel)
+			return fmt.Errorf("%w: unknown link rel %q", ErrInvalid, l.Rel)
 		}
 	}
 	return nil
@@ -300,7 +324,7 @@ func retire(ctx context.Context, q querier, id int64, replacedBy *int64, now str
 }
 
 // checkChanged turns an update that touched no row into ErrNotFound when the
-// id is missing, or into reason when the item exists but was in the wrong state.
+// id is missing, or into ErrInvalid with reason when the item exists but was in the wrong state.
 func checkChanged(ctx context.Context, q querier, res sql.Result, id int64, reason string) error {
 	n, err := res.RowsAffected()
 	if err != nil {
@@ -317,7 +341,7 @@ func checkChanged(ctx context.Context, q querier, res sql.Result, id int64, reas
 	if err != nil {
 		return fmt.Errorf("check %d: %w", id, err)
 	}
-	return fmt.Errorf("memory %d: %s", id, reason)
+	return fmt.Errorf("%w: memory %d is %s", ErrInvalid, id, reason)
 }
 
 func read(ctx context.Context, q querier, id int64) (Item, error) {

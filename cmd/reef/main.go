@@ -33,6 +33,9 @@ commands:
   task add [<feature>] "<title>"
   task list [<feature>] [--status S]
   memory show [--project P] | memory set FILE|- [--project P]
+  memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W]
+  memory recall "<q>" [--scope S] [--limit N]
+  memory show <id> | retire <id> | approve <id> | pending
   team apply FILE.json | team list
   context <feature> --role R
   wrap list [<feature>] | show <id> | approve <id> | reject <id>
