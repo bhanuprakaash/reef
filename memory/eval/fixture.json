@@ -94,6 +94,33 @@
       "forbidden": ["coffee"]
     },
     {
+      "name": "replaced-reached-among-many-matches",
+      "category": "replaced",
+      "items": [
+        { "ref": "old", "kind": "decision", "scope": "project:1", "body": "Flush the store by hand after each deploy" },
+        { "ref": "cache1", "kind": "finding", "scope": "project:1", "body": "Cache entry 1 holds one session" },
+        { "ref": "cache2", "kind": "finding", "scope": "project:1", "body": "Cache entry 2 holds one session" },
+        { "ref": "cache3", "kind": "finding", "scope": "project:1", "body": "Cache entry 3 holds one session" },
+        { "ref": "cache4", "kind": "finding", "scope": "project:1", "body": "Cache entry 4 holds one session" },
+        { "ref": "cache5", "kind": "finding", "scope": "project:1", "body": "Cache entry 5 holds one session" },
+        { "ref": "cache6", "kind": "finding", "scope": "project:1", "body": "Cache entry 6 holds one session" },
+        { "ref": "cache7", "kind": "finding", "scope": "project:1", "body": "Cache entry 7 holds one session" },
+        { "ref": "cache8", "kind": "finding", "scope": "project:1", "body": "Cache entry 8 holds one session" },
+        { "ref": "cache9", "kind": "finding", "scope": "project:1", "body": "Cache entry 9 holds one session" },
+        { "ref": "cache10", "kind": "finding", "scope": "project:1", "body": "Cache entry 10 holds one session" },
+        { "ref": "cache11", "kind": "finding", "scope": "project:1", "body": "Cache entry 11 holds one session" },
+        { "ref": "cache12", "kind": "finding", "scope": "project:1", "body": "Cache entry 12 holds one session" },
+        { "ref": "cache13", "kind": "finding", "scope": "project:1", "body": "Cache entry 13 holds one session" },
+        { "ref": "cache14", "kind": "finding", "scope": "project:1", "body": "Cache entry 14 holds one session" },
+        { "ref": "cache15", "kind": "finding", "scope": "project:1", "body": "Cache entry 15 holds one session" },
+        { "ref": "new", "kind": "decision", "scope": "project:1", "body": "Cache invalidation runs on every deploy", "replaces": ["old"] }
+      ],
+      "query": { "text": "cache invalidation", "scopes": ["project:1"] },
+      "expect": ["new", "old"],
+      "ordered": true,
+      "forbidden": []
+    },
+    {
       "name": "replaced-new-ranks-first",
       "category": "replaced",
       "items": [

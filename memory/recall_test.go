@@ -105,6 +105,36 @@ func TestRecall_ExpansionReachesReplacedItem(t *testing.T) {
 	}
 }
 
+func TestRecall_ExpansionSurvivesManyDirectMatches(t *testing.T) {
+	s, _ := openTest(t)
+	shelf := Ref{Kind: ScopeProject, ID: "1"}
+	put(t, s, shelf, Note{Body: "flush by hand after each deploy"})
+	for i := 2; i <= 12; i++ {
+		put(t, s, shelf, Note{Body: fmt.Sprintf("cache entry %d", i)})
+	}
+	put(t, s, shelf, Note{Body: "cache entry 13", Replaces: []int64{1}})
+
+	hits := recall(t, s, Query{Scopes: []Ref{shelf}, Text: "cache"})
+	if len(hits) != 10 {
+		t.Fatalf("hits = %d, want 10", len(hits))
+	}
+	if hits[0].ID != 13 {
+		t.Fatalf("top hit = %d, want 13", hits[0].ID)
+	}
+	var found bool
+	for i, h := range hits {
+		if h.ID == 1 {
+			found = true
+			if h.Via != "replaces memory:1" || h.Status != StatusRetired || i > 2 {
+				t.Fatalf("hit %d = %+v, want retired 1 via replaces memory:1 near the top", i, h)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("ids = %v, want 1 among them", hitIDs(hits))
+	}
+}
+
 func TestRecall_ExpansionSkipsHubs(t *testing.T) {
 	s, _ := openTest(t)
 	shelf := Ref{Kind: ScopeProject, ID: "1"}
@@ -168,8 +198,8 @@ func TestRecall_NeverExceedsLimit(t *testing.T) {
 		give int
 		want []int64
 	}{
-		{"set", 3, []int64{15, 14, 13}},
-		{"default", 0, []int64{15, 14, 13, 12, 11, 10, 9, 8, 7, 6}},
+		{"set", 3, []int64{15, 16, 14}},
+		{"default", 0, []int64{15, 16, 14, 13, 12, 11, 10, 9, 8, 7}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

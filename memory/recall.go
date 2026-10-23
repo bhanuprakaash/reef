@@ -42,8 +42,8 @@ type neighbour struct {
 }
 
 // Recall fuses word and meaning matches by reciprocal rank fusion, then adds items one
-// link away from the best. Links to a project or team are never followed: they reach
-// everything on the shelf.
+// link away from the best, each ranked one place below the hit it came from. Links to a
+// project or team are never followed: they reach everything on the shelf.
 func (s *Store) Recall(ctx context.Context, q Query) ([]Hit, error) {
 	limit := q.Limit
 	if limit <= 0 {
@@ -90,11 +90,12 @@ func (s *Store) Recall(ctx context.Context, q Query) ([]Hit, error) {
 		if err != nil {
 			return nil, err
 		}
+		below := p.Score / (1 + p.Score)
 		for _, n := range ns {
-			if c, ok := found[n.id]; ok && c.Score >= p.Score/2 {
+			if c, ok := found[n.id]; ok && c.Score >= below {
 				continue
 			}
-			found[n.id] = &Hit{ID: n.id, Score: p.Score / 2, Via: n.via}
+			found[n.id] = &Hit{ID: n.id, Score: below, Via: n.via}
 		}
 	}
 
