@@ -3,6 +3,7 @@
 package eval
 
 import (
+	"errors"
 	"os"
 
 	"github.com/bhanuprakaash/reef/memory"
@@ -14,5 +15,9 @@ func newEmbedder() (memory.Embedder, error) {
 	if key == "" {
 		return nil, nil
 	}
-	return memory.NewEmbedder(memory.EmbedConfig{Provider: os.Getenv("REEF_EMBED_PROVIDER"), Key: key}, nil)
+	provider := os.Getenv("REEF_EMBED_PROVIDER")
+	if provider == "" {
+		return nil, errors.New("REEF_EMBED_KEY is set but REEF_EMBED_PROVIDER is not")
+	}
+	return memory.NewEmbedder(memory.EmbedConfig{Provider: provider, Key: key}, nil)
 }
