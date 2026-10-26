@@ -50,7 +50,7 @@ Locally the channel system prompt reached roughly seven or eight screens. This i
 
 ## Open questions
 
-- Memory: settled as R15–R27.
+- Memory: settled as R15–R30.
 - Ask a Teammate: depth, duration and cost limits.
 - Space continuation: what triggers a new Space for the same Work item.
 - Sub-item cap: whether a Team may create at most N sub-items under one parent without a Review. Deferred.

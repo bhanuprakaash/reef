@@ -1,0 +1,381 @@
+{
+  "thresholds": { "recall_at_10": 1.0, "mrr": 1.0 },
+  "scenarios": [
+    {
+      "name": "direct-sessions-not-jwt",
+      "category": "direct match",
+      "items": [
+        { "ref": "sessions", "kind": "decision", "scope": "project:1", "body": "Use sessions, not JWT, for browser login", "why": "Revoking a session must take effect at once" },
+        { "ref": "retries", "kind": "finding", "scope": "project:1", "body": "The upload retries three times with backoff" },
+        { "ref": "exports", "kind": "fact", "scope": "project:1", "body": "Billing exports run nightly at 02:00 UTC" },
+        { "ref": "tests", "kind": "convention", "scope": "project:1", "body": "Name Go test files after the package under test" }
+      ],
+      "query": { "text": "why sessions instead of JWT", "scopes": ["project:1"] },
+      "expect": ["sessions"],
+      "forbidden": ["exports"]
+    },
+    {
+      "name": "direct-stemmed-words",
+      "category": "direct match",
+      "items": [
+        { "ref": "retries", "kind": "finding", "scope": "project:1", "body": "The upload retries three times with backoff" },
+        { "ref": "sessions", "kind": "decision", "scope": "project:1", "body": "Use sessions, not JWT, for browser login" },
+        { "ref": "exports", "kind": "fact", "scope": "project:1", "body": "Billing exports run nightly at 02:00 UTC" }
+      ],
+      "query": { "text": "how often does the upload retry", "scopes": ["project:1"] },
+      "expect": ["retries"],
+      "forbidden": ["exports"]
+    },
+    {
+      "name": "direct-best-match-first",
+      "category": "direct match",
+      "items": [
+        { "ref": "partial", "kind": "finding", "scope": "project:1", "body": "The cache is warmed at boot" },
+        { "ref": "full", "kind": "decision", "scope": "project:1", "body": "Cache invalidation happens on every config change" },
+        { "ref": "other", "kind": "fact", "scope": "project:1", "body": "The nightly job writes a report to the shared drive" }
+      ],
+      "query": { "text": "cache invalidation config change", "scopes": ["project:1"] },
+      "expect": ["full", "partial"],
+      "ordered": true,
+      "forbidden": ["other"]
+    },
+    {
+      "name": "direct-two-matches",
+      "category": "direct match",
+      "items": [
+        { "ref": "limit", "kind": "finding", "scope": "work_item:1", "body": "The rate limit is 100 requests per minute per token" },
+        { "ref": "burst", "kind": "finding", "scope": "work_item:1", "body": "A burst above the rate limit returns 429 with Retry-After" },
+        { "ref": "css", "kind": "convention", "scope": "project:1", "body": "Style the settings page with the shared form components" }
+      ],
+      "query": { "text": "rate limit", "scopes": ["project:1", "work_item:1"] },
+      "expect": ["limit", "burst"],
+      "forbidden": ["css"]
+    },
+    {
+      "name": "synonym-login-expiry",
+      "category": "synonym",
+      "needs_embedder": true,
+      "items": [
+        { "ref": "expiry", "kind": "decision", "scope": "project:1", "body": "Sessions expire after fifteen minutes of inactivity" },
+        { "ref": "exports", "kind": "fact", "scope": "project:1", "body": "Billing exports run nightly at 02:00 UTC" },
+        { "ref": "tests", "kind": "convention", "scope": "project:1", "body": "Name Go test files after the package under test" },
+        { "ref": "coffee", "kind": "fact", "scope": "project:1", "body": "The office coffee machine is descaled every March" }
+      ],
+      "query": { "text": "how long can a user stay signed in while idle", "scopes": ["project:1"] },
+      "expect": ["expiry"],
+      "forbidden": ["coffee"]
+    },
+    {
+      "name": "synonym-flaky-tests",
+      "category": "synonym",
+      "needs_embedder": true,
+      "items": [
+        { "ref": "flaky", "kind": "finding", "scope": "project:1", "body": "The checkout suite fails intermittently when run in parallel" },
+        { "ref": "logo", "kind": "fact", "scope": "project:1", "body": "The logo is exported as SVG from the design file" },
+        { "ref": "retries", "kind": "finding", "scope": "project:1", "body": "The upload retries three times with backoff" },
+        { "ref": "coffee", "kind": "fact", "scope": "project:1", "body": "The office coffee machine is descaled every March" }
+      ],
+      "query": { "text": "unreliable concurrent test runs", "scopes": ["project:1"] },
+      "expect": ["flaky"],
+      "forbidden": ["coffee"]
+    },
+    {
+      "name": "synonym-database-choice",
+      "category": "synonym",
+      "needs_embedder": true,
+      "items": [
+        { "ref": "sqlite", "kind": "decision", "scope": "project:1", "body": "Store everything in a single SQLite file on the user's Mac", "why": "No server for one user" },
+        { "ref": "css", "kind": "convention", "scope": "project:1", "body": "Style the settings page with the shared form components" },
+        { "ref": "exports", "kind": "fact", "scope": "project:1", "body": "Billing exports run nightly at 02:00 UTC" },
+        { "ref": "coffee", "kind": "fact", "scope": "project:1", "body": "The office coffee machine is descaled every March" }
+      ],
+      "query": { "text": "where does persistent data live", "scopes": ["project:1"] },
+      "expect": ["sqlite"],
+      "forbidden": ["coffee"]
+    },
+    {
+      "name": "replaced-reached-among-many-matches",
+      "category": "replaced",
+      "items": [
+        { "ref": "old", "kind": "decision", "scope": "project:1", "body": "Flush the store by hand after each deploy" },
+        { "ref": "cache1", "kind": "finding", "scope": "project:1", "body": "Cache entry 1 holds one session" },
+        { "ref": "cache2", "kind": "finding", "scope": "project:1", "body": "Cache entry 2 holds one session" },
+        { "ref": "cache3", "kind": "finding", "scope": "project:1", "body": "Cache entry 3 holds one session" },
+        { "ref": "cache4", "kind": "finding", "scope": "project:1", "body": "Cache entry 4 holds one session" },
+        { "ref": "cache5", "kind": "finding", "scope": "project:1", "body": "Cache entry 5 holds one session" },
+        { "ref": "cache6", "kind": "finding", "scope": "project:1", "body": "Cache entry 6 holds one session" },
+        { "ref": "cache7", "kind": "finding", "scope": "project:1", "body": "Cache entry 7 holds one session" },
+        { "ref": "cache8", "kind": "finding", "scope": "project:1", "body": "Cache entry 8 holds one session" },
+        { "ref": "cache9", "kind": "finding", "scope": "project:1", "body": "Cache entry 9 holds one session" },
+        { "ref": "cache10", "kind": "finding", "scope": "project:1", "body": "Cache entry 10 holds one session" },
+        { "ref": "cache11", "kind": "finding", "scope": "project:1", "body": "Cache entry 11 holds one session" },
+        { "ref": "cache12", "kind": "finding", "scope": "project:1", "body": "Cache entry 12 holds one session" },
+        { "ref": "cache13", "kind": "finding", "scope": "project:1", "body": "Cache entry 13 holds one session" },
+        { "ref": "cache14", "kind": "finding", "scope": "project:1", "body": "Cache entry 14 holds one session" },
+        { "ref": "cache15", "kind": "finding", "scope": "project:1", "body": "Cache entry 15 holds one session" },
+        { "ref": "new", "kind": "decision", "scope": "project:1", "body": "Cache invalidation runs on every deploy", "replaces": ["old"] }
+      ],
+      "query": { "text": "cache invalidation", "scopes": ["project:1"] },
+      "expect": ["new", "old"],
+      "ordered": true,
+      "forbidden": []
+    },
+    {
+      "name": "replaced-new-ranks-first",
+      "category": "replaced",
+      "items": [
+        { "ref": "old", "kind": "decision", "scope": "project:1", "body": "Sessions last 24 hours" },
+        { "ref": "new", "kind": "decision", "scope": "project:1", "body": "Sessions last 8 hours", "replaces": ["old"] },
+        { "ref": "exports", "kind": "fact", "scope": "project:1", "body": "Billing exports run nightly at 02:00 UTC" }
+      ],
+      "query": { "text": "how long do sessions last", "scopes": ["project:1"] },
+      "expect": ["new", "old"],
+      "ordered": true,
+      "forbidden": ["exports"]
+    },
+    {
+      "name": "replaced-chain-newest-first",
+      "category": "replaced",
+      "items": [
+        { "ref": "v1", "kind": "decision", "scope": "project:1", "body": "Upload limit is 5 MB" },
+        { "ref": "v2", "kind": "decision", "scope": "project:1", "body": "Upload limit is 10 MB", "replaces": ["v1"] },
+        { "ref": "v3", "kind": "decision", "scope": "project:1", "body": "Upload limit is 25 MB", "replaces": ["v2"] }
+      ],
+      "query": { "text": "upload limit", "scopes": ["project:1"] },
+      "expect": ["v3", "v2", "v1"],
+      "ordered": true
+    },
+    {
+      "name": "replaced-reworded-live-item-found",
+      "category": "replaced",
+      "items": [
+        { "ref": "old", "kind": "decision", "scope": "project:1", "body": "The retry budget is three attempts" },
+        { "ref": "new", "kind": "decision", "scope": "project:1", "body": "Uploads give up after five attempts", "replaces": ["old"] }
+      ],
+      "query": { "text": "how many upload attempts before giving up", "scopes": ["project:1"] },
+      "expect": ["new"]
+    },
+    {
+      "name": "retired-ranks-below-live",
+      "category": "retired",
+      "items": [
+        { "ref": "live", "kind": "decision", "scope": "project:1", "body": "Deploys go out on Tuesdays" },
+        { "ref": "stale", "kind": "decision", "scope": "project:1", "body": "Deploys go out on Fridays", "retire": true }
+      ],
+      "query": { "text": "deploys", "scopes": ["project:1"] },
+      "expect": ["live", "stale"],
+      "ordered": true
+    },
+    {
+      "name": "retired-stays-readable",
+      "category": "retired",
+      "items": [
+        { "ref": "redis", "kind": "decision", "scope": "project:1", "body": "Use Redis for the job queue", "retire": true },
+        { "ref": "exports", "kind": "fact", "scope": "project:1", "body": "Billing exports run nightly at 02:00 UTC" }
+      ],
+      "query": { "text": "job queue redis", "scopes": ["project:1"] },
+      "expect": ["redis"],
+      "forbidden": ["exports"]
+    },
+    {
+      "name": "retired-in-hidden-scope",
+      "category": "retired",
+      "items": [
+        { "ref": "live", "kind": "decision", "scope": "project:1", "body": "Webhooks are signed with HMAC SHA-256" },
+        { "ref": "hidden", "kind": "decision", "scope": "project:2", "body": "Webhooks are signed with a shared secret header", "retire": true }
+      ],
+      "query": { "text": "how are webhooks signed", "scopes": ["project:1"] },
+      "expect": ["live"],
+      "forbidden": ["hidden"]
+    },
+    {
+      "name": "conflict-newest-first",
+      "category": "conflict",
+      "items": [
+        { "ref": "first", "kind": "finding", "scope": "work_item:1", "body": "The import endpoint accepts 10 MB" },
+        { "ref": "second", "kind": "finding", "scope": "work_item:1", "body": "The import endpoint accepts 50 MB" }
+      ],
+      "query": { "text": "import endpoint accepts", "scopes": ["work_item:1"] },
+      "expect": ["second", "first"],
+      "ordered": true
+    },
+    {
+      "name": "conflict-three-findings",
+      "category": "conflict",
+      "items": [
+        { "ref": "a", "kind": "finding", "scope": "work_item:1", "body": "Staging database runs Postgres 14" },
+        { "ref": "b", "kind": "finding", "scope": "work_item:1", "body": "Staging database runs Postgres 15" },
+        { "ref": "c", "kind": "finding", "scope": "work_item:1", "body": "Staging database runs Postgres 16" }
+      ],
+      "query": { "text": "staging database postgres", "scopes": ["work_item:1"] },
+      "expect": ["c", "b", "a"],
+      "ordered": true
+    },
+    {
+      "name": "conflict-newer-candidate-hidden",
+      "category": "conflict",
+      "items": [
+        { "ref": "accepted", "kind": "convention", "scope": "project:1", "body": "Tests use table-driven cases" },
+        { "ref": "proposed", "kind": "convention", "scope": "project:1", "author": "ada", "role": "developer", "body": "Tests use one function per case" }
+      ],
+      "query": { "text": "how do tests use cases", "scopes": ["project:1"] },
+      "expect": ["accepted"],
+      "forbidden": ["proposed"]
+    },
+    {
+      "name": "isolation-other-team",
+      "category": "cross-team isolation",
+      "items": [
+        { "ref": "mine", "kind": "lesson", "scope": "team:a", "body": "Review every migration before merging" },
+        { "ref": "theirs", "kind": "lesson", "scope": "team:b", "body": "Review every migration with the DBA before merging" },
+        { "ref": "shared", "kind": "convention", "scope": "project:1", "body": "Migrations are forward-only" }
+      ],
+      "query": { "text": "migration review", "scopes": ["project:1", "team:a"] },
+      "expect": ["mine", "shared"],
+      "forbidden": ["theirs"]
+    },
+    {
+      "name": "isolation-other-team-via-link",
+      "category": "cross-team isolation",
+      "items": [
+        { "ref": "mine", "kind": "lesson", "scope": "team:a", "body": "Pair on every auth change", "about": ["module:auth"] },
+        { "ref": "theirs", "kind": "lesson", "scope": "team:b", "body": "Keep the session secret out of logs", "about": ["module:auth"] }
+      ],
+      "query": { "text": "pair on auth change", "scopes": ["team:a"] },
+      "expect": ["mine"],
+      "forbidden": ["theirs"]
+    },
+    {
+      "name": "isolation-other-teammate",
+      "category": "cross-team isolation",
+      "items": [
+        { "ref": "ada", "kind": "lesson", "scope": "teammate:ada", "body": "Run go vet before asking for review" },
+        { "ref": "bob", "kind": "lesson", "scope": "teammate:bob", "body": "Run go vet and the linter before asking for review" },
+        { "ref": "style", "kind": "convention", "scope": "project:1", "body": "Follow the Go style doc" }
+      ],
+      "query": { "text": "go vet before review", "scopes": ["project:1", "teammate:ada"] },
+      "expect": ["ada"],
+      "forbidden": ["bob"]
+    },
+    {
+      "name": "isolation-same-id-other-kind",
+      "category": "cross-team isolation",
+      "items": [
+        { "ref": "team", "kind": "lesson", "scope": "team:1", "body": "Announce schema changes in the channel first" },
+        { "ref": "work", "kind": "finding", "scope": "work_item:1", "body": "Schema changes broke the export job" }
+      ],
+      "query": { "text": "schema changes", "scopes": ["team:1"] },
+      "expect": ["team"],
+      "forbidden": ["work"]
+    },
+    {
+      "name": "cross-work-item-shared-module",
+      "category": "cross-work-item via recall",
+      "items": [
+        { "ref": "throttle", "kind": "finding", "scope": "work_item:1", "body": "Login throttling locks an account after five failures", "about": ["module:auth"] },
+        { "ref": "reset", "kind": "finding", "scope": "work_item:2", "body": "Password reset tokens are single use", "about": ["module:auth"] },
+        { "ref": "invoice", "kind": "finding", "scope": "work_item:2", "body": "Invoice PDFs are rendered with wkhtmltopdf", "about": ["module:billing"] }
+      ],
+      "query": { "text": "login throttling account lock", "scopes": ["work_item:1", "work_item:2"] },
+      "expect": ["throttle", "reset"],
+      "forbidden": ["invoice"]
+    },
+    {
+      "name": "cross-work-item-shared-pr",
+      "category": "cross-work-item via recall",
+      "items": [
+        { "ref": "cause", "kind": "finding", "scope": "work_item:3", "body": "The flaky export test depends on wall clock time", "about": ["pr:114"] },
+        { "ref": "fix", "kind": "decision", "scope": "work_item:4", "body": "Inject a fake clock into the scheduler", "about": ["pr:114"] },
+        { "ref": "noise", "kind": "finding", "scope": "work_item:4", "body": "The sidebar flickers on resize", "about": ["pr:130"] }
+      ],
+      "query": { "text": "flaky export test wall clock", "scopes": ["work_item:3", "work_item:4"] },
+      "expect": ["cause", "fix"],
+      "forbidden": ["noise"]
+    },
+    {
+      "name": "hub-project-link-not-followed",
+      "category": "hub rule",
+      "items": [
+        { "ref": "target", "kind": "decision", "scope": "project:1", "body": "Use sessions, not JWT, for browser login", "about": ["project:1"] },
+        { "ref": "n1", "kind": "fact", "scope": "project:1", "body": "Billing exports run nightly at 02:00 UTC", "about": ["project:1"] },
+        { "ref": "n2", "kind": "convention", "scope": "project:1", "body": "Name Go test files after the package under test", "about": ["project:1"] },
+        { "ref": "n3", "kind": "finding", "scope": "project:1", "body": "The upload retries three times with backoff", "about": ["project:1"] },
+        { "ref": "n4", "kind": "fact", "scope": "project:1", "body": "The logo is exported as SVG from the design file", "about": ["project:1"] },
+        { "ref": "n5", "kind": "decision", "scope": "project:1", "body": "Store everything in a single SQLite file", "about": ["project:1"] }
+      ],
+      "query": { "text": "sessions JWT login", "scopes": ["project:1"] },
+      "expect": ["target"],
+      "forbidden": ["n1", "n2", "n3", "n4", "n5"]
+    },
+    {
+      "name": "hub-team-link-not-followed",
+      "category": "hub rule",
+      "items": [
+        { "ref": "target", "kind": "lesson", "scope": "team:a", "body": "Write the failing test before the fix", "about": ["team:a"] },
+        { "ref": "n1", "kind": "lesson", "scope": "team:a", "body": "Post the plan in the channel first", "about": ["team:a"] },
+        { "ref": "n2", "kind": "lesson", "scope": "team:a", "body": "Keep commits small and conventional", "about": ["team:a"] },
+        { "ref": "n3", "kind": "lesson", "scope": "team:a", "body": "Ask the architect when two readings fit", "about": ["team:a"] }
+      ],
+      "query": { "text": "failing test before fix", "scopes": ["team:a"] },
+      "expect": ["target"],
+      "forbidden": ["n1", "n2", "n3"]
+    },
+    {
+      "name": "scope-narrowed-to-work-item",
+      "category": "scope restriction",
+      "items": [
+        { "ref": "item", "kind": "finding", "scope": "work_item:1", "body": "The request timeout is 30 seconds" },
+        { "ref": "project", "kind": "decision", "scope": "project:1", "body": "Every request timeout is set in the client config" },
+        { "ref": "other", "kind": "finding", "scope": "work_item:2", "body": "The socket timeout on uploads is 120 seconds" }
+      ],
+      "query": { "text": "timeout", "scopes": ["project:1", "work_item:1", "work_item:2"], "scope": "work_item:1" },
+      "expect": ["item"],
+      "forbidden": ["project", "other"]
+    },
+    {
+      "name": "scope-narrowed-to-team",
+      "category": "scope restriction",
+      "items": [
+        { "ref": "team", "kind": "lesson", "scope": "team:a", "body": "Hand off with a short written summary" },
+        { "ref": "mine", "kind": "lesson", "scope": "teammate:ada", "body": "Hand off after the tests pass" },
+        { "ref": "project", "kind": "convention", "scope": "project:1", "body": "Hand off through the Work item brief" }
+      ],
+      "query": { "text": "hand off", "scopes": ["project:1", "team:a", "teammate:ada"], "scope": "team:a" },
+      "expect": ["team"],
+      "forbidden": ["mine", "project"]
+    },
+    {
+      "name": "scope-narrowing-blocks-expansion",
+      "category": "scope restriction",
+      "items": [
+        { "ref": "hit", "kind": "finding", "scope": "work_item:1", "body": "Token refresh races with logout", "about": ["module:auth"] },
+        { "ref": "linked", "kind": "finding", "scope": "work_item:2", "body": "Password reset tokens are single use", "about": ["module:auth"] }
+      ],
+      "query": { "text": "token refresh logout", "scopes": ["work_item:1", "work_item:2"], "scope": "work_item:1" },
+      "expect": ["hit"],
+      "forbidden": ["linked"]
+    },
+    {
+      "name": "candidate-convention-not-recalled",
+      "category": "candidate",
+      "items": [
+        { "ref": "live", "kind": "convention", "scope": "project:1", "body": "Handlers return errors, never panic" },
+        { "ref": "proposed", "kind": "convention", "scope": "project:1", "author": "ada", "role": "developer", "body": "Handlers wrap errors with the route name" }
+      ],
+      "query": { "text": "handlers errors", "scopes": ["project:1"] },
+      "expect": ["live"],
+      "forbidden": ["proposed"]
+    },
+    {
+      "name": "candidate-team-lesson-not-recalled",
+      "category": "candidate",
+      "items": [
+        { "ref": "live", "kind": "lesson", "scope": "team:a", "body": "Review the diff before reporting done" },
+        { "ref": "proposed", "kind": "lesson", "scope": "team:a", "author": "lead", "role": "lead", "body": "Review the diff twice before reporting done" }
+      ],
+      "query": { "text": "review the diff before done", "scopes": ["team:a"] },
+      "expect": ["live"],
+      "forbidden": ["proposed"]
+    }
+  ]
+}
