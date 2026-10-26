@@ -1,5 +1,5 @@
 import { createContext, type ReactNode, useContext } from 'react';
-import type { Parent, PhrasingContent, Root } from 'mdast';
+import type { PhrasingContent, Root } from 'mdast';
 import type { Components } from 'react-markdown';
 import ReactMarkdown from 'react-markdown';
 import remarkBreaks from 'remark-breaks';
@@ -8,40 +8,27 @@ import { Hovercard } from '@/components/hovercard';
 import { splitMentions } from '@/utils/split-mentions';
 
 function mentions(nodes: PhrasingContent[]): PhrasingContent[] {
-  return nodes.flatMap((node): PhrasingContent[] => {
-    if (node.type === 'text') {
-      const pieces = splitMentions(node.value);
-      if (!pieces.some((piece) => piece.mention)) return [node];
-      return pieces.map((piece): PhrasingContent =>
-        piece.mention
-          ? {
-              type: 'text',
-              value: piece.value,
-              data: { hName: 'span', hProperties: { className: ['mention'] } },
-            }
-          : { type: 'text', value: piece.value },
-      );
-    }
-    if ('children' in node && node.type !== 'link') {
-      (node as Parent).children = mentions((node as Parent).children as PhrasingContent[]);
-    }
-    return [node];
+  return nodes.flatMap((node, i): PhrasingContent[] => {
+    if (node.type !== 'text' || (i > 0 && nodes[i - 1].type !== 'break')) return [node];
+    const pieces = splitMentions(node.value);
+    if (!pieces.some((piece) => piece.mention)) return [node];
+    return pieces.map((piece): PhrasingContent =>
+      piece.mention
+        ? {
+            type: 'text',
+            value: piece.value,
+            data: { hName: 'span', hProperties: { className: ['mention'] } },
+          }
+        : { type: 'text', value: piece.value },
+    );
   });
 }
 
 function remarkMentions() {
   return (tree: Root) => {
-    const walk = (parent: Parent) => {
-      parent.children = parent.children.flatMap((child) => {
-        if (child.type === 'paragraph' || child.type === 'heading' || child.type === 'tableCell') {
-          child.children = mentions(child.children);
-        } else if ('children' in child) {
-          walk(child as Parent);
-        }
-        return [child];
-      });
-    };
-    walk(tree);
+    for (const child of tree.children) {
+      if (child.type === 'paragraph') child.children = mentions(child.children);
+    }
   };
 }
 
