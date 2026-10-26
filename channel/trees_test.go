@@ -317,7 +317,8 @@ func TestSession_ShellThatChangesFilesRunsAsAWriteTurn(t *testing.T) {
 	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "committer", Backend: "claude", Tools: []string{"Read", "Bash(git commit:*)"}},
-		{Name: "reader", Backend: "claude", Tools: []string{"Read", "Bash(git log:*)", "Bash(ls:*)"}},
+		{Name: "differ", Backend: "claude", Tools: []string{"Read", "Bash(git diff:*)"}},
+		{Name: "reader", Backend: "claude", Tools: []string{"Read", "Bash(git status:*)", "Bash(ls:*)"}},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -327,6 +328,7 @@ func TestSession_ShellThatChangesFilesRunsAsAWriteTurn(t *testing.T) {
 		wantCheckpoint bool
 	}{
 		{"committer", false, true},
+		{"differ", false, true},
 		{"reader", true, false},
 	}
 	for _, tt := range tests {

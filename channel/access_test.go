@@ -258,12 +258,16 @@ func TestWrites(t *testing.T) {
 		{
 			"reading commands",
 			store.Role{Backend: "claude", Tools: []string{
-				"Bash(git log:*)", "Bash(ls:*)", "Bash(git diff --stat:*)", "Bash(cat *)", "Bash(pwd)",
+				"Bash(git status:*)", "Bash(ls:*)", "Bash(cat *)", "Bash(pwd)",
 			}},
 			false,
 		},
 		{"git commit", store.Role{Backend: "claude", Tools: []string{"Read", "Bash(git commit:*)"}}, true},
-		{"rm", store.Role{Backend: "claude", Tools: []string{"Bash(git log:*)", "Bash(rm:*)"}}, true},
+		{"rm", store.Role{Backend: "claude", Tools: []string{"Bash(git status:*)", "Bash(rm:*)"}}, true},
+		{"git diff can write with --output", store.Role{Backend: "claude", Tools: []string{"Bash(git diff:*)"}}, true},
+		{"git log can write with --output", store.Role{Backend: "claude", Tools: []string{"Bash(git log:*)"}}, true},
+		{"git show can write with --output", store.Role{Backend: "claude", Tools: []string{"Bash(git show:*)"}}, true},
+		{"git blame can write with --output", store.Role{Backend: "claude", Tools: []string{"Bash(git blame:*)"}}, true},
 		{"go test", store.Role{Backend: "claude", Tools: []string{"Bash(go test:*)"}}, true},
 		{"bare Bash is dropped", store.Role{Backend: "claude", Tools: []string{"Bash"}}, false},
 		{"Bash(*) is dropped", store.Role{Backend: "claude", Tools: []string{"Bash(*)", "Read"}}, false},

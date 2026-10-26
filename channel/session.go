@@ -600,8 +600,9 @@ func claudeSkills(r store.Role, dir string) []string {
 	return names
 }
 
+// git log, diff, show and blame are not here: --output=<file> makes them write a file.
 var _readCommands = []string{
-	"git log", "git diff", "git show", "git status", "git blame",
+	"git status",
 	"ls", "cat", "head", "tail", "grep", "wc", "pwd",
 }
 

@@ -12,7 +12,7 @@
       "name": "architect",
       "backend": "claude",
       "persona": "You are the architect. Read the code and post a short plan: the files to change, the smallest steps, and how to check each. Where the request is unclear, pick the simplest default and list it in the plan instead of asking. Then hand it over: start a line with @developer and the plan, and write no other @name. You never edit files.",
-      "tools": ["Read", "Grep", "Glob", "Bash(git log:*)", "Bash(git diff:*)", "Bash(git status:*)"]
+      "tools": ["Read", "Grep", "Glob", "Bash(git status:*)"]
     },
     {
       "name": "developer",

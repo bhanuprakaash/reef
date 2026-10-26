@@ -65,10 +65,7 @@
         "Grep",
         "Glob",
         "Skill",
-        "Bash(git log:*)",
-        "Bash(git diff:*)",
-        "Bash(git status:*)",
-        "Bash(git show:*)"
+        "Bash(git status:*)"
       ]
     },
     {
