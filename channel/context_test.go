@@ -358,7 +358,8 @@ func TestTeamIntro(t *testing.T) {
 		"A public message that wakes you starts with [channel N, message N] or " +
 		"[channel N, message N, thread N]: your " +
 		"plain reply goes where the header says, a top-level one starting your own thread; pass " +
-		"thread as the parent of post_to_channel when the header has one.\n"
+		"thread as the parent of post_to_channel when the header has one. A turn that posts with " +
+		"post_to_channel has answered: its plain reply is not posted.\n"
 	tests := []struct {
 		name string
 		team store.Team

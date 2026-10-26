@@ -168,7 +168,8 @@ func teamIntro(team store.Team, r store.Role) string {
 		"A public message that wakes you starts with "+
 		"[channel N, message N] or [channel N, message N, thread N]: your plain reply goes where "+
 		"the header says, a top-level one starting your own thread; pass thread as the parent of "+
-		"post_to_channel when the header has one.\n", strings.Join(names, ", "))
+		"post_to_channel when the header has one. A turn that posts with post_to_channel has "+
+		"answered: its plain reply is not posted.\n", strings.Join(names, ", "))
 	if r.Lead {
 		s += "Do not summarize or repeat a specialist's post back to the user: they see it.\n"
 	}
