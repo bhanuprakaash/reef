@@ -58,21 +58,9 @@ type EmbedConfig struct{ Provider, Key string }
 
 type noneEmbedder struct{}
 
-func (noneEmbedder) Embed(context.Context, string) ([]float32, error) { return nil, nil }
-
-func (noneEmbedder) MinCosine() float64 { return 0 }
-
 type openAIEmbedder struct {
 	hc       *http.Client
 	url, key string
-}
-
-func (e openAIEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
-	return postEmbedding(ctx, e.hc, ProviderOpenAI, e.url, e.key,
-		struct {
-			Model string `json:"model"`
-			Input string `json:"input"`
-		}{_openAIModel, text})
 }
 
 type voyageEmbedder struct {
@@ -80,49 +68,9 @@ type voyageEmbedder struct {
 	url, key string
 }
 
-func (openAIEmbedder) MinCosine() float64 { return _minCosine }
-
-func (e voyageEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
-	return postEmbedding(ctx, e.hc, ProviderVoyage, e.url, e.key,
-		struct {
-			Model string   `json:"model"`
-			Input []string `json:"input"`
-		}{_voyageModel, []string{text}})
-}
-
 type geminiEmbedder struct {
 	hc       *http.Client
 	url, key string
-}
-
-func (voyageEmbedder) MinCosine() float64 { return _minCosine }
-
-func (geminiEmbedder) MinCosine() float64 { return _geminiMinCosine }
-
-func (e geminiEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
-	type part struct {
-		Text string `json:"text"`
-	}
-	type content struct {
-		Parts []part `json:"parts"`
-	}
-	var out struct {
-		Embedding struct {
-			Values []float32 `json:"values"`
-		} `json:"embedding"`
-	}
-	body := struct {
-		Content content `json:"content"`
-		Dims    int     `json:"outputDimensionality"`
-	}{content{[]part{{text}}}, _geminiDims}
-	err := postJSON(ctx, e.hc, ProviderGemini, e.url, "x-goog-api-key", e.key, body, &out)
-	if err != nil {
-		return nil, err
-	}
-	if len(out.Embedding.Values) == 0 {
-		return nil, fmt.Errorf("%s embeddings: no embedding in response", ProviderGemini)
-	}
-	return out.Embedding.Values, nil
 }
 
 // NewEmbedder returns the embedder c names. An empty key or provider gives the none
@@ -152,103 +100,57 @@ func NewEmbedder(c EmbedConfig, hc *http.Client) (Embedder, error) {
 	return noneEmbedder{}, nil
 }
 
-func postEmbedding(
-	ctx context.Context, hc *http.Client, name, url, key string, body any,
-) ([]float32, error) {
-	var out struct {
-		Data []struct {
-			Embedding []float32 `json:"embedding"`
-		} `json:"data"`
+func (noneEmbedder) Embed(context.Context, string) ([]float32, error) { return nil, nil }
+
+func (noneEmbedder) MinCosine() float64 { return 0 }
+
+func (e openAIEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	return postEmbedding(ctx, e.hc, ProviderOpenAI, e.url, e.key,
+		struct {
+			Model string `json:"model"`
+			Input string `json:"input"`
+		}{_openAIModel, text})
+}
+
+func (openAIEmbedder) MinCosine() float64 { return _minCosine }
+
+func (e voyageEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	return postEmbedding(ctx, e.hc, ProviderVoyage, e.url, e.key,
+		struct {
+			Model string   `json:"model"`
+			Input []string `json:"input"`
+		}{_voyageModel, []string{text}})
+}
+
+func (voyageEmbedder) MinCosine() float64 { return _minCosine }
+
+func (e geminiEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	type part struct {
+		Text string `json:"text"`
 	}
-	if err := postJSON(ctx, hc, name, url, "Authorization", "Bearer "+key, body, &out); err != nil {
+	type content struct {
+		Parts []part `json:"parts"`
+	}
+	var out struct {
+		Embedding struct {
+			Values []float32 `json:"values"`
+		} `json:"embedding"`
+	}
+	body := struct {
+		Content content `json:"content"`
+		Dims    int     `json:"outputDimensionality"`
+	}{content{[]part{{text}}}, _geminiDims}
+	err := postJSON(ctx, e.hc, ProviderGemini, e.url, "x-goog-api-key", e.key, body, &out)
+	if err != nil {
 		return nil, err
 	}
-	if len(out.Data) == 0 || len(out.Data[0].Embedding) == 0 {
-		return nil, fmt.Errorf("%s embeddings: no embedding in response", name)
+	if len(out.Embedding.Values) == 0 {
+		return nil, fmt.Errorf("%s embeddings: no embedding in response", ProviderGemini)
 	}
-	return out.Data[0].Embedding, nil
+	return out.Embedding.Values, nil
 }
 
-// Errors carry the status code and the vendor's error code, never the key or the vendor's
-// message. A 429 is retried once after its Retry-After.
-func postJSON(
-	ctx context.Context, hc *http.Client, name, url, authHeader, auth string, body, out any,
-) error {
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return fmt.Errorf("encode %s request: %w", name, err)
-	}
-	send := func() (*http.Response, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-		if err != nil {
-			return nil, fmt.Errorf("build %s request: %w", name, err)
-		}
-		req.Header.Set(authHeader, auth)
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := hc.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("%s embeddings: %w", name, err)
-		}
-		return resp, nil
-	}
-	resp, err := send()
-	if err == nil && resp.StatusCode == http.StatusTooManyRequests {
-		wait := retryAfter(resp.Header.Get("Retry-After"))
-		resp.Body.Close()
-		select {
-		case <-time.After(wait):
-		case <-ctx.Done():
-			return fmt.Errorf("%s embeddings: %w", name, ctx.Err())
-		}
-		resp, err = send()
-	}
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		msg := fmt.Sprintf("%s embeddings: status %d", name, resp.StatusCode)
-		if code := vendorCode(resp.Body); code != "" {
-			msg += " " + code
-		}
-		return errors.New(msg)
-	}
-	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("decode %s response: %w", name, err)
-	}
-	return nil
-}
-
-// retryAfter reads a Retry-After in seconds: 1 second when it is missing or not a
-// non-negative integer, at most 60.
-func retryAfter(h string) time.Duration {
-	n, err := strconv.Atoi(h)
-	if err != nil || n < 0 {
-		n = 1
-	}
-	return min(time.Duration(n)*time.Second, _maxRetryAfter)
-}
-
-// vendorCode returns the error code token of a vendor error body, such as
-// RESOURCE_EXHAUSTED or insufficient_quota, or "" when there is none. It never returns
-// the message.
-func vendorCode(r io.Reader) string {
-	var body struct {
-		Error struct {
-			Status string `json:"status"`
-			Code   any    `json:"code"`
-		} `json:"error"`
-	}
-	_ = json.NewDecoder(io.LimitReader(r, 64<<10)).Decode(&body)
-	code := body.Error.Status
-	if c, ok := body.Error.Code.(string); ok && code == "" {
-		code = c
-	}
-	if len(code) > 64 || strings.Trim(code, _codeChars) != "" {
-		return ""
-	}
-	return code
-}
+func (geminiEmbedder) MinCosine() float64 { return _geminiMinCosine }
 
 // Backfill embeds items that have no vector and returns how many it filled. It stops at
 // the first embed error.
@@ -372,6 +274,104 @@ func (s *Store) embedItem(ctx context.Context, id int64, text string) (bool, err
 		return false, fmt.Errorf("store vector: %w", err)
 	}
 	return true, nil
+}
+
+func postEmbedding(
+	ctx context.Context, hc *http.Client, name, url, key string, body any,
+) ([]float32, error) {
+	var out struct {
+		Data []struct {
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
+	}
+	if err := postJSON(ctx, hc, name, url, "Authorization", "Bearer "+key, body, &out); err != nil {
+		return nil, err
+	}
+	if len(out.Data) == 0 || len(out.Data[0].Embedding) == 0 {
+		return nil, fmt.Errorf("%s embeddings: no embedding in response", name)
+	}
+	return out.Data[0].Embedding, nil
+}
+
+// Errors carry the status code and the vendor's error code, never the key or the vendor's
+// message. A 429 is retried once after its Retry-After.
+func postJSON(
+	ctx context.Context, hc *http.Client, name, url, authHeader, auth string, body, out any,
+) error {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("encode %s request: %w", name, err)
+	}
+	send := func() (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+		if err != nil {
+			return nil, fmt.Errorf("build %s request: %w", name, err)
+		}
+		req.Header.Set(authHeader, auth)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := hc.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("%s embeddings: %w", name, err)
+		}
+		return resp, nil
+	}
+	resp, err := send()
+	if err == nil && resp.StatusCode == http.StatusTooManyRequests {
+		wait := retryAfter(resp.Header.Get("Retry-After"))
+		resp.Body.Close()
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return fmt.Errorf("%s embeddings: %w", name, ctx.Err())
+		}
+		resp, err = send()
+	}
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		msg := fmt.Sprintf("%s embeddings: status %d", name, resp.StatusCode)
+		if code := vendorCode(resp.Body); code != "" {
+			msg += " " + code
+		}
+		return errors.New(msg)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("decode %s response: %w", name, err)
+	}
+	return nil
+}
+
+// retryAfter reads a Retry-After in seconds: 1 second when it is missing or not a
+// non-negative integer, at most 60.
+func retryAfter(h string) time.Duration {
+	n, err := strconv.Atoi(h)
+	if err != nil || n < 0 {
+		n = 1
+	}
+	return min(time.Duration(n)*time.Second, _maxRetryAfter)
+}
+
+// vendorCode returns the error code token of a vendor error body, such as
+// RESOURCE_EXHAUSTED or insufficient_quota, or "" when there is none. It never returns
+// the message.
+func vendorCode(r io.Reader) string {
+	var body struct {
+		Error struct {
+			Status string `json:"status"`
+			Code   any    `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.NewDecoder(io.LimitReader(r, 64<<10)).Decode(&body)
+	code := body.Error.Status
+	if c, ok := body.Error.Code.(string); ok && code == "" {
+		code = c
+	}
+	if len(code) > 64 || strings.Trim(code, _codeChars) != "" {
+		return ""
+	}
+	return code
 }
 
 func embedText(body, why string) string {
