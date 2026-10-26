@@ -1,8 +1,8 @@
 # Memory and retrieval service
 
-[Back to restructuring index](index.md) · settled points are R15–R27 in [decisions.md](decisions.md)
+[Back to restructuring index](index.md) · settled points are R15–R30 in [decisions.md](decisions.md)
 
-> Status: design settled, build not started. Tickets live in the run file outside the repo until the first PR.
+> Status: built as package `memory/` with the `reef memory` CLI; not yet called by agents (the MCP tools and context assembler wait, R27).
 
 ## In one paragraph
 
