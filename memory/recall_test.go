@@ -249,6 +249,8 @@ func TestRecall_EmbedFailureFallsBackToWords(t *testing.T) {
 
 type breakVectorsEmbedder struct{ db *sql.DB }
 
+func (breakVectorsEmbedder) MinCosine() float64 { return _minCosine }
+
 func (b breakVectorsEmbedder) Embed(ctx context.Context, _ string) ([]float32, error) {
 	_, err := b.db.ExecContext(ctx, `ALTER TABLE memory RENAME COLUMN vector TO vec`)
 	return []float32{1, 0}, err

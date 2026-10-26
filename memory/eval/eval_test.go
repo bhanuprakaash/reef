@@ -80,15 +80,11 @@ func TestRecall(t *testing.T) {
 	var sumRecall, sumMRR float64
 	for _, sc := range fx.Scenarios {
 		t.Run(sc.Name, func(t *testing.T) {
-			var e memory.Embedder
-			if sc.NeedsEmbedder {
-				if emb == nil {
-					skipped++
-					t.Skip("needs an embedder: build with -tags embed and set REEF_EMBED_PROVIDER and REEF_EMBED_KEY")
-				}
-				e = emb
+			if sc.NeedsEmbedder && emb == nil {
+				skipped++
+				t.Skip("needs an embedder: build with -tags embed and set REEF_EMBED_PROVIDER and REEF_EMBED_KEY")
 			}
-			recall, mrr := run(t, sc, e)
+			recall, mrr := run(t, sc, emb)
 			ran++
 			sumRecall += recall
 			sumMRR += mrr

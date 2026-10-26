@@ -17,6 +17,8 @@ type fakeEmbedder struct {
 	err     error
 }
 
+func (f *fakeEmbedder) MinCosine() float64 { return _minCosine }
+
 func (f *fakeEmbedder) Embed(_ context.Context, text string) ([]float32, error) {
 	if f.err != nil {
 		return nil, f.err

@@ -35,8 +35,9 @@ const (
 )
 
 const (
-	_minCosine    = 0.3
-	_embedTimeout = 10 * time.Second
+	_minCosine       = 0.3
+	_geminiMinCosine = 0.6
+	_embedTimeout    = 10 * time.Second
 
 	_maxRetryAfter = 60 * time.Second
 	_codeChars     = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
@@ -44,9 +45,12 @@ const (
 
 var _errEmbedQuery = errors.New("embed query")
 
-// Embedder turns text into a vector. A nil vector with a nil error means none.
+// Embedder turns text into a vector. A nil vector with a nil error means none. MinCosine is
+// the similarity under which a vector match is unrelated; each model spreads scores
+// differently.
 type Embedder interface {
 	Embed(ctx context.Context, text string) ([]float32, error)
+	MinCosine() float64
 }
 
 // EmbedConfig names the embedding provider and its key.
@@ -55,6 +59,8 @@ type EmbedConfig struct{ Provider, Key string }
 type noneEmbedder struct{}
 
 func (noneEmbedder) Embed(context.Context, string) ([]float32, error) { return nil, nil }
+
+func (noneEmbedder) MinCosine() float64 { return 0 }
 
 type openAIEmbedder struct {
 	hc       *http.Client
@@ -74,6 +80,8 @@ type voyageEmbedder struct {
 	url, key string
 }
 
+func (openAIEmbedder) MinCosine() float64 { return _minCosine }
+
 func (e voyageEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
 	return postEmbedding(ctx, e.hc, ProviderVoyage, e.url, e.key,
 		struct {
@@ -86,6 +94,10 @@ type geminiEmbedder struct {
 	hc       *http.Client
 	url, key string
 }
+
+func (voyageEmbedder) MinCosine() float64 { return _minCosine }
+
+func (geminiEmbedder) MinCosine() float64 { return _geminiMinCosine }
 
 func (e geminiEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
 	type part struct {
@@ -287,7 +299,7 @@ func (s *Store) ClearVectors(ctx context.Context) error {
 }
 
 // Nearest returns up to k items that pass f and have a vector with a cosine similarity of
-// at least 0.3, closest first. Score is the cosine similarity; ties go to accepted before
+// at least the embedder's MinCosine, closest first. Score is the cosine similarity; ties go to accepted before
 // retired, then newer.
 func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]Match, error) {
 	if k <= 0 || len(f.Scopes) == 0 {
@@ -304,7 +316,7 @@ func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]M
 	if err != nil {
 		return nil, err
 	}
-	hits = slices.DeleteFunc(hits, func(h Match) bool { return h.Score < _minCosine })
+	hits = slices.DeleteFunc(hits, func(h Match) bool { return h.Score < s.embed.MinCosine() })
 	if len(hits) > k {
 		hits = hits[:k]
 	}
