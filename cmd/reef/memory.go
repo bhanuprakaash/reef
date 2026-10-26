@@ -209,8 +209,12 @@ func memoryAdd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		}
 	}
 	if res.EmbedErr != nil {
-		_, err := fmt.Fprintf(stderr,
-			"vector not stored: %v; run reef memory embed to retry\n", res.EmbedErr)
+		provider, err := st.Setting(ctx, _settingEmbeddingProvider)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintf(stderr, "vector not stored: %v; run reef memory embed %s to retry\n",
+			res.EmbedErr, provider)
 		return err
 	}
 	return nil

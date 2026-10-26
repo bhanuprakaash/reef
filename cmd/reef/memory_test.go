@@ -372,7 +372,7 @@ func TestCLI_MemoryAddWarnsWhenVectorNotStored(t *testing.T) {
 	if want := "1  accepted  decision  project:1  Use JWT\n"; stdout.String() != want {
 		t.Errorf("stdout = %q, want %q", stdout.String(), want)
 	}
-	want := "vector not stored: openai embeddings: status 401 invalid_api_key; run reef memory embed to retry\n"
+	want := "vector not stored: openai embeddings: status 401 invalid_api_key; run reef memory embed openai to retry\n"
 	if stderr.String() != want {
 		t.Errorf("stderr = %q, want %q", stderr.String(), want)
 	}
