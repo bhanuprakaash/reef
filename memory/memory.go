@@ -4,10 +4,12 @@ package memory
 import (
 	"context"
 	"database/sql"
-	_ "embed"
+	"embed"
 	"errors"
 	"fmt"
+	"sort"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -39,6 +41,7 @@ const (
 	StatusCandidate = "candidate"
 	StatusAccepted  = "accepted"
 	StatusRetired   = "retired"
+	StatusRejected  = "rejected"
 )
 
 const _selectItem = `SELECT id, kind, body, why, scope_kind, scope_id, author, role, status,
@@ -51,8 +54,8 @@ var (
 	ErrInvalid = errors.New("invalid")
 )
 
-//go:embed schema.sql
-var _schema string
+//go:embed migrations/*.sql
+var _migrations embed.FS
 
 var (
 	_kinds = map[string]bool{
@@ -122,10 +125,10 @@ type querier interface {
 	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
 }
 
-// Open creates the memory tables in db if missing. A nil e stores no vectors.
+// Open brings the memory tables in db up to date. A nil e stores no vectors.
 func Open(db *sql.DB, e Embedder) (*Store, error) {
-	if _, err := db.Exec(_schema); err != nil {
-		return nil, fmt.Errorf("create memory tables: %w", err)
+	if err := migrate(context.Background(), db); err != nil {
+		return nil, fmt.Errorf("migrate memory tables: %w", err)
 	}
 	if e == nil {
 		e = noneEmbedder{}
@@ -213,7 +216,18 @@ func (s *Store) Read(ctx context.Context, id int64) (Item, error) {
 	return read(ctx, s.db, id)
 }
 
-// Retire marks a live item stale with nothing replacing it.
+// Reject turns down a candidate. It is kept, marked rejected, and is never found by a search.
+func (s *Store) Reject(ctx context.Context, id int64) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE memory SET status = ?, retired_at = ? WHERE id = ? AND status = ?`,
+		StatusRejected, time.Now().UTC().Format(time.RFC3339Nano), id, StatusCandidate)
+	if err != nil {
+		return fmt.Errorf("reject %d: %w", id, err)
+	}
+	return checkChanged(ctx, s.db, res, id, "not a candidate")
+}
+
+// Retire marks an accepted item stale with nothing replacing it.
 func (s *Store) Retire(ctx context.Context, id int64) error {
 	return retire(ctx, s.db, id, nil, time.Now().UTC().Format(time.RFC3339Nano))
 }
@@ -338,14 +352,22 @@ func validate(w Writer, n Note) error {
 func retire(ctx context.Context, q querier, id int64, replacedBy *int64, now string) error {
 	res, err := q.ExecContext(ctx,
 		`UPDATE memory SET status = ?, retired_at = ?, replaced_by = ?
-		 WHERE id = ? AND status != ?`,
-		StatusRetired, now, replacedBy, id, StatusRetired)
+		 WHERE id = ? AND status = ?`,
+		StatusRetired, now, replacedBy, id, StatusAccepted)
 	if err != nil {
 		return fmt.Errorf("retire %d: %w", id, err)
 	}
-	return checkChanged(ctx, q, res, id, "already retired")
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("rows affected: %w", err)
+	}
+	if n > 0 {
+		return nil
+	}
+	return checkLive(ctx, q, id)
 }
 
+// checkLive fails unless id is an accepted item.
 func checkLive(ctx context.Context, q querier, id int64) error {
 	var status string
 	err := q.QueryRowContext(ctx, `SELECT status FROM memory WHERE id = ?`, id).Scan(&status)
@@ -355,8 +377,13 @@ func checkLive(ctx context.Context, q querier, id int64) error {
 	if err != nil {
 		return fmt.Errorf("check %d: %w", id, err)
 	}
-	if status == StatusRetired {
+	switch status {
+	case StatusCandidate:
+		return fmt.Errorf("%w: memory %d is a candidate", ErrInvalid, id)
+	case StatusRetired:
 		return fmt.Errorf("%w: memory %d is already retired", ErrInvalid, id)
+	case StatusRejected:
+		return fmt.Errorf("%w: memory %d is rejected", ErrInvalid, id)
 	}
 	return nil
 }
@@ -468,4 +495,72 @@ func scanItem(rows *sql.Rows) (Item, error) {
 		it.ReplacedBy = &replacedBy.Int64
 	}
 	return it, nil
+}
+
+func migrate(ctx context.Context, db *sql.DB) error {
+	files, err := _migrations.ReadDir("migrations")
+	if err != nil {
+		return fmt.Errorf("list migrations: %w", err)
+	}
+	names := make([]string, 0, len(files))
+	for _, f := range files {
+		names = append(names, f.Name())
+	}
+	sort.Strings(names)
+	for _, name := range names {
+		n, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
+		if err != nil {
+			return fmt.Errorf("migration %s: bad number: %w", name, err)
+		}
+		body, err := _migrations.ReadFile("migrations/" + name)
+		if err != nil {
+			return fmt.Errorf("read %s: %w", name, err)
+		}
+		if err := apply(ctx, db, n, string(body)); err != nil {
+			return fmt.Errorf("apply %s: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// apply runs one migration unless the tables are already at version or later. Tables made
+// before memory_version existed are at version 1.
+func apply(ctx context.Context, db *sql.DB, version int, body string) error {
+	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var hasVersion, hasItems bool
+	if err := tx.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'memory_version'),
+		        EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'memory')`).Scan(&hasVersion, &hasItems); err != nil {
+		return fmt.Errorf("read version: %w", err)
+	}
+	var current int
+	switch {
+	case hasVersion:
+		if err := tx.QueryRowContext(ctx, `SELECT version FROM memory_version`).Scan(&current); err != nil {
+			return fmt.Errorf("read version: %w", err)
+		}
+	case hasItems:
+		current = 1
+	}
+	if current >= version {
+		return nil
+	}
+	if _, err := tx.ExecContext(ctx, body); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx,
+		`CREATE TABLE IF NOT EXISTS memory_version (version INTEGER NOT NULL)`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM memory_version`); err != nil {
+		return err
+	}
+	if _, err := tx.ExecContext(ctx, `INSERT INTO memory_version (version) VALUES (?)`, version); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

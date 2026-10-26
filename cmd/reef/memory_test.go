@@ -89,6 +89,12 @@ func TestCLI_MemoryItems(t *testing.T) {
 			[]string{"memory", "add", "convention", "Indent with tabs", "--scope", "project:1", "--needs-approval"}},
 		{"pending", "4  candidate  convention  project:1  Indent with tabs\n", []string{"memory", "pending"}},
 		{"retire", "3  retired\n", []string{"memory", "retire", "3"}},
+		{"add a second candidate", "5  candidate  convention  project:1  Review in pairs\n",
+			[]string{"memory", "add", "convention", "Review in pairs", "--scope", "project:1", "--needs-approval"}},
+		{"reject", "5  rejected\n", []string{"memory", "reject", "5"}},
+		{"recall a rejected item", "", []string{"memory", "recall", "pairs"}},
+		{"pending after reject", "4  candidate  convention  project:1  Indent with tabs\n",
+			[]string{"memory", "pending"}},
 	}
 	for _, s := range steps {
 		if got := mustReef(t, dir, s.args...); got != s.want {
@@ -102,12 +108,22 @@ func TestCLI_MemoryItems(t *testing.T) {
 		t.Errorf("show of a retired item = %q, want it to start with %q and end with a time", got, head)
 	}
 
+	got = mustReef(t, dir, "memory", "show", "5")
+	const rejectedHead = "5  rejected  convention  project:1  Review in pairs\nauthor  user\nretired_at  "
+	if !strings.HasPrefix(got, rejectedHead) || strings.Count(got, "\n") != 3 {
+		t.Errorf("show of a rejected item = %q, want it to start with %q and end with a time", got, rejectedHead)
+	}
+
 	failures := []struct {
 		args []string
 		want string
 	}{
 		{[]string{"memory", "approve", "2"}, "invalid: memory 2 is not a candidate"},
 		{[]string{"memory", "retire", "3"}, "invalid: memory 3 is already retired"},
+		{[]string{"memory", "retire", "4"}, "invalid: memory 4 is a candidate"},
+		{[]string{"memory", "retire", "5"}, "invalid: memory 5 is rejected"},
+		{[]string{"memory", "reject", "2"}, "invalid: memory 2 is not a candidate"},
+		{[]string{"memory", "reject", "5"}, "invalid: memory 5 is not a candidate"},
 		{[]string{"memory", "show", "99"}, "memory 99: not found"},
 		{[]string{"memory", "show", "x"}, `invalid: "x" is not a memory id`},
 		{[]string{"memory", "add", "decision", "x", "--scope", "project"}, `invalid: --scope "project" is not kind:id`},
@@ -128,6 +144,7 @@ func TestCLI_MemoryEachCommandHasItsOwnFlags(t *testing.T) {
 		undefined = "flag provided but not defined: -"
 		retire    = "usage: reef memory retire <id> [--data DIR]"
 		approve   = "usage: reef memory approve <id> [--data DIR]"
+		reject    = "usage: reef memory reject <id> [--data DIR]"
 		pending   = "usage: reef memory pending [--data DIR]"
 		show      = "usage: reef memory [--project P] show [<id>] [--data DIR]"
 		set       = "usage: reef memory [--project P] set FILE|- [--data DIR]"
@@ -145,6 +162,8 @@ func TestCLI_MemoryEachCommandHasItsOwnFlags(t *testing.T) {
 			undefined + "why\n" + retire},
 		{"approve with --scope", []string{"memory", "approve", "1", "--scope", "project:1"},
 			undefined + "scope\n" + approve},
+		{"reject with --scope", []string{"memory", "reject", "1", "--scope", "project:1"},
+			undefined + "scope\n" + reject},
 		{"pending with --limit", []string{"memory", "pending", "--limit", "3"},
 			undefined + "limit\n" + pending},
 		{"show with --scope", []string{"memory", "show", "--scope", "project:1"},

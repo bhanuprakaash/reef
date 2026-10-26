@@ -63,8 +63,18 @@ func TestOpen_Idempotent(t *testing.T) {
 }
 
 func TestSchema_NoForeignKeys(t *testing.T) {
-	if strings.Contains(strings.ToLower(_schema), "references") {
-		t.Fatal("schema has REFERENCES")
+	files, err := _migrations.ReadDir("migrations")
+	if err != nil || len(files) == 0 {
+		t.Fatalf("migrations: %v, %d files", err, len(files))
+	}
+	for _, f := range files {
+		body, err := _migrations.ReadFile("migrations/" + f.Name())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(strings.ToLower(string(body)), "references") {
+			t.Fatalf("%s has REFERENCES", f.Name())
+		}
 	}
 }
 
@@ -366,5 +376,174 @@ func TestRead_Missing(t *testing.T) {
 	s, _ := openTest(t)
 	if _, err := s.Read(context.Background(), 1); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("err = %v, want ErrNotFound", err)
+	}
+}
+
+func candidate(t *testing.T, s *Store, scope Ref, body string, replaces ...int64) int64 {
+	t.Helper()
+	res, err := s.Remember(context.Background(), Writer{Author: "ada", Role: "developer", Scope: scope},
+		Note{Kind: KindFact, Body: body, Replaces: replaces, NeedsApproval: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return res.Item.ID
+}
+
+func TestReject_CandidateIsNeverFound(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	shelf := Ref{Kind: ScopeProject, ID: "1"}
+	id := candidate(t, s, shelf, "rotate the signing keys monthly")
+	if err := s.Reject(ctx, id); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Read(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusRejected || got.RetiredAt == nil {
+		t.Fatalf("item = %+v", got)
+	}
+	if hits := recall(t, s, Query{Scopes: []Ref{shelf}, Text: "signing keys"}); len(hits) != 0 {
+		t.Fatalf("recall = %+v, want nothing", hits)
+	}
+	if pending, err := s.Pending(ctx); err != nil || len(pending) != 0 {
+		t.Fatalf("pending = %+v, %v", pending, err)
+	}
+	res, err := s.Remember(ctx, Writer{Author: "user", Scope: shelf},
+		Note{Kind: KindFact, Body: "rotate the signing keys monthly"})
+	if err != nil || len(res.Similar) != 0 {
+		t.Fatalf("similar = %+v, %v; want none", res.Similar, err)
+	}
+}
+
+func TestReject_RefusesWhatIsNotACandidate(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	shelf := Ref{Kind: ScopeProject, ID: "1"}
+	accepted := put(t, s, shelf, Note{Body: "one"})
+	retired := put(t, s, shelf, Note{Body: "two"})
+	if err := s.Retire(ctx, retired); err != nil {
+		t.Fatal(err)
+	}
+	rejected := candidate(t, s, shelf, "three")
+	if err := s.Reject(ctx, rejected); err != nil {
+		t.Fatal(err)
+	}
+	pending := candidate(t, s, shelf, "four")
+
+	tests := []struct {
+		name string
+		err  error
+		want string
+	}{
+		{"reject accepted", s.Reject(ctx, accepted), "invalid: memory 1 is not a candidate"},
+		{"reject retired", s.Reject(ctx, retired), "invalid: memory 2 is not a candidate"},
+		{"reject rejected", s.Reject(ctx, rejected), "invalid: memory 3 is not a candidate"},
+		{"retire candidate", s.Retire(ctx, pending), "invalid: memory 4 is a candidate"},
+		{"retire rejected", s.Retire(ctx, rejected), "invalid: memory 3 is rejected"},
+		{"retire retired", s.Retire(ctx, retired), "invalid: memory 2 is already retired"},
+		{"accept rejected", s.Accept(ctx, rejected), "invalid: memory 3 is not a candidate"},
+		{"replace candidate", func() error {
+			_, err := s.Remember(ctx, Writer{Author: "user", Scope: shelf},
+				Note{Kind: KindFact, Body: "five", Replaces: []int64{pending}})
+			return err
+		}(), "replace 4: invalid: memory 4 is a candidate"},
+		{"replace rejected", func() error {
+			_, err := s.Remember(ctx, Writer{Author: "user", Scope: shelf},
+				Note{Kind: KindFact, Body: "five", Replaces: []int64{rejected}})
+			return err
+		}(), "replace 3: invalid: memory 3 is rejected"},
+	}
+	for _, tt := range tests {
+		if !errors.Is(tt.err, ErrInvalid) || tt.err.Error() != tt.want {
+			t.Errorf("%s: err = %v, want %s", tt.name, tt.err, tt.want)
+		}
+	}
+	if err := s.Reject(ctx, 99); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("reject missing: err = %v, want ErrNotFound", err)
+	}
+}
+
+func TestReject_CandidateReplacingAnItemLeavesItLive(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	shelf := Ref{Kind: ScopeProject, ID: "1"}
+	old := put(t, s, shelf, Note{Body: "deploy on fridays"})
+	next := candidate(t, s, shelf, "never deploy on fridays", old)
+	if err := s.Reject(ctx, next); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Read(ctx, old)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusAccepted || got.RetiredAt != nil || got.ReplacedBy != nil {
+		t.Fatalf("old = %+v, want live", got)
+	}
+	if hits := recall(t, s, Query{Scopes: []Ref{shelf}, Text: "deploy"}); !reflect.DeepEqual(hitIDs(hits), []int64{old}) {
+		t.Fatalf("recall = %v, want [%d]", hitIDs(hits), old)
+	}
+}
+
+func TestOpen_UpgradesTheFirstMemorySchema(t *testing.T) {
+	db, err := sql.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	db.SetMaxOpenConns(1)
+	t.Cleanup(func() { _ = db.Close() })
+	first, err := _migrations.ReadFile("migrations/001_items.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, q := range []string{
+		string(first),
+		`INSERT INTO memory (kind, body, scope_kind, scope_id, status, created_at)
+		 VALUES ('fact', 'use sqlite', 'project', '1', 'accepted', '2026-10-01T00:00:00Z'),
+		        ('fact', 'use postgres', 'project', '1', 'candidate', '2026-10-02T00:00:00Z')`,
+		`INSERT INTO memory_link (from_id, rel, to_kind, to_id) VALUES (2, 'replaces', 'memory', '1')`,
+	} {
+		if _, err := db.Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	s, err := Open(db, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if n := count(t, db, `SELECT count(*) FROM memory`); n != 2 {
+		t.Fatalf("items = %d, want 2", n)
+	}
+	got, err := s.Read(ctx, 2)
+	if err != nil || got.Body != "use postgres" || !reflect.DeepEqual(got.Links,
+		[]Link{{Rel: RelReplaces, ToKind: "memory", ToID: "1"}}) {
+		t.Fatalf("item 2 = %+v, %v", got, err)
+	}
+	hits, err := s.Search(ctx, "sqlite", Filter{Scopes: []Ref{{Kind: ScopeProject, ID: "1"}}})
+	if err != nil || !reflect.DeepEqual(ids(hits), []int64{1}) {
+		t.Fatalf("search = %v, %v; want [1]", ids(hits), err)
+	}
+	if err := s.Reject(ctx, 2); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := Open(db, nil); err != nil {
+		t.Fatalf("second Open: %v", err)
+	}
+	if n := count(t, db, `SELECT version FROM memory_version`); n != 2 {
+		t.Fatalf("version = %d, want 2", n)
+	}
+	if n := count(t, db, `SELECT count(*) FROM memory_version`); n != 1 {
+		t.Fatalf("version rows = %d, want 1", n)
+	}
+	id := put(t, s, Ref{Kind: ScopeProject, ID: "1"}, Note{Body: "use redis"})
+	if id != 3 {
+		t.Fatalf("next id = %d, want 3", id)
+	}
+	hits, err = s.Search(ctx, "redis", Filter{Scopes: []Ref{{Kind: ScopeProject, ID: "1"}}})
+	if err != nil || !reflect.DeepEqual(ids(hits), []int64{3}) {
+		t.Fatalf("search after write = %v, %v; want [3]", ids(hits), err)
 	}
 }

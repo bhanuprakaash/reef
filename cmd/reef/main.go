@@ -35,7 +35,7 @@ commands:
   memory show [--project P] | memory set FILE|- [--project P]
   memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval]
   memory recall "<q>" [--scope S] [--limit N]
-  memory show <id> | retire <id> | approve <id> | pending
+  memory show <id> | retire <id> | approve <id> | reject <id> | pending
   memory embed [none|openai|voyage|gemini [--key K]]
   team apply FILE.json | team list
   context <feature> --role R

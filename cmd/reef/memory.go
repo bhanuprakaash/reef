@@ -19,7 +19,7 @@ const (
 	_memoryUsage = `usage: reef memory [--project P] [show|set FILE|-] [--data DIR]
        reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval]
        reef memory recall "<q>" [--scope S] [--limit N]
-       reef memory show <id> | retire <id> | approve <id> | pending
+       reef memory show <id> | retire <id> | approve <id> | reject <id> | pending
        reef memory embed [none|openai|voyage|gemini [--key K]]`
 	_memoryShowUsage    = "usage: reef memory [--project P] show [<id>] [--data DIR]"
 	_memorySetUsage     = "usage: reef memory [--project P] set FILE|- [--data DIR]"
@@ -28,6 +28,7 @@ const (
 	_memoryRetireUsage  = "usage: reef memory retire <id> [--data DIR]"
 	_memoryPendingUsage = "usage: reef memory pending [--data DIR]"
 	_memoryApproveUsage = "usage: reef memory approve <id> [--data DIR]"
+	_memoryRejectUsage  = "usage: reef memory reject <id> [--data DIR]"
 	_memoryEmbedUsage   = "usage: reef memory embed [none|openai|voyage|gemini [--key K]] [--data DIR]"
 )
 
@@ -60,6 +61,8 @@ func memoryCmd(ctx context.Context, args []string, stdin io.Reader, stdout io.Wr
 		return memoryRetire(ctx, rest, stdout)
 	case "approve":
 		return memoryApprove(ctx, rest, stdout)
+	case "reject":
+		return memoryReject(ctx, rest, stdout)
 	case "pending":
 		return memoryPending(ctx, rest, stdout)
 	case "embed":
@@ -313,6 +316,25 @@ func memoryApprove(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	_, err = fmt.Fprintf(stdout, "%d  %s\n", id, memory.StatusAccepted)
+	return err
+}
+
+func memoryReject(ctx context.Context, args []string, stdout io.Writer) error {
+	c := newCommand("reef memory reject", _memoryRejectUsage, 1, 1)
+	st, pos, err := c.open(args)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = st.Close() }()
+
+	ms, id, err := memoryByRef(ctx, st, pos[0])
+	if err != nil {
+		return err
+	}
+	if err := ms.Reject(ctx, id); err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "%d  %s\n", id, memory.StatusRejected)
 	return err
 }
 
