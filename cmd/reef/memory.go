@@ -418,6 +418,15 @@ func memoryEmbedSet(
 		return fmt.Errorf("%w: embedding provider %q is not none, openai, voyage or gemini",
 			memory.ErrInvalid, provider)
 	}
+	if provider != prev {
+		cleared, err := memory.Open(st.DB(), nil)
+		if err != nil {
+			return err
+		}
+		if err := cleared.ClearVectors(ctx); err != nil {
+			return err
+		}
+	}
 	if err := st.SetSetting(ctx, _settingEmbeddingProvider, provider); err != nil {
 		return err
 	}
@@ -431,11 +440,6 @@ func memoryEmbedSet(
 	ms, err := openMemory(ctx, st)
 	if err != nil {
 		return err
-	}
-	if provider != prev {
-		if err := ms.ClearVectors(ctx); err != nil {
-			return err
-		}
 	}
 	n, err := ms.Backfill(ctx)
 	if err != nil {

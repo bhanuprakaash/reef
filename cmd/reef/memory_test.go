@@ -330,3 +330,84 @@ func TestCLI_MemoryEmbed(t *testing.T) {
 		}
 	}
 }
+
+func TestCLI_MemoryEmbedSwitchRecovers(t *testing.T) {
+	fail := false
+	old := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		if fail {
+			return &http.Response{StatusCode: http.StatusInternalServerError, Body: http.NoBody}, nil
+		}
+		body := `{"data":[{"embedding":[0.5,0.25]}]}`
+		if r.URL.Host == "api.voyageai.com" {
+			body = `{"data":[{"embedding":[0.5,0.25,0.125]}]}`
+		}
+		return &http.Response{StatusCode: http.StatusOK, Body: io.NopCloser(strings.NewReader(body))}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = old })
+
+	dir := t.TempDir()
+	query := func(q string) string {
+		t.Helper()
+		st, err := store.Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = st.Close() }()
+		var got string
+		if err := st.DB().QueryRow(q).Scan(&got); err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	exec := func(q string) {
+		t.Helper()
+		st, err := store.Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = st.Close() }()
+		if _, err := st.DB().Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	const sizes = "SELECT min(length(vector)) || '-' || max(length(vector)) FROM memory"
+
+	mustReef(t, dir, "memory", "add", "decision", "Use JWT for sessions", "--scope", "project:1")
+	mustReef(t, dir, "memory", "add", "decision", "Use cookie sessions", "--scope", "project:1")
+	mustReef(t, dir, "memory", "embed", "openai", "--key", "sk-test")
+	if got, want := query(sizes), "8-8"; got != want {
+		t.Fatalf("vector bytes on openai = %s, want %s", got, want)
+	}
+
+	fail = true
+	if _, err := reef(t, dir, "memory", "embed", "voyage", "--key", "vk-test"); err == nil {
+		t.Fatal("embed voyage with a failing backfill succeeded")
+	}
+	fail = false
+	if got, want := mustReef(t, dir, "memory", "embed", "voyage"),
+		"embedding provider voyage; embedded 2 items\n"; got != want {
+		t.Fatalf("embed voyage after failed backfill = %q, want %q", got, want)
+	}
+	if got, want := query(sizes), "12-12"; got != want {
+		t.Fatalf("vector bytes after rerun = %s, want %s", got, want)
+	}
+
+	exec(`CREATE TRIGGER no_clear BEFORE UPDATE OF vector ON memory
+		BEGIN SELECT RAISE(ABORT, 'locked'); END`)
+	if _, err := reef(t, dir, "memory", "embed", "openai", "--key", "sk-test"); err == nil ||
+		!strings.Contains(err.Error(), "clear vectors") {
+		t.Fatalf("embed openai with a failing clear: error = %v, want clear vectors", err)
+	}
+	if got, want := mustReef(t, dir, "memory", "embed"), "voyage\n"; got != want {
+		t.Fatalf("provider after failed clear = %q, want %q", got, want)
+	}
+	exec(`DROP TRIGGER no_clear`)
+	if got, want := mustReef(t, dir, "memory", "embed", "openai", "--key", "sk-test"),
+		"embedding provider openai; embedded 2 items\n"; got != want {
+		t.Fatalf("embed openai after failed clear = %q, want %q", got, want)
+	}
+	if got, want := query(sizes), "8-8"; got != want {
+		t.Fatalf("vector bytes after rerun = %s, want %s", got, want)
+	}
+}
