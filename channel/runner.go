@@ -148,6 +148,13 @@ func (r *Runner) Run(
 				}
 			case agent.KindText:
 				reply.WriteString(ev.Text)
+			case agent.KindBackground:
+				_, err := r.st.CreateMessage(wctx, store.Message{
+					ChannelID: r.channelID, Author: r.role, Body: ev.Text,
+				})
+				if err != nil {
+					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
+				}
 			case agent.KindToolCall:
 				var parentRow int64
 				if ev.ParentToolID != "" {

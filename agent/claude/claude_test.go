@@ -211,7 +211,7 @@ func TestParse_resultsBeforeMessageUsage(t *testing.T) {
 	want := []string{
 		"session", "usage out=186", "tool_call MH73", "tool_result MH73",
 		"tool_call d7DQ", "tool_call gnMD", "tool_result gnMD", "tool_result d7DQ",
-		"usage out=5", "turn_end",
+		"usage out=5", "usage out=16", "turn_end",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("events = %q, want %q", got, want)
@@ -253,7 +253,7 @@ func TestParse_backgroundTaskTurn(t *testing.T) {
 		for _, ev := range parse([]byte(line), &st) {
 			s := string(ev.Kind)
 			switch ev.Kind {
-			case agent.KindText:
+			case agent.KindText, agent.KindBackground:
 				s += " " + ev.Text
 			case agent.KindToolCall:
 				s += " " + ev.ToolName
@@ -264,13 +264,102 @@ func TestParse_backgroundTaskTurn(t *testing.T) {
 		}
 	}
 	want := []string{
-		"session", "usage out=112", "tool_call Bash", "tool_result", "text started.", "usage out=4", "turn_end",
+		"session", "usage out=112", "tool_call Bash", "tool_result", "text started.", "usage out=4", "usage out=18", "turn_end",
 		"session", "text Tides are the", "text  r", "usage out=546", "turn_end",
-		"session", "usage out=45",
+		"session", "usage out=45", "background The background command finished with",
 		"session", "text 42", "usage out=3", "turn_end",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("events = %q, want %q", got, want)
+	}
+}
+
+func replayFile(t *testing.T, name string, st *state) []agent.Event {
+	t.Helper()
+	raw, err := os.ReadFile(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return replay(strings.Split(strings.TrimSpace(string(raw)), "\n"), st)
+}
+
+func replay(lines []string, st *state) []agent.Event {
+	var got []agent.Event
+	for _, line := range lines {
+		got = append(got, parse([]byte(line), st)...)
+	}
+	return got
+}
+
+func usageSum(t *testing.T, evs []agent.Event) agent.Usage {
+	t.Helper()
+	var sum agent.Usage
+	for _, ev := range evs {
+		if ev.Kind != agent.KindUsage {
+			continue
+		}
+		u := *ev.Usage
+		if u.InputTokens < 0 || u.OutputTokens < 0 || u.CacheReadTokens < 0 || u.CacheWriteTokens < 0 {
+			t.Errorf("negative usage event %+v", u)
+		}
+		sum.Add(u)
+	}
+	return sum
+}
+
+// The usage events of a real session add up to the modelUsage of its last result. A result's
+// usage leaves out the subagents (subagent.jsonl) and claude's own side calls, such as the
+// session title, which modelUsage counts under a model of their own (the haiku lines of the
+// two others).
+func TestParse_usageAddsUpToModelUsage(t *testing.T) {
+	tests := []struct {
+		file string
+		want agent.Usage
+	}{
+		{"subagent.jsonl", agent.Usage{InputTokens: 8, OutputTokens: 511, CacheReadTokens: 53174, CacheWriteTokens: 24389}},
+		{"background-task.jsonl", agent.Usage{InputTokens: 1216, OutputTokens: 728, CacheReadTokens: 79876, CacheWriteTokens: 11594}},
+		{"parallel-tools.jsonl", agent.Usage{InputTokens: 1204, OutputTokens: 207, CacheReadTokens: 32323, CacheWriteTokens: 7363}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.file, func(t *testing.T) {
+			if got := usageSum(t, replayFile(t, "testdata/"+tt.file, &state{})); got != tt.want {
+				t.Errorf("usage = %+v, want %+v", got, tt.want)
+			}
+		})
+	}
+}
+
+// A resumed claude's first modelUsage still holds the session's earlier processes; only what
+// this process spent counts. The line is a real result, trimmed: the resumed turn answered
+// "ok2" with usage 2/5/15348/7551, after a process that had spent 1174/18/22860/0.
+func TestParse_resumedModelUsage(t *testing.T) {
+	result := `{"type":"result","subtype":"success","is_error":false,"result":"ok2","usage":{"input_tokens":2,"cache_creation_input_tokens":7551,"cache_read_input_tokens":15348,"output_tokens":5},"modelUsage":{"claude-sonnet-5-5":{"inputTokens":1176,"outputTokens":23,"cacheReadInputTokens":38208,"cacheCreationInputTokens":7551}}}`
+	st := state{resumed: true}
+	got := usageSum(t, replay([]string{result}, &st))
+	want := agent.Usage{InputTokens: 2, OutputTokens: 5, CacheReadTokens: 15348, CacheWriteTokens: 7551}
+	if got != want {
+		t.Errorf("usage = %+v, want %+v", got, want)
+	}
+}
+
+// The notification turn of background-task.jsonl starts before the result of the turn that
+// was running when the task ended. It sends its usage first, so the earlier result's total is
+// less than what was sent.
+func TestParse_earlyBackgroundTurn(t *testing.T) {
+	raw, err := os.ReadFile("testdata/background-task.jsonl")
+	if err != nil {
+		t.Fatal(err)
+	}
+	l := strings.Split(strings.TrimSpace(string(raw)), "\n")
+	var lines []string
+	lines = append(lines, l[:35]...)   // turns 1 and 2 up to the result of turn 2
+	lines = append(lines, l[36:45]...) // the notification turn up to its result
+	lines = append(lines, l[35], l[45])
+	lines = append(lines, l[46:]...)
+	got := usageSum(t, replay(lines, &state{}))
+	want := agent.Usage{InputTokens: 1216, OutputTokens: 728, CacheReadTokens: 79876, CacheWriteTokens: 11594}
+	if got != want {
+		t.Errorf("usage = %+v, want %+v", got, want)
 	}
 }
 

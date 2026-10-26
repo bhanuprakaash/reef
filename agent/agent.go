@@ -61,13 +61,16 @@ const (
 	KindTurnEnd    Kind = "turn_end"
 	KindError      Kind = "error"
 	KindSession    Kind = "session"
+	// KindBackground is the answer of a turn the backend ran by itself for a finished
+	// background task, in Text. It answers no Send and no turn ends with it.
+	KindBackground Kind = "background"
 )
 
 // Event is one normalized step of a session. Its JSON is the wire format
 // reef-agent prints, one line per event.
 type Event struct {
 	Kind         Kind            `json:"kind"`
-	Text         string          `json:"text,omitempty"`      // text delta, error message
+	Text         string          `json:"text,omitempty"`      // text delta, error message, background answer
 	SessionID    string          `json:"sessionId,omitempty"` // KindSession
 	Model        string          `json:"model,omitempty"`     // KindSession
 	ToolID       string          `json:"toolId,omitempty"`    // tool call and its result share it

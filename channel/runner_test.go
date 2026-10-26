@@ -185,6 +185,41 @@ func TestRunner_ReplyStaysInThread(t *testing.T) {
 	}
 }
 
+func TestRunner_BackgroundAnswerIsRoleMessage(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{events: make(chan agent.Event, 8), script: []agent.Event{
+		{Kind: agent.KindSession, SessionID: "s1"},
+		{Kind: agent.KindBackground, Text: "The background command printed bgdone."},
+		{Kind: agent.KindText, Text: "42"},
+		{Kind: agent.KindTurnEnd},
+	}}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	if err := sendAs(ctx, st, ch.ID, r.Run, "What is 7 times 6?", func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := st.Messages(ctx, ch.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range msgs {
+		got = append(got, m.Author+": "+m.Body)
+	}
+	want := []string{
+		"user: What is 7 times 6?", "architect: The background command printed bgdone.", "architect: 42",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("messages = %q, want %q", got, want)
+	}
+}
+
 func TestRunner_DirectReplyStopsAfterOneResponse(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)

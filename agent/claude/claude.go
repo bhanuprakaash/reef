@@ -79,6 +79,15 @@ type (
 		CacheWriteTokens int64 `json:"cache_creation_input_tokens"`
 	}
 
+	// modelUsage is a result's count of every model call of the session so far, by model:
+	// the subagents' and claude's own side calls too, which usage leaves out.
+	modelUsage map[string]struct {
+		InputTokens      int64 `json:"inputTokens"`
+		OutputTokens     int64 `json:"outputTokens"`
+		CacheReadTokens  int64 `json:"cacheReadInputTokens"`
+		CacheWriteTokens int64 `json:"cacheCreationInputTokens"`
+	}
+
 	outputLine struct {
 		Type      string `json:"type"`
 		Subtype   string `json:"subtype"`
@@ -101,6 +110,7 @@ type (
 		Result          string      `json:"result"`
 		Errors          []string    `json:"errors"`
 		Usage           usageCounts `json:"usage"`
+		ModelUsage      modelUsage  `json:"modelUsage"`
 		TotalCostUSD    *float64    `json:"total_cost_usd"` // result; nil when the backend did not send one
 		Origin          struct {
 			Kind string `json:"kind"`
@@ -262,11 +272,11 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 	}
 
 	a.cmd, a.stdin = cmd, stdin
-	go a.read(stdout)
+	go a.read(stdout, len(extra) > 0)
 	return nil
 }
 
-func (a *Agent) read(stdout io.Reader) {
+func (a *Agent) read(stdout io.Reader, resumed bool) {
 	defer close(a.done)
 	defer close(a.events)
 	defer func() {
@@ -277,7 +287,7 @@ func (a *Agent) read(stdout io.Reader) {
 
 	r := bufio.NewReader(stdout)
 	var last agent.Kind
-	var st state
+	st := state{resumed: resumed}
 	for {
 		line, err := r.ReadBytes('\n')
 		for _, ev := range parse(line, &st) {
@@ -346,7 +356,16 @@ func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
 
 // state is what parse keeps between lines.
 type state struct {
-	seen agent.Usage   // usage the turn has sent so far
+	// sent is all the usage sent in this process; total is what claude had counted for the
+	// process at its last result. They are per process, not per turn: a background turn can
+	// send usage before the result of the turn it runs inside.
+	sent, total agent.Usage
+
+	// resumed is set until the first result with a modelUsage: that one still holds the
+	// counts of the earlier processes of the session, which base then takes out.
+	resumed bool
+	base    agent.Usage
+
 	held []agent.Event // tool calls of the message in progress and the results after them, held until its usage
 
 	// wrote is set once the turn has sent text; breakNext is set at a message start that
@@ -356,7 +375,9 @@ type state struct {
 	// unprompted is set from a turn's init line until the echo of a prompt
 	// (--replay-user-messages, a user line with isReplay). A turn with no such echo is one
 	// claude ran by itself for a background task: its text and tool events answer no prompt.
+	// answer is the text of that turn, sent as one KindBackground event at its result.
 	unprompted bool
+	answer     string
 
 	// lastCost is the process total the most recent result line with a cost reported; carried
 	// across a reset so a turn's CostUSD is its own share, not the process running total.
@@ -372,13 +393,20 @@ type state struct {
 // (its assistant line comes before the message_delta). A tool_result that arrives before
 // the message_delta waits with the calls, so a call never follows its own result. A
 // subagent's messages have no message_delta, so its calls are sent at once. The result line
-// sends what is still held, then only what is left of its usage total. An unprompted turn
-// gives only its usage. A result's total_cost_usd is the cost of the process so far, not the
+// sends what is still held, then only what is left of its usage total. That total is the
+// process's modelUsage, which also counts the subagents and claude's own side calls, minus
+// what earlier turns had. An unprompted turn gives its usage, then at its result its text as
+// one KindBackground event. A result's total_cost_usd is the cost of the process so far, not the
 // turn: CostUSD is that total minus the last one seen in the process.
 func parse(line []byte, st *state) []agent.Event {
 	evs := parseLine(line, st)
 	if !st.unprompted {
 		return evs
+	}
+	for _, ev := range evs {
+		if ev.Kind == agent.KindText {
+			st.answer += ev.Text
+		}
 	}
 	return slices.DeleteFunc(evs, func(ev agent.Event) bool {
 		return ev.Kind == agent.KindText || ev.Kind == agent.KindToolCall || ev.Kind == agent.KindToolResult
@@ -410,7 +438,7 @@ func parseLine(line []byte, st *state) []agent.Event {
 		}
 		if l.Event.Type == "message_delta" {
 			u := l.Event.Usage.usage()
-			st.seen.Add(u)
+			st.sent.Add(u)
 			evs := append([]agent.Event{{Kind: agent.KindUsage, Usage: &u}}, st.held...)
 			st.held = nil
 			return evs
@@ -452,14 +480,19 @@ func parseLine(line []byte, st *state) []agent.Event {
 		}
 		return evs
 	case "result":
-		total := l.Usage.usage()
-		rest := agent.Usage{
-			InputTokens:      total.InputTokens - st.seen.InputTokens,
-			OutputTokens:     total.OutputTokens - st.seen.OutputTokens,
-			CacheReadTokens:  total.CacheReadTokens - st.seen.CacheReadTokens,
-			CacheWriteTokens: total.CacheWriteTokens - st.seen.CacheWriteTokens,
+		counted := st.total
+		counted.Add(l.Usage.usage())
+		if len(l.ModelUsage) > 0 {
+			all := l.ModelUsage.usage()
+			if st.resumed {
+				st.base, st.resumed = minus(all, l.Usage.usage()), false
+			}
+			counted = minus(all, st.base)
 		}
+		rest := minus(counted, st.sent)
+		st.sent.Add(rest)
 		evs := st.held
+		answer := strings.TrimSpace(st.answer)
 		lastCost := st.lastCost
 		// A background task's cost rides on no turn; its delta carries forward to the
 		// next turn's result instead of being counted here.
@@ -469,12 +502,15 @@ func parseLine(line []byte, st *state) []agent.Event {
 			delta := *l.TotalCostUSD - lastCost
 			cost, lastCost = &delta, *l.TotalCostUSD
 		}
-		*st = state{lastCost: lastCost}
+		*st = state{sent: st.sent, total: counted, resumed: st.resumed, base: st.base, lastCost: lastCost}
 		if rest != (agent.Usage{}) {
 			evs = append(evs, agent.Event{Kind: agent.KindUsage, Usage: &rest})
 		}
 		// A turn claude runs by itself for a background task is not the answer to a prompt.
 		if background {
+			if answer != "" {
+				evs = append(evs, agent.Event{Kind: agent.KindBackground, Text: answer})
+			}
 			return evs
 		}
 		if l.IsError {
@@ -502,6 +538,29 @@ func (c usageCounts) usage() agent.Usage {
 		OutputTokens:     c.OutputTokens,
 		CacheReadTokens:  c.CacheReadTokens,
 		CacheWriteTokens: c.CacheWriteTokens,
+	}
+}
+
+func (m modelUsage) usage() agent.Usage {
+	var u agent.Usage
+	for _, c := range m {
+		u.Add(agent.Usage{
+			InputTokens:      c.InputTokens,
+			OutputTokens:     c.OutputTokens,
+			CacheReadTokens:  c.CacheReadTokens,
+			CacheWriteTokens: c.CacheWriteTokens,
+		})
+	}
+	return u
+}
+
+// minus is a - b, with no count below zero.
+func minus(a, b agent.Usage) agent.Usage {
+	return agent.Usage{
+		InputTokens:      max(a.InputTokens-b.InputTokens, 0),
+		OutputTokens:     max(a.OutputTokens-b.OutputTokens, 0),
+		CacheReadTokens:  max(a.CacheReadTokens-b.CacheReadTokens, 0),
+		CacheWriteTokens: max(a.CacheWriteTokens-b.CacheWriteTokens, 0),
 	}
 }
 
