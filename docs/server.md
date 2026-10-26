@@ -521,7 +521,7 @@ tool calls.
 | `GET /channels/{id}` | | 200 | 404 |
 | `PUT /channels/{id}` | `name` (required), `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the channel's backend and applies the next time its agent starts. A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or permission mode, 404 |
 | `DELETE /channels/{id}` | stops the channel first if it is live; a send during the delete is 404 | 204 | 404 |
-| `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body; while a message chain starts or runs the message is stored at once and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 wrap or promote turn running, channel closed, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
+| `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body; while a message chain starts or runs the message is stored and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 wrap or promote turn running, channel closed, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
 | `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
 | `GET /channels/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the channel, oldest first; each has `id`, `channelId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `createdAt` | 400 bad id, 404 |
@@ -773,10 +773,13 @@ The first turn and the wakes after it are one chain. They run one at a time, in 
 the messages were stored, and the messages each turn stores are routed in turn and queued at
 the end. The channel has a turn running until the chain is done, so a `wrap`, a `promote`, a
 `continue`, a `rollback` or a `close` during the chain is 409. A `send` during a message chain,
-or an approve while any chain starts or runs, is accepted: the message is stored at once, and its wakes, or the approved
+or an approve while any chain starts or runs, is accepted: the message is stored, and its wakes, or the approved
 wake, join the end of the chain's queue and run after the current turn and the wakes it
-queued. Turns still run one at a time. If the chain ends first (a failed turn, a stop, a
-routing failure) or never starts, a queued approval is pending again and a queued message's wakes are held,
+queued. A `send` that finds a message chain starting waits until it runs, so the message is stored
+after the one the chain starts with and ids follow the order of the sends; if the chain never
+starts, the send starts a chain of its own. A `send` while a wrap, a promote, a `continue` or a
+`rollback` starts is 409. Turns still run one at a time. If the chain ends first (a failed turn, a stop, a
+routing failure), a queued approval is pending again and a queued message's wakes are held,
 not run. When the hop cap or the token budget stops the next wake, an approved wake is held
 with the others and `continue` runs it (see [Caps](#caps)). A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
 lead's reply says `@architect ...`; the architect runs and posts a plan, a new thread it
@@ -985,7 +988,7 @@ The same pause holds work when the server cannot store an approval for a gated w
 read the messages or the direct messages a turn stored to route them, or when a store error
 stops the check before the next wake. The channel pauses with the error as the reason, and
 nothing runs ungated. These wakes are held in memory only, since the database failed, until the server stops and stores them. `continue` stores the approval again, or does the routing read again from
-the message before the turn's reply, and runs what that wakes. If it fails again the channel
+the message and the direct message before the turn's reply, and runs what that wakes. If it fails again the channel
 stays paused.
 
 No role has a tool call cap: a turn runs until the agent ends it, the user stops it, or the
@@ -1086,7 +1089,9 @@ A chain of wakes does not run on after a restart, but its waiting wakes are kept
 server stops, the wakes a chain had queued behind the running turn, and the wakes held in memory
 because the database failed, are stored as holds, and the channel is paused with `app restarted:
 wakes were waiting to run` unless it is paused already. The pause shows in the inbox, and
-`continue` runs the holds. Only the hop count is lost: a chain that runs after a restart counts
+`continue` runs the holds. A routing read that failed before the stop is done again then, and what it
+wakes is held too; if it fails again, the channel gets a message from `reef` saying which messages woke
+nobody. Only the hop count is lost: a chain that runs after a restart counts
 from 0. A pause is stored with its holds, and a pending approval is stored, so both survive too.
 A direct request that did not run still gets its `failed` response.
 
