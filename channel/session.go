@@ -313,7 +313,8 @@ func (s *Session) failTurn(
 		DirectMessageID: in.direct.IDRef(), Scopes: in.scopes,
 	})
 	if err != nil {
-		return errors.Join(cause, err)
+		log.Printf("store failed start of %s in channel %d: %v", role, s.ch.ID, err)
+		return cause
 	}
 	t.Status, t.Error = "failed", reason
 	_, err = s.st.EndTurn(ctx, t)
