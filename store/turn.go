@@ -32,7 +32,7 @@ const (
 const (
 	_turnCols = "id, channel_id, role, backend, session_id, status, error, " +
 		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, " +
-		"wake_text, wake_parent, retried, checkpoint, sent, model, cost_usd, prompt, direct_message_id"
+		"wake_text, wake_parent, retried, checkpoint, sent, model, cost_usd, prompt, direct_message_id, reply"
 )
 
 // Turn is one agent run in a channel. It starts running and ends once, as
@@ -67,6 +67,10 @@ type Turn struct {
 	// Prompt is the full text sent to the agent, set once assembled. Empty for a turn that
 	// never sent one. Hidden from Turn's own JSON; the inspector has its own view of it.
 	Prompt string `json:"-"`
+	// Reply is the plain reply a done turn kept off the channel because the turn already
+	// posted with post_to_channel. Empty otherwise. Hidden from Turn's own JSON; the inspector
+	// has its own view of it.
+	Reply string `json:"-"`
 }
 
 // TurnFilter narrows Turns. A nil ChannelID or empty Status matches everything. Retryable
@@ -177,11 +181,11 @@ func (s *Store) EndTurn(ctx context.Context, t Turn) (Turn, error) {
 		`UPDATE turn SET status = ?, error = ?, input_tokens = ?, output_tokens = ?,
 		cache_read_tokens = ?, cache_write_tokens = ?,
 		session_id = COALESCE(NULLIF(?, ''), session_id), ended_at = ?,
-		model = ?, cost_usd = ?, prompt = ?
+		model = ?, cost_usd = ?, prompt = ?, reply = ?
 		WHERE id = ? AND status = ?`,
 		t.Status, t.Error, t.Usage.InputTokens, t.Usage.OutputTokens,
 		t.Usage.CacheReadTokens, t.Usage.CacheWriteTokens, t.SessionID,
-		time.Now().UTC().Format(time.RFC3339Nano), t.Model, t.CostUSD, t.Prompt,
+		time.Now().UTC().Format(time.RFC3339Nano), t.Model, t.CostUSD, t.Prompt, t.Reply,
 		t.ID, _turnRunning)
 	if err != nil {
 		return Turn{}, fmt.Errorf("end turn: %w", err)
@@ -410,7 +414,7 @@ func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 	if err := r.Scan(&t.ID, &t.ChannelID, &t.Role, &t.Backend, &t.SessionID, &t.Status, &t.Error,
 		&t.Usage.InputTokens, &t.Usage.OutputTokens, &t.Usage.CacheReadTokens,
 		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried,
-		&checkpoint, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID); err != nil {
+		&checkpoint, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID, &t.Reply); err != nil {
 		return Turn{}, err
 	}
 	t.WakeText = wake.String

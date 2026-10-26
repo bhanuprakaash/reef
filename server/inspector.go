@@ -26,6 +26,7 @@ type inspectorTurn struct {
 	Usage     agent.Usage          `json:"usage"`
 	CostUSD   *float64             `json:"costUsd"`
 	Prompt    string               `json:"prompt"`
+	Reply     string               `json:"reply"`
 	ToolCalls []*inspectorToolCall `json:"toolCalls"`
 }
 
@@ -95,7 +96,7 @@ func (s *server) getInspector(w http.ResponseWriter, r *http.Request) {
 		}
 		turnViews = append(turnViews, inspectorTurn{
 			ID: t.ID, Role: t.Role, StartedAt: t.StartedAt, Status: t.Status,
-			Model: t.Model, Usage: t.Usage, CostUSD: t.CostUSD, Prompt: t.Prompt, ToolCalls: tcs,
+			Model: t.Model, Usage: t.Usage, CostUSD: t.CostUSD, Prompt: t.Prompt, Reply: t.Reply, ToolCalls: tcs,
 		})
 	}
 	roleViews := make([]inspectorRole, len(order))

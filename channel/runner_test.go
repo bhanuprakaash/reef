@@ -221,6 +221,99 @@ func TestRunner_BackgroundAnswerIsRoleMessage(t *testing.T) {
 	}
 }
 
+func TestRunner_PostedTurnKeepsReplyOnTurn(t *testing.T) {
+	script := func(tool string, isError bool) []agent.Event {
+		return []agent.Event{
+			{Kind: agent.KindSession, SessionID: "s1"},
+			{Kind: agent.KindToolCall, ToolID: "t1", ToolName: tool},
+			{Kind: agent.KindToolResult, ToolID: "t1", IsError: isError},
+			{Kind: agent.KindText, Text: "plain reply"},
+			{Kind: agent.KindTurnEnd},
+		}
+	}
+	const post = "mcp__reef__post_to_channel"
+	for _, tc := range []struct {
+		name     string
+		script   []agent.Event
+		messages []string
+		kept     string
+	}{
+		{"posted", script(post, false), []string{"architect: posted"}, "plain reply"},
+		{"post failed", script(post, true), []string{"architect: plain reply"}, ""},
+		{"other tool", script("mcp__reef__remember", false), []string{"architect: plain reply"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			st, f := openStore(t)
+			ch, err := st.CreateChannel(ctx, store.Channel{
+				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.kept != "" {
+				_, err := st.CreateMessage(ctx, store.Message{
+					ChannelID: ch.ID, Author: "architect", Body: "posted",
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			sa := &scriptAgent{events: make(chan agent.Event, 8), script: tc.script}
+			r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+			if err := r.Run(ctx, "go", nil, func(agent.Event) {}); err != nil {
+				t.Fatal(err)
+			}
+			msgs, err := st.Messages(ctx, ch.ID, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, m := range msgs {
+				got = append(got, m.Author+": "+m.Body)
+			}
+			if !reflect.DeepEqual(got, tc.messages) {
+				t.Errorf("messages = %q, want %q", got, tc.messages)
+			}
+			turn, err := st.Turn(ctx, 1)
+			if err != nil || turn.Status != "done" || turn.Reply != tc.kept {
+				t.Errorf("turn = %+v, %v, want done with reply %q", turn, err, tc.kept)
+			}
+		})
+	}
+}
+
+func TestRunner_PostedDirectTurnStillAnswersSender(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := st.CreateDirectMessage(ctx, store.DirectMessage{
+		ChannelID: ch.ID, From: "lead", To: "architect", Body: "plan 1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{events: make(chan agent.Event, 8), script: []agent.Event{
+		{Kind: agent.KindToolCall, ToolID: "t1", ToolName: "mcp__reef__post_to_channel"},
+		{Kind: agent.KindToolResult, ToolID: "t1"},
+		{Kind: agent.KindText, Text: "private answer"},
+		{Kind: agent.KindTurnEnd},
+	}}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	if err := r.RunDirect(ctx, "request 1", req, func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	direct, err := st.DirectMessages(ctx, ch.ID, 0)
+	if err != nil || len(direct) != 2 || direct[1].Body != "private answer" {
+		t.Errorf("direct = %+v, %v, want the private answer as the response", direct, err)
+	}
+}
+
 func TestRunner_DirectReplyStopsAfterOneResponse(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)

@@ -249,10 +249,10 @@ a stale one left by a crash, all seven tools fail with `browser unavailable: the
 open`. Once connected, a write, read or deadline failure instead fails with `browser did not
 answer: <error>`.
 
-`post_to_channel` is how a teammate speaks in the channel besides its reply. `reef serve`
-routes the message when the poster's turn ends: every `@role` in the body wakes that teammate
-(once, even when the reply names the same role again), and a post that names nobody wakes no
-one (see [server.md](server.md#routing)). Plain Claude
+`post_to_channel` is how a teammate speaks in the channel besides its reply. When a turn
+posts, its plain reply stays on the turn and is not a second message. `reef serve`
+routes the message when the poster's turn ends: every `@role` in the body wakes that teammate,
+and a post that names nobody wakes no one (see [server.md](server.md#routing)). Plain Claude
 Code and `reef chat` have no router, so a post there is only stored.
 
 `send_to_role` starts a private request/response chain under the current channel. The named

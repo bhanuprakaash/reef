@@ -294,6 +294,7 @@ One agent run in a channel.
 | `model` | string | default `""`; the backend's model name, set from the agent's first event once the turn ends |
 | `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one. A failed turn gets one too, when claude reported one |
 | `prompt` | string | not in the turn's own JSON (`GET /turns`, `GET /turns/{id}`); the full text sent to the agent (context preamble and notes included), set once the turn ends. `GET /channels/{id}/inspector` has its own view of it |
+| `reply` | string | not in the turn's own JSON; the plain reply of a done turn that already posted with `post_to_channel`, kept here and not stored as a message (see [Routing](#routing)). `""` for every other turn. `GET /channels/{id}/inspector` has its own view of it |
 
 ### tool_call
 
@@ -519,7 +520,7 @@ tool calls.
 | `DELETE /channels/{id}` | stops the channel first if it is live; a send during the delete is 404 | 204 | 404 |
 | `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body; while a message chain starts or runs the message is stored at once and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 wrap or promote turn running, channel closed, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
-| `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
+| `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
 | `GET /channels/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the channel, oldest first; each has `id`, `channelId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `createdAt` | 400 bad id, 404 |
 | `GET /search` | `?feature=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the feature's public messages and all its direct messages, newest first, `[]` when none. Each hit has `channelId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `feature`, missing `q` |
 | `POST /channels/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
@@ -702,7 +703,11 @@ a message wakes them.
 When a turn ends, the server reads the messages stored since the last one it read and routes
 those written by the role of the turn that ended: its reply, which is stored as a message from
 the role, and any message it posted with the `post_to_channel` tool (see
-[memory.md](memory.md#reef-mcp)). Other messages, such as a `POST /messages` from the user in
+[memory.md](memory.md#reef-mcp)). A turn that posted with `post_to_channel` has one message: its
+plain reply at the end of the turn is not stored as a message, so it wakes no one a second time.
+The turn keeps it (`reply`, shown by the inspector). A post counts when its tool call did not
+fail. A turn that did not post, a failed or stopped turn, and a direct turn (its reply is the
+direct response) store the reply as before. Other messages, such as a `POST /messages` from the user in
 the middle of a chain, are skipped: they start no turn and do not reset the hop count. Each
 routed message goes through the router, [`channel.Route`](../channel/route.go), plain code with
 no model. In order:
@@ -744,8 +749,8 @@ A turn's header says how far the role has read: the role's later turns in the sa
 skip every message up to it, so a thread is sent once, and a new session, after a lost one,
 gets the thread again once. A wake that finds nothing unread runs no turn: an earlier turn
 already sent what woke it. One routing pass wakes a role once: when several messages,
-top-level or in any thread, wake the same role, for example a `post_to_channel` that names
-`@architect` and a reply that does too, they are one wake, so a gate holds one approval for
+top-level or in any thread, wake the same role, for example two `post_to_channel` calls of
+one turn that name `@architect`, they are one wake, so a gate holds one approval for
 them, and its text has one block for each thread, with its `Asked together` line. The woken
 role's reply is stored in the thread the header of the first message names (`parentId` is the
 thread root). When a top-level message woke the role, the reply is top-level too: it is the

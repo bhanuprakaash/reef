@@ -44,14 +44,10 @@ const (
 )
 
 var _expectedFail = map[string]map[string]string{
-	"claude": {
-		"double post wake": "#48",
-	},
+	"claude":          {},
 	"claude-recorded": {},
-	"codex": {
-		"double post wake": "#48",
-	},
-	"codex-recorded": {},
+	"codex":           {},
+	"codex-recorded":  {},
 }
 
 var (

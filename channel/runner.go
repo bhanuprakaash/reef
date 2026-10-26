@@ -13,7 +13,11 @@ import (
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
-const _userAuthor = "user"
+const (
+	_userAuthor = "user"
+	// _postTool is how both backends name the reef MCP tool that posts to the channel.
+	_postTool = "mcp__reef__post_to_channel"
+)
 
 // Runner records one role's exchanges with a started agent in one channel: the
 // user messages, the agent's replies and a turn for each exchange.
@@ -127,6 +131,8 @@ func (r *Runner) Run(
 
 	var reply strings.Builder
 	toolRows := map[string]int64{}
+	postCalls := map[string]bool{}
+	posted := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -166,7 +172,9 @@ func (r *Runner) Run(
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
 				toolRows[ev.ToolID] = tc.ID
+				postCalls[ev.ToolID] = ev.ToolName == _postTool
 			case agent.KindToolResult:
+				posted = posted || (postCalls[ev.ToolID] && !ev.IsError)
 				if id, ok := toolRows[ev.ToolID]; ok {
 					if err := r.st.SetToolCallResult(wctx, id, ev.Output); err != nil {
 						return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
@@ -190,7 +198,9 @@ func (r *Runner) Run(
 				if turn.CostUSD, err = r.ownCost(wctx, turn.SessionID, ev.CostUSD); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
-				if err := r.keepReply(wctx, reply.String(), parent, _replyDone); err != nil {
+				if posted && r.direct == nil {
+					turn.Reply = reply.String()
+				} else if err := r.keepReply(wctx, reply.String(), parent, _replyDone); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), "", parent)
 				}
 				turn.Status = "done"
