@@ -352,3 +352,79 @@ main binary:   reef memory                               -> reef: open store: mi
 - After this branch opens a data folder, `main`'s binary refuses it. Forward-only migrations work this way. Try the branch on a copy of your data folder.
 - Migration number 034 collides if `main` adds its own 034 before this merges.
 - No store table is named `memory`, `memory_link` or `memory_fts`, so `memory.Open` cannot collide with a store migration.
+
+## Round 2: review fixes, Gemini, and a second review (#33–#45)
+
+Branch tip `4ea380a`. Tickets came from the interrogate pass on `13e5f7b` (#33–#41) and a second interrogate pass on `b3ecb2c` (#42–#45). Pages per ticket: `33.html` to `45.html`.
+
+### Decisions added
+- R28 Gemini provider: 768 dimensions, no task type, cosine floor 0.6 per provider (OpenAI and Voyage 0.3, not measured). Lookalike 0.92 holds.
+- R29 Architect, lead and user conventions accepted on write; any writer may ask for approval (`--needs-approval`).
+- R30 No background pass yet; `Backfill` waits out one 429 per item; writes and recall never wait.
+
+### Gemini calibration (real API, 768 dimensions)
+```
+no task type            related 0.685-0.758   unrelated max 0.569
+RETRIEVAL_QUERY/DOC     related 0.738-0.762   unrelated max 0.609
+SEMANTIC_SIMILARITY     related 0.794-0.902   unrelated max 0.776
+duplicates (no task)    near-copy 0.980  reworded 0.844-0.870  unrelated 0.524
+```
+With the old 0.3 floor and the embedder given to every scenario, forbidden items leaked in 13 of 29 scenarios. With 0.6:
+```
+$ REEF_EMBED_PROVIDER=gemini REEF_EMBED_KEY=… go test -tags embed -count=1 -v ./memory/eval
+eval: 30 scenarios, 0 skipped, recall@10=1.000 mrr=1.000 (thresholds 1.00, 1.00)
+```
+The same run found #41: a retired item ranked above the live item that replaced it.
+
+### Real binary against the real Gemini API
+```
+$ reef memory recall "how long can a user stay signed in while idle"   # no embedder
+(empty)
+$ reef memory embed gemini
+reef: invalid: embedding provider gemini needs --key
+$ reef memory embed gemini --key <KEY>
+embedding provider gemini; embedded 2 items
+$ ls -l reef.db
+-rw------- reef.db
+$ reef memory recall "how long can a user stay signed in while idle"
+1  accepted  decision  project:1  direct  Sessions expire after fifteen minutes of inactivity
+```
+The coffee item stays out. Key in all captured output: 0.
+
+### Acceptance lines
+Two Opus verification passes, real binary and named tests:
+- `b3ecb2c`: 82 lines of #23–#31 and #33–#41: 80 PASS, 0 FAIL, 2 NOT RUN (real OpenAI and Voyage, no keys).
+- `4ea380a`: 14 lines of #42–#45: 13 PASS, 0 FAIL; the chmod-failure half of one #43 line NOT RUN (needs root); spot re-runs of #27, #28/#36, #31/#35/#39, #37, #38 PASS.
+
+Lock check, real binary, another process holding `BEGIN IMMEDIATE`:
+```
+before #44 (d81c188): reef: migrate memory tables: apply 001_items.sql: database is locked (5) (SQLITE_BUSY)   4.8 s
+after  #44 (4ea380a): 1  accepted  fact  project:1  direct  lock test item                                       0.007 s
+memory_version = 99:  reef: migrate memory tables: memory tables are newer than this reef (version 99, this reef knows 2)
+```
+
+### Full gate at 4ea380a
+```
+$ go vet ./...                                        (clean)
+$ go test -count=1 ./memory/... ./cmd/reef ./store    ok ×4
+$ go test -count=1 ./...                              server only: 14 GitHub-poll tests (fail on main) + flaky TestDirectChainEndClearsActiveTurn
+$ git diff --stat 13e5f7b -- channel server web       (empty)
+```
+
+### Interrogate round 2 (opus + sonnet on b3ecb2c)
+Fixed, each test first: #42 live item above replaced also via link (opus, reproduced); #43 provider and key in one transaction, chmod before the key (both); #44 Open without the write lock, refuse newer memory schema (sonnet reproduced, opus); #45 no wait on writes and recall, no wasted word search, clamp overflow, Backfill skips rejected (both, measured 7.6 s per write at 5000 items). Docs: R28 lookalike numbers, add row with `--needs-approval`, `rejected` in the status list, issue #38 text.
+
+Skipped, with reasons:
+- Eval gives the embedder to every scenario (sonnet): deliberate; it is what found the leaks and #41.
+- Gemini key header could follow a redirect (sonnet): Google does not redirect; no client change without a case.
+- `memoryEmbedSet` opens memory twice (opus): after #44 the second open is a version read, no lock.
+- Long usage strings and round-1 lines over 99 columns: usage strings are output; round-1 lines left as they were.
+
+### Blast radius
+Round 2 changes `store/` only in `setting.go` (`SetSettings`). The fact it is safe because of: a reef.db written by the round-1 binary upgrades. Proved with both real binaries:
+```
+round-1 binary 13e5f7b: add 3 items (1 replaced), a candidate      memory_version absent
+tip binary:             recall cookie -> 2 accepted, 1 retired via replaces memory:1; memory_version 2
+                        reject 1 (old candidate) -> 1 rejected; recall empty; FTS finds old rows
+round-1 binary again:   recall still works; rejected item invisible; writes still work
+```

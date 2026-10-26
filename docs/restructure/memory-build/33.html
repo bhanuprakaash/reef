@@ -1,0 +1,68 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Gemini embedding provider</title><style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{--bg:#f5f5f7;--surface:#fff;--hover:#fbfbfd;--text:#1d1d1f;--text-body:#424245;--text-2:#6e6e73;--text-3:#86868b;--faint:#d2d2d7;--hairline:rgba(0,0,0,.07);--accent:#0071e3;--accent-link:#0066cc;--heat:#ff6b00;--live:#30d158;--font:-apple-system,BlinkMacSystemFont,'SF Pro Text','SF Pro Display','Helvetica Neue',sans-serif;--mono:ui-monospace,'SF Mono',Menlo,monospace;--r-pill:999px;--r-chip:6px;--r-card:18px;--r-panel:22px;--sh-panel:0 1px 3px rgba(0,0,0,.05),0 14px 40px rgba(0,0,0,.05);--track:#e8e8ed;--max-read:720px;--pad-x:22px;--ease-out-quart:cubic-bezier(.25,1,.5,1)}
+html{-webkit-text-size-adjust:100%}
+body{background:var(--bg);color:var(--text);font-family:var(--font);-webkit-font-smoothing:antialiased;line-height:1.6}
+.wrap{max-width:var(--max-read);margin:0 auto;padding:clamp(34px,6vw,56px) var(--pad-x) 80px}
+.crumbs{display:flex;gap:10px;align-items:center;font-size:13px;color:var(--text-3);margin-bottom:22px}
+.crumbs a{color:var(--text-2);text-decoration:none}
+.crumbs a:hover{color:var(--text)}
+.crumbs span{color:var(--faint)}
+.eyebrow{font-size:13px;font-weight:600;letter-spacing:.02em;text-transform:uppercase;color:var(--text-3);margin-bottom:8px}
+h1{font-size:clamp(30px,5vw,40px);line-height:1.08;letter-spacing:-.025em;font-weight:700;margin-bottom:12px}
+.lede{font-size:17px;line-height:1.7;color:var(--text-body);max-width:60ch}
+.meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:18px}
+.tag{display:inline-flex;align-items:center;height:28px;padding:0 12px;border-radius:var(--r-pill);background:var(--track);font-size:12.5px;font-weight:500;color:var(--text-2);text-decoration:none;font-variant-numeric:tabular-nums}
+.tag.link{color:var(--accent-link);background:rgba(0,113,227,.08)}
+.tag.link:hover{background:rgba(0,113,227,.14)}
+section{margin-top:clamp(34px,6vw,56px)}
+h2{font-size:21px;letter-spacing:-.015em;font-weight:600;margin-bottom:14px}
+.panel{background:var(--surface);border-radius:var(--r-panel);box-shadow:var(--sh-panel);overflow:hidden}
+.row{padding:16px 20px}
+.row+.row{border-top:1px solid var(--hairline)}
+.row h3{font-size:15px;font-weight:600;margin-bottom:4px;letter-spacing:-.005em}
+.row p{font-size:15px;line-height:1.85;color:var(--text-body)}
+.row p+p{margin-top:6px}
+.row .where{font-family:var(--mono);font-size:12.5px;color:var(--text-3);margin-top:6px}
+.row .where a{color:var(--accent-link);text-decoration:none}
+.row .where a:hover{text-decoration:underline}
+p.prose{font-size:15px;line-height:1.85;color:var(--text-body)}
+pre{font-family:var(--mono);font-size:12.5px;line-height:1.6;background:var(--surface);border-radius:var(--r-card);box-shadow:var(--sh-panel);padding:18px 20px;overflow-x:auto;color:var(--text);white-space:pre}
+pre.flow{color:var(--text-body)}
+code{font-family:var(--mono);font-size:.92em;background:var(--track);padding:1px 6px;border-radius:var(--r-chip)}
+ol.steps{list-style:none;counter-reset:s}
+ol.steps li{counter-increment:s;display:grid;grid-template-columns:32px 1fr;gap:12px;padding:14px 20px;font-size:15px;line-height:1.7;color:var(--text-body)}
+ol.steps li+li{border-top:1px solid var(--hairline)}
+ol.steps li::before{content:counter(s);font-variant-numeric:tabular-nums;color:var(--faint);font-weight:600;font-size:15px;line-height:1.7}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th{text-align:left;font-weight:600;color:var(--text-2);font-size:12.5px;letter-spacing:.02em;text-transform:uppercase;padding:12px 20px;border-bottom:1px solid var(--hairline)}
+td{padding:12px 20px;border-top:1px solid var(--hairline);vertical-align:top;color:var(--text-body);line-height:1.6}
+tr:first-child td{border-top:0}
+td.ok{color:var(--text);font-weight:500;width:30%}
+td.ok::before{background:var(--live)}
+td.no{color:var(--text);font-weight:500;width:30%}
+td.ok::before,td.no::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:8px;vertical-align:1px}
+td.no::before{background:var(--faint)}
+td.mono{font-family:var(--mono);font-size:12.5px;width:20%;overflow-wrap:anywhere}
+.index .row{display:grid;grid-template-columns:52px 1fr auto;gap:16px;align-items:center;text-decoration:none;color:inherit;transition:background .18s var(--ease-out-quart)}
+.index .row:hover{background:var(--hover)}
+.index .n{font-variant-numeric:tabular-nums;color:var(--text-3);font-size:13px}
+.index .t{font-size:15px;font-weight:500}
+.index .s{font-size:13px;color:var(--text-3);margin-top:2px}
+.index .arrow{color:var(--faint)}
+footer{margin-top:clamp(34px,6vw,56px);font-size:13px;color:var(--text-3)}
+@media (max-width:600px){.index .row{grid-template-columns:40px 1fr}.index .arrow{display:none}}
+@media (prefers-reduced-motion:reduce){.index .row{transition:none}}
+</style></head><body><div class="wrap">
+<nav class="crumbs"><a href="index.html">Memory service build</a><span>/</span><a href="https://gitlab.com/bhanuprakashsaip/reef/-/issues/33">#33</a></nav>
+<div class="eyebrow">Embeddings</div><h1>Gemini embedding provider</h1><p class="lede">Google Gemini is a third embedding provider. It is free to try, and it has its own measured cosine floor.</p><div class="meta"><a class="tag link" href="https://gitlab.com/bhanuprakashsaip/reef/-/issues/33">Issue #33</a><a class="tag link" href="https://gitlab.com/bhanuprakashsaip/reef/-/commit/6ce3a8a">6ce3a8a</a><a class="tag link" href="https://gitlab.com/bhanuprakashsaip/reef/-/commit/28903eb">28903eb</a><a class="tag link" href="https://gitlab.com/bhanuprakashsaip/reef/-/commit/82edfd6">82edfd6</a><span class="tag">memory-service</span><span class="tag">based on docs/restructure-proposal</span></div>
+<section><h2>What it does</h2><p class="prose"><code>reef memory embed gemini --key K</code> stores Gemini as the provider. <code>geminiEmbedder</code> calls <code>gemini-embedding-001</code> with the key in the <code>x-goog-api-key</code> header and asks for 768 numbers. Each embedder now reports <code>MinCosine</code>: the similarity under which a meaning match is unrelated. Gemini uses 0.6; OpenAI and Voyage keep 0.3. The eval gives the embedder to every scenario when a key is set, not only the synonym ones.</p></section><section><h2>Why</h2><p class="prose">R28: Gemini has a free tier, so meaning search costs nothing to try. The real eval showed that one floor cannot fit every model: with 0.3, Gemini let unrelated notes into 13 of 29 scenarios.</p></section><section><h2>How a request flows</h2><pre class="flow">reef memory embed gemini --key K       cmd/reef/memory.go:454
+  NewEmbedder(gemini)                  memory/embed.go:79
+  geminiEmbedder.Embed                 memory/embed.go:127
+    POST .../gemini-embedding-001:embedContent
+    {"content":{"parts":[{"text":..}]},"outputDimensionality":768}
+    &lt;- {"embedding":{"values":[768 numbers]}}
+Recall -&gt; Nearest                      memory/embed.go:233
+  drop hits under s.embed.MinCosine()  (gemini 0.6, memory/embed.go:153)</pre></section><section><h2>What changed</h2><div class="panel"><div class="row"><h3>memory/embed.go</h3><p><code>geminiEmbedder</code>, <code>_geminiURL</code>, <code>_geminiDims = 768</code>. <code>postJSON</code> holds the HTTP code shared by all three vendors. <code>Embedder</code> gains <code>MinCosine</code>.</p><div class="where"><a href="https://gitlab.com/bhanuprakashsaip/reef/-/blob/memory-service/memory/embed.go#L127">memory/embed.go:127</a> · <a href="https://gitlab.com/bhanuprakashsaip/reef/-/blob/memory-service/memory/embed.go#L53">memory/embed.go:53</a> · <a href="https://gitlab.com/bhanuprakashsaip/reef/-/blob/memory-service/memory/embed.go#L39">memory/embed.go:39</a></div></div><div class="row"><h3>memory/eval/eval_test.go</h3><p>Every scenario uses the embedder when one is set. Synonym scenarios still skip without one.</p></div><div class="row"><h3>cmd/reef</h3><p><code>gemini</code> accepted by <code>reef memory embed</code>; usage and error text name it.</p></div><div class="row"><h3>docs</h3><p>R28 records the provider, the floor and the measurement. docs/memory.md lists gemini.</p></div></div></section><section><h2>Decisions made while building</h2><div class="panel"><div class="row"><h3>No task type</h3><p>Measured with the real API: <code>RETRIEVAL_QUERY</code>/<code>RETRIEVAL_DOCUMENT</code> and <code>SEMANTIC_SIMILARITY</code> raise every score but do not widen the gap between related and unrelated notes. So the request sends none, and the <code>Embedder</code> interface stays one-way.</p></div><div class="row"><h3>Floor 0.6 for Gemini</h3><p>Related notes scored 0.685 to 0.758; unrelated at most 0.569. 0.6 sits in the gap. OpenAI and Voyage stay 0.3 until someone runs the eval with their keys.</p></div><div class="row"><h3>Lookalike stays 0.92</h3><p>Near-duplicates scored 0.98; reworded notes 0.84 to 0.87; unrelated 0.52. Only near-copies are flagged.</p></div></div></section><section><h2>Proof</h2><div class="panel"><table><thead><tr><th>Check</th><th>What showed it</th><th>Test</th></tr></thead><tbody><tr><td class="ok">Request shape, header and parsing</td><td>fake server checks path, <code>x-goog-api-key</code>, body with 768, parses values</td><td class="mono">TestEmbedders_VendorShapes/gemini</td></tr><tr><td class="ok">Empty values fail for all three vendors</td><td><code>gemini embeddings: no embedding in response</code>; fails when the check is removed</td><td class="mono">TestEmbedders_EmptyEmbeddingFails</td></tr><tr><td class="ok">CLI without key fails, with key embeds, key never printed</td><td>real binary: <code>invalid: embedding provider gemini needs --key</code>, then <code>embedded 2 items</code>; key count in output 0</td><td class="mono">TestCLI_MemoryEmbed</td></tr><tr><td class="ok">Real API: meaning match with no shared words</td><td>recall "how long can a user stay signed in while idle" returns "Sessions expire after fifteen minutes of inactivity"; coffee note not returned</td><td class="mono">real binary</td></tr><tr><td class="ok">Real eval passes</td><td><code>eval: 30 scenarios, 0 skipped, recall@10=1.000 mrr=1.000</code></td><td class="mono">go test -tags embed ./memory/eval</td></tr><tr><td class="ok">Docs</td><td>R28, docs/memory.md, restructure docs R15–R30</td><td class="mono">-</td></tr></tbody></table></div></section><section><h2>Try it by hand</h2><div class="panel"><ol class="steps"><li><span>Store a key: see docs/memory.md, then <code>reef memory embed gemini --key K</code></span></li><li><span><code>reef memory recall "how long can a user stay signed in while idle"</code></span></li></ol></div></section><section><h2>Left out, on purpose</h2><div class="panel"><div class="row"><h3>OpenAI and Voyage floors are still guesses</h3><p>OpenAI and Voyage floors are still guesses (no keys).</p></div><div class="row"><h3>Free tier caps requests per minute</h3><p>Free tier caps requests per minute; a large backfill may need a re-run (see #38).</p></div></div></section>
+<footer>Memory service build · line numbers point at the branch tip.</footer>
+</div></body></html>
