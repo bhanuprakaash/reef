@@ -48,7 +48,6 @@ type wake struct {
 	unread bool
 	// approval is the id of the approval a wake was released by, when it was.
 	approval int64
-	// approved is set when the user approved the wake at its gate.
 	approved bool
 }
 

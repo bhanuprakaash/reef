@@ -574,7 +574,6 @@ func (s *server) capLocked(ctx context.Context, id int64, l *live) error {
 	return fmt.Errorf("channel %d is paused: %s: %w", id, _hopReason, store.ErrConflict)
 }
 
-// pauseLocked pauses the channel for reason, so continue runs the wakes the chain keeps.
 func (s *server) pauseLocked(ctx context.Context, id int64, l *live, reason string) {
 	if err := s.st.PauseChannel(ctx, id, reason); err != nil {
 		log.Printf("pause channel %d: %v", id, err)

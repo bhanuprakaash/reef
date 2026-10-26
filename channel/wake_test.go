@@ -9,7 +9,6 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// wakeAgent answers every prompt with "ok" in a session that Start numbers, or Resume names.
 type wakeAgent struct {
 	session string
 	fail    string
@@ -46,8 +45,7 @@ type wakeEnv struct {
 	s       *Session
 	started int
 	agents  []*wakeAgent
-	// fail is what the agents started from now on answer with, instead of "ok".
-	fail string
+	fail    string
 }
 
 func newWakeEnv(t *testing.T) *wakeEnv {
@@ -96,8 +94,6 @@ func (e *wakeEnv) say(author, body string, parent *int64) int64 {
 	return m.ID
 }
 
-// wake runs a turn of role routed with routed, and returns the text of the turn it ran, empty
-// when none ran.
 func (e *wakeEnv) wake(role, routed string, parent *int64) string {
 	e.t.Helper()
 	ctx := context.Background()
@@ -175,7 +171,6 @@ func TestWakeAs_NewSessionGetsTheThreadOnce(t *testing.T) {
 	routed := "[channel 1, message 2, thread 1]\nlead wrote: @developer start"
 	e.wake("developer", routed, &root)
 
-	// The backend has lost the developer's session: resuming it fails.
 	e.fail = "No conversation found with session ID: s1"
 	e.say("lead", "@developer again", &root)
 	if err := e.s.WakeAs(context.Background(), "developer", "[channel 1, message 4, thread 1]\n"+

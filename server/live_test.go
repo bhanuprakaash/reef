@@ -294,7 +294,6 @@ func (e *liveEnv) exec(t *testing.T, stmt string) {
 	}
 }
 
-// waitIdle waits for the chain of channel id to end and free the channel.
 func (e *liveEnv) waitIdle(t *testing.T, id int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

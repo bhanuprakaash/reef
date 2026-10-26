@@ -42,9 +42,7 @@ type member struct {
 	// write and dir say which tree the role's turns hold, one at a time.
 	write bool
 	dir   string
-	// cfg is what the agent was started with; a role edit that changes its access, tools,
-	// model or permission mode restarts it.
-	cfg agent.Config
+	cfg   agent.Config
 }
 
 type runInput struct {
@@ -487,8 +485,6 @@ func (s *Session) member(
 	return m, nil
 }
 
-// roleConfig is the part of an agent's config that a role sets: where it runs, its model, and
-// what it may do.
 func roleConfig(r store.Role, cwd string) agent.Config {
 	mode, tools, denied := access(r, claudeSkills(r, cwd))
 	return agent.Config{
@@ -571,7 +567,6 @@ func claudeSkills(r store.Role, dir string) []string {
 	return names
 }
 
-// _readCommands are the shell commands a role without write may allow and still run as a reader.
 var _readCommands = []string{
 	"git log", "git diff", "git show", "git status", "git blame",
 	"ls", "cat", "head", "tail", "grep", "rg", "wc", "pwd",

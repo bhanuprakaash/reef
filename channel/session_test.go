@@ -23,7 +23,6 @@ type recordingAgent struct {
 	startErr  error
 	resumeErr error
 	closeErr  error
-	// sendError, when set, is the error event Send answers with; session is the id it reports.
 	sendError string
 	session   string
 
@@ -1528,7 +1527,6 @@ func TestSession_RemovedRoleStoresFailedTurn(t *testing.T) {
 	}
 }
 
-// hangingAgent reports a session and some usage on Send, then never ends the turn.
 type hangingAgent struct{ *recordingAgent }
 
 func (a hangingAgent) Send(_ context.Context, prompt string) error {
@@ -1582,7 +1580,6 @@ func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 
-	// The app quits: its lock is released and the turn is left running.
 	if err := s1.lock.Close(); err != nil {
 		t.Fatal(err)
 	}

@@ -44,7 +44,6 @@ type Runner struct {
 	model     string
 	direct    *store.DirectMessage
 
-	// sessionGone is set when the backend reported the resumed session missing.
 	sessionGone bool
 }
 

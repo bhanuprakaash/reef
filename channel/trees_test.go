@@ -294,8 +294,6 @@ func TestTrees_ReadersDoNotBlockWritersButStopTryLock(t *testing.T) {
 	unlock()
 }
 
-// lockProbeAgent reports in Send whether a writer could take its tree: false while the turn
-// holds the lock.
 type lockProbeAgent struct {
 	*recordingAgent
 	trees   *Trees

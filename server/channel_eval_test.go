@@ -38,7 +38,6 @@ import (
 
 const (
 	_evalChains = 5
-	// _evalHeader is what a wake may hold beyond its new messages: its header lines.
 	_evalHeader = 200
 	_evalFiller = "the toolbar handler is registered before the page has loaded and is lost on reload. "
 )
@@ -104,7 +103,6 @@ func (e *evalEnv) store() *store.Store {
 	return e.st
 }
 
-// serve starts a server on the data folder whose sessions are real and whose agents are fake.
 func (e *evalEnv) serve() {
 	st := e.store()
 	trees := channel.NewTrees(e.dir)
@@ -127,7 +125,6 @@ func (e *evalEnv) serve() {
 	e.t.Cleanup(e.ts.Close)
 }
 
-// restart stops the server and starts a new one on the same data folder.
 func (e *evalEnv) restart() {
 	e.h.Close()
 	e.ts.Close()
@@ -156,7 +153,6 @@ func (e *evalEnv) send(text string, parent *int64) {
 	}
 }
 
-// say sends a user message and waits for the chain it starts to end.
 func (e *evalEnv) say(text string, parent *int64) {
 	e.t.Helper()
 	e.send(text, parent)
@@ -327,7 +323,6 @@ func (a *evalAgent) replay(ctx context.Context, prompt string) error {
 			if err := json.Unmarshal(ev.Input, &args); err != nil {
 				return err
 			}
-			// A post with a parent goes to the thread of the wake, as it did in the real run.
 			if h := _evalSources.FindAllStringSubmatch(prompt, -1); args["parent"] != nil && len(h) > 0 {
 				last := h[len(h)-1]
 				args["parent"], _ = strconv.ParseInt(cmp.Or(last[2], last[1]), 10, 64)
@@ -350,8 +345,6 @@ func evalBody(mention string, chain int, step string, tail string) string {
 	return fmt.Sprintf("%s[c%d.%s] %s%s", mention, chain, step, strings.Repeat(_evalFiller, 8), tail)
 }
 
-// evalReply is what role says to the last message of the wake, tagged chain and step: a
-// post_to_channel call (tool, may be empty) and the turn's plain reply (text).
 func evalReply(role string, chain int, step string) (tool, text string) {
 	b := func(mention, step, tail string) string { return evalBody(mention, chain, step, tail) }
 	switch {
@@ -385,7 +378,6 @@ func TestChannelEval(t *testing.T) {
 	}
 }
 
-// newEval serves a new data folder holding team small on backend, a project and channel 1.
 func newEval(t *testing.T, backend string) *evalEnv {
 	dir := t.TempDir()
 	st, err := store.Open(dir)
@@ -477,8 +469,6 @@ func runEval(t *testing.T, backend string) {
 	}
 }
 
-// replayEval sends the user's messages of the backend's recording, each once the channel is
-// idle, while the agents replay their recorded turns.
 func replayEval(t *testing.T, backend string) {
 	b, err := os.ReadFile(filepath.Join("testdata", "eval", backend+".json"))
 	if err != nil {

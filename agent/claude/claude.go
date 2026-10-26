@@ -119,7 +119,6 @@ type (
 
 	blocks []block
 
-	// tail keeps the last _stderrMax bytes written to it.
 	tail struct{ b []byte }
 
 	block struct {
@@ -375,7 +374,6 @@ type state struct {
 	// unprompted is set from a turn's init line until the echo of a prompt
 	// (--replay-user-messages, a user line with isReplay). A turn with no such echo is one
 	// claude ran by itself for a background task: its text and tool events answer no prompt.
-	// answer is the text of that turn, sent as one KindBackground event at its result.
 	unprompted bool
 	answer     string
 }
@@ -542,7 +540,6 @@ func (m modelUsage) usage() agent.Usage {
 	return u
 }
 
-// minus is a - b, with no count below zero.
 func minus(a, b agent.Usage) agent.Usage {
 	return agent.Usage{
 		InputTokens:      max(a.InputTokens-b.InputTokens, 0),
