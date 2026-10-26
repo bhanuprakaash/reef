@@ -79,7 +79,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	case "task":
 		return taskCmd(ctx, args[1:], stdout)
 	case "memory":
-		return memoryCmd(ctx, args[1:], stdin, stdout)
+		return memoryCmd(ctx, args[1:], stdin, stdout, stderr)
 	case "context":
 		return contextCmd(ctx, args[1:], stdout)
 	case "wrap":

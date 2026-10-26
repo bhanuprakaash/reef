@@ -350,6 +350,37 @@ func TestCLI_MemoryEmbed(t *testing.T) {
 	}
 }
 
+// Not parallel: it swaps http.DefaultTransport.
+func TestCLI_MemoryAddWarnsWhenVectorNotStored(t *testing.T) {
+	old := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusUnauthorized,
+			Body: io.NopCloser(strings.NewReader(
+				`{"error":{"code":"invalid_api_key","message":"Incorrect API key provided: sk-fake"}}`)),
+		}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = old })
+
+	dir := t.TempDir()
+	mustReef(t, dir, "memory", "embed", "openai", "--key", "sk-fake")
+	var stdout, stderr bytes.Buffer
+	args := []string{"memory", "add", "decision", "Use JWT", "--scope", "project:1", "--data", dir}
+	if err := run(context.Background(), args, strings.NewReader(""), &stdout, &stderr); err != nil {
+		t.Fatalf("add: %v", err)
+	}
+	if want := "1  accepted  decision  project:1  Use JWT\n"; stdout.String() != want {
+		t.Errorf("stdout = %q, want %q", stdout.String(), want)
+	}
+	want := "vector not stored: openai embeddings: status 401 invalid_api_key; run reef memory embed to retry\n"
+	if stderr.String() != want {
+		t.Errorf("stderr = %q, want %q", stderr.String(), want)
+	}
+	if strings.Contains(stdout.String()+stderr.String(), "sk-fake") {
+		t.Error("output contains the key")
+	}
+}
+
 func TestCLI_MemoryEmbedSwitchRecovers(t *testing.T) {
 	fail := false
 	old := http.DefaultTransport

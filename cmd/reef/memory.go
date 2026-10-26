@@ -46,7 +46,9 @@ func (l *listFlag) Set(v string) error {
 	return nil
 }
 
-func memoryCmd(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
+func memoryCmd(
+	ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer,
+) error {
 	sub, rest := memorySub(args)
 	switch sub {
 	case "show":
@@ -54,7 +56,7 @@ func memoryCmd(ctx context.Context, args []string, stdin io.Reader, stdout io.Wr
 	case "set":
 		return memorySet(ctx, rest, stdin, stdout)
 	case "add":
-		return memoryAdd(ctx, rest, stdout)
+		return memoryAdd(ctx, rest, stdout, stderr)
 	case "recall":
 		return memoryRecall(ctx, rest, stdout)
 	case "retire":
@@ -153,7 +155,7 @@ func memoryProject(ctx context.Context, st *store.Store, ref string) (store.Proj
 	return st.Project(ctx, id)
 }
 
-func memoryAdd(ctx context.Context, args []string, stdout io.Writer) error {
+func memoryAdd(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	c := newCommand("reef memory add", _memoryAddUsage, 2, 2)
 	scope := c.fs.String("scope", "", "")
 	role := c.fs.String("as", "", "")
@@ -205,6 +207,11 @@ func memoryAdd(ctx context.Context, args []string, stdout io.Writer) error {
 		if _, err := fmt.Fprintf(stdout, "%d  similar  %s\n", s.ID, s.Body); err != nil {
 			return err
 		}
+	}
+	if res.EmbedErr != nil {
+		_, err := fmt.Fprintf(stderr,
+			"vector not stored: %v; run reef memory embed to retry\n", res.EmbedErr)
+		return err
 	}
 	return nil
 }

@@ -189,6 +189,90 @@ func TestRemember_StoresWhenEmbedderFailsThenBackfills(t *testing.T) {
 	}
 }
 
+func TestRemember_ReportsEmbedFailure(t *testing.T) {
+	s, db := openTest(t)
+	s.embed = &fakeEmbedder{err: errors.New("openai embeddings: status 429")}
+	res, err := s.Remember(context.Background(), writer(), Note{Kind: KindFact, Body: "uses sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.EmbedErr == nil || res.EmbedErr.Error() != "openai embeddings: status 429" {
+		t.Fatalf("EmbedErr = %v, want the embedder's error", res.EmbedErr)
+	}
+	if n := count(t, db, `SELECT COUNT(*) FROM memory`); n != 1 {
+		t.Fatalf("%d items stored, want 1", n)
+	}
+
+	s.embed = noneEmbedder{}
+	res, err = s.Remember(context.Background(), writer(), Note{Kind: KindFact, Body: "uses sqlite too"})
+	if err != nil || res.EmbedErr != nil {
+		t.Fatalf("none embedder: err = %v, EmbedErr = %v; want both nil", err, res.EmbedErr)
+	}
+}
+
+func TestEmbedders_RetryOnceOn429(t *testing.T) {
+	tests := []struct {
+		name      string
+		statuses  []int
+		wantCalls int
+		wantErr   string
+	}{
+		{"then ok", []int{429, 200}, 2, ""},
+		{"twice", []int{429, 429, 200}, 2, "openai embeddings: status 429"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			calls := 0
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				status := tt.statuses[calls]
+				calls++
+				if status == 429 {
+					w.Header().Set("Retry-After", "1")
+				}
+				w.WriteHeader(status)
+				if status == 200 {
+					_, _ = io.WriteString(w, `{"data":[{"embedding":[1]}]}`)
+				}
+			}))
+			defer srv.Close()
+			_, err := openAIEmbedder{hc: srv.Client(), url: srv.URL, key: "k"}.Embed(context.Background(), "x")
+			if tt.wantErr == "" && err != nil || tt.wantErr != "" && (err == nil || err.Error() != tt.wantErr) {
+				t.Fatalf("err = %v, want %q", err, tt.wantErr)
+			}
+			if calls != tt.wantCalls {
+				t.Fatalf("%d requests, want %d", calls, tt.wantCalls)
+			}
+		})
+	}
+}
+
+func TestEmbedders_ErrorNamesVendorCodeNotMessage(t *testing.T) {
+	tests := []struct {
+		name, body, want string
+	}{
+		{"gemini status", `{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"key sk-secret over quota"}}`,
+			"openai embeddings: status 400 RESOURCE_EXHAUSTED"},
+		{"openai code", `{"error":{"code":"insufficient_quota","message":"key sk-secret over quota"}}`,
+			"openai embeddings: status 400 insufficient_quota"},
+		{"message only", `{"error":{"message":"key sk-secret"}}`, "openai embeddings: status 400"},
+		{"not json", `key sk-secret`, "openai embeddings: status 400"},
+		{"code with spaces", `{"error":{"code":"key sk-secret"}}`, "openai embeddings: status 400"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.WriteHeader(http.StatusBadRequest)
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			defer srv.Close()
+			_, err := openAIEmbedder{hc: srv.Client(), url: srv.URL, key: "sk-secret"}.Embed(context.Background(), "x")
+			if err == nil || err.Error() != tt.want {
+				t.Fatalf("err = %v, want %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestEmbedders_VendorShapes(t *testing.T) {
 	tests := []struct {
 		name       string

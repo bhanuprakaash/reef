@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"math"
 	"net/http"
 	"slices"
 	"sort"
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -34,6 +37,9 @@ const (
 const (
 	_minCosine    = 0.3
 	_embedTimeout = 10 * time.Second
+
+	_maxRetryAfter = 60 * time.Second
+	_codeChars     = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_.-"
 )
 
 var _errEmbedQuery = errors.New("embed query")
@@ -151,7 +157,8 @@ func postEmbedding(
 	return out.Data[0].Embedding, nil
 }
 
-// Errors carry the status code, never the key.
+// Errors carry the status code and the vendor's error code, never the key or the vendor's
+// message. A 429 is retried once after its Retry-After.
 func postJSON(
 	ctx context.Context, hc *http.Client, name, url, authHeader, auth string, body, out any,
 ) error {
@@ -159,24 +166,76 @@ func postJSON(
 	if err != nil {
 		return fmt.Errorf("encode %s request: %w", name, err)
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return fmt.Errorf("build %s request: %w", name, err)
+	send := func() (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+		if err != nil {
+			return nil, fmt.Errorf("build %s request: %w", name, err)
+		}
+		req.Header.Set(authHeader, auth)
+		req.Header.Set("Content-Type", "application/json")
+		resp, err := hc.Do(req)
+		if err != nil {
+			return nil, fmt.Errorf("%s embeddings: %w", name, err)
+		}
+		return resp, nil
 	}
-	req.Header.Set(authHeader, auth)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := hc.Do(req)
+	resp, err := send()
+	if err == nil && resp.StatusCode == http.StatusTooManyRequests {
+		wait := retryAfter(resp.Header.Get("Retry-After"))
+		resp.Body.Close()
+		select {
+		case <-time.After(wait):
+		case <-ctx.Done():
+			return fmt.Errorf("%s embeddings: %w", name, ctx.Err())
+		}
+		resp, err = send()
+	}
 	if err != nil {
-		return fmt.Errorf("%s embeddings: %w", name, err)
+		return err
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return fmt.Errorf("%s embeddings: status %d", name, resp.StatusCode)
+		msg := fmt.Sprintf("%s embeddings: status %d", name, resp.StatusCode)
+		if code := vendorCode(resp.Body); code != "" {
+			msg += " " + code
+		}
+		return errors.New(msg)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return fmt.Errorf("decode %s response: %w", name, err)
 	}
 	return nil
+}
+
+// retryAfter reads a Retry-After in seconds: 1 second when it is missing or not a
+// non-negative integer, at most 60.
+func retryAfter(h string) time.Duration {
+	n, err := strconv.Atoi(h)
+	if err != nil || n < 0 {
+		n = 1
+	}
+	return min(time.Duration(n)*time.Second, _maxRetryAfter)
+}
+
+// vendorCode returns the error code token of a vendor error body, such as
+// RESOURCE_EXHAUSTED or insufficient_quota, or "" when there is none. It never returns
+// the message.
+func vendorCode(r io.Reader) string {
+	var body struct {
+		Error struct {
+			Status string `json:"status"`
+			Code   any    `json:"code"`
+		} `json:"error"`
+	}
+	_ = json.NewDecoder(io.LimitReader(r, 64<<10)).Decode(&body)
+	code := body.Error.Status
+	if c, ok := body.Error.Code.(string); ok && code == "" {
+		code = c
+	}
+	if len(code) > 64 || strings.Trim(code, _codeChars) != "" {
+		return ""
+	}
+	return code
 }
 
 // Backfill embeds items that have no vector and returns how many it filled. It stops at

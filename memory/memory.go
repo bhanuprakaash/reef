@@ -108,9 +108,11 @@ type Item struct {
 }
 
 // Result is what Remember returns. Similar is nil when nothing looks like the new item.
+// EmbedErr is why no vector was stored; it is nil when one was stored or no embedder is set.
 type Result struct {
-	Item    Item
-	Similar []Similar
+	Item     Item
+	Similar  []Similar
+	EmbedErr error
 }
 
 // Store reads and writes memory items in a database it was given.
@@ -155,7 +157,7 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 		})
 	}
 
-	vec, _ := s.embed.Embed(ctx, embedText(n.Body, n.Why))
+	vec, embedErr := s.embed.Embed(ctx, embedText(n.Body, n.Why))
 	var blob []byte
 	if vec != nil {
 		blob = encodeVector(vec)
@@ -208,7 +210,7 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 	if err := tx.Commit(); err != nil {
 		return Result{}, fmt.Errorf("commit: %w", err)
 	}
-	return Result{Item: item, Similar: similar}, nil
+	return Result{Item: item, Similar: similar, EmbedErr: embedErr}, nil
 }
 
 // Read returns the item with its links.
