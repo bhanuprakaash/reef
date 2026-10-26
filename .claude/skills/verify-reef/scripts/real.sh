@@ -189,23 +189,38 @@ printf '{"permissions":{"allow":["Edit","Write","Edit(*)","Write(*)"]}}' >"$S/re
 "$H" api POST /projects '{"name":"realsettings","path":"'"$S"'/real-settings"}' >/dev/null
 "$H" api POST /channels '{"projectId":2,"name":"real3","team":"realteam"}' >/dev/null
 "$H" api POST /channels/3/send '{"text":"@tester Use the Edit tool to replace the word one with nope in a.txt. Say what happened."}' >/dev/null
-wait_done 3 1
-
 settings_ok=1
+wait_done 3 1 || settings_ok=0
 [ "$(cat "$S/real-settings/a.txt")" = one ] || settings_ok=0
 [ "$(git -C "$S/real-settings" status --porcelain)" = "?? .claude/" ] || settings_ok=0
 settings_session=$("$H" sql "select session_id from turn where channel_id = 3 order by id desc limit 1" | tail -1)
 settings_file=$(ls ~/.claude/projects/*/"$settings_session".jsonl 2>/dev/null | head -1)
-if [ -n "$settings_file" ]; then
-	grep -q '"is_error":true' "$settings_file" || settings_ok=0
-else
-	settings_ok=0
-fi
+settings_reply=$("$H" sql "select body from message where channel_id = 3 and author = 'tester'" | tail -n +2)
+refusal=$(python3 -I -c '
+import json, re, sys
+said = re.compile(r"\b(edit|write)\b.{0,80}\b(unavailable|not available|isn.t available|disabled|not allowed|disallowed|denied|blocked|refused|not permitted)", re.I | re.S)
+texts, err = [sys.argv[2]], False
+try:
+    lines = open(sys.argv[1]).readlines() if sys.argv[1] else []
+except OSError:
+    lines = []
+for l in lines:
+    try:
+        content = json.loads(l).get("message", {}).get("content")
+    except Exception:
+        continue
+    for c in content if isinstance(content, list) else []:
+        if isinstance(c, dict) and c.get("type") == "tool_result":
+            err = err or c.get("is_error") is True
+            texts.append(json.dumps(c.get("content")))
+print("is_error tool result" if err else "said unavailable" if any(said.search(t) for t in texts) else "")
+' "$settings_file" "$settings_reply")
+[ -n "$refusal" ] || settings_ok=0
 
 if [ "$settings_ok" = 1 ]; then
-	check write-settings 1 "a.txt still 'one', git status only '?? .claude/', tester session has an is_error tool result"
+	check write-settings 1 "tester turn done, a.txt still 'one', git status only '?? .claude/', refusal: $refusal"
 else
-	check write-settings 0 "a.txt=$(cat "$S/real-settings/a.txt" 2>/dev/null), git status=$(git -C "$S/real-settings" status --porcelain 2>/dev/null)"
+	check write-settings 0 "a.txt=$(cat "$S/real-settings/a.txt" 2>/dev/null), git status=$(git -C "$S/real-settings" status --porcelain 2>/dev/null), refusal=${refusal:-none}"
 fi
 
 "$H" serve-stop
