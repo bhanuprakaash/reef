@@ -2,7 +2,7 @@
 
 [Back to restructuring index](index.md)
 
-> Status: plan, 2026-10-26. Nothing built yet.
+> Status: plan, 2026-10-26. Nothing built yet. Slice issue #65, tickets #46–#64.
 
 ## Goal
 
@@ -30,7 +30,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 ## Tickets
 
-### 1. Channel eval
+### 1. Channel eval (#46)
 
 **What to build:** a `go test` package that replays a scripted channel, shaped like "browser issue", through the real server routing and the real `channel.Session`, with a fake agent at the `agent.Agent` boundary. It records every prompt, wake, turn and cost, and checks the numbers below. Like `memory/eval`, it prints its numbers with `-v`.
 
@@ -42,7 +42,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** none
 
-### 2. A wake carries only unread messages, read when it runs
+### 2. A wake carries only unread messages, read when it runs (#47)
 
 **What to build:** build the wake text when the turn starts, not when the message is routed. It holds the messages in the thread (or the channel) that this role has not been sent in this session, and never the role's own messages. A new session gets the thread once. This fixes the thread sent on every wake, the thread twice in one wake, and the old wake text.
 
@@ -54,7 +54,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** 1
 
-### 3. One post per turn
+### 3. One post per turn (#48)
 
 **What to build:** when an agent called `post_to_channel` during a turn, its plain reply is not posted as a second message. It stays on the turn.
 
@@ -65,7 +65,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** 1
 
-### 4. Only a handoff @mention wakes a role
+### 4. Only a handoff @mention wakes a role (#49)
 
 **What to build:** the rule that decides when an @name wakes a role (decision 1). "I'll report to @lead later" wakes nobody.
 
@@ -76,7 +76,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** 1
 
-### 5. Turn cost is the turn's own cost after a resume
+### 5. Turn cost is the turn's own cost after a resume (#50)
 
 **What to build:** a resumed claude reports the session's running total. The stored turn cost must be that total minus the total before the turn.
 
@@ -86,7 +86,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** 1
 
-### 6. Subagent and background tokens are counted once
+### 6. Subagent and background tokens are counted once (#51)
 
 **What to build:** count subagent tokens in the turn's usage. A background task turn that starts before the prompted turn ends never makes negative usage. A background task's answer is posted to the channel as the role's message (decision 2).
 
@@ -97,7 +97,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** 1
 
-### 7. A crash keeps the turn's prompt and tokens
+### 7. A crash keeps the turn's prompt and tokens (#52)
 
 **What to build:** store the prompt when it is sent, and usage as it arrives, so a turn closed as "chat exited" keeps both. The next resume then does not re-send the persona.
 
@@ -108,7 +108,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** 1
 
-### 8. Codex interrupt keeps the stopped turn's usage
+### 8. Codex interrupt keeps the stopped turn's usage (#53)
 
 **What to build:** stopping a codex turn while events are unread still delivers its usage, without waiting the full second.
 
@@ -117,7 +117,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** none
 
-### 9. A missing session starts a new one
+### 9. A missing session starts a new one (#54)
 
 **What to build:** when resume fails because the backend has no such session, the role starts a new session with its first message.
 
@@ -127,7 +127,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** 1
 
-### 10. Queued wakes survive a restart
+### 10. Queued wakes survive a restart (#55)
 
 **What to build:** wakes held while a role is busy are stored, not kept only in memory.
 
@@ -137,7 +137,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** 1
 
-### 11. A message sent while a chain starts is queued
+### 11. A message sent while a chain starts is queued (#56)
 
 **What to build:** a send during chain start is queued, as `docs/server.md` says, not refused.
 
@@ -146,7 +146,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** none
 
-### 12. No wake is dropped silently
+### 12. No wake is dropped silently (#57)
 
 **What to build:** the four error paths that lose wakes keep them or record a failure.
 - A user message after a hop-cap pause drops held direct messages.
@@ -162,7 +162,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** none
 
-### 13. A team edit reaches a running agent
+### 13. A team edit reaches a running agent (#58)
 
 **What to build:** when a role's write access, tools, model or permission mode changes, its live agent is restarted (resumed) with the new settings before its next turn.
 
@@ -172,7 +172,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** none
 
-### 14. Read-only means read-only
+### 14. Read-only means read-only (#59)
 
 **What to build:** the rule for shell commands that change files on a role without write access (decision 3).
 
@@ -182,7 +182,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** none
 
-### 15. Undo points do not collide between two Reef copies
+### 15. Undo points do not collide between two Reef copies (#60)
 
 **What to build:** checkpoint refs name the data folder as well as the turn, so the installed app and the dev copy never overwrite each other's in one repo.
 
@@ -191,7 +191,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** none
 
-### 16. Codex pre-approves every MCP server
+### 16. Codex pre-approves every MCP server (#61)
 
 **What to build:** every MCP server's tools are pre-approved on codex, not only `reef`.
 
@@ -200,7 +200,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** none
 
-### 17. Small adapter fixes
+### 17. Small adapter fixes (#62)
 
 **What to build:** store image tool results as `[image]`. Keep only the last 4 KiB of claude stderr.
 
@@ -210,7 +210,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** none
 
-### 18. Server tests pass
+### 18. Server tests pass (#63)
 
 **What to build:** fix the 14 failing GitHub-poll tests (`FeatureLatestChannel` selects 12 columns, `scanChannel` scans 13) and the flaky `TestDirectChainEndClearsActiveTurn`.
 
@@ -219,7 +219,7 @@ then: design the context assembler (next step), then memory wiring (step 4)
 
 **Blocked by:** none
 
-### 19. An approved wake resets the hop count
+### 19. An approved wake resets the hop count (#64)
 
 **What to build:** an approved wake resets the hop count, as a retry does (decision 4). `docs/server.md` and decision 69 in `docs/product.md` say the token budget is checked only between turns (decision 5).
 
