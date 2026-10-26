@@ -33,7 +33,6 @@ const (
 	_termGrace = time.Second
 	// WaitDelay bounds Wait when a process that outlived claude holds its stderr pipe.
 	_waitDelay = 2 * time.Second
-	_stderrMax = 4 << 10
 	// _messageBreak goes before the text of a message that follows text in the same turn.
 	_messageBreak = "\n\n"
 )
@@ -42,7 +41,7 @@ const (
 type Agent struct {
 	cmd     *exec.Cmd
 	stdin   io.Writer
-	stderr  bytes.Buffer
+	stderr  agent.Tail
 	events  chan agent.Event
 	quit    chan struct{}
 	done    chan struct{}
@@ -79,6 +78,15 @@ type (
 		CacheWriteTokens int64 `json:"cache_creation_input_tokens"`
 	}
 
+	// modelUsage is a result's count of every model call of the whole session so far, by model,
+	// also after a resume: the subagents' and claude's own side calls too, which usage leaves out.
+	modelUsage map[string]struct {
+		InputTokens      int64 `json:"inputTokens"`
+		OutputTokens     int64 `json:"outputTokens"`
+		CacheReadTokens  int64 `json:"cacheReadInputTokens"`
+		CacheWriteTokens int64 `json:"cacheCreationInputTokens"`
+	}
+
 	outputLine struct {
 		Type      string `json:"type"`
 		Subtype   string `json:"subtype"`
@@ -95,13 +103,13 @@ type (
 		Message struct {
 			Content blocks `json:"content"`
 		} `json:"message"`
-		ParentToolUseID string      `json:"parent_tool_use_id"`
-		IsReplay        bool        `json:"isReplay"`
-		IsError         bool        `json:"is_error"`
-		Result          string      `json:"result"`
-		Errors          []string    `json:"errors"`
-		Usage           usageCounts `json:"usage"`
-		TotalCostUSD    *float64    `json:"total_cost_usd"` // result; nil when the backend did not send one
+		ParentToolUseID string     `json:"parent_tool_use_id"`
+		IsReplay        bool       `json:"isReplay"`
+		IsError         bool       `json:"is_error"`
+		Result          string     `json:"result"`
+		Errors          []string   `json:"errors"`
+		ModelUsage      modelUsage `json:"modelUsage"`
+		TotalCostUSD    *float64   `json:"total_cost_usd"` // result; nil when the backend did not send one
 		Origin          struct {
 			Kind string `json:"kind"`
 		} `json:"origin"`
@@ -292,13 +300,9 @@ func (a *Agent) read(stdout io.Reader) {
 	if err == nil || last == agent.KindError {
 		return
 	}
-	stderr := a.stderr.Bytes()
-	if len(stderr) > _stderrMax {
-		stderr = stderr[len(stderr)-_stderrMax:]
-	}
 	a.emit(agent.Event{
 		Kind: agent.KindError,
-		Text: fmt.Sprintf("claude exited: %v: %s", err, bytes.TrimSpace(stderr)),
+		Text: fmt.Sprintf("claude exited: %v: %s", err, bytes.TrimSpace(a.stderr.Bytes())),
 	})
 }
 
@@ -347,7 +351,6 @@ func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
 
 // state is what parse keeps between lines.
 type state struct {
-	seen agent.Usage   // usage the turn has sent so far
 	held []agent.Event // tool calls of the message in progress and the results after them, held until its usage
 
 	// wrote is set once the turn has sent text; breakNext is set at a message start that
@@ -358,10 +361,7 @@ type state struct {
 	// (--replay-user-messages, a user line with isReplay). A turn with no such echo is one
 	// claude ran by itself for a background task: its text and tool events answer no prompt.
 	unprompted bool
-
-	// lastCost is the process total the most recent result line with a cost reported; carried
-	// across a reset so a turn's CostUSD is its own share, not the process running total.
-	lastCost float64
+	answer     string
 }
 
 // parse maps one stdout line to Events. Text comes from the partial-message deltas, so
@@ -373,13 +373,21 @@ type state struct {
 // (its assistant line comes before the message_delta). A tool_result that arrives before
 // the message_delta waits with the calls, so a call never follows its own result. A
 // subagent's messages have no message_delta, so its calls are sent at once. The result line
-// sends what is still held, then only what is left of its usage total. An unprompted turn
-// gives only its usage. A result's total_cost_usd is the cost of the process so far, not the
-// turn: CostUSD is that total minus the last one seen in the process.
+// sends what is still held, then the turn end. Its SessionUsage is the result's modelUsage, the
+// whole session's usage so far, also after a resume: it counts the subagents and claude's own
+// side calls too, which the messages' usage leaves out. Its CostUSD is total_cost_usd, the
+// whole session's running cost. The caller takes off what earlier turns had. An unprompted turn
+// gives its usage, then at its result its text as one KindBackground event. A background
+// result sends no total; the next turn's total holds it.
 func parse(line []byte, st *state) []agent.Event {
 	evs := parseLine(line, st)
 	if !st.unprompted {
 		return evs
+	}
+	for _, ev := range evs {
+		if ev.Kind == agent.KindText {
+			st.answer += ev.Text
+		}
 	}
 	return slices.DeleteFunc(evs, func(ev agent.Event) bool {
 		return ev.Kind == agent.KindText || ev.Kind == agent.KindToolCall || ev.Kind == agent.KindToolResult
@@ -411,7 +419,6 @@ func parseLine(line []byte, st *state) []agent.Event {
 		}
 		if l.Event.Type == "message_delta" {
 			u := l.Event.Usage.usage()
-			st.seen.Add(u)
 			evs := append([]agent.Event{{Kind: agent.KindUsage, Usage: &u}}, st.held...)
 			st.held = nil
 			return evs
@@ -453,36 +460,26 @@ func parseLine(line []byte, st *state) []agent.Event {
 		}
 		return evs
 	case "result":
-		total := l.Usage.usage()
-		rest := agent.Usage{
-			InputTokens:      total.InputTokens - st.seen.InputTokens,
-			OutputTokens:     total.OutputTokens - st.seen.OutputTokens,
-			CacheReadTokens:  total.CacheReadTokens - st.seen.CacheReadTokens,
-			CacheWriteTokens: total.CacheWriteTokens - st.seen.CacheWriteTokens,
-		}
 		evs := st.held
-		lastCost := st.lastCost
-		// A background task's cost rides on no turn; its delta carries forward to the
-		// next turn's result instead of being counted here.
-		background := l.Origin.Kind == "task-notification"
-		var cost *float64
-		if l.TotalCostUSD != nil && !background {
-			delta := *l.TotalCostUSD - lastCost
-			cost, lastCost = &delta, *l.TotalCostUSD
-		}
-		*st = state{lastCost: lastCost}
-		if rest != (agent.Usage{}) {
-			evs = append(evs, agent.Event{Kind: agent.KindUsage, Usage: &rest})
-		}
+		answer := strings.TrimSpace(st.answer)
+		*st = state{}
 		// A turn claude runs by itself for a background task is not the answer to a prompt.
-		if background {
+		if l.Origin.Kind == "task-notification" {
+			if answer != "" {
+				evs = append(evs, agent.Event{Kind: agent.KindBackground, Text: answer})
+			}
 			return evs
 		}
 		if l.IsError {
 			text := strings.Join(append([]string{l.Result}, l.Errors...), "\n")
-			return append(evs, agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text), CostUSD: cost})
+			return append(evs, agent.Event{
+				Kind: agent.KindError, Text: strings.TrimSpace(text),
+				CostUSD: l.TotalCostUSD, SessionUsage: l.ModelUsage.sessionUsage(),
+			})
 		}
-		return append(evs, agent.Event{Kind: agent.KindTurnEnd, CostUSD: cost})
+		return append(evs, agent.Event{
+			Kind: agent.KindTurnEnd, CostUSD: l.TotalCostUSD, SessionUsage: l.ModelUsage.sessionUsage(),
+		})
 	}
 	return nil
 }
@@ -506,12 +503,30 @@ func (c usageCounts) usage() agent.Usage {
 	}
 }
 
+// sessionUsage is the sum over the models, nil when the result sent none.
+func (m modelUsage) sessionUsage() *agent.Usage {
+	if len(m) == 0 {
+		return nil
+	}
+	var u agent.Usage
+	for _, c := range m {
+		u.Add(agent.Usage{
+			InputTokens:      c.InputTokens,
+			OutputTokens:     c.OutputTokens,
+			CacheReadTokens:  c.CacheReadTokens,
+			CacheWriteTokens: c.CacheWriteTokens,
+		})
+	}
+	return &u
+}
+
 func resultText(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
 		return s
 	}
 	var blocks []struct {
+		Type string `json:"type"`
 		Text string `json:"text"`
 	}
 	if json.Unmarshal(raw, &blocks) != nil {
@@ -519,6 +534,9 @@ func resultText(raw json.RawMessage) string {
 	}
 	var parts []string
 	for _, b := range blocks {
+		if b.Type == "image" {
+			b.Text = "[image]"
+		}
 		parts = append(parts, b.Text)
 	}
 	return strings.Join(parts, "\n")

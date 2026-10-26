@@ -72,6 +72,11 @@ func TestMessage_event(t *testing.T) {
 			want: &agent.Event{Kind: agent.KindToolResult, ToolID: "exec-fb96", Output: "pong"},
 		},
 		{
+			name: "mcp image",
+			give: `{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"exec-fb97","server":"reef-ping","tool":"reef_shot","status":"completed","arguments":{},"result":{"content":[{"type":"image","data":"iVBORw0KGgo=","mimeType":"image/png"}],"structuredContent":null},"error":null}}}`,
+			want: &agent.Event{Kind: agent.KindToolResult, ToolID: "exec-fb97", Output: "[image]"},
+		},
+		{
 			name: "mcp refused",
 			give: `{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"exec-2d12","server":"reef-ping","tool":"reef_ping","status":"failed","arguments":{},"result":null,"error":{"message":"MCP tool call requires approval, but approval policy is never"}}}}`,
 			want: &agent.Event{
@@ -223,7 +228,7 @@ func TestThreadParams_Model(t *testing.T) {
 func TestThreadParams_MCPApprovalMode(t *testing.T) {
 	params := threadParams(agent.Config{MCPServers: map[string]agent.MCPServer{
 		"reef": {Command: "reef-mcp"},
-		"mcp1": {Command: "other-mcp"},
+		"x":    {Command: "other-mcp"},
 	}})
 	body, err := json.Marshal(params)
 	if err != nil {
@@ -240,8 +245,8 @@ func TestThreadParams_MCPApprovalMode(t *testing.T) {
 	if got.Config.MCPServers["reef"]["default_tools_approval_mode"] != "approve" {
 		t.Errorf("reef approval mode = %v, want approve", got.Config.MCPServers["reef"])
 	}
-	if _, ok := got.Config.MCPServers["mcp1"]["default_tools_approval_mode"]; ok {
-		t.Errorf("mcp1 has approval mode: %v", got.Config.MCPServers["mcp1"])
+	if got.Config.MCPServers["x"]["default_tools_approval_mode"] != "approve" {
+		t.Errorf("x approval mode = %v, want approve", got.Config.MCPServers["x"])
 	}
 }
 
@@ -525,6 +530,25 @@ func TestAgent_InterruptKeepsStoppedTurnUsage(t *testing.T) {
 				t.Errorf("events after Interrupt = %+v, want %+v", got, want)
 			}
 		})
+	}
+}
+
+func TestAgent_InterruptWithUnreadEvents(t *testing.T) {
+	a := fake(t, "stopfull")
+	startTurn(t, a)
+	collect(t, a, agent.KindToolCall)
+	time.Sleep(200 * time.Millisecond)
+	start := time.Now()
+	if err := a.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 500*time.Millisecond {
+		t.Errorf("Interrupt took %v, want under 500ms", d)
+	}
+	got := collect(t, a, "")
+	want := []agent.Event{{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 6, OutputTokens: 5, CacheReadTokens: 1}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events after Interrupt = %+v, want %+v", got, want)
 	}
 }
 

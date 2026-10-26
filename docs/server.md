@@ -157,7 +157,9 @@ migration 11 [`011_turn_wake.sql`](../store/migrations/011_turn_wake.sql) (`turn
 migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`) and
 migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`) and
 migration 32 [`032_provider.sql`](../store/migrations/032_provider.sql) (`provider`, `role.provider`) and
-migration 33 [`033_channel_name_auto.sql`](../store/migrations/033_channel_name_auto.sql) (`channel.name_auto`).
+migration 33 [`033_channel_name_auto.sql`](../store/migrations/033_channel_name_auto.sql) (`channel.name_auto`) and
+migration 36 [`036_turn_scopes.sql`](../store/migrations/036_turn_scopes.sql) (`turn.scopes`, `approval.scopes`) and
+migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql) (`turn.session_cost_usd`, `turn.session_input_tokens` and the other three token counts).
 Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 
 ### project
@@ -283,17 +285,19 @@ One agent run in a channel.
 | `sessionId` | string | default `""`; set on create, while the turn runs, or when it ends |
 | `status` | string | `running`, `done` or `failed`. A new turn is always `running` |
 | `error` | string | default `""` |
-| `usage` | object | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens` (numbers, all four always present). The SQL columns are `input_tokens` and so on |
+| `usage` | object | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens` (numbers, all four always present). The SQL columns are `input_tokens` and so on. The turn's own tokens: for claude, the session total the turn reported minus the total the session's previous turn reported (see `sessionUsage`), so a resumed turn's subagent and side-call tokens count; a running turn holds the sum of its messages so far |
 | `startedAt` | string | |
 | `endedAt` | string? | `null` while running |
-| `wakeText` | string | default `""`; the text the turn ran: the wake, without the context prompt. Empty for a turn from before this field existed and for a wrap-up or promote turn |
+| `wakeText` | string | default `""`; the text the turn ran: the unread messages of the wake, without the context prompt. Empty for a turn from before this field existed and for a wrap-up or promote turn |
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
 | `directMessageId` | number? | the direct request or response the turn was woken by; `null` for a public wake. Kept so retry preserves private reply routing |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
-| `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<turn id>`. `null` for a turn of a role without `write`, for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
+| `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<data folder>/<turn id>`. `null` for a turn of a role without `write` and without a file-changing shell command in its `tools` (see [Channels live](#channels-live)), for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
 | `model` | string | default `""`; the backend's model name, set from the agent's first event once the turn ends |
-| `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one. A failed turn gets one too, when claude reported one |
+| `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one. A failed turn gets one too, when claude reported one. The turn's own cost: the session's running total the turn reported minus the total the session's previous turn reported. A session stored before totals were kept (all its turns have `sessionCostUsd` null) is taken to have cost, so far, the largest `costUsd` among its turns, which then held running totals |
+| `sessionCostUsd`, `sessionUsage` | number?, object? | not in the turn's own JSON; the running totals of the turn's whole session as claude reported them when the turn ended (`sessionUsage` has the four token counts). `null` for a turn from before migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql), for a turn that ended with no report (a stopped or crashed turn) and for every codex turn. The SQL columns are `session_cost_usd`, `session_input_tokens`, `session_output_tokens`, `session_cache_read_tokens`, `session_cache_write_tokens`. A turn's usage is its total minus the latest total before it plus the `usage` of the stopped turns after that one, so a stopped turn's tokens are not counted twice |
 | `prompt` | string | not in the turn's own JSON (`GET /turns`, `GET /turns/{id}`); the full text sent to the agent (context preamble and notes included), set once the turn ends. `GET /channels/{id}/inspector` has its own view of it |
+| `reply` | string | not in the turn's own JSON; the plain reply of a done turn that already posted with `post_to_channel`, kept here and not stored as a message (see [Routing](#routing)). `""` for every other turn. `GET /channels/{id}/inspector` has its own view of it |
 
 ### tool_call
 
@@ -421,7 +425,7 @@ A wake that waits at a gate. The SQL table is `approval`.
 | `to` | string | the role that would run |
 | `messageId` | number | the message that woke it; `0` for a direct wake |
 | `directMessageId` | number? | the direct message that woke it, when the wake is direct |
-| `text` | string | the prompt the wake will run, for example `[channel 5, message 28]\nlead wrote: @architect design a form` |
+| `text` | string | the wake as it was routed, for example `[channel 5, message 28]\nlead wrote: @architect design a form`; the turn's own text is built when it runs |
 | `status` | string | `pending`, `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 
@@ -517,16 +521,16 @@ tool calls.
 | `GET /channels/{id}` | | 200 | 404 |
 | `PUT /channels/{id}` | `name` (required), `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the channel's backend and applies the next time its agent starts. A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or permission mode, 404 |
 | `DELETE /channels/{id}` | stops the channel first if it is live; a send during the delete is 404 | 204 | 404 |
-| `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body; while a message chain runs the message is stored at once and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 wrap or promote turn running, channel closed, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
+| `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body; while a message chain starts or runs the message is stored and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 wrap or promote turn running, channel closed, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
-| `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
+| `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
 | `GET /channels/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the channel, oldest first; each has `id`, `channelId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `createdAt` | 400 bad id, 404 |
 | `GET /search` | `?feature=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the feature's public messages and all its direct messages, newest first, `[]` when none. Each hit has `channelId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `feature`, missing `q` |
 | `POST /channels/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
 | `GET /channels/{id}/approvals` | | 200 the channel's pending gate approvals, oldest first; `[]` when none | 404 |
-| `POST /channels/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body; approve while a chain starts or runs queues the wake behind the current turn | 400 no `approve`, 404 no such approval in this channel, 409 not pending, or approve while the channel is paused or 6 hops ran (it stays pending), 503 |
+| `POST /channels/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body; approve while a chain starts or runs queues the wake behind the current turn | 400 no `approve`, 404 no such approval in this channel, 409 not pending, or approve while the channel is paused (it stays pending), 503 |
 | `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
 | `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
 | `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
@@ -580,9 +584,14 @@ a message wakes them.
   with its persona and skills (see [memory.md](memory.md#the-context-prompt)).
 - An agent starts when its first turn runs, not when the channel opens. A first message that
   wakes a specialist starts no lead. A role that already has a session resumes it by its own
-  newest session id (see [memory.md](memory.md#reef-chat)). An agent that fails to start shows
-  as a `failed` turn of its role, with the start error, or `interrupted` when a stop cut the
-  start short. The server logs every failed turn.
+  newest session id (see [memory.md](memory.md#reef-chat)). An agent that fails to start, for any
+  reason (the agent, its session lookup, its token, its folder or its first prompt), shows
+  as one `failed` turn of its role, with the start error, or `interrupted` when a stop cut the
+  start short. So does a wake whose text cannot be built. A wake for a role the team no longer has is a `failed`
+  turn too, with the wake text, on the channel's backend. The wake text of a wake that never started is the
+  text the wake was routed with, not the messages it would have sent. The server logs every failed turn. When the backend says the session is
+  missing (claude `No conversation found`, codex `no rollout found for thread id`), that turn
+  fails and the role's next wake starts a new session, with its intro, not the dead one.
 - An agent of a channel under a feature runs in the feature's worktree,
   `<data folder>/worktrees/<project id>/<slug>`, on branch `feature/<slug>`. It is made at
   the first start of any agent of the feature, from the project's base branch (fetched from
@@ -601,11 +610,14 @@ a message wakes them.
 - Before each turn of a role with `write` in a git checkout (a feature's worktree, or the
   project path of a quick session that is a git repo), the server stores a checkpoint: a commit
   of HEAD plus the whole working tree, untracked files included and ignored ones left out, at
-  `refs/reef/checkpoints/<turn id>`. It is built in a temporary index that starts as a copy of
+  `refs/reef/checkpoints/<data folder>/<turn id>`, where `<data folder>` is the first 12 hex
+  digits of the sha256 of the absolute data folder path, so two Reef copies on one repo never
+  overwrite each other's. Turns from before keep their stored ref. It is built in a temporary index that starts as a copy of
   the real one, so the index, HEAD and the files do not change. The ref is on the turn's
   `checkpoint`. If the checkpoint fails, the turn is stored `failed` with git's error and the
   agent gets no prompt. A repo with no commit has nothing to snapshot: its turns run with
-  `checkpoint` null. A role without `write` gets none. The checkpoint commit has two parents:
+  `checkpoint` null. A role without `write` gets none, unless it is a writer in all but name
+  (below). The checkpoint commit has two parents:
   HEAD, then a commit of the index as it was, so a rollback can bring back what was staged.
   Its message records the directory and the branch it was taken in (`dir:` and `branch:`
   lines; no branch when HEAD was detached).
@@ -613,7 +625,13 @@ a message wakes them.
   folder: the feature's worktree, or the project path for quick sessions. A wake of a role with `write` waits for
   the write turn that runs on its tree, then runs. Its turn row is created when it starts, so
   `startedAt` is after the other turn's `endedAt`. A stop ends the wait, and the turn is
-  stored `failed` as `interrupted`. A role without `write` is not held: it runs beside a
+  stored `failed` as `interrupted`. A claude role without `write` whose tools allow a shell
+  command outside a short list of reading commands (`git log`, `git diff`, `git show`,
+  `git status`, `git blame`, `ls`, `cat`, `head`, `tail`, `grep`, `wc`, `pwd`) counts
+  as a writer: it takes the lock and gets a checkpoint, as `Bash(git commit:*)` or `Bash(rm:*)`
+  could change files. `rg` is not a reading command: `rg --pre` runs a program. Only the
+  tools the role keeps count: a plain `Bash` or `Bash(*)` is dropped from a role without `write`,
+  so it does not make the role a writer. A role without `write` and with only reading commands is not held: it runs beside a
   write turn, and counts as a reader of the tree for its turn, which only a rollback
   respects. The first start
   of a feature's worktree takes a lock of its own, so two channels waking at once add it once.
@@ -643,7 +661,7 @@ a message wakes them.
   worktree with uncommitted changes (untracked files count) is 409 with `feature <slug> has
   uncommitted changes in <path>; commit or discard them first`, and nothing is removed.
   Otherwise the worktree is removed with `git worktree remove`, the feature rows are
-  deleted, and last the `refs/reef/checkpoints/<turn id>` refs of every turn of its channels
+  deleted, and last the `refs/reef/checkpoints/<data folder>/<turn id>` refs of every turn of its channels
   are deleted. The worktree goes first because it is the step that can refuse or fail, and a
   later wake of a feature makes it again; the refs go after the rows that name them, so a
   failure there leaves refs that no turn points to, and the delete is 500. The branch
@@ -683,7 +701,8 @@ a message wakes them.
   turn by itself. A turn is retryable when it is `failed`, not `retried`, has a `wakeText`, and
   no later turn of its role ran in the channel: a turn that a later one supersedes is 409. A
   turn the user stopped (`interrupted`) is retryable, since the user may want its wake run
-  again. A wrap-up or promote turn keeps no wake, so it is never retryable: the user wraps or
+  again. A routed wake that never sent is built again from the
+  messages not yet sent, so a retry never resends a whole thread; a turn that sent runs its kept text again. A wrap-up or promote turn keeps no wake, so it is never retryable: the user wraps or
   promotes again. `GET /turns?retryable=1` lists the same turns, which is what the window shows
   as failed turns with a Retry button. The retry counts as a message of the user for the hop cap.
 
@@ -692,7 +711,11 @@ a message wakes them.
 When a turn ends, the server reads the messages stored since the last one it read and routes
 those written by the role of the turn that ended: its reply, which is stored as a message from
 the role, and any message it posted with the `post_to_channel` tool (see
-[memory.md](memory.md#reef-mcp)). Other messages, such as a `POST /messages` from the user in
+[memory.md](memory.md#reef-mcp)). A turn that posted with `post_to_channel` has one message: its
+plain reply at the end of the turn is not stored as a message, so it wakes no one a second time.
+The turn keeps it (`reply`, shown by the inspector). A post counts when its tool call did not
+fail. A turn that did not post, a failed or stopped turn, and a direct turn (its reply is the
+direct response) store the reply as before. Other messages, such as a `POST /messages` from the user in
 the middle of a chain, are skipped: they start no turn and do not reset the hop count. Each
 routed message goes through the router, [`channel.Route`](../channel/route.go), plain code with
 no model. In order:
@@ -700,12 +723,15 @@ no model. In order:
 1. A reply from the user in a thread goes to the thread's owner, the author of the root. When
    the user owns the thread, it goes to the lead. An agent's reply in a thread has no owner
    rule: it wakes only the roles it mentions.
-2. Otherwise every `@name` in the body that is a role of the team goes to that role, each
-   once; the sender and unknown names are skipped. The message is stored once. When it wakes
-   more than one role, each wake's header is followed by `Asked together: @a, @b` naming all of
-   them.
+2. Otherwise every `@name` that is a role of the team goes to that role, each once, when it
+   is a handoff: it starts the body or a line (spaces and tabs may come before it), or it
+   follows other `@name`s at the start with only spaces or commas between them, as in
+   `@architect, @tester do X`. A name later in a sentence wakes no one: `I'll report to @lead
+   later` and the second name of `@architect and @tester do X` are not handoffs. The sender
+   and unknown names are skipped. The message is stored once. When it wakes more than one
+   role, each wake's header is followed by `Asked together: @a, @b` naming all of them.
 3. Otherwise a message from the user goes to the lead.
-4. Otherwise nobody: a message from an agent that names no one wakes no one, in a thread or not.
+4. Otherwise nobody: a message from an agent that hands off to no one wakes no one, in a thread or not.
 
 The lead is the channel's `role`: on a channel whose role is `developer`, `@lead` names no
 role, so the message goes to `developer` and no `lead` session starts.
@@ -715,27 +741,45 @@ with `parent` on an architect's thread goes to the architect, and `@architect ..
 architect with no lead turn. `POST /messages` stores a message and wakes nobody. The `/wrap`
 and promote turns are not routed (see below).
 
-A wake is a turn of the woken role. Its prompt starts with a line `[channel 3, message 12]`
-for a top-level message, or `[channel 3, message 12, thread 9]` for a reply: the channel, the
-waking message and, for a reply, its thread root. Then comes the user's text as it is, or
-`<author> wrote: <body>` for an agent's message. For a message in a thread, the earlier messages of the thread (`Thread so
-far:`) come between the line and the text; they are the conversation being answered, so they
-stay in the prompt. One routing pass wakes a role once: when several messages, top-level or in
-any thread, wake the same role, for example a `post_to_channel` that names `@architect` and a
-reply that does too, their texts are joined in id order into one prompt, so a gate holds one
-approval for them. The woken role's reply is stored in the thread the header of the first
-message names (`parentId` is the thread root). When a top-level message woke the role, the
-reply is top-level too: it is the root of a thread the role owns, and the user's reply in it
-goes to the role.
+A wake is a turn of the woken role. Routing gives it the text it was routed with: a line
+`[channel 3, message 12]` for a top-level message, or `[channel 3, message 12, thread 9]` for a
+reply (the channel, the waking message and, for a reply, its thread root), then the user's
+text as it is, or `<author> wrote: <body>` for an agent's message. That text is what a gate
+shows and what the wake keeps if it never starts. The wake also carries its scopes, the threads
+(0 for the top level) of the messages it was routed with, as data from routing, never read back
+from message text, so a message that quotes a header changes nothing. The turn's own text is built
+when the turn starts, not when the message is routed, from what the role has not been sent in its session:
+the messages of the thread (or, for a top-level message, the channel's top level) that no
+earlier turn of the role in that session sent, oldest first, and never the role's own
+messages or reef's. It starts with a line naming the newest of them, in the same form. When
+there is more than one, all but the newest come after `New in the thread:` (or `New in the
+channel:`) as `<author>: <body>`, and the newest follows as the user's text or `<author>
+wrote: <body>`. A message stored after the wake was routed, before it runs, is in the text.
+A turn keeps what it sent for each scope (`turn.scopes`, the newest message of each): the role's
+later turns in the same session skip every message up to it, so a thread is sent once, and a
+new session, after a lost one, gets the thread again once. A turn from before this column
+kept nothing, so the first wake after an upgrade sends each thread once more. A scope with
+nothing read, a new session's first wake, shows only its last 20 unread messages, with a line
+saying the older ones are in `read_thread`. A wake that finds nothing unread runs no turn and starts no agent: an earlier turn
+already sent what woke it. One routing pass wakes a role once: when several messages,
+top-level or in any thread, wake the same role, for example two `post_to_channel` calls of
+one turn that name `@architect`, they are one wake, so a gate holds one approval for
+them, and its text has one block for each thread, with its `Asked together` line. The woken
+role's reply is stored in the thread the header of the first message names (`parentId` is the
+thread root). When a top-level message woke the role, the reply is top-level too: it is the
+root of a thread the role owns, and the user's reply in it goes to the role.
 
 The first turn and the wakes after it are one chain. They run one at a time, in the order
 the messages were stored, and the messages each turn stores are routed in turn and queued at
 the end. The channel has a turn running until the chain is done, so a `wrap`, a `promote`, a
 `continue`, a `rollback` or a `close` during the chain is 409. A `send` during a message chain,
-or an approve while any chain starts or runs, is accepted: the message is stored at once, and its wakes, or the approved
+or an approve while any chain starts or runs, is accepted: the message is stored, and its wakes, or the approved
 wake, join the end of the chain's queue and run after the current turn and the wakes it
-queued. Turns still run one at a time. If the chain ends first (a failed turn, a stop, a
-routing failure) or never starts, a queued approval is pending again and a queued message's wakes are held,
+queued. A `send` that finds a message chain starting waits until it runs, so the message is stored
+after the one the chain starts with and ids follow the order of the sends; if the chain never
+starts, the send starts a chain of its own. A `send` while a wrap, a promote, a `continue` or a
+`rollback` starts is 409. Turns still run one at a time. If the chain ends first (a failed turn, a stop, a
+routing failure), a queued approval is pending again and a queued message's wakes are held,
 not run. When the hop cap or the token budget stops the next wake, an approved wake is held
 with the others and `continue` runs it (see [Caps](#caps)). A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
 lead's reply says `@architect ...`; the architect runs and posts a plan, a new thread it
@@ -753,8 +797,9 @@ not stored or routed. A further exchange requires an explicit `send_to_role`. Th
 all direct records with `GET /channels/{id}/direct-messages`; an MCP token reads only records
 whose `from` or `to` is its role. `GET /search` finds public and direct messages together for
 the user; the MCP `search_sessions` returns a direct hit only to its sender or recipient.
-Rejecting the approval of a direct wake, and a stop that sheds a queued direct wake, each give the request a `failed`
-response with body `rejected` or `stopped`, so the window tells them from a delivery that failed. Wrap-up and promote prompts list the
+Rejecting the approval of a direct wake, a stop that sheds a queued direct wake, and a user
+message that drops a held direct wake after a hop cap pause, each give the request a `failed`
+response with body `rejected`, `stopped` or `dropped`, so the window tells them from a delivery that failed. Wrap-up and promote prompts list the
 channel's direct messages, marking a `failed` attempt `(failed)`. Partial output from a failed recipient turn is appended as
 a `failed` response attempt: it is inspectable but never routed. Retry appends a `done`
 response; a partial unique index allows only one `done` response per request, and only that
@@ -771,8 +816,7 @@ the prompt it would have run and goes on with the rest of the chain. `GET
 /channels/{id}/approvals` lists the pending ones. `POST /channels/{id}/approvals/{aid}` with
 `{"approve":true}` runs the wake as a new chain (it needs an idle channel that is not
 paused, else 409 and the approval stays pending), or queues it on the chain that is starting or
-running, a wrap or promote one included. An approve at 6 hops pauses the channel for
-the hop cap, answers 409 and reopens the approval. With `{"approve":false}` it only marks the
+running, a wrap or promote one included. An approved wake resets the hop count to 0, so it runs at 6 hops. With `{"approve":false}` it only marks the
 approval `rejected`; for a direct wake it also records the `rejected` failed response. A decided approval is 409. Pending approvals are stored, so they survive a
 restart.
 
@@ -915,7 +959,8 @@ Two caps pause a channel. All are constants in the code, not settings.
 - Tokens per channel: the input, output and cache write tokens of all the channel's turns,
   of every role, cache reads not counted, against `tokenBudget` (1,000,000). A turn only
   counts once it has ended. A send, or a wake in a chain, that finds the sum at or over the
-  budget pauses the channel with `token budget of 1000000 used: 1000312 tokens`.
+  budget pauses the channel with `token budget of 1000000 used: 1000312 tokens`. The budget is
+  checked only between turns: a turn that crosses it runs to its end.
 - Agent hops: a hop is a turn that an agent's message woke. The turn that answers the user's
   message is not a hop. The server counts hops per channel since the last user message. The
   7th hop does not run: the channel is paused with `hop cap: 6 agent hops without a user
@@ -934,13 +979,16 @@ rows of the `approval` table. `continue` claims the channel's pending holds once
 hop count to 0 and runs them in order as a new chain, with `pause` `{"reason":""}` as the
 chain starts. If the chain cannot start, the channel stays paused and keeps the holds. That
 chain can reach the hop cap again, and then pauses again. Sending a user message resets the
-hop count to 0 too, and drops the holds. Approving a gate does not. The holds are stored, so
+hop count to 0 too, and drops the holds; a dropped direct request gets a `failed` response with
+body `dropped`. Approving a gated wake resets it too, so that wake runs even at
+6 hops; wakes no one approved still count, so 6 hops with no approval pause the channel. The holds are stored, so
 they survive a restart; the hop count is not, so a chain that runs after a restart counts from 0.
 
 The same pause holds work when the server cannot store an approval for a gated wake, or cannot
-read the messages a turn stored to route them. The channel pauses with the error as the reason, and
-nothing runs ungated. These wakes are held in memory only, since the database failed. `continue` stores the approval again, or does the routing read again from
-the message before the turn's reply, and runs what that wakes. If it fails again the channel
+read the messages or the direct messages a turn stored to route them, or when a store error
+stops the check before the next wake. The channel pauses with the error as the reason, and
+nothing runs ungated. These wakes are held in memory only, since the database failed, until the server stops and stores them. `continue` stores the approval again, or does the routing read again from
+the message and the direct message before the turn's reply, and runs what that wakes. If it fails again the channel
 stays paused.
 
 No role has a tool call cap: a turn runs until the agent ends it, the user stops it, or the
@@ -1037,10 +1085,15 @@ An agent may have left half-done edits in the worktree, so the message tells the
 check before retrying. A turn failed this way keeps its `wakeText`, so `POST /turns/{id}/retry`
 can run it again (see [Channels live](#channels-live)).
 
-A chain of wakes does not survive a restart: the wakes still waiting are lost, with the hop
-count and the wakes held because the database failed, which are in memory. A pause is stored,
-and so are the wakes it held, so the channel stays paused and `continue` runs them. A pending
-approval is stored, so it is still pending after the restart and can be approved then.
+A chain of wakes does not run on after a restart, but its waiting wakes are kept. When the
+server stops, the wakes a chain had queued behind the running turn, and the wakes held in memory
+because the database failed, are stored as holds, and the channel is paused with `app restarted:
+wakes were waiting to run` unless it is paused already. The pause shows in the inbox, and
+`continue` runs the holds. A routing read that failed before the stop is done again then, and what it
+wakes is held too; if it fails again, the channel gets a message from `reef` saying which messages woke
+nobody. Only the hop count is lost: a chain that runs after a restart counts
+from 0. A pause is stored with its holds, and a pending approval is stored, so both survive too.
+A direct request that did not run still gets its `failed` response.
 
 ## Try it
 

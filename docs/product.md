@@ -68,7 +68,7 @@ A channel is what the user opens as a session; inside, each teammate is its own 
 **Routing rules** (plain code, not an LLM):
 
 1. A user reply inside a thread goes to whoever owns that thread
-2. An @mention goes to that teammate
+2. An @mention at the start of a message or line goes to that teammate
 3. Anything else from the user goes to the lead
 
 **How teammates talk.** A teammate uses `post_to_channel` for progress, decisions, blockers and outcomes the whole team needs. It uses `send_to_role` for detailed one-to-one coordination. A direct request wakes one role; that role's ordinary reply returns directly once. Handling the response does not reply again automatically, so another exchange requires an explicit `send_to_role`. Direct exchanges stay under the channel and are inspectable by the user, while only participating roles can read them through Reef tools.
@@ -227,7 +227,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 66 | A feature's PR shows in a channel side panel, opened from the header's PR chip, with a Merge button that runs `gh pr merge --merge` (a merge commit) only when gh calls the PR mergeable; Azure DevOps is a later ticket | The user sees checks and reviews where the work happens and merges without leaving Reef; gh decides whether a merge is allowed and its message is shown when it refuses |
 | 67 | Every merge to `main` that passes tests is a numbered release `v0.1.N`; the everyday app is a release build, not the checkout | Reef builds Reef, so the app in use must not change while agents edit the repo |
 | 68 | Geist is the font everywhere in the web UI, self-hosted in the build | The user finds it easier to read than the system font; bundling it keeps it working offline and makes the window, the desktop app and a browser match |
-| 69 | No role has a tool call cap; a turn runs until the agent ends it, Stop, or the token budget. Replaces 59 | The cap paused read-only roles mid-work as often as it stopped loops; Stop and the token budget already bound a turn |
+| 69 | No role has a tool call cap; a turn runs until the agent ends it, Stop, or the token budget, which is checked only between turns and never stops a turn mid-work. Replaces 59 | The cap paused read-only roles mid-work as often as it stopped loops; Stop and the token budget already bound a turn |
 | 70 | A project may name a base branch, set on its page. A new feature worktree fetches it from `origin` and branches from `origin/<base>` (else the local branch); the feature diff and the agents' context use the same branch. Empty keeps decision 60. Existing feature branches are not moved. Extends 60 | sm2 work targets `dev`, not the default `main`, and a stale local branch gave stale features |
 | 71 | A message or an approval that arrives while a message chain runs joins that chain's queue and runs after the current turn; turns still run one at a time. A wrap or promote turn running still refuses both. Extends 26 | The user and the lead can talk while a teammate works, and a busy channel must not lose an approval |
 | 72 | An approval that arrives while any chain starts or runs, a wrap or promote one included, joins that chain's queue and runs after its turn; if the chain ends or never starts, the approval is pending again. Messages keep decision 71. Extends 71 | Approving a gated wake while the channel was starting or wrapping up was 409 for no reason the user could act on |
@@ -238,6 +238,9 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 77 | A wrap-up or promote turn reads every direct exchange of its channel, and only that turn may read a pair's messages besides the pair and the user | The brief and decisions must reflect private work; wrap-up is user-approved, and roles still learn it only through the approved brief, decisions and public posts |
 | 78 | One routing pass wakes a role once, whatever threads the messages that name it are in; the texts join and the reply goes where the first one did. Amends 27 | A thread reply and a top-level post that both handed work to the same role woke it twice and held two approvals for one handoff |
 | 79 | A channel created with the new-channel form's default name (backend or team, then the time) gets a name from its provider after its first user message: one throwaway turn with no tools, stored as no turn or message, once. A typed name, any rename, or a failed call keeps the name the channel has | The user never has to name a channel, and what they name or rename always wins |
+| 80 | Only a handoff @mention wakes a role: an `@name` at the start of a message or of a line, after optional spaces or tabs, and every `@name` of an unbroken run there (`@architect, @tester do X`). An `@name` anywhere else in a sentence wakes nobody, from an agent or the user. Refines 23 | "I'll report to @lead later" woke the lead for a turn that had nothing to do |
+| 81 | An approved wake resets the hop count, as a user message or continue does. Amends 26 | The user looked at that wake and said yes; pausing right after asked the same question twice |
+| 82 | The answer of a background task a role started is posted to the channel as that role's message | The user asked for that work, and it otherwise lands in no turn |
 
 ## Open questions
 

@@ -6,8 +6,10 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/store"
@@ -19,7 +21,10 @@ type recordingAgent struct {
 	propose   bool
 	kind      string
 	startErr  error
+	resumeErr error
 	closeErr  error
+	sendError string
+	session   string
 
 	cfg     agent.Config
 	started bool
@@ -40,7 +45,7 @@ func (a *recordingAgent) Start(_ context.Context, cfg agent.Config) error {
 
 func (a *recordingAgent) Resume(_ context.Context, cfg agent.Config, sessionID string) error {
 	a.cfg, a.resumed = cfg, sessionID
-	return nil
+	return a.resumeErr
 }
 
 func (a *recordingAgent) Events() <-chan agent.Event { return a.events }
@@ -57,7 +62,15 @@ func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 			return err
 		}
 	}
-	a.events <- agent.Event{Kind: agent.KindSession, SessionID: "s1"}
+	if a.sendError != "" {
+		a.events <- agent.Event{Kind: agent.KindError, Text: a.sendError}
+		return nil
+	}
+	id := a.session
+	if id == "" {
+		id = "s1"
+	}
+	a.events <- agent.Event{Kind: agent.KindSession, SessionID: id}
 	a.events <- agent.Event{Kind: agent.KindText, Text: "ok"}
 	a.events <- agent.Event{Kind: agent.KindTurnEnd}
 	return nil
@@ -90,7 +103,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 	ag := newRecordingAgent()
 	dir := t.TempDir()
 
-	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -147,7 +160,7 @@ func TestOpen_QuickSession(t *testing.T) {
 	ch := sessionChannel(t, st, f, true)
 	ag := newRecordingAgent()
 
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -181,7 +194,7 @@ func TestOpen_QuickSession_ProjectMemory(t *testing.T) {
 	ch := sessionChannel(t, st, f, true)
 	ag := newRecordingAgent()
 
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,7 +229,7 @@ func TestOpen_ResumesNewestSession(t *testing.T) {
 	}
 	ag := newRecordingAgent()
 
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -278,7 +291,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +373,7 @@ func TestSession_RunAsRoleAppliedAfterOpen(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -402,7 +415,7 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,6 +451,97 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 	}
 }
 
+func TestSession_MissingSessionStartsNewOne(t *testing.T) {
+	const intro = "You lead.\n\n"
+	tests := []struct {
+		name string
+		gone func(*recordingAgent)
+	}{
+		{"claude reports it on the first turn", func(ag *recordingAgent) {
+			ag.sendError = "No conversation found with session ID: s1"
+		}},
+		{"codex refuses the resume", func(ag *recordingAgent) {
+			ag.resumeErr = errors.New("thread/resume: no rollout found for thread id s1")
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			st, f := openStore(t)
+			lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Persona: "You lead."}
+			if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+				t.Fatal(err)
+			}
+			ch, err := st.CreateChannel(ctx, store.Channel{
+				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead",
+				Backend: "claude", Team: "core",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ags []*recordingAgent
+			mk := func(string) (agent.Agent, error) {
+				ag := newRecordingAgent()
+				switch len(ags) {
+				case 1:
+					tt.gone(ag)
+				case 2, 3:
+					ag.session = "s2"
+				}
+				ags = append(ags, ag)
+				return ag, nil
+			}
+			dir := t.TempDir()
+			trees := NewTrees(t.TempDir())
+			s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, trees, mk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Run(ctx, "hi", nil, discard); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			s, err = Open(ctx, st, dir, "/bin/reef", ch.ID, trees, mk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			if err := s.Run(ctx, "again", nil, discard); err == nil {
+				t.Fatal("run on a missing session = nil, want an error")
+			}
+			if err := s.Run(ctx, "once more", nil, discard); err != nil {
+				t.Fatal(err)
+			}
+			if len(ags) != 3 || ags[1].resumed != "s1" || !ags[2].started || ags[2].resumed != "" {
+				t.Fatalf("agents = %d, second resumed %q, third started = %v, resumed %q; want 3, s1, true, empty",
+					len(ags), ags[1].resumed, ags[2].started, ags[2].resumed)
+			}
+			if len(ags[2].prompts) != 1 || !strings.HasPrefix(ags[2].prompts[0], intro) ||
+				!strings.HasSuffix(ags[2].prompts[0], "\n\nonce more") {
+				t.Errorf("new session prompts = %q, want the role intro before once more", ags[2].prompts)
+			}
+
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			s, err = Open(ctx, st, dir, "/bin/reef", ch.ID, trees, mk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			if err := s.Run(ctx, "next day", nil, discard); err != nil {
+				t.Fatal(err)
+			}
+			if len(ags) != 4 || ags[3].resumed != "s2" || ags[3].started {
+				t.Errorf("agents = %d, last resumed %q; want 4 and the new session s2", len(ags), ags[3].resumed)
+			}
+		})
+	}
+}
+
 func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
@@ -458,7 +562,7 @@ func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,6 +587,64 @@ func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
 	}
 }
 
+func TestSession_WriteEditReachesLiveLead(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		before, after bool
+	}{
+		{"granted", false, true}, {"taken away", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			st, f := openStore(t)
+			lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Write: tc.before}
+			if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+				t.Fatal(err)
+			}
+			ch, err := st.CreateChannel(ctx, store.Channel{
+				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+				Team: "core",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ags []*recordingAgent
+			mk := func(string) (agent.Agent, error) {
+				ag := newRecordingAgent()
+				ags = append(ags, ag)
+				return ag, nil
+			}
+			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			if err := s.Run(ctx, "hi", nil, discard); err != nil {
+				t.Fatal(err)
+			}
+
+			lead.Write = tc.after
+			if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Run(ctx, "again", nil, discard); err != nil {
+				t.Fatal(err)
+			}
+			if len(ags) != 2 || !ags[0].closed || ags[1].resumed != "s1" {
+				t.Fatalf("agents = %d, first closed = %v, second resumed %q; want 2, true, s1",
+					len(ags), ags[0].closed, ags[1].resumed)
+			}
+			cfg := ags[1].cfg
+			if got := !slices.Contains(cfg.DisallowedTools, "Edit"); got != tc.after {
+				t.Errorf("next turn can edit = %v, want %v (disallowed %v)", got, tc.after, cfg.DisallowedTools)
+			}
+			if got := s.members["lead"].run.CheckpointDir != ""; got != tc.after {
+				t.Errorf("next turn has a checkpoint = %v, want %v", got, tc.after)
+			}
+		})
+	}
+}
+
 func TestSession_PersonaUnchangedNoRoleIntroOnResume(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
@@ -504,7 +666,7 @@ func TestSession_PersonaUnchangedNoRoleIntroOnResume(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -542,7 +704,7 @@ func TestSession_NoEditFourResumedWakesOnlyFirstHasIntro(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -588,7 +750,7 @@ func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -641,7 +803,7 @@ func TestSession_NoEditFourLiveWakesOnlyFirstHasIntro(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -691,7 +853,7 @@ func TestSession_EditAfterSecondLiveWakeUpdatesOnceThenNone(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -750,7 +912,7 @@ func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 		backends = append(backends, backend)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -794,7 +956,7 @@ func TestOpen_Errors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", tt.give, NewTrees(t.TempDir()))
+			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", tt.give, NewTrees(t.TempDir()), NewAgent)
 			if err == nil {
 				err = s.Start(ctx)
 				_ = s.Close()
@@ -807,12 +969,12 @@ func TestOpen_Errors(t *testing.T) {
 
 	t.Run("open elsewhere", func(t *testing.T) {
 		dir := t.TempDir()
-		s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
+		s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer func() { _ = s.Close() }()
-		_, err = open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
+		_, err = Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
 		if err == nil || err.Error() != "channel 1 is open elsewhere: conflict" {
 			t.Errorf("second open error = %v, want the open-elsewhere error", err)
 		}
@@ -822,7 +984,7 @@ func TestOpen_Errors(t *testing.T) {
 		dir := t.TempDir()
 		ag := newRecordingAgent()
 		ag.startErr = errors.New("no claude")
-		s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+		s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -856,7 +1018,7 @@ func TestSession_Wrap(t *testing.T) {
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -907,7 +1069,7 @@ func TestSession_WrapIncludesDirectExchanges(t *testing.T) {
 	}
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -933,7 +1095,7 @@ func TestSession_WrapIgnoresBriefProposal(t *testing.T) {
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose, ag.kind = st, ch.ID, true, store.ProposalBrief
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -951,7 +1113,7 @@ func TestSession_Promote(t *testing.T) {
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
 	dir := t.TempDir()
-	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1000,7 +1162,7 @@ func TestSession_PromoteMovesNextWakeToWorktree(t *testing.T) {
 		return ag, nil
 	}
 	dir := t.TempDir()
-	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1052,7 +1214,7 @@ func TestSession_NoWorktreeFailsTurn(t *testing.T) {
 	}
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1084,7 +1246,7 @@ func TestSession_RecreatesRemovedWorktree(t *testing.T) {
 		return ag, nil
 	}
 	dir := t.TempDir()
-	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1136,7 +1298,7 @@ func TestSession_WrapOrPromoteCancelledStoresTurn(t *testing.T) {
 			st, f := openStore(t)
 			ch := sessionChannel(t, st, f, false)
 			ag := newRecordingAgent()
-			s, err := open(bg, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+			s, err := Open(bg, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1170,7 +1332,7 @@ func TestSession_LockErrorStoresItsOwnReason(t *testing.T) {
 		t.Fatal(err)
 	}
 	ag := newRecordingAgent()
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(dataDir), ag.factory)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(dataDir), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1197,7 +1359,7 @@ func TestSession_PromoteIntoFeatureWithBrief(t *testing.T) {
 	ch := sessionChannel(t, st, f, true)
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1244,7 +1406,7 @@ func TestSession_LeadOnAnotherBackendIgnoresItsRoleProvider(t *testing.T) {
 			}
 			ag := newRecordingAgent()
 			mk := func(string) (agent.Agent, error) { return ag, nil }
-			s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1291,7 +1453,7 @@ func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1310,7 +1472,7 @@ func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "claude")); err != nil {
 		t.Fatal(err)
 	}
-	s2, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s2, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1323,5 +1485,142 @@ func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
 	if err != nil || len(turns) != 1 || turns[0].Role != "architect" ||
 		!strings.Contains(turns[0].Error, "no claude binary in "+dir) {
 		t.Errorf("failed turns = %+v, %v, want one architect turn naming the missing binary", turns, err)
+	}
+}
+
+func TestSession_RemovedRoleStoresFailedTurn(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
+	architect := store.Role{Name: "architect", Backend: "claude"}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.RunAs(ctx, "architect", "plan it", nil, discard)
+	if !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("RunAs for a removed role error = %v, want invalid", err)
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil || len(turns) != 1 {
+		t.Fatalf("turns = %+v, %v, want one", turns, err)
+	}
+	got := turns[0]
+	if got.Role != "architect" || got.Status != "failed" || got.WakeText != "plan it" ||
+		got.Error != "invalid: team core has no role architect" {
+		t.Errorf("turn = %+v, want a failed architect turn with wake \"plan it\" and the start error", got)
+	}
+}
+
+type hangingAgent struct{ *recordingAgent }
+
+func (a hangingAgent) Send(_ context.Context, prompt string) error {
+	a.prompts = append(a.prompts, prompt)
+	a.events <- agent.Event{Kind: agent.KindSession, SessionID: "s1"}
+	a.events <- agent.Event{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 10, OutputTokens: 3}}
+	a.events <- agent.Event{
+		Kind: agent.KindUsage, Usage: &agent.Usage{OutputTokens: 4, CacheWriteTokens: 5},
+	}
+	return nil
+}
+
+func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataDir, trees := t.TempDir(), NewTrees(t.TempDir())
+	hung := hangingAgent{newRecordingAgent()}
+	s1, err := Open(ctx, st, dataDir, "/bin/reef", ch.ID, trees,
+		func(string) (agent.Agent, error) { return hung, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCtx, quit := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- s1.RunAs(runCtx, "developer", "build it", nil, discard) }()
+	want := agent.Usage{InputTokens: 10, OutputTokens: 7, CacheWriteTokens: 5}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID, Status: "running"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(turns) == 1 && turns[0].Usage == want {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("running turns = %+v, want one with usage %+v", turns, want)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	if err := s1.lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	s2, err := Open(ctx, st, dataDir, "/bin/reef", ch.ID, trees, func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s2.Close() }()
+	quit()
+	<-done
+
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil || len(turns) != 1 {
+		t.Fatalf("turns = %+v, %v, want one", turns, err)
+	}
+	got := turns[0]
+	if got.Status != "failed" || got.Error != "chat exited" || got.Usage != want {
+		t.Errorf("turn = %q %q %+v, want failed, chat exited, %+v", got.Status, got.Error, got.Usage, want)
+	}
+	if !strings.Contains(got.Prompt, "You code.") || !strings.HasSuffix(got.Prompt, "build it") {
+		t.Errorf("prompt = %q, want the persona and the wake", got.Prompt)
+	}
+
+	if used, err := st.ChannelTokens(ctx, ch.ID); err != nil || used != 22 {
+		t.Errorf("channel tokens = %d, %v, want 22", used, err)
+	}
+	over := store.Channel{ID: ch.ID, TokenBudget: 22}
+	if now, err := CheckCaps(ctx, st, &over); !now || !errors.Is(err, store.ErrConflict) {
+		t.Errorf("CheckCaps at a budget of 22 = %v, %v, want paused now", now, err)
+	}
+
+	if err := s2.RunAs(ctx, "developer", "build more", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(ags) != 1 || ags[0].resumed != "s1" || !slices.Equal(ags[0].prompts, []string{"build more"}) {
+		t.Errorf("resumed developer: resumed = %q, prompts = %q, want s1 and [build more]",
+			ags[0].resumed, ags[0].prompts)
 	}
 }

@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"errors"
+	"math"
 	"reflect"
 	"strings"
 	"sync"
@@ -182,6 +183,134 @@ func TestRunner_ReplyStaysInThread(t *testing.T) {
 	}
 	if turn.WakeText != "one 1" || turn.WakeParent == nil || *turn.WakeParent != root.ID {
 		t.Errorf("turn wake = %q in %v, want %q in %d", turn.WakeText, turn.WakeParent, "one 1", root.ID)
+	}
+}
+
+func TestRunner_BackgroundAnswerIsRoleMessage(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{events: make(chan agent.Event, 8), script: []agent.Event{
+		{Kind: agent.KindSession, SessionID: "s1"},
+		{Kind: agent.KindBackground, Text: "The background command printed bgdone."},
+		{Kind: agent.KindText, Text: "42"},
+		{Kind: agent.KindTurnEnd},
+	}}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	if err := sendAs(ctx, st, ch.ID, r.Run, "What is 7 times 6?", func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := st.Messages(ctx, ch.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, m := range msgs {
+		got = append(got, m.Author+": "+m.Body)
+	}
+	want := []string{
+		"user: What is 7 times 6?", "architect: The background command printed bgdone.", "architect: 42",
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("messages = %q, want %q", got, want)
+	}
+}
+
+func TestRunner_PostedTurnKeepsReplyOnTurn(t *testing.T) {
+	script := func(tool string, isError bool) []agent.Event {
+		return []agent.Event{
+			{Kind: agent.KindSession, SessionID: "s1"},
+			{Kind: agent.KindToolCall, ToolID: "t1", ToolName: tool},
+			{Kind: agent.KindToolResult, ToolID: "t1", IsError: isError},
+			{Kind: agent.KindText, Text: "plain reply"},
+			{Kind: agent.KindTurnEnd},
+		}
+	}
+	const post = "mcp__reef__post_to_channel"
+	for _, tc := range []struct {
+		name     string
+		script   []agent.Event
+		messages []string
+		kept     string
+	}{
+		{"posted", script(post, false), []string{"architect: posted"}, "plain reply"},
+		{"post failed", script(post, true), []string{"architect: plain reply"}, ""},
+		{"other tool", script("mcp__reef__remember", false), []string{"architect: plain reply"}, ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			st, f := openStore(t)
+			ch, err := st.CreateChannel(ctx, store.Channel{
+				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tc.kept != "" {
+				_, err := st.CreateMessage(ctx, store.Message{
+					ChannelID: ch.ID, Author: "architect", Body: "posted",
+				})
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			sa := &scriptAgent{events: make(chan agent.Event, 8), script: tc.script}
+			r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+			if err := r.Run(ctx, "go", nil, func(agent.Event) {}); err != nil {
+				t.Fatal(err)
+			}
+			msgs, err := st.Messages(ctx, ch.ID, 0)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got []string
+			for _, m := range msgs {
+				got = append(got, m.Author+": "+m.Body)
+			}
+			if !reflect.DeepEqual(got, tc.messages) {
+				t.Errorf("messages = %q, want %q", got, tc.messages)
+			}
+			turn, err := st.Turn(ctx, 1)
+			if err != nil || turn.Status != "done" || turn.Reply != tc.kept {
+				t.Errorf("turn = %+v, %v, want done with reply %q", turn, err, tc.kept)
+			}
+		})
+	}
+}
+
+func TestRunner_PostedDirectTurnStillAnswersSender(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req, err := st.CreateDirectMessage(ctx, store.DirectMessage{
+		ChannelID: ch.ID, From: "lead", To: "architect", Body: "plan 1",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{events: make(chan agent.Event, 8), script: []agent.Event{
+		{Kind: agent.KindToolCall, ToolID: "t1", ToolName: "mcp__reef__post_to_channel"},
+		{Kind: agent.KindToolResult, ToolID: "t1"},
+		{Kind: agent.KindText, Text: "private answer"},
+		{Kind: agent.KindTurnEnd},
+	}}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	if err := r.RunDirect(ctx, "request 1", req, func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	direct, err := st.DirectMessages(ctx, ch.ID, 0)
+	if err != nil || len(direct) != 2 || direct[1].Body != "private answer" {
+		t.Errorf("direct = %+v, %v, want the private answer as the response", direct, err)
 	}
 }
 
@@ -598,6 +727,142 @@ func TestRunner_RecordsSubagentToolCallParent(t *testing.T) {
 	if want := []int64{0, 1, 0}; !reflect.DeepEqual(parents, want) {
 		t.Errorf("parent ids = %v, want %v", parents, want)
 	}
+}
+
+func TestRunner_ResumedSessionStoresTurnOwnCost(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, total := range []float64{1.00, 1.10} {
+		sa := &scriptAgent{
+			events: make(chan agent.Event, 8),
+			script: []agent.Event{
+				{Kind: agent.KindSession, SessionID: "s1"},
+				{Kind: agent.KindTurnEnd, CostUSD: &total},
+			},
+		}
+		r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+		if err := sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	turns, err := st.Turns(bg, store.TurnFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []float64
+	for _, tn := range turns {
+		got = append(got, *tn.CostUSD)
+	}
+	if want := []float64{1.00, 0.10}; len(got) != 2 || got[0] != want[0] || math.Abs(got[1]-want[1]) > 1e-9 {
+		t.Errorf("turn costs = %v, want %v", got, want)
+	}
+}
+
+// Each turn of a session reports the whole session's usage. A resumed turn that ran a subagent
+// stores the subagent's tokens too, and a stopped turn between two turns is not counted twice.
+func TestRunner_ResumedSessionStoresTurnOwnUsage(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := agent.Usage{InputTokens: 1176, OutputTokens: 23, CacheReadTokens: 38208, CacheWriteTokens: 7551}
+	second := agent.Usage{InputTokens: 8, OutputTokens: 511, CacheReadTokens: 53174, CacheWriteTokens: 24389}
+	stopped := agent.Usage{InputTokens: 2, OutputTokens: 40, CacheReadTokens: 100}
+	streamed := agent.Usage{InputTokens: 2, OutputTokens: 72, CacheReadTokens: 18205, CacheWriteTokens: 102}
+	session := func(u agent.Usage) *agent.Usage { return &u }
+	sum := func(a, b agent.Usage) agent.Usage { a.Add(b); return a }
+
+	scripts := [][]agent.Event{
+		{{Kind: agent.KindTurnEnd, SessionUsage: session(first)}},
+		{{Kind: agent.KindUsage, Usage: &streamed}, {Kind: agent.KindTurnEnd, SessionUsage: session(sum(first, second))}},
+		{{Kind: agent.KindUsage, Usage: &stopped}},
+		{{Kind: agent.KindTurnEnd, SessionUsage: session(sum(sum(first, second), sum(stopped, stopped)))}},
+	}
+	for i, script := range scripts {
+		sa := &scriptAgent{
+			events: make(chan agent.Event, 8),
+			script: append([]agent.Event{{Kind: agent.KindSession, SessionID: "s1"}}, script...),
+		}
+		r := NewRunner(st, sa, ch.ID, "developer", "claude", "")
+		if i == 2 {
+			sa.closeAfter = true
+		}
+		_ = sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {})
+	}
+
+	turns, err := st.Turns(bg, store.TurnFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []agent.Usage
+	for _, tn := range turns {
+		got = append(got, tn.Usage)
+	}
+	want := []agent.Usage{first, second, stopped, stopped}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("turn usage = %+v, want %+v", got, want)
+	}
+}
+
+// A session whose turns were stored with running totals as their cost still stores the cost of
+// its next turn.
+func TestRunner_LegacySessionStoresTurnOwnCost(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, total := range []float64{1.00, 1.10, 1.30} {
+		old, err := st.CreateTurn(bg, store.Turn{
+			ChannelID: ch.ID, Role: "architect", Backend: "claude", SessionID: "s1",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.EndTurn(bg, store.Turn{ID: old.ID, Status: "done", CostUSD: &total}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	total := 1.45
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8),
+		script: []agent.Event{
+			{Kind: agent.KindSession, SessionID: "s1"},
+			{Kind: agent.KindTurnEnd, CostUSD: &total},
+		},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	if err := sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	turns := mustTurns(t, st)
+	got := *turns[len(turns)-1].CostUSD
+	if math.Abs(got-0.15) > 1e-9 {
+		t.Errorf("cost of the turn after the old ones = %v, want 0.15", got)
+	}
+}
+
+func mustTurns(t *testing.T, st *store.Store) []store.Turn {
+	t.Helper()
+	turns, err := st.Turns(context.Background(), store.TurnFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return turns
 }
 
 func TestRunner_FailedTurnStoresCost(t *testing.T) {

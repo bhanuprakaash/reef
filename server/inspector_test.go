@@ -30,7 +30,7 @@ func TestGetInspector(t *testing.T) {
 	}
 	cost := 0.05
 	if _, err := st.EndTurn(ctx, store.Turn{
-		ID: 1, Status: "done", Model: "claude-opus-5-5", CostUSD: &cost, Prompt: "do it",
+		ID: 1, Status: "done", Model: "claude-opus-5-5", CostUSD: &cost, Prompt: "do it", Reply: "kept",
 		Usage: agent.Usage{InputTokens: 10, OutputTokens: 20},
 	}); err != nil {
 		t.Fatal(err)
@@ -51,7 +51,7 @@ func TestGetInspector(t *testing.T) {
 		`"cacheReadTokens":0,"cacheWriteTokens":0},"costUsd":0.05}]`
 	wantTurn := `"status":"done","model":"claude-opus-5-5",` +
 		`"usage":{"inputTokens":10,"outputTokens":20,"cacheReadTokens":0,"cacheWriteTokens":0},` +
-		`"costUsd":0.05,"prompt":"do it","toolCalls":[{"name":"Bash","input":"{\"command\":\"ls\"}",` +
+		`"costUsd":0.05,"prompt":"do it","reply":"kept","toolCalls":[{"name":"Bash","input":"{\"command\":\"ls\"}",` +
 		`"result":"a.txt\n"}]`
 	if !strings.Contains(body, wantRole) || !strings.Contains(body, `"turns":[{"id":1,"role":"architect","startedAt":"`) ||
 		!strings.Contains(body, wantTurn) {

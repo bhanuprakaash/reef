@@ -249,10 +249,10 @@ a stale one left by a crash, all seven tools fail with `browser unavailable: the
 open`. Once connected, a write, read or deadline failure instead fails with `browser did not
 answer: <error>`.
 
-`post_to_channel` is how a teammate speaks in the channel besides its reply. `reef serve`
-routes the message when the poster's turn ends: every `@role` in the body wakes that teammate
-(once, even when the reply names the same role again), and a post that names nobody wakes no
-one (see [server.md](server.md#routing)). Plain Claude
+`post_to_channel` is how a teammate speaks in the channel besides its reply. When a turn
+posts, its plain reply stays on the turn and is not a second message. `reef serve`
+routes the message when the poster's turn ends: every `@role` in the body wakes that teammate,
+and a post that names nobody wakes no one (see [server.md](server.md#routing)). Plain Claude
 Code and `reef chat` have no router, so a post there is only stored.
 
 `send_to_role` starts a private request/response chain under the current channel. The named
@@ -369,7 +369,8 @@ routes messages between teammates (see [server.md](server.md#channels-live)).
 A channel stores its role, its backend and its permission mode (see
 [server.md](server.md#channel)). `channel.Open` locks the channel and fails any turn it left
 running (error `chat exited`). That turn belonged to a `reef chat` that died, because this
-one now holds the chat lock. It starts no agent: a teammate's agent starts when that role has
+one now holds the chat lock. The turn keeps the prompt and the tokens stored while it ran,
+so the next turn of that role does not send its intro again. It starts no agent: a teammate's agent starts when that role has
 its first turn, in the project's folder (a channel on a feature: the feature's worktree, see
 [server.md](server.md#channels-live)), with one MCP server named `reef` (this `reef`
 binary, `mcp --data <data folder>`, with that teammate's own new token in `REEF_TOKEN`), plus

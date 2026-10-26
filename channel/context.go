@@ -157,7 +157,8 @@ func teamIntro(team store.Team, r store.Role) string {
 	}
 	s := fmt.Sprintf("\n## Team\nYour team: %s. Use post_to_channel and @mentions for work "+
 		"the whole team needs: decisions, blockers, questions for the user and outcomes belong in the "+
-		"channel. Use send_to_role for detailed coordination with exactly one teammate; "+
+		"channel. Only a line that starts with @name wakes that teammate; an @name inside a sentence "+
+		"wakes nobody. Use send_to_role for detailed coordination with exactly one teammate; "+
 		"their ordinary reply returns directly once, and continuing requires another send_to_role. "+
 		"When a direct chain completes with information the team or the user needs, publish "+
 		"one concise outcome with post_to_channel; raw logs and routine acknowledgements stay "+
@@ -167,7 +168,8 @@ func teamIntro(team store.Team, r store.Role) string {
 		"A public message that wakes you starts with "+
 		"[channel N, message N] or [channel N, message N, thread N]: your plain reply goes where "+
 		"the header says, a top-level one starting your own thread; pass thread as the parent of "+
-		"post_to_channel when the header has one.\n", strings.Join(names, ", "))
+		"post_to_channel when the header has one. A turn that posts with post_to_channel has "+
+		"answered: its plain reply is not posted.\n", strings.Join(names, ", "))
 	if r.Lead {
 		s += "Do not summarize or repeat a specialist's post back to the user: they see it.\n"
 	}

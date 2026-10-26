@@ -61,13 +61,16 @@ const (
 	KindTurnEnd    Kind = "turn_end"
 	KindError      Kind = "error"
 	KindSession    Kind = "session"
+	// KindBackground is the answer of a turn the backend ran by itself for a finished
+	// background task, in Text. It answers no Send and no turn ends with it.
+	KindBackground Kind = "background"
 )
 
 // Event is one normalized step of a session. Its JSON is the wire format
 // reef-agent prints, one line per event.
 type Event struct {
 	Kind         Kind            `json:"kind"`
-	Text         string          `json:"text,omitempty"`      // text delta, error message
+	Text         string          `json:"text,omitempty"`      // text delta, error message, background answer
 	SessionID    string          `json:"sessionId,omitempty"` // KindSession
 	Model        string          `json:"model,omitempty"`     // KindSession
 	ToolID       string          `json:"toolId,omitempty"`    // tool call and its result share it
@@ -77,7 +80,11 @@ type Event struct {
 	Output       string          `json:"output,omitempty"`       // tool result
 	IsError      bool            `json:"isError,omitempty"`      // tool result failed
 	Usage        *Usage          `json:"usage,omitempty"`
-	CostUSD      *float64        `json:"costUsd,omitempty"` // KindTurnEnd or KindError, claude only; the turn's own cost, not the process total
+	CostUSD      *float64        `json:"costUsd,omitempty"` // KindTurnEnd or KindError, claude only; the session's running total, not the turn's cost: the caller takes off what earlier turns cost
+	// SessionUsage is on KindTurnEnd or KindError, claude only: everything the session has used
+	// so far, subagents and side calls included, not the turn's usage. The caller takes off what
+	// earlier turns used. KindUsage events still carry the turn's own messages as they end.
+	SessionUsage *Usage `json:"sessionUsage,omitempty"`
 }
 
 // Usage is the token count of a turn.
@@ -86,6 +93,14 @@ type Usage struct {
 	OutputTokens     int64 `json:"outputTokens"`
 	CacheReadTokens  int64 `json:"cacheReadTokens"`
 	CacheWriteTokens int64 `json:"cacheWriteTokens"`
+}
+
+// Sub takes v's counts off u's, each count stopping at zero.
+func (u *Usage) Sub(v Usage) {
+	u.InputTokens = max(u.InputTokens-v.InputTokens, 0)
+	u.OutputTokens = max(u.OutputTokens-v.OutputTokens, 0)
+	u.CacheReadTokens = max(u.CacheReadTokens-v.CacheReadTokens, 0)
+	u.CacheWriteTokens = max(u.CacheWriteTokens-v.CacheWriteTokens, 0)
 }
 
 // Add adds v's counts to u.

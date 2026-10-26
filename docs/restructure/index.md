@@ -60,5 +60,5 @@ Locally the channel system prompt reached roughly seven or eight screens. This i
 
 1. Settle the domain model. In progress; see decisions.md.
 2. Prototype a standalone memory and retrieval service with mocked surroundings and scenario-based evaluation.
-3. Audit and test Reef's prompt assembly.
+3. Audit and test Reef's prompt assembly. Plan: [channel-fixes.md](channel-fixes.md).
 4. Define the integration contract and acceptance criteria, then implement.

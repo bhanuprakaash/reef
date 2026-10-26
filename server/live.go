@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -27,11 +28,15 @@ var errStopping = errors.New("server is stopping")
 
 const _hopReasonPrefix = "hop cap:"
 
+const _restartReason = "app restarted: wakes were waiting to run"
+
 var _hopReason = fmt.Sprintf("%s %d agent hops without a user message", _hopReasonPrefix, store.HopCap)
 
 type session interface {
 	Say(ctx context.Context, body string, parent *int64) (store.Message, error)
 	RunAs(ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event)) error
+	WakeAs(ctx context.Context, role, routed string, scopes store.Scopes, parent *int64,
+		onEvent func(agent.Event)) error
 	RunDirectAs(ctx context.Context, role, text string, dm store.DirectMessage,
 		onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
@@ -61,7 +66,8 @@ type pauseState struct {
 type turnKind int
 
 const (
-	_message turnKind = iota + 1
+	_noTurn turnKind = iota
+	_message
 	_wrap
 	_promote
 )
@@ -83,6 +89,8 @@ type live struct {
 	cancel context.CancelFunc
 	done   chan struct{}
 	frames []frame
+	// ready is closed when the starting chain is running or has ended.
+	ready chan struct{}
 	// hops counts the turns agent messages woke since the last user message; held is the
 	// queue of wakes a database failure kept from running; retry is the routing read that failed.
 	hops  int
@@ -100,10 +108,11 @@ type live struct {
 }
 
 // retry is a routing read to do again: the messages role wrote after the message with id
-// after.
+// after, and the direct messages after the one with id afterDirect.
 type retry struct {
-	role  string
-	after int64
+	role        string
+	after       int64
+	afterDirect int64
 }
 
 // userTurn is a turn that starts with a user message: text, a reply in the thread of parent
@@ -124,6 +133,7 @@ type chain struct {
 	s              *server
 	id             int64
 	l              *live
+	ready          chan struct{}
 	gen            uint64
 	ownsActiveTurn bool
 	// hint is the active-turn kind this chain last stored. It clears only that value, so a
@@ -249,14 +259,18 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 
 // claim moves the channel from idle to starting and returns the claim and the channel as
 // stored. It creates the channel's entry, so a stop that arrives at any point finds it, and
-// refuses a channel that is being deleted.
-func (s *server) claim(ctx context.Context, id int64) (*chain, store.Channel, error) {
+// refuses a channel that is being deleted. kind is the kind of chain the caller will run, or
+// _noTurn when it runs none: only a send that finds a message chain starting waits for it.
+func (s *server) claim(ctx context.Context, id int64, kind turnKind) (*chain, store.Channel, error) {
 	if !s.begin() {
 		return nil, store.Channel{}, errStopping
 	}
 	turnCtx, cancel := context.WithCancel(s.ctx)
-	c := &chain{s: s, id: id, ctx: turnCtx, cancel: cancel, done: make(chan struct{})}
-	if err := s.markStarting(c); err != nil {
+	c := &chain{
+		s: s, id: id, ctx: turnCtx, cancel: cancel, done: make(chan struct{}),
+		ready: make(chan struct{}),
+	}
+	if err := s.markStarting(c, kind); err != nil {
 		cancel()
 		s.wg.Done()
 		return nil, store.Channel{}, err
@@ -272,8 +286,9 @@ func (s *server) claim(ctx context.Context, id int64) (*chain, store.Channel, er
 	return c, ch, nil
 }
 
-// markStarting sets c.l to the channel's entry, creating it, and marks it as starting c.
-func (s *server) markStarting(c *chain) error {
+// markStarting sets c.l to the channel's entry, creating it, and marks it as starting c, a
+// chain of kind.
+func (s *server) markStarting(c *chain, kind turnKind) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.deleting[c.id] > 0 {
@@ -285,7 +300,7 @@ func (s *server) markStarting(c *chain) error {
 	if l.state != _idle {
 		return fmt.Errorf("channel %d has a turn running: %w", c.id, store.ErrConflict)
 	}
-	l.state, l.cancel, l.done = _starting, c.cancel, c.done
+	l.state, l.kind, l.cancel, l.done, l.ready = _starting, kind, c.cancel, c.done, c.ready
 	l.activeGen++
 	c.gen = l.activeGen
 	c.ownsActiveTurn = true
@@ -317,7 +332,7 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 			return err
 		}
 	}
-	c, ch, err := s.claim(ctx, id)
+	c, ch, err := s.claim(ctx, id, t.kind)
 	if err != nil {
 		return err
 	}
@@ -386,12 +401,16 @@ func (s *server) nameChannel(ctx context.Context, id int64, backend, text string
 }
 
 // queueMessage stores the message of t and queues its wakes behind the turn a running message
-// chain is on, with the checks of a turn. It reports false, having changed nothing, when the
-// channel is not running a message chain.
+// chain is on, with the checks of a turn. A message chain that is starting is waited for, so
+// the message is stored after the one that chain starts with. It reports false, having changed
+// nothing, when the channel is not running a message chain.
 func (s *server) queueMessage(ctx context.Context, id int64, t userTurn) (bool, error) {
 	l := s.lookup(id)
-	if l == nil || !l.running() {
+	if l == nil {
 		return false, nil
+	}
+	if err := l.awaitStart(ctx); err != nil || !l.running() {
+		return false, err
 	}
 	ch, err := s.st.Channel(ctx, id)
 	if err != nil {
@@ -402,10 +421,12 @@ func (s *server) queueMessage(ctx context.Context, id int64, t userTurn) (bool, 
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.state != _running || l.kind != _message {
+	if !l.messagingLocked() {
 		return false, nil
 	}
-	msg, err := l.sess.Say(ctx, t.text, t.parent)
+	msg, err := s.st.CreateMessage(ctx, store.Message{
+		ChannelID: id, ParentID: t.parent, Author: _userAuthor, Body: t.text,
+	})
 	if err != nil {
 		return false, err
 	}
@@ -436,6 +457,8 @@ func (s *server) runOne(
 	default:
 		if w.direct != nil {
 			err = sess.RunDirectAs(ctx, w.role, w.text, *w.direct, onEvent)
+		} else if len(w.scopes) > 0 {
+			err = sess.WakeAs(ctx, w.role, w.text, w.scopes, w.parent, onEvent)
 		} else {
 			err = sess.RunAs(ctx, w.role, w.text, w.parent, onEvent)
 		}
@@ -529,7 +552,7 @@ func (s *server) hold(ctx context.Context, id int64, ws []wake) ([]wake, error) 
 func approvalForWake(w wake, channelID int64, text string) store.Approval {
 	a := store.Approval{
 		ChannelID: channelID, From: w.from, To: w.role, MessageID: w.messageID,
-		Text: text, Parent: w.parent,
+		Text: text, Parent: w.parent, Scopes: w.scopes,
 	}
 	if w.direct != nil {
 		a.MessageID = 0
@@ -542,7 +565,7 @@ func approvalForWake(w wake, channelID int64, text string) store.Approval {
 func (s *server) wakeOf(ctx context.Context, a store.Approval) (wake, error) {
 	w := wake{
 		from: a.From, messageID: a.MessageID, role: a.To, text: a.Text, parent: a.Parent,
-		approval: a.ID,
+		approval: a.ID, scopes: a.Scopes,
 	}
 	if a.DirectMessageID != nil {
 		dm, err := s.st.DirectMessage(ctx, *a.DirectMessageID)
@@ -566,6 +589,14 @@ func (s *server) capLocked(ctx context.Context, id int64, l *live) error {
 	return fmt.Errorf("channel %d is paused: %s: %w", id, _hopReason, store.ErrConflict)
 }
 
+func (s *server) pauseLocked(ctx context.Context, id int64, l *live, reason string) {
+	if err := s.st.PauseChannel(ctx, id, reason); err != nil {
+		log.Printf("pause channel %d: %v", id, err)
+		return
+	}
+	l.publishLocked("pause", pauseState{Reason: reason})
+}
+
 // continueChannel clears the pause, and runs the wakes the pause held as a new chain. A
 // channel with a turn running is 409; if the held wakes cannot start the channel stays
 // paused and keeps them.
@@ -575,7 +606,7 @@ func (s *server) continueChannel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	c, ch, err := s.claim(r.Context(), id)
+	c, ch, err := s.claim(r.Context(), id, _noTurn)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -654,7 +685,12 @@ func (s *server) retryHeld(ctx context.Context, id int64, l *live) ([]wake, erro
 		if err != nil {
 			return nil, fmt.Errorf("route messages: %w", err)
 		}
+		direct, _, err := s.directWakes(ctx, id, again.afterDirect, again.role)
+		if err != nil {
+			return nil, fmt.Errorf("route direct messages: %w", err)
+		}
 		held = append(held, ws...)
+		held = append(held, direct...)
 	}
 	held, err := s.gate(ctx, id, l, held)
 	l.mu.Lock()
@@ -721,11 +757,12 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !*in.Approve && a.DirectMessageID != nil {
-		s.rejectDirect(r.Context(), id, a)
+		s.failDirect(r.Context(), id, a, "rejected")
 	}
 	if *in.Approve {
 		ctx := context.WithoutCancel(r.Context())
 		wk, err := s.wakeOf(r.Context(), a)
+		wk.approved = true
 		if err != nil {
 			if rerr := s.st.ReopenApproval(ctx, aid); rerr != nil {
 				err = errors.Join(err, rerr)
@@ -734,7 +771,7 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if l := s.lookup(id); l == nil || !l.queue(wk) {
-			c, ch, err := s.claim(ctx, id)
+			c, ch, err := s.claim(ctx, id, _message)
 			if err == nil {
 				err = c.resume(ctx, ch, []wake{wk})
 			}
@@ -755,16 +792,17 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// rejectDirect gives the request held by a rejected direct approval a failed response with
-// body "rejected", so the message list tells a rejection from a delivery that completed.
-func (s *server) rejectDirect(ctx context.Context, channelID int64, a store.Approval) {
+// failDirect gives the request held by a direct approval that will not run a failed response
+// with body ("rejected" or "dropped"), so the message list tells it from a delivery that
+// completed.
+func (s *server) failDirect(ctx context.Context, channelID int64, a store.Approval, body string) {
 	ctx = context.WithoutCancel(ctx)
 	dm, err := s.st.DirectMessage(ctx, *a.DirectMessageID)
 	if err == nil && dm.ReplyToID == nil {
-		err = recordFailedDirect(ctx, s.st, dm.ID, a.To, "rejected")
+		err = recordFailedDirect(ctx, s.st, dm.ID, a.To, body)
 	}
 	if err != nil {
-		log.Printf("reject direct message %d: %v", *a.DirectMessageID, err)
+		log.Printf("%s direct message %d: %v", body, *a.DirectMessageID, err)
 		return
 	}
 	s.notify(channelID, "direct")
@@ -893,6 +931,7 @@ func (s *server) close() {
 	s.mu.Unlock()
 	s.cancel()
 	s.wg.Wait()
+	s.holdQueued()
 	close(s.quit)
 	var sessions []session
 	s.mu.Lock()
@@ -916,6 +955,57 @@ func (s *server) close() {
 	wg.Wait()
 }
 
+// holdQueued stores the wakes the stopped chains left in memory as holds, and pauses their
+// channels so continue runs them after a restart. A channel already paused keeps its reason.
+// A routing read that failed is done again first, and what it wakes is held too; when it fails
+// again, a message from reef tells the user which messages woke nobody.
+func (s *server) holdQueued() {
+	ctx := context.Background()
+	s.mu.Lock()
+	lives := maps.Clone(s.lives)
+	s.mu.Unlock()
+	for id, l := range lives {
+		l.mu.Lock()
+		again := l.retry
+		l.mu.Unlock()
+		if again != nil {
+			if _, err := s.retryHeld(ctx, id, l); err != nil {
+				log.Printf("channel %d: %v", id, err)
+				s.noteUnrouted(ctx, id, again.role, err)
+			}
+		}
+		l.mu.Lock()
+		held := slices.Clone(l.held)
+		l.mu.Unlock()
+		if len(held) == 0 {
+			continue
+		}
+		if _, err := s.hold(ctx, id, held); err != nil {
+			log.Printf("channel %d: %v", id, err)
+			continue
+		}
+		ch, err := s.st.Channel(ctx, id)
+		if err == nil && ch.Paused == "" {
+			err = s.st.PauseChannel(ctx, id, _restartReason)
+		}
+		if err != nil {
+			log.Printf("pause channel %d: %v", id, err)
+		}
+	}
+}
+
+// noteUnrouted posts a message from reef in channel id saying that the messages role wrote last
+// were not routed, so what they asked for did not run.
+func (s *server) noteUnrouted(ctx context.Context, id int64, role string, cause error) {
+	body := fmt.Sprintf("The app stopped before the last messages of %s were routed: %v. "+
+		"Anyone they asked was not woken; send a message to ask again.", role, cause)
+	if _, err := s.st.CreateMessage(ctx, store.Message{
+		ChannelID: id, Author: store.ReefAuthor, Body: body,
+	}); err != nil {
+		log.Printf("note unrouted messages in channel %d: %v", id, err)
+	}
+}
+
 func (c *chain) release(err error) error {
 	stopped := c.ctx.Err() != nil
 	c.cancel()
@@ -932,8 +1022,9 @@ func (c *chain) release(err error) error {
 			c.l.activeGen = 0
 		}
 		c.l.mu.Unlock()
-		close(c.done)
 		c.finalize(mine, directFailed, approvals)
+		close(c.done)
+		close(c.ready)
 		c.s.dropIdle(c.id, c.l, false)
 	} else {
 		close(c.done)
@@ -1077,8 +1168,11 @@ func (c *chain) start(
 	l := c.l
 	l.mu.Lock()
 	err = nil
+	var dropped []store.Approval
 	if c.unpause {
-		err = c.s.st.ContinueChannel(ctx, c.id, c.budget)
+		if dropped, err = c.s.st.PendingHolds(ctx, c.id); err == nil {
+			err = c.s.st.ContinueChannel(ctx, c.id, c.budget)
+		}
 	}
 	if err == nil && !l.countHop(queue[0]) {
 		err = c.s.capLocked(ctx, c.id, l)
@@ -1096,6 +1190,12 @@ func (c *chain) start(
 	l.publishLocked("turn", turnState{
 		Role: queue[0].role, Status: "running", Direct: queue[0].direct != nil})
 	l.mu.Unlock()
+	for _, a := range dropped {
+		if a.DirectMessageID != nil {
+			c.s.failDirect(ctx, c.id, a, "dropped")
+		}
+	}
+	close(c.ready)
 	go c.runTurn(sess, kind, queue, after, afterDirect)
 	return nil
 }
@@ -1138,9 +1238,9 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 			l.state, l.cancel = _idle, nil
 			l.activeGen = 0
 		}
-		close(c.done)
 		l.mu.Unlock()
 		c.finalize(mine, directFailed, approvals)
+		close(c.done)
 	}
 	for {
 		var w wake
@@ -1151,11 +1251,13 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		if ok && kind == _message && c.ctx.Err() == nil {
 			ws, last, err := s.wakes(c.ctx, c.id, after, w.role)
 			if err != nil {
-				stall, again = fmt.Errorf("route messages: %w", err), &retry{role: w.role, after: after}
+				stall = fmt.Errorf("route messages: %w", err)
+				again = &retry{role: w.role, after: after, afterDirect: afterDirect}
 			} else {
 				direct, directLast, directErr := s.directWakes(c.ctx, c.id, afterDirect, w.role)
 				if directErr != nil {
 					stall = fmt.Errorf("route direct messages: %w", directErr)
+					again = &retry{role: w.role, after: after, afterDirect: afterDirect}
 				} else {
 					ws = append(ws, direct...)
 					afterDirect = directLast
@@ -1174,12 +1276,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		l.publishLocked("turn", end)
 		if stall != nil && c.ctx.Err() == nil {
 			l.held, l.retry = queue, again
-			reason := stall.Error()
-			if err := s.st.PauseChannel(c.ctx, c.id, reason); err != nil {
-				log.Printf("pause channel %d: %v", c.id, err)
-			} else {
-				l.publishLocked("pause", pauseState{Reason: reason})
-			}
+			s.pauseLocked(c.ctx, c.id, l, stall.Error())
 			finish(nil)
 			return
 		}
@@ -1204,7 +1301,9 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 			if c.ctx.Err() == nil {
 				log.Printf("wake %s in channel %d: %v", queue[0].role, c.id, err)
 				l.held = queue
-				if errors.Is(err, store.ErrConflict) {
+				if !errors.Is(err, store.ErrConflict) {
+					s.pauseLocked(c.ctx, c.id, l, err.Error())
+				} else {
 					var herr error
 					if l.held, herr = s.hold(c.ctx, c.id, queue); herr != nil {
 						log.Printf("channel %d: %v", c.id, herr)
@@ -1220,11 +1319,33 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 	}
 }
 
-// running reports whether a message chain is running.
+// running reports whether a message chain is starting or running.
 func (l *live) running() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.state == _running && l.kind == _message
+	return l.messagingLocked()
+}
+
+// messagingLocked reports whether a message chain is starting or running.
+func (l *live) messagingLocked() bool {
+	return (l.state == _starting || l.state == _running) && l.kind == _message
+}
+
+// awaitStart returns once the chain that is starting is running or has ended; at once when no
+// message chain is starting.
+func (l *live) awaitStart(ctx context.Context) error {
+	l.mu.Lock()
+	ready, starting := l.ready, l.state == _starting && l.kind == _message
+	l.mu.Unlock()
+	if !starting {
+		return nil
+	}
+	select {
+	case <-ready:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 // queue adds w, an approved wake, to the wakes the starting or running chain runs next. It
@@ -1240,9 +1361,10 @@ func (l *live) queue(w wake) bool {
 }
 
 // countHop counts w as a hop when a message from an agent woke it, and reports whether w
-// may run: a wake over the cap may not. A message from the user resets the count.
+// may run: a wake over the cap may not. A message from the user, or a wake the user
+// approved, resets the count.
 func (l *live) countHop(w wake) bool {
-	if w.from == _userAuthor {
+	if w.from == _userAuthor || w.approved {
 		l.hops = 0
 		return true
 	}

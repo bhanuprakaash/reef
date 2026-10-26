@@ -42,12 +42,17 @@ type member struct {
 	// write and dir say which tree the role's turns hold, one at a time.
 	write bool
 	dir   string
+	cfg   agent.Config
 }
 
 type runInput struct {
-	text    string
-	parent  *int64
-	direct  *store.DirectMessage
+	text   string
+	parent *int64
+	direct *store.DirectMessage
+	// scopes, when set, say the wake was routed: text is what it was routed with, which a turn
+	// that never starts keeps, and the turn's own text is built from the unread messages of
+	// scopes when it starts.
+	scopes  store.Scopes
 	onEvent func(agent.Event)
 }
 
@@ -88,15 +93,10 @@ const (
 // ErrNoProposal is returned by Wrap when the agent made no proposal.
 var ErrNoProposal = errors.New("no proposal made")
 
-// Open opens the channel; no agent starts until a turn needs it. The caller must Close
-// the Session. Sessions that share trees run one write turn at a time on a working tree.
+// Open opens the channel; no agent starts until a turn needs it. mk makes the agent of each
+// backend, NewAgent in production. The caller must Close the Session. Sessions that share
+// trees run one write turn at a time on a working tree.
 func Open(
-	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64, trees *Trees,
-) (*Session, error) {
-	return open(ctx, st, dataDir, exe, channelID, trees, newAgent)
-}
-
-func open(
 	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64, trees *Trees,
 	mk func(backend string) (agent.Agent, error),
 ) (_ *Session, err error) {
@@ -130,7 +130,7 @@ func open(
 
 // Start starts or resumes the lead now instead of at its first turn.
 func (s *Session) Start(ctx context.Context) error {
-	_, err := s.member(ctx, s.ch.Role, "", nil, nil)
+	_, err := s.member(ctx, s.ch.Role, runInput{})
 	return err
 }
 
@@ -165,11 +165,58 @@ func (s *Session) Run(
 func (s *Session) RunAs(
 	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
 ) error {
-	m, err := s.member(ctx, role, text, parent, nil)
+	return s.runAs(ctx, role, runInput{text: text, parent: parent, onEvent: onEvent})
+}
+
+// WakeAs is RunAs for a wake routed with routed, in scopes. The turn's text is not routed: it
+// is built when the turn starts, from the messages of scopes that the role has not been sent
+// in its session. A wake with none runs no turn. A wake that never starts keeps routed.
+func (s *Session) WakeAs(
+	ctx context.Context, role, routed string, scopes store.Scopes, parent *int64,
+	onEvent func(agent.Event),
+) error {
+	if s.allRead(ctx, role, scopes) {
+		return nil
+	}
+	return s.runAs(ctx, role,
+		runInput{text: routed, parent: parent, scopes: scopes, onEvent: onEvent})
+}
+
+// allRead reports whether role's session has been sent every message of scopes, so no agent
+// need start. It is false when it cannot tell: the turn then starts and finds out.
+func (s *Session) allRead(ctx context.Context, role string, scopes store.Scopes) bool {
+	ctx = context.WithoutCancel(ctx)
+	sessionID := ""
+	if m, ok := s.members[role]; ok {
+		if m.run.sessionGone {
+			return false
+		}
+		sessionID = m.run.sessionID
+	} else {
+		team, err := s.st.Team(ctx, s.ch.Team)
+		if err != nil {
+			return false
+		}
+		r, err := s.roleSetup(team, role)
+		if err != nil {
+			return false
+		}
+		last, err := newestSessionTurn(ctx, s.st, s.ch.ID, role, r.Backend)
+		if err != nil {
+			return false
+		}
+		sessionID = last.SessionID
+	}
+	text, _, err := wakeText(ctx, s.st, s.ch.ID, role, sessionID, scopes)
+	return err == nil && text == ""
+}
+
+func (s *Session) runAs(ctx context.Context, role string, in runInput) error {
+	m, err := s.member(ctx, role, in)
 	if err != nil {
 		return err
 	}
-	err = s.run(ctx, m, runInput{text: text, parent: parent, onEvent: onEvent})
+	err = s.run(ctx, m, in)
 	if role == s.ch.Role {
 		return err
 	}
@@ -185,7 +232,7 @@ func (s *Session) RunAs(
 func (s *Session) RunDirectAs(
 	ctx context.Context, role, text string, dm store.DirectMessage, onEvent func(agent.Event),
 ) error {
-	m, err := s.member(ctx, role, text, nil, dm.IDRef())
+	m, err := s.member(ctx, role, runInput{text: text, direct: &dm})
 	if err != nil {
 		if _, rerr := s.st.CreateFailedDirectResponse(ctx, dm.ID, role, ""); rerr != nil &&
 			!errors.Is(rerr, store.ErrConflict) {
@@ -206,52 +253,72 @@ func (s *Session) RunDirectAs(
 // run runs a turn of m, holding m's tree when it writes and counting as a reader of it when
 // it does not. A ctx cancelled while it waits leaves an interrupted turn.
 func (s *Session) run(ctx context.Context, m *member, in runInput) error {
-	run := func() error {
-		if in.direct != nil {
-			return m.run.RunDirect(ctx, in.text, *in.direct, in.onEvent)
-		}
-		return m.run.Run(ctx, in.text, in.parent, in.onEvent)
-	}
 	if !m.write {
 		defer s.trees.Read(m.dir)()
-		return run()
+		return s.turn(ctx, m, in)
 	}
 	unlock, err := s.trees.Lock(ctx, m.dir)
 	if err != nil {
-		reason := err.Error()
-		if ctx.Err() != nil {
-			reason = "interrupted"
-		}
-		ferr := s.failTurn(ctx, m.run.role, m.run.backend, reason, m.run.wake(in.text),
-			in.parent, in.direct.IDRef())
+		in.text = m.run.wake(in.text)
+		err = s.failTurn(ctx, m.run.role, m.run.backend, in, err)
 		if in.direct != nil {
 			if _, rerr := s.st.CreateFailedDirectResponse(
 				context.WithoutCancel(ctx), in.direct.ID, m.run.role, "",
 			); rerr != nil && !errors.Is(rerr, store.ErrConflict) {
-				ferr = errors.Join(ferr, rerr)
+				err = errors.Join(err, rerr)
 			}
 		}
-		return errors.Join(err, ferr)
+		return err
 	}
 	defer unlock()
-	return run()
+	return s.turn(ctx, m, in)
 }
 
-// failTurn stores a failed turn of role for a turn that never started.
+// turn runs the turn of m. The text of a wake routed in scopes is built now, from what m's
+// session has not been sent; a wake with none runs no turn. A failure to build it leaves a
+// failed turn, as the agent got nothing.
+func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
+	text, sent := in.text, store.Scopes(nil)
+	if in.direct == nil && len(in.scopes) > 0 {
+		var err error
+		text, sent, err = wakeText(
+			context.WithoutCancel(ctx), s.st, s.ch.ID, m.run.role, m.run.sessionID, in.scopes)
+		if err != nil {
+			return s.failTurn(ctx, m.run.role, m.run.backend, in, err)
+		}
+		if text == "" {
+			return nil
+		}
+	}
+	m.run.Scopes = sent
+	if in.direct != nil {
+		return m.run.RunDirect(ctx, text, *in.direct, in.onEvent)
+	}
+	return m.run.Run(ctx, text, in.parent, in.onEvent)
+}
+
+// failTurn stores a failed turn of role for a turn that never started and returns cause
+// joined with the error of storing it. The turn keeps the wake it was for, so retry can run
+// it again; a ctx cancelled by then makes the turn interrupted.
 func (s *Session) failTurn(
-	ctx context.Context, role, backend, reason, text string, parent, directMessageID *int64,
+	ctx context.Context, role, backend string, in runInput, cause error,
 ) error {
+	reason := cause.Error()
+	if ctx.Err() != nil {
+		reason = "interrupted"
+	}
 	ctx = context.WithoutCancel(ctx)
 	t, err := s.st.CreateTurn(ctx, store.Turn{
-		ChannelID: s.ch.ID, Role: role, Backend: backend, WakeText: text, WakeParent: parent,
-		DirectMessageID: directMessageID,
+		ChannelID: s.ch.ID, Role: role, Backend: backend, WakeText: in.text, WakeParent: in.parent,
+		DirectMessageID: in.direct.IDRef(), Scopes: in.scopes,
 	})
 	if err != nil {
-		return err
+		log.Printf("store failed start of %s in channel %d: %v", role, s.ch.ID, err)
+		return cause
 	}
 	t.Status, t.Error = "failed", reason
 	_, err = s.st.EndTurn(ctx, t)
-	return err
+	return errors.Join(cause, err)
 }
 
 // Wrap runs a wrap-up turn and returns the proposal the agent made, or ErrNoProposal. Like
@@ -325,23 +392,31 @@ func (s *Session) closeMembers() error {
 // member returns the agent session of role, starting or resuming it from the role's own
 // newest turn with a session id on the role's backend. A new session reads the team from the
 // store, so a team applied since the channel opened is the one it gets. An agent that fails
-// to start leaves a failed turn for the role that keeps text and parent, the wake it was
+// to start, for any reason, leaves a failed turn for the role that keeps the wake it was
 // starting for, and so does a ctx cancelled before it starts: the turn is interrupted. The
-// store is read even then, as Run stores its turn.
-func (s *Session) member(
-	ctx context.Context, role, text string, parent, directMessageID *int64,
-) (_ *member, err error) {
+// store is read even then, as Run stores its turn. A role the team no longer has leaves one
+// too, on the channel's backend.
+func (s *Session) member(ctx context.Context, role string, in runInput) (_ *member, err error) {
 	wctx := context.WithoutCancel(ctx)
 	team, err := s.st.Team(wctx, s.ch.Team)
 	if err != nil {
 		return nil, err
 	}
+	backend := s.ch.Backend
+	defer func() {
+		if err != nil {
+			err = s.failTurn(ctx, role, backend, in, err)
+		}
+	}()
 	r, err := s.roleSetup(team, role)
 	if err != nil {
 		return nil, err
 	}
+	backend = r.Backend
 	if m, ok := s.members[role]; ok {
-		if _, err := os.Stat(m.dir); !errors.Is(err, os.ErrNotExist) {
+		_, err := os.Stat(m.dir)
+		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone &&
+			sameAccess(m.cfg, roleConfig(r, m.dir)) {
 			// Before its first turn, m's preamble already carries the current intro, set
 			// when it was started or resumed; nothing has been sent yet to compare against.
 			if intro := roleIntro(r); intro != "" && m.run.sessionID != "" {
@@ -364,7 +439,7 @@ func (s *Session) member(
 	if err != nil {
 		return nil, err
 	}
-	m := &member{ag: ag, write: r.Write}
+	m := &member{ag: ag, write: writes(r)}
 	defer func() {
 		if err != nil {
 			_ = m.close(s.st)
@@ -393,15 +468,9 @@ func (s *Session) member(
 		return nil, err
 	}
 	m.dir = cwd
-	mode, tools, denied := access(r, claudeSkills(r, cwd))
-	cfg := agent.Config{
-		Cwd:             cwd,
-		PermissionMode:  mode,
-		Model:           r.Model,
-		Tools:           append(tools, "mcp__reef__*"),
-		DisallowedTools: denied,
-		MCPServers:      servers,
-	}
+	cfg := roleConfig(r, cwd)
+	cfg.MCPServers = servers
+	m.cfg = cfg
 	var preamble string
 	cfg.Bin, err = s.st.RoleBin(wctx, r)
 	if err == nil && ctx.Err() == nil && slug != "" {
@@ -432,19 +501,33 @@ func (s *Session) member(
 		err = ag.Start(ctx, cfg)
 	}
 	if err != nil {
-		reason := err.Error()
-		if ctx.Err() != nil {
-			reason = "interrupted"
-		}
-		return nil, errors.Join(err, s.failTurn(wctx, role, r.Backend, reason, text, parent, directMessageID))
+		return nil, err
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
+	m.run.sessionID = last.SessionID
 	m.run.OnPrompt = s.onPrompt
-	if r.Write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
+	if m.write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
 		m.run.CheckpointDir = cwd
+		m.run.DataDir = s.dataDir
 	}
 	s.members[role] = m
 	return m, nil
+}
+
+func roleConfig(r store.Role, cwd string) agent.Config {
+	mode, tools, denied := access(r, claudeSkills(r, cwd))
+	return agent.Config{
+		Cwd:             cwd,
+		PermissionMode:  mode,
+		Model:           r.Model,
+		Tools:           append(tools, "mcp__reef__*"),
+		DisallowedTools: denied,
+	}
+}
+
+func sameAccess(a, b agent.Config) bool {
+	return a.PermissionMode == b.PermissionMode && a.Model == b.Model &&
+		slices.Equal(a.Tools, b.Tools) && slices.Equal(a.DisallowedTools, b.DisallowedTools)
 }
 
 // WorkDir is where an agent of channel channelID runs: the worktree of its feature, or the
@@ -513,6 +596,36 @@ func claudeSkills(r store.Role, dir string) []string {
 	return names
 }
 
+var _readCommands = []string{
+	"git log", "git diff", "git show", "git status", "git blame",
+	"ls", "cat", "head", "tail", "grep", "wc", "pwd",
+}
+
+// writes reports whether a turn of r takes its tree's lock and gets a checkpoint: the role has
+// write, or on claude the tools it keeps after access allow a shell command that is not in
+// _readCommands. Codex without write runs in a read-only sandbox.
+func writes(r store.Role) bool {
+	if r.Write {
+		return true
+	}
+	if r.Backend != "claude" {
+		return false
+	}
+	_, tools, _ := access(r, nil)
+	return slices.ContainsFunc(tools, changesFiles)
+}
+
+func changesFiles(tool string) bool {
+	name, arg, _ := strings.Cut(tool, "(")
+	if strings.TrimSpace(name) != "Bash" {
+		return false
+	}
+	cmd := strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(arg, ")"), ":*"))
+	return !slices.ContainsFunc(_readCommands, func(c string) bool {
+		return cmd == c || strings.HasPrefix(cmd, c+" ")
+	})
+}
+
 // access maps a role's write flag to the permission mode, allowed tools and denied tools of its backend.
 // A write role on claude also gets Task to run parallel subagents. On codex a permission
 // mode the role sets stays when the role writes, so it may narrow it. A claude role may use only
@@ -559,7 +672,7 @@ func (s *Session) propose(
 	if err != nil {
 		return store.Proposal{}, err
 	}
-	m, err := s.member(ctx, s.ch.Role, "", nil, nil)
+	m, err := s.member(ctx, s.ch.Role, runInput{})
 	if err != nil {
 		return store.Proposal{}, err
 	}
@@ -669,11 +782,22 @@ func newestSessionTurn(
 	}
 	var last store.Turn
 	for _, t := range turns {
-		if t.Role == role && t.Backend == backend && t.SessionID != "" {
+		switch {
+		case t.Role != role || t.Backend != backend:
+		case sessionMissing(t.Error):
+			last = store.Turn{}
+		case t.SessionID != "":
 			last = t
 		}
 	}
 	return last, nil
+}
+
+// sessionMissing reports whether msg says the backend has no session to resume: claude's
+// error event on the first turn, or codex's error from thread/resume.
+func sessionMissing(msg string) bool {
+	return strings.Contains(msg, "No conversation found") ||
+		strings.Contains(msg, "no rollout found for thread id")
 }
 
 // introSent is the role intro its session (same session id) in the channel was last given:
@@ -704,7 +828,8 @@ func introSent(
 	return sent, nil
 }
 
-func newAgent(backend string) (agent.Agent, error) {
+// NewAgent returns the agent of backend, claude or codex.
+func NewAgent(backend string) (agent.Agent, error) {
 	switch backend {
 	case "claude":
 		return claude.New(), nil

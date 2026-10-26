@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fake `codex app-server`. FAKE_CODEX: hang (default), slowstart, deafstart, rejected, midcrash, failstart, crash, replay, twocalls, twomsgs, usagehang, stopusage, stopmerge.
+# Fake `codex app-server`. FAKE_CODEX: hang (default), slowstart, deafstart, rejected, midcrash, failstart, crash, replay, twocalls, twomsgs, usagehang, stopusage, stopmerge, stopfull.
 [ "$FAKE_CODEX" = slowstart ] && exec sleep 30
 [ "$FAKE_CODEX" = deafstart ] && { trap '' TERM; exec sleep 30; }
 read -r line
@@ -51,8 +51,12 @@ usagehang)
 	echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":4,"outputTokens":3}}}}'
 	exec sleep 30
 	;;
-stopmerge|stopusage)
+stopmerge|stopusage|stopfull)
 	echo '{"method":"item/started","params":{"item":{"type":"commandExecution","id":"c1","command":"sleep 60"}}}'
+	if [ "$FAKE_CODEX" = stopfull ]; then
+		echo '{"method":"item/agentMessage/delta","params":{"itemId":"m1","delta":"a"}}'
+		echo '{"method":"item/agentMessage/delta","params":{"itemId":"m1","delta":"b"}}'
+	fi
 	[ "$FAKE_CODEX" = stopmerge ] && echo '{"method":"thread/tokenUsage/updated","params":{"tokenUsage":{"last":{"inputTokens":10,"cachedInputTokens":4,"outputTokens":3}}}}'
 	read -r line
 	echo '{"id":"stop","result":{}}'

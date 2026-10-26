@@ -34,9 +34,10 @@ type fakeSession struct {
 	// agent stores while it works.
 	onRun func(role, text string, parent *int64)
 
-	mu  sync.Mutex
-	ran []string
-	say func()
+	mu   sync.Mutex
+	ran  []string
+	woke []store.Scopes
+	say  func()
 
 	// directStart receives a signal each time a direct turn starts, so tests can
 	// synchronize on direct-turn execution without sleeping. It is buffered so a start
@@ -83,6 +84,16 @@ func (f *fakeSession) RunAs(
 	case <-ctx.Done():
 		return ctx.Err()
 	}
+}
+
+func (f *fakeSession) WakeAs(
+	ctx context.Context, role, routed string, scopes store.Scopes, parent *int64,
+	onEvent func(agent.Event),
+) error {
+	f.mu.Lock()
+	f.woke = append(f.woke, scopes)
+	f.mu.Unlock()
+	return f.RunAs(ctx, role, routed, parent, onEvent)
 }
 
 func (f *fakeSession) RunDirectAs(
@@ -185,6 +196,13 @@ func (r runnerSession) RunAs(
 	return r.run.Run(ctx, text, parent, onEvent)
 }
 
+func (r runnerSession) WakeAs(
+	ctx context.Context, role, routed string, _ store.Scopes, parent *int64,
+	onEvent func(agent.Event),
+) error {
+	return r.RunAs(ctx, role, routed, parent, onEvent)
+}
+
 func (r runnerSession) RunDirectAs(
 	ctx context.Context, _ string, text string, dm store.DirectMessage,
 	onEvent func(agent.Event),
@@ -279,6 +297,17 @@ func (e *liveEnv) exec(t *testing.T, stmt string) {
 	defer func() { _ = db.Close() }()
 	if _, err := db.Exec(stmt); err != nil {
 		t.Error(err)
+	}
+}
+
+func (e *liveEnv) waitIdle(t *testing.T, id int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for l := e.h.s.lookup(int64(id)); l != nil && l.running(); l = e.h.s.lookup(int64(id)) {
+		if time.Now().After(deadline) {
+			t.Fatal("chain did not end")
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
 
@@ -517,7 +546,7 @@ func TestSend_RoutesAndWakes(t *testing.T) {
 	want := []string{
 		"[channel 2, message 1]\nlogin please",
 		"[channel 2, message 2]\nlead wrote: @architect plan it",
-		"[channel 2, message 4, thread 3]\nThread so far:\narchitect: the plan\n\nwhy?",
+		"[channel 2, message 4, thread 3]\nwhy?",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
@@ -643,7 +672,7 @@ func TestSend_OneWakePerRole(t *testing.T) {
 	env.fake.onRun = func(role, _ string, parent *int64) {
 		if role == "lead" {
 			post("lead", "@architect look at this", parent)
-			post("lead", "I asked @architect", parent)
+			post("lead", "@architect and this too", parent)
 		}
 	}
 	sub := subscribeTo(t, env.url, id)
@@ -656,7 +685,7 @@ func TestSend_OneWakePerRole(t *testing.T) {
 	want := []string{
 		"[channel 2, message 1]\ngo",
 		"[channel 2, message 2]\nlead wrote: @architect look at this\n\n" +
-			"[channel 2, message 3]\nlead wrote: I asked @architect",
+			"[channel 2, message 3]\nlead wrote: @architect and this too",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: one architect turn for both posts", got, want)
@@ -711,7 +740,7 @@ func TestSend_OneWakePerRoleAcrossThreads(t *testing.T) {
 	want := []string{
 		"[channel 2, message 1]\ngo",
 		"[channel 2, message 2]\nlead wrote: @architect one\n\n" +
-			"[channel 2, message 3, thread 1]\nThread so far:\nuser: go\n\nlead wrote: @architect two",
+			"[channel 2, message 3, thread 1]\nlead wrote: @architect two",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: a top-level post and a thread reply wake the architect once", got, want)
@@ -782,7 +811,7 @@ func TestSend_ThreadReplyKeepsOwnerOverMentions(t *testing.T) {
 	}
 	sub.want(t, _idleFrame)
 	sub.wantTurns(t, "architect")
-	want := []string{"[channel 2, message 2, thread 1]\nThread so far:\narchitect: the plan\n\n@lead @architect why?"}
+	want := []string{"[channel 2, message 2, thread 1]\n@lead @architect why?"}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: only the thread owner wakes, no Asked together line", got, want)
 	}
@@ -815,10 +844,10 @@ func TestSend_SeveralMentionsInThreadKeepThread(t *testing.T) {
 	sub.want(t, _idleFrame)
 	sub.wantTurns(t, "lead", "architect", "tester")
 	post := "[channel 2, message 2, thread 1]\nAsked together: @architect, @tester\n" +
-		"Thread so far:\nuser: go\n\nlead wrote: @architect @tester @lead split it"
+		"lead wrote: @architect @tester @lead split it"
 	want := []string{"[channel 2, message 1]\ngo", post, post}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
-		t.Errorf("ran = %q, want %q: both recipients see the thread and the full set, not the sender", got, want)
+		t.Errorf("ran = %q, want %q: both recipients are woken with the full set, not the sender", got, want)
 	}
 }
 
@@ -929,6 +958,102 @@ func TestSend_WhileRunning(t *testing.T) {
 	want := []string{"[channel 1, message 1]\nblock", "[channel 1, message 2]\nagain"}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
+	}
+}
+
+// sendWhileOpening sends first, holds its agent open, sends second, and returns the statuses
+// of both once open returns what it is given. The second send must wait for the first chain.
+func sendWhileOpening(
+	t *testing.T, env *liveEnv, first, second string, open func() (session, error),
+) (int, int) {
+	t.Helper()
+	opening, proceed := make(chan struct{}), make(chan struct{})
+	var opens atomic.Int32
+	env.open = func(context.Context) (session, error) {
+		if opens.Add(1) > 1 {
+			return env.fake, nil
+		}
+		opening <- struct{}{}
+		<-proceed
+		return open()
+	}
+	one, two := make(chan int, 1), make(chan int, 1)
+	go func() {
+		status, _ := env.send(t, first)
+		one <- status
+	}()
+	<-opening
+	go func() {
+		status, _ := env.send(t, second)
+		two <- status
+	}()
+	select {
+	case status := <-two:
+		close(proceed)
+		t.Fatalf("send while starting = %d before the chain started, want it to wait", status)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(proceed)
+	return <-one, <-two
+}
+
+func TestSend_WhileStarting(t *testing.T) {
+	env := newLiveEnv(t)
+	sub := subscribe(t, env.url)
+	one, two := sendWhileOpening(t, env, "hello", "again", func() (session, error) { return env.fake, nil })
+	if one != 202 || two != 202 {
+		t.Fatalf("sends = %d and %d, want 202 and 202", one, two)
+	}
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead", "lead")
+	msgs, err := env.st.Messages(context.Background(), 1, 0)
+	if err != nil || len(msgs) != 2 || msgs[0].ID != 1 || msgs[0].Body != "hello" ||
+		msgs[1].ID != 2 || msgs[1].Body != "again" {
+		t.Errorf("messages = %+v, %v, want 1 hello, 2 again", msgs, err)
+	}
+	want := []string{"[channel 1, message 1]\nhello", "[channel 1, message 2]\nagain"}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
+	}
+}
+
+func TestSend_WhileStartFails(t *testing.T) {
+	env := newLiveEnv(t)
+	sub := subscribe(t, env.url)
+	one, two := sendWhileOpening(t, env, "hello", "again", func() (session, error) {
+		return nil, errors.New("boom")
+	})
+	if one != 500 || two != 202 {
+		t.Fatalf("sends = %d and %d, want 500 and 202: the second starts a chain of its own", one, two)
+	}
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead")
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 1, message 1]\nagain"}) {
+		t.Errorf("ran = %q, want only again", got)
+	}
+}
+
+func TestSend_WhileWrapStarts(t *testing.T) {
+	env := newLiveEnv(t)
+	id := env.featureChannel(t)
+	var status int
+	var body string
+	env.open = func(context.Context) (session, error) {
+		status, body = env.sendTo(t, id, "again")
+		return env.fake, nil
+	}
+	sub := subscribeTo(t, env.url, id)
+	if s, _ := env.sendTo(t, id, "/wrap"); s != 202 {
+		t.Fatalf("wrap = %d, want 202", s)
+	}
+	if status != 409 || body != `{"error":"channel 2 has a turn running: conflict"}` {
+		t.Errorf("send while the wrap starts = %d %s, want 409 turn running", status, body)
+	}
+	sub.want(t, _idleFrame,
+		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"wrapped"}`,
+		`turn {"role":"lead","status":"done"}`)
+	if msgs, err := env.st.Messages(context.Background(), int64(id), 0); err != nil || len(msgs) != 1 {
+		t.Errorf("messages = %+v, %v, want only the wrap command", msgs, err)
 	}
 }
 
@@ -1376,5 +1501,186 @@ func TestSend_RoutingFailurePausesAndContinueRoutes(t *testing.T) {
 		"[channel 2, message 2]\nlead wrote: @architect plan it",
 	}) {
 		t.Errorf("ran = %q, want the architect to run the message the failed read left", got)
+	}
+}
+
+func TestSend_DirectReadFailurePausesAndContinueRunsPublicWake(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect plan it", nil)
+			env.exec(t, "ALTER TABLE direct_message RENAME TO direct_message_gone")
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+
+	env.sendTo(t, id, "go")
+	const reason = "route direct messages: list direct messages: SQL logic error: no such table: direct_message (1)"
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
+	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != reason {
+		t.Errorf("channel = %+v, %v, want paused with %q", ch, err, reason)
+	}
+
+	env.exec(t, "ALTER TABLE direct_message_gone RENAME TO direct_message")
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "architect")
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
+	}) {
+		t.Errorf("ran = %q, want the architect to run the wake the failed direct read left", got)
+	}
+}
+
+func TestSend_StoreErrorBeforeNextWakePausesAndContinueRunsHeldWakes(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect plan it", nil)
+			env.exec(t, "ALTER TABLE turn RENAME TO turn_gone")
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+
+	env.sendTo(t, id, "go")
+	const reason = "sum channel tokens: SQL logic error: no such table: turn (1)"
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
+	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != reason {
+		t.Errorf("channel = %+v, %v, want paused with %q", ch, err, reason)
+	}
+
+	env.exec(t, "ALTER TABLE turn_gone RENAME TO turn")
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "architect")
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
+	}) {
+		t.Errorf("ran = %q, want the architect to run the wake held by the store error", got)
+	}
+}
+
+func TestSend_DirectReadFailureKeepsDirectRequestForContinue(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	var asked atomic.Bool
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" && asked.CompareAndSwap(false, true) {
+			_, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
+				ChannelID: int64(id), From: "lead", To: "architect", Body: "check the schema",
+			})
+			if err != nil {
+				t.Error(err)
+			}
+			env.exec(t, "ALTER TABLE direct_message RENAME TO direct_message_gone")
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+
+	env.sendTo(t, id, "go")
+	const reason = "route direct messages: list direct messages: SQL logic error: no such table: direct_message (1)"
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
+
+	env.exec(t, "ALTER TABLE direct_message_gone RENAME TO direct_message")
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	sub.want(t, `pause {"reason":""}`,
+		`turn {"role":"architect","status":"running","direct":true}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done","direct":true}`,
+		`turn {"role":"lead","status":"running","direct":true}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done","direct":true}`)
+	want := []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, direct message 1, chain 1, source: direct request]\nlead wrote privately: check the schema",
+		"[channel 2, direct message 2, chain 1, source: direct response]\narchitect wrote privately: hi",
+	}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want the architect to run the direct request the failed read left", got)
+	}
+}
+
+func TestRestart_RoutingFailureIsRedoneAndHeld(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect plan it", nil)
+			env.exec(t, "ALTER TABLE gate RENAME TO gate_gone")
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	const reason = "route messages: read gates of team core: SQL logic error: no such table: gate (1)"
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
+
+	env.exec(t, "ALTER TABLE gate_gone RENAME TO gate")
+	env.restart(t)
+	holds, err := env.st.PendingHolds(ctx, int64(id))
+	if err != nil || len(holds) != 1 || holds[0].To != "architect" ||
+		holds[0].Text != "[channel 2, message 2]\nlead wrote: @architect plan it" {
+		t.Fatalf("holds = %+v, %v, want the architect's wake for the lead's message", holds, err)
+	}
+	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != reason {
+		t.Errorf("channel = %+v, %v, want still paused with %q", ch, err, reason)
+	}
+
+	sub = subscribeTo(t, env.url, id)
+	sub.want(t, _idleFrame, `pause {"reason":"`+reason+`"}`)
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "architect")
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
+	}) {
+		t.Errorf("ran = %q, want the architect to run the message the failed read left", got)
+	}
+}
+
+func TestRestart_RoutingFailingAgainIsRecorded(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect plan it", nil)
+			env.exec(t, "ALTER TABLE gate RENAME TO gate_gone")
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`,
+		`pause {"reason":"route messages: read gates of team core: SQL logic error: no such table: gate (1)"}`)
+
+	env.restart(t)
+	msgs, err := env.st.Messages(ctx, int64(id), 0)
+	if err != nil || len(msgs) != 3 {
+		t.Fatalf("messages = %+v, %v, want 3", msgs, err)
+	}
+	const want = "The app stopped before the last messages of lead were routed: route messages: read gates " +
+		"of team core: SQL logic error: no such table: gate (1). " +
+		"Anyone they asked was not woken; send a message to ask again."
+	if msgs[2].Author != "reef" || msgs[2].Body != want {
+		t.Errorf("last message = %+v, want from reef: %q", msgs[2], want)
 	}
 }

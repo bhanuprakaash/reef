@@ -147,8 +147,8 @@ echo "$wt_list" | grep -q "^$S/full/worktrees/1/b .*\[feature/b\]" || two_ok=0
 [ -z "$(git -C "$S/cwd" status --porcelain)" ] || two_ok=0
 [ "$(turn_col 1 role)" = developer ] && [ "$(turn_col 1 channel_id)" = 1 ] || two_ok=0
 [ "$(turn_col 2 role)" = developer ] && [ "$(turn_col 2 channel_id)" = 3 ] || two_ok=0
-[ "$(turn_col 1 checkpoint)" = refs/reef/checkpoints/1 ] || two_ok=0
-[ "$(turn_col 2 checkpoint)" = refs/reef/checkpoints/2 ] || two_ok=0
+[[ "$(turn_col 1 checkpoint)" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/1$ ]] || two_ok=0
+[[ "$(turn_col 2 checkpoint)" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/2$ ]] || two_ok=0
 sess1=$(turn_col 1 session_id) sess2=$(turn_col 2 session_id)
 f1=$(session_file "$sess1") f2=$(session_file "$sess2")
 [ "$(grep -ho '"cwd":"[^"]*"' "$f1" 2>/dev/null | sort -u)" = "\"cwd\":\"$S/full/worktrees/1/a\"" ] || two_ok=0
@@ -246,7 +246,7 @@ wait_done 1 4
 N=$("$H" sql "select max(id) from turn where channel_id = 1" | tail -1)
 api_call GET "/turns/$N"
 cp_ok=1
-echo "$BODY" | grep -q "\"checkpoint\":\"refs/reef/checkpoints/$N\"" || cp_ok=0
+echo "$BODY" | grep -Eq "\"checkpoint\":\"refs/reef/checkpoints/[0-9a-f]{12}/$N\"" || cp_ok=0
 {
 	git -C "$T" rev-parse HEAD
 	git -C "$T" status --porcelain
@@ -256,8 +256,8 @@ diff "$E/a-before.txt" "$E/a-after.txt" >/dev/null || cp_ok=0
 check checkpoint-untouched "$cp_ok" "turn $N checkpoint set; HEAD/status/index unchanged across the no-tool turn"
 
 untracked_ok=1
-[ "$(git -C "$T" show "refs/reef/checkpoints/$N:pre.txt")" = before ] || untracked_ok=0
-[ "$(git -C "$T" show "refs/reef/checkpoints/$N^2:st.txt")" = staged ] || untracked_ok=0
+[ "$(git -C "$T" show "$(turn_col "$N" checkpoint):pre.txt")" = before ] || untracked_ok=0
+[ "$(git -C "$T" show "$(turn_col "$N" checkpoint)^2:st.txt")" = staged ] || untracked_ok=0
 check checkpoint-untracked "$untracked_ok" "checkpoint $N holds pre.txt (untracked) and ^2 holds st.txt (staged)"
 
 api_call POST /channels/1/send '{"text":"@developer Use the Write tool to create the file d.txt containing the word yes."}'
@@ -728,7 +728,7 @@ idle
 
 dev_turn_g=$("$H" sql "select id from turn where channel_id = 1 and role = 'developer' order by id desc limit 1" | tail -1)
 [ "$(turn_col "$dev_turn_g" status)" = done ] || { google_ok=0; google_bad+=" $LINENO"; }
-[ "$(turn_col "$dev_turn_g" checkpoint)" = "refs/reef/checkpoints/$dev_turn_g" ] || { google_ok=0; google_bad+=" $LINENO"; }
+[[ "$(turn_col "$dev_turn_g" checkpoint)" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/$dev_turn_g$ ]] || { google_ok=0; google_bad+=" $LINENO"; }
 [ "$(git -C "$S/google-app" log --oneline main..feature/google-login | wc -l | tr -d ' ')" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
 git -C "$S/google-app" worktree list | grep -q "^$S/google/worktrees/1/google-login .*\[feature/google-login\]" || { google_ok=0; google_bad+=" $LINENO"; }
 [ -z "$(git -C "$S/google-app" status --porcelain)" ] || { google_ok=0; google_bad+=" $LINENO"; }
@@ -917,7 +917,7 @@ q_chan=$("$H" sql "select id from channel where name = 'q'" | tail -1)
 api_call POST "/channels/$q_chan/send" '{"text":"Reply with one word."}'
 wait_done "$q_chan" 1
 Q=$("$H" sql "select id from turn where channel_id = $q_chan order by id desc limit 1" | tail -1)
-[ "$(turn_col "$Q" checkpoint)" = "refs/reef/checkpoints/$Q" ] || echo "note: quick session turn $Q has no expected checkpoint" >&2
+[[ "$(turn_col "$Q" checkpoint)" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/$Q$ ]] || echo "note: quick session turn $Q has no expected checkpoint" >&2
 api_call POST "/channels/$q_chan/promote" '{"slug":"fq","name":"FQ"}'
 wait_done "$q_chan" 2
 api_call POST "/channels/$q_chan/send" '{"text":"Reply with one word."}'

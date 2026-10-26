@@ -10,7 +10,7 @@ big)
 	head -c 17000000 /dev/zero | tr '\0' a
 	printf '"}\n'
 	echo '{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"done"}]}}'
-	echo '{"type":"result","is_error":false,"usage":{"input_tokens":1,"output_tokens":2,"cache_creation_input_tokens":3,"cache_read_input_tokens":4}}'
+	echo '{"type":"result","is_error":false,"modelUsage":{"claude-sonnet-5-5":{"inputTokens":1,"outputTokens":2,"cacheCreationInputTokens":3,"cacheReadInputTokens":4}}}'
 	;;
 badresume)
 	echo '{"type":"result","is_error":true,"errors":["No conversation found"]}'

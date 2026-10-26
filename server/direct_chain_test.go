@@ -237,6 +237,19 @@ func TestDirectRejectedApprovalRecordsFailedResponse(t *testing.T) {
 	}
 }
 
+// waitHolds is the channel's hold count once it has any: a cap pause is stored just before
+// its holds, both under the chain's lock.
+func waitHolds(t *testing.T, dir string, channelID int64) int {
+	t.Helper()
+	n := 0
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if n = countHolds(t, dir, channelID); n != 0 {
+			break
+		}
+	}
+	return n
+}
+
 // TestDirectHopCapHoldThenContinue drives direct exchanges until the shared hop cap pauses
 // the channel with exactly one hold, then Continue runs the pending direct wake and preserves
 // private identity (a direct response, not a public message).
@@ -267,7 +280,7 @@ func TestDirectHopCapHoldThenContinue(t *testing.T) {
 	if err != nil || !strings.HasPrefix(ch.Paused, _hopReasonPrefix) {
 		t.Fatalf("paused = %q, %v, want hop cap", ch.Paused, err)
 	}
-	if nHold := countHolds(t, env.dir, int64(id)); nHold != 1 {
+	if nHold := waitHolds(t, env.dir, int64(id)); nHold != 1 {
 		t.Fatalf("holds = %d, want exactly one", nHold)
 	}
 	// Block the held direct wake so we can prove Continue started it.
@@ -314,6 +327,59 @@ func TestDirectHopCapHoldThenContinue(t *testing.T) {
 	sub.want(t, _idleFrame)
 }
 
+func TestDirectUserMessageFailsHeldWake(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	var ping atomic.Bool
+	ping.Store(true)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" && ping.Load() {
+			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
+				ChannelID: int64(id), From: "lead", To: "architect", Body: "ping",
+			}); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	env.sendTo(t, id, "go")
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if ch, _ := env.st.Channel(ctx, int64(id)); ch.Paused != "" {
+			break
+		}
+	}
+	env.waitIdle(t, id)
+	before, err := env.st.DirectMessages(ctx, int64(id), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held := before[len(before)-1]
+	if held.Body != "ping" || held.Status != store.DirectSent || held.ReplyToID != nil ||
+		countHolds(t, env.dir, int64(id)) != 1 {
+		t.Fatalf("last direct message = %+v, holds = %d, want the unanswered ping held once",
+			held, countHolds(t, env.dir, int64(id)))
+	}
+
+	ping.Store(false)
+	if status, body := env.sendTo(t, id, "more"); status != 202 || body != "" {
+		t.Fatalf("send while hop paused = %d %q, want 202", status, body)
+	}
+	after, err := env.st.DirectMessages(ctx, int64(id), 0)
+	if err != nil || len(after) != len(before)+1 {
+		t.Fatalf("direct messages = %d, %v, want %d: one response for the held request",
+			len(after), err, len(before)+1)
+	}
+	got := after[len(after)-1]
+	if got.Status != store.DirectFailed || got.Body != "dropped" || got.From != "architect" ||
+		got.To != "lead" || got.ReplyToID == nil || *got.ReplyToID != held.ID {
+		t.Errorf("response = %+v, want failed architect->lead \"dropped\" replying to %d", got, held.ID)
+	}
+	env.waitIdle(t, id)
+	if ran := env.ranTexts(); len(ran) != 8 || !strings.HasSuffix(ran[7], "\nmore") {
+		t.Errorf("ran = %q, want 8 turns, the last the user's \"more\"", ran)
+	}
+}
+
 // TestDirectTokenCapHoldThenContinue exhausts the token budget mid-chain so the pending
 // direct wake is held, then Continue extends the budget and runs it.
 func TestDirectTokenCapHoldThenContinue(t *testing.T) {
@@ -358,7 +424,7 @@ func TestDirectTokenCapHoldThenContinue(t *testing.T) {
 	if err != nil || !strings.HasPrefix(ch.Paused, "token budget") {
 		t.Fatalf("paused = %q, %v, want token budget pause", ch.Paused, err)
 	}
-	if nHold := countHolds(t, env.dir, int64(id)); nHold != 1 {
+	if nHold := waitHolds(t, env.dir, int64(id)); nHold != 1 {
 		t.Fatalf("holds = %d, want exactly one", nHold)
 	}
 	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
@@ -505,6 +571,7 @@ func TestDirectChainEndClearsActiveTurn(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
 	id, _ := env.teamChannel(t)
+	env.fake.directRelease = make(chan struct{})
 	var directsCreated atomic.Bool
 	env.fake.onRun = func(role, text string, parent *int64) {
 		if role == "lead" && directsCreated.CompareAndSwap(false, true) {
@@ -517,9 +584,15 @@ func TestDirectChainEndClearsActiveTurn(t *testing.T) {
 	}
 	sub := subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "go")
+	select {
+	case <-env.fake.directStart:
+	case <-time.After(5 * time.Second):
+		t.Fatal("direct turn did not start")
+	}
 	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.ActiveTurn != store.ActiveTurnMessage {
 		t.Fatalf("active turn while the chain runs = %q, %v, want message", ch.ActiveTurn, err)
 	}
+	close(env.fake.directRelease)
 	sub.want(t, _idleFrame)
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -680,7 +753,7 @@ func TestDirectSelfLoopPrevented(t *testing.T) {
 }
 
 // TestDirectDeveloperTesterRepeatedExchanges drives developer<->tester direct exchanges
-// through required gate approvals until the shared hop cap, then pauses.
+// through required gate approvals past the hop cap, since each approval resets the count.
 func TestDirectDeveloperTesterRepeatedExchanges(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
@@ -753,32 +826,23 @@ func TestDirectDeveloperTesterRepeatedExchanges(t *testing.T) {
 		}
 		t.Fatal("no next approval after the exchange completed")
 	}
-	// Approve exchanges until the shared hop cap refuses the next one. Each approval runs a
-	// developer<->tester exchange (tester replies, which wakes the developer to send again),
-	// proving repetition works.
-	approved := 0
+	// Each approval runs a developer<->tester exchange (tester replies, which wakes the
+	// developer to send again). An approved wake resets the hop count, so the exchanges go on
+	// past the cap and the channel never pauses.
 	var lastID int64
 	for i := 0; i < 8; i++ {
 		status, aid := approveNext()
-		if status == 409 {
-			break
+		if status != 204 {
+			t.Fatalf("approve %d = %d, want 204", i+1, status)
 		}
-		approved++
 		lastID = aid
 		waitNext(lastID)
 	}
-	if approved < 2 {
-		t.Fatalf("approved = %d, want repetition (at least 2 exchanges)", approved)
-	}
-	// The next approval finds the shared hop cap already spent: 409 and the channel pauses.
-	if status, _ := approveNext(); status != 409 {
-		t.Fatalf("cap approve = %d, want 409", status)
-	}
 	ch, err := env.st.Channel(ctx, int64(id))
-	if err != nil || !strings.HasPrefix(ch.Paused, _hopReasonPrefix) {
-		t.Fatalf("paused = %q, %v, want hop cap", ch.Paused, err)
+	if err != nil || ch.Paused != "" {
+		t.Fatalf("paused = %q, %v, want not paused", ch.Paused, err)
 	}
-	if got := len(env.ranTexts()); got < 6 {
+	if got := len(env.ranTexts()); got < 8 {
 		t.Fatalf("turns ran = %d, want repeated exchanges", got)
 	}
 	sub.want(t, _idleFrame)

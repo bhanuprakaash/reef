@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"net/http"
+	"reflect"
 	"slices"
 	"strings"
 	"testing"
@@ -49,6 +50,51 @@ func TestRetry_RunsTheWakeAgain(t *testing.T) {
 	}
 	if got := len(env.ranTexts()); got != 1 {
 		t.Errorf("turns run = %d, want 1: a second retry runs nothing", got)
+	}
+}
+
+func TestRetry_RoutedWakeThatNeverSentIsBuiltAgain(t *testing.T) {
+	scopes := store.Scopes{{Thread: 7, Asked: []string{"Asked together: @lead, @architect"}}}
+	tests := []struct {
+		name     string
+		sent     bool
+		wantWoke []store.Scopes
+	}{
+		{"never sent", false, []store.Scopes{scopes}},
+		{"sent", true, nil},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			env := newLiveEnv(t)
+			turn, err := env.st.CreateTurn(ctx, store.Turn{
+				ChannelID: 1, Role: "lead", Backend: "claude", WakeText: "routed text", Scopes: scopes,
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if tt.sent {
+				if _, err := env.st.SetTurnSent(ctx, turn.ID, "prompt"); err != nil {
+					t.Fatal(err)
+				}
+			}
+			turn.Status, turn.Error = "failed", "no binary"
+			if _, err := env.st.EndTurn(ctx, turn); err != nil {
+				t.Fatal(err)
+			}
+			sub := subscribe(t, env.url)
+
+			if status, body := do(t, http.MethodPost, env.url+"/turns/1/retry", ""); status != 202 {
+				t.Fatalf("retry = %d %q, want 202", status, body)
+			}
+			sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
+				`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
+			env.fake.mu.Lock()
+			defer env.fake.mu.Unlock()
+			if !reflect.DeepEqual(env.fake.woke, tt.wantWoke) {
+				t.Errorf("woke = %+v, want %+v", env.fake.woke, tt.wantWoke)
+			}
+		})
 	}
 }
 

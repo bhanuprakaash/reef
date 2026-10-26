@@ -32,7 +32,9 @@ const (
 const (
 	_turnCols = "id, channel_id, role, backend, session_id, status, error, " +
 		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, " +
-		"wake_text, wake_parent, retried, checkpoint, sent, model, cost_usd, prompt, direct_message_id"
+		"wake_text, wake_parent, retried, checkpoint, sent, model, cost_usd, prompt, direct_message_id, reply, " +
+		"session_cost_usd, session_input_tokens, session_output_tokens, session_cache_read_tokens, " +
+		"session_cache_write_tokens, scopes"
 )
 
 // Turn is one agent run in a channel. It starts running and ends once, as
@@ -67,6 +69,21 @@ type Turn struct {
 	// Prompt is the full text sent to the agent, set once assembled. Empty for a turn that
 	// never sent one. Hidden from Turn's own JSON; the inspector has its own view of it.
 	Prompt string `json:"-"`
+	// Reply is the plain reply a done turn kept off the channel because the turn already
+	// posted with post_to_channel. Empty otherwise. Hidden from Turn's own JSON; the inspector
+	// has its own view of it.
+	Reply string `json:"-"`
+	// SessionCostUSD and SessionUsage are the running totals of the turn's whole session as the
+	// backend reported them when the turn ended; nil for a turn from before they were kept, a
+	// turn that ended with no report and every codex turn. The turn's own CostUSD and Usage are
+	// these minus the totals its session's earlier turns reported. Hidden from Turn's own JSON.
+	SessionCostUSD *float64     `json:"-"`
+	SessionUsage   *agent.Usage `json:"-"`
+	// Scopes are the threads the turn's wake was routed in. Once the turn sent, each carries
+	// the newest message it sent, so a later turn of the session skips what it read. Nil for
+	// a turn that is not a routed wake, and for one from before scopes: it read nothing.
+	// Hidden from Turn's own JSON.
+	Scopes Scopes `json:"-"`
 }
 
 // TurnFilter narrows Turns. A nil ChannelID or empty Status matches everything. Retryable
@@ -88,9 +105,10 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO turn (channel_id, role, backend, session_id, status, started_at, "+
-			"wake_text, wake_parent, direct_message_id) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?)",
+			"wake_text, wake_parent, direct_message_id, scopes) "+
+			"VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)",
 		t.ChannelID, t.Role, t.Backend, t.SessionID, _turnRunning, now.Format(time.RFC3339Nano),
-		t.WakeText, t.WakeParent, t.DirectMessageID)
+		t.WakeText, t.WakeParent, t.DirectMessageID, t.Scopes)
 	if err != nil {
 		return Turn{}, s.writeErr(ctx, "insert turn", err, ErrInvalid,
 			parent{table: "channel", id: &t.ChannelID}, parent{table: "message", id: t.WakeParent},
@@ -104,6 +122,7 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 		ID: id, ChannelID: t.ChannelID, Role: t.Role, Backend: t.Backend,
 		SessionID: t.SessionID, Status: _turnRunning, StartedAt: now,
 		WakeText: t.WakeText, WakeParent: t.WakeParent, DirectMessageID: t.DirectMessageID,
+		Scopes: t.Scopes,
 	}, nil
 }
 
@@ -139,6 +158,52 @@ func (s *Store) Turns(ctx context.Context, f TurnFilter) ([]Turn, error) {
 	return scanAll(rows, scanTurn)
 }
 
+// SessionCostBefore is the running cost of the session with the id when its turns before turn
+// beforeID ended: the total the latest of them reported. A turn stored before totals were kept
+// holds a running total as its cost, so for a session with only such turns the largest is the
+// newest and is used. 0 for a session with no earlier turn.
+func (s *Store) SessionCostBefore(ctx context.Context, sessionID string, beforeID int64) (float64, error) {
+	var cost float64
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(
+			(SELECT session_cost_usd FROM turn WHERE session_id = ?1 AND id < ?2
+				AND session_cost_usd IS NOT NULL ORDER BY id DESC LIMIT 1),
+			(SELECT MAX(cost_usd) FROM turn WHERE session_id = ?1 AND id < ?2), 0)`,
+		sessionID, beforeID).Scan(&cost)
+	if err != nil {
+		return 0, fmt.Errorf("session cost: %w", err)
+	}
+	return cost, nil
+}
+
+// SessionUsageBefore is the usage of the session with the id when its turns before turn
+// beforeID ended: the total of the latest turn that reported one, plus the usage stored for the
+// turns after it, which reported none, such as a stopped turn. With no turn that reported a
+// total it is the usage stored for all of them.
+func (s *Store) SessionUsageBefore(ctx context.Context, sessionID string, beforeID int64) (agent.Usage, error) {
+	var since int64
+	var u agent.Usage
+	err := s.db.QueryRowContext(ctx,
+		`SELECT id, session_input_tokens, session_output_tokens, session_cache_read_tokens,
+		session_cache_write_tokens FROM turn WHERE session_id = ? AND id < ?
+		AND session_input_tokens IS NOT NULL ORDER BY id DESC LIMIT 1`, sessionID, beforeID).
+		Scan(&since, &u.InputTokens, &u.OutputTokens, &u.CacheReadTokens, &u.CacheWriteTokens)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return agent.Usage{}, fmt.Errorf("session usage: %w", err)
+	}
+	var rest agent.Usage
+	err = s.db.QueryRowContext(ctx,
+		`SELECT COALESCE(SUM(input_tokens), 0), COALESCE(SUM(output_tokens), 0),
+		COALESCE(SUM(cache_read_tokens), 0), COALESCE(SUM(cache_write_tokens), 0)
+		FROM turn WHERE session_id = ? AND id > ? AND id < ?`, sessionID, since, beforeID).
+		Scan(&rest.InputTokens, &rest.OutputTokens, &rest.CacheReadTokens, &rest.CacheWriteTokens)
+	if err != nil {
+		return agent.Usage{}, fmt.Errorf("session usage: %w", err)
+	}
+	u.Add(rest)
+	return u, nil
+}
+
 // Retryable reports whether retry may run the turn id again: it failed, was not retried, kept
 // a wake, and no later turn of its role ran in the channel.
 func (s *Store) Retryable(ctx context.Context, id int64) (bool, error) {
@@ -162,15 +227,23 @@ func (s *Store) EndTurn(ctx context.Context, t Turn) (Turn, error) {
 	if u.InputTokens < 0 || u.OutputTokens < 0 || u.CacheReadTokens < 0 || u.CacheWriteTokens < 0 {
 		return Turn{}, fmt.Errorf("%w: usage counts cannot be negative", ErrInvalid)
 	}
+	var session struct{ input, output, cacheRead, cacheWrite *int64 }
+	if t.SessionUsage != nil {
+		session.input, session.output = &t.SessionUsage.InputTokens, &t.SessionUsage.OutputTokens
+		session.cacheRead, session.cacheWrite = &t.SessionUsage.CacheReadTokens, &t.SessionUsage.CacheWriteTokens
+	}
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE turn SET status = ?, error = ?, input_tokens = ?, output_tokens = ?,
 		cache_read_tokens = ?, cache_write_tokens = ?,
 		session_id = COALESCE(NULLIF(?, ''), session_id), ended_at = ?,
-		model = ?, cost_usd = ?, prompt = ?
+		model = ?, cost_usd = ?, prompt = ?, reply = ?, session_cost_usd = ?,
+		session_input_tokens = ?, session_output_tokens = ?, session_cache_read_tokens = ?,
+		session_cache_write_tokens = ?
 		WHERE id = ? AND status = ?`,
 		t.Status, t.Error, t.Usage.InputTokens, t.Usage.OutputTokens,
 		t.Usage.CacheReadTokens, t.Usage.CacheWriteTokens, t.SessionID,
-		time.Now().UTC().Format(time.RFC3339Nano), t.Model, t.CostUSD, t.Prompt,
+		time.Now().UTC().Format(time.RFC3339Nano), t.Model, t.CostUSD, t.Prompt, t.Reply,
+		t.SessionCostUSD, session.input, session.output, session.cacheRead, session.cacheWrite,
 		t.ID, _turnRunning)
 	if err != nil {
 		return Turn{}, fmt.Errorf("end turn: %w", err)
@@ -228,10 +301,10 @@ func (s *Store) SetTurnRetried(ctx context.Context, id int64, retried bool) erro
 	return nil
 }
 
-// SetTurnSent marks the running turn id as having sent its prompt to the agent.
-func (s *Store) SetTurnSent(ctx context.Context, id int64) (Turn, error) {
+// SetTurnSent marks the running turn id as having sent prompt to the agent, and keeps it.
+func (s *Store) SetTurnSent(ctx context.Context, id int64, prompt string) (Turn, error) {
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE turn SET sent = 1 WHERE id = ? AND status = ?", id, _turnRunning)
+		"UPDATE turn SET sent = 1, prompt = ? WHERE id = ? AND status = ?", prompt, id, _turnRunning)
 	if err != nil {
 		return Turn{}, fmt.Errorf("set turn sent: %w", err)
 	}
@@ -243,6 +316,26 @@ func (s *Store) SetTurnSent(ctx context.Context, id int64) (Turn, error) {
 		return Turn{}, s.notRunning(ctx, id)
 	}
 	return s.Turn(ctx, id)
+}
+
+// SetTurnUsage records the usage so far of the running turn id without ending it, so a turn
+// that never ends keeps the tokens it used.
+func (s *Store) SetTurnUsage(ctx context.Context, id int64, u agent.Usage) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE turn SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?,
+		cache_write_tokens = ? WHERE id = ? AND status = ?`,
+		u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens, id, _turnRunning)
+	if err != nil {
+		return fmt.Errorf("set turn usage: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set turn usage: %w", err)
+	}
+	if n == 0 {
+		return s.notRunning(ctx, id)
+	}
+	return nil
 }
 
 // SetTurnCheckpoint records the checkpoint ref of the running turn id.
@@ -376,11 +469,20 @@ func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 	var t Turn
 	var started string
 	var ended, wake, checkpoint sql.NullString
+	var session struct{ input, output, cacheRead, cacheWrite *int64 }
 	if err := r.Scan(&t.ID, &t.ChannelID, &t.Role, &t.Backend, &t.SessionID, &t.Status, &t.Error,
 		&t.Usage.InputTokens, &t.Usage.OutputTokens, &t.Usage.CacheReadTokens,
 		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried,
-		&checkpoint, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID); err != nil {
+		&checkpoint, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID, &t.Reply,
+		&t.SessionCostUSD, &session.input, &session.output, &session.cacheRead, &session.cacheWrite,
+		&t.Scopes); err != nil {
 		return Turn{}, err
+	}
+	if session.input != nil {
+		t.SessionUsage = &agent.Usage{
+			InputTokens: *session.input, OutputTokens: *session.output,
+			CacheReadTokens: *session.cacheRead, CacheWriteTokens: *session.cacheWrite,
+		}
 	}
 	t.WakeText = wake.String
 	var err error

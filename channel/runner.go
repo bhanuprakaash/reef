@@ -2,8 +2,10 @@ package channel
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/bhanuprakaash/reef/agent"
@@ -11,7 +13,11 @@ import (
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
-const _userAuthor = "user"
+const (
+	_userAuthor = "user"
+	// _postTool is how both backends name the reef MCP tool that posts to the channel.
+	_postTool = "mcp__reef__post_to_channel"
+)
 
 // Runner records one role's exchanges with a started agent in one channel: the
 // user messages, the agent's replies and a turn for each exchange.
@@ -22,8 +28,14 @@ type Runner struct {
 	// snapshot fails is stored failed and never sent to the agent. A checkout with no commit
 	// has nothing to snapshot: its turns run with no checkpoint.
 	CheckpointDir string
+	// DataDir is the data folder of this Reef copy. It is part of every checkpoint ref, so
+	// two copies sharing a repo never overwrite each other's.
+	DataDir string
 	// NoWake, when set, keeps no wake on the turns it stores, so they cannot be retried.
 	NoWake bool
+	// Scopes, when set, are the scopes of the wake the next turn sends, each with its newest
+	// message, and are stored on the turn so a later turn of the session skips them.
+	Scopes store.Scopes
 
 	st        *store.Store
 	ag        agent.Agent
@@ -34,6 +46,8 @@ type Runner struct {
 	sessionID string
 	model     string
 	direct    *store.DirectMessage
+
+	sessionGone bool
 }
 
 type replyState uint8
@@ -64,6 +78,7 @@ func (r *Runner) Run(
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
 		ChannelID: r.channelID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,
 		WakeText: r.wake(text), WakeParent: parent, DirectMessageID: r.direct.IDRef(),
+		Scopes: r.Scopes,
 	})
 	if err != nil {
 		return err
@@ -75,8 +90,10 @@ func (r *Runner) Run(
 	}
 
 	if r.CheckpointDir != "" {
-		ref := fmt.Sprintf("refs/reef/checkpoints/%d", turn.ID)
-		err := worktree.Checkpoint(wctx, r.CheckpointDir, ref)
+		ref, err := r.checkpointRef(turn.ID)
+		if err == nil {
+			err = worktree.Checkpoint(wctx, r.CheckpointDir, ref)
+		}
 		if err == nil {
 			_, err = r.st.SetTurnCheckpoint(wctx, turn.ID, ref)
 		}
@@ -100,12 +117,14 @@ func (r *Runner) Run(
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
 	r.preamble = ""
-	if _, err := r.st.SetTurnSent(wctx, turn.ID); err != nil {
+	if _, err := r.st.SetTurnSent(wctx, turn.ID, prompt); err != nil {
 		return r.abort(wctx, turn, err, err.Error(), "", parent)
 	}
 
 	var reply strings.Builder
 	toolRows := map[string]int64{}
+	postCalls := map[string]bool{}
+	posted := false
 	for {
 		select {
 		case <-ctx.Done():
@@ -127,6 +146,13 @@ func (r *Runner) Run(
 				}
 			case agent.KindText:
 				reply.WriteString(ev.Text)
+			case agent.KindBackground:
+				_, err := r.st.CreateMessage(wctx, store.Message{
+					ChannelID: r.channelID, Author: r.role, Body: ev.Text,
+				})
+				if err != nil {
+					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
+				}
 			case agent.KindToolCall:
 				var parentRow int64
 				if ev.ParentToolID != "" {
@@ -138,7 +164,9 @@ func (r *Runner) Run(
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
 				toolRows[ev.ToolID] = tc.ID
+				postCalls[ev.ToolID] = ev.ToolName == _postTool
 			case agent.KindToolResult:
+				posted = posted || (postCalls[ev.ToolID] && !ev.IsError)
 				if id, ok := toolRows[ev.ToolID]; ok {
 					if err := r.st.SetToolCallResult(wctx, id, ev.Output); err != nil {
 						return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
@@ -147,18 +175,24 @@ func (r *Runner) Run(
 			case agent.KindUsage:
 				if ev.Usage != nil {
 					turn.Usage.Add(*ev.Usage)
+					if err := r.st.SetTurnUsage(wctx, turn.ID, turn.Usage); err != nil {
+						return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
+					}
 				}
 			case agent.KindError:
-				if ev.CostUSD != nil {
-					turn.CostUSD = ev.CostUSD
+				r.sessionGone = sessionMissing(ev.Text)
+				if err := r.ownTotals(wctx, &turn, ev); err != nil {
+					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
 				return errors.Join(fmt.Errorf("agent: %s", ev.Text),
 					r.fail(wctx, turn, ev.Text, reply.String(), parent))
 			case agent.KindTurnEnd:
-				if ev.CostUSD != nil {
-					turn.CostUSD = ev.CostUSD
+				if err := r.ownTotals(wctx, &turn, ev); err != nil {
+					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
-				if err := r.keepReply(wctx, reply.String(), parent, _replyDone); err != nil {
+				if posted && r.direct == nil {
+					turn.Reply = reply.String()
+				} else if err := r.keepReply(wctx, reply.String(), parent, _replyDone); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), "", parent)
 				}
 				turn.Status = "done"
@@ -181,11 +215,46 @@ func (r *Runner) RunDirect(
 	return r.Run(ctx, text, nil, onEvent)
 }
 
+// ownTotals sets the cost and usage of turn from the totals ev reports. They are the running
+// totals of the turn's whole session, so the turn's own cost and usage are each total minus the
+// one the session's earlier turns had. The totals are stored with the turn for the next one.
+func (r *Runner) ownTotals(ctx context.Context, turn *store.Turn, ev agent.Event) error {
+	if ev.CostUSD != nil {
+		before, err := r.st.SessionCostBefore(ctx, turn.SessionID, turn.ID)
+		if err != nil {
+			return err
+		}
+		own := max(*ev.CostUSD-before, 0)
+		turn.CostUSD, turn.SessionCostUSD = &own, ev.CostUSD
+	}
+	if ev.SessionUsage != nil {
+		before, err := r.st.SessionUsageBefore(ctx, turn.SessionID, turn.ID)
+		if err != nil {
+			return err
+		}
+		own := *ev.SessionUsage
+		own.Sub(before)
+		turn.Usage, turn.SessionUsage = own, ev.SessionUsage
+	}
+	return nil
+}
+
 func (r *Runner) wake(text string) string {
 	if r.NoWake {
 		return ""
 	}
 	return text
+}
+
+// checkpointRef is refs/reef/checkpoints/<12 hex of sha256 of the absolute data dir>/<turn id>.
+// Turns made before the data dir was in the name keep their stored ref, which still restores.
+func (r *Runner) checkpointRef(turnID int64) (string, error) {
+	dir, err := filepath.Abs(r.DataDir)
+	if err != nil {
+		return "", fmt.Errorf("checkpoint ref: %w", err)
+	}
+	sum := sha256.Sum256([]byte(dir))
+	return fmt.Sprintf("refs/reef/checkpoints/%x/%d", sum[:6], turnID), nil
 }
 
 // abort interrupts the agent and stores turn as failed with reason, keeping the reply

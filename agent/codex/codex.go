@@ -24,10 +24,9 @@ import (
 var _ agent.Agent = (*Agent)(nil)
 
 const (
-	_killAfter  = time.Second
-	_waitDelay  = 2 * time.Second
-	_stderrKeep = 4 << 10
-	_stopWait   = time.Second
+	_killAfter = time.Second
+	_waitDelay = 2 * time.Second
+	_stopWait  = time.Second
 
 	_messageBreak = "\n\n"
 )
@@ -38,7 +37,7 @@ type (
 		cmd      *exec.Cmd
 		stdin    io.Writer
 		stdout   *bufio.Reader
-		stderr   tail
+		stderr   agent.Tail
 		threadID string
 		model    string
 		nextID   int
@@ -53,11 +52,8 @@ type (
 		wrote    bool   // the turn in progress has sent text; owned by run
 
 		turn     atomic.Pointer[string] // id of the turn between turn/started and its end; resume replays usage outside it
-		stopping atomic.Bool            // Interrupt is stopping the turn in progress
+		stopping chan struct{}          // closed by Interrupt when it stops the turn in progress
 	}
-
-	// tail keeps the last _stderrKeep bytes written to it.
-	tail struct{ b []byte }
 
 	mcpServer struct {
 		agent.MCPServer
@@ -106,6 +102,7 @@ type (
 		Arguments        json.RawMessage `json:"arguments"`
 		Result           *struct {
 			Content []struct {
+				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"content"`
 		} `json:"result"`
@@ -118,10 +115,11 @@ type (
 // New returns an Agent that has not started.
 func New() *Agent {
 	return &Agent{
-		events:  make(chan agent.Event, 1),
-		done:    make(chan struct{}),
-		stopped: make(chan struct{}),
-		exited:  make(chan struct{}),
+		events:   make(chan agent.Event, 1),
+		done:     make(chan struct{}),
+		stopping: make(chan struct{}),
+		stopped:  make(chan struct{}),
+		exited:   make(chan struct{}),
 	}
 }
 
@@ -194,7 +192,7 @@ func (a *Agent) stopTurn() {
 	if id == nil {
 		return
 	}
-	a.stopping.Store(true)
+	close(a.stopping)
 	err := a.write(map[string]any{
 		"id": "stop", "method": "turn/interrupt",
 		"params": map[string]any{"threadId": a.threadID, "turnId": *id},
@@ -285,7 +283,7 @@ func (a *Agent) run(method string, params map[string]any, ready chan<- error) {
 	}
 	a.emit(agent.Event{
 		Kind: agent.KindError,
-		Text: fmt.Sprintf("codex exited: %v: %s", err, strings.TrimSpace(string(a.stderr.b))),
+		Text: fmt.Sprintf("codex exited: %v: %s", err, strings.TrimSpace(string(a.stderr.Bytes()))),
 	})
 }
 
@@ -379,8 +377,10 @@ func (a *Agent) read() {
 // model call; each report is emitted as it arrives, so an interrupted turn keeps its usage.
 // A break goes before the text of a second agent message in a turn.
 func (a *Agent) handle(m message) bool {
-	if a.stopping.Load() {
+	select {
+	case <-a.stopping:
 		return a.handleStopping(m)
+	default:
 	}
 	switch m.Method {
 	case "turn/started":
@@ -415,21 +415,25 @@ func (a *Agent) handleStopping(m message) bool {
 	switch m.Method {
 	case "thread/tokenUsage/updated":
 		ev, _ := m.event()
-		for {
-			select {
-			case a.events <- ev:
-				return true
-			case old := <-a.events:
-				if old.Kind == agent.KindUsage {
-					ev.Usage.Add(*old.Usage)
-				}
-			}
-		}
+		a.keepUsage(ev)
 	case "turn/completed":
 		close(a.stopped)
 		return false
 	}
 	return true
+}
+
+func (a *Agent) keepUsage(ev agent.Event) {
+	for {
+		select {
+		case a.events <- ev:
+			return
+		case old := <-a.events:
+			if old.Kind == agent.KindUsage {
+				ev.Usage.Add(*old.Usage)
+			}
+		}
+	}
 }
 
 func (a *Agent) emit(ev agent.Event) bool {
@@ -438,6 +442,11 @@ func (a *Agent) emit(ev agent.Event) bool {
 		return true
 	case <-a.done:
 		return false
+	case <-a.stopping:
+		if ev.Kind == agent.KindUsage {
+			a.keepUsage(ev)
+		}
+		return true
 	}
 }
 
@@ -471,14 +480,6 @@ func (a *Agent) signal(sig syscall.Signal) error {
 		return nil
 	}
 	return err
-}
-
-func (t *tail) Write(p []byte) (int, error) {
-	t.b = append(t.b, p...)
-	if len(t.b) > _stderrKeep {
-		t.b = t.b[len(t.b)-_stderrKeep:]
-	}
-	return len(p), nil
 }
 
 func (m message) event() (ev agent.Event, ok bool) {
@@ -543,6 +544,9 @@ func (it item) toolResult() (agent.Event, bool) {
 		case it.Result != nil:
 			texts := make([]string, 0, len(it.Result.Content))
 			for _, c := range it.Result.Content {
+				if c.Type == "image" {
+					c.Text = "[image]"
+				}
 				texts = append(texts, c.Text)
 			}
 			ev.Output = strings.Join(texts, "\n")
@@ -564,11 +568,7 @@ func threadParams(cfg agent.Config) map[string]any {
 	if len(cfg.MCPServers) > 0 {
 		servers := make(map[string]mcpServer, len(cfg.MCPServers))
 		for name, s := range cfg.MCPServers {
-			server := mcpServer{MCPServer: s}
-			if name == "reef" {
-				server.ApprovalMode = "approve"
-			}
-			servers[name] = server
+			servers[name] = mcpServer{MCPServer: s, ApprovalMode: "approve"}
 		}
 		params["config"] = map[string]any{"mcp_servers": servers}
 	}

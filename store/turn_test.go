@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/bhanuprakaash/reef/agent"
 )
 
 type turnRow struct {
@@ -405,6 +407,76 @@ func TestEndTurn_InspectFields(t *testing.T) {
 	}
 	if got.Model != "claude-opus-5-5" || got.CostUSD == nil || *got.CostUSD != cost || got.Prompt != "do it" {
 		t.Errorf("turn = %+v, want model claude-opus-5-5, cost %v, prompt %q", got, cost, "do it")
+	}
+}
+
+// A session's earlier totals are the latest one a turn reported, plus the usage of the turns
+// after it that reported none. Turns stored before totals were kept hold a running total as
+// their cost, and their usage adds up.
+func TestSessionBefore(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "a"}); err != nil {
+		t.Fatal(err)
+	}
+	end := func(session string, t0 Turn) int64 {
+		t.Helper()
+		tn, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "architect", Backend: "claude", SessionID: session})
+		if err != nil {
+			t.Fatal(err)
+		}
+		t0.ID, t0.Status = tn.ID, "done"
+		if _, err := s.EndTurn(ctx, t0); err != nil {
+			t.Fatal(err)
+		}
+		return tn.ID
+	}
+	f := func(v float64) *float64 { return &v }
+	before := func(session string, id int64) (float64, agent.Usage) {
+		t.Helper()
+		cost, err := s.SessionCostBefore(ctx, session, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		usage, err := s.SessionUsageBefore(ctx, session, id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return cost, usage
+	}
+
+	end("s1", Turn{CostUSD: f(1.00), Usage: agent.Usage{InputTokens: 10, OutputTokens: 1}})
+	end("other", Turn{CostUSD: f(9.00), Usage: agent.Usage{InputTokens: 99}})
+	last := end("s1", Turn{CostUSD: f(1.10), Usage: agent.Usage{InputTokens: 20, OutputTokens: 2}})
+	cost, usage := before("s1", last+1)
+	if want := (agent.Usage{InputTokens: 30, OutputTokens: 3}); cost != 1.10 || usage != want {
+		t.Errorf("old turns only: cost %v, usage %+v, want 1.10, %+v", cost, usage, want)
+	}
+	if cost, usage := before("s1", 1); cost != 0 || usage != (agent.Usage{}) {
+		t.Errorf("before its first turn: cost %v, usage %+v, want none", cost, usage)
+	}
+
+	total := agent.Usage{InputTokens: 100, OutputTokens: 10, CacheReadTokens: 7, CacheWriteTokens: 3}
+	end("s1", Turn{CostUSD: f(0.15), SessionCostUSD: f(1.25), SessionUsage: &total, Usage: agent.Usage{InputTokens: 70}})
+	stopped := end("s1", Turn{Usage: agent.Usage{InputTokens: 5, OutputTokens: 1}})
+	cost, usage = before("s1", stopped+1)
+	want := agent.Usage{InputTokens: 105, OutputTokens: 11, CacheReadTokens: 7, CacheWriteTokens: 3}
+	if cost != 1.25 || usage != want {
+		t.Errorf("after a turn with totals: cost %v, usage %+v, want 1.25, %+v", cost, usage, want)
+	}
+	tn, err := s.Turn(ctx, stopped-1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if tn.SessionCostUSD == nil || *tn.SessionCostUSD != 1.25 || tn.SessionUsage == nil || *tn.SessionUsage != total {
+		t.Errorf("stored totals = %v, %+v, want 1.25, %+v", tn.SessionCostUSD, tn.SessionUsage, total)
 	}
 }
 
