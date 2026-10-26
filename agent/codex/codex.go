@@ -53,7 +53,7 @@ type (
 		wrote    bool   // the turn in progress has sent text; owned by run
 
 		turn     atomic.Pointer[string] // id of the turn between turn/started and its end; resume replays usage outside it
-		stopping atomic.Bool            // Interrupt is stopping the turn in progress
+		stopping chan struct{}          // closed by Interrupt when it stops the turn in progress
 	}
 
 	// tail keeps the last _stderrKeep bytes written to it.
@@ -119,10 +119,11 @@ type (
 // New returns an Agent that has not started.
 func New() *Agent {
 	return &Agent{
-		events:  make(chan agent.Event, 1),
-		done:    make(chan struct{}),
-		stopped: make(chan struct{}),
-		exited:  make(chan struct{}),
+		events:   make(chan agent.Event, 1),
+		done:     make(chan struct{}),
+		stopping: make(chan struct{}),
+		stopped:  make(chan struct{}),
+		exited:   make(chan struct{}),
 	}
 }
 
@@ -195,7 +196,7 @@ func (a *Agent) stopTurn() {
 	if id == nil {
 		return
 	}
-	a.stopping.Store(true)
+	close(a.stopping)
 	err := a.write(map[string]any{
 		"id": "stop", "method": "turn/interrupt",
 		"params": map[string]any{"threadId": a.threadID, "turnId": *id},
@@ -380,8 +381,10 @@ func (a *Agent) read() {
 // model call; each report is emitted as it arrives, so an interrupted turn keeps its usage.
 // A break goes before the text of a second agent message in a turn.
 func (a *Agent) handle(m message) bool {
-	if a.stopping.Load() {
+	select {
+	case <-a.stopping:
 		return a.handleStopping(m)
+	default:
 	}
 	switch m.Method {
 	case "turn/started":
@@ -416,21 +419,25 @@ func (a *Agent) handleStopping(m message) bool {
 	switch m.Method {
 	case "thread/tokenUsage/updated":
 		ev, _ := m.event()
-		for {
-			select {
-			case a.events <- ev:
-				return true
-			case old := <-a.events:
-				if old.Kind == agent.KindUsage {
-					ev.Usage.Add(*old.Usage)
-				}
-			}
-		}
+		a.keepUsage(ev)
 	case "turn/completed":
 		close(a.stopped)
 		return false
 	}
 	return true
+}
+
+func (a *Agent) keepUsage(ev agent.Event) {
+	for {
+		select {
+		case a.events <- ev:
+			return
+		case old := <-a.events:
+			if old.Kind == agent.KindUsage {
+				ev.Usage.Add(*old.Usage)
+			}
+		}
+	}
 }
 
 func (a *Agent) emit(ev agent.Event) bool {
@@ -439,6 +446,11 @@ func (a *Agent) emit(ev agent.Event) bool {
 		return true
 	case <-a.done:
 		return false
+	case <-a.stopping:
+		if ev.Kind == agent.KindUsage {
+			a.keepUsage(ev)
+		}
+		return true
 	}
 }
 

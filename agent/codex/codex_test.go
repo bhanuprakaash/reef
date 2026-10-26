@@ -533,6 +533,25 @@ func TestAgent_InterruptKeepsStoppedTurnUsage(t *testing.T) {
 	}
 }
 
+func TestAgent_InterruptWithUnreadEvents(t *testing.T) {
+	a := fake(t, "stopfull")
+	startTurn(t, a)
+	collect(t, a, agent.KindToolCall)
+	time.Sleep(200 * time.Millisecond)
+	start := time.Now()
+	if err := a.Interrupt(); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 500*time.Millisecond {
+		t.Errorf("Interrupt took %v, want under 500ms", d)
+	}
+	got := collect(t, a, "")
+	want := []agent.Event{{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 6, OutputTokens: 5, CacheReadTokens: 1}}}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("events after Interrupt = %+v, want %+v", got, want)
+	}
+}
+
 func TestAgent_BreakBetweenMessages(t *testing.T) {
 	a := fake(t, "twomsgs")
 	startTurn(t, a)
