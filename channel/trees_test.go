@@ -293,3 +293,76 @@ func TestTrees_ReadersDoNotBlockWritersButStopTryLock(t *testing.T) {
 	}
 	unlock()
 }
+
+// lockProbeAgent reports in Send whether a writer could take its tree: false while the turn
+// holds the lock.
+type lockProbeAgent struct {
+	*recordingAgent
+	trees   *Trees
+	canLock chan<- bool
+}
+
+func (a *lockProbeAgent) Send(ctx context.Context, prompt string) error {
+	pctx, cancel := context.WithTimeout(ctx, 100*time.Millisecond)
+	defer cancel()
+	unlock, err := a.trees.Lock(pctx, a.cfg.Cwd)
+	if err == nil {
+		unlock()
+	}
+	a.canLock <- err == nil
+	return a.recordingAgent.Send(ctx, prompt)
+}
+
+func TestSession_ShellThatChangesFilesRunsAsAWriteTurn(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "crew", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "committer", Backend: "claude", Tools: []string{"Read", "Bash(git commit:*)"}},
+		{Name: "reader", Backend: "claude", Tools: []string{"Read", "Bash(git log:*)", "Bash(ls:*)"}},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	tests := []struct {
+		role           string
+		wantCanLock    bool
+		wantCheckpoint bool
+	}{
+		{"committer", false, true},
+		{"reader", true, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.role, func(t *testing.T) {
+			ch, err := st.CreateChannel(ctx, store.Channel{
+				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: tt.role, Role: "lead", Backend: "claude",
+				Team: "crew",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			trees := NewTrees(t.TempDir())
+			canLock := make(chan bool, 1)
+			mk := func(string) (agent.Agent, error) {
+				return &lockProbeAgent{recordingAgent: newRecordingAgent(), trees: trees, canLock: canLock}, nil
+			}
+			s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, trees, mk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			if err := s.RunAs(ctx, tt.role, "go", nil, discard); err != nil {
+				t.Fatal(err)
+			}
+			if got := <-canLock; got != tt.wantCanLock {
+				t.Errorf("another writer could take the tree during the turn = %v, want %v", got, tt.wantCanLock)
+			}
+			turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+			if err != nil || len(turns) != 1 {
+				t.Fatalf("turns = %+v, %v, want one", turns, err)
+			}
+			if got := turns[0].Checkpoint != nil; got != tt.wantCheckpoint {
+				t.Errorf("turn has a checkpoint = %v, want %v", got, tt.wantCheckpoint)
+			}
+		})
+	}
+}

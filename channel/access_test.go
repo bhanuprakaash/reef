@@ -246,3 +246,34 @@ func TestAccess(t *testing.T) {
 		})
 	}
 }
+
+func TestWrites(t *testing.T) {
+	tests := []struct {
+		name string
+		give store.Role
+		want bool
+	}{
+		{"write role", store.Role{Backend: "claude", Write: true}, true},
+		{"reading tools only", store.Role{Backend: "claude", Tools: []string{"Read", "Grep", "Glob"}}, false},
+		{
+			"reading commands",
+			store.Role{Backend: "claude", Tools: []string{
+				"Bash(git log:*)", "Bash(ls:*)", "Bash(git diff --stat:*)", "Bash(cat *)", "Bash(pwd)",
+			}},
+			false,
+		},
+		{"git commit", store.Role{Backend: "claude", Tools: []string{"Read", "Bash(git commit:*)"}}, true},
+		{"rm", store.Role{Backend: "claude", Tools: []string{"Bash(git log:*)", "Bash(rm:*)"}}, true},
+		{"go test", store.Role{Backend: "claude", Tools: []string{"Bash(go test:*)"}}, true},
+		{"bare Bash", store.Role{Backend: "claude", Tools: []string{"Bash"}}, true},
+		{"name that only starts like a reading command", store.Role{Backend: "claude", Tools: []string{"Bash(lsof:*)"}}, true},
+		{"codex without write", store.Role{Backend: "codex", Tools: []string{"Bash(git commit:*)"}}, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := writes(tt.give); got != tt.want {
+				t.Errorf("writes(%q) = %v, want %v", tt.give.Tools, got, tt.want)
+			}
+		})
+	}
+}

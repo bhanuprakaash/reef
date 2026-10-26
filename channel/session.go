@@ -372,7 +372,7 @@ func (s *Session) member(
 	if err != nil {
 		return nil, err
 	}
-	m := &member{ag: ag, write: r.Write}
+	m := &member{ag: ag, write: writes(r)}
 	defer func() {
 		if err != nil {
 			_ = m.close(s.st)
@@ -448,7 +448,7 @@ func (s *Session) member(
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.OnPrompt = s.onPrompt
-	if r.Write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
+	if m.write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
 		m.run.CheckpointDir = cwd
 		m.run.DataDir = s.dataDir
 	}
@@ -520,6 +520,33 @@ func claudeSkills(r store.Role, dir string) []string {
 		names = append(names, s.Name)
 	}
 	return names
+}
+
+// _readCommands are the shell commands a role without write may allow and still run as a reader.
+var _readCommands = []string{
+	"git log", "git diff", "git show", "git status", "git blame",
+	"ls", "cat", "head", "tail", "grep", "rg", "wc", "pwd",
+}
+
+// writes reports whether a turn of r takes its tree's lock and gets a checkpoint: the role has
+// write, or on claude its tools allow a shell command that is not in _readCommands. Codex
+// without write runs in a read-only sandbox.
+func writes(r store.Role) bool {
+	return r.Write || r.Backend == "claude" && slices.ContainsFunc(r.Tools, changesFiles)
+}
+
+func changesFiles(tool string) bool {
+	name, arg, found := strings.Cut(tool, "(")
+	if strings.TrimSpace(name) != "Bash" {
+		return false
+	}
+	if !found || store.UnrestrictedBash(tool) {
+		return true
+	}
+	cmd := strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(arg, ")"), ":*"))
+	return !slices.ContainsFunc(_readCommands, func(c string) bool {
+		return cmd == c || strings.HasPrefix(cmd, c+" ")
+	})
 }
 
 // access maps a role's write flag to the permission mode, allowed tools and denied tools of its backend.

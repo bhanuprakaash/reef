@@ -607,7 +607,8 @@ a message wakes them.
   the real one, so the index, HEAD and the files do not change. The ref is on the turn's
   `checkpoint`. If the checkpoint fails, the turn is stored `failed` with git's error and the
   agent gets no prompt. A repo with no commit has nothing to snapshot: its turns run with
-  `checkpoint` null. A role without `write` gets none. The checkpoint commit has two parents:
+  `checkpoint` null. A role without `write` gets none, unless it is a writer in all but name
+  (below). The checkpoint commit has two parents:
   HEAD, then a commit of the index as it was, so a rollback can bring back what was staged.
   Its message records the directory and the branch it was taken in (`dir:` and `branch:`
   lines; no branch when HEAD was detached).
@@ -615,7 +616,11 @@ a message wakes them.
   folder: the feature's worktree, or the project path for quick sessions. A wake of a role with `write` waits for
   the write turn that runs on its tree, then runs. Its turn row is created when it starts, so
   `startedAt` is after the other turn's `endedAt`. A stop ends the wait, and the turn is
-  stored `failed` as `interrupted`. A role without `write` is not held: it runs beside a
+  stored `failed` as `interrupted`. A claude role without `write` whose tools allow a shell
+  command outside a short list of reading commands (`git log`, `git diff`, `git show`,
+  `git status`, `git blame`, `ls`, `cat`, `head`, `tail`, `grep`, `rg`, `wc`, `pwd`) counts
+  as a writer: it takes the lock and gets a checkpoint, as `Bash(git commit:*)` or `Bash(rm:*)`
+  could change files. A role without `write` and with only reading commands is not held: it runs beside a
   write turn, and counts as a reader of the tree for its turn, which only a rollback
   respects. The first start
   of a feature's worktree takes a lock of its own, so two channels waking at once add it once.
