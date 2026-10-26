@@ -68,7 +68,7 @@ type (
 		Messages []store.Message `json:"messages"`
 	}
 	postIn struct {
-		Body   string `json:"body" jsonschema:"the message; @mention a teammate to hand work over"`
+		Body   string `json:"body" jsonschema:"the message; start a line with @name to hand work over"`
 		Parent *int64 `json:"parent,omitempty" jsonschema:"id of a top-level message to reply to in its thread; omit to post at the top level"`
 	}
 	stageIn struct {
@@ -164,8 +164,8 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 	}, m.readThread)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "post_to_channel",
-		Description: "Post a message to this channel as yourself. @mention a teammate to wake " +
-			"them when your turn ends; a post that mentions nobody wakes no one.",
+		Description: "Post a message to this channel as yourself. Start a line with @name to wake " +
+			"that teammate when your turn ends; a post with no such line wakes no one.",
 	}, m.postToChannel)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "set_stage",

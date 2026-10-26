@@ -45,34 +45,26 @@ const (
 
 var _expectedFail = map[string]map[string]string{
 	"claude": {
-		"duplicate bodies":        "#47",
-		"duplicate in prompt":     "#47",
-		"wake size":               "#47",
-		"double post wake":        "#48",
-		"plain-text mention wake": "#49",
-		"cost sum":                "#50",
-		"restart":                 "#55",
+		"duplicate bodies": "#47",
+		"wake size":        "#47",
+		"double post wake": "#48",
+		"cost sum":         "#50",
+		"restart":          "#55",
 	},
 	"claude-recorded": {
-		"duplicate bodies":        "#47",
-		"duplicate in prompt":     "#47",
-		"wake size":               "#47",
-		"double post wake":        "#48",
-		"plain-text mention wake": "#49",
-		"cost sum":                "#50",
+		"duplicate bodies": "#47",
+		"wake size":        "#47",
+		"cost sum":         "#50",
 	},
 	"codex": {
-		"duplicate bodies":        "#47",
-		"duplicate in prompt":     "#47",
-		"wake size":               "#47",
-		"double post wake":        "#48",
-		"plain-text mention wake": "#49",
-		"restart":                 "#55",
+		"duplicate bodies": "#47",
+		"wake size":        "#47",
+		"double post wake": "#48",
+		"restart":          "#55",
 	},
 	"codex-recorded": {
-		"duplicate bodies":        "#47",
-		"wake size":               "#47",
-		"plain-text mention wake": "#49",
+		"duplicate bodies": "#47",
+		"wake size":        "#47",
 	},
 }
 

@@ -655,7 +655,7 @@ func TestSend_OneWakePerRole(t *testing.T) {
 	env.fake.onRun = func(role, _ string, parent *int64) {
 		if role == "lead" {
 			post("lead", "@architect look at this", parent)
-			post("lead", "I asked @architect", parent)
+			post("lead", "@architect and this too", parent)
 		}
 	}
 	sub := subscribeTo(t, env.url, id)
@@ -668,7 +668,7 @@ func TestSend_OneWakePerRole(t *testing.T) {
 	want := []string{
 		"[channel 2, message 1]\ngo",
 		"[channel 2, message 2]\nlead wrote: @architect look at this\n\n" +
-			"[channel 2, message 3]\nlead wrote: I asked @architect",
+			"[channel 2, message 3]\nlead wrote: @architect and this too",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: one architect turn for both posts", got, want)

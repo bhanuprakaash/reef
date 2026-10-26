@@ -630,7 +630,7 @@ func TestApproval_ThreadAndTopLevelMentionHoldOneWake(t *testing.T) {
 		if role == "lead" && strings.HasSuffix(text, "\ngo") {
 			one := int64(1)
 			post("lead", "@developer build it", &one)
-			post("lead", "handed to @developer", nil)
+			post("lead", "@developer handed over", nil)
 		}
 	}
 	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
