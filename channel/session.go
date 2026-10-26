@@ -92,23 +92,10 @@ const (
 // ErrNoProposal is returned by Wrap when the agent made no proposal.
 var ErrNoProposal = errors.New("no proposal made")
 
-// Open opens the channel; no agent starts until a turn needs it. The caller must Close
-// the Session. Sessions that share trees run one write turn at a time on a working tree.
+// Open opens the channel; no agent starts until a turn needs it. mk makes the agent of each
+// backend, NewAgent in production. The caller must Close the Session. Sessions that share
+// trees run one write turn at a time on a working tree.
 func Open(
-	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64, trees *Trees,
-) (*Session, error) {
-	return open(ctx, st, dataDir, exe, channelID, trees, newAgent)
-}
-
-// OpenWith is Open with mk making the agent of each backend.
-func OpenWith(
-	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64, trees *Trees,
-	mk func(backend string) (agent.Agent, error),
-) (*Session, error) {
-	return open(ctx, st, dataDir, exe, channelID, trees, mk)
-}
-
-func open(
 	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64, trees *Trees,
 	mk func(backend string) (agent.Agent, error),
 ) (_ *Session, err error) {
@@ -799,7 +786,8 @@ func introSent(
 	return sent, nil
 }
 
-func newAgent(backend string) (agent.Agent, error) {
+// NewAgent returns the agent of backend, claude or codex.
+func NewAgent(backend string) (agent.Agent, error) {
 	switch backend {
 	case "claude":
 		return claude.New(), nil

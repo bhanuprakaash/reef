@@ -29,7 +29,7 @@ var _nameDenied = []string{"Bash", "Edit", "Write", "MultiEdit", "NotebookEdit",
 // ProposeName asks the backend for a short name for a channel whose first user message is
 // message. It is one throwaway turn: no tools, no stored turn or message.
 func ProposeName(ctx context.Context, backend, message string) (string, error) {
-	return proposeName(ctx, newAgent, backend, message)
+	return proposeName(ctx, NewAgent, backend, message)
 }
 
 func proposeName(

@@ -75,7 +75,7 @@ func newWakeEnv(t *testing.T) *wakeEnv {
 		e.agents = append(e.agents, a)
 		return a, nil
 	}
-	e.s, err = open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	e.s, err = Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}

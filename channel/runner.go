@@ -47,17 +47,6 @@ type Runner struct {
 	sessionGone bool
 }
 
-// checkpointRef is refs/reef/checkpoints/<12 hex of sha256 of the absolute data dir>/<turn id>.
-// Turns made before the data dir was in the name keep their stored ref, which still restores.
-func (r *Runner) checkpointRef(turnID int64) (string, error) {
-	dir, err := filepath.Abs(r.DataDir)
-	if err != nil {
-		return "", fmt.Errorf("checkpoint ref: %w", err)
-	}
-	sum := sha256.Sum256([]byte(dir))
-	return fmt.Sprintf("refs/reef/checkpoints/%x/%d", sum[:6], turnID), nil
-}
-
 type replyState uint8
 
 const (
@@ -251,6 +240,17 @@ func (r *Runner) wake(text string) string {
 		return ""
 	}
 	return text
+}
+
+// checkpointRef is refs/reef/checkpoints/<12 hex of sha256 of the absolute data dir>/<turn id>.
+// Turns made before the data dir was in the name keep their stored ref, which still restores.
+func (r *Runner) checkpointRef(turnID int64) (string, error) {
+	dir, err := filepath.Abs(r.DataDir)
+	if err != nil {
+		return "", fmt.Errorf("checkpoint ref: %w", err)
+	}
+	sum := sha256.Sum256([]byte(dir))
+	return fmt.Sprintf("refs/reef/checkpoints/%x/%d", sum[:6], turnID), nil
 }
 
 // abort interrupts the agent and stores turn as failed with reason, keeping the reply

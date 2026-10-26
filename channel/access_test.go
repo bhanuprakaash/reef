@@ -41,7 +41,7 @@ func TestSession_RunAsConfigFollowsWrite(t *testing.T) {
 		ags[next] = ag
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -118,7 +118,7 @@ func TestSession_RunAsDeniesUnpickedSkills(t *testing.T) {
 		ags[next] = ag
 		return ag, nil
 	}
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}

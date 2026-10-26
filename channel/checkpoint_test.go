@@ -85,7 +85,7 @@ func TestSession_CheckpointsWriteTurnsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	s, err := open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), func(string) (agent.Agent, error) {
+	s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), func(string) (agent.Agent, error) {
 		return newRecordingAgent(), nil
 	})
 	if err != nil {
@@ -151,7 +151,7 @@ func TestSession_NoCheckpointWhenProjectIsASubfolderOfARepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	ag := newRecordingAgent()
-	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
