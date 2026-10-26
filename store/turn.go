@@ -159,16 +159,18 @@ func (s *Store) Turns(ctx context.Context, f TurnFilter) ([]Turn, error) {
 }
 
 // SessionCostBefore is the running cost of the session with the id when its turns before turn
-// beforeID ended: the total the latest of them reported. A turn stored before totals were kept
-// holds a running total as its cost, so for a session with only such turns the largest is the
-// newest and is used. 0 for a session with no earlier turn.
+// beforeID ended: the total the latest of them reported. A session with only turns stored before
+// totals were kept has the largest cost, a running total, plus the costs stored after it, which
+// are a long-lived process's own shares. 0 for a session with no earlier turn.
 func (s *Store) SessionCostBefore(ctx context.Context, sessionID string, beforeID int64) (float64, error) {
 	var cost float64
 	err := s.db.QueryRowContext(ctx,
 		`SELECT COALESCE(
 			(SELECT session_cost_usd FROM turn WHERE session_id = ?1 AND id < ?2
 				AND session_cost_usd IS NOT NULL ORDER BY id DESC LIMIT 1),
-			(SELECT MAX(cost_usd) FROM turn WHERE session_id = ?1 AND id < ?2), 0)`,
+			(SELECT SUM(cost_usd) FROM turn WHERE session_id = ?1 AND id < ?2 AND id >=
+				(SELECT id FROM turn WHERE session_id = ?1 AND id < ?2
+					ORDER BY cost_usd DESC, id DESC LIMIT 1)), 0)`,
 		sessionID, beforeID).Scan(&cost)
 	if err != nil {
 		return 0, fmt.Errorf("session cost: %w", err)
