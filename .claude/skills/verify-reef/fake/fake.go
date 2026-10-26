@@ -215,6 +215,10 @@ func replay(
 					replaced = string(marshalLine(generic))
 				}
 			}
+			if t, _ := generic["type"].(string); t == "result" {
+				addSessionTotals(generic, strings.TrimSuffix(sessf.Name(), ".jsonl")+".totals")
+				replaced = string(marshalLine(generic))
+			}
 		}
 
 		fmt.Fprintln(out, replaced)

@@ -1,6 +1,9 @@
 package main
 
-import "regexp"
+import (
+	"regexp"
+	"strings"
+)
 
 // scenario matches a prompt's text part to a recording name. Role "" matches any role.
 // Entries are matched in order, so a specific pattern must come before a generic one.
@@ -33,9 +36,11 @@ var _scenarios = []scenario{
 	{"thread-reply", "architect", pat(`Which field would you validate first`)},
 	{"design-mention", "lead", pat(`(?i)\bDESIGN\b`)},
 	{"relay-go", "lead", pat(`^go$`)},
+	{"hop-ping", "lead", pat(`^(start|architect wrote: @lead pong)$`)},
+	{"hop-pong", "architect", pat(`^lead wrote: @architect ping$`)},
 	{"relay-tester-woken", "tester", pat(`lead wrote: @tester check this`)},
 	{"architect-woken", "architect", pat(`lead wrote: @architect `)},
-	{"google-architect-woken", "architect", pat(`Handed the brief to @architect to sketch the`)},
+	{"google-architect-woken", "architect", pat(`@architect sketch the route/handler shape`)},
 	{"google-developer-woken", "developer", pat(`@developer please implement per above`)},
 	{"google-tester-woken", "tester", pat(`Implemented per the architect's plan`)},
 	{"google-lead-final", "lead", pat(`(?s)tester wrote: .*TestGoogleAuthRedirect`)},
@@ -86,21 +91,35 @@ func matchScenario(role, text string) string {
 // or "You are the <role> in project" (channel/context.go).
 var _roleRe = regexp.MustCompile(`You are the (\S+) (?:on feature|in project)`)
 
-// _headerRe is a wake's own header line (server/wake.go), "[channel N, message M]" or
-// "[channel N, message M, thread T]".
+// _headerRe is a wake block's header line (channel/wake.go), "[channel N, message M]" or
+// "[channel N, message M, thread T]", or a direct message's (server/wake.go).
 var _headerRe = regexp.MustCompile(`(?m)^\[channel [^\n\]]*\]$`)
 
-// textPart is the part of a prompt scenarios match on: the text after its last header
-// line, or the whole prompt when it has none (a channel's first prompt, with no wake yet).
+// _wroteRe starts a teammate's message in a wake: "<role> wrote: " or "<role> wrote privately: ".
+var _wroteRe = regexp.MustCompile(`(?m)^\S+ wrote(?: privately)?: `)
+
+// _leadLinesRe is the lines a block may have before its messages.
+var _leadLinesRe = regexp.MustCompile(`\A(?:(?:Asked together: |\d+ older messages are not shown)[^\n]*\n)*`)
+
+// textPart is the part of a prompt scenarios match on: the newest message of its last wake
+// block, or the whole prompt when it has none (a channel's first prompt, with no wake yet).
+// That message ends the block, after reef's notes ("reef wrote: ...") and the older unread
+// messages ("New in the channel:"), each list ending in a blank line: it is the last
+// teammate's "<role> wrote: ", else the user's text after the last blank line.
 func textPart(prompt string) string {
 	locs := _headerRe.FindAllStringIndex(prompt, -1)
 	if len(locs) == 0 {
 		return prompt
 	}
-	last := locs[len(locs)-1]
-	rest := prompt[last[1]:]
-	if len(rest) > 0 && rest[0] == '\n' {
-		rest = rest[1:]
+	rest := strings.TrimPrefix(prompt[locs[len(locs)-1][1]:], "\n")
+	wrote := _wroteRe.FindAllStringIndex(rest, -1)
+	for i := len(wrote) - 1; i >= 0; i-- {
+		if !strings.HasPrefix(rest[wrote[i][0]:], "reef wrote: ") {
+			return rest[wrote[i][0]:]
+		}
 	}
-	return rest
+	if i := strings.LastIndex(rest, "\n\n"); i >= 0 {
+		rest = rest[i+2:]
+	}
+	return _leadLinesRe.ReplaceAllString(rest, "")
 }
