@@ -593,6 +593,18 @@ func TestMCPServersNotPreApproved(t *testing.T) {
 	}
 }
 
+func TestMCPConfigRemovedAtFirstLine(t *testing.T) {
+	a := fakeClaude(t, "hang")
+	cfg := agent.Config{Cwd: t.TempDir(), MCPServers: map[string]agent.MCPServer{"reef": {Command: "r"}}}
+	if err := a.Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	<-a.Events()
+	if _, err := os.Stat(a.mcpPath); !os.IsNotExist(err) {
+		t.Errorf("stat %s while claude runs: %v, want not exist", a.mcpPath, err)
+	}
+}
+
 func TestToolsAllowed(t *testing.T) {
 	a := fakeClaude(t, "argv")
 	cfg := agent.Config{Cwd: t.TempDir(), Tools: []string{"Read", "Bash(git log:*)"}}

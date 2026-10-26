@@ -265,7 +265,8 @@ Env
   (tests use `sonnet`).
 
 MCP config injection
-- Claude: `--mcp-config PATH` to a 0600 temp file, removed after exit. This keeps MCP `env`
+- Claude: `--mcp-config PATH` to a 0600 temp file, removed at claude's first output line (it
+  reads the file once at start-up) or at its exit, so a reef killed after that leaves none. This keeps MCP `env`
   secrets off argv. The file is `{"mcpServers":{"name":{"command":..,"args":..,"env":..}}}`. HTTP
   servers need `"type":"http"`; a bare `{"url":...}` is dropped silently. The adapter adds
   it when `URL` is set. Tool names are `mcp__<server>__<tool>`. MCP tools are deferred, so

@@ -297,13 +297,14 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 func (a *Agent) read(stdout io.Reader) {
 	defer close(a.done)
 	defer close(a.events)
-	defer func() {
-		if a.mcpPath != "" {
-			_ = os.Remove(a.mcpPath)
-		}
-	}()
 
 	r := bufio.NewReader(stdout)
+	// claude reads --mcp-config once at start-up, before it prints anything, so the file goes
+	// at its first output: a reef killed after that leaves no file behind.
+	_, _ = r.Peek(1)
+	if a.mcpPath != "" {
+		_ = os.Remove(a.mcpPath)
+	}
 	var last agent.Kind
 	var st state
 	for {
