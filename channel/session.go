@@ -338,7 +338,8 @@ func (s *Session) closeMembers() error {
 // store, so a team applied since the channel opened is the one it gets. An agent that fails
 // to start leaves a failed turn for the role that keeps text and parent, the wake it was
 // starting for, and so does a ctx cancelled before it starts: the turn is interrupted. The
-// store is read even then, as Run stores its turn.
+// store is read even then, as Run stores its turn. A role the team no longer has leaves one
+// too, on the channel's backend.
 func (s *Session) member(
 	ctx context.Context, role, text string, parent, directMessageID *int64,
 ) (_ *member, err error) {
@@ -349,7 +350,7 @@ func (s *Session) member(
 	}
 	r, err := s.roleSetup(team, role)
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(err, s.failTurn(wctx, role, s.ch.Backend, err.Error(), text, parent, directMessageID))
 	}
 	if m, ok := s.members[role]; ok {
 		_, err := os.Stat(m.dir)

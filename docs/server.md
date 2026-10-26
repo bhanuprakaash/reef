@@ -582,7 +582,8 @@ a message wakes them.
   wakes a specialist starts no lead. A role that already has a session resumes it by its own
   newest session id (see [memory.md](memory.md#reef-chat)). An agent that fails to start shows
   as a `failed` turn of its role, with the start error, or `interrupted` when a stop cut the
-  start short. The server logs every failed turn. When the backend says the session is
+  start short. A wake for a role the team no longer has is a `failed` turn too, with the wake
+  text, on the channel's backend. The server logs every failed turn. When the backend says the session is
   missing (claude `No conversation found`, codex `no rollout found for thread id`), that turn
   fails and the role's next wake starts a new session, with its intro, not the dead one.
 - An agent of a channel under a feature runs in the feature's worktree,
@@ -762,8 +763,9 @@ not stored or routed. A further exchange requires an explicit `send_to_role`. Th
 all direct records with `GET /channels/{id}/direct-messages`; an MCP token reads only records
 whose `from` or `to` is its role. `GET /search` finds public and direct messages together for
 the user; the MCP `search_sessions` returns a direct hit only to its sender or recipient.
-Rejecting the approval of a direct wake, and a stop that sheds a queued direct wake, each give the request a `failed`
-response with body `rejected` or `stopped`, so the window tells them from a delivery that failed. Wrap-up and promote prompts list the
+Rejecting the approval of a direct wake, a stop that sheds a queued direct wake, and a user
+message that drops a held direct wake after a hop cap pause, each give the request a `failed`
+response with body `rejected`, `stopped` or `dropped`, so the window tells them from a delivery that failed. Wrap-up and promote prompts list the
 channel's direct messages, marking a `failed` attempt `(failed)`. Partial output from a failed recipient turn is appended as
 a `failed` response attempt: it is inspectable but never routed. Retry appends a `done`
 response; a partial unique index allows only one `done` response per request, and only that
@@ -943,12 +945,14 @@ rows of the `approval` table. `continue` claims the channel's pending holds once
 hop count to 0 and runs them in order as a new chain, with `pause` `{"reason":""}` as the
 chain starts. If the chain cannot start, the channel stays paused and keeps the holds. That
 chain can reach the hop cap again, and then pauses again. Sending a user message resets the
-hop count to 0 too, and drops the holds. Approving a gated wake resets it too, so that wake runs even at
+hop count to 0 too, and drops the holds; a dropped direct request gets a `failed` response with
+body `dropped`. Approving a gated wake resets it too, so that wake runs even at
 6 hops; wakes no one approved still count, so 6 hops with no approval pause the channel. The holds are stored, so
 they survive a restart; the hop count is not, so a chain that runs after a restart counts from 0.
 
 The same pause holds work when the server cannot store an approval for a gated wake, or cannot
-read the messages a turn stored to route them. The channel pauses with the error as the reason, and
+read the messages or the direct messages a turn stored to route them, or when a store error
+stops the check before the next wake. The channel pauses with the error as the reason, and
 nothing runs ungated. These wakes are held in memory only, since the database failed. `continue` stores the approval again, or does the routing read again from
 the message before the turn's reply, and runs what that wakes. If it fails again the channel
 stays paused.

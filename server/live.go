@@ -568,6 +568,15 @@ func (s *server) capLocked(ctx context.Context, id int64, l *live) error {
 	return fmt.Errorf("channel %d is paused: %s: %w", id, _hopReason, store.ErrConflict)
 }
 
+// pauseLocked pauses the channel for reason, so continue runs the wakes the chain keeps.
+func (s *server) pauseLocked(ctx context.Context, id int64, l *live, reason string) {
+	if err := s.st.PauseChannel(ctx, id, reason); err != nil {
+		log.Printf("pause channel %d: %v", id, err)
+		return
+	}
+	l.publishLocked("pause", pauseState{Reason: reason})
+}
+
 // continueChannel clears the pause, and runs the wakes the pause held as a new chain. A
 // channel with a turn running is 409; if the held wakes cannot start the channel stays
 // paused and keeps them.
@@ -723,7 +732,7 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !*in.Approve && a.DirectMessageID != nil {
-		s.rejectDirect(r.Context(), id, a)
+		s.failDirect(r.Context(), id, a, "rejected")
 	}
 	if *in.Approve {
 		ctx := context.WithoutCancel(r.Context())
@@ -758,16 +767,17 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// rejectDirect gives the request held by a rejected direct approval a failed response with
-// body "rejected", so the message list tells a rejection from a delivery that completed.
-func (s *server) rejectDirect(ctx context.Context, channelID int64, a store.Approval) {
+// failDirect gives the request held by a direct approval that will not run a failed response
+// with body ("rejected" or "dropped"), so the message list tells it from a delivery that
+// completed.
+func (s *server) failDirect(ctx context.Context, channelID int64, a store.Approval, body string) {
 	ctx = context.WithoutCancel(ctx)
 	dm, err := s.st.DirectMessage(ctx, *a.DirectMessageID)
 	if err == nil && dm.ReplyToID == nil {
-		err = recordFailedDirect(ctx, s.st, dm.ID, a.To, "rejected")
+		err = recordFailedDirect(ctx, s.st, dm.ID, a.To, body)
 	}
 	if err != nil {
-		log.Printf("reject direct message %d: %v", *a.DirectMessageID, err)
+		log.Printf("%s direct message %d: %v", body, *a.DirectMessageID, err)
 		return
 	}
 	s.notify(channelID, "direct")
@@ -1080,8 +1090,11 @@ func (c *chain) start(
 	l := c.l
 	l.mu.Lock()
 	err = nil
+	var dropped []store.Approval
 	if c.unpause {
-		err = c.s.st.ContinueChannel(ctx, c.id, c.budget)
+		if dropped, err = c.s.st.PendingHolds(ctx, c.id); err == nil {
+			err = c.s.st.ContinueChannel(ctx, c.id, c.budget)
+		}
 	}
 	if err == nil && !l.countHop(queue[0]) {
 		err = c.s.capLocked(ctx, c.id, l)
@@ -1099,6 +1112,11 @@ func (c *chain) start(
 	l.publishLocked("turn", turnState{
 		Role: queue[0].role, Status: "running", Direct: queue[0].direct != nil})
 	l.mu.Unlock()
+	for _, a := range dropped {
+		if a.DirectMessageID != nil {
+			c.s.failDirect(ctx, c.id, a, "dropped")
+		}
+	}
 	go c.runTurn(sess, kind, queue, after, afterDirect)
 	return nil
 }
@@ -1159,6 +1177,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 				direct, directLast, directErr := s.directWakes(c.ctx, c.id, afterDirect, w.role)
 				if directErr != nil {
 					stall = fmt.Errorf("route direct messages: %w", directErr)
+					again = &retry{role: w.role, after: after}
 				} else {
 					ws = append(ws, direct...)
 					afterDirect = directLast
@@ -1177,12 +1196,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		l.publishLocked("turn", end)
 		if stall != nil && c.ctx.Err() == nil {
 			l.held, l.retry = queue, again
-			reason := stall.Error()
-			if err := s.st.PauseChannel(c.ctx, c.id, reason); err != nil {
-				log.Printf("pause channel %d: %v", c.id, err)
-			} else {
-				l.publishLocked("pause", pauseState{Reason: reason})
-			}
+			s.pauseLocked(c.ctx, c.id, l, stall.Error())
 			finish(nil)
 			return
 		}
@@ -1207,7 +1221,9 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 			if c.ctx.Err() == nil {
 				log.Printf("wake %s in channel %d: %v", queue[0].role, c.id, err)
 				l.held = queue
-				if errors.Is(err, store.ErrConflict) {
+				if !errors.Is(err, store.ErrConflict) {
+					s.pauseLocked(c.ctx, c.id, l, err.Error())
+				} else {
 					var herr error
 					if l.held, herr = s.hold(c.ctx, c.id, queue); herr != nil {
 						log.Printf("channel %d: %v", c.id, herr)

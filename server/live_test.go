@@ -282,6 +282,18 @@ func (e *liveEnv) exec(t *testing.T, stmt string) {
 	}
 }
 
+// waitIdle waits for the chain of channel id to end and free the channel.
+func (e *liveEnv) waitIdle(t *testing.T, id int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for l := e.h.s.lookup(int64(id)); l != nil && l.running(); l = e.h.s.lookup(int64(id)) {
+		if time.Now().After(deadline) {
+			t.Fatal("chain did not end")
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // overBudget uses up the token budget of channel 1 and sends a message, which pauses the
 // channel. It returns the pause reason.
 func (e *liveEnv) overBudget(t *testing.T) string {
@@ -1399,5 +1411,73 @@ func TestSend_RoutingFailurePausesAndContinueRoutes(t *testing.T) {
 		"[channel 2, message 2]\nlead wrote: @architect plan it",
 	}) {
 		t.Errorf("ran = %q, want the architect to run the message the failed read left", got)
+	}
+}
+
+func TestSend_DirectReadFailurePausesAndContinueRunsPublicWake(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect plan it", nil)
+			env.exec(t, "ALTER TABLE direct_message RENAME TO direct_message_gone")
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+
+	env.sendTo(t, id, "go")
+	const reason = "route direct messages: list direct messages: SQL logic error: no such table: direct_message (1)"
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
+	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != reason {
+		t.Errorf("channel = %+v, %v, want paused with %q", ch, err, reason)
+	}
+
+	env.exec(t, "ALTER TABLE direct_message_gone RENAME TO direct_message")
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "architect")
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
+	}) {
+		t.Errorf("ran = %q, want the architect to run the wake the failed direct read left", got)
+	}
+}
+
+func TestSend_StoreErrorBeforeNextWakePausesAndContinueRunsHeldWakes(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamChannel(t)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect plan it", nil)
+			env.exec(t, "ALTER TABLE turn RENAME TO turn_gone")
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+
+	env.sendTo(t, id, "go")
+	const reason = "sum channel tokens: SQL logic error: no such table: turn (1)"
+	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
+	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != reason {
+		t.Errorf("channel = %+v, %v, want paused with %q", ch, err, reason)
+	}
+
+	env.exec(t, "ALTER TABLE turn_gone RENAME TO turn")
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	sub.want(t, `pause {"reason":""}`)
+	sub.wantTurns(t, "architect")
+	if got := env.ranTexts(); !slices.Equal(got, []string{
+		"[channel 2, message 1]\ngo",
+		"[channel 2, message 2]\nlead wrote: @architect plan it",
+	}) {
+		t.Errorf("ran = %q, want the architect to run the wake held by the store error", got)
 	}
 }

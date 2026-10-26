@@ -314,6 +314,59 @@ func TestDirectHopCapHoldThenContinue(t *testing.T) {
 	sub.want(t, _idleFrame)
 }
 
+func TestDirectUserMessageFailsHeldWake(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	var ping atomic.Bool
+	ping.Store(true)
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" && ping.Load() {
+			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
+				ChannelID: int64(id), From: "lead", To: "architect", Body: "ping",
+			}); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	env.sendTo(t, id, "go")
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if ch, _ := env.st.Channel(ctx, int64(id)); ch.Paused != "" {
+			break
+		}
+	}
+	env.waitIdle(t, id)
+	before, err := env.st.DirectMessages(ctx, int64(id), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held := before[len(before)-1]
+	if held.Body != "ping" || held.Status != store.DirectSent || held.ReplyToID != nil ||
+		countHolds(t, env.dir, int64(id)) != 1 {
+		t.Fatalf("last direct message = %+v, holds = %d, want the unanswered ping held once",
+			held, countHolds(t, env.dir, int64(id)))
+	}
+
+	ping.Store(false)
+	if status, body := env.sendTo(t, id, "more"); status != 202 || body != "" {
+		t.Fatalf("send while hop paused = %d %q, want 202", status, body)
+	}
+	after, err := env.st.DirectMessages(ctx, int64(id), 0)
+	if err != nil || len(after) != len(before)+1 {
+		t.Fatalf("direct messages = %d, %v, want %d: one response for the held request",
+			len(after), err, len(before)+1)
+	}
+	got := after[len(after)-1]
+	if got.Status != store.DirectFailed || got.Body != "dropped" || got.From != "architect" ||
+		got.To != "lead" || got.ReplyToID == nil || *got.ReplyToID != held.ID {
+		t.Errorf("response = %+v, want failed architect->lead \"dropped\" replying to %d", got, held.ID)
+	}
+	env.waitIdle(t, id)
+	if ran := env.ranTexts(); len(ran) != 8 || !strings.HasSuffix(ran[7], "\nmore") {
+		t.Errorf("ran = %q, want 8 turns, the last the user's \"more\"", ran)
+	}
+}
+
 // TestDirectTokenCapHoldThenContinue exhausts the token budget mid-chain so the pending
 // direct wake is held, then Continue extends the budget and runs it.
 func TestDirectTokenCapHoldThenContinue(t *testing.T) {

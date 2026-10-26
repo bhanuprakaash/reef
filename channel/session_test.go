@@ -1487,3 +1487,42 @@ func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
 		t.Errorf("failed turns = %+v, %v, want one architect turn naming the missing binary", turns, err)
 	}
 }
+
+func TestSession_RemovedRoleStoresFailedTurn(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
+	architect := store.Role{Name: "architect", Backend: "claude"}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.RunAs(ctx, "architect", "plan it", nil, discard)
+	if !errors.Is(err, store.ErrInvalid) {
+		t.Fatalf("RunAs for a removed role error = %v, want invalid", err)
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil || len(turns) != 1 {
+		t.Fatalf("turns = %+v, %v, want one", turns, err)
+	}
+	got := turns[0]
+	if got.Role != "architect" || got.Status != "failed" || got.WakeText != "plan it" ||
+		got.Error != "invalid: team core has no role architect" {
+		t.Errorf("turn = %+v, want a failed architect turn with wake \"plan it\" and the start error", got)
+	}
+}

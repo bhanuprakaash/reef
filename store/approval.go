@@ -114,6 +114,17 @@ func (s *Store) DecideApproval(ctx context.Context, id int64, status string) err
 	return nil
 }
 
+// PendingHolds lists the channel's pending holds, oldest first.
+func (s *Store) PendingHolds(ctx context.Context, channelID int64) ([]Approval, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT "+_approvalCols+" FROM approval WHERE channel_id = ? AND status = ? AND kind = ? ORDER BY id",
+		channelID, ApprovalPending, ApprovalHold)
+	if err != nil {
+		return nil, fmt.Errorf("list holds: %w", err)
+	}
+	return scanAll(rows, scanApproval)
+}
+
 // ClaimHolds sets the channel's pending holds to approved and returns them, oldest first.
 // A second call finds none, so a hold is claimed once.
 func (s *Store) ClaimHolds(ctx context.Context, channelID int64) ([]Approval, error) {
