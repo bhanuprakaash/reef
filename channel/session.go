@@ -31,6 +31,7 @@ type Session struct {
 	mk       func(backend string) (agent.Agent, error)
 	lock     *os.File
 	onPrompt func(prompt string)
+	onNote   func()
 	members  map[string]*member
 	trees    *Trees
 }
@@ -132,6 +133,12 @@ func Open(
 func (s *Session) Start(ctx context.Context) error {
 	_, err := s.member(ctx, s.ch.Role, runInput{})
 	return err
+}
+
+// SetOnNote sets a hook called after the lead posts a background answer between turns. Set it
+// before the first turn.
+func (s *Session) SetOnNote(f func()) {
+	s.onNote = f
 }
 
 // SetOnPrompt sets a hook that sees every prompt before it is sent to an agent.
@@ -421,6 +428,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	}
 	backend = r.Backend
 	if m, ok := s.members[role]; ok {
+		m.run.endWatch()
 		_, err := os.Stat(m.dir)
 		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone &&
 			sameAccess(m.cfg, roleConfig(r, m.dir)) {
@@ -517,9 +525,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		m.run.CheckpointDir = cwd
 		m.run.DataDir = s.dataDir
 	}
-	if role == s.ch.Role {
-		m.run.Watch()
-	}
+	m.run.OnNote = s.onNote
 	s.members[role] = m
 	return m, nil
 }

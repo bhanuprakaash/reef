@@ -34,10 +34,11 @@ type fakeSession struct {
 	// agent stores while it works.
 	onRun func(role, text string, parent *int64)
 
-	mu   sync.Mutex
-	ran  []string
-	woke []store.Scopes
-	say  func()
+	mu     sync.Mutex
+	ran    []string
+	woke   []store.Scopes
+	say    func()
+	onNote func()
 
 	// directStart receives a signal each time a direct turn starts, so tests can
 	// synchronize on direct-turn execution without sleeping. It is buffered so a start
@@ -160,6 +161,12 @@ func (f *fakeSession) Promote(_ context.Context, onEvent func(agent.Event)) (sto
 	f.promoted.Add(1)
 	onEvent(agent.Event{Kind: agent.KindText, Text: "promoted"})
 	return store.Proposal{}, nil
+}
+
+func (f *fakeSession) SetOnNote(fn func()) {
+	f.mu.Lock()
+	f.onNote = fn
+	f.mu.Unlock()
 }
 
 func (f *fakeSession) Close() error {
@@ -457,6 +464,24 @@ func TestSend_Streams(t *testing.T) {
 	if got := env.opened.Load(); got != 1 {
 		t.Errorf("sessions opened = %d, want 1: the agent stays alive between turns", got)
 	}
+}
+
+func TestSend_IdlePostNotifiesTheStream(t *testing.T) {
+	env := newLiveEnv(t)
+	sub := subscribe(t, env.url)
+	env.send(t, "hello")
+	sub.want(t,
+		_idleFrame,
+		`turn {"role":"lead","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`,
+	)
+
+	env.fake.mu.Lock()
+	note := env.fake.onNote
+	env.fake.mu.Unlock()
+	note()
+	sub.want(t, `note {}`)
 }
 
 func TestSend_Parent(t *testing.T) {

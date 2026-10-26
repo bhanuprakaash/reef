@@ -41,6 +41,7 @@ type session interface {
 		onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 	Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
+	SetOnNote(f func())
 	Close() error
 }
 
@@ -1159,6 +1160,7 @@ func (c *chain) session() (session, error) {
 			}
 			return nil, err
 		}
+		sess.SetOnNote(func() { c.s.notify(c.id, "note") })
 		c.l.mu.Lock()
 		c.l.sess = sess
 		c.l.mu.Unlock()

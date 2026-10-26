@@ -37,6 +37,8 @@ type Runner struct {
 	// Scopes, when set, are the scopes of the wake the next turn sends, each with its newest
 	// message, and are stored on the turn so a later turn of the session skips them.
 	Scopes store.Scopes
+	// OnNote, when set, is called after the watch posts a message, so a window shows it.
+	OnNote func()
 
 	st        *store.Store
 	ag        agent.Agent
@@ -51,10 +53,13 @@ type Runner struct {
 	sessionGone bool
 
 	// watching is closed to stop the watch that Watch started; watched is closed when it has.
-	// idleUsage is the usage the watch read, which the next turn counts.
-	watching  chan struct{}
-	watched   chan struct{}
-	idleUsage agent.Usage
+	// The rest is what the watch read that the next turn needs: endWatch applies the session,
+	// and the next turn counts the usage and reports the error if its prompt cannot be sent.
+	watching    chan struct{}
+	watched     chan struct{}
+	idleUsage   agent.Usage
+	idleSession agent.Event
+	idleErr     string
 }
 
 type replyState uint8
@@ -94,6 +99,8 @@ func (r *Runner) Run(
 	turn.Model = r.model
 	turn.Usage.Add(r.idleUsage)
 	r.idleUsage = agent.Usage{}
+	idleErr := r.idleErr
+	r.idleErr = ""
 
 	if err := ctx.Err(); err != nil {
 		return errors.Join(err, r.fail(wctx, turn, "interrupted", "", parent))
@@ -124,6 +131,9 @@ func (r *Runner) Run(
 		r.OnPrompt(prompt)
 	}
 	if err := r.ag.Send(ctx, prompt); err != nil {
+		if idleErr != "" {
+			err = fmt.Errorf("%w: %s", err, idleErr)
+		}
 		r.sessionGone = sessionMissing(err.Error())
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
@@ -148,10 +158,8 @@ func (r *Runner) Run(
 			onEvent(ev)
 			switch ev.Kind {
 			case agent.KindSession:
-				r.sessionID, turn.SessionID = ev.SessionID, ev.SessionID
-				if ev.Model != "" {
-					r.model, turn.Model = ev.Model, ev.Model
-				}
+				r.keepSession(ev)
+				turn.SessionID, turn.Model = r.sessionID, r.model
 				if _, err := r.st.SetTurnSession(wctx, turn.ID, ev.SessionID); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
@@ -231,12 +239,18 @@ func (r *Runner) Watch() {
 					return
 				}
 				switch {
+				case ev.Kind == agent.KindSession:
+					r.idleSession = ev
+				case ev.Kind == agent.KindError:
+					r.idleErr = ev.Text
 				case ev.Kind == agent.KindUsage && ev.Usage != nil:
 					r.idleUsage.Add(*ev.Usage)
 				case ev.Kind == agent.KindBackground:
 					if err := r.keepBackground(context.Background(), ev.Text); err != nil {
 						log.Printf("post background answer of %s in channel %d: %v",
 							r.role, r.channelID, err)
+					} else if r.OnNote != nil {
+						r.OnNote()
 					}
 				}
 			}
@@ -252,6 +266,20 @@ func (r *Runner) endWatch() {
 	close(r.watching)
 	<-r.watched
 	r.watching, r.watched = nil, nil
+	if r.idleSession.SessionID != "" {
+		r.keepSession(r.idleSession)
+		r.idleSession = agent.Event{}
+	}
+	if r.idleErr != "" {
+		r.sessionGone = sessionMissing(r.idleErr)
+	}
+}
+
+func (r *Runner) keepSession(ev agent.Event) {
+	r.sessionID = ev.SessionID
+	if ev.Model != "" {
+		r.model = ev.Model
+	}
 }
 
 func (r *Runner) keepBackground(ctx context.Context, text string) error {
