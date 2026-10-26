@@ -290,7 +290,7 @@ One agent run in a channel.
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
 | `directMessageId` | number? | the direct request or response the turn was woken by; `null` for a public wake. Kept so retry preserves private reply routing |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
-| `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<turn id>`. `null` for a turn of a role without `write`, for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
+| `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<data folder>/<turn id>`. `null` for a turn of a role without `write`, for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
 | `model` | string | default `""`; the backend's model name, set from the agent's first event once the turn ends |
 | `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one. A failed turn gets one too, when claude reported one |
 | `prompt` | string | not in the turn's own JSON (`GET /turns`, `GET /turns/{id}`); the full text sent to the agent (context preamble and notes included), set once the turn ends. `GET /channels/{id}/inspector` has its own view of it |
@@ -601,7 +601,9 @@ a message wakes them.
 - Before each turn of a role with `write` in a git checkout (a feature's worktree, or the
   project path of a quick session that is a git repo), the server stores a checkpoint: a commit
   of HEAD plus the whole working tree, untracked files included and ignored ones left out, at
-  `refs/reef/checkpoints/<turn id>`. It is built in a temporary index that starts as a copy of
+  `refs/reef/checkpoints/<data folder>/<turn id>`, where `<data folder>` is the first 12 hex
+  digits of the sha256 of the absolute data folder path, so two Reef copies on one repo never
+  overwrite each other's. Turns from before keep their stored ref. It is built in a temporary index that starts as a copy of
   the real one, so the index, HEAD and the files do not change. The ref is on the turn's
   `checkpoint`. If the checkpoint fails, the turn is stored `failed` with git's error and the
   agent gets no prompt. A repo with no commit has nothing to snapshot: its turns run with
@@ -643,7 +645,7 @@ a message wakes them.
   worktree with uncommitted changes (untracked files count) is 409 with `feature <slug> has
   uncommitted changes in <path>; commit or discard them first`, and nothing is removed.
   Otherwise the worktree is removed with `git worktree remove`, the feature rows are
-  deleted, and last the `refs/reef/checkpoints/<turn id>` refs of every turn of its channels
+  deleted, and last the `refs/reef/checkpoints/<data folder>/<turn id>` refs of every turn of its channels
   are deleted. The worktree goes first because it is the step that can refuse or fail, and a
   later wake of a feature makes it again; the refs go after the rows that name them, so a
   failure there leaves refs that no turn points to, and the delete is 500. The branch
