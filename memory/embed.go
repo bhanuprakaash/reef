@@ -18,6 +18,7 @@ const (
 	ProviderNone   = "none"
 	ProviderOpenAI = "openai"
 	ProviderVoyage = "voyage"
+	ProviderGemini = "gemini"
 )
 
 const (
@@ -25,6 +26,9 @@ const (
 	_openAIModel = "text-embedding-3-small"
 	_voyageURL   = "https://api.voyageai.com/v1/embeddings"
 	_voyageModel = "voyage-3-lite"
+	_geminiURL   = "https://generativelanguage.googleapis.com/v1beta/models/" +
+		"gemini-embedding-001:embedContent"
+	_geminiDims = 768
 )
 
 const (
@@ -72,6 +76,37 @@ func (e voyageEmbedder) Embed(ctx context.Context, text string) ([]float32, erro
 		}{_voyageModel, []string{text}})
 }
 
+type geminiEmbedder struct {
+	hc       *http.Client
+	url, key string
+}
+
+func (e geminiEmbedder) Embed(ctx context.Context, text string) ([]float32, error) {
+	type part struct {
+		Text string `json:"text"`
+	}
+	type content struct {
+		Parts []part `json:"parts"`
+	}
+	var out struct {
+		Embedding struct {
+			Values []float32 `json:"values"`
+		} `json:"embedding"`
+	}
+	body := struct {
+		Content content `json:"content"`
+		Dims    int     `json:"outputDimensionality"`
+	}{content{[]part{{text}}}, _geminiDims}
+	err := postJSON(ctx, e.hc, ProviderGemini, e.url, "x-goog-api-key", e.key, body, &out)
+	if err != nil {
+		return nil, err
+	}
+	if len(out.Embedding.Values) == 0 {
+		return nil, fmt.Errorf("%s embeddings: no embedding in response", ProviderGemini)
+	}
+	return out.Embedding.Values, nil
+}
+
 // NewEmbedder returns the embedder c names. An empty key or provider gives the none
 // embedder; an unknown provider is an error. A nil hc means a client that gives up after
 // 10 seconds.
@@ -89,46 +124,59 @@ func NewEmbedder(c EmbedConfig, hc *http.Client) (Embedder, error) {
 		if c.Key != "" {
 			return voyageEmbedder{hc: hc, url: _voyageURL, key: c.Key}, nil
 		}
+	case ProviderGemini:
+		if c.Key != "" {
+			return geminiEmbedder{hc: hc, url: _geminiURL, key: c.Key}, nil
+		}
 	default:
 		return nil, fmt.Errorf("unknown embedding provider %q", c.Provider)
 	}
 	return noneEmbedder{}, nil
 }
 
-// Errors carry the status code, never the key.
 func postEmbedding(
 	ctx context.Context, hc *http.Client, name, url, key string, body any,
 ) ([]float32, error) {
-	payload, err := json.Marshal(body)
-	if err != nil {
-		return nil, fmt.Errorf("encode %s request: %w", name, err)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-	if err != nil {
-		return nil, fmt.Errorf("build %s request: %w", name, err)
-	}
-	req.Header.Set("Authorization", "Bearer "+key)
-	req.Header.Set("Content-Type", "application/json")
-	resp, err := hc.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("%s embeddings: %w", name, err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		return nil, fmt.Errorf("%s embeddings: status %d", name, resp.StatusCode)
-	}
 	var out struct {
 		Data []struct {
 			Embedding []float32 `json:"embedding"`
 		} `json:"data"`
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return nil, fmt.Errorf("decode %s response: %w", name, err)
+	if err := postJSON(ctx, hc, name, url, "Authorization", "Bearer "+key, body, &out); err != nil {
+		return nil, err
 	}
 	if len(out.Data) == 0 || len(out.Data[0].Embedding) == 0 {
 		return nil, fmt.Errorf("%s embeddings: no embedding in response", name)
 	}
 	return out.Data[0].Embedding, nil
+}
+
+// Errors carry the status code, never the key.
+func postJSON(
+	ctx context.Context, hc *http.Client, name, url, authHeader, auth string, body, out any,
+) error {
+	payload, err := json.Marshal(body)
+	if err != nil {
+		return fmt.Errorf("encode %s request: %w", name, err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		return fmt.Errorf("build %s request: %w", name, err)
+	}
+	req.Header.Set(authHeader, auth)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("%s embeddings: %w", name, err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		return fmt.Errorf("%s embeddings: status %d", name, resp.StatusCode)
+	}
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("decode %s response: %w", name, err)
+	}
+	return nil
 }
 
 // Backfill embeds items that have no vector and returns how many it filled. It stops at

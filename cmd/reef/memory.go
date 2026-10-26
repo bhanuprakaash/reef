@@ -20,7 +20,7 @@ const (
        reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W]
        reef memory recall "<q>" [--scope S] [--limit N]
        reef memory show <id> | retire <id> | approve <id> | pending
-       reef memory embed [none|openai|voyage [--key K]]`
+       reef memory embed [none|openai|voyage|gemini [--key K]]`
 	_memoryShowUsage    = "usage: reef memory [--project P] show [<id>] [--data DIR]"
 	_memorySetUsage     = "usage: reef memory [--project P] set FILE|- [--data DIR]"
 	_memoryAddUsage     = `usage: reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--data DIR]`
@@ -28,7 +28,7 @@ const (
 	_memoryRetireUsage  = "usage: reef memory retire <id> [--data DIR]"
 	_memoryPendingUsage = "usage: reef memory pending [--data DIR]"
 	_memoryApproveUsage = "usage: reef memory approve <id> [--data DIR]"
-	_memoryEmbedUsage   = "usage: reef memory embed [none|openai|voyage [--key K]] [--data DIR]"
+	_memoryEmbedUsage   = "usage: reef memory embed [none|openai|voyage|gemini [--key K]] [--data DIR]"
 )
 
 const (
@@ -404,7 +404,7 @@ func memoryEmbedSet(
 	switch provider {
 	case memory.ProviderNone:
 		key = ""
-	case memory.ProviderOpenAI, memory.ProviderVoyage:
+	case memory.ProviderOpenAI, memory.ProviderVoyage, memory.ProviderGemini:
 		if key == "" && prev == provider {
 			if key, err = st.Setting(ctx, _settingEmbeddingKey); err != nil {
 				return err
@@ -414,7 +414,7 @@ func memoryEmbedSet(
 			return fmt.Errorf("%w: embedding provider %s needs --key", memory.ErrInvalid, provider)
 		}
 	default:
-		return fmt.Errorf("%w: embedding provider %q is not none, openai or voyage",
+		return fmt.Errorf("%w: embedding provider %q is not none, openai, voyage or gemini",
 			memory.ErrInvalid, provider)
 	}
 	if err := st.SetSetting(ctx, _settingEmbeddingProvider, provider); err != nil {

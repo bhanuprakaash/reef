@@ -22,6 +22,6 @@ Everything else is one `recall` away. Scopes are relevance filters, not access c
 
 - Space continuation: what triggers a new Space for the same Work item, and what carries over.
 - Context assembler: exact section order, how the delta is rendered, and the measured prompt-size tests. Comes after the prompt audit (R2).
-- Local embedder (Ollama) as a third provider.
+- Local embedder (Ollama) as another provider.
 - Reranker, only if the eval set shows ranking is the weak spot.
 - Migration from brief, role notes and project memory: none planned (R14, R27); revisit only if real data exists by then.

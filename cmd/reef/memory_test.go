@@ -131,7 +131,7 @@ func TestCLI_MemoryEachCommandHasItsOwnFlags(t *testing.T) {
 		set       = "usage: reef memory [--project P] set FILE|- [--data DIR]"
 		add       = `usage: reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--data DIR]`
 		recall    = `usage: reef memory recall "<q>" [--scope S] [--limit N] [--data DIR]`
-		embed     = "usage: reef memory embed [none|openai|voyage [--key K]] [--data DIR]"
+		embed     = "usage: reef memory embed [none|openai|voyage|gemini [--key K]] [--data DIR]"
 	)
 	tests := []struct {
 		name string
@@ -183,15 +183,22 @@ func TestCLI_MemoryEmbed(t *testing.T) {
 	fail := false
 	old := http.DefaultTransport
 	http.DefaultTransport = roundTripFunc(func(r *http.Request) (*http.Response, error) {
-		calls = append(calls, call{r.URL.Host, r.Header.Get("Authorization")})
+		auth := r.Header.Get("Authorization")
+		if r.URL.Host == "generativelanguage.googleapis.com" {
+			auth = r.Header.Get("x-goog-api-key")
+		}
+		calls = append(calls, call{r.URL.Host, auth})
 		if fail {
 			return &http.Response{
 				StatusCode: http.StatusInternalServerError, Body: http.NoBody,
 			}, nil
 		}
 		body := `{"data":[{"embedding":[0.5,0.25]}]}`
-		if r.URL.Host == "api.voyageai.com" {
+		switch r.URL.Host {
+		case "api.voyageai.com":
 			body = `{"data":[{"embedding":[0.5,0.25,0.125]}]}`
+		case "generativelanguage.googleapis.com":
+			body = `{"embedding":{"values":[0.5,0.25,0.125,1]}}`
 		}
 		return &http.Response{
 			StatusCode: http.StatusOK,
@@ -274,6 +281,13 @@ func TestCLI_MemoryEmbed(t *testing.T) {
 	if got, want := query(sizes), "12-12"; got != want {
 		t.Fatalf("vector bytes after switch to voyage = %s, want %s", got, want)
 	}
+	if got, want := do("memory", "embed", "gemini", "--key", "gk-test-SECRET"),
+		"embedding provider gemini; embedded 2 items\n"; got != want {
+		t.Fatalf("embed gemini = %q, want %q", got, want)
+	}
+	if got, want := query(sizes), "16-16"; got != want {
+		t.Fatalf("vector bytes after switch to gemini = %s, want %s", got, want)
+	}
 
 	fail = true
 	fails("embed 1: openai embeddings: status 500",
@@ -291,8 +305,9 @@ func TestCLI_MemoryEmbed(t *testing.T) {
 	}
 
 	wantAuth := map[string][]string{
-		"api.openai.com":   {"Bearer sk-test-SECRET", "Bearer sk-2-SECRET"},
-		"api.voyageai.com": {"Bearer vk-test-SECRET"},
+		"api.openai.com":                    {"Bearer sk-test-SECRET", "Bearer sk-2-SECRET"},
+		"api.voyageai.com":                  {"Bearer vk-test-SECRET"},
+		"generativelanguage.googleapis.com": {"gk-test-SECRET"},
 	}
 	for i, c := range calls {
 		if !slices.Contains(wantAuth[c.host], c.auth) {
@@ -301,7 +316,7 @@ func TestCLI_MemoryEmbed(t *testing.T) {
 		}
 	}
 
-	fails(`invalid: embedding provider "bogus" is not none, openai or voyage`,
+	fails(`invalid: embedding provider "bogus" is not none, openai, voyage or gemini`,
 		"memory", "embed", "bogus")
 	if got, want := do("memory", "embed", "none"), "embedding provider none\n"; got != want {
 		t.Fatalf("embed none = %q, want %q", got, want)

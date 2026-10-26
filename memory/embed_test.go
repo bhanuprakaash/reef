@@ -46,6 +46,7 @@ func TestNone_MakesNoHTTPCall(t *testing.T) {
 		{"provider none with key", EmbedConfig{Provider: "none", Key: "k"}},
 		{"openai without key", EmbedConfig{Provider: "openai"}},
 		{"voyage without key", EmbedConfig{Provider: "voyage"}},
+		{"gemini without key", EmbedConfig{Provider: "gemini"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -190,17 +191,23 @@ func TestRemember_StoresWhenEmbedderFailsThenBackfills(t *testing.T) {
 
 func TestEmbedders_VendorShapes(t *testing.T) {
 	tests := []struct {
-		name     string
-		give     func(url string, hc *http.Client) Embedder
-		wantBody string
-		response string
+		name       string
+		give       func(url string, hc *http.Client) Embedder
+		path       string
+		authHeader string
+		wantAuth   string
+		wantBody   string
+		response   string
 	}{
 		{
 			name: "openai",
 			give: func(url string, hc *http.Client) Embedder {
 				return openAIEmbedder{hc: hc, url: url, key: "sk-secret"}
 			},
-			wantBody: `{"model":"text-embedding-3-small","input":"hello"}`,
+			path:       "/v1/embeddings",
+			authHeader: "Authorization",
+			wantAuth:   "Bearer sk-secret",
+			wantBody:   `{"model":"text-embedding-3-small","input":"hello"}`,
 			response: `{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.5,-0.25,2]}],` +
 				`"model":"text-embedding-3-small","usage":{"prompt_tokens":1,"total_tokens":1}}`,
 		},
@@ -209,9 +216,23 @@ func TestEmbedders_VendorShapes(t *testing.T) {
 			give: func(url string, hc *http.Client) Embedder {
 				return voyageEmbedder{hc: hc, url: url, key: "sk-secret"}
 			},
-			wantBody: `{"model":"voyage-3-lite","input":["hello"]}`,
+			path:       "/v1/embeddings",
+			authHeader: "Authorization",
+			wantAuth:   "Bearer sk-secret",
+			wantBody:   `{"model":"voyage-3-lite","input":["hello"]}`,
 			response: `{"object":"list","data":[{"object":"embedding","embedding":[0.5,-0.25,2],"index":0}],` +
 				`"model":"voyage-3-lite","usage":{"total_tokens":1}}`,
+		},
+		{
+			name: "gemini",
+			give: func(url string, hc *http.Client) Embedder {
+				return geminiEmbedder{hc: hc, url: url, key: "sk-secret"}
+			},
+			path:       "/v1beta/models/gemini-embedding-001:embedContent",
+			authHeader: "x-goog-api-key",
+			wantAuth:   "sk-secret",
+			wantBody:   `{"content":{"parts":[{"text":"hello"}]},"outputDimensionality":768}`,
+			response:   `{"embedding":{"values":[0.5,-0.25,2]}}`,
 		},
 	}
 	for _, tt := range tests {
@@ -219,24 +240,24 @@ func TestEmbedders_VendorShapes(t *testing.T) {
 			var method, path, auth, ctype, body string
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				b, _ := io.ReadAll(r.Body)
-				method, path, auth, ctype, body = r.Method, r.URL.Path, r.Header.Get("Authorization"),
+				method, path, auth, ctype, body = r.Method, r.URL.Path, r.Header.Get(tt.authHeader),
 					r.Header.Get("Content-Type"), string(b)
 				_, _ = io.WriteString(w, tt.response)
 			}))
 			defer srv.Close()
 
-			got, err := tt.give(srv.URL+"/v1/embeddings", srv.Client()).Embed(context.Background(), "hello")
+			got, err := tt.give(srv.URL+tt.path, srv.Client()).Embed(context.Background(), "hello")
 			if err != nil {
 				t.Fatal(err)
 			}
 			if want := []float32{0.5, -0.25, 2}; !reflect.DeepEqual(got, want) {
 				t.Fatalf("vector = %v, want %v", got, want)
 			}
-			if method != http.MethodPost || path != "/v1/embeddings" {
+			if method != http.MethodPost || path != tt.path {
 				t.Fatalf("request = %s %s", method, path)
 			}
-			if auth != "Bearer sk-secret" || ctype != "application/json" {
-				t.Fatalf("headers: Authorization %q, Content-Type %q", auth, ctype)
+			if auth != tt.wantAuth || ctype != "application/json" {
+				t.Fatalf("headers: %s %q, Content-Type %q", tt.authHeader, auth, ctype)
 			}
 			if body != tt.wantBody {
 				t.Fatalf("body = %s, want %s", body, tt.wantBody)
@@ -254,6 +275,7 @@ func TestEmbedders_ErrorsNameStatusNotKey(t *testing.T) {
 	for name, e := range map[string]Embedder{
 		"openai": openAIEmbedder{hc: srv.Client(), url: srv.URL, key: "sk-secret"},
 		"voyage": voyageEmbedder{hc: srv.Client(), url: srv.URL, key: "sk-secret"},
+		"gemini": geminiEmbedder{hc: srv.Client(), url: srv.URL, key: "sk-secret"},
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, err := e.Embed(context.Background(), "hello")
@@ -278,6 +300,13 @@ func TestNewEmbedder_DefaultClientTimesOut(t *testing.T) {
 	}
 	if got, want := e.(voyageEmbedder).hc.Timeout, 10*time.Second; got != want {
 		t.Fatalf("voyage timeout = %v, want %v", got, want)
+	}
+	e, err = NewEmbedder(EmbedConfig{Provider: ProviderGemini, Key: "k"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := e.(geminiEmbedder).hc.Timeout, 10*time.Second; got != want {
+		t.Fatalf("gemini timeout = %v, want %v", got, want)
 	}
 }
 
