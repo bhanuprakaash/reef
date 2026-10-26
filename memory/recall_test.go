@@ -96,13 +96,13 @@ func TestRecall_ExpansionReachesReplacedItem(t *testing.T) {
 	}
 
 	hits = recall(t, s, Query{Scopes: scopes, Text: "timeout"})
-	if got, want := hitIDs(hits), []int64{1, 2}; !reflect.DeepEqual(got, want) {
+	if got, want := hitIDs(hits), []int64{2, 1}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("from the old item: ids = %v, want %v", got, want)
 	}
-	if got, want := vias(hits), []string{"direct", "replaces memory:1"}; !reflect.DeepEqual(got, want) {
+	if got, want := vias(hits), []string{"replaces memory:1", "direct"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("from the old item: via = %v, want %v", got, want)
 	}
-	if hits[0].Status != StatusRetired || hits[1].Status != StatusAccepted {
+	if hits[0].Status != StatusAccepted || hits[1].Status != StatusRetired {
 		t.Fatalf("statuses = %q, %q", hits[0].Status, hits[1].Status)
 	}
 }
@@ -251,6 +251,38 @@ func TestRecall_LiveBeforeItemItReplacedWhenMeaningRanksRetiredFirst(t *testing.
 	hits := recall(t, s, Query{Scopes: []Ref{shelf}, Text: "upload limit"})
 	if got, want := hitIDs(hits), []int64{v3, v2, v1}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("ids = %v, want %v", got, want)
+	}
+}
+
+func TestRecall_LiveBeforeItemItReplacedWhenLinkReachesAReplacer(t *testing.T) {
+	s, _ := openTest(t)
+	s.embed = &fakeEmbedder{vectors: map[string][]float32{
+		"upload limit":     {1, 0},
+		"the cap is 5 MB":  {1, 0},
+		"the cap is 10 MB": {0.9, 0.3},
+		"the cap is 25 MB": {0.7, 0.7},
+		"logo colours":     {0.85, 0.5},
+		"footer colours":   {0.8, 0.6},
+	}}
+	shelf := Ref{Kind: ScopeProject, ID: "1"}
+	v1 := put(t, s, shelf, Note{Body: "the cap is 5 MB"})
+	v2 := put(t, s, shelf, Note{Body: "the cap is 10 MB", Replaces: []int64{v1}})
+	v3 := put(t, s, shelf, Note{Body: "the cap is 25 MB", Replaces: []int64{v2}})
+	put(t, s, shelf, Note{Body: "logo colours"})
+	put(t, s, shelf, Note{Body: "footer colours"})
+
+	hits := recall(t, s, Query{Scopes: []Ref{shelf}, Text: "upload limit"})
+	pos := make(map[int64]int)
+	for i, h := range hits {
+		pos[h.ID] = i
+	}
+	for _, id := range []int64{v1, v2, v3} {
+		if _, ok := pos[id]; !ok {
+			t.Fatalf("ids = %v, want %d among them", hitIDs(hits), id)
+		}
+	}
+	if !(pos[v3] < pos[v2] && pos[v2] < pos[v1]) {
+		t.Fatalf("ids = %v, want %d before %d before %d", hitIDs(hits), v3, v2, v1)
 	}
 }
 

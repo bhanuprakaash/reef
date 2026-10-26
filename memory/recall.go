@@ -36,7 +36,6 @@ type Hit struct {
 	Status     string
 	Score      float64
 	Via        string
-	replacedBy int64
 }
 
 type neighbour struct {
@@ -105,27 +104,27 @@ func (s *Store) Recall(ctx context.Context, q Query) ([]Hit, error) {
 		}
 	}
 
-	hits, err := s.load(ctx, f, found)
+	hits, replacedBy, err := s.load(ctx, f, found)
 	if err != nil {
 		return nil, err
 	}
-	rankBelowReplacers(hits)
+	rankBelowReplacers(hits, replacedBy)
 	sort.Slice(hits, func(i, j int) bool { return before(hits[i], hits[j]) })
 	return hits[:min(limit, len(hits))], nil
 }
 
-// rankBelowReplacers puts an item one rank below the direct hit that replaced it, so a live
-// match never sits under the one it retired, however the lists ordered them. A replacer
-// reached only by a link already ranks below the item it came from, and stays there.
-func rankBelowReplacers(hits []Hit) {
+// rankBelowReplacers puts an item one rank below the hit that replaced it, so a live match
+// never sits under the one it retired, however either was reached. replacedBy maps an item
+// to the one that replaced it.
+func rankBelowReplacers(hits []Hit, replacedBy map[int64]int64) {
 	byID := make(map[int64]*Hit, len(hits))
 	for i := range hits {
 		byID[hits[i].ID] = &hits[i]
 	}
 	var settle func(h *Hit)
 	settle = func(h *Hit) {
-		r := byID[h.replacedBy]
-		if r == nil || r.Via != _viaDirect {
+		r := byID[replacedBy[h.ID]]
+		if r == nil {
 			return
 		}
 		settle(r)
@@ -168,7 +167,7 @@ func (s *Store) neighbours(ctx context.Context, id int64) ([]neighbour, error) {
 	return out, nil
 }
 
-func (s *Store) load(ctx context.Context, f Filter, found map[int64]*Hit) ([]Hit, error) {
+func (s *Store) load(ctx context.Context, f Filter, found map[int64]*Hit) ([]Hit, map[int64]int64, error) {
 	where, args := f.where()
 	marks := make([]string, 0, len(found))
 	idArgs := make([]any, 0, len(found)+len(args))
@@ -181,24 +180,25 @@ func (s *Store) load(ctx context.Context, f Filter, found map[int64]*Hit) ([]Hit
 		 WHERE id IN (`+strings.Join(marks, ",")+`) AND `+where,
 		append(idArgs, args...)...)
 	if err != nil {
-		return nil, fmt.Errorf("load hits: %w", err)
+		return nil, nil, fmt.Errorf("load hits: %w", err)
 	}
 	defer rows.Close()
 	hits := make([]Hit, 0, len(found))
+	replacedBy := make(map[int64]int64)
 	for rows.Next() {
 		var h Hit
-		var replacedBy sql.NullInt64
-		if err := rows.Scan(&h.ID, &h.Kind, &h.Body, &h.Scope.Kind, &h.Scope.ID, &h.Status, &replacedBy); err != nil {
-			return nil, fmt.Errorf("scan hit: %w", err)
+		var replacer sql.NullInt64
+		if err := rows.Scan(&h.ID, &h.Kind, &h.Body, &h.Scope.Kind, &h.Scope.ID, &h.Status, &replacer); err != nil {
+			return nil, nil, fmt.Errorf("scan hit: %w", err)
 		}
-		h.replacedBy = replacedBy.Int64
+		replacedBy[h.ID] = replacer.Int64
 		h.Score, h.Via = found[h.ID].Score, found[h.ID].Via
 		hits = append(hits, h)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, fmt.Errorf("read hits: %w", err)
+		return nil, nil, fmt.Errorf("read hits: %w", err)
 	}
-	return hits, nil
+	return hits, replacedBy, nil
 }
 
 func before(a, b Hit) bool {
