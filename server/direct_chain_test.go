@@ -505,6 +505,7 @@ func TestDirectChainEndClearsActiveTurn(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
 	id, _ := env.teamChannel(t)
+	env.fake.directRelease = make(chan struct{})
 	var directsCreated atomic.Bool
 	env.fake.onRun = func(role, text string, parent *int64) {
 		if role == "lead" && directsCreated.CompareAndSwap(false, true) {
@@ -517,9 +518,15 @@ func TestDirectChainEndClearsActiveTurn(t *testing.T) {
 	}
 	sub := subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "go")
+	select {
+	case <-env.fake.directStart:
+	case <-time.After(5 * time.Second):
+		t.Fatal("direct turn did not start")
+	}
 	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.ActiveTurn != store.ActiveTurnMessage {
 		t.Fatalf("active turn while the chain runs = %q, %v, want message", ch.ActiveTurn, err)
 	}
+	close(env.fake.directRelease)
 	sub.want(t, _idleFrame)
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {

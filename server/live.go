@@ -932,8 +932,8 @@ func (c *chain) release(err error) error {
 			c.l.activeGen = 0
 		}
 		c.l.mu.Unlock()
-		close(c.done)
 		c.finalize(mine, directFailed, approvals)
+		close(c.done)
 		c.s.dropIdle(c.id, c.l, false)
 	} else {
 		close(c.done)
@@ -1138,9 +1138,9 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 			l.state, l.cancel = _idle, nil
 			l.activeGen = 0
 		}
-		close(c.done)
 		l.mu.Unlock()
 		c.finalize(mine, directFailed, approvals)
+		close(c.done)
 	}
 	for {
 		var w wake
