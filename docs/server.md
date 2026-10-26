@@ -676,7 +676,9 @@ a message wakes them.
   failure rule as a feature delete. Branches are kept.
 - The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
-  resumes its session.
+  resumes its session. A background task a specialist started ends with its agent, and its
+  answer is not posted. While no turn runs, the lead's events are read, so the answer of its
+  background task is posted as its message when it arrives (decision 84).
 - The server holds `chat-<id>.lock` while the channel has a live session, so `reef chat
   --channel ID` fails with `channel 1 is open elsewhere: conflict`. A send to a channel a
   `reef chat` holds is 409 too.

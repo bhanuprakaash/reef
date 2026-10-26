@@ -137,7 +137,9 @@ with no echo is not an answer to any prompt: the adapter drops its `text`, `tool
 `tool_result` events, from `init` to its `result`. Its `usage` is still sent, so the spend
 counts; it lands in whichever turn is reading then. Its text is sent once, as a `background`
 event just before the turn would have ended: the answer to the finished task. It belongs to
-no `Send` and ends no turn, so nothing reads it until a turn is reading `Events`.
+no `Send` and ends no turn, so it waits in `Events` until a reader takes it. Reef's runner
+reads it during a turn, and for the lead, whose agent stays alive, between turns too. A
+specialist's agent is closed after its turn, so a background answer after that is never read.
 
 Noise, ignored: `system` with subtype `hook_started`, `hook_response`, `commands_changed`,
 `status`, `task_notification`, `task_started`, `task_updated`, `background_tasks_changed`;

@@ -253,6 +253,9 @@ func (s *Session) RunDirectAs(
 // run runs a turn of m, holding m's tree when it writes and counting as a reader of it when
 // it does not. A ctx cancelled while it waits leaves an interrupted turn.
 func (s *Session) run(ctx context.Context, m *member, in runInput) error {
+	if m.run.role == s.ch.Role {
+		defer m.run.Watch()
+	}
 	if !m.write {
 		defer s.trees.Read(m.dir)()
 		return s.turn(ctx, m, in)
@@ -514,6 +517,9 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		m.run.CheckpointDir = cwd
 		m.run.DataDir = s.dataDir
 	}
+	if role == s.ch.Role {
+		m.run.Watch()
+	}
 	s.members[role] = m
 	return m, nil
 }
@@ -724,6 +730,9 @@ func (s *Session) directExchanges(ctx context.Context) (string, error) {
 }
 
 func (m *member) close(st *store.Store) error {
+	if m.run != nil {
+		m.run.endWatch()
+	}
 	errs := []error{m.ag.Interrupt()}
 	if m.token != "" {
 		errs = append(errs, st.DeleteToken(context.Background(), m.token))

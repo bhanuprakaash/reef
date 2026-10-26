@@ -1624,3 +1624,67 @@ func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
 			ags[0].resumed, ags[0].prompts)
 	}
 }
+
+func TestSession_IdleLeadPostsBackgroundAnswer(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionChannel(t, st, f, false)
+	ag := newRecordingAgent()
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := s.Run(ctx, "go", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+
+	idle := agent.Usage{InputTokens: 7, OutputTokens: 9}
+	ag.events <- agent.Event{Kind: agent.KindUsage, Usage: &idle}
+	ag.events <- agent.Event{Kind: agent.KindBackground, Text: "The background command printed bgdone."}
+	var got []string
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		msgs, err := st.Messages(ctx, ch.ID, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = got[:0]
+		for _, m := range msgs {
+			got = append(got, m.Author+": "+m.Body)
+		}
+		if len(got) == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	want := []string{"architect: ok", "architect: The background command printed bgdone."}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("messages = %q, want %q", got, want)
+	}
+
+	if err := s.Run(ctx, "again", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 2 {
+		t.Fatalf("turns = %d, want 2", len(turns))
+	}
+	for _, turn := range turns {
+		if turn.Status != "done" {
+			t.Errorf("turn %d status = %q, want done", turn.ID, turn.Status)
+		}
+	}
+	if u := turns[1].Usage; u != idle {
+		t.Errorf("second turn usage = %+v, want the idle usage %+v", u, idle)
+	}
+	msgs, err := st.Messages(ctx, ch.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(msgs); n != 3 || msgs[2].Body != "ok" {
+		t.Errorf("messages after the second turn = %+v, want its reply \"ok\" as the third", msgs)
+	}
+}
