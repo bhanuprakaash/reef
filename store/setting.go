@@ -20,12 +20,23 @@ func (s *Store) Setting(ctx context.Context, key string) (string, error) {
 	return v, nil
 }
 
-// SetSetting stores value under key, replacing any before.
-func (s *Store) SetSetting(ctx context.Context, key, value string) error {
-	if _, err := s.db.ExecContext(ctx,
-		"INSERT INTO setting (key, value) VALUES (?, ?) "+
-			"ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value); err != nil {
-		return fmt.Errorf("write setting %s: %w", key, err)
+// SetSettings stores every key and value in one transaction, replacing any
+// before: all of them are saved or none.
+func (s *Store) SetSettings(ctx context.Context, settings map[string]string) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin settings: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	for key, value := range settings {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO setting (key, value) VALUES (?, ?) "+
+				"ON CONFLICT(key) DO UPDATE SET value = excluded.value", key, value); err != nil {
+			return fmt.Errorf("write setting %s: %w", key, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit settings: %w", err)
 	}
 	return nil
 }

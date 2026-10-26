@@ -492,3 +492,73 @@ func TestCLI_MemoryEmbedKeyMakesDBOwnerOnly(t *testing.T) {
 		}
 	}
 }
+
+func TestCLI_MemoryEmbedSavesProviderAndKeyTogether(t *testing.T) {
+	old := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = old })
+
+	dir := t.TempDir()
+	exec := func(q string) {
+		t.Helper()
+		st, err := store.Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = st.Close() }()
+		if _, err := st.DB().Exec(q); err != nil {
+			t.Fatal(err)
+		}
+	}
+	saved := func() string {
+		t.Helper()
+		st, err := store.Open(dir)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = st.Close() }()
+		var got string
+		err = st.DB().QueryRow(`SELECT
+			coalesce((SELECT value FROM setting WHERE key = 'embedding.provider'), '') || '/' ||
+			coalesce((SELECT value FROM setting WHERE key = 'embedding.key'), '')`).Scan(&got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	const denyKey = `CREATE TRIGGER deny_key BEFORE INSERT ON setting WHEN NEW.key = 'embedding.key'
+		BEGIN SELECT RAISE(ABORT, 'locked'); END`
+
+	if _, err := reef(t, dir, "project", "add", "--name", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "reef.db"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	exec(denyKey)
+	if _, err := reef(t, dir, "memory", "embed", "openai", "--key", "sk-old"); err == nil {
+		t.Fatal("embed with a failing save succeeded")
+	}
+	if got, want := saved(), "/"; got != want {
+		t.Errorf("provider/key after failed first save = %q, want %q", got, want)
+	}
+	info, err := os.Stat(filepath.Join(dir, "reef.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := info.Mode().Perm(); got != 0o600 {
+		t.Errorf("reef.db mode after failed save = %o, want 600", got)
+	}
+
+	exec(`DROP TRIGGER deny_key`)
+	mustReef(t, dir, "memory", "embed", "openai", "--key", "sk-old")
+	exec(denyKey)
+	if _, err := reef(t, dir, "memory", "embed", "voyage", "--key", "vk-new"); err == nil {
+		t.Fatal("switch with a failing save succeeded")
+	}
+	if got, want := saved(), "openai/sk-old"; got != want {
+		t.Errorf("provider/key after failed switch = %q, want %q", got, want)
+	}
+}

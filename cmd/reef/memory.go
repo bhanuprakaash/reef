@@ -460,16 +460,17 @@ func memoryEmbedSet(
 			return err
 		}
 	}
-	if err := st.SetSetting(ctx, _settingEmbeddingProvider, provider); err != nil {
-		return err
-	}
-	if err := st.SetSetting(ctx, _settingEmbeddingKey, key); err != nil {
-		return err
-	}
 	if key != "" {
 		if err := restrictDB(ctx, st); err != nil {
 			return err
 		}
+	}
+	err = st.SetSettings(ctx, map[string]string{
+		_settingEmbeddingProvider: provider,
+		_settingEmbeddingKey:      key,
+	})
+	if err != nil {
+		return err
 	}
 	if provider == memory.ProviderNone {
 		_, err = fmt.Fprintf(stdout, "embedding provider %s\n", provider)

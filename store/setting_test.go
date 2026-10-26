@@ -17,7 +17,7 @@ func TestStore_Setting(t *testing.T) {
 		t.Fatalf("missing setting = %q, %v; want empty", got, err)
 	}
 	for _, v := range []string{"openai", "voyage"} {
-		if err := st.SetSetting(ctx, "embedding.provider", v); err != nil {
+		if err := st.SetSettings(ctx, map[string]string{"embedding.provider": v}); err != nil {
 			t.Fatal(err)
 		}
 		if got, err := st.Setting(ctx, "embedding.provider"); err != nil || got != v {
