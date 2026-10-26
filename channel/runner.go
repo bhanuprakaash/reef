@@ -178,14 +178,14 @@ func (r *Runner) Run(
 				}
 			case agent.KindError:
 				r.sessionGone = sessionMissing(ev.Text)
-				if ev.CostUSD != nil {
-					turn.CostUSD = ev.CostUSD
+				if turn.CostUSD, err = r.ownCost(wctx, turn.SessionID, ev.CostUSD); err != nil {
+					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
 				return errors.Join(fmt.Errorf("agent: %s", ev.Text),
 					r.fail(wctx, turn, ev.Text, reply.String(), parent))
 			case agent.KindTurnEnd:
-				if ev.CostUSD != nil {
-					turn.CostUSD = ev.CostUSD
+				if turn.CostUSD, err = r.ownCost(wctx, turn.SessionID, ev.CostUSD); err != nil {
+					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
 				if err := r.keepReply(wctx, reply.String(), parent, _replyDone); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), "", parent)
@@ -208,6 +208,21 @@ func (r *Runner) RunDirect(
 	r.direct = &dm
 	defer func() { r.direct = nil }()
 	return r.Run(ctx, text, nil, onEvent)
+}
+
+// ownCost is the cost of the turn that reported total, the running cost of its whole session:
+// total minus what the session's earlier turns stored. Turns stored before this was done hold
+// running totals, so the result is never below zero.
+func (r *Runner) ownCost(ctx context.Context, sessionID string, total *float64) (*float64, error) {
+	if total == nil {
+		return nil, nil
+	}
+	earlier, err := r.st.SessionCost(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	own := max(*total-earlier, 0)
+	return &own, nil
 }
 
 func (r *Runner) wake(text string) string {

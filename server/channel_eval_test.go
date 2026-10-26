@@ -48,12 +48,10 @@ var _expectedFail = map[string]map[string]string{
 		"duplicate bodies": "#47",
 		"wake size":        "#47",
 		"double post wake": "#48",
-		"cost sum":         "#50",
 	},
 	"claude-recorded": {
 		"duplicate bodies": "#47",
 		"wake size":        "#47",
-		"cost sum":         "#50",
 	},
 	"codex": {
 		"duplicate bodies": "#47",
@@ -190,7 +188,7 @@ func (e *evalEnv) idle() {
 }
 
 // evalAgent answers a wake by the last message tag it holds, as a backend whose usage
-// reporting matches the real one: claude reports its process's running cost, codex none.
+// reporting matches the real one: claude reports its session's running cost, codex none.
 // Send hands the Runner one []agent.Event per turn, the shape a recorded stream has.
 type evalAgent struct {
 	env     *evalEnv
@@ -199,7 +197,6 @@ type evalAgent struct {
 	role    string
 	session string
 	started bool
-	process float64            // cost total this process has reported
 	mcp     *mcp.ClientSession // the real reef tools a replayed turn calls
 }
 
@@ -302,9 +299,7 @@ func (a *evalAgent) Send(ctx context.Context, prompt string) error {
 		e.totals[a.role] += cost
 		total := e.totals[a.role]
 		e.mu.Unlock()
-		reported := total - a.process
-		a.process = total
-		end.CostUSD = &reported
+		end.CostUSD = &total
 	}
 	for _, ev := range append(evs, end) {
 		a.events <- ev
@@ -354,6 +349,11 @@ func (a *evalAgent) replay(ctx context.Context, prompt string) error {
 			if _, err := a.mcp.CallTool(ctx, &mcp.CallToolParams{Name: tool, Arguments: args}); err != nil {
 				return err
 			}
+		}
+		if ev.CostUSD != nil {
+			e.mu.Lock()
+			e.totals[a.role] = *ev.CostUSD
+			e.mu.Unlock()
 		}
 		a.events <- ev
 	}
@@ -502,9 +502,6 @@ func replayEval(t *testing.T, backend string) {
 	e.rec = &evalRecording{}
 	if err := json.Unmarshal(b, e.rec); err != nil {
 		t.Fatal(err)
-	}
-	for role, cost := range e.rec.Cost {
-		e.totals[role] = cost
 	}
 	root := int64(1)
 	for _, m := range e.rec.User {

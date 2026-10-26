@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"errors"
+	"math"
 	"reflect"
 	"strings"
 	"sync"
@@ -632,6 +633,42 @@ func TestRunner_RecordsSubagentToolCallParent(t *testing.T) {
 	}
 	if want := []int64{0, 1, 0}; !reflect.DeepEqual(parents, want) {
 		t.Errorf("parent ids = %v, want %v", parents, want)
+	}
+}
+
+func TestRunner_ResumedSessionStoresTurnOwnCost(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, total := range []float64{1.00, 1.10} {
+		sa := &scriptAgent{
+			events: make(chan agent.Event, 8),
+			script: []agent.Event{
+				{Kind: agent.KindSession, SessionID: "s1"},
+				{Kind: agent.KindTurnEnd, CostUSD: &total},
+			},
+		}
+		r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+		if err := sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	turns, err := st.Turns(bg, store.TurnFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []float64
+	for _, tn := range turns {
+		got = append(got, *tn.CostUSD)
+	}
+	if want := []float64{1.00, 0.10}; len(got) != 2 || got[0] != want[0] || math.Abs(got[1]-want[1]) > 1e-9 {
+		t.Errorf("turn costs = %v, want %v", got, want)
 	}
 }
 

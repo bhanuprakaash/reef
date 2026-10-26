@@ -378,10 +378,6 @@ type state struct {
 	// answer is the text of that turn, sent as one KindBackground event at its result.
 	unprompted bool
 	answer     string
-
-	// lastCost is the process total the most recent result line with a cost reported; carried
-	// across a reset so a turn's CostUSD is its own share, not the process running total.
-	lastCost float64
 }
 
 // parse maps one stdout line to Events. Text comes from the partial-message deltas, so
@@ -396,8 +392,9 @@ type state struct {
 // sends what is still held, then only what is left of its usage total. That total is the
 // process's modelUsage, which also counts the subagents and claude's own side calls, minus
 // what earlier turns had. An unprompted turn gives its usage, then at its result its text as
-// one KindBackground event. A result's total_cost_usd is the cost of the process so far, not the
-// turn: CostUSD is that total minus the last one seen in the process.
+// one KindBackground event. A result's total_cost_usd is the running cost of the whole
+// session, also after a resume: CostUSD is that total, and the caller takes off what earlier
+// turns cost. A background result sends none; the next turn's total holds its cost.
 func parse(line []byte, st *state) []agent.Event {
 	evs := parseLine(line, st)
 	if !st.unprompted {
@@ -493,21 +490,12 @@ func parseLine(line []byte, st *state) []agent.Event {
 		st.sent.Add(rest)
 		evs := st.held
 		answer := strings.TrimSpace(st.answer)
-		lastCost := st.lastCost
-		// A background task's cost rides on no turn; its delta carries forward to the
-		// next turn's result instead of being counted here.
-		background := l.Origin.Kind == "task-notification"
-		var cost *float64
-		if l.TotalCostUSD != nil && !background {
-			delta := *l.TotalCostUSD - lastCost
-			cost, lastCost = &delta, *l.TotalCostUSD
-		}
-		*st = state{sent: st.sent, total: counted, resumed: st.resumed, base: st.base, lastCost: lastCost}
+		*st = state{sent: st.sent, total: counted, resumed: st.resumed, base: st.base}
 		if rest != (agent.Usage{}) {
 			evs = append(evs, agent.Event{Kind: agent.KindUsage, Usage: &rest})
 		}
 		// A turn claude runs by itself for a background task is not the answer to a prompt.
-		if background {
+		if l.Origin.Kind == "task-notification" {
 			if answer != "" {
 				evs = append(evs, agent.Event{Kind: agent.KindBackground, Text: answer})
 			}
@@ -515,9 +503,9 @@ func parseLine(line []byte, st *state) []agent.Event {
 		}
 		if l.IsError {
 			text := strings.Join(append([]string{l.Result}, l.Errors...), "\n")
-			return append(evs, agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text), CostUSD: cost})
+			return append(evs, agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text), CostUSD: l.TotalCostUSD})
 		}
-		return append(evs, agent.Event{Kind: agent.KindTurnEnd, CostUSD: cost})
+		return append(evs, agent.Event{Kind: agent.KindTurnEnd, CostUSD: l.TotalCostUSD})
 	}
 	return nil
 }

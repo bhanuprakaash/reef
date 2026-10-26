@@ -139,6 +139,17 @@ func (s *Store) Turns(ctx context.Context, f TurnFilter) ([]Turn, error) {
 	return scanAll(rows, scanTurn)
 }
 
+// SessionCost is the cost stored so far for the turns of the session with the id.
+func (s *Store) SessionCost(ctx context.Context, sessionID string) (float64, error) {
+	var cost float64
+	err := s.db.QueryRowContext(ctx,
+		"SELECT COALESCE(SUM(cost_usd), 0) FROM turn WHERE session_id = ?", sessionID).Scan(&cost)
+	if err != nil {
+		return 0, fmt.Errorf("session cost: %w", err)
+	}
+	return cost, nil
+}
+
 // Retryable reports whether retry may run the turn id again: it failed, was not retried, kept
 // a wake, and no later turn of its role ran in the channel.
 func (s *Store) Retryable(ctx context.Context, id int64) (bool, error) {

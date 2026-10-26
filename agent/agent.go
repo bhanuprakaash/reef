@@ -80,7 +80,7 @@ type Event struct {
 	Output       string          `json:"output,omitempty"`       // tool result
 	IsError      bool            `json:"isError,omitempty"`      // tool result failed
 	Usage        *Usage          `json:"usage,omitempty"`
-	CostUSD      *float64        `json:"costUsd,omitempty"` // KindTurnEnd or KindError, claude only; the turn's own cost, not the process total
+	CostUSD      *float64        `json:"costUsd,omitempty"` // KindTurnEnd or KindError, claude only; the session's running total, not the turn's cost: the caller takes off what earlier turns cost
 }
 
 // Usage is the token count of a turn.

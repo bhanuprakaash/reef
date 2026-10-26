@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -420,51 +421,22 @@ func TestParse_turnUsage(t *testing.T) {
 	}
 }
 
-func TestParse_costIsPerTurnNotProcessTotal(t *testing.T) {
-	result := func(cost float64) string {
-		return fmt.Sprintf(`{"type":"result","subtype":"success","is_error":false,"result":"done","total_cost_usd":%g}`, cost)
-	}
-	var st state
-	var got []float64
-	for _, line := range []string{result(0.0477), result(0.0590), result(0.0663)} {
-		for _, ev := range parse([]byte(line), &st) {
-			if ev.Kind == agent.KindTurnEnd {
-				got = append(got, *ev.CostUSD)
-			}
-		}
-	}
-	want := []float64{0.0477, 0.0113, 0.0073}
-	for i := range want {
-		if diff := got[i] - want[i]; diff > 1e-9 || diff < -1e-9 {
-			t.Errorf("turn %d cost = %v, want %v", i, got[i], want[i])
-		}
-	}
-}
-
-// TestParse_backgroundCostCarriesToNextTurn covers a background task-notification result:
-// its cost rides on no turn, so the next turn's delta must include it too.
-func TestParse_backgroundCostCarriesToNextTurn(t *testing.T) {
+func TestParse_costIsSessionTotal(t *testing.T) {
 	turn := func(cost float64) string {
 		return fmt.Sprintf(`{"type":"result","subtype":"success","is_error":false,"result":"done","total_cost_usd":%g}`, cost)
 	}
 	background := `{"type":"result","subtype":"success","is_error":false,"result":"","origin":{"kind":"task-notification"},"total_cost_usd":0.03}`
 	var st state
 	var got []float64
-	for _, line := range []string{turn(0.02), background, turn(0.05)} {
+	for _, line := range []string{turn(1.00), turn(1.10), background, turn(1.20)} {
 		for _, ev := range parse([]byte(line), &st) {
-			if ev.Kind == agent.KindTurnEnd {
+			if ev.CostUSD != nil {
 				got = append(got, *ev.CostUSD)
 			}
 		}
 	}
-	want := []float64{0.02, 0.03}
-	if len(got) != len(want) {
-		t.Fatalf("turn costs = %v, want %v", got, want)
-	}
-	for i := range want {
-		if diff := got[i] - want[i]; diff > 1e-9 || diff < -1e-9 {
-			t.Errorf("turn %d cost = %v, want %v", i, got[i], want[i])
-		}
+	if want := []float64{1.00, 1.10, 1.20}; !slices.Equal(got, want) {
+		t.Errorf("costs = %v, want %v", got, want)
 	}
 }
 
