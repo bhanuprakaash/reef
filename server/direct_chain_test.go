@@ -687,7 +687,7 @@ func TestDirectSelfLoopPrevented(t *testing.T) {
 }
 
 // TestDirectDeveloperTesterRepeatedExchanges drives developer<->tester direct exchanges
-// through required gate approvals until the shared hop cap, then pauses.
+// through required gate approvals past the hop cap, since each approval resets the count.
 func TestDirectDeveloperTesterRepeatedExchanges(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
@@ -760,32 +760,23 @@ func TestDirectDeveloperTesterRepeatedExchanges(t *testing.T) {
 		}
 		t.Fatal("no next approval after the exchange completed")
 	}
-	// Approve exchanges until the shared hop cap refuses the next one. Each approval runs a
-	// developer<->tester exchange (tester replies, which wakes the developer to send again),
-	// proving repetition works.
-	approved := 0
+	// Each approval runs a developer<->tester exchange (tester replies, which wakes the
+	// developer to send again). An approved wake resets the hop count, so the exchanges go on
+	// past the cap and the channel never pauses.
 	var lastID int64
 	for i := 0; i < 8; i++ {
 		status, aid := approveNext()
-		if status == 409 {
-			break
+		if status != 204 {
+			t.Fatalf("approve %d = %d, want 204", i+1, status)
 		}
-		approved++
 		lastID = aid
 		waitNext(lastID)
 	}
-	if approved < 2 {
-		t.Fatalf("approved = %d, want repetition (at least 2 exchanges)", approved)
-	}
-	// The next approval finds the shared hop cap already spent: 409 and the channel pauses.
-	if status, _ := approveNext(); status != 409 {
-		t.Fatalf("cap approve = %d, want 409", status)
-	}
 	ch, err := env.st.Channel(ctx, int64(id))
-	if err != nil || !strings.HasPrefix(ch.Paused, _hopReasonPrefix) {
-		t.Fatalf("paused = %q, %v, want hop cap", ch.Paused, err)
+	if err != nil || ch.Paused != "" {
+		t.Fatalf("paused = %q, %v, want not paused", ch.Paused, err)
 	}
-	if got := len(env.ranTexts()); got < 6 {
+	if got := len(env.ranTexts()); got < 8 {
 		t.Fatalf("turns ran = %d, want repeated exchanges", got)
 	}
 	sub.want(t, _idleFrame)
