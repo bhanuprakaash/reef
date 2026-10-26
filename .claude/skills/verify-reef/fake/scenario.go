@@ -36,7 +36,7 @@ var _scenarios = []scenario{
 	{"thread-reply", "architect", pat(`Which field would you validate first`)},
 	{"design-mention", "lead", pat(`(?i)\bDESIGN\b`)},
 	{"relay-go", "lead", pat(`^go$`)},
-	{"hop-ping", "lead", pat(`^(start|architect wrote: @lead pong)$`)},
+	{"hop-ping", "lead", pat(`^(start|again|architect wrote: @lead pong)$`)},
 	{"hop-pong", "architect", pat(`^lead wrote: @architect ping$`)},
 	{"relay-tester-woken", "tester", pat(`lead wrote: @tester check this`)},
 	{"architect-woken", "architect", pat(`lead wrote: @architect `)},
