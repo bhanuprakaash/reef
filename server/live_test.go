@@ -71,6 +71,9 @@ func (f *fakeSession) RunAs(
 	if f.onRun != nil {
 		f.onRun(role, text, parent)
 	}
+	if strings.HasSuffix(text, "fail") {
+		return errors.New("boom")
+	}
 	if !strings.HasSuffix(text, "block") {
 		onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
 		return nil
@@ -901,6 +904,56 @@ func TestSend_WhileWakeChainRuns(t *testing.T) {
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
+	}
+}
+
+// wantMessages checks the author and body of every message of channel id, in order.
+func (e *liveEnv) wantMessages(t *testing.T, id int, want ...string) {
+	t.Helper()
+	msgs, err := e.st.Messages(context.Background(), int64(id), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, len(msgs))
+	for i, m := range msgs {
+		got[i] = m.Author + ": " + m.Body
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("messages = %q, want %q", got, want)
+	}
+}
+
+const _droppedNote = "reef: Wakes for architect did not run: the turn before them was stopped or failed. " +
+	"Send a message to ask again."
+
+func TestSend_AfterStopNotesTheWakeStopDropped(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	env.sendTo(t, id, "block")
+	<-env.fake.started
+	if status, _ := env.sendTo(t, id, "@architect design it"); status != 202 {
+		t.Fatalf("send while busy = %d, want 202", status)
+	}
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	if status, _ := env.sendTo(t, id, "again"); status != 202 {
+		t.Fatalf("send after stop = %d, want 202", status)
+	}
+	env.waitIdle(t, id)
+	env.wantMessages(t, id, "user: block", "user: @architect design it", "user: again", _droppedNote)
+}
+
+func TestSend_AfterFailedTurnNotesTheLeftoverWakes(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	env.sendTo(t, id, "@lead @architect fail")
+	env.waitIdle(t, id)
+	if status, _ := env.sendTo(t, id, "again"); status != 202 {
+		t.Fatalf("send after the failed turn = %d, want 202", status)
+	}
+	env.waitIdle(t, id)
+	env.wantMessages(t, id, "user: @lead @architect fail", "user: again", _droppedNote)
+	if got := len(env.ranTexts()); got != 2 {
+		t.Errorf("turns run = %d, want 2: the failed lead turn and again", got)
 	}
 }
 

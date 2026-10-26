@@ -420,6 +420,10 @@ func (s *server) queueMessage(ctx context.Context, id int64, t userTurn) (bool, 
 		return false, err
 	}
 	l.mu.Lock()
+	if l.state == _starting {
+		l.mu.Unlock()
+		return s.queueMessage(ctx, id, t)
+	}
 	defer l.mu.Unlock()
 	if !l.messagingLocked() {
 		return false, nil
@@ -1006,6 +1010,22 @@ func (s *server) noteUnrouted(ctx context.Context, id int64, role string, cause 
 	}
 }
 
+// noteDropped posts a message from reef in channel id naming the roles whose wakes a stopped
+// or failed turn left unrun, which a new chain does not run.
+func (s *server) noteDropped(ctx context.Context, id int64, ws []wake) {
+	roles := make([]string, len(ws))
+	for i, w := range ws {
+		roles[i] = w.role
+	}
+	body := fmt.Sprintf("Wakes for %s did not run: the turn before them was stopped or failed. "+
+		"Send a message to ask again.", strings.Join(roles, ", "))
+	if _, err := s.st.CreateMessage(ctx, store.Message{
+		ChannelID: id, Author: store.ReefAuthor, Body: body,
+	}); err != nil {
+		log.Printf("note dropped wakes in channel %d: %v", id, err)
+	}
+}
+
 func (c *chain) release(err error) error {
 	stopped := c.ctx.Err() != nil
 	c.cancel()
@@ -1180,6 +1200,9 @@ func (c *chain) start(
 	if err != nil {
 		l.mu.Unlock()
 		return c.release(err)
+	}
+	if len(l.held) > 0 {
+		c.s.noteDropped(ctx, c.id, l.held)
 	}
 	l.state, l.kind, l.held, l.retry = _running, kind, nil, nil
 	l.dropped += len(l.frames)

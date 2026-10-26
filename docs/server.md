@@ -681,7 +681,9 @@ a message wakes them.
   --channel ID` fails with `channel 1 is open elsewhere: conflict`. A send to a channel a
   `reef chat` holds is 409 too.
 - `stop` interrupts a running turn (stored `failed`, `interrupted`), drops the wakes still
-  waiting, then stops every agent of the channel, deletes their tokens and releases the lock.
+  waiting (so does a turn that fails: its chain ends and the wakes behind it do not run; the
+  next send starts a chain that posts a message from reef naming the roles of those wakes, and
+  a restart before that send holds them instead), then stops every agent of the channel, deletes their tokens and releases the lock.
   It also works while the send is still checking the caps or starting an agent: the send then
   answers 409 `channel 1 was stopped`, and no turn runs. Once the send has changed something
   (a promote's change) or stored the user message, it does not give up: it answers 202 as
