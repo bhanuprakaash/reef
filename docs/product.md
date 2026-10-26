@@ -68,7 +68,7 @@ A channel is what the user opens as a session; inside, each teammate is its own 
 **Routing rules** (plain code, not an LLM):
 
 1. A user reply inside a thread goes to whoever owns that thread
-2. An @mention goes to that teammate
+2. An @mention at the start of a message or line goes to that teammate
 3. Anything else from the user goes to the lead
 
 **How teammates talk.** A teammate uses `post_to_channel` for progress, decisions, blockers and outcomes the whole team needs. It uses `send_to_role` for detailed one-to-one coordination. A direct request wakes one role; that role's ordinary reply returns directly once. Handling the response does not reply again automatically, so another exchange requires an explicit `send_to_role`. Direct exchanges stay under the channel and are inspectable by the user, while only participating roles can read them through Reef tools.
@@ -238,6 +238,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 77 | A wrap-up or promote turn reads every direct exchange of its channel, and only that turn may read a pair's messages besides the pair and the user | The brief and decisions must reflect private work; wrap-up is user-approved, and roles still learn it only through the approved brief, decisions and public posts |
 | 78 | One routing pass wakes a role once, whatever threads the messages that name it are in; the texts join and the reply goes where the first one did. Amends 27 | A thread reply and a top-level post that both handed work to the same role woke it twice and held two approvals for one handoff |
 | 79 | A channel created with the new-channel form's default name (backend or team, then the time) gets a name from its provider after its first user message: one throwaway turn with no tools, stored as no turn or message, once. A typed name, any rename, or a failed call keeps the name the channel has | The user never has to name a channel, and what they name or rename always wins |
+| 80 | Only a handoff @mention wakes a role: an `@name` at the start of a message or of a line, after optional spaces or tabs, and every `@name` of an unbroken run there (`@architect, @tester do X`). An `@name` anywhere else in a sentence wakes nobody, from an agent or the user. Refines 23 | "I'll report to @lead later" woke the lead for a turn that had nothing to do |
 
 ## Open questions
 

@@ -710,12 +710,15 @@ no model. In order:
 1. A reply from the user in a thread goes to the thread's owner, the author of the root. When
    the user owns the thread, it goes to the lead. An agent's reply in a thread has no owner
    rule: it wakes only the roles it mentions.
-2. Otherwise every `@name` in the body that is a role of the team goes to that role, each
-   once; the sender and unknown names are skipped. The message is stored once. When it wakes
-   more than one role, each wake's header is followed by `Asked together: @a, @b` naming all of
-   them.
+2. Otherwise every `@name` that is a role of the team goes to that role, each once, when it
+   is a handoff: it starts the body or a line (spaces and tabs may come before it), or it
+   follows other `@name`s at the start with only spaces or commas between them, as in
+   `@architect, @tester do X`. A name later in a sentence wakes no one: `I'll report to @lead
+   later` and the second name of `@architect and @tester do X` are not handoffs. The sender
+   and unknown names are skipped. The message is stored once. When it wakes more than one
+   role, each wake's header is followed by `Asked together: @a, @b` naming all of them.
 3. Otherwise a message from the user goes to the lead.
-4. Otherwise nobody: a message from an agent that names no one wakes no one, in a thread or not.
+4. Otherwise nobody: a message from an agent that hands off to no one wakes no one, in a thread or not.
 
 The lead is the channel's `role`: on a channel whose role is `developer`, `@lead` names no
 role, so the message goes to `developer` and no `lead` session starts.
