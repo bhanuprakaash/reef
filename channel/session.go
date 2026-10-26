@@ -96,6 +96,14 @@ func Open(
 	return open(ctx, st, dataDir, exe, channelID, trees, newAgent)
 }
 
+// OpenWith is Open with mk making the agent of each backend.
+func OpenWith(
+	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64, trees *Trees,
+	mk func(backend string) (agent.Agent, error),
+) (*Session, error) {
+	return open(ctx, st, dataDir, exe, channelID, trees, mk)
+}
+
 func open(
 	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64, trees *Trees,
 	mk func(backend string) (agent.Agent, error),
