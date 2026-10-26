@@ -1,7 +1,7 @@
 # Memory service: proof
 
 One section per issue. Each lists the exact commands run on branch `memory-service` and what they printed.
-Pages per ticket: open `index.html` in this folder.
+Per-ticket pages are generated from `pages/<n>.py` and `meta.py`; the HTML is not committed.
 
 ## #23 Memory tables and item writes
 
@@ -355,7 +355,7 @@ main binary:   reef memory                               -> reef: open store: mi
 
 ## Round 2: review fixes, Gemini, and a second review (#33–#45)
 
-Branch tip `4ea380a`. Tickets came from the interrogate pass on `13e5f7b` (#33–#41) and a second interrogate pass on `b3ecb2c` (#42–#45). Pages per ticket: `33.html` to `45.html`.
+Branch tip `4ea380a`. Tickets came from the interrogate pass on `13e5f7b` (#33–#41) and a second interrogate pass on `b3ecb2c` (#42–#45). Per-ticket pages: `pages/33.py` to `pages/45.py`.
 
 ### Decisions added
 - R28 Gemini provider: 768 dimensions, no task type, cosine floor 0.6 per provider (OpenAI and Voyage 0.3, not measured). Lookalike 0.92 holds.
