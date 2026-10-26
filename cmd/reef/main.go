@@ -33,6 +33,10 @@ commands:
   task add [<feature>] "<title>"
   task list [<feature>] [--status S]
   memory show [--project P] | memory set FILE|- [--project P]
+  memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval]
+  memory recall "<q>" [--scope S] [--limit N]
+  memory show <id> | retire <id> | approve <id> | reject <id> | pending
+  memory embed [none|openai|voyage|gemini [--key K]]
   team apply FILE.json | team list
   context <feature> --role R
   wrap list [<feature>] | show <id> | approve <id> | reject <id>
@@ -75,7 +79,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	case "task":
 		return taskCmd(ctx, args[1:], stdout)
 	case "memory":
-		return memoryCmd(ctx, args[1:], stdin, stdout)
+		return memoryCmd(ctx, args[1:], stdin, stdout, stderr)
 	case "context":
 		return contextCmd(ctx, args[1:], stdout)
 	case "wrap":

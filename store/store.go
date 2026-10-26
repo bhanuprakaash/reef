@@ -81,6 +81,9 @@ func (s *Store) Close() error {
 	return s.db.Close()
 }
 
+// DB is the open database, for packages that keep their own tables in it.
+func (s *Store) DB() *sql.DB { return s.db }
+
 // writeErr is the error to return when the INSERT or UPDATE op failed with err.
 // SQLite does not say which foreign key broke, so a foreign-key failure looks up
 // the parents and names the first one that is gone: kind ErrNotFound for a parent

@@ -75,6 +75,9 @@ func TestMigrateSkillsToList(t *testing.T) {
 			if _, err := s.db.Exec("DROP TABLE provider"); err != nil {
 				t.Fatal(err)
 			}
+			if _, err := s.db.Exec("DROP TABLE setting"); err != nil {
+				t.Fatal(err)
+			}
 			if _, err := s.db.Exec("ALTER TABLE role DROP COLUMN provider"); err != nil {
 				t.Fatal(err)
 			}
