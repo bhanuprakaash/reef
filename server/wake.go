@@ -43,6 +43,9 @@ type wake struct {
 	text      string
 	parent    *int64
 	direct    *store.DirectMessage
+	// unread is set on a wake routed from a message: text is what it was routed with, and the
+	// turn's own text is built when it starts.
+	unread bool
 	// approval is the id of the approval a wake was released by, when it was.
 	approval int64
 	// approved is set when the user approved the wake at its gate.
@@ -108,9 +111,9 @@ func (s *server) wakes(ctx context.Context, id, after int64, author string) ([]w
 // route routes msgs of channel id, in order, into the turns they wake. Only the messages
 // written by author are routed. A user message runs as its own text; an agent message as
 // "<author> wrote: <body>". Each starts with a line naming the channel and the message, and
-// its thread root when it is a reply; a message in a thread comes with the thread before it.
-// A role woken by several messages gets one wake, their texts in id order; it replies where
-// the first one did.
+// its thread root when it is a reply. That text is what the wake was routed with: the turn's
+// own text is built when it starts, from the messages the role has not been sent. A role woken
+// by several messages gets one wake, their texts in id order; it replies where the first one did.
 func (s *server) route(ctx context.Context, id int64, msgs []store.Message, author string) ([]wake, error) {
 	ch, err := s.st.Channel(ctx, id)
 	if err != nil {
@@ -150,25 +153,13 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 		if m.ParentID != nil {
 			root := *m.ParentID
 			header = fmt.Sprintf("[channel %d, message %d, thread %d]", id, m.ID, root)
-			thread, err := s.st.Thread(ctx, id, root)
-			if err != nil {
-				return nil, err
-			}
-			var b strings.Builder
-			b.WriteString("Thread so far:\n")
-			for _, t := range thread {
-				if t.ID < m.ID {
-					fmt.Fprintf(&b, "%s: %s\n", t.Author, t.Body)
-				}
-			}
-			text = b.String() + "\n" + text
 		}
 		if len(woken) > 1 {
 			asked := make([]string, len(woken))
 			for i, role := range woken {
 				asked[i] = "@" + role
 			}
-			header += "\nAsked together: " + strings.Join(asked, ", ")
+			header += "\n" + channel.AskedTogether + strings.Join(asked, ", ")
 		}
 		for _, role := range woken {
 			gated := team.Gated(m.Author, role)
@@ -180,7 +171,7 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 			}
 			ws = append(ws, wake{
 				from: m.Author, messageID: m.ID, gated: gated,
-				role: role, text: header + "\n" + text, parent: m.ParentID,
+				role: role, text: header + "\n" + text, parent: m.ParentID, unread: true,
 			})
 		}
 	}

@@ -286,7 +286,7 @@ One agent run in a channel.
 | `usage` | object | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens` (numbers, all four always present). The SQL columns are `input_tokens` and so on |
 | `startedAt` | string | |
 | `endedAt` | string? | `null` while running |
-| `wakeText` | string | default `""`; the text the turn ran: the wake, without the context prompt. Empty for a turn from before this field existed and for a wrap-up or promote turn |
+| `wakeText` | string | default `""`; the text the turn ran: the unread messages of the wake, without the context prompt. Empty for a turn from before this field existed and for a wrap-up or promote turn |
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
 | `directMessageId` | number? | the direct request or response the turn was woken by; `null` for a public wake. Kept so retry preserves private reply routing |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
@@ -421,7 +421,7 @@ A wake that waits at a gate. The SQL table is `approval`.
 | `to` | string | the role that would run |
 | `messageId` | number | the message that woke it; `0` for a direct wake |
 | `directMessageId` | number? | the direct message that woke it, when the wake is direct |
-| `text` | string | the prompt the wake will run, for example `[channel 5, message 28]\nlead wrote: @architect design a form` |
+| `text` | string | the wake as it was routed, for example `[channel 5, message 28]\nlead wrote: @architect design a form`; the turn's own text is built when it runs |
 | `status` | string | `pending`, `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 
@@ -728,18 +728,28 @@ with `parent` on an architect's thread goes to the architect, and `@architect ..
 architect with no lead turn. `POST /messages` stores a message and wakes nobody. The `/wrap`
 and promote turns are not routed (see below).
 
-A wake is a turn of the woken role. Its prompt starts with a line `[channel 3, message 12]`
-for a top-level message, or `[channel 3, message 12, thread 9]` for a reply: the channel, the
-waking message and, for a reply, its thread root. Then comes the user's text as it is, or
-`<author> wrote: <body>` for an agent's message. For a message in a thread, the earlier messages of the thread (`Thread so
-far:`) come between the line and the text; they are the conversation being answered, so they
-stay in the prompt. One routing pass wakes a role once: when several messages, top-level or in
-any thread, wake the same role, for example a `post_to_channel` that names `@architect` and a
-reply that does too, their texts are joined in id order into one prompt, so a gate holds one
-approval for them. The woken role's reply is stored in the thread the header of the first
-message names (`parentId` is the thread root). When a top-level message woke the role, the
-reply is top-level too: it is the root of a thread the role owns, and the user's reply in it
-goes to the role.
+A wake is a turn of the woken role. Routing gives it the text it was routed with: a line
+`[channel 3, message 12]` for a top-level message, or `[channel 3, message 12, thread 9]` for a
+reply (the channel, the waking message and, for a reply, its thread root), then the user's
+text as it is, or `<author> wrote: <body>` for an agent's message. That text is what a gate
+shows and what the wake keeps if it never starts. The turn's own text is built when the turn
+starts, not when the message is routed, from what the role has not been sent in its session:
+the messages of the thread (or, for a top-level message, the channel's top level) that no
+earlier turn of the role in that session sent, oldest first, and never the role's own
+messages or reef's. It starts with a line naming the newest of them, in the same form. When
+there is more than one, all but the newest come after `New in the thread:` (or `New in the
+channel:`) as `<author>: <body>`, and the newest follows as the user's text or `<author>
+wrote: <body>`. A message stored after the wake was routed, before it runs, is in the text.
+A turn's header says how far the role has read: the role's later turns in the same session
+skip every message up to it, so a thread is sent once, and a new session, after a lost one,
+gets the thread again once. A wake that finds nothing unread runs no turn: an earlier turn
+already sent what woke it. One routing pass wakes a role once: when several messages,
+top-level or in any thread, wake the same role, for example a `post_to_channel` that names
+`@architect` and a reply that does too, they are one wake, so a gate holds one approval for
+them, and its text has one block for each thread, with its `Asked together` line. The woken
+role's reply is stored in the thread the header of the first message names (`parentId` is the
+thread root). When a top-level message woke the role, the reply is top-level too: it is the
+root of a thread the role owns, and the user's reply in it goes to the role.
 
 The first turn and the wakes after it are one chain. They run one at a time, in the order
 the messages were stored, and the messages each turn stores are routed in turn and queued at

@@ -48,9 +48,12 @@ type member struct {
 }
 
 type runInput struct {
-	text    string
-	parent  *int64
-	direct  *store.DirectMessage
+	text   string
+	parent *int64
+	direct *store.DirectMessage
+	// routed, when set, is the text the wake was routed with: the turn's text is built from
+	// the unread messages when it starts, and text is what a turn that never starts keeps.
+	routed  string
 	onEvent func(agent.Event)
 }
 
@@ -176,11 +179,29 @@ func (s *Session) Run(
 func (s *Session) RunAs(
 	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
 ) error {
-	m, err := s.member(ctx, role, text, parent, nil)
+	return s.runAs(ctx, role, runInput{text: text, parent: parent, onEvent: onEvent})
+}
+
+// WakeAs is RunAs for a wake routed with routed. The turn's text is not routed: it is built
+// when the turn starts, from the messages of the thread of parent, or of the top level, that
+// the role has not been sent in its session. A wake with none runs no turn.
+func (s *Session) WakeAs(
+	ctx context.Context, role, routed string, parent *int64, onEvent func(agent.Event),
+) error {
+	text, err := wakeText(context.WithoutCancel(ctx), s.st, s.ch.ID, role, "", routed)
+	if err != nil || text == "" {
+		return err
+	}
+	return s.runAs(ctx, role,
+		runInput{text: text, parent: parent, routed: routed, onEvent: onEvent})
+}
+
+func (s *Session) runAs(ctx context.Context, role string, in runInput) error {
+	m, err := s.member(ctx, role, in.text, in.parent, nil)
 	if err != nil {
 		return err
 	}
-	err = s.run(ctx, m, runInput{text: text, parent: parent, onEvent: onEvent})
+	err = s.run(ctx, m, in)
 	if role == s.ch.Role {
 		return err
 	}
@@ -221,7 +242,16 @@ func (s *Session) run(ctx context.Context, m *member, in runInput) error {
 		if in.direct != nil {
 			return m.run.RunDirect(ctx, in.text, *in.direct, in.onEvent)
 		}
-		return m.run.Run(ctx, in.text, in.parent, in.onEvent)
+		text := in.text
+		if in.routed != "" {
+			var err error
+			text, err = wakeText(
+				context.WithoutCancel(ctx), s.st, s.ch.ID, m.run.role, m.run.sessionID, in.routed)
+			if err != nil || text == "" {
+				return err
+			}
+		}
+		return m.run.Run(ctx, text, in.parent, in.onEvent)
 	}
 	if !m.write {
 		defer s.trees.Read(m.dir)()
@@ -447,6 +477,7 @@ func (s *Session) member(
 		return nil, errors.Join(err, s.failTurn(wctx, role, r.Backend, reason, text, parent, directMessageID))
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
+	m.run.sessionID = last.SessionID
 	m.run.OnPrompt = s.onPrompt
 	if m.write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
 		m.run.CheckpointDir = cwd

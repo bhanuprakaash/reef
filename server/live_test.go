@@ -85,6 +85,12 @@ func (f *fakeSession) RunAs(
 	}
 }
 
+func (f *fakeSession) WakeAs(
+	ctx context.Context, role, routed string, parent *int64, onEvent func(agent.Event),
+) error {
+	return f.RunAs(ctx, role, routed, parent, onEvent)
+}
+
 func (f *fakeSession) RunDirectAs(
 	ctx context.Context, role, text string, dm store.DirectMessage, onEvent func(agent.Event),
 ) error {
@@ -183,6 +189,12 @@ func (r runnerSession) RunAs(
 	ctx context.Context, _, text string, parent *int64, onEvent func(agent.Event),
 ) error {
 	return r.run.Run(ctx, text, parent, onEvent)
+}
+
+func (r runnerSession) WakeAs(
+	ctx context.Context, role, routed string, parent *int64, onEvent func(agent.Event),
+) error {
+	return r.RunAs(ctx, role, routed, parent, onEvent)
 }
 
 func (r runnerSession) RunDirectAs(
@@ -529,7 +541,7 @@ func TestSend_RoutesAndWakes(t *testing.T) {
 	want := []string{
 		"[channel 2, message 1]\nlogin please",
 		"[channel 2, message 2]\nlead wrote: @architect plan it",
-		"[channel 2, message 4, thread 3]\nThread so far:\narchitect: the plan\n\nwhy?",
+		"[channel 2, message 4, thread 3]\nwhy?",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
@@ -723,7 +735,7 @@ func TestSend_OneWakePerRoleAcrossThreads(t *testing.T) {
 	want := []string{
 		"[channel 2, message 1]\ngo",
 		"[channel 2, message 2]\nlead wrote: @architect one\n\n" +
-			"[channel 2, message 3, thread 1]\nThread so far:\nuser: go\n\nlead wrote: @architect two",
+			"[channel 2, message 3, thread 1]\nlead wrote: @architect two",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: a top-level post and a thread reply wake the architect once", got, want)
@@ -794,7 +806,7 @@ func TestSend_ThreadReplyKeepsOwnerOverMentions(t *testing.T) {
 	}
 	sub.want(t, _idleFrame)
 	sub.wantTurns(t, "architect")
-	want := []string{"[channel 2, message 2, thread 1]\nThread so far:\narchitect: the plan\n\n@lead @architect why?"}
+	want := []string{"[channel 2, message 2, thread 1]\n@lead @architect why?"}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: only the thread owner wakes, no Asked together line", got, want)
 	}
@@ -827,10 +839,10 @@ func TestSend_SeveralMentionsInThreadKeepThread(t *testing.T) {
 	sub.want(t, _idleFrame)
 	sub.wantTurns(t, "lead", "architect", "tester")
 	post := "[channel 2, message 2, thread 1]\nAsked together: @architect, @tester\n" +
-		"Thread so far:\nuser: go\n\nlead wrote: @architect @tester @lead split it"
+		"lead wrote: @architect @tester @lead split it"
 	want := []string{"[channel 2, message 1]\ngo", post, post}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
-		t.Errorf("ran = %q, want %q: both recipients see the thread and the full set, not the sender", got, want)
+		t.Errorf("ran = %q, want %q: both recipients are woken with the full set, not the sender", got, want)
 	}
 }
 

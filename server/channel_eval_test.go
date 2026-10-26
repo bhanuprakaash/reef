@@ -45,23 +45,13 @@ const (
 
 var _expectedFail = map[string]map[string]string{
 	"claude": {
-		"duplicate bodies": "#47",
-		"wake size":        "#47",
 		"double post wake": "#48",
 	},
-	"claude-recorded": {
-		"duplicate bodies": "#47",
-		"wake size":        "#47",
-	},
+	"claude-recorded": {},
 	"codex": {
-		"duplicate bodies": "#47",
-		"wake size":        "#47",
 		"double post wake": "#48",
 	},
-	"codex-recorded": {
-		"duplicate bodies": "#47",
-		"wake size":        "#47",
-	},
+	"codex-recorded": {},
 }
 
 var (
@@ -582,6 +572,7 @@ func (e *evalEnv) check(name string) {
 		}
 		wakes++
 		largest = max(largest, len(tn.WakeText))
+		handoff := regexp.MustCompile(`(?m)^\s*(?:@[\w-]+[ \t,]+)*@` + tn.Role + `\b`)
 		var src []store.Message
 		for _, g := range _evalSources.FindAllStringSubmatch(tn.WakeText, -1) {
 			id, _ := strconv.ParseInt(g[1], 10, 64)
@@ -593,6 +584,19 @@ func (e *evalEnv) check(name string) {
 			continue
 		}
 		newest := src[len(src)-1].ID
+		// The header names the newest message the wake holds. The messages that woke the role
+		// are the ones in the text that name it, and the user's for the lead.
+		mention := regexp.MustCompile(`\B@` + tn.Role + `\b`)
+		var woke []store.Message
+		for _, m := range msgs {
+			if m.Author != tn.Role && m.ID <= newest && strings.Contains(tn.WakeText, m.Body) &&
+				(mention.MatchString(m.Body) || m.Author == "user" && tn.Role == "lead") {
+				woke = append(woke, m)
+			}
+		}
+		if len(woke) == 0 {
+			woke = src
+		}
 		fresh := 0
 		for _, m := range msgs {
 			if m.Author != tn.Role && m.ID > lastSeen[tn.Role] && m.ID <= newest {
@@ -603,11 +607,10 @@ func (e *evalEnv) check(name string) {
 		if len(tn.WakeText) > fresh+_evalHeader {
 			overSized++
 		}
-		if !slices.ContainsFunc(src, func(m store.Message) bool { return !second[m.ID] }) {
+		if !slices.ContainsFunc(woke, func(m store.Message) bool { return !second[m.ID] }) {
 			doublePost++
 		}
-		handoff := regexp.MustCompile(`(?m)^\s*(?:@[\w-]+[ \t,]+)*@` + tn.Role + `\b`)
-		if !slices.ContainsFunc(src, func(m store.Message) bool {
+		if !slices.ContainsFunc(woke, func(m store.Message) bool {
 			return m.Author == "user" || handoff.MatchString(m.Body)
 		}) {
 			plainText++

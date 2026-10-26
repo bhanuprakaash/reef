@@ -35,6 +35,7 @@ var _hopReason = fmt.Sprintf("%s %d agent hops without a user message", _hopReas
 type session interface {
 	Say(ctx context.Context, body string, parent *int64) (store.Message, error)
 	RunAs(ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event)) error
+	WakeAs(ctx context.Context, role, routed string, parent *int64, onEvent func(agent.Event)) error
 	RunDirectAs(ctx context.Context, role, text string, dm store.DirectMessage,
 		onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
@@ -441,6 +442,8 @@ func (s *server) runOne(
 	default:
 		if w.direct != nil {
 			err = sess.RunDirectAs(ctx, w.role, w.text, *w.direct, onEvent)
+		} else if w.unread {
+			err = sess.WakeAs(ctx, w.role, w.text, w.parent, onEvent)
 		} else {
 			err = sess.RunAs(ctx, w.role, w.text, w.parent, onEvent)
 		}
@@ -547,7 +550,7 @@ func approvalForWake(w wake, channelID int64, text string) store.Approval {
 func (s *server) wakeOf(ctx context.Context, a store.Approval) (wake, error) {
 	w := wake{
 		from: a.From, messageID: a.MessageID, role: a.To, text: a.Text, parent: a.Parent,
-		approval: a.ID,
+		approval: a.ID, unread: a.MessageID != 0,
 	}
 	if a.DirectMessageID != nil {
 		dm, err := s.st.DirectMessage(ctx, *a.DirectMessageID)
