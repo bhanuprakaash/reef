@@ -228,7 +228,7 @@ func TestThreadParams_Model(t *testing.T) {
 func TestThreadParams_MCPApprovalMode(t *testing.T) {
 	params := threadParams(agent.Config{MCPServers: map[string]agent.MCPServer{
 		"reef": {Command: "reef-mcp"},
-		"mcp1": {Command: "other-mcp"},
+		"x":    {Command: "other-mcp"},
 	}})
 	body, err := json.Marshal(params)
 	if err != nil {
@@ -245,8 +245,8 @@ func TestThreadParams_MCPApprovalMode(t *testing.T) {
 	if got.Config.MCPServers["reef"]["default_tools_approval_mode"] != "approve" {
 		t.Errorf("reef approval mode = %v, want approve", got.Config.MCPServers["reef"])
 	}
-	if _, ok := got.Config.MCPServers["mcp1"]["default_tools_approval_mode"]; ok {
-		t.Errorf("mcp1 has approval mode: %v", got.Config.MCPServers["mcp1"])
+	if got.Config.MCPServers["x"]["default_tools_approval_mode"] != "approve" {
+		t.Errorf("x approval mode = %v, want approve", got.Config.MCPServers["x"])
 	}
 }
 

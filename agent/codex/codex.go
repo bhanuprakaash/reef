@@ -568,11 +568,7 @@ func threadParams(cfg agent.Config) map[string]any {
 	if len(cfg.MCPServers) > 0 {
 		servers := make(map[string]mcpServer, len(cfg.MCPServers))
 		for name, s := range cfg.MCPServers {
-			server := mcpServer{MCPServer: s}
-			if name == "reef" {
-				server.ApprovalMode = "approve"
-			}
-			servers[name] = server
+			servers[name] = mcpServer{MCPServer: s, ApprovalMode: "approve"}
 		}
 		params["config"] = map[string]any{"mcp_servers": servers}
 	}
