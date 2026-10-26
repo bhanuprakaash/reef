@@ -540,6 +540,22 @@ func TestFailedResume(t *testing.T) {
 	}
 }
 
+func TestSendAfterFailedResumeNamesTheReason(t *testing.T) {
+	a := fakeClaude(t, "badresume")
+	if err := a.Resume(context.Background(), agent.Config{Cwd: t.TempDir()}, "x"); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	for deadline := time.Now().Add(10 * time.Second); err == nil && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+		err = a.Send(context.Background(), "hi")
+	}
+	if err == nil || !strings.HasPrefix(err.Error(), "write prompt: ") ||
+		!strings.HasSuffix(err.Error(), ": No conversation found") {
+		t.Errorf("Send error = %v, want a failed write that ends in the reason claude gave", err)
+	}
+}
+
 func TestResumeAfterBackgroundTask(t *testing.T) {
 	a := fakeClaude(t, "resumebg")
 	if err := a.Resume(context.Background(), agent.Config{Cwd: t.TempDir()}, "d6c291c5"); err != nil {

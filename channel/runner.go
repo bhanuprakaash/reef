@@ -114,6 +114,7 @@ func (r *Runner) Run(
 		r.OnPrompt(prompt)
 	}
 	if err := r.ag.Send(ctx, prompt); err != nil {
+		r.sessionGone = sessionMissing(err.Error())
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
 	r.preamble = ""

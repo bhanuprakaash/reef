@@ -148,7 +148,7 @@ func (a *Agent) Resume(_ context.Context, cfg agent.Config, sessionID string) er
 }
 
 // Send writes the prompt to claude as one user message.
-func (a *Agent) Send(_ context.Context, prompt string) error {
+func (a *Agent) Send(ctx context.Context, prompt string) error {
 	if a.stdin == nil {
 		return errors.New("claude not started")
 	}
@@ -160,9 +160,32 @@ func (a *Agent) Send(_ context.Context, prompt string) error {
 		return err
 	}
 	if _, err := a.stdin.Write(append(msg, '\n')); err != nil {
-		return fmt.Errorf("write prompt: %w", err)
+		err = fmt.Errorf("write prompt: %w", err)
+		if why := a.exitReason(ctx); why != "" {
+			err = fmt.Errorf("%w: %s", err, why)
+		}
+		return err
 	}
 	return nil
+}
+
+// exitReason is the text of the error event claude left when it exited before it read the
+// prompt, such as on a session it could not resume. The caller of a failed write is not
+// reading Events, so the reason would otherwise never reach it.
+func (a *Agent) exitReason(ctx context.Context) string {
+	for {
+		select {
+		case ev, ok := <-a.events:
+			if !ok {
+				return ""
+			}
+			if ev.Kind == agent.KindError {
+				return ev.Text
+			}
+		case <-ctx.Done():
+			return ""
+		}
+	}
 }
 
 // Events streams events until claude exits, then closes the channel.
