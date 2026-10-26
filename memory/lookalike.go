@@ -19,12 +19,12 @@ type Similar struct {
 
 func (s *Store) lookalikes(ctx context.Context, w Writer, n Note, vec []float32) ([]Similar, error) {
 	f := Filter{Scopes: []Ref{w.Scope}}
+	var out []Similar
 	if vec != nil {
 		hits, err := s.scoreVectors(ctx, vec, f)
 		if err != nil {
 			return nil, err
 		}
-		var out []Similar
 		for _, h := range hits {
 			if h.Score < _similarCosine {
 				break
@@ -32,46 +32,54 @@ func (s *Store) lookalikes(ctx context.Context, w Writer, n Note, vec []float32)
 			if slices.Contains(n.Replaces, h.ID) {
 				continue
 			}
-			body, err := s.body(ctx, h.ID)
+			body, _, err := s.body(ctx, h.ID)
 			if err != nil {
 				return nil, err
 			}
 			out = append(out, Similar{ID: h.ID, Body: body})
 		}
-		return out, nil
 	}
 
 	hits, err := s.Search(ctx, n.Body, f)
 	if err != nil {
 		return nil, err
 	}
-	hits = slices.DeleteFunc(hits, func(h Match) bool { return slices.Contains(n.Replaces, h.ID) })
-	if len(hits) == 0 {
-		return nil, nil
-	}
-	body, err := s.body(ctx, hits[0].ID)
-	if err != nil {
-		return nil, err
-	}
-	have := terms(body)
 	want := slices.Compact(slices.Sorted(slices.Values(terms(n.Body))))
-	found := 0
-	for _, t := range want {
-		if slices.Contains(have, t) {
-			found++
+	for _, h := range hits {
+		if slices.Contains(n.Replaces, h.ID) {
+			continue
 		}
+		body, hasVector, err := s.body(ctx, h.ID)
+		if err != nil {
+			return nil, err
+		}
+		if vec != nil && hasVector {
+			continue
+		}
+		have := terms(body)
+		found := 0
+		for _, t := range want {
+			if slices.Contains(have, t) {
+				found++
+			}
+		}
+		if float64(found)/float64(len(want)) >= _similarTermShare {
+			out = append(out, Similar{ID: h.ID, Body: body})
+		}
+		break
 	}
-	if float64(found)/float64(len(want)) < _similarTermShare {
-		return nil, nil
-	}
-	return []Similar{{ID: hits[0].ID, Body: body}}, nil
+	return out, nil
 }
 
-func (s *Store) body(ctx context.Context, id int64) (string, error) {
-	var body string
-	err := s.db.QueryRowContext(ctx, `SELECT body FROM memory WHERE id = ?`, id).Scan(&body)
+func (s *Store) body(ctx context.Context, id int64) (string, bool, error) {
+	var (
+		body      string
+		hasVector bool
+	)
+	err := s.db.QueryRowContext(ctx, `SELECT body, vector IS NOT NULL FROM memory WHERE id = ?`, id).
+		Scan(&body, &hasVector)
 	if err != nil {
-		return "", fmt.Errorf("read body of %d: %w", id, err)
+		return "", false, fmt.Errorf("read body of %d: %w", id, err)
 	}
-	return body, nil
+	return body, hasVector, nil
 }
