@@ -239,6 +239,8 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 78 | One routing pass wakes a role once, whatever threads the messages that name it are in; the texts join and the reply goes where the first one did. Amends 27 | A thread reply and a top-level post that both handed work to the same role woke it twice and held two approvals for one handoff |
 | 79 | A channel created with the new-channel form's default name (backend or team, then the time) gets a name from its provider after its first user message: one throwaway turn with no tools, stored as no turn or message, once. A typed name, any rename, or a failed call keeps the name the channel has | The user never has to name a channel, and what they name or rename always wins |
 | 80 | Only a handoff @mention wakes a role: an `@name` at the start of a message or of a line, after optional spaces or tabs, and every `@name` of an unbroken run there (`@architect, @tester do X`). An `@name` anywhere else in a sentence wakes nobody, from an agent or the user. Refines 23 | "I'll report to @lead later" woke the lead for a turn that had nothing to do |
+| 81 | An approved wake resets the hop count, as a user message or continue does. Amends 26 | The user looked at that wake and said yes; pausing right after asked the same question twice |
+| 82 | The answer of a background task a role started is posted to the channel as that role's message | The user asked for that work, and it otherwise lands in no turn |
 
 ## Open questions
 
