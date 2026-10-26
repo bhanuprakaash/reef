@@ -24,10 +24,9 @@ import (
 var _ agent.Agent = (*Agent)(nil)
 
 const (
-	_killAfter  = time.Second
-	_waitDelay  = 2 * time.Second
-	_stderrKeep = 4 << 10
-	_stopWait   = time.Second
+	_killAfter = time.Second
+	_waitDelay = 2 * time.Second
+	_stopWait  = time.Second
 
 	_messageBreak = "\n\n"
 )
@@ -38,7 +37,7 @@ type (
 		cmd      *exec.Cmd
 		stdin    io.Writer
 		stdout   *bufio.Reader
-		stderr   tail
+		stderr   agent.Tail
 		threadID string
 		model    string
 		nextID   int
@@ -55,9 +54,6 @@ type (
 		turn     atomic.Pointer[string] // id of the turn between turn/started and its end; resume replays usage outside it
 		stopping chan struct{}          // closed by Interrupt when it stops the turn in progress
 	}
-
-	// tail keeps the last _stderrKeep bytes written to it.
-	tail struct{ b []byte }
 
 	mcpServer struct {
 		agent.MCPServer
@@ -287,7 +283,7 @@ func (a *Agent) run(method string, params map[string]any, ready chan<- error) {
 	}
 	a.emit(agent.Event{
 		Kind: agent.KindError,
-		Text: fmt.Sprintf("codex exited: %v: %s", err, strings.TrimSpace(string(a.stderr.b))),
+		Text: fmt.Sprintf("codex exited: %v: %s", err, strings.TrimSpace(string(a.stderr.Bytes()))),
 	})
 }
 
@@ -484,14 +480,6 @@ func (a *Agent) signal(sig syscall.Signal) error {
 		return nil
 	}
 	return err
-}
-
-func (t *tail) Write(p []byte) (int, error) {
-	t.b = append(t.b, p...)
-	if len(t.b) > _stderrKeep {
-		t.b = t.b[len(t.b)-_stderrKeep:]
-	}
-	return len(p), nil
 }
 
 func (m message) event() (ev agent.Event, ok bool) {

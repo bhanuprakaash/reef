@@ -659,20 +659,3 @@ func TestBin(t *testing.T) {
 		t.Errorf("Start error = %v, want it to name /nonexistent/claude, not the claude on PATH", err)
 	}
 }
-
-func TestStderrKeepsTail(t *testing.T) {
-	var a Agent
-	chunk := strings.Repeat("x", 1<<20)
-	for range 10 {
-		if _, err := a.stderr.Write([]byte(chunk)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	a.stderr.Write([]byte("boom"))
-	if got, want := len(a.stderr.b), 4096; got != want {
-		t.Errorf("len = %d, want %d", got, want)
-	}
-	if got := string(a.stderr.b[len(a.stderr.b)-4:]); got != "boom" {
-		t.Errorf("tail = %q, want %q", got, "boom")
-	}
-}

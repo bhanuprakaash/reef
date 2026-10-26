@@ -2,6 +2,7 @@ package agent
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -70,5 +71,22 @@ func TestEvent_JSON(t *testing.T) {
 				t.Errorf("got %s, want %s", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestTail_keepsLast4KB(t *testing.T) {
+	var tl Tail
+	chunk := strings.Repeat("x", 1<<20)
+	for range 10 {
+		if _, err := tl.Write([]byte(chunk)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	tl.Write([]byte("boom"))
+	if got, want := len(tl.Bytes()), 4096; got != want {
+		t.Errorf("len = %d, want %d", got, want)
+	}
+	if got := string(tl.Bytes()[len(tl.Bytes())-4:]); got != "boom" {
+		t.Errorf("tail = %q, want %q", got, "boom")
 	}
 }

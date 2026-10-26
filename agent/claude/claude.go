@@ -33,7 +33,6 @@ const (
 	_termGrace = time.Second
 	// WaitDelay bounds Wait when a process that outlived claude holds its stderr pipe.
 	_waitDelay = 2 * time.Second
-	_stderrMax = 4 << 10
 	// _messageBreak goes before the text of a message that follows text in the same turn.
 	_messageBreak = "\n\n"
 )
@@ -42,7 +41,7 @@ const (
 type Agent struct {
 	cmd     *exec.Cmd
 	stdin   io.Writer
-	stderr  tail
+	stderr  agent.Tail
 	events  chan agent.Event
 	quit    chan struct{}
 	done    chan struct{}
@@ -118,8 +117,6 @@ type (
 	}
 
 	blocks []block
-
-	tail struct{ b []byte }
 
 	block struct {
 		Type      string          `json:"type"`
@@ -306,7 +303,7 @@ func (a *Agent) read(stdout io.Reader, resumed bool) {
 	}
 	a.emit(agent.Event{
 		Kind: agent.KindError,
-		Text: fmt.Sprintf("claude exited: %v: %s", err, bytes.TrimSpace(a.stderr.b)),
+		Text: fmt.Sprintf("claude exited: %v: %s", err, bytes.TrimSpace(a.stderr.Bytes())),
 	})
 }
 
@@ -547,14 +544,6 @@ func minus(a, b agent.Usage) agent.Usage {
 		CacheReadTokens:  max(a.CacheReadTokens-b.CacheReadTokens, 0),
 		CacheWriteTokens: max(a.CacheWriteTokens-b.CacheWriteTokens, 0),
 	}
-}
-
-func (t *tail) Write(p []byte) (int, error) {
-	t.b = append(t.b, p...)
-	if len(t.b) > _stderrMax {
-		t.b = t.b[len(t.b)-_stderrMax:]
-	}
-	return len(p), nil
 }
 
 func resultText(raw json.RawMessage) string {
