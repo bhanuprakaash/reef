@@ -115,8 +115,9 @@ role with `write`) and `tester`, all on `claude`, with the default gates. Each p
 the one teammate it hands work to (lead to architect, architect to developer, developer to
 tester, tester to developer on a failure or else to lead) and says to hand off by starting a
 line with `@name` and to write no other `@name`, because only an `@name` at the start of a
-line wakes a teammate (decision 80). The tester runs only `go test`, `npm test` and
-read-only `git` commands. Apply it with `reef team apply teams/full.json`.
+line wakes a teammate (decision 80). The tester runs `go test`, `npm test` and
+read-only `git` commands. Under decision 83 `go test` and `npm test` make it a writer, with
+the single-writer lock and a checkpoint. Apply it with `reef team apply teams/full.json`.
 
 ```json
 {
@@ -253,7 +254,7 @@ answer: <error>`.
 `post_to_channel` is how a teammate speaks in the channel besides its reply. When a turn
 posts, its plain reply stays on the turn and is not a second message. `reef serve`
 routes the message when the poster's turn ends: every `@role` at the start of a line of the body
-(and each `@role` of an unbroken run there) wakes that teammate, and a post that wakes
+(and each `@role` of an unbroken run there) wakes that teammate, and a post that hands off to
 nobody wakes no one (see [server.md](server.md#routing)). Plain Claude
 Code and `reef chat` have no router, so a post there is only stored.
 

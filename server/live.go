@@ -96,6 +96,9 @@ type live struct {
 	hops  int
 	held  []wake
 	retry *retry
+	// shed is the part of held that a stopped or failed chain left unrun; the next chain notes
+	// it, unless continue runs it.
+	shed []wake
 	// queued is the wakes that arrived while a chain starts or runs; the chain runs them after
 	// its current turn, or gives them back when it ends first.
 	queued []wake
@@ -698,7 +701,7 @@ func (s *server) retryHeld(ctx context.Context, id int64, l *live) ([]wake, erro
 	}
 	held, err := s.gate(ctx, id, l, held)
 	l.mu.Lock()
-	l.held, l.retry = held, nil
+	l.held, l.retry, l.shed = held, nil, nil
 	l.mu.Unlock()
 	return held, err
 }
@@ -1013,9 +1016,11 @@ func (s *server) noteUnrouted(ctx context.Context, id int64, role string, cause 
 // noteDropped posts a message from reef in channel id naming the roles whose wakes a stopped
 // or failed turn left unrun, which a new chain does not run.
 func (s *server) noteDropped(ctx context.Context, id int64, ws []wake) {
-	roles := make([]string, len(ws))
-	for i, w := range ws {
-		roles[i] = w.role
+	var roles []string
+	for _, w := range ws {
+		if !slices.Contains(roles, w.role) {
+			roles = append(roles, w.role)
+		}
 	}
 	body := fmt.Sprintf("Wakes for %s did not run: the turn before them was stopped or failed. "+
 		"Send a message to ask again.", strings.Join(roles, ", "))
@@ -1102,6 +1107,7 @@ func (c *chain) shedLocked(left []wake, stopped bool) (directFailed []directFail
 	if stopped {
 		body = "stopped"
 	}
+	kept := len(c.l.held)
 	for _, w := range c.l.queued {
 		if w.approval != 0 {
 			approvals = append(approvals, w.approval)
@@ -1125,6 +1131,7 @@ func (c *chain) shedLocked(left []wake, stopped bool) (directFailed []directFail
 		}
 		c.l.held = append(c.l.held, w)
 	}
+	c.l.shed = append(c.l.shed, c.l.held[kept:]...)
 	return
 }
 
@@ -1201,10 +1208,10 @@ func (c *chain) start(
 		l.mu.Unlock()
 		return c.release(err)
 	}
-	if len(l.held) > 0 {
-		c.s.noteDropped(ctx, c.id, l.held)
+	if len(l.shed) > 0 {
+		c.s.noteDropped(ctx, c.id, l.shed)
 	}
-	l.state, l.kind, l.held, l.retry = _running, kind, nil, nil
+	l.state, l.kind, l.held, l.retry, l.shed = _running, kind, nil, nil, nil
 	l.dropped += len(l.frames)
 	l.frames = nil
 	if c.unpause {

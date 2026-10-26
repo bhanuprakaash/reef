@@ -942,6 +942,20 @@ func TestSend_AfterStopNotesTheWakeStopDropped(t *testing.T) {
 	env.wantMessages(t, id, "user: block", "user: @architect design it", "user: again", _droppedNote)
 }
 
+func TestSend_AfterStopNamesARoleOnceForTwoWakes(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	env.sendTo(t, id, "block")
+	<-env.fake.started
+	env.sendTo(t, id, "@architect design it")
+	env.sendTo(t, id, "@architect and test it")
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	env.sendTo(t, id, "again")
+	env.waitIdle(t, id)
+	env.wantMessages(t, id, "user: block", "user: @architect design it", "user: @architect and test it",
+		"user: again", _droppedNote)
+}
+
 func TestSend_AfterFailedTurnNotesTheLeftoverWakes(t *testing.T) {
 	env := newLiveEnv(t)
 	id, _ := env.teamChannel(t)
@@ -1623,6 +1637,8 @@ func TestSend_StoreErrorBeforeNextWakePausesAndContinueRunsHeldWakes(t *testing.
 	}) {
 		t.Errorf("ran = %q, want the architect to run the wake held by the store error", got)
 	}
+	env.waitIdle(t, id)
+	env.wantMessages(t, id, "user: go", "lead: @architect plan it")
 }
 
 func TestSend_DirectReadFailureKeepsDirectRequestForContinue(t *testing.T) {
