@@ -241,6 +241,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 80 | Only a handoff @mention wakes a role: an `@name` at the start of a message or of a line, after optional spaces or tabs, and every `@name` of an unbroken run there (`@architect, @tester do X`). An `@name` anywhere else in a sentence wakes nobody, from an agent or the user. Refines 23 | "I'll report to @lead later" woke the lead for a turn that had nothing to do |
 | 81 | An approved wake resets the hop count, as a user message or continue does. Amends 26 | The user looked at that wake and said yes; pausing right after asked the same question twice |
 | 82 | The answer of a background task a role started is posted to the channel as that role's message | The user asked for that work, and it otherwise lands in no turn |
+| 83 | On Claude, a role without `write` whose `tools` allow a shell command outside the reading-command allow-list in `channel/session.go` (`Bash`, `Bash(go test:*)`, `Bash(make:*)`) runs as a writer, with the single-writer lock and a checkpoint. Amends 32 | Such commands can change files, so they need the single-writer lock and an undo point |
 
 ## Open questions
 

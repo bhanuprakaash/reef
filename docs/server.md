@@ -296,7 +296,7 @@ One agent run in a channel.
 | `model` | string | default `""`; the backend's model name, set from the agent's first event once the turn ends |
 | `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one. A failed turn gets one too, when claude reported one. The turn's own cost: the session's running total the turn reported minus the total the session's previous turn reported. A session stored before totals were kept (all its turns have `sessionCostUsd` null) is taken to have cost, so far, the largest `costUsd` among its turns, which then held running totals |
 | `sessionCostUsd`, `sessionUsage` | number?, object? | not in the turn's own JSON; the running totals of the turn's whole session as claude reported them when the turn ended (`sessionUsage` has the four token counts). `null` for a turn from before migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql), for a turn that ended with no report (a stopped or crashed turn) and for every codex turn. The SQL columns are `session_cost_usd`, `session_input_tokens`, `session_output_tokens`, `session_cache_read_tokens`, `session_cache_write_tokens`. A turn's usage is its total minus the latest total before it plus the `usage` of the stopped turns after that one, so a stopped turn's tokens are not counted twice |
-| `prompt` | string | not in the turn's own JSON (`GET /turns`, `GET /turns/{id}`); the full text sent to the agent (context preamble and notes included), set once the turn ends. `GET /channels/{id}/inspector` has its own view of it |
+| `prompt` | string | not in the turn's own JSON (`GET /turns`, `GET /turns/{id}`); the full text sent to the agent (context preamble and notes included), stored when it is sent, so a running turn has it; a turn whose send fails stores it when it ends. Empty for a turn that failed before its prompt was built. `GET /channels/{id}/inspector` has its own view of it |
 | `reply` | string | not in the turn's own JSON; the plain reply of a done turn that already posted with `post_to_channel`, kept here and not stored as a message (see [Routing](#routing)). `""` for every other turn. `GET /channels/{id}/inspector` has its own view of it |
 
 ### tool_call
@@ -957,9 +957,9 @@ its turn is stored `failed`, `interrupted`.
 Two caps pause a channel. All are constants in the code, not settings.
 
 - Tokens per channel: the input, output and cache write tokens of all the channel's turns,
-  of every role, cache reads not counted, against `tokenBudget` (1,000,000). A turn only
-  counts once it has ended. A send, or a wake in a chain, that finds the sum at or over the
-  budget pauses the channel with `token budget of 1000000 used: 1000312 tokens`. The budget is
+  of every role, cache reads not counted, against `tokenBudget` (1,000,000). A running turn
+  counts the usage it has streamed so far. A send, or a wake in a chain, that finds the sum at or
+  over the budget pauses the channel with `token budget of 1000000 used: 1000312 tokens`. The budget is
   checked only between turns: a turn that crosses it runs to its end.
 - Agent hops: a hop is a turn that an agent's message woke. The turn that answers the user's
   message is not a hop. The server counts hops per channel since the last user message. The

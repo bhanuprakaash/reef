@@ -82,7 +82,9 @@ func TestTail_keepsLast4KB(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	tl.Write([]byte("boom"))
+	if n, err := tl.Write([]byte("boom")); n != 4 || err != nil {
+		t.Fatalf("Write = %d, %v, want 4, nil", n, err)
+	}
 	if got, want := len(tl.Bytes()), 4096; got != want {
 		t.Errorf("len = %d, want %d", got, want)
 	}
