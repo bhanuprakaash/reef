@@ -956,7 +956,7 @@ they survive a restart; the hop count is not, so a chain that runs after a resta
 The same pause holds work when the server cannot store an approval for a gated wake, or cannot
 read the messages or the direct messages a turn stored to route them, or when a store error
 stops the check before the next wake. The channel pauses with the error as the reason, and
-nothing runs ungated. These wakes are held in memory only, since the database failed. `continue` stores the approval again, or does the routing read again from
+nothing runs ungated. These wakes are held in memory only, since the database failed, until the server stops and stores them. `continue` stores the approval again, or does the routing read again from
 the message before the turn's reply, and runs what that wakes. If it fails again the channel
 stays paused.
 
@@ -1054,10 +1054,13 @@ An agent may have left half-done edits in the worktree, so the message tells the
 check before retrying. A turn failed this way keeps its `wakeText`, so `POST /turns/{id}/retry`
 can run it again (see [Channels live](#channels-live)).
 
-A chain of wakes does not survive a restart: the wakes still waiting are lost, with the hop
-count and the wakes held because the database failed, which are in memory. A pause is stored,
-and so are the wakes it held, so the channel stays paused and `continue` runs them. A pending
-approval is stored, so it is still pending after the restart and can be approved then.
+A chain of wakes does not run on after a restart, but its waiting wakes are kept. When the
+server stops, the wakes a chain had queued behind the running turn, and the wakes held in memory
+because the database failed, are stored as holds, and the channel is paused with `app restarted:
+wakes were waiting to run` unless it is paused already. The pause shows in the inbox, and
+`continue` runs the holds. Only the hop count is lost: a chain that runs after a restart counts
+from 0. A pause is stored with its holds, and a pending approval is stored, so both survive too.
+A direct request that did not run still gets its `failed` response.
 
 ## Try it
 

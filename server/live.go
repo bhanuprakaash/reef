@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"maps"
 	"net/http"
 	"slices"
 	"strconv"
@@ -26,6 +27,8 @@ const _nameTimeout = time.Minute
 var errStopping = errors.New("server is stopping")
 
 const _hopReasonPrefix = "hop cap:"
+
+const _restartReason = "app restarted: wakes were waiting to run"
 
 var _hopReason = fmt.Sprintf("%s %d agent hops without a user message", _hopReasonPrefix, store.HopCap)
 
@@ -906,6 +909,7 @@ func (s *server) close() {
 	s.mu.Unlock()
 	s.cancel()
 	s.wg.Wait()
+	s.holdQueued()
 	close(s.quit)
 	var sessions []session
 	s.mu.Lock()
@@ -927,6 +931,34 @@ func (s *server) close() {
 		})
 	}
 	wg.Wait()
+}
+
+// holdQueued stores the wakes the stopped chains left in memory as holds, and pauses their
+// channels so continue runs them after a restart. A channel already paused keeps its reason.
+func (s *server) holdQueued() {
+	ctx := context.Background()
+	s.mu.Lock()
+	lives := maps.Clone(s.lives)
+	s.mu.Unlock()
+	for id, l := range lives {
+		l.mu.Lock()
+		held := slices.Clone(l.held)
+		l.mu.Unlock()
+		if len(held) == 0 {
+			continue
+		}
+		if _, err := s.hold(ctx, id, held); err != nil {
+			log.Printf("channel %d: %v", id, err)
+			continue
+		}
+		ch, err := s.st.Channel(ctx, id)
+		if err == nil && ch.Paused == "" {
+			err = s.st.PauseChannel(ctx, id, _restartReason)
+		}
+		if err != nil {
+			log.Printf("pause channel %d: %v", id, err)
+		}
+	}
 }
 
 func (c *chain) release(err error) error {

@@ -49,7 +49,6 @@ var _expectedFail = map[string]map[string]string{
 		"wake size":        "#47",
 		"double post wake": "#48",
 		"cost sum":         "#50",
-		"restart":          "#55",
 	},
 	"claude-recorded": {
 		"duplicate bodies": "#47",
@@ -60,7 +59,6 @@ var _expectedFail = map[string]map[string]string{
 		"duplicate bodies": "#47",
 		"wake size":        "#47",
 		"double post wake": "#48",
-		"restart":          "#55",
 	},
 	"codex-recorded": {
 		"duplicate bodies": "#47",
@@ -462,13 +460,35 @@ func runEval(t *testing.T, backend string) {
 			lost = ""
 		}
 	}
-	for _, a := range approvals {
+	holds, err := e.store().PendingHolds(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, a := range append(approvals, holds...) {
 		if a.To == "tester" {
 			lost = ""
 		}
 	}
 	e.check(backend)
 	expect(t, backend, "restart", lost)
+	if len(holds) == 0 {
+		return
+	}
+	if status, body := do(t, http.MethodPost, e.url+"/channels/1/continue", ""); status != 204 {
+		t.Fatalf("continue = %d %s, want 204", status, body)
+	}
+	e.idle()
+	turns, err = e.store().Turns(ctx, store.TurnFilter{ChannelID: &root})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ran := false
+	for _, tn := range turns {
+		ran = ran || tn.Role == "tester" && strings.Contains(tn.WakeText, "[c6.1]")
+	}
+	if !ran {
+		t.Error("continue did not run the tester's held wake")
+	}
 }
 
 // replayEval sends the user's messages of the backend's recording, each once the channel is
