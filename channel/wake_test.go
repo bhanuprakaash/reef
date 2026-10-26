@@ -305,3 +305,27 @@ func TestWakeAs_NewSessionShowsOnlyTheLastTwentyMessages(t *testing.T) {
 		t.Errorf("next wake = %q, want %q: a session that has read is not capped", got, want)
 	}
 }
+
+func TestWakeAs_ReplyGoesWhereTheFirstSentBlockSays(t *testing.T) {
+	e := newWakeEnv(t)
+	root := e.say("user", "root", nil)
+	e.say("lead", "@developer plan", &root)
+	e.wake("developer", "[channel 1, message 2, thread 1]\nlead wrote: @developer plan", &root,
+		store.Scope{Thread: root})
+
+	e.say("lead", "@developer top", nil)
+	routed := "[channel 1, message 2, thread 1]\nlead wrote: @developer plan\n\n" +
+		"[channel 1, message 4]\nlead wrote: @developer top"
+	want := "[channel 1, message 4]\nlead wrote: @developer top"
+	if got := e.wake("developer", routed, &root, store.Scope{Thread: root}, store.Scope{}); got != want {
+		t.Fatalf("wake =\n%q\nwant\n%q: the thread was all read", got, want)
+	}
+	msgs, err := e.st.Messages(context.Background(), e.ch.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply := msgs[len(msgs)-1]
+	if reply.Author != "developer" || reply.ParentID != nil {
+		t.Errorf("reply = %+v, want the developer's at the top level, as its header says", reply)
+	}
+}

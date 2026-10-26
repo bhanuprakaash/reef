@@ -278,7 +278,7 @@ func (s *Session) run(ctx context.Context, m *member, in runInput) error {
 // session has not been sent; a wake with none runs no turn. A failure to build it leaves a
 // failed turn, as the agent got nothing.
 func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
-	text, sent := in.text, store.Scopes(nil)
+	text, sent, parent := in.text, store.Scopes(nil), in.parent
 	if in.direct == nil && len(in.scopes) > 0 {
 		var err error
 		text, sent, err = wakeText(
@@ -289,12 +289,16 @@ func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
 		if text == "" {
 			return nil
 		}
+		parent = nil
+		if thread := sent[0].Thread; thread != 0 {
+			parent = &thread
+		}
 	}
 	m.run.Scopes = sent
 	if in.direct != nil {
 		return m.run.RunDirect(ctx, text, *in.direct, in.onEvent)
 	}
-	return m.run.Run(ctx, text, in.parent, in.onEvent)
+	return m.run.Run(ctx, text, parent, in.onEvent)
 }
 
 // failTurn stores a failed turn of role for a turn that never started and returns cause
