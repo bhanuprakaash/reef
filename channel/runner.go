@@ -121,7 +121,7 @@ func (r *Runner) Run(
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
 	r.preamble = ""
-	if _, err := r.st.SetTurnSent(wctx, turn.ID); err != nil {
+	if _, err := r.st.SetTurnSent(wctx, turn.ID, prompt); err != nil {
 		return r.abort(wctx, turn, err, err.Error(), "", parent)
 	}
 
@@ -175,6 +175,9 @@ func (r *Runner) Run(
 			case agent.KindUsage:
 				if ev.Usage != nil {
 					turn.Usage.Add(*ev.Usage)
+					if err := r.st.SetTurnUsage(wctx, turn.ID, turn.Usage); err != nil {
+						return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
+					}
 				}
 			case agent.KindError:
 				r.sessionGone = sessionMissing(ev.Text)

@@ -239,10 +239,10 @@ func (s *Store) SetTurnRetried(ctx context.Context, id int64, retried bool) erro
 	return nil
 }
 
-// SetTurnSent marks the running turn id as having sent its prompt to the agent.
-func (s *Store) SetTurnSent(ctx context.Context, id int64) (Turn, error) {
+// SetTurnSent marks the running turn id as having sent prompt to the agent, and keeps it.
+func (s *Store) SetTurnSent(ctx context.Context, id int64, prompt string) (Turn, error) {
 	res, err := s.db.ExecContext(ctx,
-		"UPDATE turn SET sent = 1 WHERE id = ? AND status = ?", id, _turnRunning)
+		"UPDATE turn SET sent = 1, prompt = ? WHERE id = ? AND status = ?", prompt, id, _turnRunning)
 	if err != nil {
 		return Turn{}, fmt.Errorf("set turn sent: %w", err)
 	}
@@ -254,6 +254,26 @@ func (s *Store) SetTurnSent(ctx context.Context, id int64) (Turn, error) {
 		return Turn{}, s.notRunning(ctx, id)
 	}
 	return s.Turn(ctx, id)
+}
+
+// SetTurnUsage records the usage so far of the running turn id without ending it, so a turn
+// that never ends keeps the tokens it used.
+func (s *Store) SetTurnUsage(ctx context.Context, id int64, u agent.Usage) error {
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE turn SET input_tokens = ?, output_tokens = ?, cache_read_tokens = ?,
+		cache_write_tokens = ? WHERE id = ? AND status = ?`,
+		u.InputTokens, u.OutputTokens, u.CacheReadTokens, u.CacheWriteTokens, id, _turnRunning)
+	if err != nil {
+		return fmt.Errorf("set turn usage: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("set turn usage: %w", err)
+	}
+	if n == 0 {
+		return s.notRunning(ctx, id)
+	}
+	return nil
 }
 
 // SetTurnCheckpoint records the checkpoint ref of the running turn id.

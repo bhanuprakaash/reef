@@ -9,6 +9,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/store"
@@ -1524,5 +1525,105 @@ func TestSession_RemovedRoleStoresFailedTurn(t *testing.T) {
 	if got.Role != "architect" || got.Status != "failed" || got.WakeText != "plan it" ||
 		got.Error != "invalid: team core has no role architect" {
 		t.Errorf("turn = %+v, want a failed architect turn with wake \"plan it\" and the start error", got)
+	}
+}
+
+// hangingAgent reports a session and some usage on Send, then never ends the turn.
+type hangingAgent struct{ *recordingAgent }
+
+func (a hangingAgent) Send(_ context.Context, prompt string) error {
+	a.prompts = append(a.prompts, prompt)
+	a.events <- agent.Event{Kind: agent.KindSession, SessionID: "s1"}
+	a.events <- agent.Event{Kind: agent.KindUsage, Usage: &agent.Usage{InputTokens: 10, OutputTokens: 3}}
+	a.events <- agent.Event{
+		Kind: agent.KindUsage, Usage: &agent.Usage{OutputTokens: 4, CacheWriteTokens: 5},
+	}
+	return nil
+}
+
+func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
+		t.Fatal(err)
+	}
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		Team: "core",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	dataDir, trees := t.TempDir(), NewTrees(t.TempDir())
+	hung := hangingAgent{newRecordingAgent()}
+	s1, err := open(ctx, st, dataDir, "/bin/reef", ch.ID, trees,
+		func(string) (agent.Agent, error) { return hung, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	runCtx, quit := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- s1.RunAs(runCtx, "developer", "build it", nil, discard) }()
+	want := agent.Usage{InputTokens: 10, OutputTokens: 7, CacheWriteTokens: 5}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID, Status: "running"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(turns) == 1 && turns[0].Usage == want {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("running turns = %+v, want one with usage %+v", turns, want)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+
+	// The app quits: its lock is released and the turn is left running.
+	if err := s1.lock.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var ags []*recordingAgent
+	s2, err := open(ctx, st, dataDir, "/bin/reef", ch.ID, trees, func(string) (agent.Agent, error) {
+		ag := newRecordingAgent()
+		ags = append(ags, ag)
+		return ag, nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s2.Close() }()
+	quit()
+	<-done
+
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil || len(turns) != 1 {
+		t.Fatalf("turns = %+v, %v, want one", turns, err)
+	}
+	got := turns[0]
+	if got.Status != "failed" || got.Error != "chat exited" || got.Usage != want {
+		t.Errorf("turn = %q %q %+v, want failed, chat exited, %+v", got.Status, got.Error, got.Usage, want)
+	}
+	if !strings.Contains(got.Prompt, "You code.") || !strings.HasSuffix(got.Prompt, "build it") {
+		t.Errorf("prompt = %q, want the persona and the wake", got.Prompt)
+	}
+
+	if used, err := st.ChannelTokens(ctx, ch.ID); err != nil || used != 22 {
+		t.Errorf("channel tokens = %d, %v, want 22", used, err)
+	}
+	over := store.Channel{ID: ch.ID, TokenBudget: 22}
+	if now, err := CheckCaps(ctx, st, &over); !now || !errors.Is(err, store.ErrConflict) {
+		t.Errorf("CheckCaps at a budget of 22 = %v, %v, want paused now", now, err)
+	}
+
+	if err := s2.RunAs(ctx, "developer", "build more", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	if len(ags) != 1 || ags[0].resumed != "s1" || !slices.Equal(ags[0].prompts, []string{"build more"}) {
+		t.Errorf("resumed developer: resumed = %q, prompts = %q, want s1 and [build more]",
+			ags[0].resumed, ags[0].prompts)
 	}
 }

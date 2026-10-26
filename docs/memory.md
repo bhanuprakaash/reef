@@ -369,7 +369,8 @@ routes messages between teammates (see [server.md](server.md#channels-live)).
 A channel stores its role, its backend and its permission mode (see
 [server.md](server.md#channel)). `channel.Open` locks the channel and fails any turn it left
 running (error `chat exited`). That turn belonged to a `reef chat` that died, because this
-one now holds the chat lock. It starts no agent: a teammate's agent starts when that role has
+one now holds the chat lock. The turn keeps the prompt and the tokens stored while it ran,
+so the next turn of that role does not send its intro again. It starts no agent: a teammate's agent starts when that role has
 its first turn, in the project's folder (a channel on a feature: the feature's worktree, see
 [server.md](server.md#channels-live)), with one MCP server named `reef` (this `reef`
 binary, `mcp --data <data folder>`, with that teammate's own new token in `REEF_TOKEN`), plus
