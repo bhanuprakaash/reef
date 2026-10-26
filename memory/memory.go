@@ -82,11 +82,13 @@ type Writer struct {
 	Links        []Link
 }
 
-// Note is what a writer passes to Remember.
+// Note is what a writer passes to Remember. NeedsApproval makes the item a candidate
+// whoever writes it.
 type Note struct {
 	Kind, Body, Why string
 	About           []Ref
 	Replaces        []int64
+	NeedsApproval   bool
 }
 
 // Item is one stored memory with its links.
@@ -167,7 +169,7 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 	defer func() { _ = tx.Rollback() }()
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
-	status := statusFor(w, n.Kind)
+	status := statusFor(w, n)
 	res, err := tx.ExecContext(ctx,
 		`INSERT INTO memory (kind, body, why, scope_kind, scope_id, author, role, status, created_at, vector)
 		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -299,14 +301,17 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
-func statusFor(w Writer, kind string) string {
+func statusFor(w Writer, n Note) string {
+	if n.NeedsApproval {
+		return StatusCandidate
+	}
 	if w.Author == "user" {
 		return StatusAccepted
 	}
 	if w.Scope.Kind == ScopeTeam {
 		return StatusCandidate
 	}
-	if roles := _acceptedRoles[kind]; roles != nil && !roles[w.Role] {
+	if roles := _acceptedRoles[n.Kind]; roles != nil && !roles[w.Role] {
 		return StatusCandidate
 	}
 	return StatusAccepted

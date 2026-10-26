@@ -33,7 +33,7 @@ commands:
   task add [<feature>] "<title>"
   task list [<feature>] [--status S]
   memory show [--project P] | memory set FILE|- [--project P]
-  memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W]
+  memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval]
   memory recall "<q>" [--scope S] [--limit N]
   memory show <id> | retire <id> | approve <id> | pending
   memory embed [none|openai|voyage|gemini [--key K]]

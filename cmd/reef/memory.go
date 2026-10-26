@@ -17,13 +17,13 @@ import (
 
 const (
 	_memoryUsage = `usage: reef memory [--project P] [show|set FILE|-] [--data DIR]
-       reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W]
+       reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval]
        reef memory recall "<q>" [--scope S] [--limit N]
        reef memory show <id> | retire <id> | approve <id> | pending
        reef memory embed [none|openai|voyage|gemini [--key K]]`
 	_memoryShowUsage    = "usage: reef memory [--project P] show [<id>] [--data DIR]"
 	_memorySetUsage     = "usage: reef memory [--project P] set FILE|- [--data DIR]"
-	_memoryAddUsage     = `usage: reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--data DIR]`
+	_memoryAddUsage     = `usage: reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval] [--data DIR]`
 	_memoryRecallUsage  = `usage: reef memory recall "<q>" [--scope S] [--limit N] [--data DIR]`
 	_memoryRetireUsage  = "usage: reef memory retire <id> [--data DIR]"
 	_memoryPendingUsage = "usage: reef memory pending [--data DIR]"
@@ -155,6 +155,7 @@ func memoryAdd(ctx context.Context, args []string, stdout io.Writer) error {
 	scope := c.fs.String("scope", "", "")
 	role := c.fs.String("as", "", "")
 	why := c.fs.String("why", "", "")
+	needs := c.fs.Bool("needs-approval", false, "")
 	var about, replaces listFlag
 	c.fs.Var(&about, "about", "")
 	c.fs.Var(&replaces, "replaces", "")
@@ -175,7 +176,7 @@ func memoryAdd(ctx context.Context, args []string, stdout io.Writer) error {
 	if w.Scope, err = parseMemoryRef("--scope", *scope); err != nil {
 		return err
 	}
-	n := memory.Note{Kind: pos[0], Body: pos[1], Why: *why}
+	n := memory.Note{Kind: pos[0], Body: pos[1], Why: *why, NeedsApproval: *needs}
 	for _, a := range about {
 		r, err := parseMemoryRef("--about", a)
 		if err != nil {

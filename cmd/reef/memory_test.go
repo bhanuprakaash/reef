@@ -85,7 +85,9 @@ func TestCLI_MemoryItems(t *testing.T) {
 		{"show", "2  accepted  decision  project:1  Use cookie sessions, not JWT\n" +
 			"author  user  developer\nlink  about  work_item:12\nlink  replaces  memory:1\n",
 			[]string{"memory", "show", "2"}},
-		{"pending", "", []string{"memory", "pending"}},
+		{"add asking approval", "4  candidate  convention  project:1  Indent with tabs\n",
+			[]string{"memory", "add", "convention", "Indent with tabs", "--scope", "project:1", "--needs-approval"}},
+		{"pending", "4  candidate  convention  project:1  Indent with tabs\n", []string{"memory", "pending"}},
 		{"retire", "3  retired\n", []string{"memory", "retire", "3"}},
 	}
 	for _, s := range steps {
@@ -129,7 +131,7 @@ func TestCLI_MemoryEachCommandHasItsOwnFlags(t *testing.T) {
 		pending   = "usage: reef memory pending [--data DIR]"
 		show      = "usage: reef memory [--project P] show [<id>] [--data DIR]"
 		set       = "usage: reef memory [--project P] set FILE|- [--data DIR]"
-		add       = `usage: reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--data DIR]`
+		add       = `usage: reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval] [--data DIR]`
 		recall    = `usage: reef memory recall "<q>" [--scope S] [--limit N] [--data DIR]`
 		embed     = "usage: reef memory embed [none|openai|voyage|gemini [--key K]] [--data DIR]"
 	)
