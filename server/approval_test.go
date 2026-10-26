@@ -263,24 +263,49 @@ func TestApproval_ApproveSurvivesClientAbort(t *testing.T) {
 	}
 }
 
-func TestApproval_ApproveAtHopCapPausesAndStaysPending(t *testing.T) {
+// TestApproval_ApprovedHopsDoNotCountToTheCap: every wake is gated, so each of the 7 hops
+// is approved by the user; none pauses the channel.
+func TestApproval_ApprovedHopsDoNotCountToTheCap(t *testing.T) {
 	env := newLiveEnv(t)
-	id, _, approvals := env.gatedChannel(t)
-	l := env.h.s.lookup(int64(id))
-	l.mu.Lock()
-	l.hops = 6
-	l.mu.Unlock()
+	id, post := env.teamChannel(t)
+	roles := []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
+	}
+	_, err := env.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: roles,
+		Gates: []store.Gate{{From: "lead", To: "architect", On: true}, {From: "architect", To: "lead", On: true}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role == "lead" {
+			post("lead", "@architect again", nil)
+		} else {
+			post("architect", "@lead again", nil)
+		}
+	}
+	sub := subscribeTo(t, env.url, id)
+	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	env.sendTo(t, id, "go")
+	sub.want(t, _idleFrame)
+	for done := `turn {"role":"lead","status":"done"}`; sub.next(t) != done; {
+	}
 
-	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
-	if status != 409 || body != `{"error":"channel 2 is paused: `+_hopPause+`: conflict"}` {
-		t.Errorf("approve at 6 hops = %d %s, want 409 paused", status, body)
+	for i := 1; i <= 7; i++ {
+		role := "architect"
+		if i%2 == 0 {
+			role = "lead"
+		}
+		if status, body := do(t, http.MethodPost, fmt.Sprintf("%s/%d", approvals, i), `{"approve":true}`); status != 204 {
+			t.Fatalf("approve %d = %d %s, want 204", i, status, body)
+		}
+		for done := `turn {"role":"` + role + `","status":"done"}`; sub.next(t) != done; {
+		}
 	}
-	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
-		t.Errorf("channel = %+v, %v, want paused with the hop cap reason", ch, err)
+	if got := len(env.ranTexts()); got != 8 {
+		t.Errorf("turns run = %d, want 8: the user's turn and 7 approved hops", got)
 	}
-	status, body = do(t, http.MethodGet, approvals, "")
-	if status != 200 || !strings.Contains(body, `"id":1,`) || !strings.Contains(body, `"status":"pending"`) {
-		t.Errorf("approvals = %d %s, want approval 1 pending again", status, body)
+	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != "" {
+		t.Errorf("channel = %+v, %v, want not paused", ch, err)
 	}
 }
 

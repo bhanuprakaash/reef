@@ -726,6 +726,7 @@ func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
 	if *in.Approve {
 		ctx := context.WithoutCancel(r.Context())
 		wk, err := s.wakeOf(r.Context(), a)
+		wk.approved = true
 		if err != nil {
 			if rerr := s.st.ReopenApproval(ctx, aid); rerr != nil {
 				err = errors.Join(err, rerr)
@@ -1240,9 +1241,10 @@ func (l *live) queue(w wake) bool {
 }
 
 // countHop counts w as a hop when a message from an agent woke it, and reports whether w
-// may run: a wake over the cap may not. A message from the user resets the count.
+// may run: a wake over the cap may not. A message from the user, or a wake the user
+// approved, resets the count.
 func (l *live) countHop(w wake) bool {
-	if w.from == _userAuthor {
+	if w.from == _userAuthor || w.approved {
 		l.hops = 0
 		return true
 	}
