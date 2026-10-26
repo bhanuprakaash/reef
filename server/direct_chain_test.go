@@ -237,6 +237,19 @@ func TestDirectRejectedApprovalRecordsFailedResponse(t *testing.T) {
 	}
 }
 
+// waitHolds is the channel's hold count once it has any: a cap pause is stored just before
+// its holds, both under the chain's lock.
+func waitHolds(t *testing.T, dir string, channelID int64) int {
+	t.Helper()
+	n := 0
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if n = countHolds(t, dir, channelID); n != 0 {
+			break
+		}
+	}
+	return n
+}
+
 // TestDirectHopCapHoldThenContinue drives direct exchanges until the shared hop cap pauses
 // the channel with exactly one hold, then Continue runs the pending direct wake and preserves
 // private identity (a direct response, not a public message).
@@ -267,7 +280,7 @@ func TestDirectHopCapHoldThenContinue(t *testing.T) {
 	if err != nil || !strings.HasPrefix(ch.Paused, _hopReasonPrefix) {
 		t.Fatalf("paused = %q, %v, want hop cap", ch.Paused, err)
 	}
-	if nHold := countHolds(t, env.dir, int64(id)); nHold != 1 {
+	if nHold := waitHolds(t, env.dir, int64(id)); nHold != 1 {
 		t.Fatalf("holds = %d, want exactly one", nHold)
 	}
 	// Block the held direct wake so we can prove Continue started it.
@@ -411,7 +424,7 @@ func TestDirectTokenCapHoldThenContinue(t *testing.T) {
 	if err != nil || !strings.HasPrefix(ch.Paused, "token budget") {
 		t.Fatalf("paused = %q, %v, want token budget pause", ch.Paused, err)
 	}
-	if nHold := countHolds(t, env.dir, int64(id)); nHold != 1 {
+	if nHold := waitHolds(t, env.dir, int64(id)); nHold != 1 {
 		t.Fatalf("holds = %d, want exactly one", nHold)
 	}
 	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
