@@ -430,3 +430,34 @@ func TestCLI_MemoryEmbedSwitchRecovers(t *testing.T) {
 		t.Fatalf("vector bytes after rerun = %s, want %s", got, want)
 	}
 }
+
+func TestCLI_MemoryEmbedKeyMakesDBOwnerOnly(t *testing.T) {
+	old := http.DefaultTransport
+	http.DefaultTransport = roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{StatusCode: http.StatusOK, Body: http.NoBody}, nil
+	})
+	t.Cleanup(func() { http.DefaultTransport = old })
+
+	dir := t.TempDir()
+	if _, err := reef(t, dir, "project", "add", "--name", "x"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(filepath.Join(dir, "reef.db"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := reef(t, dir, "memory", "embed", "openai", "--key", "sk-test-SECRET"); err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"reef.db", "reef.db-wal", "reef.db-shm"} {
+		info, err := os.Stat(filepath.Join(dir, name))
+		if os.IsNotExist(err) {
+			continue
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := info.Mode().Perm(); got != 0o600 {
+			t.Errorf("%s mode = %o, want 600", name, got)
+		}
+	}
+}

@@ -455,6 +455,11 @@ func memoryEmbedSet(
 	if err := st.SetSetting(ctx, _settingEmbeddingKey, key); err != nil {
 		return err
 	}
+	if key != "" {
+		if err := restrictDB(ctx, st); err != nil {
+			return err
+		}
+	}
 	if provider == memory.ProviderNone {
 		_, err = fmt.Fprintf(stdout, "embedding provider %s\n", provider)
 		return err
@@ -469,6 +474,23 @@ func memoryEmbedSet(
 	}
 	_, err = fmt.Fprintf(stdout, "embedding provider %s; embedded %d items\n", provider, n)
 	return err
+}
+
+// restrictDB makes reef.db and any -wal/-shm beside it owner-only. SQLite
+// creates later -wal/-shm files with the main file's mode.
+func restrictDB(ctx context.Context, st *store.Store) error {
+	var path string
+	err := st.DB().QueryRowContext(ctx,
+		"SELECT file FROM pragma_database_list WHERE name = 'main'").Scan(&path)
+	if err != nil {
+		return fmt.Errorf("find db file: %w", err)
+	}
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if err := os.Chmod(path+suffix, 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("restrict db file: %w", err)
+		}
+	}
+	return nil
 }
 
 func memoryRow(it memory.Item) string {
