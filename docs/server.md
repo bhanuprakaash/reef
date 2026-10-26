@@ -526,7 +526,7 @@ tool calls.
 | `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
 | `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
 | `GET /channels/{id}/approvals` | | 200 the channel's pending gate approvals, oldest first; `[]` when none | 404 |
-| `POST /channels/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body; approve while a chain starts or runs queues the wake behind the current turn | 400 no `approve`, 404 no such approval in this channel, 409 not pending, or approve while the channel is paused or 6 hops ran (it stays pending), 503 |
+| `POST /channels/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body; approve while a chain starts or runs queues the wake behind the current turn | 400 no `approve`, 404 no such approval in this channel, 409 not pending, or approve while the channel is paused (it stays pending), 503 |
 | `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
 | `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
 | `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
@@ -778,8 +778,7 @@ the prompt it would have run and goes on with the rest of the chain. `GET
 /channels/{id}/approvals` lists the pending ones. `POST /channels/{id}/approvals/{aid}` with
 `{"approve":true}` runs the wake as a new chain (it needs an idle channel that is not
 paused, else 409 and the approval stays pending), or queues it on the chain that is starting or
-running, a wrap or promote one included. An approve at 6 hops pauses the channel for
-the hop cap, answers 409 and reopens the approval. With `{"approve":false}` it only marks the
+running, a wrap or promote one included. An approved wake resets the hop count to 0, so it runs at 6 hops. With `{"approve":false}` it only marks the
 approval `rejected`; for a direct wake it also records the `rejected` failed response. A decided approval is 409. Pending approvals are stored, so they survive a
 restart.
 
@@ -922,7 +921,8 @@ Two caps pause a channel. All are constants in the code, not settings.
 - Tokens per channel: the input, output and cache write tokens of all the channel's turns,
   of every role, cache reads not counted, against `tokenBudget` (1,000,000). A turn only
   counts once it has ended. A send, or a wake in a chain, that finds the sum at or over the
-  budget pauses the channel with `token budget of 1000000 used: 1000312 tokens`.
+  budget pauses the channel with `token budget of 1000000 used: 1000312 tokens`. The budget is
+  checked only between turns: a turn that crosses it runs to its end.
 - Agent hops: a hop is a turn that an agent's message woke. The turn that answers the user's
   message is not a hop. The server counts hops per channel since the last user message. The
   7th hop does not run: the channel is paused with `hop cap: 6 agent hops without a user
@@ -941,7 +941,8 @@ rows of the `approval` table. `continue` claims the channel's pending holds once
 hop count to 0 and runs them in order as a new chain, with `pause` `{"reason":""}` as the
 chain starts. If the chain cannot start, the channel stays paused and keeps the holds. That
 chain can reach the hop cap again, and then pauses again. Sending a user message resets the
-hop count to 0 too, and drops the holds. Approving a gate does not. The holds are stored, so
+hop count to 0 too, and drops the holds. Approving a gated wake resets it too, so that wake runs even at
+6 hops; wakes no one approved still count, so 6 hops with no approval pause the channel. The holds are stored, so
 they survive a restart; the hop count is not, so a chain that runs after a restart counts from 0.
 
 The same pause holds work when the server cannot store an approval for a gated wake, or cannot
