@@ -39,6 +39,9 @@ type Runner struct {
 	sessionID string
 	model     string
 	direct    *store.DirectMessage
+
+	// sessionGone is set when the backend reported the resumed session missing.
+	sessionGone bool
 }
 
 // checkpointRef is refs/reef/checkpoints/<12 hex of sha256 of the absolute data dir>/<turn id>.
@@ -167,6 +170,7 @@ func (r *Runner) Run(
 					turn.Usage.Add(*ev.Usage)
 				}
 			case agent.KindError:
+				r.sessionGone = sessionMissing(ev.Text)
 				if ev.CostUSD != nil {
 					turn.CostUSD = ev.CostUSD
 				}

@@ -582,7 +582,9 @@ a message wakes them.
   wakes a specialist starts no lead. A role that already has a session resumes it by its own
   newest session id (see [memory.md](memory.md#reef-chat)). An agent that fails to start shows
   as a `failed` turn of its role, with the start error, or `interrupted` when a stop cut the
-  start short. The server logs every failed turn.
+  start short. The server logs every failed turn. When the backend says the session is
+  missing (claude `No conversation found`, codex `no rollout found for thread id`), that turn
+  fails and the role's next wake starts a new session, with its intro, not the dead one.
 - An agent of a channel under a feature runs in the feature's worktree,
   `<data folder>/worktrees/<project id>/<slug>`, on branch `feature/<slug>`. It is made at
   the first start of any agent of the feature, from the project's base branch (fetched from

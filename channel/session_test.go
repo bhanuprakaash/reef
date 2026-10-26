@@ -20,7 +20,11 @@ type recordingAgent struct {
 	propose   bool
 	kind      string
 	startErr  error
+	resumeErr error
 	closeErr  error
+	// sendError, when set, is the error event Send answers with; session is the id it reports.
+	sendError string
+	session   string
 
 	cfg     agent.Config
 	started bool
@@ -41,7 +45,7 @@ func (a *recordingAgent) Start(_ context.Context, cfg agent.Config) error {
 
 func (a *recordingAgent) Resume(_ context.Context, cfg agent.Config, sessionID string) error {
 	a.cfg, a.resumed = cfg, sessionID
-	return nil
+	return a.resumeErr
 }
 
 func (a *recordingAgent) Events() <-chan agent.Event { return a.events }
@@ -58,7 +62,15 @@ func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 			return err
 		}
 	}
-	a.events <- agent.Event{Kind: agent.KindSession, SessionID: "s1"}
+	if a.sendError != "" {
+		a.events <- agent.Event{Kind: agent.KindError, Text: a.sendError}
+		return nil
+	}
+	id := a.session
+	if id == "" {
+		id = "s1"
+	}
+	a.events <- agent.Event{Kind: agent.KindSession, SessionID: id}
 	a.events <- agent.Event{Kind: agent.KindText, Text: "ok"}
 	a.events <- agent.Event{Kind: agent.KindTurnEnd}
 	return nil
@@ -436,6 +448,97 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 	}
 	if !strings.Contains(last.Prompt, "You code in Go only.") {
 		t.Errorf("stored turn.prompt = %q, want it to contain the new persona", last.Prompt)
+	}
+}
+
+func TestSession_MissingSessionStartsNewOne(t *testing.T) {
+	const intro = "You lead.\n\n"
+	tests := []struct {
+		name string
+		gone func(*recordingAgent)
+	}{
+		{"claude reports it on the first turn", func(ag *recordingAgent) {
+			ag.sendError = "No conversation found with session ID: s1"
+		}},
+		{"codex refuses the resume", func(ag *recordingAgent) {
+			ag.resumeErr = errors.New("thread/resume: no rollout found for thread id s1")
+		}},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			st, f := openStore(t)
+			lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Persona: "You lead."}
+			if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+				t.Fatal(err)
+			}
+			ch, err := st.CreateChannel(ctx, store.Channel{
+				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead",
+				Backend: "claude", Team: "core",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ags []*recordingAgent
+			mk := func(string) (agent.Agent, error) {
+				ag := newRecordingAgent()
+				switch len(ags) {
+				case 1:
+					tt.gone(ag)
+				case 2, 3:
+					ag.session = "s2"
+				}
+				ags = append(ags, ag)
+				return ag, nil
+			}
+			dir := t.TempDir()
+			trees := NewTrees(t.TempDir())
+			s, err := open(ctx, st, dir, "/bin/reef", ch.ID, trees, mk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Run(ctx, "hi", nil, discard); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+
+			s, err = open(ctx, st, dir, "/bin/reef", ch.ID, trees, mk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			if err := s.Run(ctx, "again", nil, discard); err == nil {
+				t.Fatal("run on a missing session = nil, want an error")
+			}
+			if err := s.Run(ctx, "once more", nil, discard); err != nil {
+				t.Fatal(err)
+			}
+			if len(ags) != 3 || ags[1].resumed != "s1" || !ags[2].started || ags[2].resumed != "" {
+				t.Fatalf("agents = %d, second resumed %q, third started = %v, resumed %q; want 3, s1, true, empty",
+					len(ags), ags[1].resumed, ags[2].started, ags[2].resumed)
+			}
+			if len(ags[2].prompts) != 1 || !strings.HasPrefix(ags[2].prompts[0], intro) ||
+				!strings.HasSuffix(ags[2].prompts[0], "\n\nonce more") {
+				t.Errorf("new session prompts = %q, want the role intro before once more", ags[2].prompts)
+			}
+
+			if err := s.Close(); err != nil {
+				t.Fatal(err)
+			}
+			s, err = open(ctx, st, dir, "/bin/reef", ch.ID, trees, mk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			if err := s.Run(ctx, "next day", nil, discard); err != nil {
+				t.Fatal(err)
+			}
+			if len(ags) != 4 || ags[3].resumed != "s2" || ags[3].started {
+				t.Errorf("agents = %d, last resumed %q; want 4 and the new session s2", len(ags), ags[3].resumed)
+			}
+		})
 	}
 }
 

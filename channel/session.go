@@ -353,7 +353,8 @@ func (s *Session) member(
 	}
 	if m, ok := s.members[role]; ok {
 		_, err := os.Stat(m.dir)
-		if !errors.Is(err, os.ErrNotExist) && sameAccess(m.cfg, roleConfig(r, m.dir)) {
+		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone &&
+			sameAccess(m.cfg, roleConfig(r, m.dir)) {
 			// Before its first turn, m's preamble already carries the current intro, set
 			// when it was started or resumed; nothing has been sent yet to compare against.
 			if intro := roleIntro(r); intro != "" && m.run.sessionID != "" {
@@ -721,11 +722,22 @@ func newestSessionTurn(
 	}
 	var last store.Turn
 	for _, t := range turns {
-		if t.Role == role && t.Backend == backend && t.SessionID != "" {
+		switch {
+		case t.Role != role || t.Backend != backend:
+		case sessionMissing(t.Error):
+			last = store.Turn{}
+		case t.SessionID != "":
 			last = t
 		}
 	}
 	return last, nil
+}
+
+// sessionMissing reports whether msg says the backend has no session to resume: claude's
+// error event on the first turn, or codex's error from thread/resume.
+func sessionMissing(msg string) bool {
+	return strings.Contains(msg, "No conversation found") ||
+		strings.Contains(msg, "no rollout found for thread id")
 }
 
 // introSent is the role intro its session (same session id) in the channel was last given:
