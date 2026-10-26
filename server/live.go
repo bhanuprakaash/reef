@@ -385,9 +385,9 @@ func (s *server) nameChannel(ctx context.Context, id int64, backend, text string
 	}()
 }
 
-// queueMessage stores the message of t and queues its wakes behind the turn a running message
-// chain is on, with the checks of a turn. It reports false, having changed nothing, when the
-// channel is not running a message chain.
+// queueMessage stores the message of t and queues its wakes behind the turn a starting or
+// running message chain is on, with the checks of a turn. It reports false, having changed
+// nothing, when the channel is not starting or running a message chain.
 func (s *server) queueMessage(ctx context.Context, id int64, t userTurn) (bool, error) {
 	l := s.lookup(id)
 	if l == nil || !l.running() {
@@ -402,10 +402,12 @@ func (s *server) queueMessage(ctx context.Context, id int64, t userTurn) (bool, 
 	}
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if l.state != _running || l.kind != _message {
+	if !l.messagingLocked() {
 		return false, nil
 	}
-	msg, err := l.sess.Say(ctx, t.text, t.parent)
+	msg, err := s.st.CreateMessage(ctx, store.Message{
+		ChannelID: id, ParentID: t.parent, Author: _userAuthor, Body: t.text,
+	})
 	if err != nil {
 		return false, err
 	}
@@ -1221,11 +1223,17 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 	}
 }
 
-// running reports whether a message chain is running.
+// running reports whether a message chain is starting or running.
 func (l *live) running() bool {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	return l.state == _running && l.kind == _message
+	return l.messagingLocked()
+}
+
+// messagingLocked reports whether a message chain is starting or running. A starting chain has
+// no kind yet, and has no session either.
+func (l *live) messagingLocked() bool {
+	return l.state == _starting || l.state == _running && l.kind == _message
 }
 
 // queue adds w, an approved wake, to the wakes the starting or running chain runs next. It

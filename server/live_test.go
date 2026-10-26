@@ -932,6 +932,29 @@ func TestSend_WhileRunning(t *testing.T) {
 	}
 }
 
+func TestSend_WhileStarting(t *testing.T) {
+	env := newLiveEnv(t)
+	var status int
+	var body string
+	env.open = func(context.Context) (session, error) {
+		status, body = env.send(t, "again")
+		return env.fake, nil
+	}
+	sub := subscribe(t, env.url)
+	if s, _ := env.send(t, "hello"); s != 202 {
+		t.Fatalf("send = %d, want 202", s)
+	}
+	if status != 202 || body != "" {
+		t.Fatalf("send while starting = %d %q, want 202", status, body)
+	}
+	sub.want(t, _idleFrame)
+	sub.wantTurns(t, "lead", "lead")
+	want := []string{"[channel 1, message 2]\nhello", "[channel 1, message 1]\nagain"}
+	if got := env.ranTexts(); !slices.Equal(got, want) {
+		t.Errorf("ran = %q, want %q", got, want)
+	}
+}
+
 func TestSend_WrapWakesNobody(t *testing.T) {
 	env := newLiveEnv(t)
 	env.teamChannel(t)
