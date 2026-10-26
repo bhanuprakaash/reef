@@ -401,3 +401,37 @@ func TestNewEmbedder_UnknownProvider(t *testing.T) {
 		t.Fatal("want an error for an unknown provider")
 	}
 }
+
+func TestEmbedders_EmptyEmbeddingFails(t *testing.T) {
+	for name, tt := range map[string]struct {
+		body string
+		give func(url string, hc *http.Client) Embedder
+	}{
+		"openai": {`{"data":[{"embedding":[]}]}`, func(url string, hc *http.Client) Embedder {
+			return openAIEmbedder{hc: hc, url: url, key: "k"}
+		}},
+		"voyage": {`{"data":[]}`, func(url string, hc *http.Client) Embedder {
+			return voyageEmbedder{hc: hc, url: url, key: "k"}
+		}},
+		"gemini": {`{"embedding":{"values":[]}}`, func(url string, hc *http.Client) Embedder {
+			return geminiEmbedder{hc: hc, url: url, key: "k"}
+		}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, tt.body)
+			}))
+			defer srv.Close()
+			_, err := tt.give(srv.URL, srv.Client()).Embed(context.Background(), "hello")
+			if want := name + " embeddings: no embedding in response"; err == nil || err.Error() != want {
+				t.Fatalf("err = %v, want %q", err, want)
+			}
+		})
+	}
+}
+
+func TestGeminiURL(t *testing.T) {
+	if want := "https://generativelanguage.googleapis.com/v1beta/models/gemini-embedding-001:embedContent"; _geminiURL != want {
+		t.Fatalf("_geminiURL = %q, want %q", _geminiURL, want)
+	}
+}
