@@ -235,6 +235,25 @@ func TestRecall_FusesMeaningMatches(t *testing.T) {
 	}
 }
 
+func TestRecall_LiveBeforeItemItReplacedWhenMeaningRanksRetiredFirst(t *testing.T) {
+	s, _ := openTest(t)
+	s.embed = &fakeEmbedder{vectors: map[string][]float32{
+		"upload limit":     {1, 0},
+		"the cap is 5 MB":  {1, 0},
+		"the cap is 10 MB": {0.9, 0.3},
+		"the cap is 25 MB": {0.7, 0.7},
+	}}
+	shelf := Ref{Kind: ScopeProject, ID: "1"}
+	v1 := put(t, s, shelf, Note{Body: "the cap is 5 MB"})
+	v2 := put(t, s, shelf, Note{Body: "the cap is 10 MB", Replaces: []int64{v1}})
+	v3 := put(t, s, shelf, Note{Body: "the cap is 25 MB", Replaces: []int64{v2}})
+
+	hits := recall(t, s, Query{Scopes: []Ref{shelf}, Text: "upload limit"})
+	if got, want := hitIDs(hits), []int64{v3, v2, v1}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ids = %v, want %v", got, want)
+	}
+}
+
 func TestRecall_EmbedFailureFallsBackToWords(t *testing.T) {
 	s, _ := openTest(t)
 	s.embed = &fakeEmbedder{err: errors.New("down")}

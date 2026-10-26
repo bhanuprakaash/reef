@@ -2,6 +2,7 @@ package memory
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"slices"
@@ -35,6 +36,7 @@ type Hit struct {
 	Status     string
 	Score      float64
 	Via        string
+	replacedBy int64
 }
 
 type neighbour struct {
@@ -107,8 +109,33 @@ func (s *Store) Recall(ctx context.Context, q Query) ([]Hit, error) {
 	if err != nil {
 		return nil, err
 	}
+	rankBelowReplacers(hits)
 	sort.Slice(hits, func(i, j int) bool { return before(hits[i], hits[j]) })
 	return hits[:min(limit, len(hits))], nil
+}
+
+// rankBelowReplacers puts an item one rank below the direct hit that replaced it, so a live
+// match never sits under the one it retired, however the lists ordered them. A replacer
+// reached only by a link already ranks below the item it came from, and stays there.
+func rankBelowReplacers(hits []Hit) {
+	byID := make(map[int64]*Hit, len(hits))
+	for i := range hits {
+		byID[hits[i].ID] = &hits[i]
+	}
+	var settle func(h *Hit)
+	settle = func(h *Hit) {
+		r := byID[h.replacedBy]
+		if r == nil || r.Via != _viaDirect {
+			return
+		}
+		settle(r)
+		if h.Score >= r.Score {
+			h.Score = r.Score / (1 + r.Score)
+		}
+	}
+	for i := range hits {
+		settle(&hits[i])
+	}
 }
 
 func (s *Store) neighbours(ctx context.Context, id int64) ([]neighbour, error) {
@@ -150,7 +177,7 @@ func (s *Store) load(ctx context.Context, f Filter, found map[int64]*Hit) ([]Hit
 		idArgs = append(idArgs, id)
 	}
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, kind, body, scope_kind, scope_id, status FROM memory
+		`SELECT id, kind, body, scope_kind, scope_id, status, replaced_by FROM memory
 		 WHERE id IN (`+strings.Join(marks, ",")+`) AND `+where,
 		append(idArgs, args...)...)
 	if err != nil {
@@ -160,9 +187,11 @@ func (s *Store) load(ctx context.Context, f Filter, found map[int64]*Hit) ([]Hit
 	hits := make([]Hit, 0, len(found))
 	for rows.Next() {
 		var h Hit
-		if err := rows.Scan(&h.ID, &h.Kind, &h.Body, &h.Scope.Kind, &h.Scope.ID, &h.Status); err != nil {
+		var replacedBy sql.NullInt64
+		if err := rows.Scan(&h.ID, &h.Kind, &h.Body, &h.Scope.Kind, &h.Scope.ID, &h.Status, &replacedBy); err != nil {
 			return nil, fmt.Errorf("scan hit: %w", err)
 		}
+		h.replacedBy = replacedBy.Int64
 		h.Score, h.Via = found[h.ID].Score, found[h.ID].Via
 		hits = append(hits, h)
 	}
