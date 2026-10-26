@@ -505,6 +505,12 @@ func scanItem(rows *sql.Rows) (Item, error) {
 	return it, nil
 }
 
+type migration struct {
+	version int
+	name    string
+	body    string
+}
+
 func migrate(ctx context.Context, db *sql.DB) error {
 	files, err := _migrations.ReadDir("migrations")
 	if err != nil {
@@ -515,6 +521,7 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		names = append(names, f.Name())
 	}
 	sort.Strings(names)
+	steps := make([]migration, 0, len(names))
 	for _, name := range names {
 		n, err := strconv.Atoi(strings.SplitN(name, "_", 2)[0])
 		if err != nil {
@@ -524,51 +531,79 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		if err != nil {
 			return fmt.Errorf("read %s: %w", name, err)
 		}
-		if err := apply(ctx, db, n, string(body)); err != nil {
-			return fmt.Errorf("apply %s: %w", name, err)
+		steps = append(steps, migration{version: n, name: name, body: string(body)})
+	}
+	known := steps[len(steps)-1].version
+	current, err := version(ctx, db)
+	if err != nil {
+		return err
+	}
+	if current > known {
+		return fmt.Errorf("memory tables are newer than this reef (version %d, this reef knows %d)",
+			current, known)
+	}
+	for _, m := range steps {
+		if current >= m.version {
+			continue
+		}
+		if err := apply(ctx, db, m); err != nil {
+			return fmt.Errorf("apply %s: %w", m.name, err)
 		}
 	}
 	return nil
 }
 
-// apply runs one migration unless the tables are already at version or later. Tables made
-// before memory_version existed are at version 1.
-func apply(ctx context.Context, db *sql.DB, version int, body string) error {
+// version reads the memory schema version. Tables made before memory_version existed are at
+// version 1; no tables is version 0.
+func version(ctx context.Context, q querier) (int, error) {
+	var hasVersion, hasItems bool
+	if err := q.QueryRowContext(ctx,
+		`SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'memory_version'),
+		        EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'memory')`,
+	).Scan(&hasVersion, &hasItems); err != nil {
+		return 0, fmt.Errorf("read version: %w", err)
+	}
+	switch {
+	case hasVersion:
+		var v int
+		if err := q.QueryRowContext(ctx, `SELECT version FROM memory_version`).Scan(&v); err != nil {
+			return 0, fmt.Errorf("read version: %w", err)
+		}
+		return v, nil
+	case hasItems:
+		return 1, nil
+	}
+	return 0, nil
+}
+
+// apply runs one migration unless another process already did.
+func apply(ctx context.Context, db *sql.DB, m migration) error {
 	tx, err := db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	current, err := version(ctx, tx)
 	if err != nil {
 		return err
 	}
-	defer func() { _ = tx.Rollback() }()
-	var hasVersion, hasItems bool
-	if err := tx.QueryRowContext(ctx,
-		`SELECT EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'memory_version'),
-		        EXISTS (SELECT 1 FROM sqlite_master WHERE name = 'memory')`).Scan(&hasVersion, &hasItems); err != nil {
-		return fmt.Errorf("read version: %w", err)
-	}
-	var current int
-	switch {
-	case hasVersion:
-		if err := tx.QueryRowContext(ctx, `SELECT version FROM memory_version`).Scan(&current); err != nil {
-			return fmt.Errorf("read version: %w", err)
-		}
-	case hasItems:
-		current = 1
-	}
-	if current >= version {
+	if current >= m.version {
 		return nil
 	}
-	if _, err := tx.ExecContext(ctx, body); err != nil {
-		return err
+	if _, err := tx.ExecContext(ctx, m.body); err != nil {
+		return fmt.Errorf("run: %w", err)
+	}
+	for _, q := range []string{
+		`CREATE TABLE IF NOT EXISTS memory_version (version INTEGER NOT NULL)`,
+		`DELETE FROM memory_version`,
+	} {
+		if _, err := tx.ExecContext(ctx, q); err != nil {
+			return fmt.Errorf("set version: %w", err)
+		}
 	}
 	if _, err := tx.ExecContext(ctx,
-		`CREATE TABLE IF NOT EXISTS memory_version (version INTEGER NOT NULL)`); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `DELETE FROM memory_version`); err != nil {
-		return err
-	}
-	if _, err := tx.ExecContext(ctx, `INSERT INTO memory_version (version) VALUES (?)`, version); err != nil {
-		return err
+		`INSERT INTO memory_version (version) VALUES (?)`, m.version); err != nil {
+		return fmt.Errorf("set version: %w", err)
 	}
 	return tx.Commit()
 }

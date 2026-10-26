@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -569,5 +570,45 @@ func TestOpen_UpgradesTheFirstMemorySchema(t *testing.T) {
 	hits, err = s.Search(ctx, "redis", Filter{Scopes: []Ref{{Kind: ScopeProject, ID: "1"}}})
 	if err != nil || !reflect.DeepEqual(ids(hits), []int64{3}) {
 		t.Fatalf("search after write = %v, %v; want [3]", ids(hits), err)
+	}
+}
+
+func openFile(t *testing.T, path string) *sql.DB {
+	t.Helper()
+	db, err := sql.Open("sqlite",
+		"file:"+path+"?_pragma=busy_timeout(100)&_pragma=journal_mode(WAL)&_txlock=immediate")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = db.Close() })
+	return db
+}
+
+func TestOpen_UpToDateNeedsNoWriteLock(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "reef.db")
+	db := openFile(t, path)
+	if _, err := Open(db, nil); err != nil {
+		t.Fatal(err)
+	}
+	other := openFile(t, path)
+	tx, err := other.Begin()
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := Open(db, nil); err != nil {
+		t.Fatalf("Open with another writer holding the lock: %v", err)
+	}
+}
+
+func TestOpen_RefusesNewerMemorySchema(t *testing.T) {
+	_, db := openTest(t)
+	if _, err := db.Exec(`UPDATE memory_version SET version = 99`); err != nil {
+		t.Fatal(err)
+	}
+	_, err := Open(db, nil)
+	want := "memory tables are newer than this reef (version 99, this reef knows 2)"
+	if err == nil || !strings.Contains(err.Error(), want) {
+		t.Fatalf("Open err = %v, want it to contain %q", err, want)
 	}
 }
