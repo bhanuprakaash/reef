@@ -6,13 +6,11 @@ package server
 // replays one real run of each backend, recorded in testdata/eval. Only the agent is fake. It
 // lives in package server because the routing is unexported, and the server's session opener
 // is the one place the real Session is built. Run it with -v to see its numbers.
-//
-// A check that fails today is listed in _expectedFail with the ticket that fixes it. The
-// eval fails when a listed check passes, so that ticket removes the mark.
 
 import (
 	"cmp"
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -42,12 +40,7 @@ const (
 	_evalFiller = "the toolbar handler is registered before the page has loaded and is lost on reload. "
 )
 
-var _expectedFail = map[string]map[string]string{
-	"claude":          {},
-	"claude-recorded": {},
-	"codex":           {},
-	"codex-recorded":  {},
-}
+var _evalRoles = []string{"lead", "developer", "tester"}
 
 var (
 	_evalTag     = regexp.MustCompile(`\[c(\d+)\.([0-9a-z]+)\]`)
@@ -66,9 +59,7 @@ type evalRecording struct {
 		Text   string `json:"text"`
 		Thread bool   `json:"thread"` // a reply in the thread of the first message
 	} `json:"user"`
-	// Cost is what each role's session really cost, read from claude's own totals.
-	Cost  map[string]float64 `json:"cost,omitempty"`
-	Turns []evalTurn         `json:"turns"`
+	Turns []evalTurn `json:"turns"`
 }
 
 type evalTurn struct {
@@ -499,8 +490,7 @@ func replayEval(t *testing.T, backend string) {
 	e.check(backend + "-recorded")
 }
 
-// check measures what channel 1 sent its agents, prints the numbers and runs the checks
-// _expectedFail lists under name.
+// check measures what channel 1 sent its agents, prints the numbers and runs the checks.
 func (e *evalEnv) check(name string) {
 	t := e.t
 	ctx := context.Background()
@@ -525,7 +515,7 @@ func (e *evalEnv) check(name string) {
 		}
 	}
 	dupBodies := 0
-	for _, role := range []string{"lead", "developer", "tester"} {
+	for _, role := range _evalRoles {
 		for _, m := range msgs {
 			seen := 0
 			if m.Author == role {
@@ -560,14 +550,18 @@ func (e *evalEnv) check(name string) {
 	}
 
 	var largest, wakes, overSized, doublePost, plainText int
-	lastSeen := map[string]int64{}
+	type scope struct {
+		role   string
+		parent int64
+	}
+	lastSeen := map[scope]int64{}
 	for _, tn := range turns {
 		if tn.WakeText == "" {
 			continue
 		}
 		wakes++
 		largest = max(largest, len(tn.WakeText))
-		handoff := regexp.MustCompile(`(?m)^\s*(?:@[\w-]+[ \t,]+)*@` + tn.Role + `\b`)
+		handoff := evalHandoff(tn.Role)
 		var src []store.Message
 		for _, g := range _evalSources.FindAllStringSubmatch(tn.WakeText, -1) {
 			id, _ := strconv.ParseInt(g[1], 10, 64)
@@ -592,13 +586,20 @@ func (e *evalEnv) check(name string) {
 		if len(woke) == 0 {
 			woke = src
 		}
+		// A wake holds the messages of its thread, or of the top level, so only those are new to it.
+		wakeScope := scope{role: tn.Role}
+		if tn.WakeParent != nil {
+			wakeScope.parent = *tn.WakeParent
+		}
 		fresh := 0
 		for _, m := range msgs {
-			if m.Author != tn.Role && m.ID > lastSeen[tn.Role] && m.ID <= newest {
+			inScope := m.ParentID == nil && tn.WakeParent == nil ||
+				tn.WakeParent != nil && (m.ID == *tn.WakeParent || m.ParentID != nil && *m.ParentID == *tn.WakeParent)
+			if inScope && m.Author != tn.Role && m.ID > lastSeen[wakeScope] && m.ID <= newest {
 				fresh += len(m.Body)
 			}
 		}
-		lastSeen[tn.Role] = newest
+		lastSeen[wakeScope] = newest
 		if len(tn.WakeText) > fresh+_evalHeader {
 			overSized++
 		}
@@ -612,22 +613,74 @@ func (e *evalEnv) check(name string) {
 		}
 	}
 
+	type held struct{ role, text string }
+	var waiting []held
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(e.dir, "reef.db")+"?_pragma=busy_timeout(5000)")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = db.Close() }()
+	rows, err := db.QueryContext(ctx, "SELECT to_role, text FROM approval WHERE channel_id = 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var h held
+		if err := rows.Scan(&h.role, &h.text); err != nil {
+			t.Fatal(err)
+		}
+		waiting = append(waiting, h)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatal(err)
+	}
+	delivered := func(role, body string) bool {
+		return slices.ContainsFunc(turns, func(tn store.Turn) bool {
+			return (role == "" || tn.Role == role) && strings.Contains(tn.WakeText, body)
+		}) || slices.ContainsFunc(waiting, func(h held) bool {
+			return (role == "" || h.role == role) && strings.Contains(h.text, body)
+		})
+	}
+	var lost []string
+	for _, m := range msgs {
+		if m.Author == _userAuthor && !delivered("", m.Body) {
+			lost = append(lost, fmt.Sprintf("message %d by the user", m.ID))
+		}
+		for _, role := range _evalRoles {
+			if slices.Contains(_evalRoles, m.Author) && m.Author != role &&
+				evalHandoff(role).MatchString(m.Body) && !delivered(role, m.Body) {
+				lost = append(lost, fmt.Sprintf("message %d by %s to %s", m.ID, m.Author, role))
+			}
+		}
+	}
+
 	var costBad, tokensBad []string
 	var tokens agent.Usage
-	stored := map[string]float64{}
 	storedTokens := map[string]agent.Usage{}
 	for _, tn := range turns {
-		if tn.CostUSD != nil {
-			stored[tn.Role] += *tn.CostUSD
-		}
 		u := storedTokens[tn.Role]
 		u.Add(tn.Usage)
 		storedTokens[tn.Role] = u
 		tokens.Add(tn.Usage)
 	}
-	for _, role := range []string{"lead", "developer", "tester"} {
+	var insp inspectorResponse
+	status, body := do(t, http.MethodGet, e.url+"/channels/1/inspector", "")
+	if status != 200 {
+		t.Fatalf("inspector = %d %s, want 200", status, body)
+	}
+	if err := json.Unmarshal([]byte(body), &insp); err != nil {
+		t.Fatal(err)
+	}
+	stored := map[string]float64{}
+	for _, r := range insp.Roles {
+		if r.CostUSD != nil {
+			stored[r.Role] = *r.CostUSD
+		}
+	}
+	for _, role := range _evalRoles {
 		if real := e.totals[role]; math.Abs(stored[role]-real) > 1e-6 {
-			costBad = append(costBad, fmt.Sprintf("%s stored %.2f, session cost %.2f", role, stored[role], real))
+			costBad = append(costBad, fmt.Sprintf("%s costs %.2f in the inspector, %.2f in its session", role, stored[role], real))
 		}
 		if real, ok := e.used[role]; ok && storedTokens[role] != real {
 			tokensBad = append(tokensBad, fmt.Sprintf("%s stored %+v, session tokens %+v", role, storedTokens[role], real))
@@ -637,7 +690,7 @@ func (e *evalEnv) check(name string) {
 	t.Logf("%s: %d turns, %d messages, %d characters sent, %d duplicate characters, "+
 		"largest wake %d, wake count %d, wasted wakes %d (double post) + %d (plain-text @name)",
 		name, len(turns), len(msgs), total, dupChars, largest, wakes, doublePost, plainText)
-	t.Logf("%s: stored turn cost %v, session cost %v, stored tokens %+v, session tokens %+v (total stored %+v)",
+	t.Logf("%s: inspector cost %v, session cost %v, stored tokens %+v, session tokens %+v (total stored %+v)",
 		name, stored, e.totals, storedTokens, e.used, tokens)
 
 	failure := func(n int, what string) string {
@@ -653,17 +706,17 @@ func (e *evalEnv) check(name string) {
 	expect(t, name, "plain-text mention wake", failure(plainText, "wakes from an @name inside a sentence"))
 	expect(t, name, "cost sum", strings.Join(costBad, "; "))
 	expect(t, name, "token sum", strings.Join(tokensBad, "; "))
+	expect(t, name, "lost wake", strings.Join(lost, "; "))
+}
+
+// evalHandoff matches a message that starts a line with an @name of role: a handoff to it.
+func evalHandoff(role string) *regexp.Regexp {
+	return regexp.MustCompile(`(?m)^\s*(?:@[\w-]+[ \t,]+)*@` + role + `\b`)
 }
 
 func expect(t *testing.T, backend, check, failure string) {
 	t.Helper()
-	ticket, marked := _expectedFail[backend][check]
-	switch {
-	case failure != "" && marked:
-		t.Logf("%s: %q fails as expected, %s fixes it: %s", backend, check, ticket, failure)
-	case failure != "":
+	if failure != "" {
 		t.Errorf("%s: %q: %s", backend, check, failure)
-	case marked:
-		t.Errorf("%s: %q passes: remove its mark for %s from _expectedFail", backend, check, ticket)
 	}
 }

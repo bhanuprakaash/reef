@@ -19,11 +19,6 @@
       "thread": true
     }
   ],
-  "cost": {
-    "lead": 0.21117979999999997,
-    "developer": 0.2057461,
-    "tester": 0.136218
-  },
   "turns": [
     {
       "role": "lead",
