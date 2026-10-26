@@ -569,23 +569,27 @@ func claudeSkills(r store.Role, dir string) []string {
 
 var _readCommands = []string{
 	"git log", "git diff", "git show", "git status", "git blame",
-	"ls", "cat", "head", "tail", "grep", "rg", "wc", "pwd",
+	"ls", "cat", "head", "tail", "grep", "wc", "pwd",
 }
 
 // writes reports whether a turn of r takes its tree's lock and gets a checkpoint: the role has
-// write, or on claude its tools allow a shell command that is not in _readCommands. Codex
-// without write runs in a read-only sandbox.
+// write, or on claude the tools it keeps after access allow a shell command that is not in
+// _readCommands. Codex without write runs in a read-only sandbox.
 func writes(r store.Role) bool {
-	return r.Write || r.Backend == "claude" && slices.ContainsFunc(r.Tools, changesFiles)
+	if r.Write {
+		return true
+	}
+	if r.Backend != "claude" {
+		return false
+	}
+	_, tools, _ := access(r, nil)
+	return slices.ContainsFunc(tools, changesFiles)
 }
 
 func changesFiles(tool string) bool {
-	name, arg, found := strings.Cut(tool, "(")
+	name, arg, _ := strings.Cut(tool, "(")
 	if strings.TrimSpace(name) != "Bash" {
 		return false
-	}
-	if !found || store.UnrestrictedBash(tool) {
-		return true
 	}
 	cmd := strings.TrimSpace(strings.TrimSuffix(strings.TrimSuffix(arg, ")"), ":*"))
 	return !slices.ContainsFunc(_readCommands, func(c string) bool {

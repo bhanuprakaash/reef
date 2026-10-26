@@ -265,7 +265,10 @@ func TestWrites(t *testing.T) {
 		{"git commit", store.Role{Backend: "claude", Tools: []string{"Read", "Bash(git commit:*)"}}, true},
 		{"rm", store.Role{Backend: "claude", Tools: []string{"Bash(git log:*)", "Bash(rm:*)"}}, true},
 		{"go test", store.Role{Backend: "claude", Tools: []string{"Bash(go test:*)"}}, true},
-		{"bare Bash", store.Role{Backend: "claude", Tools: []string{"Bash"}}, true},
+		{"bare Bash is dropped", store.Role{Backend: "claude", Tools: []string{"Bash"}}, false},
+		{"Bash(*) is dropped", store.Role{Backend: "claude", Tools: []string{"Bash(*)", "Read"}}, false},
+		{"bare Bash with write", store.Role{Backend: "claude", Write: true, Tools: []string{"Bash"}}, true},
+		{"rg runs programs", store.Role{Backend: "claude", Tools: []string{"Bash(rg:*)"}}, true},
 		{"name that only starts like a reading command", store.Role{Backend: "claude", Tools: []string{"Bash(lsof:*)"}}, true},
 		{"codex without write", store.Role{Backend: "codex", Tools: []string{"Bash(git commit:*)"}}, false},
 	}
