@@ -152,11 +152,13 @@ func (e geminiEmbedder) Embed(ctx context.Context, text string) ([]float32, erro
 
 func (geminiEmbedder) MinCosine() float64 { return _geminiMinCosine }
 
-// Backfill embeds items that have no vector and returns how many it filled. It stops at
-// the first embed error.
+// Backfill embeds items that have no vector, except rejected ones, and returns how many it
+// filled. It waits out one 429 per item, honouring ctx, and stops at the first embed error.
+// Remember and Recall never wait.
 func (s *Store) Backfill(ctx context.Context) (int, error) {
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT id, body, why FROM memory WHERE vector IS NULL ORDER BY id`)
+		`SELECT id, body, why FROM memory WHERE vector IS NULL AND status != ? ORDER BY id`,
+		StatusRejected)
 	if err != nil {
 		return 0, fmt.Errorf("query unembedded: %w", err)
 	}
@@ -181,7 +183,17 @@ func (s *Store) Backfill(ctx context.Context) (int, error) {
 	}
 	filled := 0
 	for _, p := range todo {
-		ok, err := s.embedItem(ctx, p.id, embedText(p.body, p.why))
+		text := embedText(p.body, p.why)
+		ok, err := s.embedItem(ctx, p.id, text)
+		var se statusError
+		if errors.As(err, &se) && se.code == http.StatusTooManyRequests {
+			select {
+			case <-time.After(se.retryAfter):
+			case <-ctx.Done():
+				return filled, fmt.Errorf("embed %d: %w", p.id, ctx.Err())
+			}
+			ok, err = s.embedItem(ctx, p.id, text)
+		}
 		if err != nil {
 			return filled, fmt.Errorf("embed %d: %w", p.id, err)
 		}
@@ -293,8 +305,23 @@ func postEmbedding(
 	return out.Data[0].Embedding, nil
 }
 
-// Errors carry the status code and the vendor's error code, never the key or the vendor's
-// message. A 429 is retried once after its Retry-After.
+// statusError is a non-2xx answer. It carries the status code and the vendor's error code,
+// never the key or the vendor's message.
+type statusError struct {
+	vendor, vendorCode string
+	code               int
+	retryAfter         time.Duration
+}
+
+func (e statusError) Error() string {
+	msg := fmt.Sprintf("%s embeddings: status %d", e.vendor, e.code)
+	if e.vendorCode != "" {
+		msg += " " + e.vendorCode
+	}
+	return msg
+}
+
+// postJSON never waits out a 429: it returns a statusError and the caller decides.
 func postJSON(
 	ctx context.Context, hc *http.Client, name, url, authHeader, auth string, body, out any,
 ) error {
@@ -302,40 +329,22 @@ func postJSON(
 	if err != nil {
 		return fmt.Errorf("encode %s request: %w", name, err)
 	}
-	send := func() (*http.Response, error) {
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
-		if err != nil {
-			return nil, fmt.Errorf("build %s request: %w", name, err)
-		}
-		req.Header.Set(authHeader, auth)
-		req.Header.Set("Content-Type", "application/json")
-		resp, err := hc.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("%s embeddings: %w", name, err)
-		}
-		return resp, nil
-	}
-	resp, err := send()
-	if err == nil && resp.StatusCode == http.StatusTooManyRequests {
-		wait := retryAfter(resp.Header.Get("Retry-After"))
-		resp.Body.Close()
-		select {
-		case <-time.After(wait):
-		case <-ctx.Done():
-			return fmt.Errorf("%s embeddings: %w", name, ctx.Err())
-		}
-		resp, err = send()
-	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
-		return err
+		return fmt.Errorf("build %s request: %w", name, err)
+	}
+	req.Header.Set(authHeader, auth)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := hc.Do(req)
+	if err != nil {
+		return fmt.Errorf("%s embeddings: %w", name, err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		msg := fmt.Sprintf("%s embeddings: status %d", name, resp.StatusCode)
-		if code := vendorCode(resp.Body); code != "" {
-			msg += " " + code
+		return statusError{
+			vendor: name, code: resp.StatusCode, vendorCode: vendorCode(resp.Body),
+			retryAfter: retryAfter(resp.Header.Get("Retry-After")),
 		}
-		return errors.New(msg)
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return fmt.Errorf("decode %s response: %w", name, err)
@@ -343,14 +352,14 @@ func postJSON(
 	return nil
 }
 
-// retryAfter reads a Retry-After in seconds: 1 second when it is missing or not a
-// non-negative integer, at most 60.
+// retryAfter reads a Retry-After in seconds, clamped to 1 to 60 seconds; a missing or
+// invalid one is 1 second.
 func retryAfter(h string) time.Duration {
 	n, err := strconv.Atoi(h)
-	if err != nil || n < 0 {
+	if err != nil {
 		n = 1
 	}
-	return min(time.Duration(n)*time.Second, _maxRetryAfter)
+	return time.Duration(min(max(n, 1), int(_maxRetryAfter/time.Second))) * time.Second
 }
 
 // vendorCode returns the error code token of a vendor error body, such as

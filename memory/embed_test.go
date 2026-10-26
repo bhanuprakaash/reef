@@ -212,39 +212,150 @@ func TestRemember_ReportsEmbedFailure(t *testing.T) {
 	}
 }
 
-func TestEmbedders_RetryOnceOn429(t *testing.T) {
+func serveStatuses(t *testing.T, retryAfter string, statuses ...int) (*openAIEmbedder, *int) {
+	t.Helper()
+	calls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		status := statuses[min(calls, len(statuses)-1)]
+		calls++
+		if status == 429 {
+			w.Header().Set("Retry-After", retryAfter)
+		}
+		w.WriteHeader(status)
+		if status == 200 {
+			_, _ = io.WriteString(w, `{"data":[{"embedding":[1]}]}`)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	return &openAIEmbedder{hc: srv.Client(), url: srv.URL, key: "k"}, &calls
+}
+
+func TestBackfill_WaitsOutOne429PerItem(t *testing.T) {
 	tests := []struct {
-		name      string
-		statuses  []int
-		wantCalls int
-		wantErr   string
+		name       string
+		statuses   []int
+		wantFilled int
+		wantCalls  int
+		wantErr    string
 	}{
-		{"then ok", []int{429, 200}, 2, ""},
-		{"twice", []int{429, 429, 200}, 2, "openai embeddings: status 429"},
+		{"then ok", []int{429, 200}, 1, 2, ""},
+		{"twice", []int{429, 429, 200}, 0, 2, "embed 1: openai embeddings: status 429"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			calls := 0
-			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				status := tt.statuses[calls]
-				calls++
-				if status == 429 {
-					w.Header().Set("Retry-After", "1")
-				}
-				w.WriteHeader(status)
-				if status == 200 {
-					_, _ = io.WriteString(w, `{"data":[{"embedding":[1]}]}`)
-				}
-			}))
-			defer srv.Close()
-			_, err := openAIEmbedder{hc: srv.Client(), url: srv.URL, key: "k"}.Embed(context.Background(), "x")
+			s, db := openTest(t)
+			remember(t, s, writer(), "uses sqlite", "")
+			e, calls := serveStatuses(t, "1", tt.statuses...)
+			s.embed = e
+
+			start := time.Now()
+			n, err := s.Backfill(context.Background())
 			if tt.wantErr == "" && err != nil || tt.wantErr != "" && (err == nil || err.Error() != tt.wantErr) {
 				t.Fatalf("err = %v, want %q", err, tt.wantErr)
 			}
-			if calls != tt.wantCalls {
-				t.Fatalf("%d requests, want %d", calls, tt.wantCalls)
+			if n != tt.wantFilled || *calls != tt.wantCalls {
+				t.Fatalf("filled %d with %d requests, want %d with %d", n, *calls, tt.wantFilled, tt.wantCalls)
+			}
+			if waited := time.Since(start); waited < time.Second {
+				t.Fatalf("Backfill returned after %v, want a wait of the 1 second Retry-After", waited)
+			}
+			if got := count(t, db, `SELECT COUNT(*) FROM memory WHERE vector IS NOT NULL`); got != tt.wantFilled {
+				t.Fatalf("%d vectors stored, want %d", got, tt.wantFilled)
 			}
 		})
+	}
+}
+
+func TestBackfill_CancelEndsTheWait(t *testing.T) {
+	s, _ := openTest(t)
+	remember(t, s, writer(), "uses sqlite", "")
+	s.embed, _ = serveStatuses(t, "60", 429)
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	start := time.Now()
+	if _, err := s.Backfill(ctx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("err = %v, want deadline exceeded", err)
+	}
+	if waited := time.Since(start); waited > time.Second {
+		t.Fatalf("Backfill waited %v after cancel", waited)
+	}
+}
+
+func TestBackfill_SkipsRejectedItems(t *testing.T) {
+	s, db := openTest(t)
+	s.embed = &fakeEmbedder{err: errors.New("down")}
+	id := remember(t, s, writer(), "uses sqlite", "")
+	if _, err := s.db.Exec(`UPDATE memory SET status = ? WHERE id = ?`, StatusRejected, id); err != nil {
+		t.Fatal(err)
+	}
+	s.embed = &fakeEmbedder{vectors: map[string][]float32{"uses sqlite": {1, 0}}}
+
+	if n, err := s.Backfill(context.Background()); err != nil || n != 0 {
+		t.Fatalf("Backfill = %d, %v; want 0, nil", n, err)
+	}
+	if n := count(t, db, `SELECT COUNT(*) FROM memory WHERE vector IS NOT NULL`); n != 0 {
+		t.Fatalf("%d vectors stored, want 0", n)
+	}
+}
+
+func TestRecall_NeverWaitsOut429(t *testing.T) {
+	s, _ := openTest(t)
+	remember(t, s, writer(), "uses sqlite", "")
+	e, calls := serveStatuses(t, "3", 429, 200)
+	s.embed = e
+
+	start := time.Now()
+	hits, err := s.Recall(context.Background(), Query{Scopes: []Ref{writer().Scope}, Text: "sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := hitIDs(hits); !reflect.DeepEqual(got, []int64{1}) {
+		t.Fatalf("hits = %v, want [1] from words", got)
+	}
+	if waited := time.Since(start); waited > 100*time.Millisecond {
+		t.Fatalf("Recall took %v, want no wait on a 429", waited)
+	}
+	if *calls != 1 {
+		t.Fatalf("%d requests, want 1", *calls)
+	}
+}
+
+func TestRemember_NeverWaitsOut429(t *testing.T) {
+	s, _ := openTest(t)
+	s.embed, _ = serveStatuses(t, "3", 429, 200)
+
+	start := time.Now()
+	res, err := s.Remember(context.Background(), writer(), Note{Kind: KindFact, Body: "uses sqlite"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if res.EmbedErr == nil || res.EmbedErr.Error() != "openai embeddings: status 429" {
+		t.Fatalf("EmbedErr = %v, want status 429", res.EmbedErr)
+	}
+	if waited := time.Since(start); waited > 100*time.Millisecond {
+		t.Fatalf("Remember took %v, want no wait on a 429", waited)
+	}
+}
+
+func TestRetryAfter(t *testing.T) {
+	tests := []struct {
+		give string
+		want time.Duration
+	}{
+		{"", time.Second},
+		{"soon", time.Second},
+		{"-5", time.Second},
+		{"0", time.Second},
+		{"3", 3 * time.Second},
+		{"60", 60 * time.Second},
+		{"61", 60 * time.Second},
+		{"9999999999", 60 * time.Second},
+	}
+	for _, tt := range tests {
+		if got := retryAfter(tt.give); got != tt.want {
+			t.Errorf("retryAfter(%q) = %v, want %v", tt.give, got, tt.want)
+		}
 	}
 }
 

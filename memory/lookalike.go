@@ -38,6 +38,17 @@ func (s *Store) lookalikes(ctx context.Context, w Writer, n Note, vec []float32)
 			}
 			out = append(out, Similar{ID: h.ID, Body: body})
 		}
+		where, args := f.where()
+		var pending bool
+		err = s.db.QueryRowContext(ctx,
+			`SELECT EXISTS (SELECT 1 FROM memory WHERE vector IS NULL AND `+where+`)`, args...).
+			Scan(&pending)
+		if err != nil {
+			return nil, fmt.Errorf("query unembedded in scope: %w", err)
+		}
+		if !pending {
+			return out, nil
+		}
 	}
 
 	hits, err := s.Search(ctx, n.Body, f)
