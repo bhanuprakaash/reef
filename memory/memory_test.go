@@ -169,6 +169,30 @@ func TestRemember_Invalid(t *testing.T) {
 	}
 }
 
+func TestRemember_ReplacesTwice(t *testing.T) {
+	s, db := openTest(t)
+	ctx := context.Background()
+	old, err := s.Remember(ctx, writer(), Note{Kind: KindDecision, Body: "use postgres"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	id := old.Item.ID
+	_, err = s.Remember(ctx, writer(), Note{Kind: KindDecision, Body: "use sqlite", Replaces: []int64{id, id}})
+	if !errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), "memory 1 listed twice in replaces") {
+		t.Fatalf("err = %v", err)
+	}
+	if n := count(t, db, `SELECT count(*) FROM memory`); n != 1 {
+		t.Fatalf("rows = %d, want 1", n)
+	}
+	got, err := s.Read(ctx, id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != StatusAccepted {
+		t.Fatalf("old status = %q, want accepted", got.Status)
+	}
+}
+
 func TestRemember_ReplacesRetiresOld(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()

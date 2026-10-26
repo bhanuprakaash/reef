@@ -7,6 +7,7 @@ import (
 	"embed"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -346,6 +347,11 @@ func validate(w Writer, n Note) error {
 	for _, l := range w.Links {
 		if !_rels[l.Rel] {
 			return fmt.Errorf("%w: unknown link rel %q", ErrInvalid, l.Rel)
+		}
+	}
+	for i, id := range n.Replaces {
+		if slices.Contains(n.Replaces[:i], id) {
+			return fmt.Errorf("%w: memory %d listed twice in replaces", ErrInvalid, id)
 		}
 	}
 	return nil
