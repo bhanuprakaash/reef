@@ -90,3 +90,11 @@ func TestTail_keepsLast4KB(t *testing.T) {
 		t.Errorf("tail = %q, want %q", got, "boom")
 	}
 }
+
+func TestUsage_Sub(t *testing.T) {
+	u := Usage{InputTokens: 5, OutputTokens: 1, CacheReadTokens: 10, CacheWriteTokens: 0}
+	u.Sub(Usage{InputTokens: 2, OutputTokens: 3, CacheReadTokens: 10, CacheWriteTokens: 4})
+	if want := (Usage{InputTokens: 3, CacheReadTokens: 0}); u != want {
+		t.Errorf("Sub = %+v, want %+v", u, want)
+	}
+}

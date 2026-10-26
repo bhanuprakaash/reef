@@ -81,6 +81,14 @@ func TestMigrateSkillsToList(t *testing.T) {
 			if _, err := s.db.Exec("ALTER TABLE turn DROP COLUMN reply"); err != nil {
 				t.Fatal(err)
 			}
+			for _, col := range []string{
+				"session_cost_usd", "session_input_tokens", "session_output_tokens",
+				"session_cache_read_tokens", "session_cache_write_tokens",
+			} {
+				if _, err := s.db.Exec("ALTER TABLE turn DROP COLUMN " + col); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if _, err := s.db.Exec("ALTER TABLE role DROP COLUMN provider"); err != nil {
 				t.Fatal(err)
 			}

@@ -765,6 +765,106 @@ func TestRunner_ResumedSessionStoresTurnOwnCost(t *testing.T) {
 	}
 }
 
+// Each turn of a session reports the whole session's usage. A resumed turn that ran a subagent
+// stores the subagent's tokens too, and a stopped turn between two turns is not counted twice.
+func TestRunner_ResumedSessionStoresTurnOwnUsage(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := agent.Usage{InputTokens: 1176, OutputTokens: 23, CacheReadTokens: 38208, CacheWriteTokens: 7551}
+	second := agent.Usage{InputTokens: 8, OutputTokens: 511, CacheReadTokens: 53174, CacheWriteTokens: 24389}
+	stopped := agent.Usage{InputTokens: 2, OutputTokens: 40, CacheReadTokens: 100}
+	streamed := agent.Usage{InputTokens: 2, OutputTokens: 72, CacheReadTokens: 18205, CacheWriteTokens: 102}
+	session := func(u agent.Usage) *agent.Usage { return &u }
+	sum := func(a, b agent.Usage) agent.Usage { a.Add(b); return a }
+
+	scripts := [][]agent.Event{
+		{{Kind: agent.KindTurnEnd, SessionUsage: session(first)}},
+		{{Kind: agent.KindUsage, Usage: &streamed}, {Kind: agent.KindTurnEnd, SessionUsage: session(sum(first, second))}},
+		{{Kind: agent.KindUsage, Usage: &stopped}},
+		{{Kind: agent.KindTurnEnd, SessionUsage: session(sum(sum(first, second), sum(stopped, stopped)))}},
+	}
+	for i, script := range scripts {
+		sa := &scriptAgent{
+			events: make(chan agent.Event, 8),
+			script: append([]agent.Event{{Kind: agent.KindSession, SessionID: "s1"}}, script...),
+		}
+		r := NewRunner(st, sa, ch.ID, "developer", "claude", "")
+		if i == 2 {
+			sa.closeAfter = true
+		}
+		_ = sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {})
+	}
+
+	turns, err := st.Turns(bg, store.TurnFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []agent.Usage
+	for _, tn := range turns {
+		got = append(got, tn.Usage)
+	}
+	want := []agent.Usage{first, second, stopped, stopped}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("turn usage = %+v, want %+v", got, want)
+	}
+}
+
+// A session whose turns were stored with running totals as their cost still stores the cost of
+// its next turn.
+func TestRunner_LegacySessionStoresTurnOwnCost(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, total := range []float64{1.00, 1.10, 1.30} {
+		old, err := st.CreateTurn(bg, store.Turn{
+			ChannelID: ch.ID, Role: "architect", Backend: "claude", SessionID: "s1",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.EndTurn(bg, store.Turn{ID: old.ID, Status: "done", CostUSD: &total}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	total := 1.45
+	sa := &scriptAgent{
+		events: make(chan agent.Event, 8),
+		script: []agent.Event{
+			{Kind: agent.KindSession, SessionID: "s1"},
+			{Kind: agent.KindTurnEnd, CostUSD: &total},
+		},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	if err := sendAs(bg, st, ch.ID, r.Run, "do it", func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+	turns := mustTurns(t, st)
+	got := *turns[len(turns)-1].CostUSD
+	if math.Abs(got-0.15) > 1e-9 {
+		t.Errorf("cost of the turn after the old ones = %v, want 0.15", got)
+	}
+}
+
+func mustTurns(t *testing.T, st *store.Store) []store.Turn {
+	t.Helper()
+	turns, err := st.Turns(context.Background(), store.TurnFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return turns
+}
+
 func TestRunner_FailedTurnStoresCost(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)

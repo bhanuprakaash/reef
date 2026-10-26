@@ -81,6 +81,10 @@ type Event struct {
 	IsError      bool            `json:"isError,omitempty"`      // tool result failed
 	Usage        *Usage          `json:"usage,omitempty"`
 	CostUSD      *float64        `json:"costUsd,omitempty"` // KindTurnEnd or KindError, claude only; the session's running total, not the turn's cost: the caller takes off what earlier turns cost
+	// SessionUsage is on KindTurnEnd or KindError, claude only: everything the session has used
+	// so far, subagents and side calls included, not the turn's usage. The caller takes off what
+	// earlier turns used. KindUsage events still carry the turn's own messages as they end.
+	SessionUsage *Usage `json:"sessionUsage,omitempty"`
 }
 
 // Usage is the token count of a turn.
@@ -89,6 +93,14 @@ type Usage struct {
 	OutputTokens     int64 `json:"outputTokens"`
 	CacheReadTokens  int64 `json:"cacheReadTokens"`
 	CacheWriteTokens int64 `json:"cacheWriteTokens"`
+}
+
+// Sub takes v's counts off u's, each count stopping at zero.
+func (u *Usage) Sub(v Usage) {
+	u.InputTokens = max(u.InputTokens-v.InputTokens, 0)
+	u.OutputTokens = max(u.OutputTokens-v.OutputTokens, 0)
+	u.CacheReadTokens = max(u.CacheReadTokens-v.CacheReadTokens, 0)
+	u.CacheWriteTokens = max(u.CacheWriteTokens-v.CacheWriteTokens, 0)
 }
 
 // Add adds v's counts to u.

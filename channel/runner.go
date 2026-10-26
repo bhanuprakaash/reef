@@ -188,13 +188,13 @@ func (r *Runner) Run(
 				}
 			case agent.KindError:
 				r.sessionGone = sessionMissing(ev.Text)
-				if turn.CostUSD, err = r.ownCost(wctx, turn.SessionID, ev.CostUSD); err != nil {
+				if err := r.ownTotals(wctx, &turn, ev); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
 				return errors.Join(fmt.Errorf("agent: %s", ev.Text),
 					r.fail(wctx, turn, ev.Text, reply.String(), parent))
 			case agent.KindTurnEnd:
-				if turn.CostUSD, err = r.ownCost(wctx, turn.SessionID, ev.CostUSD); err != nil {
+				if err := r.ownTotals(wctx, &turn, ev); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
 				if posted && r.direct == nil {
@@ -222,19 +222,28 @@ func (r *Runner) RunDirect(
 	return r.Run(ctx, text, nil, onEvent)
 }
 
-// ownCost is the cost of the turn that reported total, the running cost of its whole session:
-// total minus what the session's earlier turns stored. Turns stored before this was done hold
-// running totals, so the result is never below zero.
-func (r *Runner) ownCost(ctx context.Context, sessionID string, total *float64) (*float64, error) {
-	if total == nil {
-		return nil, nil
+// ownTotals sets the cost and usage of turn from the totals ev reports. They are the running
+// totals of the turn's whole session, so the turn's own cost and usage are each total minus the
+// one the session's earlier turns had. The totals are stored with the turn for the next one.
+func (r *Runner) ownTotals(ctx context.Context, turn *store.Turn, ev agent.Event) error {
+	if ev.CostUSD != nil {
+		before, err := r.st.SessionCostBefore(ctx, turn.SessionID, turn.ID)
+		if err != nil {
+			return err
+		}
+		own := max(*ev.CostUSD-before, 0)
+		turn.CostUSD, turn.SessionCostUSD = &own, ev.CostUSD
 	}
-	earlier, err := r.st.SessionCost(ctx, sessionID)
-	if err != nil {
-		return nil, err
+	if ev.SessionUsage != nil {
+		before, err := r.st.SessionUsageBefore(ctx, turn.SessionID, turn.ID)
+		if err != nil {
+			return err
+		}
+		own := *ev.SessionUsage
+		own.Sub(before)
+		turn.Usage, turn.SessionUsage = own, ev.SessionUsage
 	}
-	own := max(*total-earlier, 0)
-	return &own, nil
+	return nil
 }
 
 func (r *Runner) wake(text string) string {

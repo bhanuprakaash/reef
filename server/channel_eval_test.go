@@ -92,7 +92,8 @@ type evalEnv struct {
 	mu      sync.Mutex
 	st      *store.Store
 	sent    []evalSend
-	totals  map[string]float64 // what a role's session has really cost
+	totals  map[string]float64     // what a role's session has really cost
+	used    map[string]agent.Usage // what a role's session has really used, subagents included
 	turns   map[string]int
 	replays map[string]int // recorded turns of each role replayed so far
 }
@@ -280,8 +281,11 @@ func (a *evalAgent) Send(ctx context.Context, prompt string) error {
 		e.turns[a.session]++
 		e.totals[a.role] += cost
 		total := e.totals[a.role]
+		used := e.used[a.role]
+		used.Add(agent.Usage{InputTokens: 130, OutputTokens: 70})
+		e.used[a.role] = used
 		e.mu.Unlock()
-		end.CostUSD = &total
+		end.CostUSD, end.SessionUsage = &total, &used
 	}
 	for _, ev := range append(evs, end) {
 		a.events <- ev
@@ -336,6 +340,11 @@ func (a *evalAgent) replay(ctx context.Context, prompt string) error {
 			e.totals[a.role] = *ev.CostUSD
 			e.mu.Unlock()
 		}
+		if ev.SessionUsage != nil {
+			e.mu.Lock()
+			e.used[a.role] = *ev.SessionUsage
+			e.mu.Unlock()
+		}
 		a.events <- ev
 	}
 	return nil
@@ -387,7 +396,7 @@ func newEval(t *testing.T, backend string) *evalEnv {
 	t.Cleanup(func() { _ = st.Close() })
 	e := &evalEnv{
 		t: t, backend: backend, dir: dir, st: st, blocked: make(chan struct{}, 1),
-		totals: map[string]float64{}, turns: map[string]int{}, replays: map[string]int{},
+		totals: map[string]float64{}, used: map[string]agent.Usage{}, turns: map[string]int{}, replays: map[string]int{},
 	}
 	_, err = st.ApplyTeam(context.Background(), store.Team{
 		Name: "small",
@@ -603,25 +612,33 @@ func (e *evalEnv) check(name string) {
 		}
 	}
 
-	var costBad []string
+	var costBad, tokensBad []string
 	var tokens agent.Usage
 	stored := map[string]float64{}
+	storedTokens := map[string]agent.Usage{}
 	for _, tn := range turns {
 		if tn.CostUSD != nil {
 			stored[tn.Role] += *tn.CostUSD
 		}
+		u := storedTokens[tn.Role]
+		u.Add(tn.Usage)
+		storedTokens[tn.Role] = u
 		tokens.Add(tn.Usage)
 	}
 	for _, role := range []string{"lead", "developer", "tester"} {
 		if real := e.totals[role]; math.Abs(stored[role]-real) > 1e-6 {
 			costBad = append(costBad, fmt.Sprintf("%s stored %.2f, session cost %.2f", role, stored[role], real))
 		}
+		if real, ok := e.used[role]; ok && storedTokens[role] != real {
+			tokensBad = append(tokensBad, fmt.Sprintf("%s stored %+v, session tokens %+v", role, storedTokens[role], real))
+		}
 	}
 
 	t.Logf("%s: %d turns, %d messages, %d characters sent, %d duplicate characters, "+
 		"largest wake %d, wake count %d, wasted wakes %d (double post) + %d (plain-text @name)",
 		name, len(turns), len(msgs), total, dupChars, largest, wakes, doublePost, plainText)
-	t.Logf("%s: stored turn cost %v, session cost %v, tokens %+v", name, stored, e.totals, tokens)
+	t.Logf("%s: stored turn cost %v, session cost %v, stored tokens %+v, session tokens %+v (total stored %+v)",
+		name, stored, e.totals, storedTokens, e.used, tokens)
 
 	failure := func(n int, what string) string {
 		if n == 0 {
@@ -635,6 +652,7 @@ func (e *evalEnv) check(name string) {
 	expect(t, name, "double post wake", failure(doublePost, "wakes from the second post of a turn"))
 	expect(t, name, "plain-text mention wake", failure(plainText, "wakes from an @name inside a sentence"))
 	expect(t, name, "cost sum", strings.Join(costBad, "; "))
+	expect(t, name, "token sum", strings.Join(tokensBad, "; "))
 }
 
 func expect(t *testing.T, backend, check, failure string) {

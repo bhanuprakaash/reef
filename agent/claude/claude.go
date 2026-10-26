@@ -78,8 +78,8 @@ type (
 		CacheWriteTokens int64 `json:"cache_creation_input_tokens"`
 	}
 
-	// modelUsage is a result's count of every model call of the session so far, by model:
-	// the subagents' and claude's own side calls too, which usage leaves out.
+	// modelUsage is a result's count of every model call of the whole session so far, by model,
+	// also after a resume: the subagents' and claude's own side calls too, which usage leaves out.
 	modelUsage map[string]struct {
 		InputTokens      int64 `json:"inputTokens"`
 		OutputTokens     int64 `json:"outputTokens"`
@@ -103,14 +103,13 @@ type (
 		Message struct {
 			Content blocks `json:"content"`
 		} `json:"message"`
-		ParentToolUseID string      `json:"parent_tool_use_id"`
-		IsReplay        bool        `json:"isReplay"`
-		IsError         bool        `json:"is_error"`
-		Result          string      `json:"result"`
-		Errors          []string    `json:"errors"`
-		Usage           usageCounts `json:"usage"`
-		ModelUsage      modelUsage  `json:"modelUsage"`
-		TotalCostUSD    *float64    `json:"total_cost_usd"` // result; nil when the backend did not send one
+		ParentToolUseID string     `json:"parent_tool_use_id"`
+		IsReplay        bool       `json:"isReplay"`
+		IsError         bool       `json:"is_error"`
+		Result          string     `json:"result"`
+		Errors          []string   `json:"errors"`
+		ModelUsage      modelUsage `json:"modelUsage"`
+		TotalCostUSD    *float64   `json:"total_cost_usd"` // result; nil when the backend did not send one
 		Origin          struct {
 			Kind string `json:"kind"`
 		} `json:"origin"`
@@ -268,11 +267,11 @@ func (a *Agent) start(cfg agent.Config, extra ...string) (err error) {
 	}
 
 	a.cmd, a.stdin = cmd, stdin
-	go a.read(stdout, len(extra) > 0)
+	go a.read(stdout)
 	return nil
 }
 
-func (a *Agent) read(stdout io.Reader, resumed bool) {
+func (a *Agent) read(stdout io.Reader) {
 	defer close(a.done)
 	defer close(a.events)
 	defer func() {
@@ -283,7 +282,7 @@ func (a *Agent) read(stdout io.Reader, resumed bool) {
 
 	r := bufio.NewReader(stdout)
 	var last agent.Kind
-	st := state{resumed: resumed}
+	var st state
 	for {
 		line, err := r.ReadBytes('\n')
 		for _, ev := range parse(line, &st) {
@@ -352,16 +351,6 @@ func writeMCPConfig(servers map[string]agent.MCPServer) (string, error) {
 
 // state is what parse keeps between lines.
 type state struct {
-	// sent is all the usage sent in this process; total is what claude had counted for the
-	// process at its last result. They are per process, not per turn: a background turn can
-	// send usage before the result of the turn it runs inside.
-	sent, total agent.Usage
-
-	// resumed is set until the first result with a modelUsage: that one still holds the
-	// counts of the earlier processes of the session, which base then takes out.
-	resumed bool
-	base    agent.Usage
-
 	held []agent.Event // tool calls of the message in progress and the results after them, held until its usage
 
 	// wrote is set once the turn has sent text; breakNext is set at a message start that
@@ -384,12 +373,12 @@ type state struct {
 // (its assistant line comes before the message_delta). A tool_result that arrives before
 // the message_delta waits with the calls, so a call never follows its own result. A
 // subagent's messages have no message_delta, so its calls are sent at once. The result line
-// sends what is still held, then only what is left of its usage total. That total is the
-// process's modelUsage, which also counts the subagents and claude's own side calls, minus
-// what earlier turns had. An unprompted turn gives its usage, then at its result its text as
-// one KindBackground event. A result's total_cost_usd is the running cost of the whole
-// session, also after a resume: CostUSD is that total, and the caller takes off what earlier
-// turns cost. A background result sends none; the next turn's total holds its cost.
+// sends what is still held, then the turn end. Its SessionUsage is the result's modelUsage, the
+// whole session's usage so far, also after a resume: it counts the subagents and claude's own
+// side calls too, which the messages' usage leaves out. Its CostUSD is total_cost_usd, the
+// whole session's running cost. The caller takes off what earlier turns had. An unprompted turn
+// gives its usage, then at its result its text as one KindBackground event. A background
+// result sends no total; the next turn's total holds it.
 func parse(line []byte, st *state) []agent.Event {
 	evs := parseLine(line, st)
 	if !st.unprompted {
@@ -430,7 +419,6 @@ func parseLine(line []byte, st *state) []agent.Event {
 		}
 		if l.Event.Type == "message_delta" {
 			u := l.Event.Usage.usage()
-			st.sent.Add(u)
 			evs := append([]agent.Event{{Kind: agent.KindUsage, Usage: &u}}, st.held...)
 			st.held = nil
 			return evs
@@ -472,23 +460,9 @@ func parseLine(line []byte, st *state) []agent.Event {
 		}
 		return evs
 	case "result":
-		counted := st.total
-		counted.Add(l.Usage.usage())
-		if len(l.ModelUsage) > 0 {
-			all := l.ModelUsage.usage()
-			if st.resumed {
-				st.base, st.resumed = minus(all, l.Usage.usage()), false
-			}
-			counted = minus(all, st.base)
-		}
-		rest := minus(counted, st.sent)
-		st.sent.Add(rest)
 		evs := st.held
 		answer := strings.TrimSpace(st.answer)
-		*st = state{sent: st.sent, total: counted, resumed: st.resumed, base: st.base}
-		if rest != (agent.Usage{}) {
-			evs = append(evs, agent.Event{Kind: agent.KindUsage, Usage: &rest})
-		}
+		*st = state{}
 		// A turn claude runs by itself for a background task is not the answer to a prompt.
 		if l.Origin.Kind == "task-notification" {
 			if answer != "" {
@@ -498,9 +472,14 @@ func parseLine(line []byte, st *state) []agent.Event {
 		}
 		if l.IsError {
 			text := strings.Join(append([]string{l.Result}, l.Errors...), "\n")
-			return append(evs, agent.Event{Kind: agent.KindError, Text: strings.TrimSpace(text), CostUSD: l.TotalCostUSD})
+			return append(evs, agent.Event{
+				Kind: agent.KindError, Text: strings.TrimSpace(text),
+				CostUSD: l.TotalCostUSD, SessionUsage: l.ModelUsage.sessionUsage(),
+			})
 		}
-		return append(evs, agent.Event{Kind: agent.KindTurnEnd, CostUSD: l.TotalCostUSD})
+		return append(evs, agent.Event{
+			Kind: agent.KindTurnEnd, CostUSD: l.TotalCostUSD, SessionUsage: l.ModelUsage.sessionUsage(),
+		})
 	}
 	return nil
 }
@@ -524,7 +503,11 @@ func (c usageCounts) usage() agent.Usage {
 	}
 }
 
-func (m modelUsage) usage() agent.Usage {
+// sessionUsage is the sum over the models, nil when the result sent none.
+func (m modelUsage) sessionUsage() *agent.Usage {
+	if len(m) == 0 {
+		return nil
+	}
 	var u agent.Usage
 	for _, c := range m {
 		u.Add(agent.Usage{
@@ -534,16 +517,7 @@ func (m modelUsage) usage() agent.Usage {
 			CacheWriteTokens: c.CacheWriteTokens,
 		})
 	}
-	return u
-}
-
-func minus(a, b agent.Usage) agent.Usage {
-	return agent.Usage{
-		InputTokens:      max(a.InputTokens-b.InputTokens, 0),
-		OutputTokens:     max(a.OutputTokens-b.OutputTokens, 0),
-		CacheReadTokens:  max(a.CacheReadTokens-b.CacheReadTokens, 0),
-		CacheWriteTokens: max(a.CacheWriteTokens-b.CacheWriteTokens, 0),
-	}
+	return &u
 }
 
 func resultText(raw json.RawMessage) string {
