@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -480,6 +481,64 @@ func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
 	if len(ags) != 1 || len(ags[0].prompts) != 2 || !strings.Contains(ags[0].prompts[1], "You lead with care.") {
 		t.Errorf("second lead prompt = %q, want the lead kept live with the new persona",
 			ags[0].prompts)
+	}
+}
+
+func TestSession_WriteEditReachesLiveLead(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		before, after bool
+	}{
+		{"granted", false, true}, {"taken away", true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			ctx := context.Background()
+			st, f := openStore(t)
+			lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Write: tc.before}
+			if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+				t.Fatal(err)
+			}
+			ch, err := st.CreateChannel(ctx, store.Channel{
+				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+				Team: "core",
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var ags []*recordingAgent
+			mk := func(string) (agent.Agent, error) {
+				ag := newRecordingAgent()
+				ags = append(ags, ag)
+				return ag, nil
+			}
+			s, err := open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			if err := s.Run(ctx, "hi", nil, discard); err != nil {
+				t.Fatal(err)
+			}
+
+			lead.Write = tc.after
+			if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.Run(ctx, "again", nil, discard); err != nil {
+				t.Fatal(err)
+			}
+			if len(ags) != 2 || !ags[0].closed || ags[1].resumed != "s1" {
+				t.Fatalf("agents = %d, first closed = %v, second resumed %q; want 2, true, s1",
+					len(ags), ags[0].closed, ags[1].resumed)
+			}
+			cfg := ags[1].cfg
+			if got := !slices.Contains(cfg.DisallowedTools, "Edit"); got != tc.after {
+				t.Errorf("next turn can edit = %v, want %v (disallowed %v)", got, tc.after, cfg.DisallowedTools)
+			}
+			if got := s.members["lead"].run.CheckpointDir != ""; got != tc.after {
+				t.Errorf("next turn has a checkpoint = %v, want %v", got, tc.after)
+			}
+		})
 	}
 }
 

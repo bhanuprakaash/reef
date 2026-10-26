@@ -42,6 +42,9 @@ type member struct {
 	// write and dir say which tree the role's turns hold, one at a time.
 	write bool
 	dir   string
+	// cfg is what the agent was started with; a role edit that changes its access, tools,
+	// model or permission mode restarts it.
+	cfg agent.Config
 }
 
 type runInput struct {
@@ -349,7 +352,8 @@ func (s *Session) member(
 		return nil, err
 	}
 	if m, ok := s.members[role]; ok {
-		if _, err := os.Stat(m.dir); !errors.Is(err, os.ErrNotExist) {
+		_, err := os.Stat(m.dir)
+		if !errors.Is(err, os.ErrNotExist) && sameAccess(m.cfg, roleConfig(r, m.dir)) {
 			// Before its first turn, m's preamble already carries the current intro, set
 			// when it was started or resumed; nothing has been sent yet to compare against.
 			if intro := roleIntro(r); intro != "" && m.run.sessionID != "" {
@@ -401,15 +405,9 @@ func (s *Session) member(
 		return nil, err
 	}
 	m.dir = cwd
-	mode, tools, denied := access(r, claudeSkills(r, cwd))
-	cfg := agent.Config{
-		Cwd:             cwd,
-		PermissionMode:  mode,
-		Model:           r.Model,
-		Tools:           append(tools, "mcp__reef__*"),
-		DisallowedTools: denied,
-		MCPServers:      servers,
-	}
+	cfg := roleConfig(r, cwd)
+	cfg.MCPServers = servers
+	m.cfg = cfg
 	var preamble string
 	cfg.Bin, err = s.st.RoleBin(wctx, r)
 	if err == nil && ctx.Err() == nil && slug != "" {
@@ -454,6 +452,24 @@ func (s *Session) member(
 	}
 	s.members[role] = m
 	return m, nil
+}
+
+// roleConfig is the part of an agent's config that a role sets: where it runs, its model, and
+// what it may do.
+func roleConfig(r store.Role, cwd string) agent.Config {
+	mode, tools, denied := access(r, claudeSkills(r, cwd))
+	return agent.Config{
+		Cwd:             cwd,
+		PermissionMode:  mode,
+		Model:           r.Model,
+		Tools:           append(tools, "mcp__reef__*"),
+		DisallowedTools: denied,
+	}
+}
+
+func sameAccess(a, b agent.Config) bool {
+	return a.PermissionMode == b.PermissionMode && a.Model == b.Model &&
+		slices.Equal(a.Tools, b.Tools) && slices.Equal(a.DisallowedTools, b.DisallowedTools)
 }
 
 // WorkDir is where an agent of channel channelID runs: the worktree of its feature, or the
