@@ -2,8 +2,10 @@ package channel
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/bhanuprakaash/reef/agent"
@@ -22,6 +24,9 @@ type Runner struct {
 	// snapshot fails is stored failed and never sent to the agent. A checkout with no commit
 	// has nothing to snapshot: its turns run with no checkpoint.
 	CheckpointDir string
+	// DataDir is the data folder of this Reef copy. It is part of every checkpoint ref, so
+	// two copies sharing a repo never overwrite each other's.
+	DataDir string
 	// NoWake, when set, keeps no wake on the turns it stores, so they cannot be retried.
 	NoWake bool
 
@@ -34,6 +39,17 @@ type Runner struct {
 	sessionID string
 	model     string
 	direct    *store.DirectMessage
+}
+
+// checkpointRef is refs/reef/checkpoints/<12 hex of sha256 of the absolute data dir>/<turn id>.
+// Turns made before the data dir was in the name keep their stored ref, which still restores.
+func (r *Runner) checkpointRef(turnID int64) (string, error) {
+	dir, err := filepath.Abs(r.DataDir)
+	if err != nil {
+		return "", fmt.Errorf("checkpoint ref: %w", err)
+	}
+	sum := sha256.Sum256([]byte(dir))
+	return fmt.Sprintf("refs/reef/checkpoints/%x/%d", sum[:6], turnID), nil
 }
 
 type replyState uint8
@@ -75,8 +91,10 @@ func (r *Runner) Run(
 	}
 
 	if r.CheckpointDir != "" {
-		ref := fmt.Sprintf("refs/reef/checkpoints/%d", turn.ID)
-		err := worktree.Checkpoint(wctx, r.CheckpointDir, ref)
+		ref, err := r.checkpointRef(turn.ID)
+		if err == nil {
+			err = worktree.Checkpoint(wctx, r.CheckpointDir, ref)
+		}
 		if err == nil {
 			_, err = r.st.SetTurnCheckpoint(wctx, turn.ID, ref)
 		}

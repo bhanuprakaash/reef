@@ -450,6 +450,7 @@ func (s *Session) member(
 	m.run.OnPrompt = s.onPrompt
 	if r.Write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
 		m.run.CheckpointDir = cwd
+		m.run.DataDir = s.dataDir
 	}
 	s.members[role] = m
 	return m, nil
