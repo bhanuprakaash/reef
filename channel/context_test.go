@@ -348,7 +348,8 @@ func TestTeamIntro(t *testing.T) {
 	team := store.Team{Name: "core", Roles: []store.Role{lead, architect}}
 	const common = "\n## Team\nYour team: @lead, @architect. Use post_to_channel and @mentions " +
 		"for work the whole team needs: decisions, blockers, questions for the user and outcomes " +
-		"belong in the channel. Use send_to_role for detailed coordination with exactly one " +
+		"belong in the channel. Only a line that starts with @name wakes that teammate; an @name " +
+		"inside a sentence wakes nobody. Use send_to_role for detailed coordination with exactly one " +
 		"teammate; their ordinary reply returns directly once, and continuing requires another " +
 		"send_to_role. When a direct chain completes with information the team or the user needs, " +
 		"publish one concise outcome with post_to_channel; raw logs and routine acknowledgements " +
