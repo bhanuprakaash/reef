@@ -2,28 +2,34 @@ package server
 
 // The channel eval replays a scripted channel shaped like a real "browser issue" channel
 // (team small, one long thread, double posts, plain-text @names, an app restart with a wake
-// queued) through the real routing and the real channel.Session, once per backend. Only the
-// agent is fake. It lives in package server because the routing is unexported, and the
-// server's session opener is the one place the real Session is built. Run it with -v to see
-// its numbers.
+// queued) through the real routing and the real channel.Session, once per backend. It also
+// replays one real run of each backend, recorded in testdata/eval. Only the agent is fake. It
+// lives in package server because the routing is unexported, and the server's session opener
+// is the one place the real Session is built. Run it with -v to see its numbers.
 //
 // A check that fails today is listed in _expectedFail with the ticket that fixes it. The
 // eval fails when a listed check passes, so that ticket removes the mark.
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"math"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/channel"
@@ -47,6 +53,14 @@ var _expectedFail = map[string]map[string]string{
 		"cost sum":                "#50",
 		"restart":                 "#55",
 	},
+	"claude-recorded": {
+		"duplicate bodies":        "#47",
+		"duplicate in prompt":     "#47",
+		"wake size":               "#47",
+		"double post wake":        "#48",
+		"plain-text mention wake": "#49",
+		"cost sum":                "#50",
+	},
 	"codex": {
 		"duplicate bodies":        "#47",
 		"duplicate in prompt":     "#47",
@@ -55,15 +69,41 @@ var _expectedFail = map[string]map[string]string{
 		"plain-text mention wake": "#49",
 		"restart":                 "#55",
 	},
+	"codex-recorded": {
+		"duplicate bodies":        "#47",
+		"wake size":               "#47",
+		"plain-text mention wake": "#49",
+	},
 }
 
 var (
 	_evalTag     = regexp.MustCompile(`\[c(\d+)\.([0-9a-z]+)\]`)
 	_evalThread  = regexp.MustCompile(`, thread (\d+)\]`)
-	_evalSources = regexp.MustCompile(`\[channel \d+, message (\d+)`)
+	_evalSources = regexp.MustCompile(`\[channel \d+, message (\d+)(?:, thread (\d+))?`)
 )
 
 type evalSend struct{ role, session, prompt string }
+
+// evalRecording is one real channel run: the user's messages in order, each sent once the
+// channel is idle, and every turn with the prompt Reef sent and the events the adapter emitted.
+type evalRecording struct {
+	Backend string `json:"backend"`
+	Model   string `json:"model"`
+	User    []struct {
+		Text   string `json:"text"`
+		Thread bool   `json:"thread"` // a reply in the thread of the first message
+	} `json:"user"`
+	// Cost is what each role's session really cost, read from claude's own totals.
+	Cost  map[string]float64 `json:"cost,omitempty"`
+	Turns []evalTurn         `json:"turns"`
+}
+
+type evalTurn struct {
+	Role    string        `json:"role"`
+	Session string        `json:"session"`
+	Prompt  string        `json:"prompt"`
+	Events  []agent.Event `json:"events"`
+}
 
 type evalEnv struct {
 	t       *testing.T
@@ -75,11 +115,13 @@ type evalEnv struct {
 	blocked chan struct{}
 	block   atomic.Bool
 
-	mu     sync.Mutex
-	st     *store.Store
-	sent   []evalSend
-	totals map[string]float64 // what a session has really cost, by session id
-	turns  map[string]int
+	rec     *evalRecording // replayed instead of evalReply when set
+	mu      sync.Mutex
+	st      *store.Store
+	sent    []evalSend
+	totals  map[string]float64 // what a role's session has really cost
+	turns   map[string]int
+	replays map[string]int // recorded turns of each role replayed so far
 }
 
 func (e *evalEnv) store() *store.Store {
@@ -95,7 +137,14 @@ func (e *evalEnv) serve() {
 	e.h = newHandler(st, e.dir, trees, func(ctx context.Context, id int64) (session, error) {
 		return channel.OpenWith(ctx, st, e.dir, "reef", id, trees,
 			func(string) (agent.Agent, error) {
-				return &evalAgent{env: e, events: make(chan agent.Event, 8)}, nil
+				size := 8
+				if e.rec != nil {
+					for _, tn := range e.rec.Turns {
+						size = max(size, len(tn.Events))
+					}
+				}
+				// Send queues a whole turn before the Runner reads any of it.
+				return &evalAgent{env: e, events: make(chan agent.Event, size)}, nil
 			})
 	})
 	e.ts = httptest.NewServer(e.h)
@@ -160,7 +209,8 @@ type evalAgent struct {
 	role    string
 	session string
 	started bool
-	process float64 // cost total this process has reported
+	process float64            // cost total this process has reported
+	mcp     *mcp.ClientSession // the real reef tools a replayed turn calls
 }
 
 func (a *evalAgent) Start(ctx context.Context, cfg agent.Config) error {
@@ -180,18 +230,35 @@ func (a *evalAgent) open(ctx context.Context, cfg agent.Config, sessionID string
 	if sessionID == "" {
 		a.session = "session-" + tok.Role
 	}
-	return nil
+	if a.env.rec == nil {
+		return nil
+	}
+	client, server := mcp.NewInMemoryTransports()
+	if _, err := NewMCP(a.env.store(), tok, a.env.dir).Connect(ctx, server, nil); err != nil {
+		return err
+	}
+	a.mcp, err = mcp.NewClient(&mcp.Implementation{Name: "eval", Version: "v0"}, nil).
+		Connect(ctx, client, nil)
+	return err
 }
 
 func (a *evalAgent) Events() <-chan agent.Event { return a.events }
 
 func (a *evalAgent) Interrupt() error {
-	a.closed.Do(func() { close(a.events) })
+	a.closed.Do(func() {
+		close(a.events)
+		if a.mcp != nil {
+			_ = a.mcp.Close()
+		}
+	})
 	return nil
 }
 
 func (a *evalAgent) Send(ctx context.Context, prompt string) error {
 	e := a.env
+	if e.rec != nil {
+		return a.replay(ctx, prompt)
+	}
 	tags := _evalTag.FindAllStringSubmatch(prompt, -1)
 	if len(tags) == 0 {
 		return fmt.Errorf("prompt of %s holds no message tag", a.role)
@@ -242,14 +309,62 @@ func (a *evalAgent) Send(ctx context.Context, prompt string) error {
 			cost = 1.00
 		}
 		e.turns[a.session]++
-		e.totals[a.session] += cost
-		total := e.totals[a.session]
+		e.totals[a.role] += cost
+		total := e.totals[a.role]
 		e.mu.Unlock()
 		reported := total - a.process
 		a.process = total
 		end.CostUSD = &reported
 	}
 	for _, ev := range append(evs, end) {
+		a.events <- ev
+	}
+	return nil
+}
+
+// replay emits the role's next recorded turn. Each reef tool call that succeeded in the real
+// run calls the real tool again, so its messages and direct messages are stored and routed. A
+// role woken more often than it was recorded ends its turn with no reply.
+func (a *evalAgent) replay(ctx context.Context, prompt string) error {
+	e := a.env
+	e.mu.Lock()
+	e.sent = append(e.sent, evalSend{a.role, a.session, prompt})
+	n := e.replays[a.role]
+	e.replays[a.role]++
+	e.mu.Unlock()
+	evs := []agent.Event{{Kind: agent.KindTurnEnd}}
+	for _, tn := range e.rec.Turns {
+		if tn.Role != a.role {
+			continue
+		}
+		if n == 0 {
+			evs = tn.Events
+			break
+		}
+		n--
+	}
+	failed := map[string]bool{}
+	for _, ev := range evs {
+		if ev.Kind == agent.KindToolResult && ev.IsError {
+			failed[ev.ToolID] = true
+		}
+	}
+	for _, ev := range evs {
+		tool, ok := strings.CutPrefix(ev.ToolName, "mcp__reef__")
+		if ok && ev.Kind == agent.KindToolCall && !failed[ev.ToolID] {
+			var args map[string]any
+			if err := json.Unmarshal(ev.Input, &args); err != nil {
+				return err
+			}
+			// A post with a parent goes to the thread of the wake, as it did in the real run.
+			if h := _evalSources.FindAllStringSubmatch(prompt, -1); args["parent"] != nil && len(h) > 0 {
+				last := h[len(h)-1]
+				args["parent"], _ = strconv.ParseInt(cmp.Or(last[2], last[1]), 10, 64)
+			}
+			if _, err := a.mcp.CallTool(ctx, &mcp.CallToolParams{Name: tool, Arguments: args}); err != nil {
+				return err
+			}
+		}
 		a.events <- ev
 	}
 	return nil
@@ -290,10 +405,12 @@ func evalReply(role string, chain int, step string) (tool, text string) {
 func TestChannelEval(t *testing.T) {
 	for _, backend := range []string{"claude", "codex"} {
 		t.Run(backend, func(t *testing.T) { runEval(t, backend) })
+		t.Run(backend+"-recorded", func(t *testing.T) { replayEval(t, backend) })
 	}
 }
 
-func runEval(t *testing.T, backend string) {
+// newEval serves a new data folder holding team small on backend, a project and channel 1.
+func newEval(t *testing.T, backend string) *evalEnv {
 	dir := t.TempDir()
 	st, err := store.Open(dir)
 	if err != nil {
@@ -302,10 +419,9 @@ func runEval(t *testing.T, backend string) {
 	t.Cleanup(func() { _ = st.Close() })
 	e := &evalEnv{
 		t: t, backend: backend, dir: dir, st: st, blocked: make(chan struct{}, 1),
-		totals: map[string]float64{}, turns: map[string]int{},
+		totals: map[string]float64{}, turns: map[string]int{}, replays: map[string]int{},
 	}
-	ctx := context.Background()
-	_, err = st.ApplyTeam(ctx, store.Team{
+	_, err = st.ApplyTeam(context.Background(), store.Team{
 		Name: "small",
 		Roles: []store.Role{
 			{Name: "lead", Lead: true, Backend: backend},
@@ -324,7 +440,11 @@ func runEval(t *testing.T, backend string) {
 	do(t, http.MethodPost, e.url+"/projects", `{"name":"reef","path":"`+t.TempDir()+`"}`)
 	do(t, http.MethodPost, e.url+"/channels",
 		`{"projectId":1,"name":"browser issue","backend":"`+backend+`","team":"small"}`)
+	return e
+}
 
+func runEval(t *testing.T, backend string) {
+	e := newEval(t, backend)
 	root := int64(1)
 	e.say(evalBody("", 0, "0", ""), nil)
 	for c := 1; c <= _evalChains; c++ {
@@ -335,16 +455,67 @@ func runEval(t *testing.T, backend string) {
 	e.restart()
 	e.idle()
 
-	st = e.store()
-	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &root})
+	ctx := context.Background()
+	turns, err := e.store().Turns(ctx, store.TurnFilter{ChannelID: &root})
 	if err != nil {
 		t.Fatal(err)
 	}
-	msgs, err := st.Messages(ctx, 1, 0)
+	approvals, err := e.store().PendingApprovals(ctx, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	approvals, err := st.PendingApprovals(ctx, 1)
+	lost := "the tester's wake for the lead's message to @developer @tester was lost"
+	for _, tn := range turns {
+		if tn.Role == "tester" && strings.Contains(tn.WakeText, "[c6.1]") {
+			lost = ""
+		}
+	}
+	for _, a := range approvals {
+		if a.To == "tester" {
+			lost = ""
+		}
+	}
+	e.check(backend)
+	expect(t, backend, "restart", lost)
+}
+
+// replayEval sends the user's messages of the backend's recording, each once the channel is
+// idle, while the agents replay their recorded turns.
+func replayEval(t *testing.T, backend string) {
+	b, err := os.ReadFile(filepath.Join("testdata", "eval", backend+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	e := newEval(t, backend)
+	e.rec = &evalRecording{}
+	if err := json.Unmarshal(b, e.rec); err != nil {
+		t.Fatal(err)
+	}
+	for role, cost := range e.rec.Cost {
+		e.totals[role] = cost
+	}
+	root := int64(1)
+	for _, m := range e.rec.User {
+		var parent *int64
+		if m.Thread {
+			parent = &root
+		}
+		e.say(m.Text, parent)
+	}
+	e.check(backend + "-recorded")
+}
+
+// check measures what channel 1 sent its agents, prints the numbers and runs the checks
+// _expectedFail lists under name.
+func (e *evalEnv) check(name string) {
+	t := e.t
+	ctx := context.Background()
+	id := int64(1)
+	turns, err := e.store().Turns(ctx, store.TurnFilter{ChannelID: &id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	msgs, err := e.store().Messages(ctx, 1, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -378,6 +549,22 @@ func runEval(t *testing.T, backend string) {
 		}
 	}
 
+	byID := map[int64]store.Message{}
+	second := map[int64]bool{} // posted after another message of its author's same turn
+	for _, m := range msgs {
+		byID[m.ID] = m
+	}
+	for _, tn := range turns {
+		posts := 0
+		for _, m := range msgs {
+			if m.Author == tn.Role && tn.EndedAt != nil &&
+				!m.CreatedAt.Before(tn.StartedAt) && !m.CreatedAt.After(*tn.EndedAt) {
+				posts++
+				second[m.ID] = posts > 1
+			}
+		}
+	}
+
 	var largest, wakes, overSized, doublePost, plainText int
 	lastSeen := map[string]int64{}
 	for _, tn := range turns {
@@ -386,8 +573,17 @@ func runEval(t *testing.T, backend string) {
 		}
 		wakes++
 		largest = max(largest, len(tn.WakeText))
-		src := _evalSources.FindAllStringSubmatch(tn.WakeText, -1)
-		newest, _ := strconv.ParseInt(src[len(src)-1][1], 10, 64)
+		var src []store.Message
+		for _, g := range _evalSources.FindAllStringSubmatch(tn.WakeText, -1) {
+			id, _ := strconv.ParseInt(g[1], 10, 64)
+			if m, ok := byID[id]; ok {
+				src = append(src, m)
+			}
+		}
+		if len(src) == 0 {
+			continue
+		}
+		newest := src[len(src)-1].ID
 		fresh := 0
 		for _, m := range msgs {
 			if m.Author != tn.Role && m.ID > lastSeen[tn.Role] && m.ID <= newest {
@@ -398,44 +594,36 @@ func runEval(t *testing.T, backend string) {
 		if len(tn.WakeText) > fresh+_evalHeader {
 			overSized++
 		}
-		tags := _evalTag.FindAllString(tn.WakeText, -1)
-		switch last := tags[len(tags)-1]; {
-		case tn.Role == "lead" && last == "[c2.x]":
+		if !slices.ContainsFunc(src, func(m store.Message) bool { return !second[m.ID] }) {
 			doublePost++
-		case tn.Role == "lead" && last == "[c4.3]":
+		}
+		handoff := regexp.MustCompile(`(?m)^\s*(?:@[\w-]+[ \t,]+)*@` + tn.Role + `\b`)
+		if !slices.ContainsFunc(src, func(m store.Message) bool {
+			return m.Author == "user" || handoff.MatchString(m.Body)
+		}) {
 			plainText++
 		}
 	}
 
 	var costBad []string
+	var tokens agent.Usage
 	stored := map[string]float64{}
 	for _, tn := range turns {
 		if tn.CostUSD != nil {
 			stored[tn.Role] += *tn.CostUSD
 		}
+		tokens.Add(tn.Usage)
 	}
 	for _, role := range []string{"lead", "developer", "tester"} {
-		if real := e.totals["session-"+role]; math.Abs(stored[role]-real) > 1e-6 {
+		if real := e.totals[role]; math.Abs(stored[role]-real) > 1e-6 {
 			costBad = append(costBad, fmt.Sprintf("%s stored %.2f, session cost %.2f", role, stored[role], real))
-		}
-	}
-
-	lost := "the tester's wake for the lead's message to @developer @tester was lost"
-	for _, tn := range turns {
-		if tn.Role == "tester" && strings.Contains(tn.WakeText, "[c6.1]") {
-			lost = ""
-		}
-	}
-	for _, a := range approvals {
-		if a.To == "tester" {
-			lost = ""
 		}
 	}
 
 	t.Logf("%s: %d turns, %d messages, %d characters sent, %d duplicate characters, "+
 		"largest wake %d, wake count %d, wasted wakes %d (double post) + %d (plain-text @name)",
-		backend, len(turns), len(msgs), total, dupChars, largest, wakes, doublePost, plainText)
-	t.Logf("%s: stored turn cost %v, session cost %v", backend, stored, e.totals)
+		name, len(turns), len(msgs), total, dupChars, largest, wakes, doublePost, plainText)
+	t.Logf("%s: stored turn cost %v, session cost %v, tokens %+v", name, stored, e.totals, tokens)
 
 	failure := func(n int, what string) string {
 		if n == 0 {
@@ -443,13 +631,12 @@ func runEval(t *testing.T, backend string) {
 		}
 		return fmt.Sprintf("%d %s", n, what)
 	}
-	expect(t, backend, "duplicate bodies", failure(dupBodies, "bodies sent twice to a role in one session"))
-	expect(t, backend, "duplicate in prompt", failure(inPrompt, "prompts hold a body twice"))
-	expect(t, backend, "wake size", failure(overSized, "wakes are larger than their new messages plus a header"))
-	expect(t, backend, "double post wake", failure(doublePost, "wakes from the second post of a turn"))
-	expect(t, backend, "plain-text mention wake", failure(plainText, "wakes from an @name inside a sentence"))
-	expect(t, backend, "cost sum", strings.Join(costBad, "; "))
-	expect(t, backend, "restart", lost)
+	expect(t, name, "duplicate bodies", failure(dupBodies, "bodies sent twice to a role in one session"))
+	expect(t, name, "duplicate in prompt", failure(inPrompt, "prompts hold a body twice"))
+	expect(t, name, "wake size", failure(overSized, "wakes are larger than their new messages plus a header"))
+	expect(t, name, "double post wake", failure(doublePost, "wakes from the second post of a turn"))
+	expect(t, name, "plain-text mention wake", failure(plainText, "wakes from an @name inside a sentence"))
+	expect(t, name, "cost sum", strings.Join(costBad, "; "))
 }
 
 func expect(t *testing.T, backend, check, failure string) {
