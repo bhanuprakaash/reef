@@ -42,7 +42,7 @@ const (
 type Agent struct {
 	cmd     *exec.Cmd
 	stdin   io.Writer
-	stderr  bytes.Buffer
+	stderr  tail
 	events  chan agent.Event
 	quit    chan struct{}
 	done    chan struct{}
@@ -108,6 +108,9 @@ type (
 	}
 
 	blocks []block
+
+	// tail keeps the last _stderrMax bytes written to it.
+	tail struct{ b []byte }
 
 	block struct {
 		Type      string          `json:"type"`
@@ -292,13 +295,9 @@ func (a *Agent) read(stdout io.Reader) {
 	if err == nil || last == agent.KindError {
 		return
 	}
-	stderr := a.stderr.Bytes()
-	if len(stderr) > _stderrMax {
-		stderr = stderr[len(stderr)-_stderrMax:]
-	}
 	a.emit(agent.Event{
 		Kind: agent.KindError,
-		Text: fmt.Sprintf("claude exited: %v: %s", err, bytes.TrimSpace(stderr)),
+		Text: fmt.Sprintf("claude exited: %v: %s", err, bytes.TrimSpace(a.stderr.b)),
 	})
 }
 
@@ -506,12 +505,21 @@ func (c usageCounts) usage() agent.Usage {
 	}
 }
 
+func (t *tail) Write(p []byte) (int, error) {
+	t.b = append(t.b, p...)
+	if len(t.b) > _stderrMax {
+		t.b = t.b[len(t.b)-_stderrMax:]
+	}
+	return len(p), nil
+}
+
 func resultText(raw json.RawMessage) string {
 	var s string
 	if json.Unmarshal(raw, &s) == nil {
 		return s
 	}
 	var blocks []struct {
+		Type string `json:"type"`
 		Text string `json:"text"`
 	}
 	if json.Unmarshal(raw, &blocks) != nil {
@@ -519,6 +527,9 @@ func resultText(raw json.RawMessage) string {
 	}
 	var parts []string
 	for _, b := range blocks {
+		if b.Type == "image" {
+			b.Text = "[image]"
+		}
 		parts = append(parts, b.Text)
 	}
 	return strings.Join(parts, "\n")

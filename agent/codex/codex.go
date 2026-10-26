@@ -106,6 +106,7 @@ type (
 		Arguments        json.RawMessage `json:"arguments"`
 		Result           *struct {
 			Content []struct {
+				Type string `json:"type"`
 				Text string `json:"text"`
 			} `json:"content"`
 		} `json:"result"`
@@ -543,6 +544,9 @@ func (it item) toolResult() (agent.Event, bool) {
 		case it.Result != nil:
 			texts := make([]string, 0, len(it.Result.Content))
 			for _, c := range it.Result.Content {
+				if c.Type == "image" {
+					c.Text = "[image]"
+				}
 				texts = append(texts, c.Text)
 			}
 			ev.Output = strings.Join(texts, "\n")

@@ -72,6 +72,11 @@ func TestMessage_event(t *testing.T) {
 			want: &agent.Event{Kind: agent.KindToolResult, ToolID: "exec-fb96", Output: "pong"},
 		},
 		{
+			name: "mcp image",
+			give: `{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"exec-fb97","server":"reef-ping","tool":"reef_shot","status":"completed","arguments":{},"result":{"content":[{"type":"image","data":"iVBORw0KGgo=","mimeType":"image/png"}],"structuredContent":null},"error":null}}}`,
+			want: &agent.Event{Kind: agent.KindToolResult, ToolID: "exec-fb97", Output: "[image]"},
+		},
+		{
 			name: "mcp refused",
 			give: `{"method":"item/completed","params":{"item":{"type":"mcpToolCall","id":"exec-2d12","server":"reef-ping","tool":"reef_ping","status":"failed","arguments":{},"result":null,"error":{"message":"MCP tool call requires approval, but approval policy is never"}}}}`,
 			want: &agent.Event{

@@ -59,6 +59,11 @@ func TestParse(t *testing.T) {
 			want: []agent.Event{{Kind: agent.KindToolResult, ToolID: "toolu_01QXVfbj1JZFm29Aqmf9Gb8z", Output: "hello-from-tool"}},
 		},
 		{
+			name: "image tool result",
+			give: `{"type":"user","message":{"role":"user","content":[{"tool_use_id":"toolu_01Img","type":"tool_result","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"iVBORw0KGgo="}}]}]},"parent_tool_use_id":null,"session_id":"3c1296cc-1e28-4167-a8a8-dfb0facf9381"}`,
+			want: []agent.Event{{Kind: agent.KindToolResult, ToolID: "toolu_01Img", Output: "[image]"}},
+		},
+		{
 			name: "subagent tool call",
 			give: `{"type":"assistant","message":{"model":"claude-sonnet-5-5","role":"assistant","content":[{"type":"tool_use","id":"toolu_01BreQyuMiV9cKxFWNeiHK4Q","name":"Bash","input":{"command":"echo sub-hello","description":"Print sub-hello"},"caller":{"type":"direct"}}]},"parent_tool_use_id":"toolu_01RaXuLo7hgPeWd6uAE8s6vP","agent_id":"acbb09e2905459672","session_id":"5cb3eb98-0d14-468a-9526-3f91b3068676"}`,
 			want: []agent.Event{{
@@ -591,5 +596,22 @@ func TestBin(t *testing.T) {
 	err := a.Start(context.Background(), agent.Config{Cwd: t.TempDir(), Bin: "/nonexistent/claude"})
 	if err == nil || !strings.Contains(err.Error(), "/nonexistent/claude") {
 		t.Errorf("Start error = %v, want it to name /nonexistent/claude, not the claude on PATH", err)
+	}
+}
+
+func TestStderrKeepsTail(t *testing.T) {
+	var a Agent
+	chunk := strings.Repeat("x", 1<<20)
+	for range 10 {
+		if _, err := a.stderr.Write([]byte(chunk)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	a.stderr.Write([]byte("boom"))
+	if got, want := len(a.stderr.b), 4096; got != want {
+		t.Errorf("len = %d, want %d", got, want)
+	}
+	if got := string(a.stderr.b[len(a.stderr.b)-4:]); got != "boom" {
+		t.Errorf("tail = %q, want %q", got, "boom")
 	}
 }
