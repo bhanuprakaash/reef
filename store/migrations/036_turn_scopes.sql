@@ -1,0 +1,2 @@
+ALTER TABLE turn ADD COLUMN scopes TEXT;
+ALTER TABLE approval ADD COLUMN scopes TEXT;

@@ -24,7 +24,7 @@ const (
 	ApprovalHold = "hold"
 )
 
-const _approvalCols = "id, channel_id, from_role, to_role, message_id, direct_message_id, text, parent, status, kind, created_at"
+const _approvalCols = "id, channel_id, from_role, to_role, message_id, direct_message_id, text, parent, status, kind, created_at, scopes"
 
 // Approval is a wake held at a gate or by a pause: Text is what To would run for the message
 // MessageID that From wrote, as a reply in the thread of Parent when it is set. An empty Kind
@@ -38,6 +38,7 @@ type Approval struct {
 	DirectMessageID *int64    `json:"directMessageId,omitempty"`
 	Text            string    `json:"text"`
 	Parent          *int64    `json:"-"`
+	Scopes          Scopes    `json:"-"`
 	Status          string    `json:"status"`
 	Kind            string    `json:"-"`
 	CreatedAt       time.Time `json:"createdAt"`
@@ -54,10 +55,10 @@ func (s *Store) CreateApproval(ctx context.Context, a Approval) (Approval, error
 		messageID = a.MessageID
 	}
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO approval (channel_id, from_role, to_role, message_id, direct_message_id, text, parent, kind, created_at) "+
-			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		"INSERT INTO approval (channel_id, from_role, to_role, message_id, direct_message_id, text, parent, kind, created_at, scopes) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		a.ChannelID, a.From, a.To, messageID, a.DirectMessageID, a.Text, a.Parent, a.Kind,
-		now.Format(time.RFC3339Nano))
+		now.Format(time.RFC3339Nano), a.Scopes)
 	if err != nil {
 		return Approval{}, s.writeErr(ctx, "insert approval", err, ErrNotFound,
 			parent{table: "channel", id: &a.ChannelID}, parent{table: "message", id: &a.MessageID})
@@ -158,7 +159,7 @@ func scanApproval(r interface{ Scan(...any) error }) (Approval, error) {
 	var messageID sql.NullInt64
 	var directMessageID sql.NullInt64
 	if err := r.Scan(&a.ID, &a.ChannelID, &a.From, &a.To, &messageID, &directMessageID, &a.Text, &a.Parent,
-		&a.Status, &a.Kind, &created); err != nil {
+		&a.Status, &a.Kind, &created, &a.Scopes); err != nil {
 		return Approval{}, err
 	}
 	if messageID.Valid {

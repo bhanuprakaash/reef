@@ -3,9 +3,7 @@ package channel
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 
 	"github.com/bhanuprakaash/reef/store"
@@ -14,98 +12,88 @@ import (
 // AskedTogether starts the line that names every role one message woke.
 const AskedTogether = "Asked together: "
 
-var _header = regexp.MustCompile(
-	`(?m)^\[channel \d+, message (\d+)(?:, thread (\d+))?\](?:\n(` + AskedTogether + `[^\n]*))?`)
+// _firstWake is the most unread messages a scope the session has read nothing of shows.
+const _firstWake = 20
 
-// scope is the thread a message the wake was routed with is in, 0 for the top level, and
-// the Asked together lines of those messages.
-type scope struct {
-	thread int64
-	asked  []string
-}
-
-// wakeText is the text of a turn of role in sessionID: for each thread, or the top level,
-// that routed, the text the wake was routed with, has a message in, a block of the messages
+// wakeText is the text of a turn of role in sessionID, and the scopes it sent: for each of
+// scopes, the threads (0 is the top level) the wake was routed in, a block of the messages
 // there that the session was not sent in an earlier turn, oldest first, and never the role's
-// own or reef's. The role's turns that sent a wake say how far it has read: the message each
-// header names. A block's header names its newest message, so a message stored after the wake
-// was routed is in it. A block with no unread message is left out, so the text is empty when
-// nothing is unread.
+// own or reef's. The role's turns in the session that sent say how far it has read: the
+// newest message each sent for a scope, kept on the turn. A turn from before that was kept
+// read nothing. A block's header names its newest message, so a message stored after the wake
+// was routed is in it. A scope with nothing read shows only its last _firstWake messages and
+// says the rest are in read_thread. A scope with no unread message is left out, so the text
+// is empty when nothing is unread.
 func wakeText(
-	ctx context.Context, st *store.Store, channelID int64, role, sessionID, routed string,
-) (string, error) {
+	ctx context.Context, st *store.Store, channelID int64, role, sessionID string,
+	scopes store.Scopes,
+) (string, store.Scopes, error) {
 	read, err := readThrough(ctx, st, channelID, role, sessionID)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	var blocks []string
-	for _, sc := range scopes(routed) {
-		b, err := block(ctx, st, channelID, role, sc, read)
+	var sent store.Scopes
+	for _, sc := range scopes {
+		b, newest, err := block(ctx, st, channelID, role, sc, read)
 		if err != nil {
-			return "", err
+			return "", nil, err
 		}
 		if b != "" {
 			blocks = append(blocks, b)
+			sc.Read = newest
+			sent = append(sent, sc)
 		}
 	}
-	return strings.Join(blocks, "\n\n"), nil
-}
-
-func scopes(routed string) []scope {
-	var out []scope
-	for _, g := range _header.FindAllStringSubmatch(routed, -1) {
-		thread, _ := strconv.ParseInt(g[2], 10, 64)
-		i := slices.IndexFunc(out, func(s scope) bool { return s.thread == thread })
-		if i < 0 {
-			out = append(out, scope{thread: thread})
-			i = len(out) - 1
-		}
-		if g[3] != "" && !slices.Contains(out[i].asked, g[3]) {
-			out[i].asked = append(out[i].asked, g[3])
-		}
-	}
-	return out
+	return strings.Join(blocks, "\n\n"), sent, nil
 }
 
 func block(
-	ctx context.Context, st *store.Store, channelID int64, role string, sc scope,
+	ctx context.Context, st *store.Store, channelID int64, role string, sc store.Scope,
 	read map[int64]int64,
-) (string, error) {
+) (text string, newest int64, err error) {
 	var msgs []store.Message
-	var err error
-	if sc.thread != 0 {
-		msgs, err = st.Thread(ctx, channelID, sc.thread)
+	if sc.Thread != 0 {
+		msgs, err = st.Thread(ctx, channelID, sc.Thread)
 	} else {
 		msgs, err = st.Messages(ctx, channelID, read[0])
 	}
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	unread := slices.DeleteFunc(msgs, func(m store.Message) bool {
 		switch {
 		case m.Author == role || m.Author == store.ReefAuthor:
 			return true
 		case m.ParentID != nil:
-			return sc.thread == 0 || m.ID <= read[*m.ParentID]
+			return sc.Thread == 0 || m.ID <= read[*m.ParentID]
 		default:
 			return m.ID <= read[0] || read[m.ID] > 0
 		}
 	})
 	if len(unread) == 0 {
-		return "", nil
+		return "", 0, nil
+	}
+	omitted := 0
+	if read[sc.Thread] == 0 && len(unread) > _firstWake {
+		omitted = len(unread) - _firstWake
+		unread = unread[omitted:]
 	}
 
 	last := unread[len(unread)-1]
 	var b strings.Builder
 	fmt.Fprintf(&b, "[channel %d, message %d", channelID, last.ID)
 	label := "New in the channel:"
-	if sc.thread != 0 {
-		fmt.Fprintf(&b, ", thread %d", sc.thread)
+	if sc.Thread != 0 {
+		fmt.Fprintf(&b, ", thread %d", sc.Thread)
 		label = "New in the thread:"
 	}
 	b.WriteString("]\n")
-	for _, a := range sc.asked {
+	for _, a := range sc.Asked {
 		b.WriteString(a + "\n")
+	}
+	if omitted > 0 {
+		fmt.Fprintf(&b, "%d older messages are not shown; read them with read_thread.\n", omitted)
 	}
 	if len(unread) > 1 {
 		b.WriteString(label + "\n")
@@ -119,7 +107,7 @@ func block(
 	} else {
 		b.WriteString(last.Author + " wrote: " + last.Body)
 	}
-	return b.String(), nil
+	return b.String(), last.ID, nil
 }
 
 // readThrough maps a thread root, or 0 for the top level, to the newest message that role's
@@ -131,19 +119,12 @@ func readThrough(
 	if sessionID == "" {
 		return read, nil
 	}
-	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &channelID})
+	sent, err := st.SentScopes(ctx, channelID, role, sessionID)
 	if err != nil {
 		return nil, err
 	}
-	for _, t := range turns {
-		if t.Role != role || t.SessionID != sessionID || !t.Sent {
-			continue
-		}
-		for _, g := range _header.FindAllStringSubmatch(t.WakeText, -1) {
-			id, _ := strconv.ParseInt(g[1], 10, 64)
-			thread, _ := strconv.ParseInt(g[2], 10, 64)
-			read[thread] = max(read[thread], id)
-		}
+	for _, sc := range sent {
+		read[sc.Thread] = max(read[sc.Thread], sc.Read)
 	}
 	return read, nil
 }

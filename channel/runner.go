@@ -33,6 +33,9 @@ type Runner struct {
 	DataDir string
 	// NoWake, when set, keeps no wake on the turns it stores, so they cannot be retried.
 	NoWake bool
+	// Scopes, when set, are the scopes of the wake the next turn sends, each with its newest
+	// message, and are stored on the turn so a later turn of the session skips them.
+	Scopes store.Scopes
 
 	st        *store.Store
 	ag        agent.Agent
@@ -75,6 +78,7 @@ func (r *Runner) Run(
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
 		ChannelID: r.channelID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,
 		WakeText: r.wake(text), WakeParent: parent, DirectMessageID: r.direct.IDRef(),
+		Scopes: r.Scopes,
 	})
 	if err != nil {
 		return err

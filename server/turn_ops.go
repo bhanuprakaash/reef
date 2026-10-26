@@ -50,6 +50,9 @@ func (s *server) retryTurn(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rerun := wake{from: _userAuthor, role: t.Role, text: t.WakeText, parent: t.WakeParent}
+	if !t.Sent {
+		rerun.scopes = t.Scopes
+	}
 	if t.DirectMessageID != nil {
 		direct, err := s.st.DirectMessage(ctx, *t.DirectMessageID)
 		if err != nil {

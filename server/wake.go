@@ -43,9 +43,9 @@ type wake struct {
 	text      string
 	parent    *int64
 	direct    *store.DirectMessage
-	// unread is set on a wake routed from a message: text is what it was routed with, and the
-	// turn's own text is built when it starts.
-	unread bool
+	// scopes are set on a wake routed from a message: text is what it was routed with, and the
+	// turn's own text is built from the unread messages of scopes when it starts.
+	scopes store.Scopes
 	// approval is the id of the approval a wake was released by, when it was.
 	approval int64
 	approved bool
@@ -149,30 +149,49 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 			text = m.Author + " wrote: " + m.Body
 		}
 		header := fmt.Sprintf("[channel %d, message %d]", id, m.ID)
+		var thread int64
 		if m.ParentID != nil {
-			root := *m.ParentID
-			header = fmt.Sprintf("[channel %d, message %d, thread %d]", id, m.ID, root)
+			thread = *m.ParentID
+			header = fmt.Sprintf("[channel %d, message %d, thread %d]", id, m.ID, thread)
 		}
+		var asked string
 		if len(woken) > 1 {
-			asked := make([]string, len(woken))
+			names := make([]string, len(woken))
 			for i, role := range woken {
-				asked[i] = "@" + role
+				names[i] = "@" + role
 			}
-			header += "\n" + channel.AskedTogether + strings.Join(asked, ", ")
+			asked = channel.AskedTogether + strings.Join(names, ", ")
+			header += "\n" + asked
 		}
 		for _, role := range woken {
 			gated := team.Gated(m.Author, role)
 			if i := slices.IndexFunc(ws, func(w wake) bool { return w.role == role }); i >= 0 {
 				ws[i].text += "\n\n" + header + "\n" + text
+				ws[i].scopes = addScope(ws[i].scopes, thread, asked)
 				ws[i].gated = ws[i].gated || gated
 				ws[i].messageID = m.ID
 				continue
 			}
 			ws = append(ws, wake{
 				from: m.Author, messageID: m.ID, gated: gated,
-				role: role, text: header + "\n" + text, parent: m.ParentID, unread: true,
+				role: role, text: header + "\n" + text, parent: m.ParentID,
+				scopes: addScope(nil, thread, asked),
 			})
 		}
 	}
 	return ws, nil
+}
+
+// addScope adds the thread of a routed message, 0 for the top level, to scopes with the line
+// that names the roles it woke together, if it has one. A thread is in scopes once.
+func addScope(scopes store.Scopes, thread int64, asked string) store.Scopes {
+	i := slices.IndexFunc(scopes, func(sc store.Scope) bool { return sc.Thread == thread })
+	if i < 0 {
+		scopes = append(scopes, store.Scope{Thread: thread})
+		i = len(scopes) - 1
+	}
+	if asked != "" && !slices.Contains(scopes[i].Asked, asked) {
+		scopes[i].Asked = append(scopes[i].Asked, asked)
+	}
+	return scopes
 }

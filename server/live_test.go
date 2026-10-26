@@ -34,9 +34,10 @@ type fakeSession struct {
 	// agent stores while it works.
 	onRun func(role, text string, parent *int64)
 
-	mu  sync.Mutex
-	ran []string
-	say func()
+	mu   sync.Mutex
+	ran  []string
+	woke []store.Scopes
+	say  func()
 
 	// directStart receives a signal each time a direct turn starts, so tests can
 	// synchronize on direct-turn execution without sleeping. It is buffered so a start
@@ -86,8 +87,12 @@ func (f *fakeSession) RunAs(
 }
 
 func (f *fakeSession) WakeAs(
-	ctx context.Context, role, routed string, parent *int64, onEvent func(agent.Event),
+	ctx context.Context, role, routed string, scopes store.Scopes, parent *int64,
+	onEvent func(agent.Event),
 ) error {
+	f.mu.Lock()
+	f.woke = append(f.woke, scopes)
+	f.mu.Unlock()
 	return f.RunAs(ctx, role, routed, parent, onEvent)
 }
 
@@ -192,7 +197,8 @@ func (r runnerSession) RunAs(
 }
 
 func (r runnerSession) WakeAs(
-	ctx context.Context, role, routed string, parent *int64, onEvent func(agent.Event),
+	ctx context.Context, role, routed string, _ store.Scopes, parent *int64,
+	onEvent func(agent.Event),
 ) error {
 	return r.RunAs(ctx, role, routed, parent, onEvent)
 }

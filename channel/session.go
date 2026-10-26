@@ -49,9 +49,10 @@ type runInput struct {
 	text   string
 	parent *int64
 	direct *store.DirectMessage
-	// routed, when set, is the text the wake was routed with: the turn's text is built from
-	// the unread messages when it starts, and text is what a turn that never starts keeps.
-	routed  string
+	// scopes, when set, say the wake was routed: text is what it was routed with, which a turn
+	// that never starts keeps, and the turn's own text is built from the unread messages of
+	// scopes when it starts.
+	scopes  store.Scopes
 	onEvent func(agent.Event)
 }
 
@@ -129,7 +130,7 @@ func Open(
 
 // Start starts or resumes the lead now instead of at its first turn.
 func (s *Session) Start(ctx context.Context) error {
-	_, err := s.member(ctx, s.ch.Role, "", nil, nil)
+	_, err := s.member(ctx, s.ch.Role, runInput{})
 	return err
 }
 
@@ -167,22 +168,51 @@ func (s *Session) RunAs(
 	return s.runAs(ctx, role, runInput{text: text, parent: parent, onEvent: onEvent})
 }
 
-// WakeAs is RunAs for a wake routed with routed. The turn's text is not routed: it is built
-// when the turn starts, from the messages of the thread of parent, or of the top level, that
-// the role has not been sent in its session. A wake with none runs no turn.
+// WakeAs is RunAs for a wake routed with routed, in scopes. The turn's text is not routed: it
+// is built when the turn starts, from the messages of scopes that the role has not been sent
+// in its session. A wake with none runs no turn. A wake that never starts keeps routed.
 func (s *Session) WakeAs(
-	ctx context.Context, role, routed string, parent *int64, onEvent func(agent.Event),
+	ctx context.Context, role, routed string, scopes store.Scopes, parent *int64,
+	onEvent func(agent.Event),
 ) error {
-	text, err := wakeText(context.WithoutCancel(ctx), s.st, s.ch.ID, role, "", routed)
-	if err != nil || text == "" {
-		return err
+	if s.allRead(ctx, role, scopes) {
+		return nil
 	}
 	return s.runAs(ctx, role,
-		runInput{text: text, parent: parent, routed: routed, onEvent: onEvent})
+		runInput{text: routed, parent: parent, scopes: scopes, onEvent: onEvent})
+}
+
+// allRead reports whether role's session has been sent every message of scopes, so no agent
+// need start. It is false when it cannot tell: the turn then starts and finds out.
+func (s *Session) allRead(ctx context.Context, role string, scopes store.Scopes) bool {
+	ctx = context.WithoutCancel(ctx)
+	sessionID := ""
+	if m, ok := s.members[role]; ok {
+		if m.run.sessionGone {
+			return false
+		}
+		sessionID = m.run.sessionID
+	} else {
+		team, err := s.st.Team(ctx, s.ch.Team)
+		if err != nil {
+			return false
+		}
+		r, err := s.roleSetup(team, role)
+		if err != nil {
+			return false
+		}
+		last, err := newestSessionTurn(ctx, s.st, s.ch.ID, role, r.Backend)
+		if err != nil {
+			return false
+		}
+		sessionID = last.SessionID
+	}
+	text, _, err := wakeText(ctx, s.st, s.ch.ID, role, sessionID, scopes)
+	return err == nil && text == ""
 }
 
 func (s *Session) runAs(ctx context.Context, role string, in runInput) error {
-	m, err := s.member(ctx, role, in.text, in.parent, nil)
+	m, err := s.member(ctx, role, in)
 	if err != nil {
 		return err
 	}
@@ -202,7 +232,7 @@ func (s *Session) runAs(ctx context.Context, role string, in runInput) error {
 func (s *Session) RunDirectAs(
 	ctx context.Context, role, text string, dm store.DirectMessage, onEvent func(agent.Event),
 ) error {
-	m, err := s.member(ctx, role, text, nil, dm.IDRef())
+	m, err := s.member(ctx, role, runInput{text: text, direct: &dm})
 	if err != nil {
 		if _, rerr := s.st.CreateFailedDirectResponse(ctx, dm.ID, role, ""); rerr != nil &&
 			!errors.Is(rerr, store.ErrConflict) {
@@ -223,61 +253,71 @@ func (s *Session) RunDirectAs(
 // run runs a turn of m, holding m's tree when it writes and counting as a reader of it when
 // it does not. A ctx cancelled while it waits leaves an interrupted turn.
 func (s *Session) run(ctx context.Context, m *member, in runInput) error {
-	run := func() error {
-		if in.direct != nil {
-			return m.run.RunDirect(ctx, in.text, *in.direct, in.onEvent)
-		}
-		text := in.text
-		if in.routed != "" {
-			var err error
-			text, err = wakeText(
-				context.WithoutCancel(ctx), s.st, s.ch.ID, m.run.role, m.run.sessionID, in.routed)
-			if err != nil || text == "" {
-				return err
-			}
-		}
-		return m.run.Run(ctx, text, in.parent, in.onEvent)
-	}
 	if !m.write {
 		defer s.trees.Read(m.dir)()
-		return run()
+		return s.turn(ctx, m, in)
 	}
 	unlock, err := s.trees.Lock(ctx, m.dir)
 	if err != nil {
-		reason := err.Error()
-		if ctx.Err() != nil {
-			reason = "interrupted"
-		}
-		ferr := s.failTurn(ctx, m.run.role, m.run.backend, reason, m.run.wake(in.text),
-			in.parent, in.direct.IDRef())
+		in.text = m.run.wake(in.text)
+		err = s.failTurn(ctx, m.run.role, m.run.backend, in, err)
 		if in.direct != nil {
 			if _, rerr := s.st.CreateFailedDirectResponse(
 				context.WithoutCancel(ctx), in.direct.ID, m.run.role, "",
 			); rerr != nil && !errors.Is(rerr, store.ErrConflict) {
-				ferr = errors.Join(ferr, rerr)
+				err = errors.Join(err, rerr)
 			}
 		}
-		return errors.Join(err, ferr)
+		return err
 	}
 	defer unlock()
-	return run()
+	return s.turn(ctx, m, in)
 }
 
-// failTurn stores a failed turn of role for a turn that never started.
+// turn runs the turn of m. The text of a wake routed in scopes is built now, from what m's
+// session has not been sent; a wake with none runs no turn. A failure to build it leaves a
+// failed turn, as the agent got nothing.
+func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
+	text, sent := in.text, store.Scopes(nil)
+	if in.direct == nil && len(in.scopes) > 0 {
+		var err error
+		text, sent, err = wakeText(
+			context.WithoutCancel(ctx), s.st, s.ch.ID, m.run.role, m.run.sessionID, in.scopes)
+		if err != nil {
+			return s.failTurn(ctx, m.run.role, m.run.backend, in, err)
+		}
+		if text == "" {
+			return nil
+		}
+	}
+	m.run.Scopes = sent
+	if in.direct != nil {
+		return m.run.RunDirect(ctx, text, *in.direct, in.onEvent)
+	}
+	return m.run.Run(ctx, text, in.parent, in.onEvent)
+}
+
+// failTurn stores a failed turn of role for a turn that never started and returns cause
+// joined with the error of storing it. The turn keeps the wake it was for, so retry can run
+// it again; a ctx cancelled by then makes the turn interrupted.
 func (s *Session) failTurn(
-	ctx context.Context, role, backend, reason, text string, parent, directMessageID *int64,
+	ctx context.Context, role, backend string, in runInput, cause error,
 ) error {
+	reason := cause.Error()
+	if ctx.Err() != nil {
+		reason = "interrupted"
+	}
 	ctx = context.WithoutCancel(ctx)
 	t, err := s.st.CreateTurn(ctx, store.Turn{
-		ChannelID: s.ch.ID, Role: role, Backend: backend, WakeText: text, WakeParent: parent,
-		DirectMessageID: directMessageID,
+		ChannelID: s.ch.ID, Role: role, Backend: backend, WakeText: in.text, WakeParent: in.parent,
+		DirectMessageID: in.direct.IDRef(), Scopes: in.scopes,
 	})
 	if err != nil {
-		return err
+		return errors.Join(cause, err)
 	}
 	t.Status, t.Error = "failed", reason
 	_, err = s.st.EndTurn(ctx, t)
-	return err
+	return errors.Join(cause, err)
 }
 
 // Wrap runs a wrap-up turn and returns the proposal the agent made, or ErrNoProposal. Like
@@ -351,22 +391,27 @@ func (s *Session) closeMembers() error {
 // member returns the agent session of role, starting or resuming it from the role's own
 // newest turn with a session id on the role's backend. A new session reads the team from the
 // store, so a team applied since the channel opened is the one it gets. An agent that fails
-// to start leaves a failed turn for the role that keeps text and parent, the wake it was
+// to start, for any reason, leaves a failed turn for the role that keeps the wake it was
 // starting for, and so does a ctx cancelled before it starts: the turn is interrupted. The
 // store is read even then, as Run stores its turn. A role the team no longer has leaves one
 // too, on the channel's backend.
-func (s *Session) member(
-	ctx context.Context, role, text string, parent, directMessageID *int64,
-) (_ *member, err error) {
+func (s *Session) member(ctx context.Context, role string, in runInput) (_ *member, err error) {
 	wctx := context.WithoutCancel(ctx)
 	team, err := s.st.Team(wctx, s.ch.Team)
 	if err != nil {
 		return nil, err
 	}
+	backend := s.ch.Backend
+	defer func() {
+		if err != nil {
+			err = s.failTurn(ctx, role, backend, in, err)
+		}
+	}()
 	r, err := s.roleSetup(team, role)
 	if err != nil {
-		return nil, errors.Join(err, s.failTurn(wctx, role, s.ch.Backend, err.Error(), text, parent, directMessageID))
+		return nil, err
 	}
+	backend = r.Backend
 	if m, ok := s.members[role]; ok {
 		_, err := os.Stat(m.dir)
 		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone &&
@@ -455,11 +500,7 @@ func (s *Session) member(
 		err = ag.Start(ctx, cfg)
 	}
 	if err != nil {
-		reason := err.Error()
-		if ctx.Err() != nil {
-			reason = "interrupted"
-		}
-		return nil, errors.Join(err, s.failTurn(wctx, role, r.Backend, reason, text, parent, directMessageID))
+		return nil, err
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.sessionID = last.SessionID
@@ -630,7 +671,7 @@ func (s *Session) propose(
 	if err != nil {
 		return store.Proposal{}, err
 	}
-	m, err := s.member(ctx, s.ch.Role, "", nil, nil)
+	m, err := s.member(ctx, s.ch.Role, runInput{})
 	if err != nil {
 		return store.Proposal{}, err
 	}

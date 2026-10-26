@@ -34,7 +34,7 @@ const (
 		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, " +
 		"wake_text, wake_parent, retried, checkpoint, sent, model, cost_usd, prompt, direct_message_id, reply, " +
 		"session_cost_usd, session_input_tokens, session_output_tokens, session_cache_read_tokens, " +
-		"session_cache_write_tokens"
+		"session_cache_write_tokens, scopes"
 )
 
 // Turn is one agent run in a channel. It starts running and ends once, as
@@ -79,6 +79,11 @@ type Turn struct {
 	// these minus the totals its session's earlier turns reported. Hidden from Turn's own JSON.
 	SessionCostUSD *float64     `json:"-"`
 	SessionUsage   *agent.Usage `json:"-"`
+	// Scopes are the threads the turn's wake was routed in. Once the turn sent, each carries
+	// the newest message it sent, so a later turn of the session skips what it read. Nil for
+	// a turn that is not a routed wake, and for one from before scopes: it read nothing.
+	// Hidden from Turn's own JSON.
+	Scopes Scopes `json:"-"`
 }
 
 // TurnFilter narrows Turns. A nil ChannelID or empty Status matches everything. Retryable
@@ -100,9 +105,10 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO turn (channel_id, role, backend, session_id, status, started_at, "+
-			"wake_text, wake_parent, direct_message_id) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?)",
+			"wake_text, wake_parent, direct_message_id, scopes) "+
+			"VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)",
 		t.ChannelID, t.Role, t.Backend, t.SessionID, _turnRunning, now.Format(time.RFC3339Nano),
-		t.WakeText, t.WakeParent, t.DirectMessageID)
+		t.WakeText, t.WakeParent, t.DirectMessageID, t.Scopes)
 	if err != nil {
 		return Turn{}, s.writeErr(ctx, "insert turn", err, ErrInvalid,
 			parent{table: "channel", id: &t.ChannelID}, parent{table: "message", id: t.WakeParent},
@@ -116,6 +122,7 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 		ID: id, ChannelID: t.ChannelID, Role: t.Role, Backend: t.Backend,
 		SessionID: t.SessionID, Status: _turnRunning, StartedAt: now,
 		WakeText: t.WakeText, WakeParent: t.WakeParent, DirectMessageID: t.DirectMessageID,
+		Scopes: t.Scopes,
 	}, nil
 }
 
@@ -467,7 +474,8 @@ func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 		&t.Usage.InputTokens, &t.Usage.OutputTokens, &t.Usage.CacheReadTokens,
 		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried,
 		&checkpoint, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID, &t.Reply,
-		&t.SessionCostUSD, &session.input, &session.output, &session.cacheRead, &session.cacheWrite); err != nil {
+		&t.SessionCostUSD, &session.input, &session.output, &session.cacheRead, &session.cacheWrite,
+		&t.Scopes); err != nil {
 		return Turn{}, err
 	}
 	if session.input != nil {
