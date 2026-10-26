@@ -167,7 +167,9 @@ func (s *Store) neighbours(ctx context.Context, id int64) ([]neighbour, error) {
 	return out, nil
 }
 
-func (s *Store) load(ctx context.Context, f Filter, found map[int64]*Hit) ([]Hit, map[int64]int64, error) {
+func (s *Store) load(
+	ctx context.Context, f Filter, found map[int64]*Hit,
+) ([]Hit, map[int64]int64, error) {
 	where, args := f.where()
 	marks := make([]string, 0, len(found))
 	idArgs := make([]any, 0, len(found)+len(args))
@@ -188,7 +190,8 @@ func (s *Store) load(ctx context.Context, f Filter, found map[int64]*Hit) ([]Hit
 	for rows.Next() {
 		var h Hit
 		var replacer sql.NullInt64
-		if err := rows.Scan(&h.ID, &h.Kind, &h.Body, &h.Scope.Kind, &h.Scope.ID, &h.Status, &replacer); err != nil {
+		if err := rows.Scan(&h.ID, &h.Kind, &h.Body, &h.Scope.Kind, &h.Scope.ID, &h.Status,
+			&replacer); err != nil {
 			return nil, nil, fmt.Errorf("scan hit: %w", err)
 		}
 		replacedBy[h.ID] = replacer.Int64

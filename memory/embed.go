@@ -212,9 +212,9 @@ func (s *Store) ClearVectors(ctx context.Context) error {
 	return nil
 }
 
-// Nearest returns up to k items that pass f and have a vector with a cosine similarity of
-// at least the embedder's MinCosine, closest first. Score is the cosine similarity; ties go to accepted before
-// retired, then newer.
+// Nearest returns up to k items that pass f and have a vector with a cosine similarity of at
+// least the embedder's MinCosine, closest first. Score is the cosine similarity; ties go to
+// accepted before retired, then newer.
 func (s *Store) Nearest(ctx context.Context, query string, f Filter, k int) ([]Match, error) {
 	if k <= 0 || len(f.Scopes) == 0 {
 		return nil, nil
