@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
-	"sync"
 
 	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/memory"
@@ -116,7 +115,9 @@ func (s *server) approveProposal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.approveMu.Lock()
 	a, err := ApproveProposal(r.Context(), s.st, s.ms, id)
+	s.approveMu.Unlock()
 	if err != nil {
 		writeError(w, err)
 		return
@@ -133,8 +134,6 @@ func (s *server) approveProposal(w http.ResponseWriter, r *http.Request) {
 	}{a.Proposal, a.Added, a.Warnings})
 }
 
-var _approveMu sync.Mutex
-
 // Approval is what approving a proposal did: how many memory items it saved, and a line for
 // each saved item that looks like a stored one or whose vector was not stored.
 type Approval struct {
@@ -148,12 +147,11 @@ type Approval struct {
 // retires its retire ids, skipping any already retired; only then does the store save the
 // brief, close the channel and mark the proposal approved, in one transaction. It is not one
 // transaction as a whole: a failure leaves the proposal pending and the channel open, and
-// approving again saves each item once.
+// approving again saves each item once. Two approves of one proposal at once can both save its
+// items; the REST handler serializes them.
 func ApproveProposal(
 	ctx context.Context, st *store.Store, ms *memory.Store, id int64,
 ) (Approval, error) {
-	_approveMu.Lock()
-	defer _approveMu.Unlock()
 	p, err := st.Proposal(ctx, id)
 	if err != nil {
 		return Approval{}, err

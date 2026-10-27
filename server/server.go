@@ -40,6 +40,8 @@ type server struct {
 	lives    map[int64]*live
 	deleting map[int64]int
 
+	approveMu sync.Mutex
+
 	inboxMu   sync.Mutex
 	inboxWake chan struct{}
 

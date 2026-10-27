@@ -3,7 +3,10 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http/httptest"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -272,7 +275,7 @@ func (slowEmbedder) Embed(context.Context, string) ([]float32, error) {
 
 func (slowEmbedder) MinCosine() float64 { return 0 }
 
-func TestApproveProposalTwiceAtOnceSavesEachItemOnce(t *testing.T) {
+func TestApproveProposalRESTTwiceAtOnceSavesEachItemOnce(t *testing.T) {
 	st, tok := mcpFixture(t)
 	call := callTool(t, st, tok)
 	call("remember", map[string]any{"kind": "fact", "body": "old"})
@@ -291,27 +294,32 @@ func TestApproveProposalTwiceAtOnceSavesEachItemOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	errs := make(chan error, 2)
+	h := New(st, ms, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	replies := make(chan string, 2)
 	var wg sync.WaitGroup
 	for range 2 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := ApproveProposal(context.Background(), st, ms, 1)
-			errs <- err
+			status, body := do(t, "POST", ts.URL+"/proposals/1/approve", "")
+			replies <- fmt.Sprintf("%d %s", status, body)
 		}()
 	}
 	wg.Wait()
-	close(errs)
+	close(replies)
 
 	var failed []string
-	for err := range errs {
-		if err != nil {
-			failed = append(failed, err.Error())
+	for r := range replies {
+		if strings.HasPrefix(r, "400") {
+			failed = append(failed, r)
 		}
 	}
-	if want := []string{"invalid: proposal 1 is already approved"}; !reflect.DeepEqual(failed, want) {
-		t.Errorf("failed approves = %q, want %q", failed, want)
+	if want := []string{`400 {"error":"invalid: proposal 1 is already approved"}`}; !reflect.DeepEqual(failed, want) {
+		t.Errorf("rejected approves = %q, want %q", failed, want)
 	}
 	if n := countMemory(t, st); n != 3 {
 		t.Errorf("memory rows = %d, want 3: the old one and each item once", n)
