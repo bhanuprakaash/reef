@@ -1,16 +1,14 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { FeatureSpaces } from '@/app/feature-spaces';
+import { NewMenu } from '@/app/new-menu';
 import { ProjectSwitcher } from '@/app/project-switcher';
+import { SidebarSpaces } from '@/app/sidebar-spaces';
 import { UpdateCard } from '@/app/update-card';
 import { CountBadge } from '@/components/count-badge';
-import { Dialog } from '@/components/dialog';
 import { Logo } from '@/components/logo';
 import { Row } from '@/components/row';
-import { useSpaces } from '@/lib/api/get-spaces';
 import { useProfile } from '@/lib/api/get-profile';
 import { useCurrentProject } from '@/lib/current-project';
-import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { useInboxEvents } from '@/modules/inbox/hooks/use-inbox-events';
@@ -56,7 +54,8 @@ function BarLink({
     <Link
       to={to}
       aria-label={label}
-      className={`flex size-8 items-center justify-center rounded-lg text-soft hover:bg-hover/50 ${active ? 'bg-active text-fg' : ''}`}
+      title={label}
+      className={`flex size-8 max-md:size-11 items-center justify-center rounded-lg text-soft hover:bg-hover/50 ${active ? 'bg-active text-fg' : ''}`}
     >
       <svg
         width="17"
@@ -81,16 +80,13 @@ export function Sidebar() {
   const projects = useProjects();
   const profileName = useProfile().data?.name ?? '';
   const features = useFeatures();
-  const spaces = useSpaces();
   const inbox = useInbox();
   useInboxEvents(useCallback((item) => void navigate(itemPath(item)), [navigate]));
   const [query, setQuery] = useState('');
-  const [creating, setCreating] = useState(false);
 
   const [current] = useCurrentProject(projects.data);
-  const error = projects.error ?? features.error ?? spaces.error;
+  const error = projects.error ?? features.error;
   const waiting = inbox.data ?? [];
-  const projectFeatures = features.data?.filter((f) => f.projectId === current?.id).length ?? 0;
   const openItems =
     features.data?.filter(
       (f) => f.projectId === current?.id && f.status !== 'done' && f.status !== 'dropped',
@@ -99,30 +95,11 @@ export function Sidebar() {
   return (
     <nav aria-label="Spaces" className="flex h-full flex-col px-3 pt-4 pb-3 text-sm">
       <div className="app-drag box-content flex h-8 items-center justify-end gap-1 pb-3.5">
-        <span className="flex items-center gap-1.5 pr-1">
+        <Link to="/" aria-label="Today" className="flex items-center gap-1.5 pr-1">
           <Logo size={18} />
           <span className="text-[15px] tracking-[-0.03em]">reef</span>
-        </span>
-        <button
-          type="button"
-          aria-label="New Space"
-          disabled={!current}
-          onClick={() => setCreating(true)}
-          className="flex size-8 items-center justify-center rounded-lg text-soft hover:bg-hover/50"
-        >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.6"
-            strokeLinecap="round"
-            aria-hidden="true"
-          >
-            <path d="M12 4v16M4 12h16" />
-          </svg>
-        </button>
+        </Link>
+        <NewMenu project={current} />
       </div>
 
       <label className="flex h-[38px] items-center gap-2 rounded-xl border border-search-line bg-search px-3 text-muted">
@@ -153,16 +130,21 @@ export function Sidebar() {
 
       <div className="-mx-3 flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto px-3">
         <Row
-          to="/"
-          active={pathname === '/'}
+          to="/inbox"
+          active={pathname === '/inbox'}
           avatar={
-            <IconCircle>
-              <circle cx="12" cy="12" r="4" />
-              <path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" />
+            <IconCircle dot={waiting.length > 0}>
+              <path d="M22 12h-6l-2 3h-4l-2-3H2" />
+              <path d="M5.5 5h13L22 12v7H2v-7z" />
             </IconCircle>
           }
-          title="Today"
-          preview={`${projectFeatures} ${projectFeatures === 1 ? 'feature' : 'features'}`}
+          title="Inbox"
+          aside={
+            waiting.length > 0 && (
+              <CountBadge count={waiting.length} label={`${waiting.length} waiting`} />
+            )
+          }
+          preview={waiting[0]?.text ?? 'Nothing waiting'}
         />
         <Row
           to="/board"
@@ -177,26 +159,9 @@ export function Sidebar() {
           title="Board"
           preview={`${openItems} open`}
         />
-        <Row
-          to="/inbox"
-          active={pathname === '/inbox'}
-          avatar={
-            <IconCircle dot={waiting.length > 0}>
-              <path d="M22 12h-6l-2 3h-4l-2-3H2" />
-              <path d="M5.5 5h13L22 12v7H2v-7z" />
-            </IconCircle>
-          }
-          title="Needs you"
-          aside={
-            waiting.length > 0 && (
-              <CountBadge count={waiting.length} label={`${waiting.length} waiting`} />
-            )
-          }
-          preview={waiting[0]?.text ?? 'Nothing waiting'}
-        />
 
         {error && <p className="px-2.5 pt-3 text-sm text-danger">{error.message}</p>}
-        {current && <FeatureSpaces project={current} query={query} />}
+        {current && <SidebarSpaces project={current} query={query} />}
       </div>
 
       <UpdateCard />
@@ -207,14 +172,14 @@ export function Sidebar() {
         </span>
         <span className="min-w-0 truncate text-sm">{profileName}</span>
         <div className="ml-auto flex gap-0.5">
-          <BarLink to="/teams" label="Teams" active={pathname === '/teams'}>
+          <BarLink to="/teammates" label="Teammates" active={pathname.startsWith('/teammates')}>
+            <circle cx="12" cy="8" r="4" />
+            <path d="M4 21c.8-4.2 4-6 8-6s7.2 1.8 8 6" />
+          </BarLink>
+          <BarLink to="/teams" label="Teams" active={pathname.startsWith('/teams')}>
             <circle cx="9" cy="9" r="4" />
             <circle cx="17" cy="11" r="3" />
             <path d="M2 20c.8-3.5 3.6-5 7-5s6.2 1.5 7 5M15.5 15.5c2.6 0 4.7 1.3 5.5 4.5" />
-          </BarLink>
-          <BarLink to="/teammates" label="Teammates" active={pathname === '/teammates'}>
-            <circle cx="12" cy="8" r="4" />
-            <path d="M4 21c.8-4.2 4-6 8-6s7.2 1.8 8 6" />
           </BarLink>
           <BarLink to="/settings" label="Settings" active={pathname === '/settings'}>
             <circle cx="12" cy="12" r="3" />
@@ -222,18 +187,6 @@ export function Sidebar() {
           </BarLink>
         </div>
       </div>
-
-      {current && (
-        <Dialog open={creating} onClose={() => setCreating(false)} title="New quick session">
-          {creating && (
-            <NewSpaceForm
-              projectId={current.id}
-              featureId={null}
-              onClose={() => setCreating(false)}
-            />
-          )}
-        </Dialog>
-      )}
     </nav>
   );
 }

@@ -45,7 +45,7 @@ function Tab({
   );
 }
 
-export function TabBar() {
+export function TabBar({ onMenu }: { onMenu: () => void }) {
   const inbox = useInbox();
   const inSpace = useMatch('/spaces/:id');
   const inReview = useMatch('/features/:id/review');
@@ -54,7 +54,7 @@ export function TabBar() {
   return (
     <nav
       aria-label="Tabs"
-      className="grid shrink-0 grid-cols-6 border-t border-hairline bg-sidebar px-1.5 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden"
+      className="grid shrink-0 grid-cols-5 border-t border-hairline bg-sidebar px-1.5 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden"
     >
       <Tab to="/" label="Today">
         <circle cx="12" cy="12" r="4" />
@@ -72,15 +72,25 @@ export function TabBar() {
         <path d="M22 12h-6l-2 3h-4l-2-3H2" />
         <path d="M5.5 5h13L22 12v7H2v-7z" />
       </Tab>
-      <Tab to="/teams" label="Teams">
-        <circle cx="9" cy="9" r="4" />
-        <circle cx="17" cy="11" r="3" />
-        <path d="M2 20c.8-3.5 3.6-5 7-5s6.2 1.5 7 5" />
-      </Tab>
-      <Tab to="/teammates" label="Teammates">
-        <circle cx="12" cy="8" r="4" />
-        <path d="M4 21c.8-4.2 4-6 8-6s7.2 1.8 8 6" />
-      </Tab>
+      <button
+        type="button"
+        onClick={onMenu}
+        className="flex min-h-12 flex-col items-center justify-center gap-[3px] text-[10.5px] text-muted"
+      >
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          aria-hidden="true"
+        >
+          <path d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
+        Menu
+      </button>
     </nav>
   );
 }

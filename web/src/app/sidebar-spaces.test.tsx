@@ -2,7 +2,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import type { SpacePreview, WorkItem, Project } from '@/types/api';
-import { FeatureSpaces } from './feature-spaces';
+import { SidebarSpaces } from './sidebar-spaces';
 
 const { useQuery, useFeatures, useTeams, useInbox, useRunningTurns } = vi.hoisted(() => ({
   useQuery: vi.fn(),
@@ -16,7 +16,10 @@ vi.mock('@tanstack/react-query', async (orig) => {
   const actual = await orig<typeof import('@tanstack/react-query')>();
   return { ...actual, useQuery };
 });
-vi.mock('@/modules/features/api/get-features', () => ({ useFeatures }));
+vi.mock('@/modules/features/api/get-features', () => ({
+  featuresQuery: { queryKey: ['features'] },
+  useFeatures,
+}));
 vi.mock('@/lib/api/get-teams', () => ({ useTeams }));
 vi.mock('@/modules/inbox/api/get-inbox', () => ({ useInbox }));
 vi.mock('@/modules/spaces/api/get-turns', () => ({ useRunningTurns }));
@@ -58,20 +61,22 @@ const space: SpacePreview = {
   lastMessage: null,
 };
 
-function render() {
+function render(item: WorkItem = feature) {
+  useQuery.mockImplementation(({ queryKey }: { queryKey: string[] }) => ({
+    data: queryKey[0] === 'spaces' ? [space] : [item],
+  }));
+  useFeatures.mockReturnValue({ data: [item] });
+  useTeams.mockReturnValue({ data: [] });
+  useInbox.mockReturnValue({ data: [] });
   return renderToStaticMarkup(
     <MemoryRouter>
-      <FeatureSpaces project={project} query="" />
+      <SidebarSpaces project={project} query="" />
     </MemoryRouter>,
   );
 }
 
-describe('FeatureSpaces', () => {
+describe('SidebarSpaces', () => {
   it('shows a working tooltip on a Space whose teammate is running', () => {
-    useQuery.mockReturnValue({ data: [space] });
-    useFeatures.mockReturnValue({ data: [feature] });
-    useTeams.mockReturnValue({ data: [] });
-    useInbox.mockReturnValue({ data: [] });
     useRunningTurns.mockReturnValue({
       data: [{ spaceId: 4, role: 'developer', status: 'running' }],
     });
@@ -84,12 +89,15 @@ describe('FeatureSpaces', () => {
   });
 
   it('hides the working mark when no turn is running', () => {
-    useQuery.mockReturnValue({ data: [space] });
-    useFeatures.mockReturnValue({ data: [feature] });
-    useTeams.mockReturnValue({ data: [] });
-    useInbox.mockReturnValue({ data: [] });
     useRunningTurns.mockReturnValue({ data: [] });
 
     expect(render()).not.toContain('is working');
+  });
+
+  it('lists the Space of an in-progress Work item and drops it once the item is in review', () => {
+    useRunningTurns.mockReturnValue({ data: [] });
+
+    expect(render()).toContain('#build');
+    expect(render({ ...feature, status: 'review' })).not.toContain('#build');
   });
 });

@@ -1,19 +1,33 @@
+import { useQuery } from '@tanstack/react-query';
 import { useState } from 'react';
-import { FeatureSpaces } from '@/app/feature-spaces';
-import { Dialog } from '@/components/dialog';
+import { byRecent } from '@/app/sidebar-spaces';
+import { SpaceRow } from '@/app/space-row';
+import { EmptyState } from '@/components/empty-state';
 import { TextField } from '@/components/text-field';
-import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
+import { spacesQuery } from '@/lib/api/get-spaces';
+import { useCurrentProject } from '@/lib/current-project';
 import { useProjects } from '@/modules/projects/api/get-projects';
-import type { Project } from '@/types/api';
 
-export function SpacesPage() {
+function SpaceList({ title, conversations }: { title: string; conversations: boolean }) {
   const projects = useProjects();
+  const spaces = useQuery({ ...spacesQuery, refetchInterval: 5000 });
+  const [project] = useCurrentProject(projects.data);
   const [query, setQuery] = useState('');
-  const [creating, setCreating] = useState<Project | null>(null);
+
+  const q = query.trim().toLowerCase();
+  const rows = (spaces.data ?? [])
+    .filter(
+      (c) =>
+        c.projectId === project?.id &&
+        (c.kind === 'conversation') === conversations &&
+        c.name.toLowerCase().includes(q),
+    )
+    .sort(byRecent);
+  const error = projects.error ?? spaces.error;
 
   return (
     <div className="mx-auto flex w-full max-w-[820px] flex-col gap-4 py-6">
-      <h1 className="text-[32px] font-normal tracking-[-0.02em]">Spaces</h1>
+      <h1 className="text-[32px] font-normal tracking-[-0.02em]">{title}</h1>
       <TextField
         type="search"
         aria-label="Search"
@@ -21,43 +35,25 @@ export function SpacesPage() {
         value={query}
         onChange={(e) => setQuery(e.target.value)}
       />
-      {projects.isError && <p className="text-sm text-danger">{projects.error.message}</p>}
-      {projects.data?.map((p) => (
-        <div key={p.id}>
-          <div className="flex items-center justify-between px-2.5">
-            <h2 className="text-[15px]">{p.name}</h2>
-            <button
-              type="button"
-              aria-label={`New quick session in ${p.name}`}
-              onClick={() => setCreating(p)}
-              className="flex size-11 items-center justify-center rounded-full bg-bubble text-soft"
-            >
-              <svg
-                width="20"
-                height="20"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                aria-hidden="true"
-              >
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-            </button>
-          </div>
-          <FeatureSpaces project={p} query={query} />
-        </div>
-      ))}
-      <Dialog open={creating !== null} onClose={() => setCreating(null)} title="New quick session">
-        {creating && (
-          <NewSpaceForm
-            projectId={creating.id}
-            featureId={null}
-            onClose={() => setCreating(null)}
-          />
-        )}
-      </Dialog>
+      {error && <p className="text-sm text-danger">{error.message}</p>}
+      {spaces.data && rows.length === 0 && (
+        <EmptyState
+          title={`No ${title.toLowerCase()}`}
+          body="Start one from the + menu."
+          face="jellyfish"
+        />
+      )}
+      <ul className="flex flex-col gap-0.5">
+        {rows.map((c) => (
+          <li key={c.id}>
+            <SpaceRow space={c} />
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
+
+export const SpacesPage = () => <SpaceList title="Spaces" conversations={false} />;
+
+export const ConversationsPage = () => <SpaceList title="Conversations" conversations />;

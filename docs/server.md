@@ -57,13 +57,15 @@ Then open `http://127.0.0.1:7700`. Build the web app before `go build`, because 
 embeds `web/dist` as it was at build time. A Space's agent is the `claude` or `codex` CLI,
 logged in and on `PATH`.
 
-- Sidebar: a top row with the brand and a New Space button, search, the project switcher,
-  then Today, Needs you and a Work items section: its header has a button to add a work item, and
-  each top-level work item is a group, collapsible, over one row per Space
-  (teammate creatures, name, a preview of the newest message from `lastMessage`, its time);
-  quick sessions are listed after the work items. A work item's closed Spaces are folded under "Wrapped (N)" below its open ones, and closed work items under "Closed (N)" at the bottom. The list scrolls; the foot is fixed and shows your name beside the Teams and
-  Settings links. Below 768 px the sidebar is a
-  bottom tab bar (Today, Spaces, Needs you, Teams) and a Space opens full screen.
+- Sidebar: a top row with the brand (it opens Today) and one + menu (New Work item, New Space, New
+  conversation), search, the project switcher, then Inbox with its count, Board, Spaces and
+  Conversations. Spaces lists the project's free Spaces and the Spaces of Work items that are not yet
+  in Review, Done or Dropped; its header opens `/spaces`, which lists them all. Conversations lists the
+  eight newest conversations with the Teammate's creature; its header opens `/conversations`. Each row
+  shows a preview of the newest message from `lastMessage` and its time. The list scrolls; the foot is
+  fixed and shows your name beside the Teammates, Teams and Settings links. Below 768 px the sidebar is
+  a sheet that the bottom bar's Menu button opens (Today, Board, Spaces, Needs you, Menu); a link in it,
+  Escape or a tap outside closes it, and a Space opens full screen.
 - Today (`/`): what waits on you, the project's work items, and capture.
 - Space: bubbles with each author's creature, replies folded under their thread root with a
   count, and a side panel for the team, a thread, the inspector, the pull request or the diff (its expand button opens
