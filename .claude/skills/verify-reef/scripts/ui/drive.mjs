@@ -915,6 +915,14 @@ async function diff() {
   );
   const current = await getJson(`/work-items/${itemId}/diff?scope=current`);
   check(current.length === 1 && current[0].path === 'later.txt', 'GET /work-items/{id}/diff?scope=current returns only the uncommitted file', JSON.stringify(current));
+  const chip = page.getByRole('button', { name: 'Diff +2 -0' });
+  await chip.waitFor({ timeout: 15000 });
+  const itemPage = await browser.newPage();
+  await itemPage.goto(`${base}/work-items/${itemId}`);
+  const summary = itemPage.getByRole('link', { name: /^2 files/ });
+  await summary.waitFor();
+  check((await summary.innerText()).replace(/\s+/g, ' ').includes('2 files +2 −0'), "the Space header's Diff chip and the Work item page sum the same branch diff", await summary.innerText());
+  await itemPage.close();
   await page.setViewportSize({ width: 1280, height: 800 });
   for (let i = 0; i < 32; i++) writeFileSync(path.join(tree, `many-${String(i).padStart(2, '0')}.txt`), 'x\n');
   writeFileSync(path.join(tree, 'long.txt'), Array.from({ length: 400 }, (_, i) => `line ${i + 1}\n`).join(''));
@@ -2280,6 +2288,12 @@ async function composer() {
     await field.fill('');
     await page.waitForTimeout(600);
     await shot(`${label}-empty`);
+    const hint = await field.evaluate((el) => {
+      const c = document.createElement('canvas').getContext('2d');
+      c.font = getComputedStyle(el).font;
+      return { text: el.placeholder, width: c.measureText(el.placeholder).width, room: el.clientWidth };
+    });
+    check(hint.width <= hint.room, `${label}: the placeholder fits the field without being cut`, `"${hint.text}" ${Math.round(hint.width)} px in ${hint.room} px`);
     const empty = await geometry();
     await field.fill('one line');
     const one = await geometry();
@@ -3479,6 +3493,18 @@ async function board() {
   await page.goto(base + '/board');
   await card('busy item').waitFor();
   await shot('1280x800');
+  const headings = await Promise.all(['Backlog', 'Queued', 'In progress', 'Needs you', 'Review', 'Done', 'Dropped'].map(async (l) => [l, await region(l).getByRole('heading', { level: 2 }).boundingBox()]));
+  check(headings.every(([, b]) => b && b.x >= 0 && b.x + b.width <= 1280), 'all seven column headings are inside the 1280 px window', headings.map(([l, b]) => `${l} ${Math.round(b.x)}-${Math.round(b.x + b.width)}`).join(', '));
+  check(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth) && (await region('Dropped').evaluate((el) => el.parentElement.scrollWidth <= el.parentElement.clientWidth)), 'the board at 1280 px needs no horizontal scroll');
+  await page.evaluate(() => localStorage.setItem('reef.theme', 'light'));
+  await page.reload();
+  await card('busy item').waitFor();
+  const lit = await card('busy item').evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el.closest('section')).backgroundColor]);
+  await shot('light-1280x800');
+  check(lit[0] !== lit[1], "in the light theme a card's background differs from its column's", `card ${lit[0]}, column ${lit[1]}`);
+  await page.evaluate(() => localStorage.removeItem('reef.theme'));
+  await page.reload();
+  await card('busy item').waitFor();
 
   const columns = {
     Backlog: ['draft idea', 'login bug'],
@@ -3502,7 +3528,7 @@ async function board() {
   await shot('filter-bug');
   await pick('Type', 'All types');
   await pick('Team', teamName);
-  await region('Backlog').getByRole('link', { name: 'draft idea' }).waitFor();
+  await card('running job').waitFor({ state: 'hidden' });
   check((await card('running job').count()) === 0 && (await card('busy item').count()) === 1, 'the Team filter hides items of other Teams', (await main.getByRole('link').allInnerTexts()).length + ' cards');
   await pick('Team', 'All Teams');
   await region('In progress').getByRole('link', { name: 'running job' }).waitFor();
@@ -3767,6 +3793,9 @@ async function workItem() {
     await main.getByRole('heading', { level: 1 }).waitFor();
     await page.waitForTimeout(500);
     check(await noOverflow(), `the ${name} page has no horizontal scroll at 390x844`, `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
+    const title = await main.getByRole('heading', { level: 1 }).boundingBox();
+    const bar = await main.getByRole('button', { name: 'Edit', exact: true }).boundingBox();
+    check(title.width >= 390 - 2 * 16 - 1 && bar.y >= title.y + title.height, `the ${name} page title uses the full width and its actions sit under it`, `title ${Math.round(title.width)} px, actions at y ${Math.round(bar.y)}`);
     await shot(`${name}-390x844`);
   }
 }
