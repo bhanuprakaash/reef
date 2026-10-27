@@ -112,7 +112,9 @@ REEF_VERIFY_RUN=<id> .claude/skills/verify-reef/scripts/verify-reef doctor
 ```
 
 It checks `go` and `codex` versions and `codex login status` (each limited to 20 s, so a hung
-CLI is a `FAIL` line); in `fake` mode (the default) it checks the fake `claude` binary instead of
+CLI is a `FAIL` line); when `codex login status` fails, `codex-auth` is still `ok` if one
+`codex exec` on `gpt-6-luna` answers through the configured provider (a proxy needs no login);
+in `fake` mode (the default) it checks the fake `claude` binary instead of
 `claude --version`/`claude auth status` (see Fake claude, above), in `record` or `real` mode it
 checks those too. It also checks that `sqlite3`
 and `curl` exist, and that the HEAD `build` recorded in `build.txt` equals `git rev-parse HEAD`

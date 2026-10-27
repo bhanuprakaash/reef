@@ -133,7 +133,16 @@ cmd_doctor() {
 			check claude-auth "$([ "${v%% *}" = True ] && echo 1)" "$v"
 		fi
 		v=$(lim codex --version 2>&1); check codex "$([ $? = 0 ] && echo 1)" "$v"
-		v=$(lim codex login status 2>&1); check codex-auth "$([ $? = 0 ] && echo 1)" "$v"
+		v=$(lim codex login status 2>&1)
+		if [ $? = 0 ]; then
+			check codex-auth 1 "$v"
+		else
+			# A config whose provider needs no OpenAI login (a proxy) calls fine while
+			# login status says Not logged in, so make one cheap call through it.
+			r=$(lim codex exec -m gpt-6-luna -c model_reasoning_effort=low -s read-only --ephemeral -C "$REPO" \
+				'Reply with the single word: ok' </dev/null 2>/dev/null)
+			check codex-auth "$([ $? = 0 ] && echo 1)" "$v; one-word codex exec on gpt-6-luna answered: ${r:-nothing}"
+		fi
 		v=$(command -v sqlite3); check sqlite3 "$([ -n "$v" ] && echo 1)" "${v:-not found}"
 		v=$(command -v curl); check curl "$([ -n "$v" ] && echo 1)" "${v:-not found}"
 		check binary "$([ -x "$BIN" ] && [ "$rev" = "$head" ] && echo 1)" "$BIN built from ${rev:-unknown}, HEAD $head"
