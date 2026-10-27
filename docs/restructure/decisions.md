@@ -53,3 +53,25 @@ Built on today's tables (feature, brief, role notes, project memory, decisions, 
 | R35 | A Go test builds the first prompt for a feature with 60 decisions, 40 tasks and 15 channels: no section twice, each limit holds, under 8,000 characters without the persona. Another checks the delta holds only the new items. `turn.prompt` stays the only record of what was sent | Size is checked by a test, not by eye; no new storage |
 | R36 | The team rules keep their wording in this run | The channel evals tested that exact text; a rewrite needs its own eval run |
 
+## Domain model (settled 2026-10-27)
+
+| # | Decision |
+| --- | --- |
+| R37 | `teammate` table: persona, skills, backend, model, face, plus default access rules (tools, MCP servers, write, permission mode) used in direct conversations. Adding a Teammate to a Team copies the defaults into a `team_member` row (with the lead flag); later edits to the Teammate do not change memberships. Memory `teammate` scope id is the teammate id |
+| R38 | The `task` table goes. Tasks are Work items of type `task`, usually sub-items. `create_task` becomes `create_sub_item` |
+| R39 | Full rename: feature → Work item, channel → Space in tables, Go, REST, MCP, UI and docs. One forward migration drops the old tables. "Channel" is kept for the later incoming-event streams |
+| R40 | In this slice: model, board, Work item page, Spaces, Teammates and Teams, queue, proof and Review, inbox kinds, gate removal, direct conversations and R9. Out: Ask a Teammate, Channels and Automation, Space continuation, sub-item cap |
+| R41 | Review frees the Team; the next Queued item starts by itself. Sent back → top of the queue. Needs you does not free the Team: the item still holds its worktree |
+| R42 | One worktree, branch and PR per top-level Work item; sub-items share the parent's Space and worktree |
+| R43 | `propose_work_item` creates a Backlog item "proposed by X" with a suggested Team, plus an FYI |
+| R44 | The lead runs the wrap-up when it submits for Review; setting Done approves the wrap-up |
+| R45 | Many direct conversations per Teammate; any can be continued; nothing splits by itself |
+| R46 | Sub-items run one turn at a time in the Space; subagents inside a turn are fine; true parallel is a later slice |
+| R47 | The lead sets Done on sub-items; only a top-level Done is the user's. A parent goes to Review only when every sub-item is Done or Dropped (amends R10) |
+| R48 | A Work item has a description and acceptance lines. Proof: PR (found from the branch), each line ticked with a note, test commands with output, screenshots. The lead fills it with `submit_for_review` |
+| R49 | Inbox: Needs you (cap pause, failed turn, held wake), Review (proof + wrap-up), FYI (sub-item created, item proposed, queued item started) |
+| R50 | A Space has its own member list (`space_member`: teammate, lead flag, access rules copied from the Team membership or the Teammate's defaults) and optionally a Team. A free Space comes from R9 (no Team) or from "new Space" with a Team; it can be attached to a Work item (replaces promote), which moves its `space` items to the `work_item` scope |
+| R51 | Memory scopes add `space` and `conversation`; `conversation` is never loaded at wake |
+| R52 | Type is a label (icon, filter) with no behaviour. Only top-level Work items have a brief |
+| R53 | Routing unchanged: user messages go to the lead; an @name at the start of a line hands off. A Team's responsibility text only suggests a Team for a proposed item |
+| R54 | The hop cap counts only talk-only turns: no tool call, or only Reef's own MCP tools. Any other tool call resets it. Default 6. Token budget per Work item (1M; Continue adds 1M) is the backstop |
