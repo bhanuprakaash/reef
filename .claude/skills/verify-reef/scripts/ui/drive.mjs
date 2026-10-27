@@ -2207,14 +2207,17 @@ async function denials() {
   check(text.includes('Reviewer was denied Write') && text.includes('Needs write access') && (await add.count()) === 0, 'a read-only role denied Write shows Needs write access and no Add', text);
   await shot('write-denied');
 
-  const flipped = roles.map((r) => (r.name === 'reviewer' ? { ...r, backend: 'codex', tools: [] } : r));
-  await putTeam(flipped);
+  const reviewerId = (await getJson('/teams/denials')).roles.find((r) => r.name === 'reviewer').teammateId;
+  const { mcp, ...reviewer } = await getJson(`/teammates/${reviewerId}`);
+  const putReviewer = (backend) =>
+    fetch(`${base}/teammates/${reviewerId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...reviewer, backend }) });
+  check((await putReviewer('codex')).status === 200, 'the reviewer Teammate is switched to codex');
   await page.reload();
   await card.getByText('Codex ignores allowed tools').waitFor();
   check((await add.count()) === 0, 'a codex role shows no Add');
   await page.waitForTimeout(500);
   await shot('codex-denied');
-  await putTeam(roles);
+  await putReviewer('claude');
 
   const leadCard = card.filter({ hasText: 'Lead was denied' });
   const leadAdd = leadCard.getByRole('button', { name: 'Add to role' });
