@@ -694,8 +694,7 @@ func (s *server) retryHeld(ctx context.Context, id int64, l *live) ([]wake, erro
 		if err != nil {
 			return nil, fmt.Errorf("route direct messages: %w", err)
 		}
-		held = append(held, ws...)
-		held = append(held, direct...)
+		held = append(held, inStoredOrder(ws, direct)...)
 	}
 	l.mu.Lock()
 	l.held, l.retry, l.shed = held, nil, nil
@@ -1189,9 +1188,8 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 					stall = fmt.Errorf("route direct messages: %w", directErr)
 					again = &retry{role: w.role, after: after, afterDirect: afterDirect}
 				} else {
-					ws = append(ws, direct...)
 					afterDirect = directLast
-					queue = append(queue, ws...)
+					queue = append(queue, inStoredOrder(ws, direct)...)
 				}
 				after = last
 			}

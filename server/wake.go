@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
@@ -41,6 +42,8 @@ type wake struct {
 	text      string
 	parent    *int64
 	direct    *store.DirectMessage
+	// stored is when the message that woke it, the first one for a role woken by several, was stored.
+	stored time.Time
 	// scopes are set on a wake routed from a message: text is what it was routed with, and the
 	// turn's own text is built from the unread messages of scopes when it starts.
 	scopes store.Scopes
@@ -75,10 +78,18 @@ func (s *server) directWakes(
 			spaceID, m.ID, m.ChainID, source, m.From, m.Body)
 		ws = append(ws, wake{
 			from: m.From, messageID: m.ID,
-			role: m.To, text: text, direct: &msgs[i],
+			role: m.To, text: text, direct: &msgs[i], stored: m.CreatedAt,
 		})
 	}
 	return ws, after, nil
+}
+
+// inStoredOrder is the wakes of one routing read, the public ones and the direct ones, in the
+// order their messages were stored.
+func inStoredOrder(public, direct []wake) []wake {
+	ws := append(public, direct...)
+	slices.SortStableFunc(ws, func(a, b wake) int { return a.stored.Compare(b.stored) })
+	return ws
 }
 
 // wakes routes the messages of Space id stored after the message with id after. It also
@@ -161,7 +172,7 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 			ws = append(ws, wake{
 				from: m.Author, messageID: m.ID,
 				role: role, text: header + "\n" + text, parent: m.ParentID,
-				scopes: addScope(nil, thread, asked),
+				scopes: addScope(nil, thread, asked), stored: m.CreatedAt,
 			})
 		}
 	}
