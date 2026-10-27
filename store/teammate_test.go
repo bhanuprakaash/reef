@@ -71,6 +71,11 @@ func TestTeammate_Refusals(t *testing.T) {
 	if _, err := s.AddMember(ctx, "core", sam.ID, false); err != nil {
 		t.Fatal(err)
 	}
+	core, err := s.Team(ctx, "core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	boss := core.Roles[0].TeammateID
 
 	tests := []struct {
 		name string
@@ -88,6 +93,12 @@ func TestTeammate_Refusals(t *testing.T) {
 			_, err := s.AddMember(ctx, "core", ann.ID, true)
 			return err
 		}, ErrInvalid, "invalid: the team already has a lead, boss"},
+		{"remove the lead", func() error { return s.RemoveMember(ctx, "core", boss) },
+			ErrInvalid, "invalid: team core needs exactly one lead, has 0"},
+		{"un-lead the lead", func() error {
+			_, err := s.EditMember(ctx, "core", boss, Membership{Lead: false})
+			return err
+		}, ErrInvalid, "invalid: team core needs exactly one lead, has 0"},
 		{"name taken", func() error {
 			_, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude"})
 			return err
@@ -106,6 +117,9 @@ func TestTeammate_Refusals(t *testing.T) {
 		})
 	}
 
+	if core, err := s.Team(ctx, "core"); err != nil || len(core.Roles) != 2 || !core.Roles[0].Lead {
+		t.Errorf("core after the refusals = %+v, %v, want boss leading with sam", core, err)
+	}
 	if err := s.RemoveMember(ctx, "core", sam.ID); err != nil {
 		t.Fatal(err)
 	}

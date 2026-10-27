@@ -286,6 +286,14 @@ func (s *Store) changeMembers(
 	if err := change(tx, teamID); err != nil {
 		return err
 	}
+	var leads int
+	if err := tx.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM team_member WHERE team_id = ? AND lead = 1", teamID).Scan(&leads); err != nil {
+		return fmt.Errorf("read lead: %w", err)
+	}
+	if leads != 1 {
+		return fmt.Errorf("%w: team %s needs exactly one lead, has %d", ErrInvalid, team, leads)
+	}
 	return tx.Commit()
 }
 
