@@ -23,6 +23,8 @@ var _scenarios = []scenario{
 	{"sam-codeword", "sam", pat(`Remember the codeword plum-31`)},
 	{"sam-recall-codeword", "sam", pat(`Which codeword did I just give you`)},
 	{"sam-no-codeword", "sam", pat(`Did I give you a codeword`)},
+	{"sam-remember-tabs", "sam", pat(`Remember that Ada prefers tabs`)},
+	{"sam-recall-tabs", "sam", pat(`What does Ada prefer in Go files`)},
 	{"queue-lead", "lead", pat(`^Work item \d+: `)},
 	{"submit-lead", "lead", pat(`^SUBMIT FOR REVIEW$`)},
 	{"propose-deploy", "sam", pat(`^PROPOSE THE FAILING DEPLOY$`)},
