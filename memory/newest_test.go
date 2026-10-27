@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-func TestNewest_AcceptedItemsOfTheScopeNewestFirst(t *testing.T) {
+func TestNewest_AcceptedItemsOfTheScopeLatestAcceptedFirst(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
 	add := func(w Writer, n Note) int64 {
@@ -23,10 +23,14 @@ func TestNewest_AcceptedItemsOfTheScopeNewestFirst(t *testing.T) {
 	first := add(w, Note{Kind: KindFinding, Body: "one"})
 	retired := add(w, Note{Kind: KindFact, Body: "two"})
 	third := add(w, Note{Kind: KindDecision, Body: "three"})
-	fourth := add(w, Note{Kind: KindFact, Body: "four"})
-	add(w, Note{Kind: KindFact, Body: "five", NeedsApproval: true})
+	late := add(w, Note{Kind: KindFact, Body: "four", NeedsApproval: true})
+	fifth := add(w, Note{Kind: KindFact, Body: "five"})
+	add(w, Note{Kind: KindFact, Body: "six", NeedsApproval: true})
 	add(other, Note{Kind: KindFact, Body: "elsewhere"})
 	if err := s.Retire(ctx, retired); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Accept(ctx, late); err != nil {
 		t.Fatal(err)
 	}
 
@@ -37,25 +41,35 @@ func TestNewest_AcceptedItemsOfTheScopeNewestFirst(t *testing.T) {
 		}
 		return out
 	}
+	type query struct {
+		kinds []string
+		limit int
+	}
+	type result struct {
+		ids   []int64
+		total int
+	}
 	tests := []struct {
-		name      string
-		kinds     []string
-		limit     int
-		wantIDs   []int64
-		wantTotal int
+		name string
+		give query
+		want result
 	}{
-		{"all kinds", nil, 0, []int64{fourth, third, first}, 3},
-		{"limited", nil, 2, []int64{fourth, third}, 3},
-		{"some kinds", []string{KindFact, KindFinding}, 5, []int64{fourth, first}, 2},
+		{"all kinds", query{limit: 0}, result{ids: []int64{late, fifth, third, first}, total: 4}},
+		{"limited", query{limit: 2}, result{ids: []int64{late, fifth}, total: 4}},
+		{
+			"some kinds",
+			query{kinds: []string{KindFact, KindFinding}, limit: 5},
+			result{ids: []int64{late, fifth, first}, total: 3},
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, total, err := s.Newest(ctx, w.Scope, tt.kinds, tt.limit)
+			got, total, err := s.Newest(ctx, w.Scope, tt.give.kinds, tt.give.limit)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(ids(got), tt.wantIDs) || total != tt.wantTotal {
-				t.Fatalf("Newest = %v of %d, want %v of %d", ids(got), total, tt.wantIDs, tt.wantTotal)
+			if !reflect.DeepEqual(ids(got), tt.want.ids) || total != tt.want.total {
+				t.Fatalf("Newest = %v of %d, want %v of %d", ids(got), total, tt.want.ids, tt.want.total)
 			}
 		})
 	}

@@ -19,7 +19,7 @@ func TestChanged_AcceptedAddedAndRetiredAfterSince(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := db.Exec(`UPDATE memory SET created_at = ? WHERE id = ?`, created, r.Item.ID); err != nil {
+		if _, err := db.Exec(`UPDATE memory SET created_at = ?1, accepted_at = ?1 WHERE id = ?2`, created, r.Item.ID); err != nil {
 			t.Fatal(err)
 		}
 		return r.Item.ID
@@ -75,5 +75,47 @@ func TestChanged_AcceptedAddedAndRetiredAfterSince(t *testing.T) {
 	a, r, err := s.Changed(ctx, nil, since)
 	if err != nil || a != nil || r != nil {
 		t.Errorf("Changed with no scopes = %v, %v, %v, want nothing", a, r, err)
+	}
+}
+
+func TestChanged_CandidateAcceptedAfterSinceIsAdded(t *testing.T) {
+	s, db := openTest(t)
+	ctx := context.Background()
+	w := writer()
+	old, err := s.Remember(ctx, w, Note{Kind: KindDecision, Body: "use cookies"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cand, err := s.Remember(ctx, w, Note{
+		Kind: KindDecision, Body: "use sessions", Replaces: []int64{old.Item.ID}, NeedsApproval: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	hourAgo := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339Nano)
+	if _, err := db.Exec(`UPDATE memory SET created_at = ?1, accepted_at = ?1 WHERE id = ?2`, hourAgo, old.Item.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := db.Exec(`UPDATE memory SET created_at = ? WHERE id = ?`, hourAgo, cand.Item.ID); err != nil {
+		t.Fatal(err)
+	}
+	since := time.Now().Add(-time.Minute)
+	if added, retired, err := s.Changed(ctx, []Ref{w.Scope}, since); err != nil || added != nil || retired != nil {
+		t.Fatalf("Changed before accepting = %v, %v, %v, want nothing", added, retired, err)
+	}
+
+	if err := s.Accept(ctx, cand.Item.ID); err != nil {
+		t.Fatal(err)
+	}
+	added, retired, err := s.Changed(ctx, []Ref{w.Scope}, since)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(added) != 1 || added[0].ID != cand.Item.ID {
+		t.Errorf("added = %+v, want only item %d", added, cand.Item.ID)
+	}
+	if len(retired) != 1 || retired[0].ID != old.Item.ID ||
+		retired[0].ReplacedBy == nil || *retired[0].ReplacedBy != cand.Item.ID {
+		t.Errorf("retired = %+v, want item %d replaced by %d", retired, old.Item.ID, cand.Item.ID)
 	}
 }

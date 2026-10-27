@@ -135,6 +135,37 @@ func TestWakeAs_ItemAddedAndRetiredSinceShowsOnlyAsRetired(t *testing.T) {
 	}
 }
 
+func TestWakeAs_CandidateAcceptedAfterTheTurnIsInTheNextDeltaWithWhatItReplaced(t *testing.T) {
+	ctx := context.Background()
+	e := newWakeEnv(t)
+	d1 := decide(t, e, "lead", "Use CSV")
+	cand, err := e.s.ms.Remember(ctx,
+		memory.Writer{Author: "developer", Role: "developer", Scope: wakeWork(e)},
+		memory.Note{Kind: memory.KindConvention, Body: "Use JSON", Replaces: []int64{d1.ID}})
+	if err != nil || cand.Item.Status != memory.StatusCandidate {
+		t.Fatalf("convention from a developer = %+v, %v, want a candidate", cand.Item, err)
+	}
+	e.wake("developer", "one", nil, store.Scope{Read: e.say("user", "one", nil)})
+	if err := e.s.ms.Accept(ctx, cand.Item.ID); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().UTC().Format(_dateLayout)
+
+	e.wake("developer", "two", nil, store.Scope{Read: e.say("user", "two", nil)})
+
+	want := "[channel 1, message 3]\n" +
+		"### Changed since your last turn\n" +
+		"convention 2: Use JSON (developer, " + day + ")\n" +
+		"decision 1 is retired, replaced by convention 2.\n\n" +
+		"two"
+	if time.Now().UTC().Format(_dateLayout) != day {
+		t.Skip("test ran across midnight UTC")
+	}
+	if got := lastPrompt(e); got != want {
+		t.Errorf("prompt =\n%q\nwant\n%q", got, want)
+	}
+}
+
 func TestWakeAs_ItemRetiredWithNothingReplacingItIsNamedAlone(t *testing.T) {
 	e := newWakeEnv(t)
 	d1 := decide(t, e, "lead", "Use CSV")
