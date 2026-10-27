@@ -378,6 +378,43 @@ func TestChannelEval(t *testing.T) {
 	}
 }
 
+func TestChannelEval_WakeCountsItsDelta(t *testing.T) {
+	e := newEval(t, "claude")
+	ctx := context.Background()
+	p, err := e.store().Project(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gitIn(t, p.Path, "init", "-b", "main")
+	gitIn(t, p.Path, "commit", "--allow-empty", "-m", "first")
+	if _, err := e.store().PromoteChannel(ctx, 1, store.Feature{Slug: "toolbar", Name: "Toolbar"}); err != nil {
+		t.Fatal(err)
+	}
+	e.say(evalBody("", 0, "0", ""), nil)
+	_, err = e.store().CreateDecision(ctx, store.Decision{FeatureID: 1, Body: "Register on load", Author: "user"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.say(evalBody("", 0, "0", "again"), nil)
+
+	id := int64(1)
+	turns, err := e.store().Turns(ctx, store.TurnFilter{ChannelID: &id})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, tn := range turns {
+		got = append(got, fmt.Sprintf("%s wake_text %d sent %d", tn.Role, len(tn.WakeText), len(evalWake(tn))))
+	}
+	want := []string{"lead wake_text 702 sent 702", "lead wake_text 707 sent 789"}
+	if !slices.Equal(got, want) {
+		t.Errorf("wakes = %q, want %q", got, want)
+	}
+	if !strings.HasPrefix(turns[0].Prompt, "## You\n") {
+		t.Errorf("first prompt starts %.20q, want the session's first prompt", turns[0].Prompt)
+	}
+}
+
 func newEval(t *testing.T, backend string) *evalEnv {
 	dir := t.TempDir()
 	st, err := store.Open(dir)
@@ -560,7 +597,7 @@ func (e *evalEnv) check(name string) {
 			continue
 		}
 		wakes++
-		largest = max(largest, len(tn.WakeText))
+		largest = max(largest, len(evalWake(tn)))
 		handoff := evalHandoff(tn.Role)
 		var src []store.Message
 		for _, g := range _evalSources.FindAllStringSubmatch(tn.WakeText, -1) {
@@ -707,6 +744,13 @@ func (e *evalEnv) check(name string) {
 	expect(t, name, "cost sum", strings.Join(costBad, "; "))
 	expect(t, name, "token sum", strings.Join(tokensBad, "; "))
 	expect(t, name, "lost wake", strings.Join(lost, "; "))
+}
+
+// evalWake is the wake as the turn sent it, from its header line on: wake_text is kept before
+// the delta and the notes go in after the header, and a session's first prompt comes before it.
+func evalWake(tn store.Turn) string {
+	header, _, _ := strings.Cut(tn.WakeText, "\n")
+	return tn.Prompt[max(strings.Index(tn.Prompt, header), 0):]
 }
 
 // evalHandoff matches a message that starts a line with an @name of role: a handoff to it.
