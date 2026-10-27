@@ -20,7 +20,7 @@ func TestMemoryRoundTrip(t *testing.T) {
 	status, body = do(t, http.MethodPost, ts.URL+"/memory",
 		`{"kind":"decision","body":"sessions, not JWT","why":"revocation","scope":"work_item:1"}`)
 	if status != 201 || !strings.HasPrefix(body, `{"id":1,"kind":"decision","body":"sessions, not JWT","why":"revocation","scope":"work_item:1","author":"user","role":"user","status":"accepted","retiredAt":null,"replacedBy":null,"createdAt":"`) ||
-		!strings.HasSuffix(body, `,"links":[]}`) {
+		!strings.HasSuffix(body, `"}`) {
 		t.Fatalf("create = %d %s", status, body)
 	}
 	do(t, http.MethodPost, ts.URL+"/memory", `{"kind":"convention","body":"tabs","scope":"work_item:1"}`)
@@ -28,7 +28,8 @@ func TestMemoryRoundTrip(t *testing.T) {
 
 	status, body = do(t, http.MethodGet, ts.URL+"/memory?scope=work_item:1", "")
 	newest, oldest := strings.Index(body, `"body":"tabs"`), strings.Index(body, `"body":"sessions, not JWT"`)
-	if status != 200 || newest < 0 || oldest < newest || strings.Contains(body, "other feature") {
+	if status != 200 || newest < 0 || oldest < newest || strings.Contains(body, "other feature") ||
+		strings.Contains(body, `"links"`) {
 		t.Fatalf("list = %d %s", status, body)
 	}
 
@@ -119,7 +120,7 @@ func TestMemoryCreateReportsLookalikesAndEmbedErrors(t *testing.T) {
 	status, body := do(t, http.MethodPost, ts.URL+"/memory",
 		`{"kind":"decision","body":"use sessions for login.","scope":"work_item:1"}`)
 	if status != 201 || !strings.HasSuffix(body,
-		`"links":[],"similar":[{"id":1,"body":"use sessions for login"}],"embedError":"provider down"}`) {
+		`"similar":[{"id":1,"body":"use sessions for login"}],"embedError":"provider down"}`) {
 		t.Errorf("create = %d %s, want 201 with similar and embedError", status, body)
 	}
 }

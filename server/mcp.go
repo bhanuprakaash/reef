@@ -63,7 +63,7 @@ type (
 		RetiredAt  *time.Time `json:"retiredAt"`
 		ReplacedBy *int64     `json:"replacedBy"`
 		CreatedAt  time.Time  `json:"createdAt"`
-		Links      []linkOut  `json:"links"`
+		Links      []linkOut  `json:"links,omitempty"`
 	}
 	similarOut struct {
 		ID   int64  `json:"id"`
