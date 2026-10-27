@@ -62,8 +62,9 @@ func (s *server) startSubmitted(id int64) {
 }
 
 // openStarted gives each top-level item the queue moved to in progress that has no open Space
-// one, led by its Team's lead, and puts the item in the lead's first prompt. A failure is
-// noted in the Space. A sent-back item already has a Space: its lead is woken with the note.
+// one, led by its Team's lead, and tells the lead the item. A failure is noted in the Space. A
+// sent-back item already has a Space: its lead is woken with the note. A Space made by hand
+// that has no message yet is started with the item.
 func (s *server) openStarted(ctx context.Context) {
 	items, err := s.st.WorkItems(ctx, store.WorkItemFilter{Status: "in_progress"})
 	if err != nil {
@@ -74,13 +75,13 @@ func (s *server) openStarted(ctx context.Context) {
 		if w.ParentID != nil || w.TeamID == nil || w.ClosedAt != nil {
 			continue
 		}
-		_, err := s.st.WorkItemActiveSpace(ctx, w.ID)
+		sp, err := s.st.WorkItemActiveSpace(ctx, w.ID)
 		if !errors.Is(err, store.ErrNotFound) {
 			if err != nil {
 				log.Printf("read Space of work item %d: %v", w.ID, err)
 				continue
 			}
-			s.wakeSentBack(ctx, w.ID)
+			s.wakeAttached(ctx, w, sp)
 			continue
 		}
 		if err := s.openItem(ctx, w); err != nil && !errors.Is(err, store.ErrConflict) {
@@ -95,10 +96,6 @@ func (s *server) openItem(ctx context.Context, w store.WorkItem) error {
 		return err
 	}
 	lead := team.Roles[0]
-	brief, err := s.st.Brief(ctx, w.ID)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return err
-	}
 	sp, err := s.st.CreateSpace(ctx, store.Space{
 		ProjectID: w.ProjectID, WorkItemID: &w.ID, Name: w.Title, Role: lead.Name,
 		Backend: lead.Backend, PermissionMode: lead.PermissionMode, Team: team.Name,
@@ -106,37 +103,67 @@ func (s *server) openItem(ctx context.Context, w store.WorkItem) error {
 	if err != nil {
 		return err
 	}
-	err = s.startUserTurn(ctx, sp.ID, userTurn{kind: _message, text: queuePrompt(w, brief.Body)})
+	return s.startLead(ctx, sp.ID, w)
+}
+
+// startLead tells the lead of Space id the item the queue started, in a user message that
+// starts its turn. A turn that cannot start is noted in the Space.
+func (s *server) startLead(ctx context.Context, id int64, w store.WorkItem) error {
+	brief, err := s.st.Brief(ctx, w.ID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	err = s.startUserTurn(ctx, id, userTurn{kind: _message, text: queuePrompt(w, brief.Body)})
 	if err == nil {
 		return nil
 	}
 	note := fmt.Sprintf("Started from the queue, but the first turn did not run: %v. "+
 		"Send the lead a message to run it.", err)
-	_, err = s.st.CreateMessage(ctx, store.Message{SpaceID: sp.ID, Author: store.ReefAuthor, Body: note})
+	_, err = s.st.CreateMessage(ctx, store.Message{SpaceID: id, Author: store.ReefAuthor, Body: note})
 	return err
+}
+
+// wakeAttached wakes the Space the item already has: with the user's note when the item was
+// sent back, and with the item when the Space has no message yet.
+func (s *server) wakeAttached(ctx context.Context, w store.WorkItem, sp store.Space) {
+	if s.wakeSentBack(ctx, w.ID) {
+		return
+	}
+	n, err := s.st.CountMessages(ctx, sp.ID)
+	if err != nil {
+		log.Printf("count messages of Space %d: %v", sp.ID, err)
+		return
+	}
+	if n > 0 {
+		return
+	}
+	if err := s.startLead(ctx, sp.ID, w); err != nil {
+		log.Printf("start Space %d with work item %d: %v", sp.ID, w.ID, err)
+	}
 }
 
 // wakeSentBack tells the lead of the Space a sent-back item restarted in why the user sent it
 // back, in a user message that starts its turn. A turn that cannot start is noted in the Space
-// with the user's note.
-func (s *server) wakeSentBack(ctx context.Context, id int64) {
+// with the user's note. It reports false when the item has no note to send.
+func (s *server) wakeSentBack(ctx context.Context, id int64) bool {
 	spaceID, note, ok, err := s.st.ClaimSendBack(ctx, id)
 	if err != nil {
 		log.Printf("claim send-back note of work item %d: %v", id, err)
-		return
+		return true
 	}
 	if !ok {
-		return
+		return false
 	}
 	text := "Sent back from review by the user:\n" + note
 	err = s.startUserTurn(ctx, spaceID, userTurn{kind: _message, text: text})
 	if err == nil {
-		return
+		return true
 	}
 	text = fmt.Sprintf("%s\n\nThe lead's turn did not run: %v. Send the lead a message to run it.", text, err)
 	if _, err := s.st.CreateMessage(ctx, store.Message{SpaceID: spaceID, Author: store.ReefAuthor, Body: text}); err != nil {
 		log.Printf("note failed send-back turn in Space %d: %v", spaceID, err)
 	}
+	return true
 }
 
 // queuePrompt is what the lead is told when its Team starts the item.

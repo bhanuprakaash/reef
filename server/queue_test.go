@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"slices"
 	"strings"
@@ -48,6 +49,34 @@ func TestQueuedItemStartsWithItsFirstPrompt(t *testing.T) {
 	}
 	if got := groupKinds(env.inboxItems(t)); !slices.Equal(got, []string{"fyi started"}) {
 		t.Errorf("inbox = %q, want the started item", got)
+	}
+}
+
+func TestQueuedItemWithAnAttachedSpaceStartsInIt(t *testing.T) {
+	env := newLiveEnv(t)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
+	if status, body := do(t, http.MethodPost, env.url+"/spaces",
+		`{"projectId":1,"workItemId":1,"name":"by hand"}`); status != 201 {
+		t.Fatalf("create Space = %d %s, want 201", status, body)
+	}
+
+	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
+	env.waitIdle(t, 2)
+
+	want := "Work item 1: Login\nDescription: none\nBrief: none"
+	if got := env.lastRan(t); !strings.HasSuffix(got, want) {
+		t.Errorf("turn in the attached Space = %q, want it to end with %q", got, want)
+	}
+	env.fake.mu.Lock()
+	before := len(env.fake.ran)
+	env.fake.mu.Unlock()
+	env.h.s.openStarted(context.Background())
+	env.waitIdle(t, 2)
+	env.fake.mu.Lock()
+	after := len(env.fake.ran)
+	env.fake.mu.Unlock()
+	if after != before {
+		t.Errorf("turns after a second open = %d, want the %d it had", after, before)
 	}
 }
 
