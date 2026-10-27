@@ -27,12 +27,12 @@ const direct: DirectMessage = {
   to: 'tester',
   body: 'Secret private body',
   status: 'sent',
+  state: 'answered',
   createdAt: '2026-10-18T10:01:00Z',
 };
 
 function render(direct: DirectMessage[]) {
   const chains = groupChains(direct, {
-    failedTurns: [],
     retryable: [],
     paused: false,
   });

@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { DirectMessage, Turn } from '@/types/api';
+import type { DirectMessage } from '@/types/api';
 import { groupChains } from '@/modules/spaces/utils/direct-chains';
 import { CoordinationItem } from './coordination-item';
 
@@ -14,6 +14,7 @@ const request: DirectMessage = {
   to: 'tester',
   body: 'Secret body',
   status: 'sent',
+  state: 'waiting',
   createdAt: '2026-10-18T10:00:00Z',
 };
 const response: DirectMessage = {
@@ -23,9 +24,11 @@ const response: DirectMessage = {
   from: 'tester',
   to: 'developer',
   status: 'done',
+  state: undefined,
 };
-const failed: DirectMessage = { ...response, status: 'failed' };
-const none = { failedTurns: [], retryable: [], paused: false };
+const answered: DirectMessage = { ...request, state: 'answered' };
+const failed: DirectMessage = { ...request, state: 'failed' };
+const none = { retryable: [], paused: false };
 
 function render(messages: DirectMessage[], ctx: Partial<Parameters<typeof groupChains>[1]> = {}) {
   const [chain] = groupChains(messages, { ...none, ...ctx });
@@ -47,7 +50,7 @@ describe('CoordinationItem', () => {
   });
 
   it('shows the new count and state when more messages arrive, still as one item', () => {
-    const markup = render([request, response]);
+    const markup = render([answered, response]);
 
     expect(markup).toContain('developer and tester coordinated · 2 messages<');
     expect(markup).toContain('</span>completed</span>');
@@ -55,16 +58,8 @@ describe('CoordinationItem', () => {
   });
 
   it('tells paused, failed and stopped apart', () => {
-    const interrupted = [{ id: 5, directMessageId: 1, error: 'interrupted' } as Turn];
-
     expect(render([request], { paused: true })).toContain('</span>paused</span>');
-    expect(render([request, failed])).toContain('</span>failed</span>');
-    expect(render([request, failed], { failedTurns: interrupted })).toContain(
-      '</span>stopped</span>',
-    );
-  });
-
-  it('tells a wake shed by a stop from a failure', () => {
-    expect(render([request, { ...failed, body: 'stopped' }])).toContain('</span>stopped</span>');
+    expect(render([failed, response])).toContain('</span>failed</span>');
+    expect(render([{ ...failed, state: 'stopped' }, response])).toContain('</span>stopped</span>');
   });
 });

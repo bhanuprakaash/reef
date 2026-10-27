@@ -189,6 +189,7 @@ export type DirectMessage = {
   to: string;
   body: string;
   status: 'sent' | 'done' | 'failed';
+  state?: 'waiting' | 'delivered' | 'answered' | 'failed' | 'stopped';
   createdAt: string;
 };
 

@@ -19,23 +19,16 @@ export type Chain = {
 };
 
 type Context = {
-  failedTurns: Turn[];
   retryable: Turn[];
   paused: boolean;
   running?: string;
 };
 
-function stateOf(messages: DirectMessage[], ctx: Context, failed?: Turn): ChainState {
-  const last = messages.at(-1)!;
-  const request = messages[0];
-  if (last.status === 'failed') {
-    if (last.body === 'stopped') return 'stopped';
-    if (ctx.running === request.to) return 'working';
-    return failed?.error === 'interrupted' ? 'stopped' : 'failed';
-  }
-  if (last.status === 'done') return 'completed';
+function stateOf(request: DirectMessage, ctx: Context): ChainState {
+  if (request.state === 'stopped') return 'stopped';
+  if (request.state === 'failed') return ctx.running === request.to ? 'working' : 'failed';
   if (ctx.paused) return 'paused';
-  return ctx.running ? 'working' : 'completed';
+  return request.state === 'answered' ? 'completed' : 'working';
 }
 
 export function groupChains(direct: DirectMessage[], ctx: Context): Chain[] {
@@ -53,7 +46,7 @@ export function groupChains(direct: DirectMessage[], ctx: Context): Chain[] {
     return {
       id: messages[0].chainId,
       messages,
-      state: stateOf(latest, ctx, of(ctx.failedTurns).at(-1)),
+      state: stateOf(latest[0], ctx),
       retryTurn: of(ctx.retryable).at(-1),
     };
   });

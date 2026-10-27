@@ -12,6 +12,7 @@ const request: DirectMessage = {
   to: 'tester',
   body: 'Is the build green?',
   status: 'sent',
+  state: 'waiting',
   createdAt: '2026-10-18T10:00:00Z',
 };
 const response: DirectMessage = {
@@ -22,9 +23,11 @@ const response: DirectMessage = {
   to: 'developer',
   body: 'Yes',
   status: 'done',
+  state: undefined,
 };
-const failed: DirectMessage = { ...response, status: 'failed', body: '' };
-const none = { failedTurns: [], retryable: [], paused: false };
+const answered: DirectMessage = { ...request, state: 'answered' };
+const failed: DirectMessage = { ...request, state: 'failed' };
+const none = { retryable: [], paused: false };
 const turn = (error: string) => ({ id: 5, directMessageId: 1, error }) as Turn;
 
 describe('groupChains', () => {
@@ -38,40 +41,30 @@ describe('groupChains', () => {
     ]);
   });
 
-  it('is working while any turn runs and nobody answered', () => {
+  it('is working until the request is answered, whatever runs', () => {
+    expect(groupChains([request], none)[0].state).toBe('working');
+    expect(groupChains([{ ...request, state: 'delivered' }], none)[0].state).toBe('working');
     expect(groupChains([request], { ...none, running: 'tester' })[0].state).toBe('working');
-    expect(groupChains([request], { ...none, running: 'developer' })[0].state).toBe('working');
-    expect(groupChains([request], { ...none, running: 'lead' })[0].state).toBe('working');
   });
 
-  it('is paused when the Space is paused and nobody answered', () => {
+  it('is paused when the Space is paused and the request is not failed', () => {
     expect(groupChains([request], { ...none, paused: true })[0].state).toBe('paused');
   });
 
-  it('is failed after a failed response, and stopped when its turn was interrupted', () => {
-    const messages = [request, failed];
+  it('is completed once answered, and paused when its response wake is held by a cap', () => {
+    expect(groupChains([answered, response], none)[0].state).toBe('completed');
+    expect(groupChains([answered, response], { ...none, paused: true })[0].state).toBe('paused');
+  });
 
-    expect(groupChains(messages, { ...none, failedTurns: [turn('boom')] })[0].state).toBe('failed');
-    expect(groupChains(messages, { ...none, failedTurns: [turn('interrupted')] })[0].state).toBe(
-      'stopped',
-    );
+  it('never reads completed for a request that failed or was stopped, with a response or not', () => {
+    expect(groupChains([failed, response], none)[0].state).toBe('failed');
+    expect(groupChains([failed], { ...none, paused: true })[0].state).toBe('failed');
+    expect(groupChains([{ ...failed, state: 'stopped' }, response], none)[0].state).toBe('stopped');
   });
 
   it('is working when the recipient runs a retry of a failed attempt', () => {
-    const messages = [request, failed];
-    const ctx = { ...none, failedTurns: [turn('boom')], running: 'tester' };
-
-    expect(groupChains(messages, ctx)[0].state).toBe('working');
-    expect(groupChains(messages, { ...ctx, running: 'lead' })[0].state).toBe('failed');
-  });
-
-  it('is stopped by the body of the failed response of a wake that never ran', () => {
-    expect(groupChains([request, { ...failed, body: 'stopped' }], none)[0].state).toBe('stopped');
-  });
-
-  it('is completed after a done response, or when nobody runs and nothing waits', () => {
-    expect(groupChains([request, response], none)[0].state).toBe('completed');
-    expect(groupChains([request], none)[0].state).toBe('completed');
+    expect(groupChains([failed], { ...none, running: 'tester' })[0].state).toBe('working');
+    expect(groupChains([failed], { ...none, running: 'lead' })[0].state).toBe('failed');
   });
 
   it('is one item per role pair and source, counting the messages of every chain', () => {
@@ -89,11 +82,10 @@ describe('groupChains', () => {
   it('takes the state of the newest chain of a pair', () => {
     const second = { ...request, id: 3, chainId: 3 };
     const answer = { ...response, id: 4, chainId: 3, replyToId: 3 };
+    const secondAnswered = { ...second, state: 'answered' } as const;
 
-    expect(groupChains([request, failed, second], { ...none, paused: true })[0].state).toBe(
-      'paused',
-    );
-    expect(groupChains([request, failed, second, answer], none)[0].state).toBe('completed');
+    expect(groupChains([failed, second], { ...none, paused: true })[0].state).toBe('paused');
+    expect(groupChains([failed, secondAnswered, answer], none)[0].state).toBe('completed');
   });
 
   it('keeps different pairs, and different sources of one pair, apart', () => {
@@ -104,17 +96,13 @@ describe('groupChains', () => {
   });
 
   it('keeps the retryable turn for the panel actions', () => {
-    const [broken] = groupChains([request, failed], {
-      ...none,
-      failedTurns: [turn('boom')],
-      retryable: [turn('boom')],
-    });
+    const [broken] = groupChains([failed], { ...none, retryable: [turn('boom')] });
 
     expect(broken.retryTurn?.id).toBe(5);
   });
 
-  it('stays stopped without a Retry once a later turn made the failed one not retryable', () => {
-    const [chain] = groupChains([request, failed], { ...none, failedTurns: [turn('interrupted')] });
+  it('stays stopped without a Retry once a later turn made the stopped one not retryable', () => {
+    const [chain] = groupChains([{ ...failed, state: 'stopped' }], none);
 
     expect(chain.state).toBe('stopped');
     expect(chain.retryTurn).toBeUndefined();

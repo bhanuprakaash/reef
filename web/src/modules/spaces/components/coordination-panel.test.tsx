@@ -24,6 +24,7 @@ const request: DirectMessage = {
   to: 'tester',
   body: 'Is the build green?',
   status: 'sent',
+  state: 'waiting',
   createdAt: '2026-10-18T10:05:00Z',
 };
 const response: DirectMessage = {
@@ -34,9 +35,10 @@ const response: DirectMessage = {
   to: 'developer',
   body: 'Yes, all green',
   status: 'done',
+  state: undefined,
   createdAt: '2026-10-18T10:07:00Z',
 };
-const none = { failedTurns: [], retryable: [], paused: false };
+const none = { retryable: [], paused: false };
 
 function render(
   messages: DirectMessage[],
@@ -93,13 +95,13 @@ describe('CoordinationPanel', () => {
   });
 
   it('offers Retry for a failed or stopped chain with a retryable turn', () => {
-    const failed: DirectMessage = { ...response, status: 'failed' };
+    const failed: DirectMessage = { ...request, state: 'failed' };
     const turns = [{ id: 5, directMessageId: 1, error: 'boom' } as Turn];
-    const retryable = { failedTurns: turns, retryable: turns };
+    const retryable = { retryable: turns };
 
-    expect(render([request, failed], retryable)).toContain('Retry');
-    expect(render([request, failed], retryable, { paused: true })).not.toContain('Retry');
-    expect(render([request, failed], { failedTurns: turns })).not.toContain('Retry');
+    expect(render([failed], retryable)).toContain('Retry');
+    expect(render([failed], retryable, { paused: true })).not.toContain('Retry');
+    expect(render([failed])).not.toContain('Retry');
     expect(render([request, response])).not.toContain('Retry');
   });
 

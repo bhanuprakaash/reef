@@ -4,7 +4,7 @@ import { Dialog } from '@/components/dialog';
 import { ResizeHandle } from '@/components/resize-handle';
 import { useResizableWidth } from '@/lib/use-resizable-width';
 import { useDirectMessages } from '@/modules/spaces/api/get-direct-messages';
-import { useAllFailedTurns, useFailedTurns } from '@/modules/spaces/api/get-failed-turns';
+import { useFailedTurns } from '@/modules/spaces/api/get-failed-turns';
 import { useMessages } from '@/lib/api/get-messages';
 import { useTeams } from '@/lib/api/get-teams';
 import { useReopenSpace } from '@/modules/spaces/api/reopen-space';
@@ -69,7 +69,6 @@ export function SpaceView({
 }: Props) {
   const messages = useMessages(space.id);
   const failedTurns = useFailedTurns(space.id);
-  const allFailedTurns = useAllFailedTurns(space.id);
   const direct = useDirectMessages(space.id);
   const turn = useLiveTurn(space.id);
   const wrap = useWrapSpace(space.id);
@@ -100,7 +99,6 @@ export function SpaceView({
     last?.author === 'user' ? last.id : undefined,
   );
   const chains = groupChains(direct.data ?? [], {
-    failedTurns: allFailedTurns.data ?? [],
     retryable: failedTurns.data ?? [],
     paused: space.paused !== '',
     running: running || turn.status === 'done' ? turn.role : undefined,
