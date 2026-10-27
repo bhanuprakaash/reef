@@ -155,6 +155,7 @@ check flow-resubmit "$resubmit_ok" "item 2 dropped, item 1 $(item 1) with Spaces
 
 ### Done: the wrap-up is approved with it
 
+wait_sql "select count(*) from turn where space_id = 1 and status = 'running'" 0
 api_call PATCH /work-items/1 '{"status":"done"}'
 done_ok=1
 [ "$STATUS" = 200 ] || done_ok=0
