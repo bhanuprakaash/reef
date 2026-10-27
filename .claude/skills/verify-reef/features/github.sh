@@ -135,7 +135,7 @@ rerun_ok=1
 echo "$wake2" | grep -qF 'want 3 got 4' || rerun_ok=0
 check check-rerun-wakes-again "$rerun_ok" "messages $n4 -> $n5, developer turns=$dev_turns, turn $turn2 wake_text: $(echo "$wake2" | tr '\n' '|')"
 
-### A solo-team feature space: the note, no turn
+### A solo-team work item space: the note, no turn
 
 wait_for '/messages?space=2' 'build failed' && solo_wait=0 || solo_wait=1
 turns_solo=$("$H" sql "select count(*) from turn where space_id = 2" | tail -1)

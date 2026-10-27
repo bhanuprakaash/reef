@@ -1,12 +1,13 @@
-# Team queue
+# Team queue and review
 
 A user queues work items on a Team. The Team works one top-level item at a time: the first
 queued item starts at once, with its Space and a first prompt that carries the item's title,
-description, acceptance lines and brief. The next starts by itself when the Team's item
-leaves in progress or needs you for review, done or dropped. An item that needs the user
-keeps the Team busy. A sent-back item goes to position 1. A restart starts a queued item
-of a free Team. Contract: `docs/server.md` (Work items) and `docs/restructure/decisions.md`
-(R8, R41, R42).
+description, acceptance lines and brief. The lead splits the work into sub-items, the developer
+and the tester do it, and the lead sets the sub-items done and submits the item for review with its
+proof. Review frees the Team, so the next queued item starts by itself. The user sends the item back
+with a note, which puts it first in the queue, or sets it Done, which approves its wrap-up. An item
+that needs the user keeps the Team busy. A restart starts a queued item of a free Team. Contract:
+`docs/server.md` (Work items) and `docs/restructure/decisions.md` (R8, R41, R42, R44, R47, R48).
 
 ## Sub-features
 
@@ -20,6 +21,13 @@ of a free Team. Contract: `docs/server.md` (Work items) and `docs/restructure/de
 - `queue-send-back-first` `PATCH {"status":"queued","note":"SAY IT TWICE"}` on an item in `review` puts it at position 1 and moves the item queued before it to 2.
 - `queue-send-back-starts` when the running item is dropped, the sent-back item starts, ahead of the other queued item, and keeps its one Space.
 - `queue-send-back-note` once the sent-back item starts, the newest user message of its Space is `Sent back from review by the user:` and the note, the lead's turn replays `sent-back-lead`, and the wrap-up proposal it waited on is `rejected`.
+- `flow-queue-starts` two items queued on one Team: item 1 is `in_progress` with its one Space and the first prompt `Work item 1: Checkout form`; item 2 is `queued` at position 1 with no Space.
+- `flow-team-works` the lead's reply `@developer build the form` wakes the developer, who writes `form.txt` in the item's worktree; its reply wakes the tester, who runs `grep` on it; the turns of the one Space are lead, developer, tester, lead.
+- `flow-submit-review` the lead sets both sub-items `done` and submits: item 1 is `review`, `GET /work-items/1/proof` has the tick with its note and the command with its output, and the wrap-up proposal of the Space is `pending`.
+- `flow-next-starts` with no `PATCH` and no restart, item 2 is `in_progress` and has one Space whose first message is `Work item 2: Order history`; the inbox has one `started` FYI item for it.
+- `flow-send-back` `PATCH {"status":"queued","note":"ADD A PHONE FIELD"}` on item 1 in review is 200: item 1 is `queued` at position 1 behind the running item 2, its wrap-up is `rejected` and it has no second Space.
+- `flow-resubmit` when item 2 is dropped, item 1 starts in its own Space; the lead is woken with `Sent back from review by the user:` and the note and submits again, and a new wrap-up is `pending`.
+- `flow-done` `PATCH {"status":"done"}` on item 1 in review is 200: its wrap-up is `approved`, a brief version is saved, its Space is closed and the item is `done`.
 
 ## How to get to it (user POV)
 
@@ -27,7 +35,7 @@ of a free Team. Contract: `docs/server.md` (Work items) and `docs/restructure/de
 
 ## Driving it with verify-reef
 
-`$H feature queue` runs all of this and prints one PASS/FAIL line per sub-feature.
+`$H feature queue-and-review` runs the `queue-*` lines and prints one PASS/FAIL line per sub-feature. `$H feature work-item-flow flow` runs the `flow-*` lines, in order, on one server: a team `crew` (lead, developer, tester) from a file the script writes, one project, two work items. The scripted `claude` replays `flow-lead-start` (two `create_sub_item` calls, then `@developer build the form`), `flow-developer` (`Write` of `form.txt`, then `@tester check the form`), `flow-tester` (`Bash` `grep`, then `@lead the form passes`), `flow-lead-submit` (two `set_sub_item_status`, then `submit_for_review`), `queue-lead` for item 2 and `flow-lead-resubmit` for the sent-back note `ADD A PHONE FIELD`; a proposal's wrap-up replays `wrap-propose`. The sub-items are items 3 and 4, so the recordings name those ids.
 
 Preconditions:
 
@@ -36,7 +44,7 @@ Preconditions:
 - In every Bash call set `H=.claude/skills/verify-reef/scripts/verify-reef` and `REEF_VERIFY_RUN=<id>`.
 
 ```sh
-REEF_VERIFY_RUN=<id> $H feature queue
+REEF_VERIFY_RUN=<id> $H feature queue-and-review
 ```
 
 ## Gotchas

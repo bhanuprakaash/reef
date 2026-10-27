@@ -18,6 +18,8 @@ its default access rules, never a Team's. Contract: `docs/server.md` (Spaces, Te
 - `move-action` `POST /spaces/{id}/members` with `kit` on a conversation moves it the same way.
 - `window-move` the moved conversation shows a link to the new Space and no message box; "Add Teammate" opens a picker without `sam` and moves it too (`$H ui conversation-move`).
 - `window-conversations` the sidebar lists the conversations under Conversations, newest first, `+` starts one by picking a Teammate, and the phone Spaces tab lists them too (`$H ui conversation`).
+- `flow-conversation` a conversation with `sam` is a Space of kind `conversation` with no work item and no Team, and its first turn is `sam`'s (`$H feature work-item-flow conv`).
+- `flow-add-teammate` `POST /spaces/1/members` with `kit` on that conversation is 202: Space 1 is read-only (a send is 409) and `movedTo` is Space 2, a free Space with no Team where `sam` leads and `kit` is a member, and `kit`'s first turn replays `kit-takeover` (`$H feature work-item-flow conv`). The same script then sends `@kit PROPOSE THE SLOW SEARCH` to Space 2, so that `kit` proposes a Work item (`flow-propose`, `work-items.md`).
 
 ## How to get to it (user POV)
 

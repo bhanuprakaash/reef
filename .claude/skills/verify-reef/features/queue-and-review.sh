@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Drives every line of queue.md and prints one PASS/FAIL line per sub-feature id.
-# Called by `verify-reef feature queue`, which exports H, REEF_VERIFY_RUN, E and S and runs
-# from the repo root. See ../SKILL.md and queue.md (the recipe).
+# Drives every line of queue-and-review.md and prints one PASS/FAIL line per sub-feature id.
+# Called by `verify-reef feature queue-and-review`, which exports H, REEF_VERIFY_RUN, E and S and runs
+# from the repo root. See ../SKILL.md and queue-and-review.md (the recipe).
 set -u
 : "${H:?}" "${REEF_VERIFY_RUN:?}" "${E:?}" "${S:?}"
 export REEF_VERIFY_RUN

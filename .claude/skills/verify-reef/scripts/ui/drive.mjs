@@ -510,7 +510,7 @@ async function contrast(screen) {
 }
 
 async function theme() {
-  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teams.md)');
+  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teammates.md)');
   const bodyBg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const cdp = await page.context().newCDPSession(page);
   const system = (value) => cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value }] });
@@ -580,7 +580,7 @@ async function theme() {
 }
 
 async function phone() {
-  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teams.md)');
+  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teammates.md)');
   const section = await addProject();
   const itemId = await addFeature(section, 'Login');
   const featureId = page.url().split('/').pop();
@@ -1210,7 +1210,7 @@ async function subagent() {
 
 async function review() {
   if ((await fetch(`${base}/teams/full`)).status !== 200) {
-    throw new Error('apply the team full first (teams/full.json, see features/teams.md)');
+    throw new Error('apply the team full first (teams/full.json, see features/teammates.md)');
   }
   ensureRepo();
   const section = await addProject();
@@ -1293,7 +1293,7 @@ async function review() {
 }
 
 async function inbox() {
-  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teams.md)');
+  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teammates.md)');
   const context = page.context();
   await context.grantPermissions(['notifications']);
   await page.addInitScript(() => {
@@ -1580,7 +1580,7 @@ async function wrap() {
 async function teams() {
   const missing = [];
   for (const name of ['duo', 'full']) if ((await fetch(`${base}/teams/${name}`)).status !== 200) missing.push(name);
-  if (missing.length) throw new Error(`apply the teams first: missing ${missing.join(', ')} (see features/teams.md)`);
+  if (missing.length) throw new Error(`apply the teams first: missing ${missing.join(', ')} (see features/teammates.md)`);
   const section = await addProject();
   await addFeature(section, 'Login');
 
@@ -1658,7 +1658,7 @@ async function errorText(pattern, timeout = 15000) {
 
 async function workshop() {
   if ((await fetch(`${base}/teams/full`)).status !== 200) {
-    throw new Error('apply the team full first (teams/full.json, see features/teams.md)');
+    throw new Error('apply the team full first (teams/full.json, see features/teammates.md)');
   }
   const mcpBefore = '[{"command":"true","env":{"API_KEY":"sk-verify-9911"}}]';
   sql(`update team_member set mcp_servers = '${mcpBefore}', tools = '["Read","Grep","Glob","Edit","Write","Bash"]' where team_id = (select id from team where name = 'full') and name = 'developer'; update teammate set skills = '["ghost-skill"]' where id = (select teammate_id from team_member where team_id = (select id from team where name = 'full') and name = 'developer')`, true);
@@ -1877,7 +1877,7 @@ async function pr() {
 // lead's direct request runs the architect at once, and the fake architect answers slowly.
 async function coordination() {
   for (const team of ['duo', 'full']) {
-    if ((await fetch(`${base}/teams/${team}`)).status !== 200) throw new Error(`apply the team ${team} first (see features/teams.md)`);
+    if ((await fetch(`${base}/teams/${team}`)).status !== 200) throw new Error(`apply the team ${team} first (see features/teammates.md)`);
   }
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();

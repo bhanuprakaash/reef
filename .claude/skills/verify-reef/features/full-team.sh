@@ -160,7 +160,7 @@ sess1=$(turn_col 1 session_id) sess2=$(turn_col 2 session_id)
 f1=$(session_file "$sess1") f2=$(session_file "$sess2")
 [ "$(grep -ho '"cwd":"[^"]*"' "$f1" 2>/dev/null | sort -u)" = "\"cwd\":\"$S/full/worktrees/1/1\"" ] || two_ok=0
 [ "$(grep -ho '"cwd":"[^"]*"' "$f2" 2>/dev/null | sort -u)" = "\"cwd\":\"$S/full/worktrees/1/2\"" ] || two_ok=0
-check tree-two-features "$two_ok" "worktree list: $(echo "$wt_list" | tr '\n' ' '); status clean; each session's cwd is its own tree"
+check tree-two-work-items "$two_ok" "worktree list: $(echo "$wt_list" | tr '\n' ' '); status clean; each session's cwd is its own tree"
 
 s1=$(turn_col 1 started_at) e1=$(turn_col 1 ended_at)
 s2=$(turn_col 2 started_at) e2=$(turn_col 2 ended_at)
