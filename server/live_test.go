@@ -65,7 +65,7 @@ func (f *fakeSession) Say(ctx context.Context, body string, parent *int64) (stor
 }
 
 func (f *fakeSession) RunAs(
-	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
+	ctx context.Context, role, text string, parent, _ *int64, onEvent func(agent.Event),
 ) error {
 	f.mu.Lock()
 	f.ran = append(f.ran, text)
@@ -95,13 +95,13 @@ func (f *fakeSession) RunAs(
 }
 
 func (f *fakeSession) WakeAs(
-	ctx context.Context, role, routed string, scopes store.Scopes, parent *int64,
+	ctx context.Context, role, routed string, scopes store.Scopes, parent, messageID *int64,
 	onEvent func(agent.Event),
 ) error {
 	f.mu.Lock()
 	f.woke = append(f.woke, scopes)
 	f.mu.Unlock()
-	return f.RunAs(ctx, role, routed, parent, onEvent)
+	return f.RunAs(ctx, role, routed, parent, messageID, onEvent)
 }
 
 func (f *fakeSession) RunDirectAs(
@@ -614,11 +614,13 @@ func TestSend_DirectRequestGetsOnePrivateResponse(t *testing.T) {
 	env.sendTo(t, id, "go")
 	sub.want(t, _idleFrame)
 	sub.wantTurns(t, "lead")
-	for _, role := range []string{"architect", "lead"} {
-		sub.want(t, `turn {"role":"`+role+`","status":"running","direct":true}`,
-			`agent {"kind":"text","text":"hi"}`,
-			`turn {"role":"`+role+`","status":"done","direct":true}`)
-	}
+	sub.want(t,
+		`turn {"role":"architect","status":"running","directMessageId":1}`,
+		`agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done","directMessageId":1}`,
+		`turn {"role":"lead","status":"running","directMessageId":2}`,
+		`agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done","directMessageId":2}`)
 
 	direct, err := env.st.DirectMessages(context.Background(), int64(id), 0)
 	if err != nil || len(direct) != 2 || direct[0].From != "lead" ||
@@ -1516,10 +1518,10 @@ func TestSend_DirectReadFailureKeepsDirectRequestForContinue(t *testing.T) {
 		t.Fatalf("continue = %d, want 204", status)
 	}
 	sub.want(t, `pause {"reason":""}`,
-		`turn {"role":"architect","status":"running","direct":true}`, `agent {"kind":"text","text":"hi"}`,
-		`turn {"role":"architect","status":"done","direct":true}`,
-		`turn {"role":"lead","status":"running","direct":true}`, `agent {"kind":"text","text":"hi"}`,
-		`turn {"role":"lead","status":"done","direct":true}`)
+		`turn {"role":"architect","status":"running","directMessageId":1}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done","directMessageId":1}`,
+		`turn {"role":"lead","status":"running","directMessageId":2}`, `agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done","directMessageId":2}`)
 	want := []string{
 		"[Space 2, message 1]\ngo",
 		"[Space 2, direct message 1, chain 1, source: direct request]\nlead wrote privately: check the schema",

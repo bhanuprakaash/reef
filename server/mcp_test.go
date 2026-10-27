@@ -995,6 +995,21 @@ func TestMCPDirectMessages(t *testing.T) {
 	if direct, err := st.DirectMessages(ctx, ch.ID, 0); err != nil || len(direct) != 1 {
 		t.Errorf("direct messages after invalid sends = %+v, %v, want original only", direct, err)
 	}
+
+	if _, err := st.CreateDirectMessage(ctx, store.DirectMessage{
+		SpaceID: ch.ID, From: "developer", To: "tester", Body: "keep it quiet",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := callLead("read_direct_messages", nil); strings.Contains(got, "keep it quiet") {
+		t.Errorf("lead read = %q, want no exchange of the developer and tester", got)
+	}
+	if err := st.SetActiveTurn(ctx, ch.ID, store.ActiveTurnWrap); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := callLead("read_direct_messages", nil); !strings.Contains(got, "keep it quiet") {
+		t.Errorf("lead read in a wrap-up = %q, want every exchange", got)
+	}
 }
 
 func TestMCPQuickSession(t *testing.T) {

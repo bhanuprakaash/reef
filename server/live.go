@@ -41,8 +41,10 @@ var _hopReason = fmt.Sprintf("%s %d agent hops without a user message", _hopReas
 
 type session interface {
 	Say(ctx context.Context, body string, parent *int64) (store.Message, error)
-	RunAs(ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event)) error
-	WakeAs(ctx context.Context, role, routed string, scopes store.Scopes, parent *int64,
+	RunAs(
+		ctx context.Context, role, text string, parent, messageID *int64, onEvent func(agent.Event),
+	) error
+	WakeAs(ctx context.Context, role, routed string, scopes store.Scopes, parent, messageID *int64,
 		onEvent func(agent.Event)) error
 	RunDirectAs(ctx context.Context, role, text string, dm store.DirectMessage,
 		onEvent func(agent.Event)) error
@@ -59,11 +61,11 @@ type frame struct {
 }
 
 type turnState struct {
-	Role   string `json:"role,omitempty"`
-	Status string `json:"status"`
-	Error  string `json:"error,omitempty"`
-	Note   string `json:"note,omitempty"`
-	Direct bool   `json:"direct,omitempty"`
+	Role            string `json:"role,omitempty"`
+	Status          string `json:"status"`
+	Error           string `json:"error,omitempty"`
+	Note            string `json:"note,omitempty"`
+	DirectMessageID *int64 `json:"directMessageId,omitempty"`
 }
 
 type pauseState struct {
@@ -473,25 +475,25 @@ func (s *server) runOne(
 	case _wrap:
 		_, err = sess.Wrap(ctx, onEvent)
 	case _move:
-		if err = sess.RunAs(ctx, w.role, w.text, nil, onEvent); err == nil {
+		if err = sess.RunAs(ctx, w.role, w.text, nil, w.wakeMessage(), onEvent); err == nil {
 			err = s.finishMove(ctx, id, w)
 		}
 	default:
 		if w.direct != nil {
 			err = sess.RunDirectAs(ctx, w.role, w.text, *w.direct, onEvent)
 		} else if len(w.scopes) > 0 {
-			err = sess.WakeAs(ctx, w.role, w.text, w.scopes, w.parent, onEvent)
+			err = sess.WakeAs(ctx, w.role, w.text, w.scopes, w.parent, w.wakeMessage(), onEvent)
 		} else {
-			err = sess.RunAs(ctx, w.role, w.text, w.parent, onEvent)
+			err = sess.RunAs(ctx, w.role, w.text, w.parent, w.wakeMessage(), onEvent)
 		}
 	}
-	end = turnState{Role: w.role, Status: "done", Direct: w.direct != nil}
+	end = turnState{Role: w.role, Status: "done", DirectMessageID: w.direct.IDRef()}
 	if errors.Is(err, space.ErrNoProposal) {
 		err = nil
 		end.Note = space.ErrNoProposal.Error()
 	}
 	if err != nil {
-		end = turnState{Role: w.role, Status: "failed", Error: err.Error(), Direct: w.direct != nil}
+		end = turnState{Role: w.role, Status: "failed", Error: err.Error(), DirectMessageID: w.direct.IDRef()}
 		if ctx.Err() != nil {
 			end.Error = "interrupted"
 		}
@@ -1134,7 +1136,7 @@ func (c *chain) start(
 		l.publishLocked("pause", pauseState{})
 	}
 	l.publishLocked("turn", turnState{
-		Role: queue[0].role, Status: "running", Direct: queue[0].direct != nil})
+		Role: queue[0].role, Status: "running", DirectMessageID: queue[0].direct.IDRef()})
 	l.mu.Unlock()
 	for _, h := range dropped {
 		if h.DirectMessageID != nil {
@@ -1260,7 +1262,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 			return
 		}
 		l.publishLocked("turn", turnState{
-			Role: queue[0].role, Status: "running", Direct: queue[0].direct != nil})
+			Role: queue[0].role, Status: "running", DirectMessageID: queue[0].direct.IDRef()})
 		l.mu.Unlock()
 	}
 }
@@ -1342,9 +1344,8 @@ func newFrame(event string, v any) (frame, bool) {
 }
 
 // recordFailedDirect records that the wake of direct message directID will not run. A request
-// gets a failed response with body unless one already exists; a conflict is expected when a
-// response was already recorded, and any other error is returned. A response has no response of
-// its own, so its request takes the failed state.
+// gets a failed response with body. A response has no response of its own, so its request
+// takes the failed state.
 func recordFailedDirect(
 	ctx context.Context, st *store.Store, directID int64, role, body string,
 ) error {
@@ -1355,9 +1356,6 @@ func recordFailedDirect(
 	if dm.ReplyToID != nil {
 		return st.SetDirectRequestState(ctx, *dm.ReplyToID, store.FailedDirectState(body))
 	}
-	if _, err := st.CreateFailedDirectResponse(ctx, directID, role, body); err != nil &&
-		!errors.Is(err, store.ErrConflict) {
-		return err
-	}
-	return nil
+	_, err = st.CreateFailedDirectResponse(ctx, directID, role, body)
+	return err
 }

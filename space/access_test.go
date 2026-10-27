@@ -60,7 +60,7 @@ func TestSession_RunAsConfigFollowsWrite(t *testing.T) {
 	}
 	for _, tt := range tests {
 		next = tt.role
-		if err := s.RunAs(ctx, tt.role, "go", nil, discard); err != nil {
+		if err := s.RunAs(ctx, tt.role, "go", nil, nil, discard); err != nil {
 			t.Fatal(err)
 		}
 		if got := ags[tt.role].cfg; got.PermissionMode != tt.wantMode ||
@@ -136,7 +136,7 @@ func TestSession_RunAsDeniesUnpickedSkills(t *testing.T) {
 		"reviewer": {[]string{"mcp__reef__*"}, nil},
 	} {
 		next = role
-		if err := s.RunAs(ctx, role, "go", nil, discard); err != nil {
+		if err := s.RunAs(ctx, role, "go", nil, nil, discard); err != nil {
 			t.Fatalf("%s: %v", role, err)
 		}
 		if got := ags[role].cfg; !reflect.DeepEqual(got.Tools, want.tools) ||

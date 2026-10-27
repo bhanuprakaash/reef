@@ -1,0 +1,1 @@
+ALTER TABLE turn ADD COLUMN wake_message_id INTEGER REFERENCES message(id) ON DELETE SET NULL;

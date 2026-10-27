@@ -39,6 +39,7 @@ type Config struct {
 	DisallowedTools []string             // tools denied whatever settings allow; codex ignores it
 	MCPServers      map[string]MCPServer // extra MCP servers, by name
 	Env             []string             // extra "KEY=value" on top of os.Environ
+	Fork            bool                 // Resume continues in a copy of the session, which gets a new id; claude only
 }
 
 // MCPServer is a stdio server (Command) or an HTTP server (URL).

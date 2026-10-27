@@ -109,7 +109,7 @@ describe('CoordinationPanel', () => {
     const [chain] = groupChains([request], { ...none, running: 'tester' });
     const live = {
       status: 'running' as const,
-      direct: true,
+      directMessageId: 1,
       items: [
         { type: 'text' as const, text: 'Checking the build' },
         {

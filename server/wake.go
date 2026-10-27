@@ -3,9 +3,7 @@ package server
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -16,22 +14,6 @@ import (
 const (
 	_userAuthor = "user"
 )
-
-var _wakeHeader = regexp.MustCompile(`^\[Space \d+, message (\d+)[,\]]`)
-
-// wakeSource returns the id of the public message a wake text starts with, from the header
-// route writes, or nil when text is not a public wake.
-func wakeSource(text string) *int64 {
-	m := _wakeHeader.FindStringSubmatch(text)
-	if m == nil {
-		return nil
-	}
-	id, err := strconv.ParseInt(m[1], 10, 64)
-	if err != nil {
-		return nil
-	}
-	return &id
-}
 
 // wake is a turn to run: role answers text, and its reply goes in the thread of parent.
 // from is the author of the message messageID that woke it.
@@ -52,6 +34,14 @@ type wake struct {
 	// moveTo is the id of the Teammate a move turn adds: text asks the lead for the summary it
 	// starts from, and messageID is the user's message that asked.
 	moveTo int64
+}
+
+// wakeMessage is the public message that woke w, nil for a direct wake.
+func (w wake) wakeMessage() *int64 {
+	if w.direct != nil || w.messageID == 0 {
+		return nil
+	}
+	return &w.messageID
 }
 
 func (s *server) directWakes(

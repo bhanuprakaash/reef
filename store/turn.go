@@ -34,7 +34,7 @@ const (
 		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, " +
 		"wake_text, wake_parent, retried, checkpoint, sent, model, cost_usd, prompt, direct_message_id, reply, " +
 		"session_cost_usd, session_input_tokens, session_output_tokens, session_cache_read_tokens, " +
-		"session_cache_write_tokens, scopes, compacted"
+		"session_cache_write_tokens, scopes, compacted, wake_message_id"
 )
 
 // Turn is one agent run in a Space. It starts running and ends once, as
@@ -57,8 +57,11 @@ type Turn struct {
 	WakeParent *int64      `json:"wakeParent"`
 	// DirectMessageID is the private wake this turn answers, nil for a public wake.
 	DirectMessageID *int64 `json:"directMessageId"`
-	Retried         bool   `json:"retried"`
-	Sent            bool   `json:"sent"`
+	// WakeMessageID is the public message that woke this turn, nil for a turn no message woke.
+	// Hidden from Turn's own JSON.
+	WakeMessageID *int64 `json:"-"`
+	Retried       bool   `json:"retried"`
+	Sent          bool   `json:"sent"`
 	// Checkpoint is the git ref of the snapshot taken before the turn ran, nil for a
 	// turn that has none.
 	Checkpoint *string `json:"checkpoint"`
@@ -70,7 +73,7 @@ type Turn struct {
 	// never sent one. Hidden from Turn's own JSON; the inspector has its own view of it.
 	Prompt string `json:"-"`
 	// Reply is the plain reply a done turn kept off the Space because the turn already
-	// posted with post_to_space. Empty otherwise. Hidden from Turn's own JSON; the inspector
+	// posted with post_to_space, or because it answered a direct response. Empty otherwise. Hidden from Turn's own JSON; the inspector
 	// has its own view of it.
 	Reply string `json:"-"`
 	// SessionCostUSD and SessionUsage are the running totals of the turn's whole session as the
@@ -106,13 +109,14 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO turn (space_id, role, backend, session_id, status, started_at, "+
-			"wake_text, wake_parent, direct_message_id, scopes) "+
-			"VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?)",
+			"wake_text, wake_parent, direct_message_id, scopes, wake_message_id) "+
+			"VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?)",
 		t.SpaceID, t.Role, t.Backend, t.SessionID, _turnRunning, now.Format(time.RFC3339Nano),
-		t.WakeText, t.WakeParent, t.DirectMessageID, t.Scopes)
+		t.WakeText, t.WakeParent, t.DirectMessageID, t.Scopes, t.WakeMessageID)
 	if err != nil {
 		return Turn{}, s.writeErr(ctx, "insert turn", err, ErrInvalid,
 			parent{table: "space", id: &t.SpaceID}, parent{table: "message", id: t.WakeParent},
+			parent{table: "message", id: t.WakeMessageID},
 			parent{table: "direct_message", id: t.DirectMessageID})
 	}
 	id, err := res.LastInsertId()
@@ -128,7 +132,7 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 		ID: id, SpaceID: t.SpaceID, Role: t.Role, Backend: t.Backend,
 		SessionID: t.SessionID, Status: _turnRunning, StartedAt: now,
 		WakeText: t.WakeText, WakeParent: t.WakeParent, DirectMessageID: t.DirectMessageID,
-		Scopes: t.Scopes,
+		WakeMessageID: t.WakeMessageID, Scopes: t.Scopes,
 	}, nil
 }
 
@@ -582,7 +586,7 @@ func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried,
 		&checkpoint, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID, &t.Reply,
 		&t.SessionCostUSD, &session.input, &session.output, &session.cacheRead, &session.cacheWrite,
-		&t.Scopes, &t.Compacted); err != nil {
+		&t.Scopes, &t.Compacted, &t.WakeMessageID); err != nil {
 		return Turn{}, err
 	}
 	if session.input != nil {

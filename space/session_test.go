@@ -271,6 +271,7 @@ func TestOpen_ResumesNewestSession(t *testing.T) {
 	for _, session := range []string{"sess-old", "sess-new", ""} {
 		turn, err := st.CreateTurn(ctx, store.Turn{
 			SpaceID: ch.ID, Role: "architect", Backend: "claude", SessionID: session,
+			WakeText: "go",
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -363,7 +364,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 			tokenRole = got.Role
 		}
 	}
-	if err := s.RunAs(ctx, "architect", "plan it", &root.ID, whoAmI); err != nil {
+	if err := s.RunAs(ctx, "architect", "plan it", &root.ID, nil, whoAmI); err != nil {
 		t.Fatal(err)
 	}
 	want := "## You\nYou design.\n\nYour skills:\nsketch\n\nYou are the architect on work item"
@@ -385,7 +386,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 		t.Error("architect closed after its turn = false, want true")
 	}
 
-	if err := s.RunAs(ctx, "architect", "again", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "architect", "again", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	if ags[1].resumed != "s1" || ags[1].prompts[0] != "again" {
@@ -399,12 +400,12 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if len(ags) != 3 || ags[2].closed || len(ags[2].prompts) != 2 {
 		t.Errorf("agents = %d, want the lead started once at its first turn and still open", len(ags))
 	}
-	if err := s.RunAs(ctx, "tester", "hi", nil, discard); !errors.Is(err, store.ErrInvalid) {
+	if err := s.RunAs(ctx, "tester", "hi", nil, nil, discard); !errors.Is(err, store.ErrInvalid) {
 		t.Errorf("RunAs unknown role error = %v, want ErrInvalid", err)
 	}
 
 	closeErr = errors.New("close failed")
-	if err := s.RunAs(ctx, "architect", "last", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "architect", "last", nil, nil, discard); err != nil {
 		t.Errorf("RunAs error = %v, want nil: a failed close does not fail a good turn", err)
 	}
 }
@@ -445,7 +446,7 @@ func TestSession_RunAsMemberAddedAfterOpen(t *testing.T) {
 	if _, err := st.AddSpaceMember(ctx, ch.ID, tester.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RunAs(ctx, "tester", "check it", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "tester", "check it", nil, nil, discard); err != nil {
 		t.Fatalf("RunAs tester error = %v, want nil", err)
 	}
 	if len(ags) != 2 || !strings.HasPrefix(ags[1].prompts[0], "## You\nYou test.") {
@@ -479,7 +480,7 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := s.RunAs(ctx, "developer", "build it", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "developer", "build it", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 
@@ -487,7 +488,7 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RunAs(ctx, "developer", "build more", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "developer", "build more", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(ags) != 2 || ags[1].resumed != "s1" || !strings.Contains(ags[1].prompts[0], "You code in Go only.") {
@@ -771,10 +772,10 @@ func TestSession_PersonaUnchangedNoRoleIntroOnResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := s.RunAs(ctx, "developer", "build it", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "developer", "build it", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RunAs(ctx, "developer", "build more", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "developer", "build more", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(ags) != 2 || ags[1].resumed != "s1" || ags[1].prompts[0] != "build more" {
@@ -810,7 +811,7 @@ func TestSession_NoEditFourResumedWakesOnlyFirstHasIntro(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 	for i, wake := range []string{"wake 1", "wake 2", "wake 3", "wake 4"} {
-		if err := s.RunAs(ctx, "developer", wake, nil, discard); err != nil {
+		if err := s.RunAs(ctx, "developer", wake, nil, nil, discard); err != nil {
 			t.Fatalf("wake %d: %v", i+1, err)
 		}
 	}
@@ -855,20 +856,20 @@ func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := s.RunAs(ctx, "developer", "wake 1", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "developer", "wake 1", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RunAs(ctx, "developer", "wake 2", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "developer", "wake 2", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	developer.Persona = "You code in Go only."
 	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RunAs(ctx, "developer", "wake 3", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "developer", "wake 3", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RunAs(ctx, "developer", "wake 4", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "developer", "wake 4", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(ags) != 4 {
@@ -1017,7 +1018,7 @@ func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := s.RunAs(ctx, "architect", "plan it", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "architect", "plan it", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 
@@ -1025,7 +1026,7 @@ func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RunAs(ctx, "architect", "again", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "architect", "again", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(ags) != 2 || backends[1] != "codex" || !ags[1].started || ags[1].resumed != "" ||
@@ -1186,6 +1187,68 @@ func TestSession_WrapIncludesDirectExchanges(t *testing.T) {
 		"brief that reflects the direct work that is complete.\n\n" + _wrapPrompt
 	if !strings.HasSuffix(ag.prompts[0], want) {
 		t.Errorf("prompt = %q, want it to end with %q", ag.prompts[0], want)
+	}
+}
+
+func TestSession_WrapSaysHowManyExchangesItLeftOut(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionSpace(t, st, f, false)
+	for i := 1; i <= 120; i++ {
+		if _, err := st.CreateDirectMessage(ctx, store.DirectMessage{
+			SpaceID: ch.ID, From: "developer", To: "tester", Body: fmt.Sprintf("message %d", i)}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	ag := newRecordingAgent()
+	ag.st, ag.spaceID, ag.propose = st, ch.ID, true
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if _, err := s.Wrap(ctx, discard); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(ag.prompts[0], "teammates:\n20 older exchanges left out (read_direct_messages)\n"+
+		"[direct 21] developer -> tester: message 21\n") || strings.Contains(ag.prompts[0], "message 20\n") {
+		t.Errorf("prompt = %q, want 20 older exchanges left out and message 21 first", ag.prompts[0])
+	}
+}
+
+func TestSession_WrapRunsInACopyOfTheLeadsSession(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionSpace(t, st, f, false)
+	turn, err := st.CreateTurn(ctx, store.Turn{
+		SpaceID: ch.ID, Role: "architect", Backend: "claude", SessionID: "sess-lead", WakeText: "go",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Status = "done"
+	if _, err := st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	ag := newRecordingAgent()
+	ag.st, ag.spaceID, ag.propose, ag.session = st, ch.ID, true, "sess-copy"
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if _, err := s.Wrap(ctx, discard); err != nil {
+		t.Fatal(err)
+	}
+	if ag.resumed != "sess-lead" || !ag.cfg.Fork || !ag.closed || len(s.members) != 0 {
+		t.Errorf("resumed = %q, fork = %v, closed = %v, members = %d, want a closed copy of sess-lead",
+			ag.resumed, ag.cfg.Fork, ag.closed, len(s.members))
+	}
+	last, err := newestSessionTurn(ctx, st, ch.ID, "architect", "claude")
+	if err != nil || last.SessionID != "sess-lead" {
+		t.Errorf("session to resume = %q, %v, want sess-lead, not the wrap-up's sess-copy", last.SessionID, err)
 	}
 }
 
@@ -1384,7 +1447,7 @@ func TestSession_LeadOnAnotherBackendIgnoresItsRoleProvider(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = s.Close() }()
-			if err := s.RunAs(ctx, "lead", "hi", nil, discard); err != nil {
+			if err := s.RunAs(ctx, "lead", "hi", nil, nil, discard); err != nil {
 				t.Fatal(err)
 			}
 			want := ""
@@ -1431,10 +1494,10 @@ func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if err := s.RunAs(ctx, "lead", "hi", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "lead", "hi", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RunAs(ctx, "architect", "plan it", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "architect", "plan it", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	if ags[0].cfg.Bin != "" || ags[1].cfg.Bin != filepath.Join(dir, "claude") {
@@ -1450,7 +1513,7 @@ func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s2.Close() }()
-	err = s2.RunAs(ctx, "architect", "again", nil, discard)
+	err = s2.RunAs(ctx, "architect", "again", nil, nil, discard)
 	if !errors.Is(err, store.ErrInvalid) || !strings.Contains(err.Error(), "no claude binary in "+dir) {
 		t.Fatalf("RunAs with a removed binary error = %v, want no claude binary in %s", err, dir)
 	}
@@ -1485,7 +1548,7 @@ func TestSession_RoleTheSpaceLacksStoresFailedTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = s.RunAs(ctx, "tester", "plan it", nil, discard)
+	err = s.RunAs(ctx, "tester", "plan it", nil, nil, discard)
 	if !errors.Is(err, store.ErrInvalid) {
 		t.Fatalf("RunAs for a role the Space lacks error = %v, want invalid", err)
 	}
@@ -1536,7 +1599,7 @@ func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
 	}
 	runCtx, quit := context.WithCancel(ctx)
 	done := make(chan error, 1)
-	go func() { done <- s1.RunAs(runCtx, "developer", "build it", nil, discard) }()
+	go func() { done <- s1.RunAs(runCtx, "developer", "build it", nil, nil, discard) }()
 	want := agent.Usage{InputTokens: 10, OutputTokens: 7, CacheWriteTokens: 5}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
@@ -1589,7 +1652,7 @@ func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
 		t.Errorf("CheckCaps at a budget of 22 = %v, %v, want paused now", now, err)
 	}
 
-	if err := s2.RunAs(ctx, "developer", "build more", nil, discard); err != nil {
+	if err := s2.RunAs(ctx, "developer", "build more", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(ags) != 1 || ags[0].resumed != "s1" || !slices.Equal(ags[0].prompts, []string{"build more"}) {

@@ -93,14 +93,14 @@ func TestSession_CheckpointsWriteTurnsOnly(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 
-	if err := s.RunAs(ctx, "tester", "look", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "tester", "look", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	tree := filepath.Join(dir, "worktrees", "1", "1")
 	if err := os.WriteFile(filepath.Join(tree, "note.txt"), []byte("draft"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.RunAs(ctx, "developer", "write", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "developer", "write", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 
@@ -157,7 +157,7 @@ func TestSession_NoCheckpointWhenProjectIsASubfolderOfARepo(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 
-	if err := s.RunAs(ctx, "architect", "go", nil, discard); err != nil {
+	if err := s.RunAs(ctx, "architect", "go", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 

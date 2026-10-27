@@ -126,7 +126,7 @@ func (e *wakeEnv) wake(role, routed string, parent *int64, scopes ...store.Scope
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	if err := e.s.WakeAs(ctx, role, routed, scopes, parent, discard); err != nil {
+	if err := e.s.WakeAs(ctx, role, routed, scopes, parent, nil, discard); err != nil {
 		e.t.Fatal(err)
 	}
 	turns, err := e.st.Turns(ctx, store.TurnFilter{SpaceID: &e.ch.ID})
@@ -203,7 +203,7 @@ func TestWakeAs_NewSessionGetsTheThreadOnce(t *testing.T) {
 	e.fail = "No conversation found with session ID: s1"
 	e.say("lead", "@developer again", &root)
 	if err := e.s.WakeAs(context.Background(), "developer", "[Space 1, message 4, thread 1]\n"+
-		"lead wrote: @developer again", store.Scopes{{Thread: root}}, &root, discard); err == nil {
+		"lead wrote: @developer again", store.Scopes{{Thread: root}}, &root, nil, discard); err == nil {
 		t.Fatal("wake in the lost session succeeded, want an error")
 	}
 
@@ -282,7 +282,7 @@ func TestWakeAs_StartFailureStoresOneFailedTurnWithTheRoutedText(t *testing.T) {
 			routed := "[Space 1, message 3, thread 1]\nlead wrote: @developer two"
 			scopes := store.Scopes{{Thread: tt.thread}}
 
-			err := e.s.WakeAs(context.Background(), "developer", routed, scopes, &root, discard)
+			err := e.s.WakeAs(context.Background(), "developer", routed, scopes, &root, nil, discard)
 			if err == nil || !strings.Contains(err.Error(), tt.wantErr) {
 				t.Fatalf("WakeAs error = %v, want %q", err, tt.wantErr)
 			}
@@ -367,7 +367,7 @@ func TestWakeAs_MissingSessionFoundOnWriteIsNotResumedAgain(t *testing.T) {
 				"No conversation found with session ID: s1")
 			e.say("user", "second", nil)
 			err := e.s.WakeAs(context.Background(), role, "[Space 1, message 2]\nsecond",
-				store.Scopes{{}}, nil, discard)
+				store.Scopes{{}}, nil, nil, discard)
 			if err == nil {
 				t.Fatal("wake in the lost session succeeded, want an error")
 			}

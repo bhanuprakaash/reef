@@ -69,7 +69,7 @@ func TestSession_OneTeammateRunsWithTheAccessOfEachMembership(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if err := s.RunAs(ctx, "sam", "go", nil, discard); err != nil {
+		if err := s.RunAs(ctx, "sam", "go", nil, nil, discard); err != nil {
 			t.Fatal(err)
 		}
 		_ = s.Close()

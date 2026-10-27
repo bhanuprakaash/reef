@@ -123,15 +123,22 @@ func TestRetry_DirectTurnKeepsReplyPrivate(t *testing.T) {
 		t.Fatal(err)
 	}
 	sub := subscribeTo(t, env.url, spaceID)
+	l := env.h.s.lookup(int64(spaceID))
+	l.mu.Lock()
+	l.hops = store.HopCap
+	l.mu.Unlock()
 
 	if status, body := do(t, http.MethodPost, env.url+"/turns/1/retry", ""); status != 202 || body != "" {
 		t.Fatalf("retry = %d %q, want 202", status, body)
 	}
 	sub.want(t, _idleFrame)
-	for _, role := range []string{"architect", "lead"} {
-		sub.want(t, `turn {"role":"`+role+`","status":"running","direct":true}`,
-			`agent {"kind":"text","text":"hi"}`, `turn {"role":"`+role+`","status":"done","direct":true}`)
-	}
+	sub.want(t,
+		`turn {"role":"architect","status":"running","directMessageId":1}`,
+		`agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"architect","status":"done","directMessageId":1}`,
+		`turn {"role":"lead","status":"running","directMessageId":3}`,
+		`agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done","directMessageId":3}`)
 	direct, err := env.st.DirectMessages(ctx, int64(spaceID), 0)
 	if err != nil || len(direct) != 3 || direct[1].Status != store.DirectFailed ||
 		direct[2].Status != store.DirectDone || direct[2].ReplyToID == nil ||

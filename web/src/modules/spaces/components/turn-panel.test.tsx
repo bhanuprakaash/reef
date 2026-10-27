@@ -44,7 +44,7 @@ describe('TurnPanel', () => {
   it('shows nothing of what a direct turn says or runs', () => {
     const turn = {
       status: 'running' as const,
-      direct: true,
+      directMessageId: 1,
       items: [
         { type: 'text' as const, text: 'Secret reply' },
         { type: 'tool' as const, tool: bash },

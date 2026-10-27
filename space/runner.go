@@ -38,6 +38,8 @@ type Runner struct {
 	// Scopes, when set, are the scopes of the wake the next turn sends, each with its newest
 	// message, and are stored on the turn so a later turn of the session skips them.
 	Scopes store.Scopes
+	// WakeMessage, when set, is the public message that woke the next turn, stored on it.
+	WakeMessage *int64
 	// FirstPrompt, when set, builds the first prompt, again after the backend compacts the
 	// session. It is built after the turn's start is stamped, so what is written after it is
 	// in the prompt or the next delta.
@@ -99,7 +101,7 @@ func (r *Runner) Run(
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
 		SpaceID: r.spaceID, Role: r.role, Backend: r.backend, SessionID: r.sessionID,
 		WakeText: r.wake(text), WakeParent: parent, DirectMessageID: r.direct.IDRef(),
-		Scopes: r.Scopes,
+		WakeMessageID: r.WakeMessage, Scopes: r.Scopes,
 	})
 	if err != nil {
 		return err
@@ -228,7 +230,7 @@ func (r *Runner) Run(
 				if err := r.ownTotals(wctx, &turn, ev); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
-				if posted && r.direct == nil {
+				if (posted && r.direct == nil) || (r.direct != nil && r.direct.ReplyToID != nil) {
 					turn.Reply = reply.String()
 				} else if err := r.keepReply(wctx, reply.String(), parent, _replyDone); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), "", parent)
@@ -316,7 +318,7 @@ func (r *Runner) keepBackground(ctx context.Context, text string) error {
 }
 
 // RunDirect runs a turn woken by dm. A request keeps the ordinary reply as its one direct
-// response. A response keeps no ordinary reply; continuing requires send_to_role.
+// response. A response keeps its ordinary reply on the turn only; continuing requires send_to_role.
 func (r *Runner) RunDirect(
 	ctx context.Context, text string, dm store.DirectMessage, onEvent func(agent.Event),
 ) error {

@@ -226,8 +226,9 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"reply comes back privately once; use send_to_role again to continue.",
 	}, m.sendToRole)
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "read_direct_messages",
-		Description: "Read private messages in this Space that you sent or received.",
+		Name: "read_direct_messages",
+		Description: "Read private messages in this Space that you sent or received; " +
+			"the lead's wrap-up turn reads every pair's.",
 	}, m.readDirectMessages)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_wrap",
@@ -548,7 +549,7 @@ func (m *mcpServer) sendToRole(
 		}
 		sending = true
 		if t.DirectMessageID == nil {
-			source = wakeSource(t.WakeText)
+			source = t.WakeMessageID
 			continue
 		}
 		woken, err := m.st.DirectMessage(ctx, *t.DirectMessageID)
@@ -587,7 +588,16 @@ func (m *mcpServer) sendToRole(
 func (m *mcpServer) readDirectMessages(
 	ctx context.Context, _ *mcp.CallToolRequest, in directListIn,
 ) (*mcp.CallToolResult, directListOut, error) {
-	msgs, err := m.st.DirectMessagesForRole(ctx, m.tok.SpaceID, m.tok.Role, in.After)
+	ch, err := m.st.Space(ctx, m.tok.SpaceID)
+	if err != nil {
+		return nil, directListOut{}, err
+	}
+	var msgs []store.DirectMessage
+	if ch.ActiveTurn == store.ActiveTurnWrap && m.tok.Role == ch.Role {
+		msgs, err = m.st.DirectMessages(ctx, ch.ID, in.After)
+	} else {
+		msgs, err = m.st.DirectMessagesForRole(ctx, ch.ID, m.tok.Role, in.After)
+	}
 	if msgs == nil {
 		msgs = []store.DirectMessage{}
 	}

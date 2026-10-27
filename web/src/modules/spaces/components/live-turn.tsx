@@ -30,9 +30,9 @@ export function LiveTurn({ turn, role, look, open, onOpen }: Props) {
 
   const running = turn.status === 'running';
   const tools = toolCount(turn);
-  const recent = turn.direct ? [] : recentTools(turn, 3);
+  const recent = turn.directMessageId ? [] : recentTools(turn, 3);
   const last = turn.items.at(-1);
-  const text = running && !turn.direct && last?.type === 'text' ? last.text : '';
+  const text = running && !turn.directMessageId && last?.type === 'text' ? last.text : '';
 
   return (
     <div className="relative rounded-card border border-line bg-card hover:bg-hover [--creature-ring:var(--color-card)]">

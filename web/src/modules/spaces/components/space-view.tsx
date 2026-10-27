@@ -104,14 +104,11 @@ export function SpaceView({
   const chains = groupChains(direct.data ?? [], {
     retryable: failedTurns.data ?? [],
     paused: space.paused !== '',
-    running: (running || turn.status === 'done') && turn.direct ? turn.role : undefined,
+    running: (running || turn.status === 'done') && turn.directMessageId ? turn.role : undefined,
   });
   const chain = side?.kind === 'direct' ? chains.find((c) => c.id === side.chainId) : undefined;
-  const wake = (direct.data ?? []).filter((m) => m.to === turn.role).at(-1);
   const liveDirect =
-    turn.direct && running && wake && chain?.messages.some((m) => m.id === wake.id)
-      ? turn
-      : undefined;
+    running && chain?.messages.some((m) => m.id === turn.directMessageId) ? turn : undefined;
   const turnOpen = side?.kind === 'turn' && turn.status !== 'idle';
   if (side?.kind === 'turn' && turn.status === 'idle') setSide(null);
 

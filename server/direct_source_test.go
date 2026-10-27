@@ -53,7 +53,9 @@ func TestDirectSourceMessage(t *testing.T) {
 	}
 
 	wake := fmt.Sprintf("[Space %d, message %d]\nbuild it", ch.ID, public.ID)
-	turn, err := st.CreateTurn(ctx, store.Turn{SpaceID: ch.ID, Role: "lead", Backend: "claude", WakeText: wake})
+	turn, err := st.CreateTurn(ctx, store.Turn{
+		SpaceID: ch.ID, Role: "lead", Backend: "claude", WakeText: wake, WakeMessageID: &public.ID,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}

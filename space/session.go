@@ -51,11 +51,15 @@ type member struct {
 type runInput struct {
 	text   string
 	parent *int64
-	direct *store.DirectMessage
+	// messageID is the public message that woke the turn.
+	messageID *int64
+	direct    *store.DirectMessage
 	// scopes, when set, say the wake was routed: text is what it was routed with, which a turn
 	// that never starts keeps, and the turn's own text is built from the unread messages of
 	// scopes when it starts.
-	scopes  store.Scopes
+	scopes store.Scopes
+	// fork starts the agent in a copy of its session, which the Session does not keep.
+	fork    bool
 	onEvent func(agent.Event)
 }
 
@@ -156,31 +160,33 @@ func (s *Session) Say(ctx context.Context, body string, parent *int64) (store.Me
 func (s *Session) Run(
 	ctx context.Context, text string, parent *int64, onEvent func(agent.Event),
 ) error {
-	return s.RunAs(ctx, s.ch.Role, text, parent, onEvent)
+	return s.RunAs(ctx, s.ch.Role, text, parent, nil, onEvent)
 }
 
 // RunAs is Run for any role of the Space's team. A specialist's agent is closed when
 // its turn ends; its next turn resumes the session. A failure to close it is logged, and
 // does not fail the turn. A role that writes waits for the turns of other writers on its
-// tree, and its turn starts when they end.
+// tree, and its turn starts when they end. The turn keeps messageID, the public message that
+// woke it, when it is set.
 func (s *Session) RunAs(
-	ctx context.Context, role, text string, parent *int64, onEvent func(agent.Event),
+	ctx context.Context, role, text string, parent, messageID *int64, onEvent func(agent.Event),
 ) error {
-	return s.runAs(ctx, role, runInput{text: text, parent: parent, onEvent: onEvent})
+	return s.runAs(ctx, role,
+		runInput{text: text, parent: parent, messageID: messageID, onEvent: onEvent})
 }
 
 // WakeAs is RunAs for a wake routed with routed, in scopes. The turn's text is not routed: it
 // is built when the turn starts, from the messages of scopes that the role has not been sent
 // in its session. A wake with none runs no turn. A wake that never starts keeps routed.
 func (s *Session) WakeAs(
-	ctx context.Context, role, routed string, scopes store.Scopes, parent *int64,
+	ctx context.Context, role, routed string, scopes store.Scopes, parent, messageID *int64,
 	onEvent func(agent.Event),
 ) error {
 	if s.allRead(ctx, role, scopes) {
 		return nil
 	}
 	return s.runAs(ctx, role,
-		runInput{text: routed, parent: parent, scopes: scopes, onEvent: onEvent})
+		runInput{text: routed, parent: parent, messageID: messageID, scopes: scopes, onEvent: onEvent})
 }
 
 // allRead reports whether role's session has been sent every message of scopes, so no agent
@@ -298,7 +304,7 @@ func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
 			parent = &thread
 		}
 	}
-	m.run.Scopes = sent
+	m.run.Scopes, m.run.WakeMessage = sent, in.messageID
 	if in.direct != nil {
 		return m.run.RunDirect(ctx, text, *in.direct, in.onEvent)
 	}
@@ -318,7 +324,7 @@ func (s *Session) failTurn(
 	ctx = context.WithoutCancel(ctx)
 	t, err := s.st.CreateTurn(ctx, store.Turn{
 		SpaceID: s.ch.ID, Role: role, Backend: backend, WakeText: in.text, WakeParent: in.parent,
-		DirectMessageID: in.direct.IDRef(), Scopes: in.scopes,
+		DirectMessageID: in.direct.IDRef(), WakeMessageID: in.messageID, Scopes: in.scopes,
 	})
 	if err != nil {
 		log.Printf("store failed start of %s in Space %d: %v", role, s.ch.ID, err)
@@ -374,7 +380,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		return nil, err
 	}
 	backend = r.Backend
-	if m, ok := s.members[role]; ok {
+	if m, ok := s.members[role]; ok && !in.fork {
 		m.run.endWatch()
 		_, err := os.Stat(m.dir)
 		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone &&
@@ -455,6 +461,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 				preamble = updatedRoleIntro(r)
 			}
 		}
+		cfg.Fork = in.fork
 		err = ag.Resume(ctx, cfg, last.SessionID)
 	default:
 		err = ag.Start(ctx, cfg)
@@ -493,7 +500,9 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		m.run.DataDir = s.dataDir
 	}
 	m.run.OnNote = s.onNote
-	s.members[role] = m
+	if !in.fork {
+		s.members[role] = m
+	}
 	return m, nil
 }
 
@@ -656,12 +665,22 @@ func (s *Session) propose(
 	if err != nil {
 		return store.Proposal{}, err
 	}
-	m, err := s.member(ctx, s.ch.Role, runInput{})
+	// The prompt holds every pair's direct messages, so on claude the turn runs in a copy of
+	// the lead's session: the lead's own session never sees them.
+	fork := s.ch.Backend == "claude"
+	m, err := s.member(ctx, s.ch.Role, runInput{fork: fork})
 	if err != nil {
 		return store.Proposal{}, err
 	}
 	m.run.NoWake = true
-	defer func() { m.run.NoWake = false }()
+	defer func() {
+		m.run.NoWake = false
+		if fork {
+			if err := m.close(s.st); err != nil {
+				log.Printf("close wrap-up copy of %s of Space %d: %v", s.ch.Role, s.ch.ID, err)
+			}
+		}
+	}()
 	if err := s.run(ctx, m, runInput{text: direct + prompt, onEvent: onEvent}); err != nil {
 		return store.Proposal{}, err
 	}
@@ -682,11 +701,13 @@ func (s *Session) directExchanges(ctx context.Context) (string, error) {
 	if err != nil || len(msgs) == 0 {
 		return "", err
 	}
-	if len(msgs) > _maxDirectLines {
-		msgs = msgs[len(msgs)-_maxDirectLines:]
-	}
+	omitted := max(len(msgs)-_maxDirectLines, 0)
+	msgs = msgs[omitted:]
 	var b strings.Builder
 	b.WriteString(_directIntro)
+	if omitted > 0 {
+		fmt.Fprintf(&b, "%d older exchanges left out (read_direct_messages)\n", omitted)
+	}
 	for _, m := range msgs {
 		body := strings.TrimSpace(m.Body)
 		if r := []rune(body); len(r) > _maxDirectRunes {
@@ -748,6 +769,8 @@ func newestSessionTurn(
 	for _, t := range turns {
 		switch {
 		case t.Role != role || t.Backend != backend:
+		case t.WakeText == "":
+			// A wrap-up turn keeps no wake and runs in a copy of the session: it is not the one to resume.
 		case sessionMissing(t.Error):
 			last = store.Turn{}
 		case t.SessionID != "":

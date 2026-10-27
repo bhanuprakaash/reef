@@ -352,6 +352,10 @@ func TestRunner_DirectReplyStopsAfterOneResponse(t *testing.T) {
 	if err != nil || len(public) != 0 {
 		t.Errorf("public messages = %+v, %v, want none", public, err)
 	}
+	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &ch.ID})
+	if err != nil || len(turns) != 2 || turns[1].Role != "lead" || turns[1].Reply != "reply 2" {
+		t.Errorf("turns = %+v, %v, want the lead's turn to keep its reply", turns, err)
+	}
 }
 
 func TestRunner_FailedDirectTurnKeepsPartialAttempt(t *testing.T) {

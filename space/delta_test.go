@@ -101,7 +101,7 @@ func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 	}
 
 	e.sendErr = errors.New("write prompt: broken pipe")
-	if err := e.s.WakeAs(ctx, "developer", "six", store.Scopes{say("six")}, nil, discard); err == nil {
+	if err := e.s.WakeAs(ctx, "developer", "six", store.Scopes{say("six")}, nil, nil, discard); err == nil {
 		t.Fatal("wake with a failing send succeeded")
 	}
 	e.sendErr = nil
@@ -229,7 +229,7 @@ func TestWakeAs_DecisionWrittenWhileAWriterHoldsTheTreeIsInTheFirstPrompt(t *tes
 	e.onStart = func() { close(started) }
 	scopes := store.Scopes{{Read: e.say("user", "one", nil)}}
 	done := make(chan error, 1)
-	go func() { done <- e.s.WakeAs(ctx, "developer", "one", scopes, nil, discard) }()
+	go func() { done <- e.s.WakeAs(ctx, "developer", "one", scopes, nil, nil, discard) }()
 
 	select {
 	case <-started:
@@ -258,7 +258,7 @@ func TestWakeAs_MemberAddedBetweenAFailedFirstSendAndItsRetryIsInTheRetriedPromp
 	e := newWakeEnv(t)
 	scopes := store.Scopes{{Read: e.say("user", "one", nil)}}
 	e.sendErr = errors.New("write prompt: broken pipe")
-	if err := e.s.WakeAs(ctx, "lead", "one", scopes, nil, discard); err == nil {
+	if err := e.s.WakeAs(ctx, "lead", "one", scopes, nil, nil, discard); err == nil {
 		t.Fatal("wake with a failing send succeeded")
 	}
 	e.sendErr = nil

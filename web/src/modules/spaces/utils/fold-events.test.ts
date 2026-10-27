@@ -163,12 +163,14 @@ describe('foldEvent', () => {
     });
   });
 
-  it('keeps the direct flag of a turn from its running frame to its end', () => {
-    const running = foldEvent(emptyTurn, { type: 'turn', status: 'running', direct: true });
+  it('keeps the direct message id of a turn from its running frame to its end', () => {
+    const running = foldEvent(emptyTurn, { type: 'turn', status: 'running', directMessageId: 7 });
 
-    expect(running.direct).toBe(true);
-    expect(foldEvent(running, { type: 'turn', status: 'done', direct: true }).direct).toBe(true);
-    expect(foldEvent(running, { type: 'turn', status: 'running' }).direct).toBeUndefined();
+    expect(running.directMessageId).toBe(7);
+    expect(
+      foldEvent(running, { type: 'turn', status: 'done', directMessageId: 7 }).directMessageId,
+    ).toBe(7);
+    expect(foldEvent(running, { type: 'turn', status: 'running' }).directMessageId).toBeUndefined();
   });
 
   it('keeps the note of a done turn', () => {

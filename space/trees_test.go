@@ -92,7 +92,7 @@ func (r *treeRig) session(t *testing.T, name string, f store.WorkItem) *Session 
 }
 
 func (r *treeRig) run(s *Session, role string) {
-	go func() { r.errs <- s.RunAs(context.Background(), role, "go", nil, discard) }()
+	go func() { r.errs <- s.RunAs(context.Background(), role, "go", nil, nil, discard) }()
 }
 
 func (r *treeRig) wantStarted(t *testing.T, want string) {
@@ -201,7 +201,7 @@ func TestSession_StopEndsTheWaitForATree(t *testing.T) {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan error, 1)
-	go func() { done <- b.RunAs(ctx, "developer", "go", nil, discard) }()
+	go func() { done <- b.RunAs(ctx, "developer", "go", nil, nil, discard) }()
 	r.wantNoStart(t, "a/developer held the tree")
 	cancel()
 	select {
@@ -352,7 +352,7 @@ func TestSession_ShellThatChangesFilesRunsAsAWriteTurn(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer func() { _ = s.Close() }()
-			if err := s.RunAs(ctx, tt.role, "go", nil, discard); err != nil {
+			if err := s.RunAs(ctx, tt.role, "go", nil, nil, discard); err != nil {
 				t.Fatal(err)
 			}
 			if got := <-canLock; got != tt.wantCanLock {

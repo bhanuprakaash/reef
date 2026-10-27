@@ -144,7 +144,11 @@ func (a *Agent) Start(_ context.Context, cfg agent.Config) error {
 
 // Resume launches claude in cfg.Cwd continuing the session with the given id.
 func (a *Agent) Resume(_ context.Context, cfg agent.Config, sessionID string) error {
-	return a.start(cfg, "--resume", sessionID)
+	args := []string{"--resume", sessionID}
+	if cfg.Fork {
+		args = append(args, "--fork-session")
+	}
+	return a.start(cfg, args...)
 }
 
 // Send writes the prompt to claude as one user message.

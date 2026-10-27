@@ -10,7 +10,7 @@ type Props = { turn: LiveTurn; role: string; look?: Look; onClose: () => void };
 export function TurnPanel({ turn, role, look, onClose }: Props) {
   const { box, onScroll } = useStickToBottom();
   const failed = turn.status === 'failed';
-  const items = turn.direct ? [] : turn.items;
+  const items = turn.directMessageId ? [] : turn.items;
 
   return (
     <aside aria-label="Turn" className="flex min-h-0 flex-1 flex-col bg-sidebar max-md:bg-main">
