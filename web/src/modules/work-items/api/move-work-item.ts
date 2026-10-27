@@ -7,6 +7,10 @@ export function useMoveWorkItem() {
   return useMutation({
     mutationFn: ({ id, status }: { id: number; status: WorkItemStatus }) =>
       api<WorkItem>(`/work-items/${id}`, { method: 'PATCH', body: JSON.stringify({ status }) }),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['work-items'] }),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['work-items'] }),
+        queryClient.invalidateQueries({ queryKey: ['spaces'] }),
+      ]),
   });
 }

@@ -14,8 +14,8 @@ vi.mock('@/modules/work-items/api/get-work-item', () => ({ useWorkItem: hooks.us
 vi.mock('@/modules/work-items/api/get-diff', () => ({ useDiff: hooks.useDiff }));
 vi.mock('@/modules/work-items/api/get-brief-versions', () => ({ useBriefVersions: hooks.none }));
 vi.mock('@/lib/api/get-memory', () => ({ useMemory: hooks.none }));
-vi.mock('@/modules/work-items/api/set-work-item-closed', () => ({
-  useSetWorkItemClosed: () => ({ isError: false, mutate: vi.fn() }),
+vi.mock('@/modules/work-items/api/move-work-item', () => ({
+  useMoveWorkItem: () => ({ isError: false, mutate: vi.fn() }),
 }));
 vi.mock('@/modules/projects/api/get-projects', () => ({ useProjects: hooks.none }));
 vi.mock('@/lib/api/get-spaces', () => ({ useSpaces: hooks.none }));

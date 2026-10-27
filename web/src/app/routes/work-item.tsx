@@ -12,7 +12,7 @@ import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
 import { useBriefVersions } from '@/modules/work-items/api/get-brief-versions';
 import { useDiff } from '@/modules/work-items/api/get-diff';
 import { useWorkItem } from '@/modules/work-items/api/get-work-item';
-import { useSetWorkItemClosed } from '@/modules/work-items/api/set-work-item-closed';
+import { useMoveWorkItem } from '@/modules/work-items/api/move-work-item';
 import { AcceptanceLines } from '@/modules/work-items/components/acceptance-lines';
 import { BriefPanel } from '@/modules/work-items/components/brief-panel';
 import { MemoryList } from '@/modules/work-items/components/memory-list';
@@ -50,8 +50,8 @@ export function WorkItemPage() {
   const spaces = useSpaces();
   const teams = useTeams();
   const terminal = useTerminal(true);
-  const setClosed = useSetWorkItemClosed(id);
-  const [dialog, setDialog] = useState<'edit' | 'space' | 'close' | null>(null);
+  const move = useMoveWorkItem();
+  const [dialog, setDialog] = useState<'edit' | 'space' | 'drop' | null>(null);
 
   if (workItem.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (workItem.isError) return <p className="text-sm text-danger">{workItem.error.message}</p>;
@@ -100,21 +100,17 @@ export function WorkItemPage() {
               ))
             )}
           </div>
-          {setClosed.isError && (
-            <p className="mt-2 text-sm text-danger">{setClosed.error.message}</p>
-          )}
+          {move.isError && <p className="mt-2 text-sm text-danger">{move.error.message}</p>}
         </div>
         <div className="flex gap-2">
           <Button type="button" onClick={() => setDialog('edit')}>
             Edit
           </Button>
-          <Button
-            type="button"
-            disabled={setClosed.isPending}
-            onClick={() => (f.closedAt === null ? setDialog('close') : setClosed.mutate(false))}
-          >
-            {f.closedAt === null ? 'Close Work item' : 'Reopen'}
-          </Button>
+          {f.status !== 'dropped' && (
+            <Button type="button" disabled={move.isPending} onClick={() => setDialog('drop')}>
+              Drop
+            </Button>
+          )}
         </div>
       </header>
       <div className="flex flex-wrap items-start gap-5">
@@ -167,9 +163,10 @@ export function WorkItemPage() {
           <NewSpaceForm projectId={f.projectId} workItemId={id} onClose={() => setDialog(null)} />
         )}
       </Dialog>
-      <Dialog open={dialog === 'close'} onClose={() => setDialog(null)} title="Close Work item">
+      <Dialog open={dialog === 'drop'} onClose={() => setDialog(null)} title="Drop Work item">
         <p className="mb-5 text-sm text-muted">
-          Close {f.title}? Its Spaces close too and their agents stop. You can reopen it later.
+          Drop {f.title}? Its Spaces close and their agents stop, and its Team starts the next
+          queued item. This cannot be undone.
         </p>
         <div className="flex justify-end gap-2">
           <Button type="button" onClick={() => setDialog(null)}>
@@ -179,11 +176,11 @@ export function WorkItemPage() {
             type="button"
             variant="primary"
             onClick={() => {
-              setClosed.mutate(true);
+              move.mutate({ id, status: 'dropped' });
               setDialog(null);
             }}
           >
-            Close Work item
+            Drop Work item
           </Button>
         </div>
       </Dialog>

@@ -1576,16 +1576,16 @@ async function wrap() {
   check(sql(`select closed_at is null from Space where id=${cid}`) === '1', 'Reopen brings the composer back and clears closed_at');
 
   await page.goto(`${base}/work-items/${fid}`);
-  await main.getByRole('button', { name: 'Close Work item' }).click();
-  await page.getByRole('dialog', { name: 'Close Work item' }).waitFor();
-  await shot('close-dialog');
-  await page.getByRole('dialog', { name: 'Close Work item' }).getByRole('button', { name: 'Close Work item' }).click();
-  await main.getByRole('button', { name: 'Reopen' }).waitFor();
-  await shot('closed-feature');
+  await main.getByRole('button', { name: 'Drop' }).click();
+  await page.getByRole('dialog', { name: 'Drop Work item' }).waitFor();
+  await shot('drop-dialog');
+  await page.getByRole('dialog', { name: 'Drop Work item' }).getByRole('button', { name: 'Drop Work item' }).click();
+  await main.getByRole('button', { name: 'Drop' }).waitFor({ state: 'hidden' });
+  await shot('dropped-feature');
   check(
-    sql(`select closed_at is not null from work_item where id=${fid}`) === '1' &&
+    sql(`select status from work_item where id=${fid}`) === 'dropped' &&
       sql(`select closed_at is not null from Space where id=${cid}`) === '1',
-    'Close Work item closes the feature and its Space',
+    'Drop closes the feature and its Space',
   );
 }
 
@@ -3432,7 +3432,11 @@ async function board() {
   const teamName = `crew-${suffix}`;
   const mate = await call('POST', '/teammates', { name: `lead-${suffix}`, backend: 'claude' });
   const crew = (await call('POST', '/teams', { name: teamName, roles: [{ teammateId: mate.id, name: 'lead', lead: true, backend: 'claude' }] })).id;
-  const make = (title, extra) => call('POST', '/work-items', { projectId: pid, title, ...extra });
+  const make = async (title, { status, ...extra } = {}) => {
+    const w = await call('POST', '/work-items', { projectId: pid, title, ...extra });
+    if (status) sql(`update work_item set status='${status}' where id=${w.id}`, true);
+    return w;
+  };
   const items = async () => (await getJson('/work-items')).filter((i) => i.projectId === pid);
   const byTitle = async (title) => (await items()).find((i) => i.title === title);
   const eventually = async (ok) => {
@@ -3442,7 +3446,8 @@ async function board() {
   };
 
   // The Team is busy (an item needs the user), so queued items stay queued. Items with no Team
-  // are not started by the queue, so nothing runs a turn.
+  // are not started by the queue, so nothing runs a turn. Statuses a client cannot set on create
+  // are written to the database.
   await make('busy item', { teamId: crew, status: 'needs_you' });
   await make('draft idea', { teamId: crew });
   await make('login bug', { type: 'bug', teamId: crew });
@@ -3626,6 +3631,21 @@ async function teamPage() {
     return { page: document.documentElement.scrollWidth - innerWidth, main: m.scrollWidth - m.clientWidth };
   });
   check(o.page <= 0 && o.main <= 0, 'the Team page has no horizontal scroll at 390 px', `page ${o.page}, main ${o.main}`);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${base}/work-items/${first.id}`);
+  await main.getByRole('button', { name: 'Drop' }).click();
+  await page.getByRole('dialog', { name: 'Drop Work item' }).waitFor();
+  await shot('drop-dialog');
+  await page.getByRole('dialog', { name: 'Drop Work item' }).getByRole('button', { name: 'Drop Work item' }).click();
+  await main.getByRole('button', { name: 'Drop' }).waitFor({ state: 'hidden' });
+  const nextOf = async () => (await items()).find((i) => i.title === 'archive');
+  check(await eventually(async () => (await getJson(`/work-items/${first.id}`)).status === 'dropped'), 'Drop moves the item in progress to dropped (REST)', (await getJson(`/work-items/${first.id}`)).status);
+  check(sql(`select closed_at is not null from Space where id=${space.id}`) === '1', 'Drop closes its Space', sql(`select closed_at from Space where id=${space.id}`));
+  check(await eventually(async () => (await nextOf()).status === 'in_progress'), 'the next queued item starts (REST)', JSON.stringify(await nextOf().then((w) => [w.status, w.queuePosition])));
+  const next = await nextOf();
+  check(await eventually(async () => (await getJson('/spaces')).some((s) => s.workItemId === next.id && s.closedAt === null)), 'a Space opens for it (REST)');
+  await shot('dropped');
 }
 
 async function workItem() {
@@ -3820,7 +3840,8 @@ async function workItemReview() {
   await shot('done-1280x800');
 
   const parent = await call('POST', '/work-items', { projectId: pid, title: 'Parent of a review' });
-  const sub = await call('POST', '/work-items', { projectId: pid, parentId: parent.id, title: 'Sub in review', status: 'review' });
+  const sub = await call('POST', '/work-items', { projectId: pid, parentId: parent.id, title: 'Sub in review' });
+  sql(`update work_item set status='review' where id=${sub.id}`, true);
   await page.goto(`${base}/work-items/${sub.id}`);
   await main.getByRole('heading', { name: 'Sub in review', level: 1 }).waitFor();
   const subHeader = (await main.getByRole('heading', { name: 'Sub in review', level: 1 }).locator('xpath=..').innerText()).replace(/\s+/g, ' ');
