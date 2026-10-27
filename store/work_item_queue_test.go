@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -74,6 +75,61 @@ func TestTeamQueue(t *testing.T) {
 	check("1:queued:1 2:in_progress:- 3:queued:2 4:in_progress:-")
 	move(2, _dropped, ByUser)
 	check("1:in_progress:- 2:dropped:- 3:queued:1 4:in_progress:-")
+}
+
+func TestMoveInQueue(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ApplyTeam(ctx, Team{Name: "core", Roles: []Role{
+		{Name: "lead", Lead: true, Backend: "claude"}}}); err != nil {
+		t.Fatal(err)
+	}
+	solo, core := int64(1), int64(2)
+	for i, team := range []int64{solo, solo, solo, solo, core, core} {
+		if _, err := s.CreateWorkItem(ctx, WorkItem{
+			ProjectID: 1, Title: fmt.Sprint("item ", i+1), TeamID: &team}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for id := int64(1); id <= 6; id++ {
+		if _, err := s.MoveWorkItem(ctx, id, _queued, ByUser); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := queueState(t, s, 1, 2, 3, 4, 5, 6), "1:in_progress:- 2:queued:1 3:queued:2 4:queued:3 5:in_progress:- 6:queued:1"; got != want {
+		t.Fatalf("state = %q, want %q", got, want)
+	}
+
+	for _, step := range []struct {
+		id, position int64
+		want         string
+	}{
+		{4, 1, "2:queued:2 3:queued:3 4:queued:1 6:queued:1"},
+		{4, 3, "2:queued:1 3:queued:2 4:queued:3 6:queued:1"},
+		{2, 2, "2:queued:2 3:queued:1 4:queued:3 6:queued:1"},
+		{2, 2, "2:queued:2 3:queued:1 4:queued:3 6:queued:1"},
+	} {
+		w, err := s.MoveInQueue(ctx, step.id, step.position)
+		if err != nil || *w.QueuePosition != step.position {
+			t.Fatalf("move %d to %d: %v, %+v", step.id, step.position, err, w)
+		}
+		if got := queueState(t, s, 2, 3, 4, 6); got != step.want {
+			t.Errorf("after moving %d to %d: %q, want %q", step.id, step.position, got, step.want)
+		}
+	}
+
+	for _, bad := range []struct{ id, position int64 }{{4, 0}, {4, 4}, {1, 1}} {
+		if _, err := s.MoveInQueue(ctx, bad.id, bad.position); !errors.Is(err, ErrInvalid) {
+			t.Errorf("move %d to %d: err = %v, want ErrInvalid", bad.id, bad.position, err)
+		}
+	}
 }
 
 func TestStartQueuesAfterRestart(t *testing.T) {

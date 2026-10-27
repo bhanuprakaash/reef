@@ -24,6 +24,8 @@ func (s *server) workItemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PATCH /work-items/{id}", s.moveWorkItem)
 	mux.HandleFunc("DELETE /work-items/{id}", s.deleteWorkItem)
 	mux.HandleFunc("/work-items/{id}", methodNotAllowed)
+	mux.HandleFunc("PUT /work-items/{id}/queue-position", s.moveInQueue)
+	mux.HandleFunc("/work-items/{id}/queue-position", methodNotAllowed)
 	mux.HandleFunc("POST /work-items/{id}/close", s.closeWorkItem)
 	mux.HandleFunc("/work-items/{id}/close", methodNotAllowed)
 	mux.HandleFunc("POST /work-items/{id}/reopen", s.reopenWorkItem)
@@ -140,6 +142,29 @@ func (s *server) moveWorkItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.openStarted(r.Context())
+	writeJSON(w, http.StatusOK, f)
+}
+
+// moveInQueue puts the queued work item at a position in its Team's queue; a position outside
+// the queue, or an item that is not queued, is 400.
+func (s *server) moveInQueue(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		Position int64 `json:"position"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	f, err := s.st.MoveInQueue(r.Context(), id, in.Position)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
 	writeJSON(w, http.StatusOK, f)
 }
 

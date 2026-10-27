@@ -20,6 +20,7 @@ const SoloTeam = "solo"
 
 // Team is a named set of roles, exactly one of them the lead.
 type Team struct {
+	ID             int64  `json:"id"`
 	Name           string `json:"name"`
 	Responsibility string `json:"responsibility"`
 	Roles          []Role `json:"roles"`
@@ -205,7 +206,7 @@ func (s *Store) Team(ctx context.Context, name string) (Team, error) {
 	if len(roles) == 0 {
 		return Team{}, fmt.Errorf("team %s: %w", name, ErrNotFound)
 	}
-	return Team{Name: name, Responsibility: responsibility, Roles: roles}, nil
+	return Team{ID: teamID, Name: name, Responsibility: responsibility, Roles: roles}, nil
 }
 
 // TeamByID returns the team with the id, lead first, or ErrNotFound.

@@ -229,7 +229,7 @@ func TestSpaceTeam(t *testing.T) {
 	}
 
 	status, body := do(t, http.MethodGet, ts.URL+"/teams/core", "")
-	want := `{"name":"core","responsibility":"","roles":[{"teammateId":2,"name":"lead","lead":true,"write":false,"backend":"codex",` +
+	want := `{"id":2,"name":"core","responsibility":"","roles":[{"teammateId":2,"name":"lead","lead":true,"write":false,"backend":"codex",` +
 		`"permissionMode":"read-only","persona":"","skills":[],"tools":[],"mcp":[]},` +
 		`{"teammateId":3,"name":"architect","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"",` +
 		`"skills":[],"tools":[],"mcp":[]}]}`

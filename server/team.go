@@ -15,6 +15,7 @@ import (
 // teamView is a team as REST shows it. A role's MCP servers show only a name and a label:
 // their args, env and url may carry keys.
 type teamView struct {
+	ID             int64      `json:"id"`
 	Name           string     `json:"name"`
 	Responsibility string     `json:"responsibility"`
 	Roles          []roleView `json:"roles"`
@@ -254,7 +255,7 @@ func viewTeam(t store.Team) teamView {
 	for i, r := range t.Roles {
 		roles[i] = viewRole(r)
 	}
-	return teamView{Name: t.Name, Responsibility: t.Responsibility, Roles: roles}
+	return teamView{ID: t.ID, Name: t.Name, Responsibility: t.Responsibility, Roles: roles}
 }
 
 func viewRole(r store.Role) roleView {
