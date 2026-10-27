@@ -214,7 +214,7 @@ One row per Work item. A Work item has a `type` that is only a label; it never c
 | `status` | string | `backlog` (default), `queued`, `in_progress`, `needs_you`, `review`, `done` or `dropped`, else `invalid`. `PATCH` moves it by the rules in `PATCH /work-items/{id}`. A `PUT` without `status` keeps the old one |
 | `teamId` | number? | the Team that works on it |
 | `proposedBy` | string | default `""`; set on create only |
-| `suggestedTeamId` | number? | |
+| `suggestedTeamId` | number? | set by the `propose_work_item` MCP tool to the Team whose `responsibility` best matches the proposal (`team_fts`, SQLite full-text search over the texts, kept in step by triggers; the `solo` team when none matches). It only suggests: the user picks `teamId` |
 | `queuePosition` | number? | `null` when not queued |
 | `tokenBudget` | number | default 1,000,000; a `PUT` with 0 keeps the old one |
 | `createdAt` | string | |

@@ -134,6 +134,12 @@ type (
 		Description string `json:"description,omitempty" jsonschema:"what to do and how to tell it is done"`
 		Type        string `json:"type,omitempty" jsonschema:"a label: feature, bug, incident, investigation, task or improvement; default task"`
 	}
+	proposeWorkItemIn struct {
+		Type        string   `json:"type" jsonschema:"a label: feature, bug, incident, investigation, task or improvement"`
+		Title       string   `json:"title" jsonschema:"what the work item is, in one line"`
+		Description string   `json:"description" jsonschema:"what to do and why"`
+		Acceptance  []string `json:"acceptance,omitempty" jsonschema:"lines that must hold for it to be done"`
+	}
 	subItemIn struct {
 		ID int64 `json:"id" jsonschema:"sub-item id, from list_sub_items"`
 	}
@@ -245,6 +251,13 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"worktree. Sub-items run one turn at a time. The work item goes to review only when " +
 			"every sub-item is done or dropped.",
 	}, m.createSubItem)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "propose_work_item",
+		Description: "Propose a new work item for this project when you find work that is not " +
+			"yours to do now. It lands in the Backlog as proposed by you, with the team whose " +
+			"responsibility fits it best suggested. The user decides whether and when to queue it; " +
+			"a proposal never starts work.",
+	}, m.proposeWorkItem)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_sub_items",
 		Description: "List this work item's sub-items with their status, oldest first.",
@@ -661,6 +674,44 @@ func (m *mcpServer) createSubItem(
 		Title: in.Title, Description: in.Description,
 	})
 	return nil, w, err
+}
+
+func (m *mcpServer) proposeWorkItem(
+	ctx context.Context, _ *mcp.CallToolRequest, in proposeWorkItemIn,
+) (*mcp.CallToolResult, store.WorkItem, error) {
+	c, err := m.st.Space(ctx, m.tok.SpaceID)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	w := store.WorkItem{
+		ProjectID: c.ProjectID, Type: in.Type, Title: in.Title, Description: in.Description,
+		ProposedBy: m.tok.Role,
+	}
+	for _, text := range in.Acceptance {
+		w.AcceptanceLines = append(w.AcceptanceLines, store.AcceptanceLine{Text: text})
+	}
+	team, err := m.st.SuggestTeam(ctx, in.Title+" "+in.Description)
+	switch {
+	case err == nil:
+		w.SuggestedTeamID = &team.ID
+	case !errors.Is(err, store.ErrNotFound):
+		return nil, store.WorkItem{}, err
+	}
+	w, err = m.st.CreateWorkItem(ctx, w)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	note := fmt.Sprintf("FYI: %s proposed work item %d %q. It is in the Backlog until you queue it.",
+		m.tok.Role, w.ID, w.Title)
+	if team.Name != "" {
+		note += fmt.Sprintf(" Suggested team: %s.", team.Name)
+	}
+	if _, err := m.st.CreateMessage(ctx, store.Message{
+		SpaceID: m.tok.SpaceID, Author: store.ReefAuthor, Body: note,
+	}); err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	return nil, w, nil
 }
 
 func (m *mcpServer) listSubItems(

@@ -21,8 +21,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 54 {
-		t.Errorf("user_version = %d, want 54", version)
+	if version != 59 {
+		t.Errorf("user_version = %d, want 59", version)
 	}
 
 	rows, err := s.db.Query("SELECT name FROM sqlite_master WHERE type = 'table' " +
@@ -42,7 +42,8 @@ func TestOpen(t *testing.T) {
 	want := []string{
 		"acceptance_line", "approval", "brief", "decision", "direct_message", "message",
 		"profile", "project", "proof", "proposal", "provider", "role_notes", "setting", "space", "space_member",
-		"team", "team_member", "teammate", "token", "tool_call", "turn", "work_item", "work_item_github",
+		"team", "team_fts", "team_fts_config", "team_fts_data", "team_fts_docsize", "team_fts_idx",
+		"team_member", "teammate", "token", "tool_call", "turn", "work_item", "work_item_github",
 		"work_item_github_check",
 	}
 	if !reflect.DeepEqual(tables, want) {
@@ -66,8 +67,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 54 {
-		t.Errorf("user_version after reopen = %d, want 54", version)
+	if version != 59 {
+		t.Errorf("user_version after reopen = %d, want 59", version)
 	}
 	var name string
 	if err := s.db.QueryRow("SELECT name FROM project WHERE id = 1").Scan(&name); err != nil {
@@ -135,8 +136,8 @@ func TestOpenConcurrent(t *testing.T) {
 	if err := stores[0].db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 54 {
-		t.Errorf("user_version = %d, want 54", version)
+	if version != 59 {
+		t.Errorf("user_version = %d, want 59", version)
 	}
 }
 

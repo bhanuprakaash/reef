@@ -282,3 +282,52 @@ func TestApplyTeam_ReadOnlyClaudeBash(t *testing.T) {
 		})
 	}
 }
+
+func TestSuggestTeam(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	for name, responsibility := range map[string]string{
+		"frontend": "React components, CSS and pages in the web UI.",
+		"infra":    "Deploys, CI pipelines, servers and cloud infrastructure.",
+		"quiet":    "",
+	} {
+		if _, err := s.CreateTeam(ctx, Team{
+			Name: name, Responsibility: responsibility,
+			Roles: []Role{{Name: "lead", Lead: true, Backend: "claude"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tests := []struct{ text, want string }{
+		{"The production deploy is failing on every push", "infra"},
+		{"Button colours break on the settings page", "frontend"},
+		{"Rename the invoice export", SoloTeam},
+		{"", SoloTeam},
+	}
+	for _, tt := range tests {
+		got, err := s.SuggestTeam(ctx, tt.text)
+		if err != nil || got.Name != tt.want {
+			t.Errorf("SuggestTeam(%q) = %q, %v, want %q", tt.text, got.Name, err, tt.want)
+		}
+	}
+
+	infra, err := s.Team(ctx, "infra")
+	if err != nil {
+		t.Fatal(err)
+	}
+	infra.Responsibility = "Billing and invoices."
+	if _, err := s.ApplyTeam(ctx, infra); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.SuggestTeam(ctx, "The production deploy is failing"); err != nil || got.Name != SoloTeam {
+		t.Errorf("after the text changed, SuggestTeam(deploy) = %q, %v, want %q", got.Name, err, SoloTeam)
+	}
+	if got, err := s.SuggestTeam(ctx, "invoice totals are wrong"); err != nil || got.Name != "infra" {
+		t.Errorf("after the text changed, SuggestTeam(invoice) = %q, %v, want infra", got.Name, err)
+	}
+}

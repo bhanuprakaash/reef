@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/skill"
@@ -218,6 +219,36 @@ func (s *Store) TeamByID(ctx context.Context, id int64) (Team, error) {
 		return Team{}, fmt.Errorf("team %d: %w", id, ErrNotFound)
 	case err != nil:
 		return Team{}, fmt.Errorf("read team %d: %w", id, err)
+	}
+	return s.Team(ctx, name)
+}
+
+// _stopWords are left out of a SuggestTeam match: they say nothing about who owns the work.
+var _stopWords = []string{
+	"a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "it", "its", "of",
+	"on", "or", "that", "the", "this", "to", "was", "with",
+}
+
+// SuggestTeam returns the Team whose responsibility text best matches any word of text, or
+// the default team, solo, when none does. It is ErrNotFound only when solo is gone too.
+func (s *Store) SuggestTeam(ctx context.Context, text string) (Team, error) {
+	var words []string
+	for _, w := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if !slices.Contains(_stopWords, w) {
+			words = append(words, `"`+w+`"`)
+		}
+	}
+	name := SoloTeam
+	if len(words) > 0 {
+		err := s.db.QueryRowContext(ctx,
+			"SELECT team.name FROM team_fts JOIN team ON team.id = team_fts.rowid "+
+				"WHERE team_fts MATCH ? ORDER BY bm25(team_fts), team.id LIMIT 1",
+			strings.Join(words, " OR ")).Scan(&name)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return Team{}, fmt.Errorf("match teams: %w", err)
+		}
 	}
 	return s.Team(ctx, name)
 }

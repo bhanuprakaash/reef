@@ -784,6 +784,64 @@ func TestMCPSubItems(t *testing.T) {
 	}
 }
 
+func TestMCPProposeWorkItem(t *testing.T) {
+	ctx := context.Background()
+	st, _ := mcpFixture(t)
+	if _, err := st.CreateTeam(ctx, store.Team{
+		Name: "infra", Responsibility: "Deploys, CI pipelines and servers.",
+		Roles: []store.Role{{Name: "lead", Lead: true, Backend: "claude"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	chat, err := st.CreateTeammateSpace(ctx,
+		store.Space{ProjectID: 1, Name: "chat", Kind: store.KindConversation}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tok, err := st.CreateToken(ctx, chat.ID, "lead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := callTool(t, st, tok)
+
+	got, isErr := call("propose_work_item", map[string]any{
+		"type": "incident", "title": "Production deploy fails",
+		"description": "The deploy job exits 1 after the build step.",
+		"acceptance":  []string{"Deploy passes on main"},
+	})
+	if isErr {
+		t.Fatalf("propose_work_item = %q, want a work item", got)
+	}
+	for _, want := range []string{
+		`"id":3`, `"type":"incident"`, `"status":"backlog"`, `"proposedBy":"lead"`,
+		`"suggestedTeamId":2`, `"teamId":null`, `"queuePosition":null`,
+		`"acceptanceLines":[{"checked":false,"note":"","position":1,"text":"Deploy passes on main"}]`,
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("propose_work_item = %q, want it to contain %q", got, want)
+		}
+	}
+
+	got, isErr = call("propose_work_item", map[string]any{
+		"type": "task", "title": "Rename the export", "description": "Call it archive.",
+	})
+	if !strings.Contains(got, `"suggestedTeamId":1`) || isErr {
+		t.Errorf("a proposal no team claims = %q (error %v), want the solo team 1", got, isErr)
+	}
+
+	msgs, err := st.Messages(ctx, chat.ID, 0)
+	if err != nil || len(msgs) != 2 || msgs[0].Author != "reef" ||
+		msgs[0].Body != `FYI: lead proposed work item 3 "Production deploy fails". `+
+			`It is in the Backlog until you queue it. Suggested team: infra.` {
+		t.Errorf("messages = %+v, %v, want the FYI note of item 3 first", msgs, err)
+	}
+
+	got, isErr = call("propose_work_item", map[string]any{"type": "chore", "title": "x", "description": "y"})
+	if want := `invalid: unknown type "chore"`; got != want || !isErr {
+		t.Errorf("unknown type = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
 func TestMCPProposeBriefRefusedWhileWrapPending(t *testing.T) {
 	st, tok := mcpFixture(t)
 	call := callTool(t, st, tok)
