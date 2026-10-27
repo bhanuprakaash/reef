@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page|space-header BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,8 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, teammate, 'team-page': teamPage };
-if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page BASE_URL');
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, teammate, 'team-page': teamPage, 'space-header': spaceHeader };if (!scenarios[scenario] || !base) {
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page|space-header BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -294,7 +293,7 @@ async function attach() {
   await section.getByRole('link', { name: 'idea chat' }).click();
   await page.getByRole('heading', { name: 'idea chat', level: 1 }).waitFor();
   await shot('before-attach');
-  await page.getByRole('button', { name: 'Attach to work item' }).click();
+  await page.getByRole('button', { name: 'Attach to Work item' }).click();
   const dialog = page.getByRole('dialog', { name: 'Attach to a work item' });
   await pick('Work item', 'Search', dialog);
   await shot('attach-form');
@@ -302,8 +301,8 @@ async function attach() {
   await page.getByText(/This Space is now attached to work item "Search"/).first().waitFor({ timeout: 15000 });
   await shot('attached');
   check(
-    (await page.getByRole('button', { name: 'Attach to work item' }).count()) === 0,
-    'the Attach to work item button is gone once the Space has a work item',
+    (await page.getByRole('button', { name: 'Attach to Work item' }).count()) === 0,
+    'the Attach to Work item button is gone once the Space has a work item',
     `space row (work_item_id|kind): ${sql(`select work_item_id,kind from space where id=${cid}`)}`,
   );
   await page.waitForTimeout(1000);
@@ -3713,6 +3712,127 @@ async function workItemReview() {
   const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   check(fits, 'the Review panel has no horizontal scroll at 390x844', `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
   await shot('review-390x844');
+}
+
+async function spaceHeader() {
+  const section = await addProject();
+  const name = (await section.getAttribute('aria-label')) ?? '';
+  const pid = Number(sql(`select id from project where name='${name}'`));
+  const call = async (method, route, body) => {
+    const res = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`${method} ${route}: ${res.status} ${await res.text()}`);
+    return res.json();
+  };
+  const suffix = Date.now().toString(36);
+  const sam = await call('POST', '/teammates', { name: `sam-${suffix}`, backend: 'claude', face: 'otter', colour: 'violet' });
+  const kit = await call('POST', '/teammates', { name: `kit-${suffix}`, backend: 'claude' });
+  const itemA = await call('POST', '/work-items', { projectId: pid, title: `Header item ${suffix}` });
+  const itemB = await call('POST', '/work-items', { projectId: pid, title: `Attach target ${suffix}` });
+  const workSpace = await call('POST', '/spaces', { projectId: pid, workItemId: itemA.id, name: `item-space-${suffix}` });
+  const freeSpace = await call('POST', '/spaces', { projectId: pid, name: `free-space-${suffix}` });
+  const conversation = await call('POST', '/spaces', { projectId: pid, kind: 'conversation', teammateId: sam.id, name: `chat-${suffix}` });
+  const turn = (space, input, output, read, write) =>
+    sql(`insert into turn (space_id, role, backend, status, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at) values (${space}, 'lead', 'claude', 'done', ${input}, ${output}, ${read}, ${write}, '2026-01-01T00:00:00Z')`, true);
+  turn(workSpace.id, 1000, 100, 9999, 50);
+  turn(workSpace.id, 200, 30, 0, 0);
+  turn(freeSpace.id, 500, 0, 0, 0);
+
+  const header = main.locator('header').first();
+  const actions = async () => {
+    const found = [];
+    for (const [role, label] of [['link', 'Open Work item'], ['button', 'Attach to Work item'], ['button', 'Add Teammate']]) {
+      if ((await header.getByRole(role, { name: label, exact: true }).count()) > 0) found.push(label);
+    }
+    return found.join(', ');
+  };
+  const headerText = async () => (await header.innerText()).replace(/\s+/g, ' ');
+  const memberNames = async (id) => (await getJson(`/spaces/${id}/members`)).map((m) => m.name);
+  const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const open = async (id, title) => {
+    await page.goto(`${base}/spaces/${id}`);
+    await main.getByRole('heading', { name: title, level: 1 }).waitFor();
+  };
+  const panel = page.getByRole('complementary', { name: 'Team' });
+  const members = async () => {
+    await header.getByRole('button', { name: 'Team', exact: true }).click();
+    await panel.waitFor();
+    const rows = panel.getByRole('listitem');
+    const out = { count: await rows.count(), creatures: await rows.locator('svg').count(), text: (await rows.allInnerTexts()).join(' | ').replace(/\s+/g, ' ').toLowerCase(), leads: await panel.locator('.rounded-pill').filter({ hasText: /^lead$/ }).count() };
+    return out;
+  };
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await open(workSpace.id, `item-space-${suffix}`);
+  const used = (await getJson(`/spaces/${workSpace.id}`)).tokensUsed;
+  const budget = (await getJson(`/spaces/${workSpace.id}`)).tokenBudget;
+  const inspector = await getJson(`/spaces/${workSpace.id}/inspector`);
+  const inspectorSum = inspector.roles.reduce((n, r) => n + r.usage.inputTokens + r.usage.outputTokens + r.usage.cacheWriteTokens, 0);
+  const sqlSum = Number(sql(`select sum(input_tokens + output_tokens + cache_write_tokens) from turn where space_id=${workSpace.id}`));
+  const text = await headerText();
+  check(text.includes(`Header item ${suffix}`) && text.includes('backlog'), "a Work item Space's header shows the item's title and status", text);
+  check(used === 1380 && used === inspectorSum && used === sqlSum, 'REST tokensUsed is the input, output and cache write tokens (cache reads not counted)', `GET ${used}, inspector ${inspectorSum}, sql ${sqlSum}`);
+  check(text.includes(`Budget ${used.toLocaleString('en-US')} / ${budget.toLocaleString('en-US')}`), "the header's budget used is the REST tokensUsed over tokenBudget", text);
+  check((await actions()) === 'Open Work item', 'a Work item Space has Open Work item and neither Attach nor Add Teammate', await actions());
+  const mWork = await members();
+  check(mWork.count === (await memberNames(workSpace.id)).length && mWork.creatures >= mWork.count && mWork.leads === 1, "the member list shows one creature per member of GET /spaces/{id}/members and one lead badge", JSON.stringify(mWork));
+  await shot('desktop-work-item');
+  await page.keyboard.press('Escape');
+
+  await open(freeSpace.id, `free-space-${suffix}`);
+  const freeText = await headerText();
+  check(freeText.includes('free Space') && !freeText.includes('Budget'), 'a free Space header names its kind and has no budget chip', freeText);
+  check((await actions()) === 'Attach to Work item, Add Teammate', 'a free Space has Attach to Work item and Add Teammate, no Open Work item', await actions());
+  await header.getByRole('button', { name: 'Add Teammate', exact: true }).click();
+  const addDialog = page.getByRole('dialog', { name: 'Add a Teammate' });
+  await addDialog.getByRole('button', { name: kit.name, exact: true }).waitFor();
+  check((await addDialog.getByRole('button', { name: 'lead', exact: true }).count()) === 0, "the picker leaves out the Space's own members");
+  await shot('desktop-free-add-teammate');
+  await addDialog.getByRole('button', { name: kit.name, exact: true }).click();
+  await addDialog.waitFor({ state: 'hidden' });
+  const after = await memberNames(freeSpace.id);
+  check(after.join() === `lead,${kit.name}`, 'Add Teammate on a free Space puts the Teammate in GET /spaces/{id}/members', after.join());
+  const mFree = await members();
+  check(mFree.count === 2 && mFree.text.includes(kit.name) && mFree.leads === 1, 'the member list now shows both members', JSON.stringify(mFree));
+  await shot('desktop-free');
+  await page.keyboard.press('Escape');
+
+  await open(conversation.id, `chat-${suffix}`);
+  const convText = await headerText();
+  const face = await header.getByRole('button', { name: 'Show team' }).locator('svg').first().innerHTML();
+  check(convText.includes('conversation') && !convText.includes('Budget'), 'a conversation header names its kind and has no budget chip', convText);
+  check(face.includes('#8B5CF6') && !face.includes('#8E8E93'), "a conversation header shows the Teammate's creature in its colour, not a pebble");
+  check((await actions()) === 'Add Teammate', 'a conversation has Add Teammate only', await actions());
+  const mConv = await members();
+  check(mConv.count === 1 && mConv.text.includes(sam.name), 'the conversation lists its one Teammate', JSON.stringify(mConv));
+  await shot('desktop-conversation');
+  await page.keyboard.press('Escape');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const [id, title, step] of [[workSpace.id, `item-space-${suffix}`, 'phone-work-item'], [freeSpace.id, `free-space-${suffix}`, 'phone-free'], [conversation.id, `chat-${suffix}`, 'phone-conversation']]) {
+    await open(id, title);
+    check(await noOverflow(), `${step} has no horizontal scroll at 390x844`, `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
+    await shot(step);
+  }
+  await page.setViewportSize({ width: 1280, height: 800 });
+
+  await open(freeSpace.id, `free-space-${suffix}`);
+  await header.getByRole('button', { name: 'Attach to Work item', exact: true }).click();
+  const attachDialog = page.getByRole('dialog', { name: 'Attach to a work item' });
+  await pick('Work item', itemB.title, attachDialog);
+  await attachDialog.getByRole('button', { name: 'Attach', exact: true }).click();
+  await header.getByRole('link', { name: 'Open Work item', exact: true }).waitFor();
+  const attached = await getJson(`/spaces/${freeSpace.id}`);
+  check(attached.workItemId === itemB.id && attached.kind === 'work_item', 'Attach from the header makes the Space a Work item Space of the item', `workItemId ${attached.workItemId}, kind ${attached.kind}`);
+  const attachedText = await headerText();
+  check(attachedText.includes(itemB.title) && attachedText.includes(`Budget ${attached.tokensUsed.toLocaleString('en-US')} /`) && attached.tokensUsed === 500, "the attached Space's header shows the item and its budget used", attachedText);
+  check((await actions()) === 'Open Work item', 'the attached Space offers Open Work item only', await actions());
+  await shot('desktop-attached');
+  await header.getByRole('link', { name: 'Open Work item', exact: true }).click();
+  await page.waitForURL(`**/features/${itemB.id}`);
+  const spaces = main.getByRole('region', { name: 'Spaces' });
+  await spaces.getByRole('link', { name: new RegExp(`free-space-${suffix}`) }).waitFor();
+  check((await getJson(`/spaces?workItem=${itemB.id}`)).map((s) => s.id).join() === String(freeSpace.id), "the Space is on the item's page and in GET /spaces?workItem=", `${itemB.id}`);
+  await shot('desktop-item-page');
 }
 
 try {
