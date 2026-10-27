@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -43,8 +44,11 @@ func TestQueuedItemStartsWithItsFirstPrompt(t *testing.T) {
 	if _, body := do(t, http.MethodGet, env.url+"/spaces?workItem=2", ""); body != "[]" {
 		t.Errorf("Spaces of the queued item = %s, want none", body)
 	}
-	if _, body := do(t, http.MethodGet, env.url+"/messages?space=2", ""); !strings.Contains(body, "Started from the queue.") {
-		t.Errorf("messages of Space 2 = %s, want the started note", body)
+	if _, body := do(t, http.MethodGet, env.url+"/messages?space=2", ""); strings.Contains(body, `"author":"reef"`) {
+		t.Errorf("messages of Space 2 = %s, want no note from reef", body)
+	}
+	if got := groupKinds(env.inboxItems(t)); !slices.Equal(got, []string{"fyi started"}) {
+		t.Errorf("inbox = %q, want the started item", got)
 	}
 }
 

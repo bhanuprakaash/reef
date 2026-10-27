@@ -16,26 +16,18 @@ func (s *server) inboxRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/inbox", methodNotAllowed)
 	mux.HandleFunc("GET /inbox/events", s.inboxEvents)
 	mux.HandleFunc("/inbox/events", methodNotAllowed)
-	mux.HandleFunc("POST /spaces/{id}/dismiss", s.dismissWaiting)
-	mux.HandleFunc("/spaces/{id}/dismiss", methodNotAllowed)
+	mux.HandleFunc("POST /inbox/dismiss", s.dismissItem)
+	mux.HandleFunc("/inbox/dismiss", methodNotAllowed)
 }
 
-// dismissWaiting hides the waiting item whose message is messageId; a newer message brings it
-// back.
-func (s *server) dismissWaiting(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	var in struct {
-		MessageID int64 `json:"messageId"`
-	}
+// dismissItem removes the FYI item in the body, which is an item as GET /inbox lists it.
+func (s *server) dismissItem(w http.ResponseWriter, r *http.Request) {
+	var in store.InboxItem
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
-	if err := s.st.DismissWaiting(r.Context(), id, in.MessageID); err != nil {
+	if err := s.st.DismissInbox(r.Context(), in); err != nil {
 		writeError(w, err)
 		return
 	}

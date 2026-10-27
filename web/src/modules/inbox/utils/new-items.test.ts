@@ -4,6 +4,7 @@ import { newItems } from './new-items';
 
 const waiting: InboxItem = {
   kind: 'waiting',
+  group: 'fyi',
   spaceId: 5,
   workItemId: 2,
   text: 'Anything else?',
@@ -12,6 +13,7 @@ const waiting: InboxItem = {
 };
 const failed: InboxItem = {
   kind: 'failed',
+  group: 'needs_you',
   spaceId: 5,
   workItemId: 2,
   text: 'architect failed: interrupted',

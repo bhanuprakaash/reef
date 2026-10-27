@@ -2,15 +2,22 @@ import type { InboxItem } from '@/types/api';
 
 export const kindLabels: Record<InboxItem['kind'], string> = {
   paused: 'Paused',
+  held: 'Held',
   failed: 'Failed',
+  review: 'Review',
   waiting: 'Waiting',
+  sub_item: 'Sub-item',
+  proposed: 'Proposed',
+  started: 'Started',
 };
 
 export function itemKey(i: InboxItem): string {
-  return [i.kind, i.spaceId, i.turnId, i.at].join(':');
+  return [i.kind, i.spaceId, i.workItemId, i.turnId, i.id, i.at].join(':');
 }
 
 export function newItems(before: InboxItem[], after: InboxItem[]): InboxItem[] {
   const seen = new Set(before.map(itemKey));
   return after.filter((i) => !seen.has(itemKey(i)));
 }
+
+export const noticeKinds: InboxItem['kind'][] = ['sub_item', 'proposed', 'started'];

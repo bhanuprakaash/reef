@@ -235,7 +235,7 @@ func TestInbox_DismissWaiting(t *testing.T) {
 		t.Fatalf("item = %+v, want message id %d", items[1], reply.ID)
 	}
 
-	if err := e.s.DismissWaiting(e.ctx, 1, reply.ID); err != nil {
+	if err := e.s.DismissInbox(e.ctx, InboxItem{Kind: "waiting", SpaceID: 1, MessageID: &reply.ID}); err != nil {
 		t.Fatal(err)
 	}
 	e.want("waiting 2 also done")
@@ -243,7 +243,7 @@ func TestInbox_DismissWaiting(t *testing.T) {
 	e.say(1, "lead", "one more thing")
 	e.want("waiting 1 one more thing", "waiting 2 also done")
 
-	if err := e.s.DismissWaiting(e.ctx, 1, other.ID); !errors.Is(err, ErrNotFound) {
-		t.Errorf("DismissWaiting(message of another Space) = %v, want ErrNotFound", err)
+	if err := e.s.DismissInbox(e.ctx, InboxItem{Kind: "waiting", SpaceID: 1, MessageID: &other.ID}); !errors.Is(err, ErrNotFound) {
+		t.Errorf("DismissInbox(waiting, message of another Space) = %v, want ErrNotFound", err)
 	}
 }

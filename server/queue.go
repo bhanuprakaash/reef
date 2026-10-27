@@ -99,11 +99,12 @@ func (s *server) openItem(ctx context.Context, w store.WorkItem) error {
 	if err != nil {
 		return err
 	}
-	note := "Started from the queue."
-	if err := s.startUserTurn(ctx, sp.ID, userTurn{kind: _message, text: queuePrompt(w, brief.Body)}); err != nil {
-		note = fmt.Sprintf("Started from the queue, but the first turn did not run: %v. "+
-			"Send the lead a message to run it.", err)
+	err = s.startUserTurn(ctx, sp.ID, userTurn{kind: _message, text: queuePrompt(w, brief.Body)})
+	if err == nil {
+		return nil
 	}
+	note := fmt.Sprintf("Started from the queue, but the first turn did not run: %v. "+
+		"Send the lead a message to run it.", err)
 	_, err = s.st.CreateMessage(ctx, store.Message{SpaceID: sp.ID, Author: store.ReefAuthor, Body: note})
 	return err
 }

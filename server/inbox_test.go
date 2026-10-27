@@ -207,8 +207,8 @@ func TestInbox_DismissWaiting(t *testing.T) {
 		`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 	env.wantInbox(t, "waiting 2 what next?")
 
-	url := fmt.Sprintf("%s/spaces/%d/dismiss", env.url, id)
-	if status, _ := do(t, http.MethodPost, url, `{"messageId":999}`); status != 404 {
+	url := env.url + "/inbox/dismiss"
+	if status, _ := do(t, http.MethodPost, url, fmt.Sprintf(`{"kind":"waiting","spaceId":%d,"messageId":999}`, id)); status != 404 {
 		t.Errorf("dismiss of an unknown message = %d, want 404", status)
 	}
 	_, list := do(t, http.MethodGet, env.url+"/inbox", "")
@@ -216,7 +216,7 @@ func TestInbox_DismissWaiting(t *testing.T) {
 	if err := json.Unmarshal([]byte(list), &items); err != nil || len(items) != 1 || items[0].MessageID == nil {
 		t.Fatalf("GET /inbox = %s, want one waiting item with a messageId", list)
 	}
-	if status, body := do(t, http.MethodPost, url, fmt.Sprintf(`{"messageId":%d}`, *items[0].MessageID)); status != 204 {
+	if status, body := do(t, http.MethodPost, url, fmt.Sprintf(`{"kind":"waiting","spaceId":%d,"messageId":%d}`, id, *items[0].MessageID)); status != 204 {
 		t.Fatalf("dismiss = %d %s, want 204", status, body)
 	}
 	env.wantInbox(t)

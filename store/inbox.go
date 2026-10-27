@@ -7,26 +7,56 @@ import (
 	"time"
 )
 
-// _inboxItems selects paused and failed items. A closed Space has none. A failed turn is listed when retry
+// The groups of the inbox. Needs you and Review leave when their cause is resolved; only FYI
+// can be dismissed.
+const (
+	GroupNeedsYou = "needs_you"
+	GroupReview   = "review"
+	GroupFYI      = "fyi"
+)
+
+// Kinds of FYI item that inbox_fyi stores, one row each.
+const (
+	KindSubItem  = "sub_item"
+	KindProposed = "proposed"
+	KindStarted  = "started"
+)
+
+// _inboxItems selects paused, held and failed items. A closed Space has none. A paused Space
+// with a wake held by the pause is held, one without is paused. A failed turn is listed when retry
 // may run it again, so a retry, or a send that the role answered, clears it, and of several
 // failed turns only the newest shows; a turn the user stopped is not listed. A paused Space
 // is dated by its newest turn, which is what paused it. A turn that failed and paused its own
 // Space, such as the tool call cap, shows only as paused.
 const _inboxItems = `
-SELECT 'paused', c.id, c.work_item_id, c.paused,
+SELECT CASE WHEN h.n > 0 THEN 'held' ELSE 'paused' END, c.id, c.work_item_id,
+	CASE WHEN h.n > 0 THEN c.paused || ' (' || h.n || CASE h.n WHEN 1 THEN ' wake' ELSE ' wakes' END || ' held)'
+		ELSE c.paused END,
 	COALESCE((SELECT ended_at FROM turn WHERE space_id = c.id ORDER BY id DESC LIMIT 1), c.created_at),
-	NULL, NULL
-FROM space c WHERE c.paused != '' AND c.closed_at IS NULL
+	NULL, NULL, NULL
+FROM space c
+LEFT JOIN (SELECT space_id, COUNT(*) n FROM approval WHERE kind = '` + _holdKind + `' AND status = '` + HoldPending + `'
+	GROUP BY space_id) h ON h.space_id = c.id
+WHERE c.paused != '' AND c.closed_at IS NULL
 UNION ALL
-SELECT 'failed', t.space_id, c.work_item_id, t.role || ' failed: ' || t.error, t.ended_at, t.id, NULL
+SELECT 'failed', t.space_id, c.work_item_id, t.role || ' failed: ' || t.error, t.ended_at, t.id, NULL, NULL
 FROM turn t JOIN space c ON c.id = t.space_id
 WHERE ` + _retryable + ` AND t.error != '` + _interruptedError + `' AND c.paused = '' AND c.closed_at IS NULL`
+
+// _inboxWork selects the items of Work items, which have no Space of their own: a top-level
+// item in review, dated by its proof, and each FYI row.
+const _inboxWork = `
+SELECT 'review', 0, w.id, w.title, COALESCE(p.submitted_at, w.created_at), NULL, NULL, NULL
+FROM work_item w LEFT JOIN proof p ON p.work_item_id = w.id
+WHERE w.status = '` + _review + `' AND w.parent_id IS NULL
+UNION ALL
+SELECT kind, 0, work_item_id, text, created_at, NULL, NULL, id FROM inbox_fyi`
 
 // _inboxWaiting selects the Spaces that run no turn and whose newest message is from an
 // agent and held no wake: a message whose wake is paused is not waiting. Nor is the reply a
 // turn the user stopped kept, nor the message the user dismissed.
 const _inboxWaiting = `
-SELECT 'waiting', c.id, c.work_item_id, substr(m.body, 1, 200), m.created_at, NULL, m.id
+SELECT 'waiting', c.id, c.work_item_id, substr(m.body, 1, 200), m.created_at, NULL, m.id, NULL
 FROM space c JOIN message m ON m.id = (SELECT MAX(id) FROM message WHERE space_id = c.id)
 WHERE c.closed_at IS NULL AND m.author NOT IN ('user', '` + ReefAuthor + `')
 	AND m.id IS NOT c.dismissed_message_id
@@ -35,36 +65,44 @@ WHERE c.closed_at IS NULL AND m.author NOT IN ('user', '` + ReefAuthor + `')
 	AND NOT EXISTS (SELECT 1 FROM turn WHERE id = (SELECT MAX(id) FROM turn WHERE space_id = c.id)
 		AND status = '` + _turnFailed + `' AND error = '` + _interruptedError + `')`
 
-// InboxItem is one thing waiting on the user. Kind is paused (a cap or a failure paused the Space; Text is the reason), failed (a
-// turn retry may run again that the user did not stop; TurnID) or waiting (the Space ended on a
-// message of an agent that woke nobody; Text starts that message, MessageID is its id).
+// InboxItem is one thing waiting on the user, in Group. In Needs you, Kind is paused (a cap or
+// a failure paused the Space; Text is the reason), held (the same, with wakes the pause held;
+// Text ends with how many) or failed (a turn retry may run again that the user did not stop;
+// TurnID). In Review, Kind is review: a top-level Work item in review. In FYI, Kind is waiting
+// (the Space ended on a message of an agent that woke nobody; Text starts that message,
+// MessageID is its id) or sub_item, proposed or started (a row of inbox_fyi; ID). An item of a
+// Work item has no Space: SpaceID is 0.
 type InboxItem struct {
 	Kind       string    `json:"kind"`
+	Group      string    `json:"group"`
 	SpaceID    int64     `json:"spaceId"`
 	WorkItemID *int64    `json:"workItemId"`
 	Text       string    `json:"text"`
 	At         time.Time `json:"at"`
 	TurnID     *int64    `json:"turnId,omitempty"`
 	MessageID  *int64    `json:"messageId,omitempty"`
+	ID         *int64    `json:"id,omitempty"`
 }
 
-// Inbox lists the items waiting on the user in every Space, newest first. It is derived from
-// the rows of cap holds, Spaces, turns and messages. A waiting item shows only for a
-// Space with no other item.
-func (s *Store) Inbox(ctx context.Context) ([]InboxItem, error) {
-	rows, err := s.db.QueryContext(ctx, _inboxItems)
-	if err != nil {
-		return nil, fmt.Errorf("list inbox: %w", err)
+func groupOf(kind string) string {
+	switch kind {
+	case "paused", "held", "failed":
+		return GroupNeedsYou
+	case "review":
+		return GroupReview
 	}
-	items, err := scanAll(rows, scanInboxItem)
+	return GroupFYI
+}
+
+// Inbox lists the items waiting on the user, newest first. Apart from the FYI rows it is
+// derived from the rows of Spaces, holds, turns, messages and Work items. A waiting item shows
+// only for a Space with no item in Needs you.
+func (s *Store) Inbox(ctx context.Context) ([]InboxItem, error) {
+	items, err := s.inboxQuery(ctx, _inboxItems)
 	if err != nil {
 		return nil, err
 	}
-	rows, err = s.db.QueryContext(ctx, _inboxWaiting, _turnRunning)
-	if err != nil {
-		return nil, fmt.Errorf("list inbox: %w", err)
-	}
-	waiting, err := scanAll(rows, scanInboxItem)
+	waiting, err := s.inboxQuery(ctx, _inboxWaiting, _turnRunning)
 	if err != nil {
 		return nil, err
 	}
@@ -73,13 +111,65 @@ func (s *Store) Inbox(ctx context.Context) ([]InboxItem, error) {
 			items = append(items, w)
 		}
 	}
+	work, err := s.inboxQuery(ctx, _inboxWork)
+	if err != nil {
+		return nil, err
+	}
+	items = append(items, work...)
 	slices.SortStableFunc(items, func(a, b InboxItem) int { return b.At.Compare(a.At) })
 	return items, nil
 }
 
-// DismissWaiting hides the waiting item of the Space while messageID, which must be a
-// message of the Space, is its newest message. A later message brings the item back.
-func (s *Store) DismissWaiting(ctx context.Context, spaceID, messageID int64) error {
+func (s *Store) inboxQuery(ctx context.Context, query string, args ...any) ([]InboxItem, error) {
+	rows, err := s.db.QueryContext(ctx, query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("list inbox: %w", err)
+	}
+	return scanAll(rows, scanInboxItem)
+}
+
+// AddFYI adds an FYI item of the given kind about a Work item. It stays until the user
+// dismisses it.
+func (s *Store) AddFYI(ctx context.Context, kind string, workItemID int64, text string) error {
+	return addFYI(ctx, s.db, kind, workItemID, text)
+}
+
+func addFYI(ctx context.Context, x execer, kind string, workItemID int64, text string) error {
+	if _, err := x.ExecContext(ctx,
+		"INSERT INTO inbox_fyi (kind, work_item_id, text, created_at) VALUES (?, ?, ?, ?)",
+		kind, workItemID, text, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("add %s FYI of work item %d: %w", kind, workItemID, err)
+	}
+	return nil
+}
+
+// DismissInbox removes the FYI item i is for good. A waiting item is hidden while its message
+// is the Space's newest; a later message brings it back. An item in Needs you or Review is
+// ErrConflict: it leaves when its cause is resolved.
+func (s *Store) DismissInbox(ctx context.Context, i InboxItem) error {
+	switch groupOf(i.Kind) {
+	case GroupNeedsYou, GroupReview:
+		return fmt.Errorf("%w: a %s item cannot be dismissed, it leaves when its cause is resolved",
+			ErrConflict, i.Kind)
+	}
+	switch {
+	case i.Kind == "waiting" && i.MessageID != nil:
+		return s.dismissWaiting(ctx, i.SpaceID, *i.MessageID)
+	case i.ID != nil && slices.Contains([]string{KindSubItem, KindProposed, KindStarted}, i.Kind):
+		res, err := s.db.ExecContext(ctx, "DELETE FROM inbox_fyi WHERE id = ? AND kind = ?", *i.ID, i.Kind)
+		if err != nil {
+			return fmt.Errorf("dismiss %s FYI: %w", i.Kind, err)
+		}
+		if n, err := res.RowsAffected(); err != nil || n == 0 {
+			return fmt.Errorf("%s FYI %d: %w", i.Kind, *i.ID, ErrNotFound)
+		}
+		return nil
+	}
+	return fmt.Errorf("%w: a %q item is dismissed by its id, or for waiting its Space and message",
+		ErrInvalid, i.Kind)
+}
+
+func (s *Store) dismissWaiting(ctx context.Context, spaceID, messageID int64) error {
 	res, err := s.db.ExecContext(ctx,
 		`UPDATE space SET dismissed_message_id = ? WHERE id = ?
 		AND EXISTS (SELECT 1 FROM message WHERE id = ? AND space_id = ?)`,
@@ -100,13 +190,13 @@ func (s *Store) DismissWaiting(ctx context.Context, spaceID, messageID int64) er
 func scanInboxItem(r interface{ Scan(...any) error }) (InboxItem, error) {
 	var i InboxItem
 	var at string
-	if err := r.Scan(&i.Kind, &i.SpaceID, &i.WorkItemID, &i.Text, &at, &i.TurnID, &i.MessageID); err != nil {
+	if err := r.Scan(&i.Kind, &i.SpaceID, &i.WorkItemID, &i.Text, &at, &i.TurnID, &i.MessageID, &i.ID); err != nil {
 		return InboxItem{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, at)
 	if err != nil {
 		return InboxItem{}, fmt.Errorf("inbox item of Space %d: bad time: %w", i.SpaceID, err)
 	}
-	i.At = t
+	i.At, i.Group = t, groupOf(i.Kind)
 	return i, nil
 }

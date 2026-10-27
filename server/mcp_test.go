@@ -829,11 +829,14 @@ func TestMCPProposeWorkItem(t *testing.T) {
 		t.Errorf("a proposal no team claims = %q (error %v), want the solo team 1", got, isErr)
 	}
 
-	msgs, err := st.Messages(ctx, chat.ID, 0)
-	if err != nil || len(msgs) != 2 || msgs[0].Author != "reef" ||
-		msgs[0].Body != `FYI: lead proposed work item 3 "Production deploy fails". `+
+	items, err := st.Inbox(ctx)
+	if err != nil || len(items) != 2 || items[1].Kind != "proposed" ||
+		items[1].Text != `lead proposed work item 3: Production deploy fails. `+
 			`It is in the Backlog until you queue it. Suggested team: infra.` {
-		t.Errorf("messages = %+v, %v, want the FYI note of item 3 first", msgs, err)
+		t.Errorf("inbox = %+v, %v, want the proposed FYI of item 3 second", items, err)
+	}
+	if msgs, err := st.Messages(ctx, chat.ID, 0); err != nil || len(msgs) != 0 {
+		t.Errorf("messages = %+v, %v, want none", msgs, err)
 	}
 
 	got, isErr = call("propose_work_item", map[string]any{"type": "chore", "title": "x", "description": "y"})

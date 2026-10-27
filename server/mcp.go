@@ -673,7 +673,14 @@ func (m *mcpServer) createSubItem(
 		ProjectID: f.ProjectID, ParentID: &f.ID, Type: cmp.Or(in.Type, "task"),
 		Title: in.Title, Description: in.Description,
 	})
-	return nil, w, err
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	text := fmt.Sprintf("%s added sub-item %d to work item %d: %s", m.tok.Role, w.ID, f.ID, w.Title)
+	if err := m.st.AddFYI(ctx, store.KindSubItem, w.ID, text); err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	return nil, w, nil
 }
 
 func (m *mcpServer) proposeWorkItem(
@@ -701,14 +708,12 @@ func (m *mcpServer) proposeWorkItem(
 	if err != nil {
 		return nil, store.WorkItem{}, err
 	}
-	note := fmt.Sprintf("FYI: %s proposed work item %d %q. It is in the Backlog until you queue it.",
+	text := fmt.Sprintf("%s proposed work item %d: %s. It is in the Backlog until you queue it.",
 		m.tok.Role, w.ID, w.Title)
 	if team.Name != "" {
-		note += fmt.Sprintf(" Suggested team: %s.", team.Name)
+		text += fmt.Sprintf(" Suggested team: %s.", team.Name)
 	}
-	if _, err := m.st.CreateMessage(ctx, store.Message{
-		SpaceID: m.tok.SpaceID, Author: store.ReefAuthor, Body: note,
-	}); err != nil {
+	if err := m.st.AddFYI(ctx, store.KindProposed, w.ID, text); err != nil {
 		return nil, store.WorkItem{}, err
 	}
 	return nil, w, nil

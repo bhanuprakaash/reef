@@ -40,6 +40,7 @@ func TestSend_HopCapPausesSpace(t *testing.T) {
 	if ch, err := env.st.Space(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
 		t.Errorf("space = %+v, %v, want paused with the hop cap reason", ch, err)
 	}
+	env.wantInbox(t, fmt.Sprintf("held %d %s (1 wake held)", id, _hopPause))
 
 	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)

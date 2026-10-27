@@ -92,10 +92,10 @@ logged in and on `PATH`.
 - Work item page (`/work-items/{id}`), with Close work item (asks to confirm) or Reopen, and its diff review page (`/work-items/{id}/review`); project
   page (`/projects/{id}`) with its work items. The work item page lists the work item's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
 - Board (`/board`): the top-level work items of the current project in the columns Backlog, Queued, In progress, Needs you, Review, Done and Dropped, refreshed every 5 seconds; filters for type, Team and project are in the URL. Dragging a card between Backlog and Queued is `PATCH /work-items/{id}`; dropping a queued card on another card of the same Team is `PUT /work-items/{id}/queue-position`. Any other drop is refused in the window with a message: those statuses are reached through the item's own actions.
-- Needs you (`/inbox`): what waits on you from [`/inbox/events`](#inbox), with a count and
-  the action of each item (Approve or Reject, Continue, Retry, Open). The window asks once,
-  on a click, to show desktop notifications and then shows one for each item that is new
-  since the page loaded.
+- Inbox (`/inbox`): what waits on you from [`/inbox/events`](#inbox), in three groups, Needs you,
+  Review and FYI, with a count and the action of each item (Continue, Retry, Review, Open,
+  Dismiss on FYI). The window asks once, on a click, to show desktop notifications and then
+  shows one for each new item since the page loaded, except the FYI items of Work items.
 - Teams (`/teams`): lists teams and edits one's roles and faces, saving with
   `PUT /teams/{name}`. An opened role shows its persona, skills, allowed tools, permission
   mode and MCP servers. Skills are picked from the current project's `GET /skills` list for the
@@ -225,7 +225,7 @@ A `PUT` replaces every editable field: `title`, `description`, `type`, `status`,
 
 #### Team queue
 
-A Team works one top-level item at a time: one with status `in_progress` or `needs_you` (a unique index on `team_id` holds this). Moving an item to `queued` puts it last in its Team's queue, `queuePosition` 1, 2, 3; moving it from `review` back to `queued` puts it first. When the Team has no item in progress or needing the user, its first queued item moves to `in_progress` by itself: at once on a queue, after a move that frees the Team (to `review`, `done` or `dropped`), and at boot for a queued item of a free Team. The server then opens an active Space for a started item that has none, with the Team's lead, and sends the lead one message: `Work item N: <title>`, `Description:`, the numbered `Acceptance lines:` and `Brief:`, each `none` when empty, one line each. A `reef` note `Started from the queue.` follows in the Space. A sent-back item keeps its Space and gets no new prompt. A first turn that cannot run leaves a note saying so instead.
+A Team works one top-level item at a time: one with status `in_progress` or `needs_you` (a unique index on `team_id` holds this). Moving an item to `queued` puts it last in its Team's queue, `queuePosition` 1, 2, 3; moving it from `review` back to `queued` puts it first. When the Team has no item in progress or needing the user, its first queued item moves to `in_progress` by itself: at once on a queue, after a move that frees the Team (to `review`, `done` or `dropped`), and at boot for a queued item of a free Team. The server then opens an active Space for a started item that has none, with the Team's lead, and sends the lead one message: `Work item N: <title>`, `Description:`, the numbered `Acceptance lines:` and `Brief:`, each `none` when empty, one line each. An inbox `started` FYI says the item started (see [Inbox](#inbox)). A sent-back item keeps its Space and gets no new prompt. A first turn that cannot run leaves a `reef` note saying so.
 
 The lead's `submit_for_review` runs in the `reef mcp` process, which the server cannot hear, so the server learns of a submit when the chain of turns of the submitting Space ends. It then opens the Space of the item the move started, the same way as after a `PATCH`, and runs a wrap-up turn for the lead (the same turn as `POST /spaces/{id}/wrap`), once per submit. A wrap-up that cannot start leaves a `reef` note in the Space: `Submitted for review, but the wrap-up did not start: <why>. Send /wrap to run it.` A submit that happens while the server is down starts its next item at the next boot, and its wrap-up when a turn of that Space next ends.
 
@@ -586,7 +586,7 @@ tool calls.
 | `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not retryable (see [Spaces live](#spaces-live)), or as send for a Space with a turn running or paused, 503 |
 | `GET /inbox` | | 200 the items waiting on the user, newest first; `[]` when none. See [Inbox](#inbox) | |
 | `GET /inbox/events` | | 200 `text/event-stream` | |
-| `POST /spaces/{id}/dismiss` | `messageId` | 204, no body; the Space's `waiting` item for that message is hidden, see [Inbox](#inbox) | 400 bad body, 404 unknown Space or a message that is not the Space's |
+| `POST /inbox/dismiss` | an item as `GET /inbox` lists it (`kind` and `id`, or for `waiting` `spaceId` and `messageId`) | 204, no body; an FYI item is gone for good, see [Inbox](#inbox) | 400 bad body or an item that names nothing, 404 no such FYI item or a message that is not the Space's, 409 the item is in Needs you or Review |
 | `POST /turns/{id}/rollback` | no body needed | 204, no body; the Space's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the Space has a turn running, a `reef chat` has it open, its tree is not the one the checkpoint was taken in, or a turn of any role runs on the tree, 503 |
 | `GET /decisions` | `?workItem=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy`. Unused since decision 91 | 400 no work item, 404 unknown work item |
 | `POST /decisions` | `workItemId`, `messageId`, `body`, `why`, `author`, `replaces` | 201. Unused since decision 91 | 400 missing field, unknown work item, a message of another work item, or a `replaces` id that is not a live decision of the work item |
@@ -916,20 +916,30 @@ data: {"role":"lead","status":"done"}
 
 ### Inbox
 
-`GET /inbox` lists what waits on the user in every Space. It is read from the rows of
-Spaces, turns and messages, so it has no table and a restart keeps it. Each
-item has `kind`, `spaceId`, `workItemId` (null for a quick session), `text` and `at`, and the
-id to act with:
+`GET /inbox` lists what waits on the user, in three groups. Needs you, `waiting` and Review are
+read from the rows of Spaces, holds, turns, messages and Work items, so they have no table and a
+restart keeps them; the FYI items of Work items are rows of `inbox_fyi`. Each item has `kind`,
+`group`, `spaceId` (0 for an item of a Work item, which has no Space), `workItemId`, `text` and
+`at`, and the id to act with:
 
-| `kind` | Listed while | `text` | Also has | Cleared by |
-| --- | --- | --- | --- | --- |
-| `paused` | the Space's `paused` is not empty | the reason: hop cap, token budget or a routing or store failure | | `continue`, or a user message after a hop cap pause |
-| `failed` | a turn is retryable (see [Spaces live](#spaces-live)) and its error is not `interrupted`: a turn the user stopped is a decision, not an item | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
-| `waiting` | the Space's newest message is from an agent (not `user` or `reef`) and woke nobody: no turn running, no other item for the Space, and the Space's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | `messageId` | any new message, such as a send; or `POST /spaces/{id}/dismiss` with the item's `messageId`, which hides it until a newer message arrives |
+| `group` | `kind` | Listed while | `text` | Also has | Cleared by |
+| --- | --- | --- | --- | --- | --- |
+| `needs_you` | `paused` | the Space's `paused` is not empty and the pause holds no wake: the reason is a cap (token budget, tool calls) or a routing or store failure | the reason | | `continue`, or a user message after a hop cap pause |
+| `needs_you` | `held` | the same, and the pause holds a wake: the hop cap, or a token budget that ran out in the middle of a chain | the reason and `(N wakes held)` | | `continue` runs the held wakes; a user message after a hop cap pause drops them |
+| `needs_you` | `failed` | a turn is retryable (see [Spaces live](#spaces-live)) and its error is not `interrupted`: a turn the user stopped is a decision, not an item | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
+| `review` | `review` | a top-level Work item is in review | the item's title | `workItemId` | the user sets Done or sends it back |
+| `fyi` | `sub_item` | a Teammate made a sub-item with `create_sub_item`; `workItemId` is the sub-item | who made it, and its title | `id` | `POST /inbox/dismiss` |
+| `fyi` | `proposed` | a Teammate proposed an item with `propose_work_item`; `workItemId` is the new Backlog item | who proposed it, and the suggested Team | `id` | `POST /inbox/dismiss` |
+| `fyi` | `started` | the queue moved an item to in progress, including one sent back from review | `Started from the queue: ` and its title | `id` | `POST /inbox/dismiss` |
+| `fyi` | `waiting` | the Space's newest message is from an agent (not `user` or `reef`) and woke nobody: no turn running, no item in Needs you for the Space, and the Space's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | `messageId` | any new message, such as a send; or `POST /inbox/dismiss`, which hides it until a newer message arrives |
 
-`at` is the time of the failed turn's end, of the message, and for `paused`
-the end of the Space's newest turn. A Space that has a chain running lists no `waiting`,
-`paused` or `failed` item, since the chain is not over and `continue` or `retry` would be 409. A hold of a pause is not an item of its own: its Space is `paused`.
+`at` is the time of the failed turn's end, of the message, of the proof for `review`, of the row
+for the FYI items, and for `paused` and `held` the end of the Space's newest turn. A Space that
+has a chain running lists no `waiting`, `paused`, `held` or `failed` item, since the chain is not
+over and `continue` or `retry` would be 409.
+
+`POST /inbox/dismiss` takes an item as `GET /inbox` lists it. An FYI item of a Work item is
+deleted, so it does not come back, and a `waiting` item is hidden. An item in Needs you or Review is 409, as in `a paused item cannot be dismissed, it leaves when its cause is resolved`.
 
 `GET /inbox/events` is one Server-Sent Events stream for all Spaces, with a
 `: keepalive` every 15 seconds. Its only event is `inbox`, whose data is the whole list as
@@ -942,7 +952,7 @@ When the server stops, a stream sends the last list and ends.
 
 ```
 event: inbox
-data: [{"kind":"waiting","spaceId":5,"workItemId":2,"text":"Plan: add the form and a test.","at":"2026-10-14T09:00:10.123456Z","messageId":28}]
+data: [{"kind":"waiting","group":"fyi","spaceId":5,"workItemId":2,"text":"Plan: add the form and a test.","at":"2026-10-14T09:00:10.123456Z","messageId":28}]
 ```
 
 ## Wrap-up and attach

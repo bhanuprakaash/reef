@@ -89,6 +89,11 @@ func (s *Store) MoveWorkItem(ctx context.Context, id int64, to, by string) (Work
 			return WorkItem{}, err
 		}
 	}
+	if by == ByQueue {
+		if err := addFYI(ctx, tx, KindStarted, id, "Started from the queue: "+w.Title); err != nil {
+			return WorkItem{}, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return WorkItem{}, fmt.Errorf("commit move work item: %w", err)
 	}

@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|work-item-review|first-run BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|work-item-review|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|work-item-review|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|work-item-review|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -1301,7 +1301,7 @@ async function inbox() {
   await send('DESIGN a short plan for a login form.');
   await workingAs('lead', 60000);
   await aside.getByRole('link', { name: /^Needs you/ }).click();
-  await page.getByRole('heading', { name: 'Needs you', level: 1 }).waitFor();
+  await page.getByRole('heading', { name: 'Inbox', level: 1 }).waitFor();
   check(page.url().endsWith('/inbox'), 'the Needs you link opens /inbox', page.url());
   const waiting = main.getByRole('listitem').filter({ hasText: /Waiting.*inbox room/ });
   await waiting.waitFor({ timeout: 240000 });
@@ -1367,7 +1367,7 @@ async function inbox() {
     sql(`select dismissed_message_id from Space where id=${cid}`),
   );
   await page.reload();
-  await page.getByRole('heading', { name: 'Needs you', level: 1 }).waitFor();
+  await page.getByRole('heading', { name: 'Inbox', level: 1 }).waitFor();
   await page.waitForTimeout(1000);
   check((await waiting.count()) === 0, 'the dismissed item stays gone after a reload');
   await sendApi(cid, 'Say ok in one word. Use no tools.');
@@ -1375,6 +1375,96 @@ async function inbox() {
   await waiting.waitFor({ timeout: 30000 });
   await shot('back-after-new-message');
   check(true, 'a new agent message brings the dismissed item back');
+  await inboxGroups();
+}
+
+// The three groups of the inbox. Started and Review come from a queued item the lead submits;
+// the other causes are rows written through SQLite, the way work-item seeds proof (their
+// producers are proven by the server tests and the recipes).
+async function inboxGroups() {
+  const section = await addProject();
+  const name = (await section.getAttribute('aria-label')) ?? '';
+  const pid = Number(sql(`select id from project where name='${name}'`));
+  const call = async (method, route, body) => {
+    const res = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`${method} ${route}: ${res.status} ${await res.text()}`);
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  };
+  const eventually = async (ok, ms = 30000) => {
+    const end = Date.now() + ms;
+    while (!(await ok()) && Date.now() < end) await page.waitForTimeout(200);
+    return ok();
+  };
+  const solo = (await getJson('/teams')).find((t) => t.name === 'solo');
+  const item = await call('POST', '/work-items', { projectId: pid, title: 'Review me', teamId: solo.id, acceptanceLines: [{ text: 'Wrong password is refused' }, { text: 'Session lasts a day' }] });
+  const idle = (sid) => sql(`select active_turn from space where id=${sid}`) === '';
+  await call('PATCH', `/work-items/${item.id}`, { status: 'queued' });
+  await eventually(async () => (await getJson(`/spaces?workItem=${item.id}`)).length > 0);
+  const sid = (await getJson(`/spaces?workItem=${item.id}`))[0].id;
+  await eventually(async () => idle(sid));
+  await call('POST', `/spaces/${sid}/send`, { text: 'SUBMIT FOR REVIEW' });
+  await eventually(async () => (await getJson(`/work-items/${item.id}`)).status === 'review');
+  await eventually(async () => idle(sid));
+
+  const now = "strftime('%Y-%m-%dT%H:%M:%fZ','now')";
+  const capped = await call('POST', '/spaces', { projectId: pid, name: 'capped room' });
+  sql(`update space set paused='token budget of 1000000 used: 1000312 tokens' where id=${capped.id}`, true);
+  const held = await call('POST', '/spaces', { projectId: pid, name: 'held room' });
+  sql(`insert into message (space_id, author, body, created_at) values (${held.id}, 'lead', '@architect plan it', ${now})`, true);
+  sql(`insert into approval (space_id, from_role, to_role, message_id, text, status, kind, created_at) select ${held.id}, 'lead', 'architect', max(id), 'plan it', 'pending', 'hold', ${now} from message where space_id=${held.id}`, true);
+  sql(`update space set paused='hop cap: 6 agent hops without a user message' where id=${held.id}`, true);
+  const failedRoom = await call('POST', '/spaces', { projectId: pid, name: 'failed room' });
+  sql(`insert into turn (space_id, role, backend, status, error, started_at, ended_at, wake_text) values (${failedRoom.id}, 'lead', 'claude', 'failed', 'server restarted', ${now}, ${now}, 'build it')`, true);
+  const sub = await call('POST', '/work-items', { projectId: pid, parentId: item.id, title: 'Schema' });
+  sql(`insert into inbox_fyi (kind, work_item_id, text, created_at) values ('sub_item', ${sub.id}, 'lead added sub-item ${sub.id} to work item ${item.id}: Schema', ${now})`, true);
+  const proposed = await call('POST', '/work-items', { projectId: pid, type: 'bug', title: 'Slow deploy' });
+  sql(`insert into inbox_fyi (kind, work_item_id, text, created_at) values ('proposed', ${proposed.id}, 'sam proposed work item ${proposed.id}: Slow deploy. It is in the Backlog until you queue it.', ${now})`, true);
+
+  const groupOf = (title) => main.getByRole('region', { name: new RegExp(`^${title}`) });
+  const rowOf = (group, text) => groupOf(group).getByRole('listitem').filter({ hasText: text });
+  const items = await getJson('/inbox');
+  const listed = (g) => items.filter((i) => i.group === g).map((i) => i.kind).sort().join(',');
+  check(listed('needs_you') === 'failed,held,paused' && listed('review') === 'review' && listed('fyi').includes('proposed') && listed('fyi').includes('started') && listed('fyi').includes('sub_item'),
+    'GET /inbox groups the seven causes: failed, held and paused in needs_you, review in review, started, sub_item and proposed in fyi', JSON.stringify(items.map((i) => `${i.group}/${i.kind}`)));
+  for (const [width, height] of [[1280, 800], [390, 844]]) {
+    await page.setViewportSize({ width, height });
+    await page.goto(`${base}/inbox`);
+    await page.getByRole('heading', { name: 'Inbox', level: 1 }).waitFor();
+    await groupOf('Needs you').waitFor();
+    await groupOf('Review').waitFor();
+    await groupOf('FYI').waitFor();
+    const needs = (await groupOf('Needs you').innerText()).replace(/\s+/g, ' ');
+    const review = (await groupOf('Review').innerText()).replace(/\s+/g, ' ');
+    const fyi = (await groupOf('FYI').innerText()).replace(/\s+/g, ' ');
+    check(/Paused.*token budget of 1000000 used/i.test(needs) && /Held.*hop cap: 6 agent hops without a user message \(1 wake held\)/i.test(needs) && /Failed.*lead failed: server restarted/i.test(needs), `${width}x${height}: Needs you shows the paused, held and failed items`, needs.slice(0, 160));
+    check(/Review.*Review me/.test(review), `${width}x${height}: Review shows the item in review`, review.slice(0, 160));
+    check(/Started.*Started from the queue: Review me/i.test(fyi) && /Sub-item.*added sub-item \d+ to work item \d+: Schema/i.test(fyi) && /Proposed.*proposed work item \d+: Slow deploy/i.test(fyi), `${width}x${height}: FYI shows the started, sub-item and proposed items`, fyi.slice(0, 200));
+    check((await groupOf('Needs you').getByRole('button', { name: 'Dismiss' }).count()) === 0 && (await groupOf('Review').getByRole('button', { name: 'Dismiss' }).count()) === 0 && (await groupOf('FYI').getByRole('button', { name: 'Dismiss' }).count()) >= 3,
+      `${width}x${height}: only the FYI rows have Dismiss`);
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
+    check(overflow <= 0, `${width}x${height}: the inbox has no horizontal scroll`, `${overflow} px`);
+    await shot(`groups-${width}x${height}`);
+    for (const g of ['Review', 'FYI']) {
+      await groupOf(g).evaluate((el) => el.scrollIntoView({ block: 'start' }));
+      await shot(`groups-${g.toLowerCase()}-${width}x${height}`);
+    }
+  }
+
+  const paused = items.find((i) => i.kind === 'paused');
+  const res = await fetch(`${base}/inbox/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(paused) });
+  const body = await res.text();
+  check(res.status === 409 && /a paused item cannot be dismissed/.test(body), 'REST refuses to dismiss a Needs you item', `${res.status} ${body}`);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${base}/inbox`);
+  await rowOf('FYI', /Slow deploy/).getByRole('button', { name: 'Dismiss' }).click();
+  await rowOf('FYI', /Slow deploy/).waitFor({ state: 'hidden' });
+  await shot('groups-dismissed');
+  await page.reload();
+  await groupOf('FYI').waitFor();
+  check((await rowOf('FYI', /Slow deploy/).count()) === 0 && sql("select count(*) from inbox_fyi where kind='proposed'") === '0' && (await getJson('/inbox')).filter((i) => i.group === 'needs_you').length === 3,
+    'Dismiss on an FYI item removes its row for good, the Needs you items stay', sql('select kind from inbox_fyi'));
 }
 
 async function wrap() {
@@ -1422,7 +1512,7 @@ async function wrap() {
   );
   const queued = (await getJson('/inbox')).filter((i) => i.spaceId === Number(cid));
   await page.goto(`${base}/inbox`);
-  await page.getByRole('heading', { name: 'Needs you' }).waitFor();
+  await page.getByRole('heading', { name: 'Inbox', level: 1 }).waitFor();
   await shot('wrapped-needs-you');
   check(queued.length === 0, 'Needs you has no item for the wrapped Space', JSON.stringify(queued));
   await page.goto(`${base}/spaces/${cid}`);

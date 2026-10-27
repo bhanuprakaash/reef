@@ -1,7 +1,7 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router';
-import { kindLabels, newItems } from '@/modules/inbox/utils/new-items';
+import { kindLabels, newItems, noticeKinds } from '@/modules/inbox/utils/new-items';
 import type { Space, InboxItem } from '@/types/api';
 
 export function useInboxEvents(onOpen: (item: InboxItem) => void) {
@@ -22,6 +22,7 @@ export function useInboxEvents(onOpen: (item: InboxItem) => void) {
       queryClient.setQueryData(['inbox'], items);
       if (before && Notification.permission === 'granted') {
         for (const item of newItems(before, items)) {
+          if (noticeKinds.includes(item.kind)) continue;
           if (
             document.visibilityState === 'visible' &&
             open.current === `/spaces/${item.spaceId}`
@@ -32,7 +33,7 @@ export function useInboxEvents(onOpen: (item: InboxItem) => void) {
             .getQueryData<Space[]>(['spaces'])
             ?.find((c) => c.id === item.spaceId)?.name;
           const n = new Notification(
-            `${kindLabels[item.kind]}: ${name ?? `Space ${item.spaceId}`}`,
+            `${kindLabels[item.kind]}: ${name ?? (item.spaceId === 0 ? `Work item ${item.workItemId}` : `Space ${item.spaceId}`)}`,
             {
               body: item.text,
             },

@@ -192,13 +192,15 @@ export type DirectMessage = {
 };
 
 export type InboxItem = {
-  kind: 'paused' | 'failed' | 'waiting';
+  kind: 'paused' | 'held' | 'failed' | 'review' | 'waiting' | 'sub_item' | 'proposed' | 'started';
+  group: 'needs_you' | 'review' | 'fyi';
   spaceId: number;
   workItemId: number | null;
   text: string;
   at: string;
   turnId?: number;
   messageId?: number;
+  id?: number;
 };
 
 export type DiffLineKind = 'add' | 'del' | 'ctx';
