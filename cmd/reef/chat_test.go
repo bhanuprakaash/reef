@@ -22,6 +22,7 @@ type fakeSession struct {
 	st        *store.Store
 	channelID int64
 	propose   bool
+	replaces  []int64
 	gate      chan struct{}
 	sent      chan struct{}
 	stored    []string
@@ -55,7 +56,7 @@ func (f *fakeSession) Wrap(ctx context.Context, onEvent func(agent.Event)) (stor
 	return f.st.CreateProposal(ctx, store.Proposal{
 		ChannelID: f.channelID, Role: "architect", Brief: "new brief",
 		Items: []store.ProposedItem{
-			{Kind: "decision", Body: "use sessions", Why: "simple", Scope: "work_item"},
+			{Kind: "decision", Body: "use sessions", Why: "simple", Scope: "work_item", Replaces: f.replaces},
 			{Kind: "lesson", Body: "reply short", Scope: "teammate"},
 		},
 	})
@@ -81,7 +82,11 @@ func startChat(t *testing.T, st *store.Store, ch store.Channel, w *fakeSession) 
 	c := &chatRun{
 		in: pw, lines: lines, out: &syncBuffer{}, done: make(chan error, 1), cancel: cancel,
 	}
-	go func() { c.done <- converse(ctx, st, ch.ID, w, lines, c.out) }()
+	ms, err := memory.Open(st.DB(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { c.done <- converse(ctx, st, ms, ch.ID, w, lines, c.out) }()
 	return c
 }
 
@@ -218,6 +223,37 @@ func TestConverse_Wrap(t *testing.T) {
 				t.Errorf("memory rows = %d, %v, want %d", rows, err, tt.wantRows)
 			}
 		})
+	}
+}
+
+func TestConverse_WrapApproveRefusedByMemoryIsReportedAndLeftPending(t *testing.T) {
+	ctx := context.Background()
+	st, ch := chatFixture(t)
+	ms, err := memory.Open(st.DB(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ms.Remember(ctx,
+		memory.Writer{Author: "user", Role: "user", Scope: memory.Ref{Kind: memory.ScopeProject, ID: "1"}},
+		memory.Note{Kind: memory.KindFact, Body: "on the project shelf"}); err != nil {
+		t.Fatal(err)
+	}
+	w := &fakeSession{propose: true, replaces: []int64{1}}
+	c := startChat(t, st, ch, w)
+
+	c.say(t, "/wrap")
+	c.waitFor(t, "approve? [y/N] ")
+	c.say(t, "y")
+	c.waitFor(t, "reef: ")
+	out := c.end(t)
+
+	want := "approve? [y/N] reef: save item \"use sessions\": replace 1: " +
+		"invalid: memory 1 is in scope project:1, not work_item:1\n\n> "
+	if !strings.HasSuffix(out, want) {
+		t.Errorf("output = %q, want it to end with %q", out, want)
+	}
+	if p, err := st.PendingProposal(ctx, ch.ID); err != nil || p.ID != 1 {
+		t.Errorf("PendingProposal = %+v, %v, want proposal 1 still pending", p, err)
 	}
 }
 

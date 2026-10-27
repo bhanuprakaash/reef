@@ -15,6 +15,7 @@ import (
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/server"
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -115,7 +116,7 @@ func chatCmd(
 			_, _ = fmt.Fprintf(stderr, "--- prompt ---\n%s\n---\n", prompt)
 		})
 	}
-	if err := converse(ctx, st, *channelID, sess, readLines(stdin), stdout); err != nil {
+	if err := converse(ctx, st, ms, *channelID, sess, readLines(stdin), stdout); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(stdout, "\nchannel %d: resume with reef chat --channel %d\n",
@@ -132,7 +133,7 @@ type chatSession interface {
 var _ chatSession = (*channel.Session)(nil)
 
 func converse(
-	ctx context.Context, st *store.Store, channelID int64, sess chatSession,
+	ctx context.Context, st *store.Store, ms *memory.Store, channelID int64, sess chatSession,
 	in *lineReader, stdout io.Writer,
 ) error {
 	show := func(ev agent.Event) {
@@ -198,7 +199,7 @@ func converse(
 			return err
 		}
 		if wrap {
-			stop, err := decideWrap(ctx, st, p, noProposal, in, stdout)
+			stop, err := decideWrap(ctx, st, ms, p, noProposal, in, stdout)
 			if err != nil {
 				return err
 			}
@@ -213,7 +214,7 @@ func converse(
 }
 
 func decideWrap(
-	ctx context.Context, st *store.Store, p store.Proposal, noProposal bool,
+	ctx context.Context, st *store.Store, ms *memory.Store, p store.Proposal, noProposal bool,
 	in *lineReader, stdout io.Writer,
 ) (stop bool, err error) {
 	if noProposal {
@@ -248,9 +249,9 @@ func decideWrap(
 		return true, err
 	}
 	if a := strings.ToLower(answer); a == "y" || a == "yes" {
-		a, err := approveProposal(ctx, st, p.ID)
+		a, err := server.ApproveProposal(ctx, st, ms, p.ID)
 		if err != nil {
-			if errors.Is(err, store.ErrInvalid) {
+			if errors.Is(err, store.ErrInvalid) || errors.Is(err, memory.ErrInvalid) {
 				_, err = fmt.Fprintf(stdout, "reef: %s\n\n", strings.TrimPrefix(err.Error(), "invalid: "))
 				return false, err
 			}
