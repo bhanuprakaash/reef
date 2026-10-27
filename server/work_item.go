@@ -21,6 +21,7 @@ func (s *server) workItemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/work-items", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}", s.getWorkItem)
 	mux.HandleFunc("PUT /work-items/{id}", s.updateWorkItem)
+	mux.HandleFunc("PATCH /work-items/{id}", s.moveWorkItem)
 	mux.HandleFunc("DELETE /work-items/{id}", s.deleteWorkItem)
 	mux.HandleFunc("/work-items/{id}", methodNotAllowed)
 	mux.HandleFunc("POST /work-items/{id}/close", s.closeWorkItem)
@@ -110,6 +111,28 @@ func (s *server) updateWorkItem(w http.ResponseWriter, r *http.Request) {
 	}
 	in.ID = id
 	f, err := s.st.UpdateWorkItem(r.Context(), in)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, f)
+}
+
+// moveWorkItem sets the status of the work item as the user; a move the user may not make is 400.
+func (s *server) moveWorkItem(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		Status string `json:"status"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	f, err := s.st.MoveWorkItem(r.Context(), id, in.Status, store.ByUser)
 	if err != nil {
 		writeError(w, err)
 		return

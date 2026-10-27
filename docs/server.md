@@ -502,7 +502,8 @@ tool calls.
 | `GET /work-items` | `?project=ID`, `?parent=ID`, `?status=S`, `?type=T` | 200, with each item's `acceptanceLines` | 400 bad id, status or type |
 | `POST /work-items` | `projectId`, `parentId`, `type`, `title`, `description`, `status`, `acceptanceLines` and the other fields above | 201 | 400 unknown project, unknown parent, a parent that is a sub-item, bad type or status |
 | `GET /work-items/{id}` | | 200 | 404 |
-| `PUT /work-items/{id}` | the editable fields above | 200 | 400, 404 |
+| `PUT /work-items/{id}` | the editable fields above; `status` is ignored, `PATCH` moves it | 200 | 400, 404 |
+| `PATCH /work-items/{id}` | `status`; the user moves the item: backlog and queued both ways, review to done (top-level) or back to queued, any status to dropped. The queue, the Space's pause and continue, `submit_for_review` and the lead move it by their own rules (R10, R41, R47) | 200 | 400 `invalid: work item N: <rule>` for a move the user may not make, or a parent to review while a sub-item is open; 404 |
 | `POST /work-items/{id}/close` | no body needed | 204; sets `closedAt` on the work item and on each of its Spaces, and stops their agents | 404, 409 a Space has a turn running (nothing is closed) |
 | `POST /work-items/{id}/reopen` | no body needed | 204; clears the work item's `closedAt` only, its Spaces stay closed | 404 |
 | `DELETE /work-items/{id}` | | 204; the work item's worktree and the checkpoint refs of its turns are removed, its branch is kept | 404, 409 the worktree has uncommitted changes (nothing is removed) |

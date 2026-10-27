@@ -350,16 +350,38 @@ func (s *Store) AttachSpace(ctx context.Context, id, workItemID int64) (Space, e
 	return s.Space(ctx, id)
 }
 
-// PauseSpace pauses the Space; the reason must not be empty.
+// PauseSpace pauses the Space; the reason must not be empty. Its Work item, if in progress,
+// goes to needs_you: the item keeps its worktree, so the Team stays busy.
 func (s *Store) PauseSpace(ctx context.Context, id int64, reason string) error {
 	if reason == "" {
 		return fmt.Errorf("%w: pause reason is required", ErrInvalid)
 	}
-	return s.setSpace(ctx, id, "paused = ?", reason)
+	if err := s.setSpace(ctx, id, "paused = ?", reason); err != nil {
+		return err
+	}
+	return s.moveSpaceItem(ctx, id, _inProgress, _needsYou)
+}
+
+// moveSpaceItem moves the Work item of the Space from one status to another, and does nothing
+// when the Space has no item or the item has another status.
+func (s *Store) moveSpaceItem(ctx context.Context, id int64, from, to string) error {
+	var itemID *int64
+	if err := s.db.QueryRowContext(ctx, "SELECT work_item_id FROM space WHERE id = ?", id).Scan(&itemID); err != nil {
+		return fmt.Errorf("read Space item: %w", err)
+	}
+	if itemID == nil {
+		return nil
+	}
+	w, err := s.WorkItem(ctx, *itemID)
+	if err != nil || w.Status != from {
+		return err
+	}
+	_, err = s.MoveWorkItem(ctx, w.ID, to, BySpace)
+	return err
 }
 
 // ContinueSpace clears the pause, drops the pending holds it left and raises the budget to
-// at least budget.
+// at least budget. Its Work item, if in needs_you, goes back to in_progress.
 func (s *Store) ContinueSpace(ctx context.Context, id, budget int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -384,7 +406,10 @@ func (s *Store) ContinueSpace(ctx context.Context, id, budget int64) error {
 		HoldDropped, id, HoldPending, _holdKind); err != nil {
 		return fmt.Errorf("drop holds: %w", err)
 	}
-	return tx.Commit()
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit continue: %w", err)
+	}
+	return s.moveSpaceItem(ctx, id, _needsYou, _inProgress)
 }
 
 // ReopenSpace clears the Space's closed_at. It is ErrConflict when the Space's work item has

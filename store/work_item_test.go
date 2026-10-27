@@ -113,12 +113,12 @@ func TestUpdateWorkItemKeepsLinesWhenOmitted(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Title != "B" || got.Status != "queued" || got.Type != "feature" || len(got.AcceptanceLines) != 1 {
-		t.Errorf("update without lines = %+v, want title B, queued, feature, one line", got)
+	if got.Title != "B" || got.Status != "backlog" || got.Type != "feature" || len(got.AcceptanceLines) != 1 {
+		t.Errorf("update without lines = %+v, want title B, backlog (the status is not set here), feature, one line", got)
 	}
 	got, err = s.UpdateWorkItem(ctx, WorkItem{ID: 1, Title: "B", AcceptanceLines: []AcceptanceLine{}})
-	if err != nil || len(got.AcceptanceLines) != 0 || got.Status != "queued" {
-		t.Errorf("update with empty lines = %+v, %v, want no lines, still queued", got, err)
+	if err != nil || len(got.AcceptanceLines) != 0 || got.Status != "backlog" {
+		t.Errorf("update with empty lines = %+v, %v, want no lines, still backlog", got, err)
 	}
 	if _, err := s.UpdateWorkItem(ctx, WorkItem{ID: 1, Title: "B", Type: "epic"}); !errors.Is(err, ErrInvalid) {
 		t.Errorf("type epic = %v, want ErrInvalid", err)

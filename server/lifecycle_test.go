@@ -438,3 +438,35 @@ func TestDelete_DropsHeldWakes(t *testing.T) {
 		t.Errorf("session closes = %d, want 1", got)
 	}
 }
+
+func TestSend_TokenCapMovesWorkItemToNeedsYouAndContinueBack(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id := env.workItemSpace(t)
+	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
+	if _, err := env.st.MoveWorkItem(ctx, 1, "in_progress", store.ByQueue); err != nil {
+		t.Fatal(err)
+	}
+	turn, err := env.st.CreateTurn(ctx, store.Turn{SpaceID: int64(id), Role: "lead", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Status = "done"
+	turn.Usage = agent.Usage{InputTokens: store.TokenBudget}
+	if _, err := env.st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+
+	if status, body := env.sendTo(t, id, "hello"); status != 409 {
+		t.Fatalf("send over budget = %d %s, want 409", status, body)
+	}
+	if w, err := env.st.WorkItem(ctx, 1); err != nil || w.Status != "needs_you" {
+		t.Errorf("work item after the pause = %q, %v, want needs_you", w.Status, err)
+	}
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
+		t.Fatalf("continue = %d, want 204", status)
+	}
+	if w, err := env.st.WorkItem(ctx, 1); err != nil || w.Status != "in_progress" {
+		t.Errorf("work item after continue = %q, %v, want in_progress", w.Status, err)
+	}
+}

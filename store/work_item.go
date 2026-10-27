@@ -202,15 +202,15 @@ func (s *Store) WorkItems(ctx context.Context, f WorkItemFilter) ([]WorkItem, er
 	return ws, nil
 }
 
-// UpdateWorkItem sets the editable fields of w.ID. An empty Type, Status or a zero TokenBudget
-// keeps the old one, and nil AcceptanceLines keep the old lines; any other lines replace them.
-// An item never changes project, parent or proposer.
+// UpdateWorkItem sets the editable fields of w.ID. An empty Type or a zero TokenBudget keeps the
+// old one, and nil AcceptanceLines keep the old lines; any other lines replace them. An item
+// never changes project, parent, proposer or status: MoveWorkItem moves the status.
 func (s *Store) UpdateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error) {
 	old, err := s.WorkItem(ctx, w.ID)
 	if err != nil {
 		return WorkItem{}, err
 	}
-	w.Type, w.Status = cmp.Or(w.Type, old.Type), cmp.Or(w.Status, old.Status)
+	w.Type, w.Status = cmp.Or(w.Type, old.Type), old.Status
 	if w.TokenBudget == 0 {
 		w.TokenBudget = old.TokenBudget
 	}
