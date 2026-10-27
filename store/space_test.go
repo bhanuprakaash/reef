@@ -41,6 +41,36 @@ func TestSpace_NilTeamIsNoTeam(t *testing.T) {
 	}
 }
 
+func TestSpace_SubItemHasNone(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
+		t.Fatal(err)
+	}
+	parent, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: 1, Title: "login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sub, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: 1, ParentID: &parent.ID, Title: "form"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, WorkItemID: &sub.ID, Name: "form"}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("CreateSpace for a sub-item = %v, want ErrInvalid", err)
+	}
+	free, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "free"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.AttachSpace(ctx, free.ID, sub.ID); !errors.Is(err, ErrInvalid) {
+		t.Errorf("AttachSpace to a sub-item = %v, want ErrInvalid", err)
+	}
+}
+
 func TestSpaceTokens_ExcludesCacheReads(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())

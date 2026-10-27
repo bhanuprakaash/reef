@@ -161,6 +161,9 @@ func (s *Store) checkWorkItemInProject(
 	if f.ProjectID != projectID {
 		return fmt.Errorf("%w: work item %d is not in project %d", ErrInvalid, f.ID, projectID)
 	}
+	if f.ParentID != nil {
+		return fmt.Errorf("%w: work item %d is a sub-item and shares its parent's Space", ErrInvalid, f.ID)
+	}
 	return nil
 }
 

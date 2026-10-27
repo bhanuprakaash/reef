@@ -111,3 +111,66 @@ func TestUpdateWorkItemKeepsLinesWhenOmitted(t *testing.T) {
 		t.Errorf("type epic = %v, want ErrInvalid", err)
 	}
 }
+
+func TestUpdateWorkItemKeepsTicksOfUnchangedLines(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateWorkItem(ctx, WorkItem{
+		ProjectID: 1, Title: "A",
+		AcceptanceLines: []AcceptanceLine{{Text: "x", Checked: true, Note: "ran it"}, {Text: "y"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.UpdateWorkItem(ctx, WorkItem{ID: 1, Title: "A", AcceptanceLines: []AcceptanceLine{
+		{Text: "x"}, {Text: "y"}, {Text: "z"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []AcceptanceLine{
+		{Position: 1, Text: "x", Checked: true, Note: "ran it"},
+		{Position: 2, Text: "y"},
+		{Position: 3, Text: "z"},
+	}
+	if !reflect.DeepEqual(got.AcceptanceLines, want) {
+		t.Errorf("lines = %+v, want %+v", got.AcceptanceLines, want)
+	}
+}
+
+func TestUpdateWorkItemRefusesLineChangesInReviewAndDone(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateWorkItem(ctx, WorkItem{
+		ProjectID: 1, Title: "A", AcceptanceLines: []AcceptanceLine{{Text: "x"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	for _, status := range []string{_review, _done} {
+		if _, err := s.db.ExecContext(ctx, "UPDATE work_item SET status = ? WHERE id = 1", status); err != nil {
+			t.Fatal(err)
+		}
+		_, err := s.UpdateWorkItem(ctx, WorkItem{ID: 1, Title: "A", AcceptanceLines: []AcceptanceLine{{Text: "x"}, {Text: "y"}}})
+		if !errors.Is(err, ErrConflict) {
+			t.Errorf("%s: adding a line = %v, want ErrConflict", status, err)
+		}
+		got, err := s.UpdateWorkItem(ctx, WorkItem{ID: 1, Title: "B", AcceptanceLines: []AcceptanceLine{{Text: "x"}}})
+		if err != nil || got.Title != "B" {
+			t.Errorf("%s: retitling with the same lines = %+v, %v, want title B", status, got, err)
+		}
+	}
+}

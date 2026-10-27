@@ -37,6 +37,32 @@ func TestGetSpaceTokensUsed(t *testing.T) {
 	}
 }
 
+func TestCreateSpaceOfWorkItemUsesItsTeam(t *testing.T) {
+	ts, st := newEmbedServer(t, nil)
+	if _, err := st.CreateTeam(context.Background(), store.Team{Name: "release", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth","teamId":1}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"title":"Form"}`)
+
+	for _, c := range []struct{ name, body string }{
+		{"another Team", `{"projectId":1,"workItemId":1,"name":"a","team":"release"}`},
+		{"a Teammate", `{"projectId":1,"workItemId":1,"name":"a","teammateId":1}`},
+		{"a sub-item", `{"projectId":1,"workItemId":2,"name":"a"}`},
+	} {
+		if status, body := do(t, http.MethodPost, ts.URL+"/spaces", c.body); status != 400 {
+			t.Errorf("Space for %s = %d %s, want 400", c.name, status, body)
+		}
+	}
+	status, body := do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"a"}`)
+	if status != 201 || !strings.Contains(body, `"team":"solo"`) {
+		t.Errorf("Space with no team = %d %s, want 201 in the item's Team solo", status, body)
+	}
+}
+
 func TestUpdateSpacePermissionModeUsedWhenSessionOpens(t *testing.T) {
 	env := newLiveEnv(t)
 	var openedMode string

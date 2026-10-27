@@ -89,8 +89,6 @@ func TestPollGitHub_SubItemNotPolledOnItsOwn(t *testing.T) {
 	t.Cleanup(h.Close)
 	repo := ghWorkItemSetup(t, ts.URL, store.SoloTeam)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"title":"Child"}`)
-	do(t, http.MethodPost, ts.URL+"/spaces",
-		`{"projectId":1,"workItemId":2,"name":"child","team":"`+store.SoloTeam+`","backend":"claude"}`)
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -100,13 +98,11 @@ func TestPollGitHub_SubItemNotPolledOnItsOwn(t *testing.T) {
 	setGhResponse(t, respFile, _ghFailedCheck)
 
 	h.s.pollGitHub(ctx)
-	for space, want := range map[int64]int{1: 2, 2: 0} {
-		msgs, err := st.Messages(ctx, space, 0)
-		if err != nil {
-			t.Fatal(err)
-		}
-		if len(msgs) != want {
-			t.Errorf("space %d has %d messages, want %d: %+v", space, len(msgs), want, msgs)
-		}
+	msgs, err := st.Messages(ctx, 1, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(msgs) != 2 {
+		t.Errorf("space 1 has %d messages, want 2: %+v", len(msgs), msgs)
 	}
 }

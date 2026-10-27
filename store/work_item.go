@@ -214,10 +214,11 @@ func (s *Store) WorkItems(ctx context.Context, f WorkItemFilter) ([]WorkItem, er
 }
 
 // UpdateWorkItem sets the editable fields of w.ID. An empty Type or a zero TokenBudget keeps the
-// old one, and nil AcceptanceLines keep the old lines; any other lines replace them. An item
-// never changes project, parent, proposer, status or queue position: MoveWorkItem moves the
-// status and the queue. The Team changes only while the item is in backlog, done or dropped:
-// otherwise it holds, or waits for, its Team's turn.
+// old one, and nil AcceptanceLines keep the old lines; any other lines replace them, and a line
+// whose text is unchanged keeps its checked and note; an item in review or done refuses new text
+// (ErrConflict). An item never changes project, parent, proposer, status or queue position:
+// MoveWorkItem moves the status and the queue. The Team changes only while the item is in backlog,
+// done or dropped: otherwise it holds, or waits for, its Team's turn.
 func (s *Store) UpdateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -239,6 +240,12 @@ func (s *Store) UpdateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error
 	if changesTeam && !slices.Contains([]string{_backlog, _done, _dropped}, old.Status) {
 		return WorkItem{}, fmt.Errorf("%w: work item %d is %s and keeps its team", ErrInvalid, w.ID, old.Status)
 	}
+	sameText := func(a, b AcceptanceLine) bool { return a.Text == b.Text }
+	if (old.Status == _review || old.Status == _done) && w.AcceptanceLines != nil &&
+		!slices.EqualFunc(old.AcceptanceLines, w.AcceptanceLines, sameText) {
+		return WorkItem{}, fmt.Errorf("%w: work item %d is in %s, its acceptance lines are fixed",
+			ErrConflict, w.ID, old.Status)
+	}
 	_, err = tx.ExecContext(ctx,
 		"UPDATE work_item SET type = ?, title = ?, description = ?, team_id = ?, "+
 			"suggested_team_id = ?, token_budget = ? WHERE id = ?",
@@ -253,7 +260,7 @@ func (s *Store) UpdateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error
 			"DELETE FROM acceptance_line WHERE work_item_id = ?", w.ID); err != nil {
 			return WorkItem{}, fmt.Errorf("replace acceptance lines: %w", err)
 		}
-		if err := putLines(ctx, tx, w.ID, w.AcceptanceLines); err != nil {
+		if err := putLines(ctx, tx, w.ID, keepTicks(old.AcceptanceLines, w.AcceptanceLines)); err != nil {
 			return WorkItem{}, err
 		}
 	}
@@ -312,6 +319,21 @@ func txWorkItem(ctx context.Context, tx *sql.Tx, id int64) (WorkItem, error) {
 		return WorkItem{}, fmt.Errorf("work item %d: %w", id, ErrNotFound)
 	}
 	return w, err
+}
+
+// keepTicks gives each new line whose text matches an old line, one old line per new line, the
+// old line's checked and note: the writer of an edit holds a copy that may predate the lead's ticks.
+func keepTicks(old, lines []AcceptanceLine) []AcceptanceLine {
+	left := slices.Clone(old)
+	kept := make([]AcceptanceLine, len(lines))
+	for i, l := range lines {
+		kept[i] = l
+		if j := slices.IndexFunc(left, func(o AcceptanceLine) bool { return o.Text == l.Text }); j >= 0 {
+			kept[i].Checked, kept[i].Note = left[j].Checked, left[j].Note
+			left = slices.Delete(left, j, j+1)
+		}
+	}
+	return kept
 }
 
 func putLines(ctx context.Context, tx *sql.Tx, id int64, lines []AcceptanceLine) error {
