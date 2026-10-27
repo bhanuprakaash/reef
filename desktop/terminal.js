@@ -26,7 +26,7 @@ export function launchTerminalApp(app, cwd, PATH) {
 }
 
 // createTerminals makes the one shell per working tree the window opens: a feature's
-// worktree, or a project checkout for a quick session. cwd is the key, so a pane that
+// worktree, or a project checkout for a free Space. cwd is the key, so a pane that
 // reopens on the same tree reuses its shell and sees the output it missed. Shells run
 // until killAll, called on quit.
 export function createTerminals(win, path) {
