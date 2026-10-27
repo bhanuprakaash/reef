@@ -12,6 +12,7 @@ import { ReviewPage } from '@/app/routes/review';
 import { SettingsPage } from '@/app/routes/settings';
 import { TeammatePage } from '@/app/routes/teammate';
 import { TeammatesPage } from '@/app/routes/teammates';
+import { TeamPage } from '@/app/routes/team';
 import { TeamsPage } from '@/app/routes/teams';
 
 export const router = createBrowserRouter([
@@ -28,6 +29,7 @@ export const router = createBrowserRouter([
       { path: '/projects/:id', element: <ProjectPage /> },
       { path: '/inbox', element: <InboxPage /> },
       { path: '/teams', element: <TeamsPage /> },
+      { path: '/teams/:name', element: <TeamPage /> },
       { path: '/teammates', element: <TeammatesPage /> },
       { path: '/teammates/:id', element: <TeammatePage /> },
       { path: '/settings', element: <SettingsPage /> },

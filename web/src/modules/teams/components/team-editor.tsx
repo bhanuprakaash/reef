@@ -1,11 +1,12 @@
 import { useState } from 'react';
+import { Link } from 'react-router';
 import { useDeleteTeam } from '@/modules/teams/api/delete-team';
 import { useUpdateTeam } from '@/modules/teams/api/update-team';
 import { AddMemberRow } from '@/modules/teams/components/add-member-row';
 import { RolePanel } from '@/modules/teams/components/role-panel';
 import { RoleRow } from '@/modules/teams/components/role-row';
 import type { Role, Team } from '@/types/api';
-import { Button } from '@/components/button';
+import { Button, buttonClass } from '@/components/button';
 import { Dialog } from '@/components/dialog';
 import { TextArea } from '@/components/text-area';
 import { TextField } from '@/components/text-field';
@@ -73,6 +74,9 @@ export function TeamEditor({ team, openRole, onSaved, onDeleted, onDuplicate }: 
                 Delete
               </Button>
             )}
+            <Link to={`/teams/${encodeURIComponent(team.name)}`} className={buttonClass()}>
+              Queue
+            </Link>
             <Button type="button" onClick={onDuplicate}>
               Duplicate
             </Button>
