@@ -23,6 +23,7 @@ type Props = {
   onWrap: () => void;
   attachDisabled: boolean;
   onAttach: () => void;
+  onAddTeammate: () => void;
   onInspector: () => void;
   onTeam: () => void;
 };
@@ -45,6 +46,7 @@ export function SpaceHeader({
   onWrap,
   attachDisabled,
   onAttach,
+  onAddTeammate,
   onInspector,
   onTeam,
 }: Props) {
@@ -189,6 +191,32 @@ export function SpaceHeader({
                 Attach to work item
               </Button>
             )}
+        {space.kind === 'conversation' && space.movedTo === null && (
+          <Button
+            variant="ghost"
+            type="button"
+            aria-label="Add Teammate"
+            className={phoneIcon}
+            disabled={attachDisabled}
+            onClick={onAddTeammate}
+          >
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              aria-hidden="true"
+              className="md:hidden"
+            >
+              <circle cx="9" cy="8" r="3.5" />
+              <path d="M3 19c0-3.3 2.7-6 6-6s6 2.7 6 6M19 8v6M16 11h6" />
+            </svg>
+            <span className="max-md:hidden">Add Teammate</span>
+          </Button>
+        )}
       </div>
     </header>
   );

@@ -15,6 +15,7 @@ const space = (id: number, team: string): Space => ({
   paused: '',
   createdAt: '',
   closedAt: null,
+  movedTo: null,
 });
 
 const team = (name: string, roles: string[]): Team => ({

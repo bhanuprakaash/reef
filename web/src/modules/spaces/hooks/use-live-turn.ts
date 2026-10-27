@@ -38,6 +38,7 @@ export function useLiveTurn(spaceId: number): LiveTurn {
       void queryClient.invalidateQueries({ queryKey: ['direct-messages', spaceId] });
       if (data.status === 'done') {
         void refresh().then(() => dispatch('clear'));
+        void queryClient.invalidateQueries({ queryKey: ['spaces'] });
         void queryClient.invalidateQueries({ queryKey: ['proposal', spaceId] });
         void queryClient.invalidateQueries({ queryKey: inspectorKey(spaceId) });
         void queryClient.invalidateQueries({ queryKey: ['features'] });

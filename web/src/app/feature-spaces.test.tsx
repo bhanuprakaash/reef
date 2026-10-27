@@ -54,6 +54,7 @@ const space: SpacePreview = {
   paused: '',
   createdAt: '',
   closedAt: null,
+  movedTo: null,
   lastMessage: null,
 };
 

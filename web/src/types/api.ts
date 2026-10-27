@@ -90,6 +90,7 @@ export type Space = {
   paused: string;
   createdAt: string;
   closedAt: string | null;
+  movedTo: number | null;
 };
 
 export type SpacePreview = Space & {

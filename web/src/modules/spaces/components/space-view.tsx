@@ -1,5 +1,6 @@
 import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
 import type { BrowserDriver } from '@/app/browser-pane';
+import { Link } from 'react-router';
 import { Dialog } from '@/components/dialog';
 import { ResizeHandle } from '@/components/resize-handle';
 import { useResizableWidth } from '@/lib/use-resizable-width';
@@ -10,6 +11,7 @@ import { useTeams } from '@/lib/api/get-teams';
 import { useReopenSpace } from '@/modules/spaces/api/reopen-space';
 import { useProposal } from '@/modules/spaces/api/get-proposal';
 import { useWrapSpace } from '@/modules/spaces/api/wrap-space';
+import { AddTeammateForm } from '@/modules/spaces/components/add-teammate-form';
 import { AttachForm } from '@/modules/spaces/components/attach-form';
 import { SpaceHeader } from '@/modules/spaces/components/space-header';
 import { CheckpointRows } from '@/modules/spaces/components/checkpoint-rows';
@@ -79,6 +81,7 @@ export function SpaceView({
   const [side, setSide] = useState<Side>(null);
   const [teamOpen, setTeamOpen] = useState(false);
   const [attaching, setAttaching] = useState(false);
+  const [adding, setAdding] = useState(false);
   const { width, startResize } = useResizableWidth({
     key: 'reef.sidePanel.width',
     initial: 400,
@@ -156,6 +159,7 @@ export function SpaceView({
         onWrap={() => wrap.mutate()}
         attachDisabled={running}
         onAttach={() => setAttaching(true)}
+        onAddTeammate={() => setAdding(true)}
         onInspector={() => openSide(side?.kind === 'inspector' ? null : { kind: 'inspector' })}
         onTeam={() => {
           setTeamOpen(!teamOpen);
@@ -167,6 +171,11 @@ export function SpaceView({
           {attaching && (
             <AttachForm space={space} workItems={features} onClose={() => setAttaching(false)} />
           )}
+        </Dialog>
+      )}
+      {space.kind === 'conversation' && (
+        <Dialog open={adding} onClose={() => setAdding(false)} title="Add a Teammate">
+          {adding && <AddTeammateForm space={space} onClose={() => setAdding(false)} />}
         </Dialog>
       )}
       <div className="relative flex min-h-0 flex-1">
@@ -238,7 +247,19 @@ export function SpaceView({
           <div className="shrink-0 px-3.5 pb-5 pt-2 md:px-7">
             <div className="mx-auto max-w-5xl space-y-2">
               {space.paused !== '' && <PausedBanner spaceId={space.id} reason={space.paused} />}
-              {closed ? (
+              {space.movedTo !== null ? (
+                <div className="flex items-center gap-3 rounded-card border border-hairline px-4 py-3">
+                  <span className="min-w-0 flex-1 text-sm text-muted">
+                    This conversation moved to a new Space
+                  </span>
+                  <Link
+                    to={`/spaces/${space.movedTo}`}
+                    className="text-sm text-fg underline underline-offset-2"
+                  >
+                    Open the Space
+                  </Link>
+                </div>
+              ) : closed ? (
                 <div className="flex items-center gap-3 rounded-card border border-hairline px-4 py-3">
                   <span className="min-w-0 flex-1 text-sm text-muted">Wrapped</span>
                   {reopen.isError && (
