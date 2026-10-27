@@ -247,6 +247,9 @@ func TestFirstPrompt_QuickSession(t *testing.T) {
 	want := `## You
 You are the lead in project "shop" (` + p.Path + `).
 This is a quick session: it has no feature yet, so there is no brief or feature items.
+
+## How to work
+Details are on demand through the reef MCP tools recall and read_memory. Save what holds across the project or for you with remember, scope project or teammate.
 `
 	if got != want {
 		t.Errorf("quick session with no memory =\n%s\nwant\n%s", got, want)
@@ -279,8 +282,13 @@ This is a quick session: it has no feature yet, so there is no brief or feature 
 			t.Errorf("quick session =\n%s\nwant it to contain %q", got, want)
 		}
 	}
+	for _, want := range []string{"recall", "read_memory", "remember, scope project or teammate"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("quick session =\n%s\nwant it to name %q", got, want)
+		}
+	}
 	if strings.Contains(got, "list_tasks") {
-		t.Errorf("quick session =\n%s\nwant no tools line", got)
+		t.Errorf("quick session =\n%s\nwant no feature tools", got)
 	}
 }
 

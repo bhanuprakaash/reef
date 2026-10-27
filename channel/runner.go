@@ -42,7 +42,7 @@ type Runner struct {
 	// session. It is built after the turn's start is stamped, so what is written after it is
 	// in the prompt or the next delta.
 	FirstPrompt func(ctx context.Context) (string, error)
-	// Memory is read for the delta of a feature's channel.
+	// Memory is read for the delta of a channel.
 	Memory *memory.Store
 	// OnNote, when set, is called after the watch posts a message, so a window shows it.
 	OnNote func()
@@ -356,12 +356,12 @@ func (r *Runner) wake(text string) string {
 	return text
 }
 
-// delta is what changed in the channel's feature since the session was last sent a prompt. It
-// is empty for a channel without a feature and for a session that has been sent none. A turn
+// delta is what changed in the channel's memory scopes since the session was last sent a prompt.
+// It is empty for a session that has been sent none. A turn
 // that failed before it sent told the agent nothing, so it does not move the point.
 func (r *Runner) delta(ctx context.Context) (string, error) {
 	ch, err := r.st.Channel(ctx, r.channelID)
-	if err != nil || ch.FeatureID == nil || r.sessionID == "" {
+	if err != nil || r.sessionID == "" {
 		return "", err
 	}
 	since, ok, err := r.st.LastSentAt(ctx, ch.ID, r.role, r.sessionID)

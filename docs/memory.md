@@ -318,8 +318,10 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
      specialist's post back to the user, because they see it. `reef context` has no team and
      prints none of this.
    - On a feature, one line that names the tools for details (`recall`, `read_memory`, `read_thread`,
-     `list_tasks`, `search_sessions`), `remember` and `propose_brief`. Those tools need a
-     feature, so a quick session gets no such line, and a quick session with a team of one has no `## How to work` at all.
+     `list_tasks`, `search_sessions`), `remember` and `propose_brief`. A quick session gets a
+     shorter one: details are on demand through `recall` and `read_memory`, and `remember` saves
+     what holds across the project or for the role, with scope `project` or `teammate`. So a
+     quick session always has a `## How to work`.
 3. `## What we know`, each part under a `###` label and only when it has content:
    - `### Brief`: the latest brief, in full. Features only.
    - `### Decisions`: every live decision item in the feature's `work_item` scope, newest first,
@@ -425,7 +427,7 @@ its first turn: a first message that goes to a specialist starts no lead.
 - With a turn of the role that has a session id, the agent resumes the session of the newest
   such turn, and the context prompt is not sent again, unless the role's persona or skills
   changed since that turn: then the persona and skills go before the wake text, marked as changed.
-  On a channel with a feature, the wake text then holds what changed since the session's
+  The wake text then holds what changed since the session's
   previous turn: the newest turn of that role, channel and session that sent its prompt, by its
   start time. A turn that failed before it sent told the agent nothing, so it does not count.
   The text goes right after the wake's `[channel N, message N]` header line, before any
@@ -439,7 +441,7 @@ its first turn: a first message that goes to a specialist starts no lead.
   nothing replaced it) for each one retired since. An item added and retired since is named as
   retired only: the role may have seen it in its previous turn. A candidate, a rejected item
   and the `teammate` items of another role never appear. Under `### New brief`: the latest brief,
-  in full, when a version is newer; the next turn does not repeat it. A wake with no change has
+  in full, when a version is newer (a feature's channel only); the next turn does not repeat it. A wake with no change has
   neither part, tasks are never in it, and a change alone starts no turn. Nothing is stored for
   it: the turn's `prompt` holds the text. It is built after the turn's start is stamped, so what
   is written while the turn waits for its tree is in it or in the next one, never in neither.

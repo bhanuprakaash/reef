@@ -203,6 +203,9 @@ func TestOpen_QuickSession(t *testing.T) {
 	}
 	want := "## You\nYou are the architect in project \"shop\" (" + p.Path + ").\n" +
 		"This is a quick session: it has no feature yet, so there is no brief or feature items.\n" +
+		"\n## How to work\n" +
+		"Details are on demand through the reef MCP tools recall and read_memory. " +
+		"Save what holds across the project or for you with remember, scope project or teammate.\n" +
 		"\n\nhi"
 	if len(ag.prompts) != 1 || ag.prompts[0] != want {
 		t.Errorf("prompts = %q, want [%q]", ag.prompts, want)
@@ -231,6 +234,33 @@ func TestOpen_QuickSession_ProjectMemory(t *testing.T) {
 		"1 of 1; recall(..., scope=project)\n"
 	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], want) {
 		t.Errorf("prompts = %q, want it to contain %q", ag.prompts, want)
+	}
+}
+
+func TestOpen_QuickSession_SecondTurnListsProjectItemAddedSinceTheFirst(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ms := testMemory(t, st)
+	ch := sessionChannel(t, st, f, true)
+	ag := newRecordingAgent()
+
+	s, err := Open(ctx, st, ms, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if err := sendAs(ctx, st, ch.ID, s.Run, "one", discard); err != nil {
+		t.Fatal(err)
+	}
+	day := remember(t, ms, projectScope(f), memory.KindFact, "user", "Use Go, not Python.").
+		CreatedAt.Format(_dateLayout)
+	if err := sendAs(ctx, st, ch.ID, s.Run, "two", discard); err != nil {
+		t.Fatal(err)
+	}
+
+	want := "### Changed since your last turn\nfact 1: Use Go, not Python. (user, " + day + ")\n\ntwo"
+	if len(ag.prompts) != 2 || ag.prompts[1] != want {
+		t.Errorf("prompts = %q, want the second to be %q", ag.prompts, want)
 	}
 }
 
