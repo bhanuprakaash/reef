@@ -452,12 +452,12 @@ api_call GET /inbox
 inbox_kinds_ok=1
 [ "$budget_status" = 409 ] || inbox_kinds_ok=0
 echo "$budget_body" | grep -q 'space 8 is paused: token budget of 1 used: [0-9]* tokens: conflict' || inbox_kinds_ok=0
-echo "$BODY" | grep -q "\"kind\":\"failed\",\"spaceId\":9" || inbox_kinds_ok=0
+echo "$BODY" | grep -q "\"kind\":\"failed\",\"group\":\"needs_you\",\"spaceId\":9" || inbox_kinds_ok=0
 echo "$BODY" | grep -q '"text":"lead failed: server restarted"' || inbox_kinds_ok=0
 echo "$BODY" | grep -qF "\"turnId\":$C" || inbox_kinds_ok=0
-echo "$BODY" | grep -q '"kind":"paused","spaceId":8' || inbox_kinds_ok=0
+echo "$BODY" | grep -q '"kind":"paused","group":"needs_you","spaceId":8' || inbox_kinds_ok=0
 echo "$BODY" | grep -q '"text":"token budget of 1 used: [0-9]* tokens"' || inbox_kinds_ok=0
-echo "$BODY" | grep -q '"kind":"waiting","spaceId":4' || inbox_kinds_ok=0
+echo "$BODY" | grep -q '"kind":"waiting","group":"fyi","spaceId":4' || inbox_kinds_ok=0
 check inbox-kinds "$inbox_kinds_ok" "inbox has failed(9), paused(8) and waiting(4) items"
 
 api_call POST /spaces/8/continue
@@ -474,7 +474,7 @@ api_call GET /inbox
 for ch in 4 9; do
 	echo "$BODY" | grep -q "\"spaceId\":$ch" && clear_ok=0
 done
-echo "$BODY" | grep -q '"kind":"paused","spaceId":8' && clear_ok=0
+echo "$BODY" | grep -q '"kind":"paused","group":"needs_you","spaceId":8' && clear_ok=0
 
 wait_done 9 1
 wait_done 4 2
@@ -489,18 +489,18 @@ wait_done 8 2
 
 api_call GET /inbox
 for ch in 4 8 9; do
-	echo "$BODY" | grep -q "\"kind\":\"waiting\",\"spaceId\":$ch" || clear_ok=0
+	echo "$BODY" | grep -q "\"kind\":\"waiting\",\"group\":\"fyi\",\"spaceId\":$ch" || clear_ok=0
 done
 check inbox-clear "$clear_ok" "continue/retry/send cleared their items (204,202,202); each Space ran on and now lists a new waiting item"
 
 kill "$inbox_stream_pid" 2>/dev/null
 wait "$inbox_stream_pid" 2>/dev/null
-frames=$(grep '^data:' "$E/inbox-events.txt" | while IFS= read -r l; do echo "$l" | grep -o '"kind":"[a-z]*","spaceId":[489]' | tr '\n' ' '; echo; done)
+frames=$(grep '^data:' "$E/inbox-events.txt" | while IFS= read -r l; do echo "$l" | grep -o '"kind":"[a-z_]*","group":"[a-z_]*","spaceId":[489]' | tr '\n' ' '; echo; done)
 stream_ok=1
 [ -n "$frames" ] || stream_ok=0
-echo "$frames" | head -1 | grep -q '"kind":"failed","spaceId":9' || stream_ok=0
-echo "$frames" | grep -q '"kind":"paused","spaceId":8' || stream_ok=0
-echo "$frames" | grep -q '"kind":"waiting","spaceId":9' || stream_ok=0
+echo "$frames" | head -1 | grep -q '"kind":"failed","group":"needs_you","spaceId":9' || stream_ok=0
+echo "$frames" | grep -q '"kind":"paused","group":"needs_you","spaceId":8' || stream_ok=0
+echo "$frames" | grep -q '"kind":"waiting","group":"fyi","spaceId":9' || stream_ok=0
 check inbox-stream "$stream_ok" "frames across the stream: $(echo "$frames" | tr '\n' '|')"
 
 "$H" sql --write "update Space set token_budget = 1 where id = 8" >/dev/null
@@ -516,9 +516,9 @@ echo "$BODY" >"$E/inbox-after.txt"
 restart_ok=1
 [ "$restart_budget_status" = 409 ] || restart_ok=0
 diff "$E/inbox-before.txt" "$E/inbox-after.txt" >/dev/null || restart_ok=0
-kinds_after=$(grep -o '"kind":"[a-z]*","spaceId":[0-9]*' "$E/inbox-after.txt")
-echo "$kinds_after" | grep -q '"kind":"paused","spaceId":8' || restart_ok=0
-echo "$kinds_after" | grep -q '"kind":"failed","spaceId":5' || restart_ok=0
+kinds_after=$(grep -o '"kind":"[a-z_]*","group":"[a-z_]*","spaceId":[0-9]*' "$E/inbox-after.txt")
+echo "$kinds_after" | grep -q '"kind":"paused","group":"needs_you","spaceId":8' || restart_ok=0
+echo "$kinds_after" | grep -q '"kind":"failed","group":"needs_you","spaceId":5' || restart_ok=0
 echo "$kinds_after" | grep -q '"kind":"waiting"' || restart_ok=0
 check inbox-restart "$restart_ok" "inbox before/after a restart match byte for byte: $(echo "$kinds_after" | tr '\n' ' ')"
 }
@@ -749,7 +749,7 @@ A=$(cat "$S/serve.addr")
 F2=$("$H" sql "select id from turn where space_id = 1 order by id desc limit 1" | tail -1)
 api_call GET /inbox
 note_retry_ok=1
-echo "$BODY" | grep -qF "\"kind\":\"failed\",\"spaceId\":1" || note_retry_ok=0
+echo "$BODY" | grep -qF "\"kind\":\"failed\",\"group\":\"needs_you\",\"spaceId\":1" || note_retry_ok=0
 echo "$BODY" | grep -qF '"text":"developer failed: server restarted"' || note_retry_ok=0
 echo "$BODY" | grep -qF "\"turnId\":$F2" || note_retry_ok=0
 api_call POST "/turns/$F2/rollback"
@@ -783,7 +783,7 @@ echo "$BODY" | grep -qF "turn $G cannot be retried: conflict" || superseded_ok=0
 api_call GET '/turns?space=1&retryable=1'
 [ "$BODY" = "[]" ] || superseded_ok=0
 api_call GET /inbox
-echo "$BODY" | grep -q "\"kind\":\"failed\",\"spaceId\":1" && superseded_ok=0
+echo "$BODY" | grep -q "\"kind\":\"failed\",\"group\":\"needs_you\",\"spaceId\":1" && superseded_ok=0
 check retry-superseded "$superseded_ok" "retry of the superseded turn $G is 409, not retryable, not in the inbox"
 
 api_call POST /spaces/1/wrap

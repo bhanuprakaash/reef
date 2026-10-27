@@ -23,6 +23,7 @@ wait_for() { for i in $(seq 40); do curl -s "http://$A$1" | grep -q "$2" && retu
 wait_item() { for i in $(seq 40); do [ "$(item "$1")" = "$2" ] && return 0; sleep 1; done; echo "timeout: item $1 never was $2" >&2; return 1; } # wait_item ID status:position
 item() { "$H" sql "select status || ':' || coalesce(queue_position, '-') from work_item where id = $1" | tail -1; } # item ID -> status:position
 spaces() { "$H" sql "select count(*) from space where work_item_id = $1" | tail -1; } # spaces ITEM -> count
+started() { curl -s "http://$A/inbox" | grep -o "\"kind\":\"started\",\"group\":\"fyi\",\"spaceId\":0,\"workItemId\":$1," | wc -l | tr -d ' '; } # started ITEM -> count of its started items in the inbox
 start_server() { ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name queue >/dev/null; A=$(cat "$S/serve.addr"); }
 
 ### Project (a git repo with one commit), the solo team (id 1) and four work items
@@ -96,8 +97,9 @@ wait_for "/spaces?workItem=2" '"workItemId":2' || submit_ok=0
 wait_done 2 1 || submit_ok=0
 [ "$before" = "queued:1" ] || submit_ok=0
 [ "$(item 2)" = "in_progress:-" ] || submit_ok=0
-note=$("$H" sql "select count(*) from message where space_id = 2 and author = 'reef' and body = 'Started from the queue.'" | tail -1)
+note=$(started 2)
 [ "$note" = 1 ] || submit_ok=0
+[ "$("$H" sql "select count(*) from message where space_id = 2 and author = 'reef'" | tail -1)" = 0 ] || submit_ok=0
 first=$("$H" sql "select body from message where space_id = 2 and author = 'user' order by id limit 1" | tail -n +2 | head -1)
 [ "$first" = "Work item 2: Logout" ] || submit_ok=0
 check queue-submit-starts "$submit_ok" "before submit item 2 $before; after: item 1 $(item 1), item 2 $(item 2), Spaces of item 2: $(spaces 2), started notes: $note, first prompt: $first"
@@ -127,8 +129,9 @@ echo "$submit_out" | grep -q '< isError=false' || restart_ok=0
 [ "$queued_before" = "queued:1" ] || restart_ok=0
 [ "$(item 2)" = "review:-" ] || restart_ok=0
 [ "$(item 3)" = "in_progress:-" ] || restart_ok=0
-note=$("$H" sql "select count(*) from message where space_id = 3 and author = 'reef' and body = 'Started from the queue.'" | tail -1)
+note=$(started 3)
 [ "$note" = 1 ] || restart_ok=0
+[ "$("$H" sql "select count(*) from message where space_id = 3 and author = 'reef'" | tail -1)" = 0 ] || restart_ok=0
 check queue-restart-starts "$restart_ok" "item 3 queued $queued_before; submit while down: $(echo "$submit_out" | grep '^< ' | cut -c1-60); item 3 $before before the restart; after: item 2 $(item 2), item 3 $(item 3), Spaces of item 3: $(spaces 3), started notes: $note"
 
 ### Send item 1 back: it goes to position 1, ahead of an item queued earlier, and starts next
