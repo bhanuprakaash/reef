@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"regexp"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -646,6 +647,63 @@ func TestMCPProposeWrapTeamItemsOnlyFromTheLeadOfARealTeam(t *testing.T) {
 	got, isErr = callTool(t, st, lead)("propose_wrap", give)
 	if want := `{"id":1,"message":"proposal saved; the user will approve it"}`; got != want || isErr {
 		t.Errorf("lead propose_wrap = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
+func TestMCPSubItems(t *testing.T) {
+	ctx := context.Background()
+	st, _ := mcpFixture(t)
+	if _, err := st.CreateTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Backend: "claude"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	one := int64(1)
+	closeSpace(t, st, 1)
+	ch, err := st.CreateSpace(ctx, store.Space{
+		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead, err := st.CreateToken(ctx, ch.ID, "lead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	developer, err := st.CreateToken(ctx, ch.ID, "developer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	leadCall, devCall := callTool(t, st, lead), callTool(t, st, developer)
+
+	for _, title := range []string{"Schema", "Handlers"} {
+		if got, isErr := leadCall("create_sub_item", map[string]any{"title": title}); isErr {
+			t.Fatalf("create_sub_item %q = %q", title, got)
+		}
+	}
+	got, isErr := leadCall("list_sub_items", nil)
+	want := `{"subItems":[{"id":3,"status":"backlog","title":"Schema","type":"task"},` +
+		`{"id":4,"status":"backlog","title":"Handlers","type":"task"}]}`
+	if got != want || isErr {
+		t.Errorf("list_sub_items = %q (error %v), want %q", got, isErr, want)
+	}
+
+	got, isErr = devCall("set_sub_item_status", map[string]any{"id": 3, "status": "done"})
+	if want := "invalid: only the lead sets a sub-item's status"; got != want || !isErr {
+		t.Errorf("developer set_sub_item_status = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = leadCall("set_sub_item_status", map[string]any{"id": 3, "status": "done"})
+	if !strings.Contains(got, `"status":"done"`) || isErr {
+		t.Errorf("lead set_sub_item_status = %q (error %v), want status done", got, isErr)
+	}
+	got, isErr = leadCall("set_sub_item_status", map[string]any{"id": 2, "status": "done"})
+	if want := "sub-item 2: not found"; got != want || !isErr {
+		t.Errorf("set_sub_item_status on another work item = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = devCall("read_sub_item", map[string]any{"id": 4})
+	if !strings.Contains(got, `"title":"Handlers"`) || isErr {
+		t.Errorf("read_sub_item = %q (error %v), want the Handlers sub-item", got, isErr)
 	}
 }
 

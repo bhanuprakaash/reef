@@ -45,6 +45,21 @@ func TestFirstPrompt_Size(t *testing.T) {
 		}
 		closeSpace(t, st, c.ID)
 	}
+	for i := 1; i <= 40; i++ {
+		w, err := st.CreateWorkItem(ctx, store.WorkItem{
+			ProjectID: f.ProjectID, ParentID: &f.ID, Type: "task", Title: fmt.Sprintf("sub-item title %d", i),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		status := map[int]string{1: "in_progress", 2: "in_progress", 3: "done", 4: "done", 5: "dropped"}[i]
+		if status == "" {
+			continue
+		}
+		if _, err := st.MoveWorkItem(ctx, w.ID, status, store.ByLead); err != nil {
+			t.Fatal(err)
+		}
+	}
 	lead := store.Role{Name: "lead", Lead: true}
 	team := store.Team{Name: "core", Roles: []store.Role{lead, {Name: "developer"}}}
 
@@ -62,7 +77,7 @@ func TestFirstPrompt_Size(t *testing.T) {
 	}
 	for _, h := range []string{
 		"### Brief\n", "### Decisions\n", "### Findings\n", "### Project\n", "### Team\n",
-		"### Your items\n", "### On demand\n",
+		"### Your items\n", "### In progress\n", "### On demand\n",
 	} {
 		if n := strings.Count(got, h); n != 1 {
 			t.Errorf("header %q appears %d times in\n%s", h, n, got)
@@ -81,8 +96,14 @@ func TestFirstPrompt_Size(t *testing.T) {
 	if n := strings.Count(got, "\nfinding "); n != 25 {
 		t.Errorf("finding lines = %d, want 5+10+5+5", n)
 	}
-	if want := "15 earlier Spaces (search_sessions).\n"; !strings.HasSuffix(got, want) {
+	if want := "### On demand\n37 open sub-items (list_sub_items). 15 earlier Spaces (search_sessions).\n"; !strings.HasSuffix(got, want) {
 		t.Errorf("prompt does not end with %q:\n%s", want, got)
+	}
+	if want := "### In progress\nsub-item 2: sub-item title 1 (task)\nsub-item 3: sub-item title 2 (task)\n"; !strings.Contains(got, want) {
+		t.Errorf("prompt does not have %q:\n%s", want, got)
+	}
+	if n := strings.Count(got, "\nsub-item "); n != 2 {
+		t.Errorf("sub-item lines = %d, want only the 2 in progress", n)
 	}
 	if strings.Contains(got, "second line") {
 		t.Error("a decision shows its second line")

@@ -162,7 +162,24 @@ func workItemKnow(
 		return nil, err
 	}
 
-	var counts []string
+	subs, err := st.WorkItems(ctx, store.WorkItemFilter{ParentID: &f.ID})
+	if err != nil {
+		return nil, err
+	}
+	var counts, doing []string
+	open := 0
+	for _, w := range subs {
+		switch w.Status {
+		case "done", "dropped":
+			continue
+		case "in_progress":
+			doing = append(doing, fmt.Sprintf("sub-item %d: %s (%s)", w.ID, firstLine(w.Title), w.Type))
+		}
+		open++
+	}
+	if open > 0 {
+		counts = append(counts, fmt.Sprintf("%d open %s (list_sub_items).", open, plural(open, "sub-item")))
+	}
 	earlier := 0
 	for _, c := range spaces {
 		if c.ID == ch.ID {
@@ -181,6 +198,7 @@ func workItemKnow(
 	}
 
 	parts := appendPart(nil, "Brief", brief.Body)
+	parts = appendPart(parts, "In progress", strings.Join(doing, "\n"))
 	if parts, err = itemParts(ctx, st, ms, parts, ch, role); err != nil {
 		return nil, err
 	}

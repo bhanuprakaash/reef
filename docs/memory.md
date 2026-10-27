@@ -17,7 +17,7 @@ Reef has no handoff file. A new session starts with three things:
 - The work item's brief: goal, status, key decisions, open questions.
 - Memory items: every live decision of the work item and the newest findings, project, team and
   teammate items, each part with a count of how many exist.
-- An index: a count of the earlier Spaces.
+- An index: the sub-items in progress, and a count of the open sub-items and the earlier Spaces.
 
 It never gets old message bodies. When it needs details, it fetches them on demand with
 the MCP tools (`recall`, `read_memory`, `read_thread`, `search_sessions`). So the first prompt
@@ -215,6 +215,10 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `read_direct_messages` | `after` (only newer direct-message ids) | `{"messages": [...]}` containing only exchanges in this Space where the token's role is sender or recipient | |
 | `propose_wrap` | `brief` (required); `items` (memory items not saved with `remember` yet), `retire` (ids of live memory items that are stale or duplicate). Each item is `{"kind", "body", "why", "scope", "replaces"}`: `kind` and `body` required, `scope` is `work_item` (the default), `project`, `teammate`, or `team` when the token's role leads the Space's team, `replaces` lists live item ids it replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: item body is required`, `invalid: unknown item kind "x"`, `invalid: scope "x" is not one of work_item, project, teammate` (a solo Space has no `team` scope; a Space of a real team adds `team`), `invalid: only the lead of team "core" can propose team items`, `invalid: memory 9 is not a live item in work_item:1, project:1, teammate:architect` (a `retire` id that is not an accepted item of the work item, project, team or role here; a `replaces` id must be an accepted item of the new item's own scope) (nothing is stored) |
 | `propose_brief` | `brief` (required) | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: space 1 has a wrap-up waiting for approval` |
+| `create_sub_item` | `title` (required), `description`, `type` (a label: `feature`, `bug`, `incident`, `investigation`, `task` or `improvement`; default `task`) | the new sub-item as the work item REST returns it, in status `backlog`, under the token's work item, which it shares the worktree with. Any teammate of the Space may add one | `invalid: work item title is required`, `invalid: unknown type "epic"`, `this Space has no work item` |
+| `list_sub_items` | none | `{"subItems": [{"id", "type", "title", "status"}]}`: the work item's sub-items, oldest first, every status | `this Space has no work item` |
+| `read_sub_item` | `id` (required) | one sub-item in full: `description`, `status` and `acceptanceLines` | `sub-item 9: not found`, also for a work item that is not a sub-item of the token's work item |
+| `set_sub_item_status` | `id`, `status` (required: `backlog`, `queued`, `in_progress`, `needs_you`, `review`, `done` or `dropped`) | the sub-item with its new status. Only the lead of the Space's team may call it; it is the one that sets a sub-item `done`. The move goes through the same function as every status change, so a sub-item that is `done` or `dropped` does not move again. A top-level work item goes to `review` only when every sub-item is `done` or `dropped` | `invalid: only the lead sets a sub-item's status`, `sub-item 9: not found`, `invalid: work item 3: lead cannot move an item from done to in_progress`, `invalid: work item 4: unknown status "x"` |
 | `browser_navigate` | `url` (required) | `{"text": "navigated to <url>"}` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser`, `refused: the browser pane cannot open Reef itself` (or another `refused: ...` for a non-http(s) URL), the page's own error (e.g. `net::ERR_CONNECTION_REFUSED`) when it fails to load |
 | `browser_screenshot` | none | a PNG image of the browser pane's current page | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
 | `browser_snapshot` | none | the page's accessibility tree as text, one line per element: `- role "name" [ref=e12]`. A ref is only valid until the next snapshot or a navigation | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
@@ -310,6 +314,8 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
      quick session always has a `## How to work`.
 3. `## What we know`, each part under a `###` label and only when it has content:
    - `### Brief`: the latest brief, in full. Work items only.
+   - `### In progress`: one line `sub-item N: title (type)` for each sub-item of the work item
+     whose status is `in_progress`. Work items only.
    - `### Decisions`: every live decision item in the work item's `work_item` scope, newest first,
      with no limit. Work items only.
    - `### Findings`: the 5 newest accepted findings, facts, conventions and lessons in the
@@ -319,8 +325,10 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
      is a real team: the `solo` team is no team and has none. `reef context` prints none.
    - `### Your items`: the 5 newest accepted items in the role's `teammate` scope.
    - `### On demand`: one line that counts what the role can look up:
-     `3 earlier Spaces (search_sessions).` Earlier Spaces are the work item's Spaces that have
-     messages, not counting the Space the prompt is for. A count of one reads `1 earlier Space`.
+     `4 open sub-items (list_sub_items). 3 earlier Spaces (search_sessions).` Open sub-items
+     are the work item's sub-items that are not `done` or `dropped`, the ones in progress
+     included. Earlier Spaces are the work item's Spaces that have messages, not counting the
+     Space the prompt is for. A count of one reads `1 open sub-item` or `1 earlier Space`.
      A zero count is left out, and the part is left out with it.
 
    Only accepted items are read: a candidate, a rejected item and a retired item never appear.

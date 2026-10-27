@@ -1,6 +1,7 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"errors"
@@ -126,6 +127,27 @@ type (
 		ID      int64  `json:"id" jsonschema:"proposal id"`
 		Message string `json:"message"`
 	}
+	createSubItemIn struct {
+		Title       string `json:"title" jsonschema:"what the sub-item is, in one line"`
+		Description string `json:"description,omitempty" jsonschema:"what to do and how to tell it is done"`
+		Type        string `json:"type,omitempty" jsonschema:"a label: feature, bug, incident, investigation, task or improvement; default task"`
+	}
+	subItemIn struct {
+		ID int64 `json:"id" jsonschema:"sub-item id, from list_sub_items"`
+	}
+	setSubItemStatusIn struct {
+		ID     int64  `json:"id" jsonschema:"sub-item id, from list_sub_items"`
+		Status string `json:"status" jsonschema:"backlog, queued, in_progress, needs_you, review, done or dropped"`
+	}
+	subItemRow struct {
+		ID     int64  `json:"id"`
+		Type   string `json:"type"`
+		Title  string `json:"title"`
+		Status string `json:"status"`
+	}
+	listSubItemsOut struct {
+		SubItems []subItemRow `json:"subItems"`
+	}
 	browserNavigateIn struct {
 		URL string `json:"url" jsonschema:"the URL to open in the browser pane"`
 	}
@@ -210,6 +232,25 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"the full brief (goal, status, key decisions, open questions). The Space goes " +
 			"on; use propose_wrap only to end it.",
 	}, m.proposeBrief)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "create_sub_item",
+		Description: "Add a sub-item to this work item: a piece of its work, in the work item's " +
+			"worktree. Sub-items run one turn at a time. The work item goes to review only when " +
+			"every sub-item is done or dropped.",
+	}, m.createSubItem)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_sub_items",
+		Description: "List this work item's sub-items with their status, oldest first.",
+	}, m.listSubItems)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "read_sub_item",
+		Description: "Read one sub-item in full: description, status and acceptance lines.",
+	}, m.readSubItem)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "set_sub_item_status",
+		Description: "Set the status of a sub-item: backlog, queued, in_progress, needs_you, " +
+			"review, done or dropped. Only the lead may; the lead is the one that sets it done.",
+	}, m.setSubItemStatus)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "browser_navigate",
 		Description: "Open a URL in the shared browser pane. The user watches it live.",
@@ -573,14 +614,96 @@ func (m *mcpServer) proposeWrap(
 }
 
 func (m *mcpServer) requireLead(ctx context.Context, c store.Space) error {
-	t, err := m.st.SpaceTeam(ctx, c.ID)
+	lead, err := m.isLead(ctx)
 	if err != nil {
 		return err
 	}
-	if !slices.ContainsFunc(t.Roles, func(r store.Role) bool { return r.Lead && r.Name == m.tok.Role }) {
+	if !lead {
 		return fmt.Errorf("%w: only the lead of team %q can propose team items", store.ErrInvalid, c.Team)
 	}
 	return nil
+}
+
+func (m *mcpServer) isLead(ctx context.Context) (bool, error) {
+	t, err := m.st.SpaceTeam(ctx, m.tok.SpaceID)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(t.Roles, func(r store.Role) bool {
+		return r.Lead && r.Name == m.tok.Role
+	}), nil
+}
+
+func (m *mcpServer) createSubItem(
+	ctx context.Context, _ *mcp.CallToolRequest, in createSubItemIn,
+) (*mcp.CallToolResult, store.WorkItem, error) {
+	f, err := m.workItem(ctx)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	w, err := m.st.CreateWorkItem(ctx, store.WorkItem{
+		ProjectID: f.ProjectID, ParentID: &f.ID, Type: cmp.Or(in.Type, "task"),
+		Title: in.Title, Description: in.Description,
+	})
+	return nil, w, err
+}
+
+func (m *mcpServer) listSubItems(
+	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
+) (*mcp.CallToolResult, listSubItemsOut, error) {
+	f, err := m.workItem(ctx)
+	if err != nil {
+		return nil, listSubItemsOut{}, err
+	}
+	subs, err := m.st.WorkItems(ctx, store.WorkItemFilter{ParentID: &f.ID})
+	if err != nil {
+		return nil, listSubItemsOut{}, err
+	}
+	out := listSubItemsOut{SubItems: make([]subItemRow, 0, len(subs))}
+	for _, w := range subs {
+		out.SubItems = append(out.SubItems, subItemRow{ID: w.ID, Type: w.Type, Title: w.Title, Status: w.Status})
+	}
+	return nil, out, nil
+}
+
+func (m *mcpServer) readSubItem(
+	ctx context.Context, _ *mcp.CallToolRequest, in subItemIn,
+) (*mcp.CallToolResult, store.WorkItem, error) {
+	w, err := m.subItem(ctx, in.ID)
+	return nil, w, err
+}
+
+func (m *mcpServer) setSubItemStatus(
+	ctx context.Context, _ *mcp.CallToolRequest, in setSubItemStatusIn,
+) (*mcp.CallToolResult, store.WorkItem, error) {
+	lead, err := m.isLead(ctx)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	if !lead {
+		return nil, store.WorkItem{}, fmt.Errorf("%w: only the lead sets a sub-item's status", store.ErrInvalid)
+	}
+	if _, err := m.subItem(ctx, in.ID); err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	w, err := m.st.MoveWorkItem(ctx, in.ID, in.Status, store.ByLead)
+	return nil, w, err
+}
+
+// subItem is the sub-item id of this Space's work item; any other work item is not found.
+func (m *mcpServer) subItem(ctx context.Context, id int64) (store.WorkItem, error) {
+	f, err := m.workItem(ctx)
+	if err != nil {
+		return store.WorkItem{}, err
+	}
+	w, err := m.st.WorkItem(ctx, id)
+	if err != nil {
+		return store.WorkItem{}, err
+	}
+	if w.ParentID == nil || *w.ParentID != f.ID {
+		return store.WorkItem{}, fmt.Errorf("sub-item %d: %w", id, store.ErrNotFound)
+	}
+	return w, nil
 }
 
 func (m *mcpServer) proposeBrief(
