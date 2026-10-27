@@ -316,24 +316,27 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=$id $H serve-start --data-name ui
 Drive: one scenario per call. The first call runs `npm ci` in `scripts/ui`.
 
 ```sh
-REEF_VERIFY_RUN=<id> $H ui live      # claude Space on a feature, tool rows mid-turn, stored reply
-REEF_VERIFY_RUN=<id> $H ui brief     # new Space on a feature with a brief, ask the goal
+REEF_VERIFY_RUN=<id> $H ui live      # claude Space on a Work item, tool rows mid-turn, stored reply
+REEF_VERIFY_RUN=<id> $H ui brief     # new Space on a Work item with a brief, ask the goal
 REEF_VERIFY_RUN=<id> $H ui attach    # free Space, two exchanges, attach to a work item
-REEF_VERIFY_RUN=<id> $H ui cap       # token_budget=1, banner with reason, Continue, next message runs
+REEF_VERIFY_RUN=<id> $H ui cap       # the Work item's token_budget=1, banner with reason, Continue, next message runs
 REEF_VERIFY_RUN=<id> $H ui pages     # bad project path error, a work item added from the sidebar
 REEF_VERIFY_RUN=<id> $H ui stop      # Stop mid-turn shows Failed: interrupted, next message resumes
-REEF_VERIFY_RUN=<id> $H ui wrap      # Wrap up, Reject, /wrap, Approve, brief version 1, Wrapped + Reopen, Close feature
+REEF_VERIFY_RUN=<id> $H ui wrap      # Wrap up, Reject, /wrap, Approve, brief version 1, Wrapped + Reopen, Close Work item
 REEF_VERIFY_RUN=<id> $H ui teams     # team picker, lead then architect, Thread pane reply, lead hands off to the developer with no approval
 REEF_VERIFY_RUN=<id> $H ui team-management # create/edit/delete a Team, responsibility, run a Space, 1280x800 and 390x844
 REEF_VERIFY_RUN=<id> $H ui retry     # Stop mid-turn, Retry on the failed turn row, new turn ends done
 REEF_VERIFY_RUN=<id> $H ui rollback  # a turn writes a file, a commit is made, Rollback restores the tree
 REEF_VERIFY_RUN=<id> $H ui inbox     # a waiting item shows in the inbox, one notification, Dismiss, item opens its Space; then `inbox-groups`
 REEF_VERIFY_RUN=<id> $H ui inbox-groups # the seven causes in Needs you, Review and FYI at 1280x800 and 390x844, Dismiss only on FYI rows, REST refuses a Needs you dismiss
-REEF_VERIFY_RUN=<id> $H ui diff      # a turn writes a file, the review page lists it as A with its line; the Space Diff side panel scrolls a 400-line file and a 35-file list at 1280x800; the feature page's header meta line and the panel's expand button lead there; the file list opens flat, Tree view merges web/src/modules/deep with folders first, folder rows collapse, a tree file opens its diff, the diff still scrolls, the mode survives a reload and carries to the review page, phone keeps the full-path chips without the toggle
-REEF_VERIFY_RUN=<id> $H ui memory    # project page lists, adds and retires the project's memory items, stored in the database and surviving a reload; New feature and New quick session work from the page
+REEF_VERIFY_RUN=<id> $H ui diff      # a turn writes a file, the review page lists it as A with its line; the Space Diff side panel scrolls a 400-line file and a 35-file list at 1280x800; the Work item page's header meta line and the panel's expand button lead there; the file list opens flat, Tree view merges web/src/modules/deep with folders first, folder rows collapse, a tree file opens its diff, the diff still scrolls, the mode survives a reload and carries to the review page, phone keeps the full-path chips without the toggle
+REEF_VERIFY_RUN=<id> $H ui memory    # project page lists, adds and retires the project's memory items, stored in the database and surviving a reload; New Work item and New free Space work from the page
 REEF_VERIFY_RUN=<id> $H ui inspector # full team: lead then developer turns, Inspector panel role blocks match the API, a developer turn expands to its prompt and a tool call
 REEF_VERIFY_RUN=<id> $H ui review    # review page: A/M/D list, struck-through deletion, No text changes, drafts sent as one message to the developer's latest thread
-REEF_VERIFY_RUN=<id> $H ui workshop  # /teams page edits a role's persona, keeps its mcpServers, shows reef team apply's errors, copies a team, next developer wake uses the new persona
+REEF_VERIFY_RUN=<id> $H ui workshop  # /teammates panel edits the developer's persona, creature and skills, keeps its mcpServers; /teams shows reef team apply's errors, saves tools and MCP removal, copies a team; next developer wake uses the new persona
+REEF_VERIFY_RUN=<id> $H ui first-run # the browser project step has no Choose…; a stub desktop bridge's Choose… fills the repo folder (needs a server with no profile and no project)
+REEF_VERIFY_RUN=<id> $H ui theme     # Settings Appearance: Dark, Light and Match macOS restyle the page, survive a reload; text contrast of the Space, inbox and Work item page in both themes (needs `duo`)
+REEF_VERIFY_RUN=<id> $H ui phone     # below 768 px the tab bar replaces the sidebar; each tab one column with 44 px targets; a Space, thread, team and inspector sheets and the review page at 390x844 (needs `duo`)
 REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, picks a type, types, Enter shows Captured and clears the box, a Backlog Work item is stored; "Talk to a Teammate" opens a conversation with the text as its first message; a failing request shows its error
 REEF_VERIFY_RUN=<id> $H ui coordination # direct messages show as one item (working, completed, stopped, failed, Retry) with a Coordination panel and a source-message link, at 1280x800 and 390x844 (needs `duo`)
 REEF_VERIFY_RUN=<id> $H ui team      # full team: header avatars ring the working role; Team opens a popover without changing Space width; Escape, outside click and X close it (needs `full`)
@@ -346,7 +349,7 @@ REEF_VERIFY_RUN=<id> $H ui conversation-move # `@kit` at the start of a line and
 REEF_VERIFY_RUN=<id> $H ui conversation # two conversations with a Teammate (`sam` is made through the API), the sidebar lists them newest first, continuing the older one moves it up and resumes its session, the phone Spaces tab lists both, at 1280x800 and 390x844
 REEF_VERIFY_RUN=<id> $H ui hovercard # sidebar Space hovercard: delay, branch, changes and roles against REST, dismiss on leave, Escape, click and navigation, keyboard focus, light and dark, none at 390 px (needs the team `full`)
 REEF_VERIFY_RUN=<id> $H ui mention # hovercard on an @mention of a teammate in a Space: role, backend and model, persona, state, access and tools against REST, Edit opens the team page with the role selected, unknown @word has no card, dismiss on leave, Escape, click, back, keyboard focus, flip at the right edge, light and dark, none at 390 px (needs the team `full`)
-REEF_VERIFY_RUN=<id> $H ui providers # Settings Providers lists the detected installs with path and version, adds the fake claude folder as a second install (bad folder, wrong kind, taken name show the server error inline), a role picks it in the role panel and the team round-trips, Remove, at 1280x800 and 390x844 in dark and light
+REEF_VERIFY_RUN=<id> $H ui providers # Settings Providers lists the detected installs with path and version, adds the fake claude folder as a second install (bad folder, wrong kind, taken name show the server error inline), a Teammate picks it in the Teammate panel and it round-trips through REST, Remove is refused while a Teammate uses it, at 1280x800 and 390x844 in dark and light
 REEF_VERIFY_RUN=<id> $H ui teammates # create a Teammate on the Teammates page, add it to a Team from the team editor, change its write access in that Team only (REST: Teammate default unchanged), no horizontal scroll at 390x844
 REEF_VERIFY_RUN=<id> $H ui creatures # a Teammate's creature and colour round-trip through POST/PUT/GET /teammates and the New teammate dialog and panel; Sam as lead in one Team and developer in another is one creature with two role badges; a Teammate with no creature is a pebble whatever its role is called; 1280x800 and 390x844
 REEF_VERIFY_RUN=<id> $H ui teammate  # a Teammate's profile page: the Teams it sits in with their own write access, its conversations newest first, its teammate-scope memory against `reef memory recall`, Start conversation opens a new one, empty states, 1280x800 and 390x844
@@ -405,7 +408,7 @@ What it does, in order:
 - Setup: HOME is `<scratch>/home`, so the app's data folder is `<scratch>/home/.config/Reef`
   (Linux) or `<scratch>/home/Library/Application Support/Reef` (Mac). The scratch cwd becomes a
   git repo with one commit, then `$H reef --data-name home/.config/Reef` adds it as a project
-  with the feature `term` and a `developer` token. In fake or record mode it writes
+  with the Work items `Terminal` and `Bare` and a `developer` token for `Terminal`. In fake or record mode it writes
   `<scratch>/home/.bash_profile` and `.zprofile` with `<scratch>/fake` first on `PATH`: the app
   reads `PATH` from the login shell, so this is how its `reef serve`, and any Space turn,
   gets the fake `claude`. A `python3 -m http.server` on a free port serves a test page: a form
@@ -420,7 +423,7 @@ What it does, in order:
   the socket, as an agent's would. The window is driven over the DevTools port with
   `scripts/cdp.mjs PORT APP_PORT EXPRESSION`, which evaluates in the main window (the page on
   `127.0.0.1:APP_PORT`, 10 s limit; `cdp` fails at once when the app is gone), where the preload's `window.reef` lives: `setTakeOver(true|false)` for the
-  Take over button, `history.pushState` plus a `popstate` event to open `/features/<id>`, and
+  Take over button, `history.pushState` plus a `popstate` event to open `/work-items/<id>`, and
   `writeTerminal(cwd, 'pwd; git branch --show-current\r')` to type into the terminal pane.
 - Quit: SIGTERM to the Electron main process (a quit request, like Cmd+Q), then every process
   the app had (sampled before quit) must be gone, and `browser.sock` too.
