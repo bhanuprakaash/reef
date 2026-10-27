@@ -317,7 +317,7 @@ no `No brief yet.`, no `No notes yet.` and no `none`. A section with no part lef
      prints none of this.
    - On a feature, one line that names the tools for details (`read_decision`, `read_thread`,
      `list_tasks`, `search_sessions`), `record_decision` and `propose_brief`. Those tools need a
-     feature, so a quick session gets no such line, and with a team of one the section is left out.
+     feature, so a quick session gets no such line, and a quick session with a team of one has no `## How to work` at all.
 3. `## What we know`, each part under a `###` label and only when it has content:
    - `### Brief`: the latest brief.
    - `### Project memory`: the project's memory (see [server.md](server.md#project_memory)). A
