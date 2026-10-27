@@ -1,11 +1,11 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
 // REEF_FAKE_GH (pr only: the folder the server's fake gh keeps its PR in, see fake-gh/gh).
 // REEF_FAKE_LOG (denials and naming only: the fake claude's log, one line per turn with its args).
-// REEF_UI_REEF (memory only: the reef binary, to run reef memory add).
+// REEF_UI_REEF (memory and teammate only: the reef binary, to run reef memory add and recall).
 // REEF_UI_FAKE (providers only: the folder holding the fake claude, used as a second install).
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, teammate };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -3141,6 +3141,103 @@ async function creatures() {
   await main.getByRole('button', { name: 'New teammate' }).click();
   await page.getByRole('dialog', { name: 'New teammate' }).getByRole('button', { name: /^Change creature/ }).click();
   await shot('phone-picker');
+}
+
+async function teammate() {
+  const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const call = async (method, route, body) => {
+    const res = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`${method} ${route}: ${res.status} ${await res.text()}`);
+    return res.json();
+  };
+  const reef = (...args) => execFileSync(process.env.REEF_UI_REEF, ['memory', '--data', data, ...args], { encoding: 'utf8' }).trim();
+  const suffix = Date.now().toString(36);
+  const [teamA, teamB] = ['alpha', 'beta'].map((n) => `${n}-${suffix}`);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await addProject();
+  const project = (await getJson('/projects')).at(-1).id;
+
+  const sam = await call('POST', '/teammates', { name: `sam-${suffix}`, persona: `Reviews the ${suffix} release notes.`, backend: 'claude', model: 'sonnet', face: 'otter', colour: 'violet' });
+  const ada = await call('POST', '/teammates', { name: `ada-${suffix}`, backend: 'claude' });
+  const loner = await call('POST', '/teammates', { name: `loner-${suffix}`, backend: 'claude' });
+  const member = (t, name, extra) => ({ teammateId: t.id, name, backend: 'claude', ...extra });
+  await call('POST', '/teams', { name: teamA, roles: [member(ada, 'lead', { lead: true }), member(sam, 'developer')] });
+  await call('POST', '/teams', { name: teamB, roles: [member(sam, 'reviewer', { lead: true })] });
+  await call('PUT', `/teams/${teamA}/members/${sam.id}`, { lead: false, write: true, tools: [], permissionMode: 'acceptEdits' });
+
+  const word = `note${suffix}`;
+  const scope = `teammate:${sam.id}`;
+  for (const body of [`${word} always run the linter first`, `${word} prefers small commits`, `${word} retired habit`]) {
+    reef('add', 'fact', body, '--scope', scope, '--as', 'user');
+  }
+  const retiredId = (await getJson(`/memory?scope=${scope}`)).find((m) => m.body.endsWith('retired habit')).id;
+  reef('retire', String(retiredId));
+  reef('add', 'fact', `${word} sits in the project scope`, '--scope', `project:${project}`, '--as', 'user');
+
+  await call('POST', '/spaces', { projectId: project, name: 'older chat', teammateId: sam.id, kind: 'conversation' });
+  await call('POST', '/spaces', { projectId: project, name: 'newer chat', teammateId: sam.id, kind: 'conversation' });
+
+  await page.goto(`${base}/teammates?teammate=${sam.id}`);
+  await main.getByRole('link', { name: 'Open profile' }).click();
+  await page.waitForURL(`**/teammates/${sam.id}`);
+  await main.getByRole('heading', { name: sam.name, level: 1 }).waitFor();
+  check(true, 'Open profile on the Teammates page panel opens /teammates/{id}');
+  await main.getByRole('region', { name: 'Teams' }).getByRole('link').first().waitFor();
+
+  const teamsCard = main.getByRole('region', { name: 'Teams' });
+  const teamRows = (await teamsCard.getByRole('link').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
+  const rest = (await getJson('/teams')).flatMap((t) => t.roles.filter((r) => r.teammateId === sam.id).map((r) => ({ team: t.name, role: r.name, write: r.write })));
+  const shown = (r) => teamRows.some((t) => t.startsWith(`${r.team} ${r.role}`) && t.endsWith(r.write ? 'edits code' : 'read-only'));
+  check(rest.length === 2 && rest.every(shown), 'both Teams show with their own role and write access, and REST agrees', `${JSON.stringify(rest)} | ${JSON.stringify(teamRows)}`);
+  check(rest.find((r) => r.team === teamA).write === true && rest.find((r) => r.team === teamB).write === false, 'the two Teams have different write access in REST');
+  check((await main.getByText(`Reviews the ${suffix} release notes.`).count()) === 1, 'the persona shows');
+  check((await main.getByText('Sonnet', { exact: true }).or(main.getByText('sonnet', { exact: true })).count()) === 1, 'the model chip shows');
+
+  const memoryCard = main.getByRole('region', { name: 'Memory' });
+  await memoryCard.getByText(`${word} prefers small commits`).waitFor();
+  const shownMemory = (await memoryCard.getByRole('listitem').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim()).sort();
+  const recalled = reef('recall', word, '--scope', scope).split('\n').filter((l) => l.split('  ')[1] === 'accepted').map((l) => l.split('  ').slice(5).join('  ')).sort();
+  const listed = (await getJson(`/memory?scope=${scope}`)).map((m) => `${m.kind} ${m.body}`).sort();
+  check(
+    recalled.length === 2 && JSON.stringify(shownMemory) === JSON.stringify(listed) && listed.every((l, i) => l.endsWith(recalled[i])),
+    "the memory list equals recall over the teammate scope (retired and other-scope items left out)",
+    `page ${JSON.stringify(shownMemory)} | recall ${JSON.stringify(recalled)}`,
+  );
+  const memoryCount = (await memoryCard.locator('h2 + span').innerText()).trim();
+  check(memoryCount === '2', 'the memory count matches', memoryCount);
+
+  const convoCard = main.getByRole('region', { name: 'Conversations' });
+  await convoCard.getByRole('link', { name: /newer chat/ }).waitFor();
+  const order = async () => (await convoCard.getByRole('link').evaluateAll((as) => as.map((a) => a.getAttribute('href').split('/').pop())));
+  const restOrder = async () => (await getJson(`/teammates/${sam.id}/conversations`)).map((c) => String(c.id));
+  check((await order()).join() === (await restOrder()).join() && (await order()).length === 2, 'the conversations list matches REST, newest first', (await order()).join());
+  check((await convoCard.getByRole('link').first().innerText()).includes('newer chat'), 'the newer conversation is first');
+  await shot('desktop-1280x800');
+
+  await main.getByRole('button', { name: 'Start conversation' }).click();
+  await page.waitForURL((u) => /\/spaces\/\d+$/.test(u.pathname));
+  const spaceId = page.url().split('/').pop();
+  const row = sql(`select kind, team_id is null from Space where id=${spaceId}`);
+  const members = sql(`select teammate_id from space_member where space_id=${spaceId}`);
+  check(row === 'conversation|1' && members === String(sam.id), 'Start conversation opens a new conversation with the Teammate and no Team', `${row} members ${members}`);
+  check(!(await restOrder()).slice(1).includes(spaceId) && (await restOrder())[0] === spaceId, 'REST lists it first', (await restOrder()).join());
+  await page.goto(`${base}/teammates/${sam.id}`);
+  await convoCard.getByRole('link').nth(2).waitFor();
+  check((await order()).join() === (await restOrder()).join() && (await order())[0] === spaceId, 'the profile lists it first after a reload', (await order()).join());
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${base}/teammates/${sam.id}`);
+  await main.getByRole('heading', { name: sam.name, level: 1 }).waitFor();
+  await convoCard.getByRole('link').nth(2).waitFor();
+  check(await noOverflow(), 'the profile has no horizontal scroll at 390x844', `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
+  await shot('phone-390x844');
+  await page.goto(`${base}/teammates/${loner.id}`);
+  await main.getByRole('heading', { name: loner.name, level: 1 }).waitFor();
+  check((await main.getByText('In no Team yet').count()) === 1 && (await main.getByText('No conversations yet').count()) === 1 && (await main.getByText('Nothing remembered yet').count()) === 1, 'a Teammate with no Team, conversation or memory shows three empty states');
+  await shot('phone-empty-390x844');
+  await page.goto(`${base}/teammates/999999`);
+  await main.getByText('No teammate 999999').waitFor();
+  check(true, 'an unknown Teammate shows an error, not a blank page');
 }
 
 async function board() {
