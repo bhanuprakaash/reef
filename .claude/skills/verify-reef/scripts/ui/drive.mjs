@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page|space-header|sidebar BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page|space-header|sidebar BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -16,7 +16,7 @@ import path from 'node:path';
 const [scenario, base] = process.argv.slice(2);
 const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, teammate, 'team-page': teamPage, 'space-header': spaceHeader, sidebar };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page|space-header|sidebar BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page|space-header|sidebar BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -99,7 +99,7 @@ async function submitProject(name, folder) {
 // Adds a project through the form; returns its sidebar section.
 async function addProject() {
   const name = `ui-${scenario}-${Date.now().toString(36)}`;
-  // A Space of a feature runs in a git worktree of the project, so the folder needs a commit.
+  // A Space of a Work item runs in a git worktree of the project, so the folder needs a commit.
   const git = (...args) => execFileSync('git', ['-C', projectDir, '-c', 'user.name=reef', '-c', 'user.email=reef@example.com', ...args], { encoding: 'utf8', stdio: 'pipe' });
   try {
     git('rev-parse', '--verify', 'HEAD');
@@ -119,7 +119,7 @@ async function plus(item) {
   await aside.getByRole('menuitem', { name: item }).click();
 }
 // Adds a work item and returns its id, which names its worktree folder and branch.
-async function addFeature(name) {
+async function addWorkItem(name) {
   await plus('New Work item');
   await aside.getByLabel('Work item title').fill(name);
   await aside.getByRole('button', { name: 'Add', exact: true }).click();
@@ -179,7 +179,7 @@ async function live() {
   writeFileSync(path.join(projectDir, 'notes.txt'), 'Reef window check: notes file.\n');
   writeFileSync(path.join(projectDir, 'todo.txt'), 'Reef window check: todo file.\n');
   const section = await addProject();
-  await addFeature('Login');
+  await addWorkItem('Login');
   const cid = await newSpace(main, 'New Space', 'live chat');
   await send(
     'List the files in this directory with a tool, then read one of them with a tool, then summarize what you saw in two sentences.',
@@ -243,7 +243,7 @@ async function teamManagement() {
   await shot('team-390x844');
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  await addFeature('Team run');
+  await addWorkItem('Team run');
   const { id } = await newTeamSpace(name, 'delivery room');
   await send('Say ok in one word');
   await workingAs('lead');
@@ -263,9 +263,8 @@ async function teamManagement() {
 
 async function brief() {
   const section = await addProject();
-  await addFeature('Login');
-  const featureId = page.url().split('/').pop();
-  const res = await fetch(`${base}/work-items/${featureId}/brief`, {
+  const itemId = await addWorkItem('Login');
+  const res = await fetch(`${base}/work-items/${itemId}/brief`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ body: 'Goal: build the login page with magic links.', author: 'user' }),
@@ -273,7 +272,7 @@ async function brief() {
   check(res.status === 201, 'brief stored over REST', `PUT brief -> ${res.status}`);
   await page.reload();
   const cid = await newSpace(main, 'New Space', 'brief check', '');
-  await send('what is the goal of this feature?');
+  await send('what is the goal of this work item?');
   await working();
   await idle();
   await shot('answer');
@@ -296,7 +295,7 @@ async function attach() {
     'a free Space in a git repo lists its two checkpoints before the attach',
     `turns with a checkpoint: ${quick.join(',')}; row: ${await checkpoints.innerText()}`,
   );
-  await addFeature('Search');
+  await addWorkItem('Search');
   await section.getByRole('link', { name: 'idea chat' }).click();
   await page.getByRole('heading', { name: 'idea chat', level: 1 }).waitFor();
   await shot('before-attach');
@@ -332,10 +331,10 @@ async function attach() {
 
 async function cap() {
   const section = await addProject();
-  await addFeature('Login');
+  const itemId = await addWorkItem('Login');
   const cid = await newSpace(main, 'New Space', 'cap chat');
   await exchange('Say hello.');
-  sql(`update Space set token_budget=1 where id=${cid}`, true);
+  sql(`update work_item set token_budget=1 where id=${itemId}`, true);
   await send('Say hello again.');
   const banner = page.getByRole('alert');
   await banner.waitFor({ timeout: 15000 });
@@ -352,7 +351,7 @@ async function cap() {
   await shot('continued');
   await exchange('Say hello a third time.');
   await shot('ran-after-continue');
-  const state = sql(`select token_budget,paused from Space where id=${cid}`);
+  const state = sql(`select item.token_budget,space.paused from space join work_item item on item.id=space.work_item_id where space.id=${cid}`);
   const lead = sql(`select count(*) from message where space_id=${cid} and author='lead'`);
   check(lead === '2', 'next message ran after Continue', `space row (budget|paused): ${state}; lead messages: ${lead}`);
 }
@@ -366,7 +365,7 @@ async function pages() {
   check(true, 'a bad project path shows the server error', await err.innerText());
   await page.reload();
   const section = await addProject();
-  await addFeature('Login');
+  await addWorkItem('Login');
 }
 
 async function capture() {
@@ -520,7 +519,7 @@ async function theme() {
   const system = (value) => cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value }] });
 
   const section = await addProject();
-  await addFeature('Login');
+  await addWorkItem('Login');
   const fid = sql('select id from work_item order by id desc limit 1');
   const pid = sql(`select project_id from work_item where id=${fid}`);
   await fetch(`${base}/memory`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'decision', body: 'Sessions, not JWT', why: 'one server', scope: `work_item:${fid}` }) });
@@ -542,8 +541,8 @@ async function theme() {
     await page.goto(`${base}/work-items/${fid}`);
     await page.getByRole('heading', { name: 'Login', level: 1 }).waitFor();
     await page.waitForTimeout(500);
-    await shot(`feature-${mode}`);
-    await contrast('feature page');
+    await shot(`work-item-${mode}`);
+    await contrast('Work item page');
   };
 
   await page.goto(base + '/settings?section=notifications');
@@ -586,8 +585,7 @@ async function theme() {
 async function phone() {
   if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teammates.md)');
   const section = await addProject();
-  const itemId = await addFeature('Login');
-  const featureId = page.url().split('/').pop();
+  const itemId = await addWorkItem('Login');
   const { id: cid } = await newTeamSpace('duo', 'phone room');
   await send('DESIGN a short plan for a login form.');
   const end = Date.now() + 120000;
@@ -630,7 +628,7 @@ async function phone() {
   await page.getByRole('status').filter({ hasText: 'Captured' }).waitFor();
   await visit('spaces', /^Spaces/, page.getByRole('heading', { name: 'Spaces', level: 1 }));
   const row = main.getByRole('link', { name: /#phone room/ });
-  check(await row.isVisible(), 'the Spaces tab lists the Space under its feature', await main.innerText().then((t) => t.replace(/\s+/g, ' ').slice(0, 120)));
+  check(await row.isVisible(), 'the Spaces tab lists the Space', await main.innerText().then((t) => t.replace(/\s+/g, ' ').slice(0, 120)));
   await visit('needs-you', /^Needs you/, main.getByRole('link', { name: 'Open', exact: true }).first());
   const badge = await tabs.getByLabel(/waiting$/).textContent();
   check(badge === '1', 'the Needs you tab shows a count badge of 1', badge);
@@ -701,6 +699,7 @@ async function phone() {
 
   await main.getByRole('button', { name: /^Diff/ }).click();
   await main.getByRole('link', { name: 'Expand diff' }).click();
+  await page.waitForURL('**/review');
   const files = main.getByRole('navigation', { name: 'Files' });
   await files.getByText('auth.go').waitFor({ timeout: 15000 });
   check(!(await tabs.isVisible()), 'the tab bar is hidden on the review page');
@@ -725,7 +724,7 @@ async function phone() {
 
 async function stop() {
   const section = await addProject();
-  await addFeature('Login');
+  await addWorkItem('Login');
   const cid = await newSpace(main, 'New Space', 'stop chat');
   await send('Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
   await working();
@@ -747,7 +746,7 @@ async function stop() {
 
 async function retry() {
   const section = await addProject();
-  await addFeature('Login');
+  await addWorkItem('Login');
   const cid = await newSpace(main, 'New Space', 'retry chat');
   await send('Write a 1500-word story about lighthouses. Use no tools.');
   await working();
@@ -784,7 +783,7 @@ function ensureRepo() {
 async function rollback() {
   ensureRepo();
   const section = await addProject();
-  const itemId = await addFeature('Login');
+  const itemId = await addWorkItem('Login');
   const cid = await newSpace(main, 'New Space', 'rollback chat');
   const tree = path.join(data, 'worktrees', sql(`select project_id from Space where id=${cid}`), itemId);
   const state = () => [git(tree, 'rev-parse', 'HEAD'), git(tree, 'status', '--porcelain'), git(tree, 'log', '--oneline'), git(tree, 'ls-files')].join('\n--\n');
@@ -842,11 +841,10 @@ async function rollback() {
 async function diff() {
   ensureRepo();
   const section = await addProject();
-  const itemId = await addFeature('Login');
-  const featureId = page.url().split('/').pop();
+  const itemId = await addWorkItem('Login');
   const cid = await newSpace(main, 'New Space', 'diff chat');
 
-  await page.goto(`${base}/work-items/${featureId}/review`);
+  await page.goto(`${base}/work-items/${itemId}/review`);
   await main.getByText('No changes yet').waitFor({ timeout: 15000 });
   await shot('empty');
   await fetch(`${base}/spaces/${cid}/send`, {
@@ -863,21 +861,21 @@ async function diff() {
     'the review page lists new.txt as A with its line, open since before the turn and never reloaded',
     await main.innerText(),
   );
-  const json = await getJson(`/work-items/${featureId}/diff`);
+  const json = await getJson(`/work-items/${itemId}/diff`);
   check(
     json.length === 1 && json[0].path === 'new.txt' && json[0].status === 'added' && json[0].hunks[0].lines[0].text === 'hi',
     'GET /work-items/{id}/diff returns the file with its added line',
     JSON.stringify(json),
   );
 
-  await page.goto(`${base}/work-items/${featureId}`);
+  await page.goto(`${base}/work-items/${itemId}`);
   const meta = main.getByRole('link', { name: /^1 file/ });
   await meta.waitFor();
   await shot('summary');
   check(
     (await meta.innerText()).replace(/\s+/g, ' ').includes('1 file +1 −0') &&
-      (await meta.getAttribute('href')) === `/work-items/${featureId}/review`,
-    'the feature page header meta line sums the changes and links to the review page',
+      (await meta.getAttribute('href')) === `/work-items/${itemId}/review`,
+    'the Work item page header meta line sums the changes and links to the review page',
     await meta.innerText(),
   );
   await page.goto(`${base}/spaces/${cid}`);
@@ -914,7 +912,7 @@ async function diff() {
     'Full diff lists the committed and the new file against main',
     await panelFiles.innerText(),
   );
-  const current = await getJson(`/work-items/${featureId}/diff?scope=current`);
+  const current = await getJson(`/work-items/${itemId}/diff?scope=current`);
   check(current.length === 1 && current[0].path === 'later.txt', 'GET /work-items/{id}/diff?scope=current returns only the uncommitted file', JSON.stringify(current));
   await page.setViewportSize({ width: 1280, height: 800 });
   for (let i = 0; i < 32; i++) writeFileSync(path.join(tree, `many-${String(i).padStart(2, '0')}.txt`), 'x\n');
@@ -992,7 +990,7 @@ async function diff() {
     (await rows()).slice(0, 4).join(', '),
   );
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto(`${base}/work-items/${featureId}/review`);
+  await page.goto(`${base}/work-items/${itemId}/review`);
   await folder.waitFor({ timeout: 15000 });
   check((await pressed('Tree view')) === 'true', 'the review page opens in Tree view too');
   await shot('tree-review');
@@ -1003,7 +1001,7 @@ async function diff() {
   await main.getByRole('heading', { name: 'Changes', level: 1 }).waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: /^Diff \+/ }).click();
   await main.getByRole('link', { name: 'Expand diff' }).click();
-  await page.waitForURL(`**/work-items/${featureId}/review`);
+  await page.waitForURL(`**/work-items/${itemId}/review`);
   check(true, "the panel's expand button opens the full review page", page.url());
 }
 
@@ -1059,11 +1057,11 @@ async function memory() {
 
   const id = Date.now().toString(36);
   await main.getByRole('button', { name: 'New Work item' }).click();
-  const featureDialog = page.getByRole('dialog', { name: 'New Work item' });
-  await featureDialog.getByLabel('Work item title').fill(`Pp ${id}`);
-  await featureDialog.getByRole('button', { name: 'Add', exact: true }).click();
+  const itemDialog = page.getByRole('dialog', { name: 'New Work item' });
+  await itemDialog.getByLabel('Work item title').fill(`Pp ${id}`);
+  await itemDialog.getByRole('button', { name: 'Add', exact: true }).click();
   await main.getByRole('link', { name: `Pp ${id}` }).waitFor();
-  await shot('feature-added');
+  await shot('work-item-added');
   check(
     sql(`select count(*) from work_item where project_id=${pid} and title='Pp ${id}'`) === '1',
     'New Work item on the project page stores the work item and lists it',
@@ -1077,7 +1075,7 @@ async function memory() {
   await page.getByRole('heading', { name: session, level: 1 }).waitFor();
   check(
     sql(`select count(*) from Space where project_id=${pid} and work_item_id is null and name='${session}'`) === '1',
-    'New free Space on the project page stores a Space with no feature and opens it',
+    'New free Space on the project page stores a Space with no Work item and opens it',
   );
   await page.goto(`${base}/projects/${pid}`);
   await main.getByRole('link', { name: session }).waitFor();
@@ -1088,20 +1086,20 @@ async function memory() {
   const reefOut = execFileSync(reefBin, ['memory', '--data', data, 'add', 'fact', 'Tokens live in Keychain.', '--scope', `work_item:${fid}`, '--as', 'developer'], { encoding: 'utf8' });
   console.log(reefOut.trim());
   await page.goto(`${base}/work-items/${fid}`);
-  const featureMemory = main.getByRole('region', { name: 'Memory' });
-  await featureMemory.getByText('Tokens live in Keychain.').waitFor();
+  const itemMemory = main.getByRole('region', { name: 'Memory' });
+  await itemMemory.getByText('Tokens live in Keychain.').waitFor();
   await page.waitForTimeout(500);
-  await shot('feature-memory');
-  check(true, 'an item saved with reef memory add shows on the feature page', await featureMemory.innerText());
-  await featureMemory.getByRole('button', { name: /^Retire fact/ }).click();
-  await featureMemory.getByText('Nothing remembered yet').waitFor();
-  const featureRetired = sql(`select status||'|'||(retired_at is not null) from memory where scope_kind='work_item' and scope_id='${fid}'`);
-  check(featureRetired === 'retired|1', 'Retire on the feature page sets retired_at and the item leaves the list', featureRetired);
+  await shot('work-item-memory');
+  check(true, 'an item saved with reef memory add shows on the Work item page', await itemMemory.innerText());
+  await itemMemory.getByRole('button', { name: /^Retire fact/ }).click();
+  await itemMemory.getByText('Nothing remembered yet').waitFor();
+  const itemRetired = sql(`select status||'|'||(retired_at is not null) from memory where scope_kind='work_item' and scope_id='${fid}'`);
+  check(itemRetired === 'retired|1', 'Retire on the Work item page sets retired_at and the item leaves the list', itemRetired);
 }
 
 async function inspector() {
   const section = await addProject();
-  await addFeature('Login');
+  await addWorkItem('Login');
   const { id: cid } = await newTeamSpace('full', 'inspector room');
   await send('Say ok in one word.');
   await workingAs('lead');
@@ -1172,7 +1170,7 @@ async function subagent() {
   git('add', 'sub.txt');
   git('commit', '-q', '--allow-empty', '-m', 'sub.txt');
   const section = await addProject();
-  await addFeature('Subagent');
+  await addWorkItem('Subagent');
   const cid = await newSpace(main, 'New Space', 'subagent room');
   await send(
     'Use the Agent tool to start a subagent that reads the file sub.txt in the current directory with the Read tool. Then tell me its contents.',
@@ -1224,8 +1222,7 @@ async function review() {
   }
   ensureRepo();
   const section = await addProject();
-  const itemId = await addFeature('Login');
-  const featureId = page.url().split('/').pop();
+  const itemId = await addWorkItem('Login');
   const { id: cid } = await newTeamSpace('full', 'review room');
   const tree = path.join(data, 'worktrees', sql(`select project_id from Space where id=${cid}`), itemId);
   await send('@developer Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.');
@@ -1243,12 +1240,12 @@ async function review() {
   check(!!root, 'the developer posted a third top-level message, its latest thread root', root && `message ${root.id}`);
 
   writeFileSync(path.join(tree, 'blob.bin'), Buffer.from([0, 1, 2, 0]));
-  await page.goto(`${base}/work-items/${featureId}/review`);
+  await page.goto(`${base}/work-items/${itemId}/review`);
   const files = main.getByRole('navigation', { name: 'Files' });
   const diffView = main.getByRole('region', { name: 'Diff' });
   const sendButton = main.getByRole('button', { name: /^Send to/ });
   await files.getByText('README.md').waitFor({ timeout: 15000 });
-  const rows = (await files.getByRole('button').allInnerTexts()).map((r) => r.replace(/\s+/g, ' ')).join(', ');
+  const rows = (await files.getByRole('button').allInnerTexts()).map((r) => r.replace(/\s+/g, ' ').trim()).filter(Boolean).join(', ');
   check(rows === 'D README.md, A blob.bin, A d.txt, A new.txt', 'the files are listed with A, M or D', rows);
   check(
     (await files.getByText('README.md').evaluate((el) => getComputedStyle(el).textDecorationLine)) === 'line-through',
@@ -1304,16 +1301,17 @@ async function review() {
 
 async function inbox() {
   if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teammates.md)');
-  const context = page.context();
-  await context.grantPermissions(['notifications']);
+  // Headless Chromium denies notifications whatever is granted, so the window gets a stub
+  // that is granted and records each one.
   await page.addInitScript(() => {
-    const Native = window.Notification;
     window.__notes = [];
-    window.Notification = class extends Native {
+    window.Notification = class {
+      static permission = 'granted';
+      static requestPermission = async () => 'granted';
       constructor(title, options) {
-        super(title, options);
         window.__notes.push({ title, body: options?.body, note: this });
       }
+      close() {}
     };
   });
   const notes = () => page.evaluate(() => window.__notes.map(({ title, body }) => ({ title, body })));
@@ -1338,10 +1336,8 @@ async function inbox() {
   const sendApi = (cid, text) =>
     fetch(`${base}/spaces/${cid}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
   const section = await addProject();
-  await addFeature('Login');
+  await addWorkItem('Login');
   const { id: cid } = await newTeamSpace('duo', 'inbox room');
-  const permission = await page.evaluate(() => Notification.permission);
-  check(permission === 'granted', 'the window may show notifications', permission);
 
   await send('DESIGN a short plan for a login form.');
   await workingAs('lead', 60000);
@@ -1514,7 +1510,7 @@ async function inboxGroups() {
 
 async function wrap() {
   const section = await addProject();
-  await addFeature('Login');
+  await addWorkItem('Login');
   const cid = await newSpace(main, 'New Space', 'wrap chat');
   await exchange('We are building email login. Decision: sessions, not JWT, because there is one server.');
   await page.getByRole('button', { name: 'Wrap up' }).click();
@@ -1581,11 +1577,11 @@ async function wrap() {
   await shot('drop-dialog');
   await page.getByRole('dialog', { name: 'Drop Work item' }).getByRole('button', { name: 'Drop Work item' }).click();
   await main.getByRole('button', { name: 'Drop' }).waitFor({ state: 'hidden' });
-  await shot('dropped-feature');
+  await shot('dropped-work-item');
   check(
     sql(`select status from work_item where id=${fid}`) === 'dropped' &&
       sql(`select closed_at is not null from Space where id=${cid}`) === '1',
-    'Drop closes the feature and its Space',
+    'Drop closes the Work item and its Space',
   );
 }
 
@@ -1594,7 +1590,7 @@ async function teams() {
   for (const name of ['duo', 'full']) if ((await fetch(`${base}/teams/${name}`)).status !== 200) missing.push(name);
   if (missing.length) throw new Error(`apply the teams first: missing ${missing.join(', ')} (see features/teammates.md)`);
   const section = await addProject();
-  const loginId = await addFeature('Login');
+  await addWorkItem('Login');
 
   const { id: cid, options } = await newTeamSpace('duo', 'duo room', 'team-picked');
   check(options.includes('duo') && options.includes('full') && options.includes('solo'), 'the New Space form lists the teams', options.join(', '));
@@ -1637,8 +1633,7 @@ async function teams() {
   check(count === '2 replies in thread', 'the main list shows the root with a replies button', count);
   await shot('main-list');
 
-  await page.goto(`${base}/work-items/${loginId}`);
-  await page.getByRole('heading', { name: 'Login', level: 1 }).waitFor();
+  await addWorkItem('Handoff');
   const handoff =
     'Reply with exactly one line and nothing else: an at sign immediately followed by the word developer, then a space, then the words: reply with one word, use no tools.';
   const roles = (id) => sql(`select group_concat(role) from (select role from turn where space_id=${id} order by id)`);
@@ -1680,10 +1675,12 @@ async function workshop() {
   const section = await addProject();
   const projectId = sql('select max(id) from project');
   await page.evaluate((id) => localStorage.setItem('reef.sidebar.projectId', id), projectId);
-  await page.goto(`${base}/teams`);
-  await main.getByRole('button', { name: 'full', exact: true }).click();
-  await main.getByRole('button', { name: /^developer/ }).click();
-  const personaBox = main.getByLabel('developer persona');
+  const row = (col) => sql(`select ${col} from team_member m join teammate on teammate.id = m.teammate_id where m.team_id = (select id from team where name = 'full') and m.name = 'developer'`);
+
+  // The developer's Teammate on the Teammates page: persona, creature, skills and backend.
+  const mate = row('teammate.name');
+  await page.goto(`${base}/teammates?teammate=${row('teammate.id')}`);
+  const personaBox = main.getByLabel(`${mate} persona`);
   await personaBox.waitFor();
   const marker = `WORKSHOP-MARKER-${Date.now().toString(36)}`;
   const persona = `${await personaBox.inputValue()} Always say ${marker} once.`;
@@ -1691,26 +1688,37 @@ async function workshop() {
   await main.getByRole('button', { name: /^Change creature/ }).click();
   await main.getByRole('button', { name: 'Otter', exact: true }).click();
   await shot('persona-edited');
-  await main.getByRole('button', { name: 'Save' }).click();
+  const ghost = main.getByText('ghost-skill').locator('..');
+  check((await ghost.innerText()).includes('missing'), 'a picked skill that is not on disk shows as missing', await ghost.innerText());
+  await main.getByRole('button', { name: 'Remove ghost-skill', exact: true }).click();
+  const addSkill = page.getByRole('listbox', { name: `${mate} add skill`, exact: true });
+  await main.getByRole('combobox', { name: `${mate} add skill`, exact: true }).click();
+  const offered = await addSkill.getByRole('option').allInnerTexts();
+  check(offered.some((o) => o.startsWith('workshop-skill')), "the claude skill picker offers the project's skill", `${offered.length} offered`);
+  await addSkill.getByRole('option', { name: /^workshop-skill/ }).click();
+  check(!(await main.getByText('workshop-skill').locator('..').innerText()).includes('missing'), 'a picked skill that is on disk is not missing');
+  await pick(`${mate} backend`, 'Codex', main);
+  check((await main.getByLabel(`${mate} tool Read`).count()) === 0, 'the tool picker is hidden on a Codex Teammate');
+  await main.getByRole('combobox', { name: `${mate} add skill`, exact: true }).click();
+  const codexOffered = await addSkill.getByRole('option').allInnerTexts();
+  check(!codexOffered.some((o) => o.startsWith('workshop-skill')), 'a Codex Teammate is not offered the Claude skills', `${codexOffered.length} offered`);
+  await page.keyboard.press('Escape');
+  await pick(`${mate} backend`, 'Claude Code', main);
+  await pick(`${mate} permission mode`, 'acceptEdits', main);
+  await main.getByRole('button', { name: 'Save teammate' }).click();
   await page.getByText('Saved').waitFor();
   await shot('persona-saved');
-  check(
-    sql(`select teammate.persona from team_member m join teammate on teammate.id = m.teammate_id where m.team_id = (select id from team where name = 'full') and m.name = 'developer'`) === persona,
-    "saving the developer's persona in the window updates its teammate row",
-  );
-  check(
-    sql(`select teammate.face from team_member m join teammate on teammate.id = m.teammate_id where m.team_id = (select id from team where name = 'full') and m.name = 'developer'`) === 'otter',
-    "picking a creature for the developer in the window saves it to its teammate row",
-  );
-  check(
-    sql(`select m.mcp_servers from team_member m join teammate on teammate.id = m.teammate_id where m.team_id = (select id from team where name = 'full') and m.name = 'developer'`) === mcpBefore,
-    "the developer's mcpServers, left out of the window, are unchanged",
-  );
+  check(row('teammate.persona') === persona, "saving the developer's persona on the Teammates page updates its teammate row");
+  check(row('teammate.face') === 'otter', "picking a creature for the developer saves it to its teammate row");
+  check(row('teammate.skills') === '["workshop-skill"]', "saving the developer's skills updates its teammate row", row('teammate.skills'));
+  check(row('m.mcp_servers') === mcpBefore, "the developer's mcpServers, left out of the Teammate panel, are unchanged");
 
+  // The developer's place in the Team: lead, tools and MCP servers in the team editor.
+  await page.goto(`${base}/teams?team=full`);
   // Two leads: the same error reef team apply gives.
   await main.getByRole('button', { name: /^architect/ }).click();
   await main.getByLabel('architect lead').check();
-  await main.getByRole('button', { name: 'Save' }).click();
+  await main.getByRole('button', { name: 'Save team' }).click();
   const twoLeads = await errorText(/needs exactly one lead role, has 2/);
   await shot('two-leads-error');
   check(!!twoLeads, 'an invalid team (two leads) shows the reef team apply error', twoLeads ?? '(not shown)');
@@ -1721,44 +1729,26 @@ async function workshop() {
   check(await bashBox.isDisabled(), 'the Bash checkbox of a read-only role is disabled', await bashBox.locator('..').getAttribute('title'));
   await main.getByLabel('architect add tool').fill('Bash(*)');
   await main.getByLabel('architect add tool').press('Enter');
-  await main.getByRole('button', { name: 'Save' }).click();
+  await main.getByRole('button', { name: 'Save team' }).click();
   const badTool = await errorText(/cannot have unrestricted Bash/);
   await shot('bad-tool-error');
   check(!!badTool, 'an invalid team (unrestricted Bash without write) shows the reef team apply error', badTool ?? '(not shown)');
   await main.getByRole('button', { name: 'Remove Bash(*)', exact: true }).click();
-  await main.getByRole('button', { name: 'Save' }).click();
+  await main.getByRole('button', { name: 'Save team' }).click();
   await page.getByText('Saved').waitFor();
 
-  // Skills and allowed tools are picked in the window and save; removing an MCP server removes it.
-  const row = (col) => sql(`select ${col} from team_member m join teammate on teammate.id = m.teammate_id where m.team_id = (select id from team where name = 'full') and m.name = 'developer'`);
+  // Allowed tools are picked in the window and save; removing an MCP server removes it.
   await main.getByRole('button', { name: /^developer/ }).click();
-  const ghost = main.getByText('ghost-skill').locator('..');
-  check((await ghost.innerText()).includes('missing'), 'a picked skill that is not on disk shows as missing', await ghost.innerText());
-  await main.getByRole('button', { name: 'Remove ghost-skill', exact: true }).click();
-  await main.getByRole('combobox', { name: 'developer add skill', exact: true }).click();
-  const offered = await page.getByRole('listbox', { name: 'developer add skill', exact: true }).getByRole('option').allInnerTexts();
-  check(offered.some((o) => o.startsWith('workshop-skill')), "the claude skill picker offers the project's skill", `${offered.length} offered`);
-  await page.getByRole('listbox', { name: 'developer add skill', exact: true }).getByRole('option', { name: /^workshop-skill/ }).click();
-  check(!(await main.getByText('workshop-skill').locator('..').innerText()).includes('missing'), 'a picked skill that is on disk is not missing');
   check((await main.getByLabel('developer tool Read').isChecked()) && !(await main.getByLabel('developer tool WebFetch').isChecked()), 'the tool checkboxes show the role\'s tools');
   check(await main.getByLabel('developer tool mcp__mcp1__*').count() === 1, 'the tool picker has one entry for the role\'s MCP server');
   await main.getByLabel('developer tool WebFetch').check();
   await main.getByLabel('developer add tool').fill('Bash(git log:*)');
   await main.getByLabel('developer add tool').press('Enter');
   await main.getByLabel('developer tool Write').uncheck();
-  await shot('role-skills-tools-mcp');
-  await pick('developer backend', 'Codex', main);
-  check((await main.getByLabel('developer tool Read').count()) === 0, 'the tool picker is hidden on a Codex role');
-  await main.getByRole('combobox', { name: 'developer add skill', exact: true }).click();
-  const codexOffered = await page.getByRole('listbox', { name: 'developer add skill', exact: true }).getByRole('option').allInnerTexts();
-  check(!codexOffered.some((o) => o.startsWith('workshop-skill')), 'a Codex role is not offered the Claude skills', `${codexOffered.length} offered`);
-  await page.keyboard.press('Escape');
-  await pick('developer backend', 'Claude Code', main);
-  await pick('developer permission mode', 'acceptEdits', main);
+  await shot('role-tools-mcp');
   await main.getByRole('button', { name: 'Remove mcp1 · true' }).click();
-  await main.getByRole('button', { name: 'Save' }).click();
+  await main.getByRole('button', { name: 'Save team' }).click();
   await page.getByText('Saved').waitFor();
-  check(row('teammate.skills') === '["workshop-skill"]', "saving the developer's skills updates its teammate row", row('teammate.skills'));
   check(row('m.tools').includes('Bash(git log:*)') && row('m.tools').includes('"WebFetch"') && !row('m.tools').includes('"Write"'), "picking and unpicking allowed tools saves them to the team member row", row('m.tools'));
   check(row('m.mcp_servers') === '[]', "removing the developer's MCP server in the window removes it from its team member row", row('m.mcp_servers'));
 
@@ -1776,7 +1766,7 @@ async function workshop() {
   );
 
   // The next developer wake uses the new persona.
-  await addFeature('Login');
+  await addWorkItem('Login');
   const { id: cid } = await newTeamSpace('full', 'workshop room');
   await send('@developer Say ok in one word.');
   await workingAs('developer');
@@ -1809,10 +1799,9 @@ async function pr() {
   if (!gh) throw new Error('set REEF_FAKE_GH to the folder of the fake gh the server runs with');
   ensureRepo();
   const section = await addProject();
-  const itemId = await addFeature('PR panel');
-  const featureId = page.url().split('/').pop();
+  const itemId = await addWorkItem('PR panel');
   const cid = await newSpace(main, 'New Space', 'pr chat');
-  await fetch(`${base}/work-items/${featureId}/worktree`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
+  await fetch(`${base}/work-items/${itemId}/worktree`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
 
   const view = (over) => ({
     number: 12, title: 'Add the login page', url: 'https://github.com/x/y/pull/12', state: 'OPEN',
@@ -1851,7 +1840,7 @@ async function pr() {
   const icons = await panel.getByRole('img').evaluateAll((els) => els.map((el) => el.getAttribute('aria-label')));
   check(
     text.includes('Add the login page') && text.includes('#12') && text.includes('Open') &&
-      text.includes('main ← feature/') && text.includes('Approved') &&
+      text.includes('main ← work-item/') && text.includes('Approved') &&
       ['build', 'lint', 'deploy preview'].every((n) => text.includes(n)) && icons.join() === 'passed,failed,pending',
     'the panel shows title, number, state, base <- head, review and each check with its icon',
     `${text} | ${icons}`,
@@ -1911,7 +1900,7 @@ async function coordination() {
   }
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
-  await addFeature('Login');
+  await addWorkItem('Login');
   const { id: cid } = await newTeamSpace('duo', 'coordination room');
   const panel = page.getByRole('complementary', { name: 'Coordination' });
   const items = page.getByRole('button', { name: /^lead and architect (are coordinating|coordinated) · \d+ messages?/i });
@@ -2086,7 +2075,7 @@ async function coordination() {
 
   // Two direct wakes are queued for the architect, one from each of two pairs: the lead's request and the
   // developer's, which the lead's turn caused by posting before it sent. Each panel shows only its own turn.
-  await addFeature('Queued');
+  await addWorkItem('Queued');
   const { id: qid } = await newTeamSpace('full', 'queued room');
   await send('QUEUE two reviews for the architect.');
   const pair = (from) => page.getByRole('button', { name: new RegExp(`^${from} and architect (are coordinating|coordinated) · \\d+ messages?`, 'i') });
@@ -2128,7 +2117,7 @@ async function coordination() {
 
 async function team() {
   const section = await addProject();
-  await addFeature('Login');
+  await addWorkItem('Login');
   await newTeamSpace('full', 'team room');
   await send('Say ok in one word.');
   await workingAs('lead');
@@ -2186,7 +2175,7 @@ async function denials() {
 
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
-  await addFeature('Fetch');
+  await addWorkItem('Fetch');
   const { id: cid } = await newTeamSpace('denials', 'denials room');
   const card = main.getByRole('listitem').filter({ hasText: / was denied [A-Z]/ });
   const add = card.getByRole('button', { name: 'Add to role' });
@@ -2258,7 +2247,7 @@ async function denials() {
 
 async function composer() {
   const section = await addProject();
-  await addFeature('Compose');
+  await addWorkItem('Compose');
   await newSpace(main, 'New Space', 'compose chat');
   const field = main.getByLabel('Message');
   const box = field.locator('xpath=ancestor::div[contains(@class,"bg-field")][1]');
@@ -2597,8 +2586,7 @@ async function hovercard() {
   ensureRepo();
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
-  const itemId = await addFeature('Hover');
-  const featureId = page.url().split('/').pop();
+  const itemId = await addWorkItem('Hover');
   const { id: cid } = await newTeamSpace('full', 'hover chat');
   await send('@developer Use the Write tool to create the file d.txt containing the word yes. Then reply done.');
   await working();
@@ -2611,14 +2599,14 @@ async function hovercard() {
   const roles = (await getJson('/teams/full')).roles.map((r) => r.name);
   const expected = async () => {
     let state;
-    const files = await getJson(`/work-items/${featureId}/diff`);
+    const files = await getJson(`/work-items/${itemId}/diff`);
     const lines = files.flatMap((f) => f.hunks.flatMap((h) => h.lines));
     const running = (await getJson('/turns?status=running')).filter((t) => String(t.spaceId) === cid).map((t) => t.role);
     const kinds = (await getJson('/inbox')).filter((i) => String(i.spaceId) === cid).map((i) => i.kind);
     state = kinds.includes('failed') ? 'a turn failed' : running.length ? 'working' : kinds.includes('waiting') ? 'waiting for you' : 'idle';
     const n = files.length;
     const changes = n ? `${n} file${n === 1 ? '' : 's'} +${lines.filter((l) => l.kind === 'add').length} −${lines.filter((l) => l.kind === 'del').length}` : 'no changes yet';
-    return `#hover chat ${state} branch work-item/${featureId} changes ${changes} ${roles.map((r) => `${r} ${running.includes(r) ? 'working' : 'idle'}`).join(' ')}`;
+    return `#hover chat ${state} branch work-item/${itemId} changes ${changes} ${roles.map((r) => `${r} ${running.includes(r) ? 'working' : 'idle'}`).join(' ')}`;
   };
 
   await away();
@@ -2753,9 +2741,9 @@ async function mention() {
   ensureRepo();
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
-  await addFeature('Mention');
+  await addWorkItem('Mention');
   const { id: cid } = await newTeamSpace('full', 'mention chat');
-  await send('@lead and @developer, @nobody too: remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools. @tester ');
+  await send('@lead, @developer, @nobody, @tester: remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
   await working();
 
   const tip = page.getByRole('tooltip');
@@ -2949,14 +2937,21 @@ async function providers() {
   const fakeDir = process.env.REEF_UI_FAKE;
   if (!fakeDir || !existsSync(path.join(fakeDir, 'claude'))) throw new Error('set REEF_UI_FAKE to the folder with the fake claude (verify-reef ui does)');
   const name = `work-${Date.now().toString(36)}`;
-  const teamName = `providers-${Date.now().toString(36)}`;
-  const putTeam = (body) =>
-    fetch(`${base}/teams/${teamName}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: teamName, ...body }) });
-  const roleOf = async () => (await getJson(`/teams/${teamName}`)).roles.find((r) => r.name === 'lead');
+  const mate = `prov-${Date.now().toString(36)}`;
+  const res = await fetch(`${base}/teammates`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: mate, backend: 'claude', persona: 'You check providers.' }) });
+  check(res.status === 201, `the claude Teammate ${mate} is made through POST /teammates`, `${res.status}`);
+  const mateId = (await res.json()).id;
+  const roleOf = () => getJson(`/teammates/${mateId}`);
+  const openMate = async () => {
+    await page.goto(`${base}/teammates?teammate=${mateId}`);
+    await page.getByRole('combobox', { name: `${mate} provider`, exact: true }).waitFor();
+  };
+  const saveMate = async () => {
+    await main.getByRole('button', { name: 'Save teammate' }).click();
+    await page.getByText('Saved').waitFor();
+  };
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   const setTheme = (t) => page.evaluate((t) => localStorage.setItem('reef.theme', t), t);
-  const lead = { name: 'lead', lead: true, backend: 'claude', persona: 'You are the lead.' };
-  check((await putTeam({ roles: [lead] })).status === 200, `the team ${teamName} is applied: one claude lead`);
 
   await page.setViewportSize({ width: 1280, height: 800 });
   await addProject();
@@ -3003,32 +2998,27 @@ async function providers() {
   await shot('desktop-dark-added');
   await bad('the same name again shows the conflict inline', /already exists/, 'claude', fakeDir, name);
 
-  await page.goto(`${base}/teams?team=${teamName}`);
-  await main.getByRole('button', { name: /^lead/ }).click();
-  const select = page.getByRole('combobox', { name: 'lead provider', exact: true });
-  await select.waitFor();
-  check((await select.innerText()).trim() === 'Default (PATH)', 'a role with no provider shows Default (PATH)');
+  await openMate();
+  const select = page.getByRole('combobox', { name: `${mate} provider`, exact: true });
+  check((await select.innerText()).trim() === 'Default (PATH)', 'a Teammate with no provider shows Default (PATH)');
   await select.click();
-  const offered = await page.getByRole('listbox', { name: 'lead provider', exact: true }).getByRole('option').allInnerTexts();
-  check(offered.join('|') === `Default (PATH)|${name}`, 'the claude role is offered PATH and the added claude install, not the detected one', offered.join('|'));
-  await page.getByRole('listbox', { name: 'lead provider', exact: true }).getByRole('option', { name, exact: true }).click();
+  await page.getByRole('listbox', { name: `${mate} provider`, exact: true }).getByRole('option', { name, exact: true }).waitFor();
+  const offered = await page.getByRole('listbox', { name: `${mate} provider`, exact: true }).getByRole('option').allInnerTexts();
+  check(offered.join('|') === `Default (PATH)|${name}`, 'the claude Teammate is offered PATH and the added claude install, not the detected one', offered.join('|'));
+  await page.getByRole('listbox', { name: `${mate} provider`, exact: true }).getByRole('option', { name, exact: true }).click();
   await shot('desktop-dark-role');
-  await main.getByRole('button', { name: 'Save' }).click();
-  await page.getByText('Saved').waitFor();
-  check((await roleOf()).provider === name, 'saving the team stores the provider on the role (GET /teams)', JSON.stringify((await roleOf()).provider));
-  await page.reload();
-  await main.getByRole('button', { name: /^lead/ }).click();
-  check((await page.getByRole('combobox', { name: 'lead provider', exact: true }).innerText()).trim() === name, 'after a reload the role shows its provider');
+  await saveMate();
+  check((await roleOf()).provider === name, 'saving the Teammate stores the provider (GET /teammates/{id})', JSON.stringify((await roleOf()).provider));
+  await openMate();
+  check((await select.innerText()).trim() === name, 'after a reload the Teammate shows its provider');
 
-  await pick('lead backend', 'Codex', main);
-  check((await page.getByRole('combobox', { name: 'lead provider', exact: true }).innerText()).trim() === 'Default (PATH)', 'changing the backend to Codex resets a claude provider');
-  await pick('lead backend', 'Claude Code', main);
-  await main.getByRole('button', { name: 'Save' }).click();
-  await page.getByText('Saved').waitFor();
-  check(!(await roleOf()).provider, 'saving the reset role leaves no provider', JSON.stringify(await roleOf().then((r) => r.provider ?? null)));
-  await pick('lead provider', name, main);
-  await main.getByRole('button', { name: 'Save' }).click();
-  await page.getByText('Saved').waitFor();
+  await pick(`${mate} backend`, 'Codex', main);
+  check((await select.innerText()).trim() === 'Default (PATH)', 'changing the backend to Codex resets a claude provider');
+  await pick(`${mate} backend`, 'Claude Code', main);
+  await saveMate();
+  check(!(await roleOf()).provider, 'saving the reset Teammate leaves no provider', JSON.stringify(await roleOf().then((r) => r.provider ?? null)));
+  await pick(`${mate} provider`, name, main);
+  await saveMate();
 
   for (const [label, width, height] of [['desktop', 1280, 800], ['phone', 390, 844]]) {
     await page.setViewportSize({ width, height });
@@ -3039,12 +3029,10 @@ async function providers() {
       await page.waitForTimeout(400);
       check(await noOverflow(), `${label} ${mode}: Settings Providers has no horizontal scroll`);
       await shot(`${label}-${mode}-page`);
-      await page.goto(`${base}/teams?team=${teamName}`);
-      await main.getByRole('button', { name: /^lead/ }).click();
-      await page.getByRole('combobox', { name: 'lead provider', exact: true }).waitFor();
+      await openMate();
       await page.waitForTimeout(400);
-      check(await noOverflow(), `${label} ${mode}: the role panel has no horizontal scroll`);
-      await shot(`${label}-${mode}-role-panel`);
+      check(await noOverflow(), `${label} ${mode}: the Teammate panel has no horizontal scroll`);
+      await shot(`${label}-${mode}-teammate-panel`);
     }
   }
   await setTheme('dark');
@@ -3052,12 +3040,17 @@ async function providers() {
   await page.setViewportSize({ width: 1280, height: 800 });
   await page.goto(`${base}/settings?section=providers`);
   await added.getByRole('button', { name: `Remove ${name}` }).click();
+  const inUse = await errorText(new RegExp(`used by teammate ${mate}`), 15000);
+  check(!!inUse && (await getJson('/providers')).some((p) => p.name === name), 'Remove of an install a Teammate uses shows the server conflict and keeps it', inUse ?? '(not shown)');
+  await shot('desktop-dark-in-use');
+  await openMate();
+  await pick(`${mate} provider`, 'Default (PATH)', main);
+  await saveMate();
+  await page.goto(`${base}/settings?section=providers`);
+  await added.getByRole('button', { name: `Remove ${name}` }).click();
   await added.waitFor({ state: 'detached' });
-  check((await getJson('/providers')).every((p) => p.name !== name), 'Remove deletes the added install', JSON.stringify((await getJson('/providers')).map((p) => p.name)));
+  check((await getJson('/providers')).every((p) => p.name !== name), 'Remove deletes the install once no Teammate uses it', JSON.stringify((await getJson('/providers')).map((p) => p.name)));
   await shot('desktop-dark-removed');
-  await page.goto(`${base}/teams?team=${teamName}`);
-  await main.getByRole('button', { name: /^lead/ }).click();
-  check((await page.getByRole('combobox', { name: 'lead provider', exact: true }).innerText()).trim() === name, 'a role keeps the name of a removed provider, as the server does');
 }
 
 async function teammates() {
@@ -3670,7 +3663,7 @@ async function workItem() {
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
-  const id = await addFeature('Work item page');
+  const id = await addWorkItem('Work item page');
   const pid = sql(`select project_id from work_item where id=${id}`);
   const item = () => getJson(`/work-items/${id}`);
   const headerText = async () =>

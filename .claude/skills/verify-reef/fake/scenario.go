@@ -101,7 +101,7 @@ var _scenarios = []scenario{
 	{"one-word", "", pat(`(?i)reply with (exactly )?one(\s+other)? word`)},
 	{"subagent-read", "", pat(`Use the Agent tool to start a subagent that reads the file sub\.txt`)},
 	{"list-read-summarize", "", pat(`List the files in this directory with a tool`)},
-	{"brief-goal", "", pat(`(?i)what is the goal of this feature`)},
+	{"brief-goal", "", pat(`(?i)what is the goal of this work item`)},
 	{"say-ok-one-word", "", pat(`Say ok in one word`)},
 	{"say-fine-one-word", "", pat(`Say fine in one word`)},
 	{"rollback-hello", "", pat(`^Say hello\. Answer in one or two sentences, use no tools\.\s*$`)},
