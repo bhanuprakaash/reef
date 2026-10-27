@@ -272,7 +272,7 @@ scope `teammate`. Their routes still read and write them.
 | `backend` | string | `claude` or `codex`, the agent that runs the Space. Empty when not set. For an older Space, the backend of its newest turn |
 | `permissionMode` | string | passed to the backend as is when the Space's agent starts or resumes. Empty means the backend default |
 | `paused` | string | why the Space is paused (see [Caps](#caps)). Empty when it is not paused. Set by the server only; a client cannot set it |
-| `tokenBudget` | number | tokens the Space may use before it pauses. Starts at 1,000,000. Set by the server only |
+| `tokenBudget` | number | tokens the Space may use before it pauses: its top-level Work item's `tokenBudget`, shared with the item's other Spaces, or its own when it has no item. Starts at 1,000,000. Set by the server only |
 | `team` | string | the name of the Team the Space's members were copied from. `solo` when none is given. Empty for a Space made from one Teammate. Set on create, never changes. The Space keeps its own member list (`space_member`: the Teammate, its lead flag and its access rules), so editing the Team later does not change a running Space |
 | `createdAt` | string | |
 | `closedAt` | string? | `null` while the Space is open. Set when its wrap-up is approved and when its work item is closed, cleared by `POST /spaces/{id}/reopen`. A closed Space takes no turn (409) |
@@ -954,21 +954,26 @@ after it when the main checkout has uncommitted changes. No agent turn runs.
 
 Two caps pause a Space. All are constants in the code, not settings.
 
-- Tokens per Space: the input, output and cache write tokens of all the Space's turns,
-  of every role, cache reads not counted, against `tokenBudget` (1,000,000). A running turn
+- Tokens per Work item: the input, output and cache write tokens of the turns of every Space of
+  the item's top-level Work item (sub-items included), of every role, cache reads not counted,
+  against the item's `tokenBudget` (1,000,000). A Space with no item counts its own turns
+  against its own budget. A running turn
   counts the usage it has streamed so far. A send, or a wake in a chain, that finds the sum at or
   over the budget pauses the Space with `token budget of 1000000 used: 1000312 tokens`. The budget is
   checked only between turns: a turn that crosses it runs to its end.
 - Agent hops: a hop is a turn that an agent's message woke. The turn that answers the user's
-  message is not a hop. The server counts hops per Space since the last user message. The
-  7th hop does not run: the Space is paused with `hop cap: 6 agent hops without a user
+  message is not a hop. Only talk-only turns count: a turn with no tool call, or whose tool calls
+  are all Reef's own MCP tools (`mcp__reef__*`). Any other tool call, such as `Edit` or `Bash`,
+  resets the count to 0. The server counts hops per Space since the last user message or the
+  last such tool call. The 7th hop does not run: the Space is paused with `hop cap: 6 agent hops without a user
   message`, and the `turn` event of the turn before it is followed by a `pause` event. The wake
   that did not run, and the wakes behind it, are stored as holds.
 
 A send to a paused Space is 409 with the reason in the error, except after the hop cap: that
 pause is for agents, so a user message clears it, resets the hop count to 0, drops the held
 wakes and runs. `POST /spaces/{id}/continue` clears the pause. When the token sum is at or
-over the budget it also sets `tokenBudget` to the sum plus 1,000,000. `continue` on a Space that is not paused, or has a turn running,
+over the budget it also sets the Work item's `tokenBudget` (the Space's own with no item) to the
+sum plus 1,000,000. `continue` on a Space that is not paused, or has a turn running,
 is 409.
 
 Held wakes: when a wake cannot run because of a pause (the hop cap, or a token budget that ran
