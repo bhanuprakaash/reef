@@ -592,12 +592,12 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 		{
 			"unknown scope",
 			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "scope": "space"}}},
-			`invalid: scope "space" is not work_item, project, teammate or team`,
+			`invalid: scope "space" is not one of work_item, project, teammate`,
 		},
 		{
-			"team scope from a role that does not lead the team",
+			"team scope on a solo channel",
 			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "scope": "team"}}},
-			`invalid: only the lead of team "solo" can propose team items`,
+			`invalid: scope "team" is not one of work_item, project, teammate`,
 		},
 	}
 	for _, tt := range tests {
@@ -611,6 +611,44 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 	}
 	if _, err := st.PendingProposal(context.Background(), 1); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("PendingProposal = %v, want ErrNotFound: nothing saved", err)
+	}
+}
+
+func TestMCPProposeWrapTeamItemsOnlyFromTheLeadOfARealTeam(t *testing.T) {
+	ctx := context.Background()
+	st, _ := mcpFixture(t)
+	if _, err := st.CreateTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Backend: "claude"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	one := int64(1)
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: 1, FeatureID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead, err := st.CreateToken(ctx, ch.ID, "lead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	developer, err := st.CreateToken(ctx, ch.ID, "developer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	give := map[string]any{"brief": "v2", "items": []any{
+		map[string]any{"kind": "lesson", "body": "review before merge", "scope": "team"},
+	}}
+
+	got, isErr := callTool(t, st, developer)("propose_wrap", give)
+	if want := `invalid: only the lead of team "core" can propose team items`; got != want || !isErr {
+		t.Errorf("developer propose_wrap = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = callTool(t, st, lead)("propose_wrap", give)
+	if want := `{"id":1,"message":"proposal saved; the user will approve it"}`; got != want || isErr {
+		t.Errorf("lead propose_wrap = %q (error %v), want %q", got, isErr, want)
 	}
 }
 

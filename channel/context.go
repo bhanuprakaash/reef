@@ -30,6 +30,22 @@ var _findingKinds = []string{
 	memory.KindFinding, memory.KindFact, memory.KindConvention, memory.KindLesson,
 }
 
+type shelfPart struct {
+	label string
+	kinds []string
+	limit int
+}
+
+var _shelfParts = map[string][]shelfPart{
+	memory.ScopeWorkItem: {
+		{label: "Decisions", kinds: []string{memory.KindDecision}},
+		{label: "Findings", kinds: _findingKinds, limit: _findingsLimit},
+	},
+	memory.ScopeProject:  {{label: "Project", limit: _projectLimit}},
+	memory.ScopeTeam:     {{label: "Team", limit: _teamLimit}},
+	memory.ScopeTeammate: {{label: "Your items", limit: _yourLimit}},
+}
+
 // Context is the first prompt of a role on a feature without a team: what `reef context`
 // prints. It never holds a message body.
 func Context(
@@ -40,6 +56,22 @@ func Context(
 		return "", err
 	}
 	return firstPrompt(ctx, st, ms, f.ProjectID, &f.ID, 0, store.Team{}, store.Role{Name: role})
+}
+
+// Scopes are the shelves of memory a role reads and writes in ch: the feature's when it has
+// one, the project's, the team's unless it is the solo team, and the role's own.
+func Scopes(ch store.Channel, role string) []memory.Ref {
+	var scopes []memory.Ref
+	if ch.FeatureID != nil {
+		scopes = append(scopes,
+			memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*ch.FeatureID, 10)})
+	}
+	scopes = append(scopes,
+		memory.Ref{Kind: memory.ScopeProject, ID: strconv.FormatInt(ch.ProjectID, 10)})
+	if ch.Team != "" && ch.Team != store.SoloTeam {
+		scopes = append(scopes, memory.Ref{Kind: memory.ScopeTeam, ID: ch.Team})
+	}
+	return append(scopes, memory.Ref{Kind: memory.ScopeTeammate, ID: role})
 }
 
 // firstPrompt is the first prompt of a role in three sections: You, How to work and What we
@@ -59,6 +91,7 @@ func firstPrompt(
 		return "", err
 	}
 
+	ch := store.Channel{ID: channelID, ProjectID: projectID, FeatureID: featureID, Team: team.Name}
 	var b strings.Builder
 	b.WriteString(_youHeader + roleIntro(r))
 	var know []string
@@ -68,7 +101,7 @@ func firstPrompt(
 			"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n",
 			r.Name, p.Name, p.Path)
 		b.WriteString(who)
-		if know, err = itemParts(ctx, ms, nil, projectID, nil, team, r.Name); err != nil {
+		if know, err = itemParts(ctx, ms, nil, ch, r.Name); err != nil {
 			return "", err
 		}
 	} else {
@@ -90,7 +123,7 @@ func firstPrompt(
 			fmt.Fprintf(&b, "Stages in order: %s. Call set_stage when the work moves to the next one.\n",
 				strings.Join(store.Stages(), ", "))
 		}
-		if know, err = featureKnow(ctx, st, ms, f, channelID, team, r.Name); err != nil {
+		if know, err = featureKnow(ctx, st, ms, f, ch, r.Name); err != nil {
 			return "", err
 		}
 	}
@@ -108,10 +141,10 @@ func firstPrompt(
 }
 
 // featureKnow is the parts of What we know for a role on f. Open tasks and channels with
-// messages, other than channelID, are only counted: the role looks them up with tools.
+// messages, other than ch, are only counted: the role looks them up with tools.
 func featureKnow(
-	ctx context.Context, st *store.Store, ms *memory.Store, f store.Feature, channelID int64,
-	team store.Team, role string,
+	ctx context.Context, st *store.Store, ms *memory.Store, f store.Feature, ch store.Channel,
+	role string,
 ) ([]string, error) {
 	brief, err := st.Brief(ctx, f.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -142,7 +175,7 @@ func featureKnow(
 	}
 	earlier := 0
 	for _, c := range channels {
-		if c.ID == channelID {
+		if c.ID == ch.ID {
 			continue
 		}
 		n, err := st.CountMessages(ctx, c.ID)
@@ -158,61 +191,35 @@ func featureKnow(
 	}
 
 	parts := appendPart(nil, "Brief", brief.Body)
-	if parts, err = itemParts(ctx, ms, parts, f.ProjectID, &f.ID, team, role); err != nil {
+	if parts, err = itemParts(ctx, ms, parts, ch, role); err != nil {
 		return nil, err
 	}
 	parts = appendPart(parts, "Doing", strings.Join(doing, "\n"))
 	return appendPart(parts, "On demand", strings.Join(counts, " ")), nil
 }
 
-// itemParts adds the parts that read memory items to parts, in the order a role reads them:
-// Decisions and Findings of the feature when there is one, then Project, Team and Your items.
-// Only accepted items are read, the newest first. A part with a limit ends with how many of
-// how many it shows.
+// itemParts adds the parts that read memory items to parts, one shelf of Scopes at a time. Only
+// accepted items are read, the newest first. A part with a limit ends with how many of how many
+// it shows.
 func itemParts(
-	ctx context.Context, ms *memory.Store, parts []string, projectID int64, featureID *int64,
-	team store.Team, role string,
+	ctx context.Context, ms *memory.Store, parts []string, ch store.Channel, role string,
 ) ([]string, error) {
-	type part struct {
-		label string
-		scope memory.Ref
-		kinds []string
-		limit int
-	}
-	var specs []part
-	if featureID != nil {
-		id := strconv.FormatInt(*featureID, 10)
-		work := memory.Ref{Kind: memory.ScopeWorkItem, ID: id}
-		specs = append(specs,
-			part{"Decisions", work, []string{memory.KindDecision}, 0},
-			part{"Findings", work, _findingKinds, _findingsLimit})
-	}
-	specs = append(specs, part{
-		"Project", memory.Ref{Kind: memory.ScopeProject, ID: strconv.FormatInt(projectID, 10)},
-		nil, _projectLimit,
-	})
-	if team.Name != "" {
-		specs = append(specs, part{
-			"Team", memory.Ref{Kind: memory.ScopeTeam, ID: team.Name}, nil, _teamLimit,
-		})
-	}
-	specs = append(specs, part{
-		"Your items", memory.Ref{Kind: memory.ScopeTeammate, ID: role}, nil, _yourLimit,
-	})
-	for _, sp := range specs {
-		items, total, err := ms.Newest(ctx, sp.scope, sp.kinds, sp.limit)
-		if err != nil {
-			return nil, err
+	for _, scope := range Scopes(ch, role) {
+		for _, sp := range _shelfParts[scope.Kind] {
+			items, total, err := ms.Newest(ctx, scope, sp.kinds, sp.limit)
+			if err != nil {
+				return nil, err
+			}
+			lines := make([]string, len(items), len(items)+1)
+			for i, it := range items {
+				lines[i] = itemLine(it)
+			}
+			if len(items) > 0 && sp.limit > 0 {
+				lines = append(lines,
+					fmt.Sprintf("%d of %d; recall(..., scope=%s)", len(items), total, scope.Kind))
+			}
+			parts = appendPart(parts, sp.label, strings.Join(lines, "\n"))
 		}
-		lines := make([]string, len(items), len(items)+1)
-		for i, it := range items {
-			lines[i] = itemLine(it)
-		}
-		if len(items) > 0 && sp.limit > 0 {
-			lines = append(lines,
-				fmt.Sprintf("%d of %d; recall(..., scope=%s)", len(items), total, sp.scope.Kind))
-		}
-		parts = appendPart(parts, sp.label, strings.Join(lines, "\n"))
 	}
 	return parts, nil
 }
@@ -231,15 +238,7 @@ func changedSince(
 	ctx context.Context, st *store.Store, ms *memory.Store, ch store.Channel, role string,
 	since time.Time,
 ) (string, error) {
-	scopes := []memory.Ref{
-		{Kind: memory.ScopeProject, ID: strconv.FormatInt(ch.ProjectID, 10)},
-		{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*ch.FeatureID, 10)},
-		{Kind: memory.ScopeTeammate, ID: role},
-	}
-	if ch.Team != "" {
-		scopes = append(scopes, memory.Ref{Kind: memory.ScopeTeam, ID: ch.Team})
-	}
-	added, retired, err := ms.Changed(ctx, scopes, since)
+	added, retired, err := ms.Changed(ctx, Scopes(ch, role), since)
 	if err != nil {
 		return "", err
 	}

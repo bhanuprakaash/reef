@@ -6,12 +6,12 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -324,10 +324,11 @@ func (m *mcpServer) remember(
 		return nil, rememberOut{}, fmt.Errorf("%w: scope %q is not work_item, project or teammate",
 			store.ErrInvalid, in.Scope)
 	}
-	scopes, err := m.scopes(ctx)
+	c, err := m.st.Channel(ctx, m.tok.ChannelID)
 	if err != nil {
 		return nil, rememberOut{}, err
 	}
+	scopes := channel.Scopes(c, m.tok.Role)
 	i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == in.Scope })
 	if i < 0 {
 		return nil, rememberOut{}, errors.New("this channel has no feature")
@@ -367,10 +368,11 @@ func (m *mcpServer) recall(
 	if in.Query == "" {
 		return nil, recallOut{}, errors.New("query is required")
 	}
-	scopes, err := m.scopes(ctx)
+	c, err := m.st.Channel(ctx, m.tok.ChannelID)
 	if err != nil {
 		return nil, recallOut{}, err
 	}
+	scopes := channel.Scopes(c, m.tok.Role)
 	q := memory.Query{Scopes: scopes, Text: in.Query, Limit: in.Limit}
 	if in.Scope != "" {
 		i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == in.Scope })
@@ -395,36 +397,16 @@ func (m *mcpServer) recall(
 func (m *mcpServer) readMemory(
 	ctx context.Context, _ *mcp.CallToolRequest, in readMemoryIn,
 ) (*mcp.CallToolResult, itemOut, error) {
-	scopes, err := m.scopes(ctx)
+	c, err := m.st.Channel(ctx, m.tok.ChannelID)
 	if err != nil {
 		return nil, itemOut{}, err
 	}
+	scopes := channel.Scopes(c, m.tok.Role)
 	it, err := m.readable(ctx, scopes, in.ID)
 	if err != nil {
 		return nil, itemOut{}, err
 	}
 	return nil, toItemOut(it), nil
-}
-
-// scopes are the shelves this token's role can read, as its channel names them.
-func (m *mcpServer) scopes(ctx context.Context) ([]memory.Ref, error) {
-	c, err := m.st.Channel(ctx, m.tok.ChannelID)
-	if err != nil {
-		return nil, err
-	}
-	return channelScopes(c, m.tok.Role), nil
-}
-
-// channelScopes are the shelves role can read in channel c.
-func channelScopes(c store.Channel, role string) []memory.Ref {
-	scopes := []memory.Ref{{Kind: memory.ScopeProject, ID: strconv.FormatInt(c.ProjectID, 10)}}
-	if c.FeatureID != nil {
-		scopes = append(scopes, memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*c.FeatureID, 10)})
-	}
-	if c.Team != "" {
-		scopes = append(scopes, memory.Ref{Kind: memory.ScopeTeam, ID: c.Team})
-	}
-	return append(scopes, memory.Ref{Kind: memory.ScopeTeammate, ID: role})
 }
 
 // readable reads an item; it is not found when its scope is not one of scopes.
@@ -679,7 +661,7 @@ func (m *mcpServer) proposeWrap(
 	if err != nil {
 		return nil, wrapOut{}, err
 	}
-	scopes := channelScopes(c, m.tok.Role)
+	scopes := channel.Scopes(c, m.tok.Role)
 	ids := slices.Clone(in.Retire)
 	for i := range in.Items {
 		it := &in.Items[i]
@@ -690,8 +672,12 @@ func (m *mcpServer) proposeWrap(
 			return nil, wrapOut{}, fmt.Errorf("%w: unknown item kind %q", store.ErrInvalid, it.Kind)
 		}
 		if !slices.ContainsFunc(scopes, func(r memory.Ref) bool { return r.Kind == it.Scope }) {
-			return nil, wrapOut{}, fmt.Errorf("%w: scope %q is not work_item, project, teammate or team",
-				store.ErrInvalid, it.Scope)
+			kinds := make([]string, len(scopes))
+			for i, r := range scopes {
+				kinds[i] = r.Kind
+			}
+			return nil, wrapOut{}, fmt.Errorf("%w: scope %q is not one of %s",
+				store.ErrInvalid, it.Scope, strings.Join(kinds, ", "))
 		}
 		if it.Scope == memory.ScopeTeam {
 			if err := m.requireLead(ctx, c.Team); err != nil {

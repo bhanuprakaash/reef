@@ -153,7 +153,7 @@ func ApproveProposal(
 		if err != nil {
 			return store.Proposal{}, 0, err
 		}
-		if added, err = saveItems(ctx, ms, channelScopes(c, p.Role), p); err != nil {
+		if added, err = saveItems(ctx, ms, channel.Scopes(c, p.Role), p); err != nil {
 			return store.Proposal{}, 0, err
 		}
 		for _, rid := range p.Retire {

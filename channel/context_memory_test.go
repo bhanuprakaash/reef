@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -189,5 +190,78 @@ func TestOpen_FirstPromptIsWhatReefContextPrints(t *testing.T) {
 	}
 	if !strings.Contains(want, "### Decisions\ndecision 1: use sessions (") {
 		t.Errorf("Context =\n%s\nwant the decision in it", want)
+	}
+}
+
+func TestScopes(t *testing.T) {
+	feature := int64(7)
+	tests := []struct {
+		name string
+		give store.Channel
+		want []memory.Ref
+	}{
+		{
+			name: "feature channel of a real team",
+			give: store.Channel{ProjectID: 3, FeatureID: &feature, Team: "core"},
+			want: []memory.Ref{
+				{Kind: "work_item", ID: "7"}, {Kind: "project", ID: "3"},
+				{Kind: "team", ID: "core"}, {Kind: "teammate", ID: "lead"},
+			},
+		},
+		{
+			name: "feature channel of the solo team",
+			give: store.Channel{ProjectID: 3, FeatureID: &feature, Team: store.SoloTeam},
+			want: []memory.Ref{
+				{Kind: "work_item", ID: "7"}, {Kind: "project", ID: "3"}, {Kind: "teammate", ID: "lead"},
+			},
+		},
+		{
+			name: "quick session of a real team",
+			give: store.Channel{ProjectID: 3, Team: "core"},
+			want: []memory.Ref{
+				{Kind: "project", ID: "3"}, {Kind: "team", ID: "core"}, {Kind: "teammate", ID: "lead"},
+			},
+		},
+		{
+			name: "channel with no team",
+			give: store.Channel{ProjectID: 3},
+			want: []memory.Ref{{Kind: "project", ID: "3"}, {Kind: "teammate", ID: "lead"}},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := Scopes(tt.give, "lead"); !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("Scopes = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestFirstPrompt_SoloChannelHasNoTeamPartAndMatchesReefContext(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ms := testMemory(t, st)
+	remember(t, ms, projectScope(f), memory.KindFact, "user", "Go 1.24")
+	if _, err := ms.Remember(ctx, memory.Writer{
+		Author: "user", Role: "user", Scope: memory.Ref{Kind: memory.ScopeTeam, ID: store.SoloTeam},
+	}, memory.Note{Kind: memory.KindLesson, Body: "kept on the solo shelf"}); err != nil {
+		t.Fatal(err)
+	}
+	lead := store.Role{Name: "lead", Lead: true}
+	solo := store.Team{Name: store.SoloTeam, Roles: []store.Role{lead}}
+
+	got, err := firstPrompt(ctx, st, ms, f.ProjectID, &f.ID, 0, solo, lead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(got, "### Team") || strings.Contains(got, "kept on the solo shelf") {
+		t.Errorf("solo prompt =\n%s\nwant no Team part", got)
+	}
+	want, err := Context(ctx, st, ms, f.ID, "lead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != want {
+		t.Errorf("solo prompt =\n%s\nwant what reef context prints:\n%s", got, want)
 	}
 }
