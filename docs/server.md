@@ -20,7 +20,7 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
   `--addr`. A second instance needs its own `--data` and its own `--addr`.
 - Other `reef` commands (the CLI, `reef mcp`, `reef chat`) do not take the lock. They open
   `reef.db` directly with `store.Open` while the server runs. `reef chat` takes its own
-  `chat-<channel id>.lock` while it runs, and so does the server for a live channel;
+  `chat-<space id>.lock` while it runs, and so does the server for a live Space;
   restart recovery reads it (see below). WAL mode
   and a 5 second busy timeout let the processes share the file. Two processes that open a fresh folder at once
   both succeed: each migration runs in one `BEGIN IMMEDIATE` transaction and re-reads
@@ -35,10 +35,10 @@ reef serve [--addr 127.0.0.1:7700] [--data DIR]
   [`store/migrations`](../store/migrations) run at start, in order, each once. They only
   go forward. A file whose version is newer than the newest migration (made by a newer
   reef) is refused: `database is newer than this reef`.
-- SIGINT or SIGTERM stops the server: it interrupts every running channel turn (stored
+- SIGINT or SIGTERM stops the server: it interrupts every running Space turn (stored
   `failed`, `interrupted`), stops every agent, then gives requests in flight one second.
   The agents stop in parallel, so stop time is about one agent stop (about a second), not
-  one per live channel.
+  one per live Space.
 
 ## Web UI
 
@@ -54,41 +54,41 @@ cd .. && go build -o reef ./cmd/reef
 ```
 
 Then open `http://127.0.0.1:7700`. Build the web app before `go build`, because the binary
-embeds `web/dist` as it was at build time. A channel's agent is the `claude` or `codex` CLI,
+embeds `web/dist` as it was at build time. A Space's agent is the `claude` or `codex` CLI,
 logged in and on `PATH`.
 
-- Sidebar: a top row with the brand and a New channel button, search, the project switcher,
+- Sidebar: a top row with the brand and a New Space button, search, the project switcher,
   then Today, Needs you and a Features section: its header has a button to add a feature, and
-  each feature is a group with its stage chip (a fixes feature shows `done/total` of its tasks instead), collapsible, over one row per channel
+  each feature is a group with its stage chip (a fixes feature shows `done/total` of its tasks instead), collapsible, over one row per Space
   (teammate creatures, name, a preview of the newest message from `lastMessage`, its time);
-  quick sessions are listed after the features. A feature's closed channels are folded under "Wrapped (N)" below its open ones, and closed features under "Closed (N)" at the bottom. The list scrolls; the foot is fixed and shows your name beside the Tasks, Teams and
+  quick sessions are listed after the features. A feature's closed Spaces are folded under "Wrapped (N)" below its open ones, and closed features under "Closed (N)" at the bottom. The list scrolls; the foot is fixed and shows your name beside the Tasks, Teams and
   Settings links. Below 768 px the sidebar is a
-  bottom tab bar (Today, Channels, Needs you, Tasks, Teams) and a channel opens full screen.
+  bottom tab bar (Today, Spaces, Needs you, Tasks, Teams) and a Space opens full screen.
 - Today (`/`): what waits on you, the project's features and recent done tasks, and capture.
-- Channel: bubbles with each author's creature, replies folded under their thread root with a
+- Space: bubbles with each author's creature, replies folded under their thread root with a
   count, and a side panel for the team, a thread, the inspector, the pull request or the diff (its expand button opens
   the review page). The header's `PR #N` chip opens the pull request panel: title, state, base and head, review, checks and
   Open on GitHub; Merge asks to confirm, then does `POST /features/{id}/pr/merge`. The running turn names its
-  teammate. Teammates' direct messages (`GET /channels/{id}/direct-messages`) are never bubbles: each conversation
+  teammate. Teammates' direct messages (`GET /spaces/{id}/direct-messages`) are never bubbles: each conversation
   between two roles (from one public source message, or from none) is one compact item at the time of its
   first message, saying working, waiting approval, paused, failed, stopped, rejected or completed (the state of
-  its newest chain) with its message count; a direct wake's approval shows there, not as a channel row; it opens a Coordination panel with the exchange, the running direct turn's text and tool calls as they stream, a link to
+  its newest chain) with its message count; a direct wake's approval shows there, not as a Space row; it opens a Coordination panel with the exchange, the running direct turn's text and tool calls as they stream, a link to
   the public message it began from, and Approve or Reject, Continue or Retry for its state. A wake held at a gate shows Approve and Reject; a pause from the hop cap shows in
-  the cap banner. A channel with rollbackable turns (`GET /turns?channel=ID&rollbackable=1`)
+  the cap banner. A Space with rollbackable turns (`GET /turns?space=ID&rollbackable=1`)
   lists Checkpoints; Roll back on a row asks to confirm, then does `POST /turns/{id}/rollback`.
   A role whose newest ended turn has a tool call that claude refused for lack of permission (the
   result says it "requested permissions to use X" or "requires approval", or that an edit tool "is
-  disabled for this session"), read from `GET /channels/{id}/inspector`, gets a card
+  disabled for this session"), read from `GET /spaces/{id}/inspector`, gets a card
   "<Role> was denied <tool>" under the messages. A `Bash` call shows as `Bash(<first word>:*)`, and a
   compound command shows no card. Add to role reads `GET /teams/{name}`, appends the pattern to that role's
   `tools` and saves with `PUT /teams/{name}`; the card then says Added. The next wake of a specialist
   starts with it in `--allowedTools`; the lead keeps its agent between turns, so Add for the lead also
-  does `POST /channels/{id}/stop`. Add is disabled while a turn runs. A read-only role refused an
+  does `POST /spaces/{id}/stop`. Add is disabled while a turn runs. A read-only role refused an
   edit tool shows "Needs write access" and a codex role "Codex ignores allowed tools", both with no Add.
   A checkpoint taken in another tree, such as a quick session's turn after a promote, is not
   listed. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
   reply is the stored message, so the live block does not repeat it.
-- A closed channel shows "Wrapped" and Reopen where the Wrap up button and composer were.
+- A closed Space shows "Wrapped" and Reopen where the Wrap up button and composer were.
 - Feature page (`/features/{id}`), with Close feature (asks to confirm) or Reopen, and its diff review page (`/features/{id}/review`); project
   page (`/projects/{id}`) with its features. The feature page lists the feature's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
 - Needs you (`/inbox`): what waits on you from [`/inbox/events`](#inbox), with a count and
@@ -130,7 +130,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
-| 409 | A unique rule broke: a feature slug is taken in its project. A send to a channel with a wrap or promote turn running, to a channel paused by a cap other than the hop cap or to a channel open in a `reef chat`; `continue` on a channel that is not paused or has a turn running; `retry` of a turn that is not [retryable](#channels-live), or on a channel with a turn running or paused; `rollback` on a channel with a turn running or open in a `reef chat`, on a tree other than the checkpoint's, or on a tree a turn runs on; an approval that is not pending, or one approved while the channel is paused |
+| 409 | A unique rule broke: a feature slug is taken in its project. A send to a Space with a wrap or promote turn running, to a Space paused by a cap other than the hop cap or to a Space open in a `reef chat`; `continue` on a Space that is not paused or has a turn running; `retry` of a turn that is not [retryable](#spaces-live), or on a Space with a turn running or paused; `rollback` on a Space with a turn running or open in a `reef chat`, on a tree other than the checkpoint's, or on a tree a turn runs on; an approval that is not pending, or one approved while the Space is paused |
 | 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
 | 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
@@ -148,7 +148,7 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 [`001_init.sql`](../store/migrations/001_init.sql), migration 2
 [`002_token.sql`](../store/migrations/002_token.sql) (`token`), migration 3
 [`003_proposal.sql`](../store/migrations/003_proposal.sql) (`proposal`), migration 6
-[`006_team.sql`](../store/migrations/006_team.sql) (`team`, `role`, `channel.team_id`),
+[`006_team.sql`](../store/migrations/006_team.sql) (`team`, `role`, `space.team_id`),
 migration 7 [`007_thread.sql`](../store/migrations/007_thread.sql) (`message.parent_id`) and
 migration 8 [`008_approval.sql`](../store/migrations/008_approval.sql) (`gate`, `approval`) and
 migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql) (`approval.kind`) and
@@ -157,12 +157,12 @@ migration 11 [`011_turn_wake.sql`](../store/migrations/011_turn_wake.sql) (`turn
 migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`) and
 migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`) and
 migration 32 [`032_provider.sql`](../store/migrations/032_provider.sql) (`provider`, `role.provider`) and
-migration 33 [`033_channel_name_auto.sql`](../store/migrations/033_channel_name_auto.sql) (`channel.name_auto`) and
+migration 33 [`033_space_name_auto.sql`](../store/migrations/033_space_name_auto.sql) (`space.name_auto`) and
 migration 36 [`036_turn_scopes.sql`](../store/migrations/036_turn_scopes.sql) (`turn.scopes`, `approval.scopes`) and
 migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql) (`turn.session_cost_usd`, `turn.session_input_tokens` and the other three token counts) and
 migration 38 [`038_proposal_items.sql`](../store/migrations/038_proposal_items.sql) (`proposal.items`; drops `proposal.notes` and `proposal.decisions`, clears `proposal.retire` and rejects the wrap proposals still pending) and
 migration 39 [`039_turn_compacted.sql`](../store/migrations/039_turn_compacted.sql) (`turn.compacted`).
-Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
+Migrations 4 and 5 add columns to `space` (see [Space](#space)).
 
 ### project
 
@@ -246,30 +246,30 @@ scope `teammate`. Their routes still read and write them.
 | `body` | string | may be empty |
 | `updatedAt` | string | |
 
-### channel
+### Space
 
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
 | `projectId` | number | required on create; never changes |
-| `featureId` | number? | set on create. It changes only from `null`, once, when a promote gives a quick session its feature. `null` is a quick session. Must be a feature of the same project. Deleting the feature deletes the channel |
+| `featureId` | number? | set on create. It changes only from `null`, once, when a promote gives a quick session its feature. `null` is a quick session. Must be a feature of the same project. Deleting the feature deletes the Space |
 | `name` | string | required |
-| `role` | string | the name of the lead role of the channel's team. Empty when not set. For a channel from before this field existed, the role of its newest turn |
-| `backend` | string | `claude` or `codex`, the agent that runs the channel. Empty when not set. For an older channel, the backend of its newest turn |
-| `permissionMode` | string | passed to the backend as is when the channel's agent starts or resumes. Empty means the backend default |
-| `paused` | string | why the channel is paused (see [Caps](#caps)). Empty when it is not paused. Set by the server only; a client cannot set it |
-| `tokenBudget` | number | tokens the channel may use before it pauses. Starts at 1,000,000. Set by the server only |
-| `team` | string | the name of the channel's [team](#team). `solo` when none is given, and for every channel from before teams. Set on create, never changes |
+| `role` | string | the name of the lead role of the Space's team. Empty when not set. For a Space from before this field existed, the role of its newest turn |
+| `backend` | string | `claude` or `codex`, the agent that runs the Space. Empty when not set. For an older Space, the backend of its newest turn |
+| `permissionMode` | string | passed to the backend as is when the Space's agent starts or resumes. Empty means the backend default |
+| `paused` | string | why the Space is paused (see [Caps](#caps)). Empty when it is not paused. Set by the server only; a client cannot set it |
+| `tokenBudget` | number | tokens the Space may use before it pauses. Starts at 1,000,000. Set by the server only |
+| `team` | string | the name of the Space's [team](#team). `solo` when none is given, and for every Space from before teams. Set on create, never changes |
 | `createdAt` | string | |
-| `closedAt` | string? | `null` while the channel is open. Set when its wrap-up is approved and when its feature is closed, cleared by `POST /channels/{id}/reopen`. A closed channel takes no turn (409) |
+| `closedAt` | string? | `null` while the Space is open. Set when its wrap-up is approved and when its feature is closed, cleared by `POST /spaces/{id}/reopen`. A closed Space takes no turn (409) |
 
 ### message
 
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
-| `channelId` | number | required |
-| `parentId` | number? | the id of the thread root this message replies to. `null` for a top-level message. It must be a top-level message of the same channel: a reply to a reply is 400. Set on create |
+| `spaceId` | number | required |
+| `parentId` | number? | the id of the thread root this message replies to. `null` for a top-level message. It must be a top-level message of the same Space: a reply to a reply is 400. Set on create |
 | `author` | string | required; free text, for example `user` or a role |
 | `body` | string | required |
 | `createdAt` | string | |
@@ -278,12 +278,12 @@ A top-level message is the root of a thread. The author of the root owns the thr
 
 ### turn
 
-One agent run in a channel.
+One agent run in a Space.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
-| `channelId` | number | required |
+| `spaceId` | number | required |
 | `role` | string | required |
 | `backend` | string | required; `claude` or `codex` |
 | `sessionId` | string | default `""`; set on create, while the turn runs, or when it ends |
@@ -296,12 +296,12 @@ One agent run in a channel.
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
 | `directMessageId` | number? | the direct request or response the turn was woken by; `null` for a public wake. Kept so retry preserves private reply routing |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
-| `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<data folder>/<turn id>`. `null` for a turn of a role without `write` and without a file-changing shell command in its `tools` (see [Channels live](#channels-live)), for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
+| `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<data folder>/<turn id>`. `null` for a turn of a role without `write` and without a file-changing shell command in its `tools` (see [Spaces live](#spaces-live)), for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
 | `model` | string | default `""`; the backend's model name, set from the agent's first event once the turn ends |
 | `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one. A failed turn gets one too, when claude reported one. The turn's own cost: the session's running total the turn reported minus the total the session's previous turn reported. A session stored before totals were kept (all its turns have `sessionCostUsd` null) is taken to have cost, so far, its largest `costUsd` plus the `costUsd` of the turns stored after it: a resumed process held a running total, a long-lived one stored its first total and then each turn's own share |
 | `sessionCostUsd`, `sessionUsage` | number?, object? | not in the turn's own JSON; the running totals of the turn's whole session as claude reported them when the turn ended (`sessionUsage` has the four token counts). `null` for a turn from before migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql), for a turn that ended with no report (a stopped or crashed turn) and for every codex turn. The SQL columns are `session_cost_usd`, `session_input_tokens`, `session_output_tokens`, `session_cache_read_tokens`, `session_cache_write_tokens`. A turn's usage is its total minus the latest total before it plus the `usage` of the stopped turns after that one, so a stopped turn's tokens are not counted twice |
-| `prompt` | string | not in the turn's own JSON (`GET /turns`, `GET /turns/{id}`); the full text sent to the agent (context preamble and notes included), stored when it is sent, so a running turn has it; a turn whose send fails stores it when it ends. Empty for a turn that failed before its prompt was built. `GET /channels/{id}/inspector` has its own view of it |
-| `reply` | string | not in the turn's own JSON; the plain reply of a done turn that already posted with `post_to_channel`, kept here and not stored as a message (see [Routing](#routing)). `""` for every other turn. `GET /channels/{id}/inspector` has its own view of it |
+| `prompt` | string | not in the turn's own JSON (`GET /turns`, `GET /turns/{id}`); the full text sent to the agent (context preamble and notes included), stored when it is sent, so a running turn has it; a turn whose send fails stores it when it ends. Empty for a turn that failed before its prompt was built. `GET /spaces/{id}/inspector` has its own view of it |
+| `reply` | string | not in the turn's own JSON; the plain reply of a done turn that already posted with `post_to_space`, kept here and not stored as a message (see [Routing](#routing)). `""` for every other turn. `GET /spaces/{id}/inspector` has its own view of it |
 
 ### tool_call
 
@@ -326,7 +326,7 @@ memory item of kind `decision` (`remember`, `reef decide`, `POST /memory`). Its 
 | --- | --- | --- |
 | `id` | number | |
 | `featureId` | number | required |
-| `messageId` | number? | optional. Must be a message in a channel of the same feature. `null` if that message is later deleted |
+| `messageId` | number? | optional. Must be a message in a Space of the same feature. `null` if that message is later deleted |
 | `body` | string | required |
 | `why` | string | default `""` |
 | `author` | string | required |
@@ -355,7 +355,7 @@ The list is global. A task belongs to a project and may name a feature.
 A named set of roles and the gates between them. A team has exactly one lead role. `reef
 team apply` (see [memory.md](memory.md#teams)) and `PUT /teams/{name}` both write a team,
 through the same validation. Migration 6 seeds the team `solo`, with one role, `lead` on
-`claude`, and points every channel that exists at it.
+`claude`, and points every Space that exists at it.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -371,7 +371,7 @@ through the same validation. Migration 6 seeds the team `solo`, with one role, `
 | `lead` | boolean | exactly one role of a team is the lead. The lead answers a message that nobody else owns |
 | `write` | boolean | default `false`. Only a role with `write` may change files; it gets a checkpoint and the tree's write lock. claude: without it the role never gets `Edit`, `Write`, `MultiEdit` or `NotebookEdit` (they are dropped from `tools` and passed as `--disallowedTools`, so an allow rule in the user's or project's `.claude/settings.json` cannot grant them) and runs in the `default` permission mode, so `Bash` runs only as `tools` lists it. A claude role without `write` cannot list plain `Bash`, `Bash(*)` or `Bash(:*)` in `tools`: it would still change files through the shell, so applying the team is `invalid`; list patterns such as `Bash(go test:*)` instead. A role saved before this check existed has it dropped from `tools` at session start too, the same as the edit tools. `Bash` patterns are trusted as given, so `Bash(git diff:*)` also lets `git diff --output=file` write a file: such a role counts as a writer (see the write lock below). With it the role keeps its `tools` and permission mode (it still needs `acceptEdits`, or `Edit` in `tools`, to edit unasked) and also gets `Task`. codex: without it the sandbox is `read-only`; with it `workspace-write` unless the role's `permissionMode` is set. The seeded `solo` lead has `write` |
 | `backend` | string | required; `claude` or `codex` |
-| `permissionMode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`. The same rule as a channel's `permissionMode` |
+| `permissionMode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`. The same rule as a Space's `permissionMode` |
 | `model` | string | optional; the model the role runs on, passed to the backend when its agent starts or resumes: claude `--model NAME` (`opus`, `sonnet`, `haiku` or a full model id), codex the thread `model`. Left out or `""` is the backend default |
 | `provider` | string | optional; the `name` of an added [provider](#provider) whose binary the role runs instead of the `claude` or `codex` on `PATH`. It must exist and have `kind` equal to the role's `backend`, else the team is `invalid`. Left out or `""` runs the one on `PATH` |
 | `persona` | string | goes at the start of the role's first prompt, under `## You`, and again, marked as changed, at its next wake once it or `skills` differs from what the role's session last got |
@@ -380,8 +380,8 @@ through the same validation. Migration 6 seeds the team `solo`, with one role, `
 | `tools` | array of strings | claude: passed as `--allowedTools` with `mcp__reef__*`, so these tools and the reef tools run without asking; the role's own `mcpServers` do not (list `mcp__mcp1__*` here to allow one). codex: ignored |
 | `mcpServers` | array | extra MCP servers for the role, each `command`, `args`, `env` (stdio) or `url` (HTTP). They are named `mcp1`, `mcp2`, ... next to the `reef` server |
 
-A channel's lead takes the channel's own `backend` and `permissionMode`, which `POST
-/channels` filled from the lead role unless the request set them. The other roles use their
+A Space's lead takes the Space's own `backend` and `permissionMode`, which `POST
+/spaces` filled from the lead role unless the request set them. The other roles use their
 own.
 
 ### provider
@@ -400,7 +400,7 @@ adapters use when a role names no provider.
 A role runs a provider's binary by naming it in `provider`. The check runs when the team is
 applied (the provider exists, its `kind` is the role's `backend` and its folder still holds the
 binary) and again when the role's agent starts, because the binary may be gone from the folder
-after that. A channel's lead takes the channel's `backend`; when that differs from the lead
+after that. A Space's lead takes the Space's `backend`; when that differs from the lead
 role's, the role's `provider` is ignored and the `PATH` binary runs. A start that fails the check
 is a `failed` turn whose `error` says why, for example `role developer: no claude binary in
 /opt/work`; nothing falls back to the `PATH` binary, as that would run a different one than the
@@ -427,21 +427,21 @@ A wake that waits at a gate. The SQL table is `approval`.
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
-| `channelId` | number | |
+| `spaceId` | number | |
 | `from` | string | the role whose message woke it |
 | `to` | string | the role that would run |
 | `messageId` | number | the message that woke it; `0` for a direct wake |
 | `directMessageId` | number? | the direct message that woke it, when the wake is direct |
-| `text` | string | the wake as it was routed, for example `[channel 5, message 28]\nlead wrote: @architect design a form`; the turn's own text is built when it runs |
+| `text` | string | the wake as it was routed, for example `[space 5, message 28]\nlead wrote: @architect design a form`; the turn's own text is built when it runs |
 | `status` | string | `pending`, `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 
 The table also keeps the wakes a pause holds, see [Caps](#caps): a row of kind `hold` is never
-listed, approved or rejected through the API. Deleting the channel deletes its approvals.
+listed, approved or rejected through the API. Deleting the Space deletes its approvals.
 
 ### token
 
-Lets one teammate's `reef mcp` act as one role in one channel. No REST route: `reef
+Lets one teammate's `reef mcp` act as one role in one Space. No REST route: `reef
 token`, `reef chat` and the server (one per teammate session) make them, `reef mcp` reads
 them, and the one that made a token deletes it when its session ends. See
 [memory.md](memory.md#tokens).
@@ -449,7 +449,7 @@ them, and the one that made a token deletes it when its session ends. See
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `token` | string | the key; 64 hex characters from 32 random bytes |
-| `channelId` | number | required. Deleting the channel deletes the token |
+| `spaceId` | number | required. Deleting the Space deletes the token |
 | `role` | string | required; the author of what the teammate writes |
 | `createdAt` | string | never expires |
 
@@ -457,20 +457,20 @@ them, and the one that made a token deletes it when its session ends. See
 
 A wrap-up proposal: the new brief and the memory items to save.
 `propose_wrap` makes one. `propose_brief` makes a brief proposal: only the brief, made
-mid-channel. Approving it adds a brief version and leaves the memory items and the
-channel as they are; the channel's agent is not stopped. A channel has one pending proposal at most: a new wrap rejects the older pending ones of any kind, a new brief rejects the older pending briefs and is refused with `invalid: channel 1 has a wrap-up waiting for approval` while a wrap is pending, and approving a brief on a closed channel is `invalid: channel 1 is closed`. `reef chat` prompts for approval,
+mid-space. Approving it adds a brief version and leaves the memory items and the
+Space as they are; the Space's agent is not stopped. A Space has one pending proposal at most: a new wrap rejects the older pending ones of any kind, a new brief rejects the older pending briefs and is refused with `invalid: space 1 has a wrap-up waiting for approval` while a wrap is pending, and approving a brief on a closed Space is `invalid: space 1 is closed`. `reef chat` prompts for approval,
 and `reef wrap approve` or `reef wrap reject` decides it; the server offers the same over REST (see [Wrap-up and
 promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
-| `channelId` | number | required; must be a channel of a feature. Deleting the channel deletes the proposal |
+| `spaceId` | number | required; must be a Space of a feature. Deleting the Space deletes the proposal |
 | `role` | string | required; author of the brief and items it applies |
 | `kind` | string | `wrap` (default) or `brief`; any other is `invalid: unknown proposal kind "x"` |
 | `brief` | string | required, not empty; the full new brief |
-| `items` | array | `{"kind", "body", "why", "scope", "replaces"}` each; `body` required. `scope` is `work_item` (the default `propose_wrap` fills in), `project`, `teammate` or `team`, and `team` only when the proposing role leads the channel's team. `replaces` is optional, ids of live memory items it replaces. `[]` by default. The SQL column holds them as JSON text. Approving saves each with `remember`: see [memory.md](memory.md#wrap-up) |
-| `retire` | array | ids of live memory items that are stale or duplicate; approving retires them. `[]` by default. The SQL column holds them as JSON text. `propose_wrap` checks that each `retire` and `replaces` id is an accepted item in a scope the role can read (`invalid: memory 9 is not a live item in this channel's scopes`) and stores nothing otherwise; `CreateProposal` itself does not read memory. An id claimed twice (in `retire` and a `replaces`, or two `replaces`) is kept for its first claim, replaces before `retire`. At approve an id that is already retired is skipped |
+| `items` | array | `{"kind", "body", "why", "scope", "replaces"}` each; `body` required. `scope` is `work_item` (the default `propose_wrap` fills in), `project`, `teammate` or `team`, and `team` only when the proposing role leads the Space's team. `replaces` is optional, ids of live memory items it replaces. `[]` by default. The SQL column holds them as JSON text. Approving saves each with `remember`: see [memory.md](memory.md#wrap-up) |
+| `retire` | array | ids of live memory items that are stale or duplicate; approving retires them. `[]` by default. The SQL column holds them as JSON text. `propose_wrap` checks that each `retire` and `replaces` id is an accepted item in a scope the role can read (`invalid: memory 9 is not a live item in this space's scopes`) and stores nothing otherwise; `CreateProposal` itself does not read memory. An id claimed twice (in `retire` and a `replaces`, or two `replaces`) is kept for its first claim, replaces before `retire`. At approve an id that is already retired is skipped |
 | `status` | string | `pending` (default), `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 | `decidedAt` | string? | `null` while pending |
@@ -480,19 +480,19 @@ promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 `{id}` is a number. Lists come back as `[]` when empty, ordered by id (oldest first).
 Create returns 201 and the row. Update returns 200 and the row. Delete returns 204 and no
 body. Deleting a row deletes what hangs off it by foreign key: a project takes its
-features, channels and tasks; a feature takes its briefs, notes, decisions and channels;
-a channel takes its messages, turns, tokens, proposals and approvals; a turn takes its
+features, Spaces and tasks; a feature takes its briefs, notes, decisions and Spaces;
+a Space takes its messages, turns, tokens, proposals and approvals; a turn takes its
 tool calls.
 
 | Route | Filters and body | OK | Notable errors |
 | --- | --- | --- | --- |
 | `GET /health` | | 200 `{"status":"ok"}` | |
-| `GET /status` | | 200 `{"running":N}`, N the channels whose live state is not idle (a turn is starting, running or stopping); the desktop app polls it to update when idle | |
+| `GET /status` | | 200 `{"running":N}`, N the Spaces whose live state is not idle (a turn is starting, running or stopping); the desktop app polls it to update when idle | |
 | `GET /projects` | | 200 | |
 | `POST /projects` | `name`, `path` | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |
 | `PUT /projects/{id}` | `name`, `path`, `baseBranch` (optional; the branch a new feature starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
-| `DELETE /projects/{id}` | | 204; the worktrees of its features and the checkpoint refs of the turns of all its channels are removed, its branches are kept | 404, 409 a feature's worktree has uncommitted changes (nothing is removed) |
+| `DELETE /projects/{id}` | | 204; the worktrees of its features and the checkpoint refs of the turns of all its Spaces are removed, its branches are kept | 404, 409 a feature's worktree has uncommitted changes (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set. Unused since decision 91 | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200. Unused since decision 91 | 404 |
 | `GET /profile` | | 200 | 404 no name set yet |
@@ -501,8 +501,8 @@ tool calls.
 | `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage`, `kind` | 201 | 400 unknown project, 409 slug taken |
 | `GET /features/{id}` | | 200 | 404 |
 | `PUT /features/{id}` | `name`, `goal`, `stage`, `kind` | 200 | 400, 404 |
-| `POST /features/{id}/close` | no body needed | 204; sets `closedAt` on the feature and on each of its channels, and stops their agents | 404, 409 a channel has a turn running (nothing is closed) |
-| `POST /features/{id}/reopen` | no body needed | 204; clears the feature's `closedAt` only, its channels stay closed | 404 |
+| `POST /features/{id}/close` | no body needed | 204; sets `closedAt` on the feature and on each of its Spaces, and stops their agents | 404, 409 a Space has a turn running (nothing is closed) |
+| `POST /features/{id}/reopen` | no body needed | 204; clears the feature's `closedAt` only, its Spaces stay closed | 404 |
 | `DELETE /features/{id}` | | 204; the feature's worktree and the checkpoint refs of its turns are removed, its branch is kept | 404, 409 the worktree has uncommitted changes (nothing is removed) |
 | `GET /features/{id}/brief` | | 200 latest version | 404 no feature, or no brief yet |
 | `PUT /features/{id}/brief` | `body`, `author` | 201 new version | 400, 404 |
@@ -511,7 +511,7 @@ tool calls.
 | `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200. Unused since decision 91 | 404 no feature |
 | `DELETE /features/{id}/notes/{role}` | | 204. Unused since decision 91 | 404 no feature, or no notes for the role |
 | `GET /features/{id}/worktree` | | 200 `{"path": "..."}`; the path of the feature's worktree, or `""` when it has none yet. Never makes one | 404 |
-| `POST /features/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the feature's worktree the same way the first wake of one of its channels would, reusing it when it already exists | 404 |
+| `POST /features/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the feature's worktree the same way the first wake of one of its Spaces would, reusing it when it already exists | 404 |
 | `GET /features/{id}/diff` | query `scope=current` for the changes against the worktree's HEAD only | 200 the worktree's changes against the commit its branch and the project's base branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
 | `GET /features/{id}/pr` | | 200 `{"pr": {"number", "title", "state": "OPEN"\|"MERGED"\|"CLOSED", "url", "isDraft", "reviewDecision", "base", "head", "canMerge", "checks": [{"name", "state": "pass"\|"fail"\|"pending"}], "body", "additions", "deletions", "files": [{"path", "additions", "deletions"}]}}`, from `gh pr view feature/<slug>` run in the project's folder; `canMerge` is true only when `state` is `OPEN` and gh calls it `MERGEABLE`; `{"pr": null}` when the branch has no PR | 404, 502 gh is not on `PATH` or failed, with its text |
 | `POST /features/{id}/pr/merge` | no body needed | 200 the same body as `GET /features/{id}/pr`, after `gh pr merge <number> --merge` (a merge commit) | 404 no feature or no PR, 409 gh refused, with its text, 502 |
@@ -522,42 +522,42 @@ tool calls.
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
 | `GET /teams/{name}` | | 200, with `mcp` instead of `mcpServers` as above; each role shows `write` | 404 |
 | `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; a role may also list `mcpRemove`, the `{name, label}` of each stored MCP server to drop, as `GET` showed it; servers it does not list are kept); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones, minus those in its `mcpRemove`; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists, or a server in `mcpRemove` no longer matches a stored one by name and label (the team changed since it was loaded; nothing is applied) |
-| `GET /channels` | `?project=ID`, `?feature=ID` | 200 each channel also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
-| `POST /channels` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the channel's `role` becomes the name of the team's lead role). A `name` is required; one that is the new-channel form's default, `<backend or team> <hh:mm>` (`claude 14:32`, `claude 02:32 PM`), marks the channel as waiting for a provider name, see [Channel names](#channel-names) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
-| `GET /channels/{id}` | | 200 | 404 |
-| `PUT /channels/{id}` | `name` (required), `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the channel's backend and applies the next time its agent starts. A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or permission mode, 404 |
-| `DELETE /channels/{id}` | stops the channel first if it is live; a send during the delete is 404 | 204 | 404 |
-| `POST /channels/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this channel; the message is stored as a reply in its thread) | 202, no body; while a message chain starts or runs the message is stored and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this channel, or `/wrap` on a quick session, 404 (also while the channel is being deleted), 409 wrap or promote turn running, channel closed, channel paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
-| `GET /channels/{id}/events` | | 200 `text/event-stream` | 404 |
-| `GET /channels/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
-| `GET /channels/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the channel, oldest first; each has `id`, `channelId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `createdAt` | 400 bad id, 404 |
-| `GET /search` | `?feature=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the feature's public messages and all its direct messages, newest first, `[]` when none. Each hit has `channelId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `feature`, missing `q` |
-| `POST /channels/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
-| `POST /channels/{id}/stop` | no body needed | 204, also when the channel is not live or does not exist | |
-| `POST /channels/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
-| `GET /channels/{id}/approvals` | | 200 the channel's pending gate approvals, oldest first; `[]` when none | 404 |
-| `POST /channels/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body; approve while a chain starts or runs queues the wake behind the current turn | 400 no `approve`, 404 no such approval in this channel, 409 not pending, or approve while the channel is paused (it stays pending), 503 |
-| `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
-| `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
-| `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
-| `POST /proposals/{id}/approve` | no body needed | 200 the proposal, `itemsAdded` and `warnings` (a line for each saved item that looks like a stored one or has no vector; left out when none); a wrap closes the proposal's channel and stops its agent, a brief proposal does neither | 400 already decided, 404 |
+| `GET /spaces` | `?project=ID`, `?feature=ID` | 200 each Space also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
+| `POST /spaces` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the Space's `role` becomes the name of the team's lead role). A `name` is required; one that is the new-space form's default, `<backend or team> <hh:mm>` (`claude 14:32`, `claude 02:32 PM`), marks the Space as waiting for a provider name, see [Space names](#space-names) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
+| `GET /spaces/{id}` | | 200 | 404 |
+| `PUT /spaces/{id}` | `name` (required), `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the Space's backend and applies the next time its agent starts. A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or permission mode, 404 |
+| `DELETE /spaces/{id}` | stops the Space first if it is live; a send during the delete is 404 | 204 | 404 |
+| `POST /spaces/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this Space; the message is stored as a reply in its thread) | 202, no body; while a message chain starts or runs the message is stored and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this Space, or `/wrap` on a quick session, 404 (also while the Space is being deleted), 409 wrap or promote turn running, Space closed, Space paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
+| `GET /spaces/{id}/events` | | 200 `text/event-stream` | 404 |
+| `GET /spaces/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
+| `GET /spaces/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the Space, oldest first; each has `id`, `spaceId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `createdAt` | 400 bad id, 404 |
+| `GET /search` | `?feature=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the feature's public messages and all its direct messages, newest first, `[]` when none. Each hit has `spaceId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `feature`, missing `q` |
+| `POST /spaces/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
+| `POST /spaces/{id}/stop` | no body needed | 204, also when the Space is not live or does not exist | |
+| `POST /spaces/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
+| `GET /spaces/{id}/approvals` | | 200 the Space's pending gate approvals, oldest first; `[]` when none | 404 |
+| `POST /spaces/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body; approve while a chain starts or runs queues the wake behind the current turn | 400 no `approve`, 404 no such approval in this Space, 409 not pending, or approve while the Space is paused (it stays pending), 503 |
+| `POST /spaces/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
+| `POST /spaces/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the Space | 400 bad body, Space already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
+| `GET /spaces/{id}/proposal` | | 200 the Space's pending proposal | 404 none pending |
+| `POST /proposals/{id}/approve` | no body needed | 200 the proposal, `itemsAdded` and `warnings` (a line for each saved item that looks like a stored one or has no vector; left out when none); a wrap closes the proposal's Space and stops its agent, a brief proposal does neither | 400 already decided, 404 |
 | `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
-| `GET /messages` | `?channel=ID` (required), `?after=ID` (only newer ids) | 200, each with `parentId` | 400 no channel, 404 unknown channel |
-| `POST /messages` | `channelId`, `parentId`, `author`, `body` | 201 | 400 unknown channel, missing field, or a `parentId` that is not a top-level message of that channel |
+| `GET /messages` | `?space=ID` (required), `?after=ID` (only newer ids) | 200, each with `parentId` | 400 no Space, 404 unknown Space |
+| `POST /messages` | `spaceId`, `parentId`, `author`, `body` | 201 | 400 unknown Space, missing field, or a `parentId` that is not a top-level message of that Space |
 | `GET /tasks` | `?project=ID`, `?feature=ID`, `?status=todo\|doing\|done` | 200 | 400 bad id or status |
 | `POST /tasks` | `projectId`, `featureId`, `title`, `body`, `status` | 201 | 400 |
 | `GET /tasks/{id}` | | 200 | 404 |
 | `PUT /tasks/{id}` | `title`, `body`, `status`, `featureId` | 200 | 400, 404 |
 | `DELETE /tasks/{id}` | | 204 | 404 |
-| `GET /turns` | `?channel=ID`, `?status=running\|done\|failed`, `?retryable=1` (only the turns `retry` accepts), `?rollbackable=1` (needs `channel`; only the turns with a `checkpoint` taken in the tree the channel runs in now, so `rollback` is not a 409 for the tree) | 200 | 400 bad id or status, or `rollbackable` without a channel, 404 `rollbackable` on an unknown channel |
-| `POST /turns` | `channelId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent`, `directMessageId` | 201 | 400 bad backend or unknown channel, public message or direct message |
+| `GET /turns` | `?space=ID`, `?status=running\|done\|failed`, `?retryable=1` (only the turns `retry` accepts), `?rollbackable=1` (needs `space`; only the turns with a `checkpoint` taken in the tree the Space runs in now, so `rollback` is not a 409 for the tree) | 200 | 400 bad id or status, or `rollbackable` without a Space, 404 `rollbackable` on an unknown Space |
+| `POST /turns` | `spaceId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent`, `directMessageId` | 201 | 400 bad backend or unknown Space, public message or direct message |
 | `GET /turns/{id}` | | 200 | 404 |
 | `PATCH /turns/{id}` | `status` (`done` or `failed`), `error`, `usage`, `sessionId`. With no `status`, only `sessionId` is set and the turn stays `running` | 200 | 400 bad status, negative usage, empty `sessionId` without a status, `error` or `usage` without a status, or already ended; 404 |
-| `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not retryable (see [Channels live](#channels-live)), or as send for a channel with a turn running or paused, 503 |
+| `POST /turns/{id}/retry` | no body needed | 202, no body; the wake of the failed turn runs again as a new turn of its role, and the failed turn is `retried` | 404, 409 not retryable (see [Spaces live](#spaces-live)), or as send for a Space with a turn running or paused, 503 |
 | `GET /inbox` | | 200 the items waiting on the user, newest first; `[]` when none. See [Inbox](#inbox) | |
 | `GET /inbox/events` | | 200 `text/event-stream` | |
-| `POST /channels/{id}/dismiss` | `messageId` | 204, no body; the channel's `waiting` item for that message is hidden, see [Inbox](#inbox) | 400 bad body, 404 unknown channel or a message that is not the channel's |
-| `POST /turns/{id}/rollback` | no body needed | 204, no body; the channel's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the channel has a turn running, a `reef chat` has it open, its tree is not the one the checkpoint was taken in, or a turn of any role runs on the tree, 503 |
+| `POST /spaces/{id}/dismiss` | `messageId` | 204, no body; the Space's `waiting` item for that message is hidden, see [Inbox](#inbox) | 400 bad body, 404 unknown Space or a message that is not the Space's |
+| `POST /turns/{id}/rollback` | no body needed | 204, no body; the Space's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the Space has a turn running, a `reef chat` has it open, its tree is not the one the checkpoint was taken in, or a turn of any role runs on the tree, 503 |
 | `GET /decisions` | `?feature=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy`. Unused since decision 91 | 400 no feature, 404 unknown feature |
 | `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author`, `replaces` | 201. Unused since decision 91 | 400 missing field, unknown feature, a message of another feature, or a `replaces` id that is not a live decision of the feature |
 | `GET /decisions/{id}` | | 200. Unused since decision 91 | 404 |
@@ -572,45 +572,45 @@ is 400.
 
 Create requests take the whole object from the table above. A field you leave out takes
 its default. Other `PUT` requests replace the whole object. Update behavior is
-route-specific: `PUT /channels/{id}` keeps an omitted `permissionMode`, while
+route-specific: `PUT /spaces/{id}` keeps an omitted `permissionMode`, while
 `PATCH /turns/{id}` is the only partial update for other resources.
 
-## Channels live
+## Spaces live
 
-`POST /channels/{id}/send` runs the channel's agents through
-[`channel.Open`](../channel/session.go), the code `reef chat` uses. A channel has a
+`POST /spaces/{id}/send` runs the Space's agents through
+[`space.Open`](../space/session.go), the code `reef chat` uses. A Space has a
 [team](#team): the lead answers the user, and the other roles are specialists that run when
 a message wakes them.
 
 - The server stores the user message, then answers 202. The turns run in the background, not
   in the request. The text `/wrap` runs the wrap-up turn (400 on a quick session, before any
   agent turn). Every other text, `/promote` included, is a plain message: only `POST
-  /channels/{id}/promote` promotes. A send with `parent` stores the message as a reply in that
+  /spaces/{id}/promote` promotes. A send with `parent` stores the message as a reply in that
   thread.
 - Each role of the team has its own agent session, its own `reef mcp` token, its own turns and
   its own session id. The role's backend, permission mode, tools and MCP servers are set up
-  for it (the lead uses the channel's backend and permission mode). Its first prompt starts with `## You`,
+  for it (the lead uses the Space's backend and permission mode). Its first prompt starts with `## You`,
   then its persona and skills (see [memory.md](memory.md#the-context-prompt)).
-- An agent starts when its first turn runs, not when the channel opens. A first message that
+- An agent starts when its first turn runs, not when the Space opens. A first message that
   wakes a specialist starts no lead. A role that already has a session resumes it by its own
   newest session id (see [memory.md](memory.md#reef-chat)). An agent that fails to start, for any
   reason (the agent, its session lookup, its token, its folder or its first prompt), shows
   as one `failed` turn of its role, with the start error, or `interrupted` when a stop cut the
   start short. So does a wake whose text cannot be built. A wake for a role the team no longer has is a `failed`
-  turn too, with the wake text, on the channel's backend. The wake text of a wake that never started is the
+  turn too, with the wake text, on the Space's backend. The wake text of a wake that never started is the
   text the wake was routed with, not the messages it would have sent. The server logs every failed turn. When the backend says the session is
   missing (claude `No conversation found`, codex `no rollout found for thread id`), that turn
   fails and the role's next wake starts a new session, with its intro, not the dead one.
-- An agent of a channel under a feature runs in the feature's worktree,
+- An agent of a Space under a feature runs in the feature's worktree,
   `<data folder>/worktrees/<project id>/<slug>`, on branch `feature/<slug>`. It is made at
   the first start of any agent of the feature, from the project's base branch (fetched from
   `origin` first, a failed fetch is only logged; `origin/<branch>` if it exists, else the local
-  branch) or the repo's default branch when none is set, with `git worktree add`; a worktree or branch that exists is reused, so every channel of the feature shares
+  branch) or the repo's default branch when none is set, with `git worktree add`; a worktree or branch that exists is reused, so every Space of the feature shares
   one tree. A branch that is checked out elsewhere (in the main checkout, or in the worktree
   of another project on the same repo) cannot be added: the start fails with `branch
   feature/<slug> is checked out at <path>; switch that checkout to another branch`. A
   quick session runs in the project path. The feature is read at each agent
-  start, so a promoted channel moves to the worktree at its next wake. A project that is not
+  start, so a promoted Space moves to the worktree at its next wake. A project that is not
   a git repo, or a repo with no commit, has no worktree: the start fails as a `failed` turn
   whose error is `features need the project folder to be a git repo with a commit: <path>:`
   and git's error, and the server goes on. A worktree whose folder was deleted is pruned and
@@ -630,7 +630,7 @@ a message wakes them.
   HEAD, then a commit of the index as it was, so a rollback can bring back what was staged.
   Its message records the directory and the branch it was taken in (`dir:` and `branch:`
   lines; no branch when HEAD was detached).
-- One write turn at a time runs on a tree, across all channels and processes on the data
+- One write turn at a time runs on a tree, across all Spaces and processes on the data
   folder: the feature's worktree, or the project path for quick sessions. A wake of a role with `write` waits for
   the write turn that runs on its tree, then runs. Its turn row is created when it starts, so
   `startedAt` is after the other turn's `endedAt`. A stop ends the wait, and the turn is
@@ -644,73 +644,73 @@ a message wakes them.
   so it does not make the role a writer. A role without `write` and with only reading commands is not held: it runs beside a
   write turn, and counts as a reader of the tree for its turn, which only a rollback
   respects. The first start
-  of a feature's worktree takes a lock of its own, so two channels waking at once add it once.
+  of a feature's worktree takes a lock of its own, so two Spaces waking at once add it once.
   The locks are `flock` files in `<data folder>/locks/`, named from a hash of the tree path
   (`.lock` for the writer, `.read` for readers), so `reef serve` and `reef chat` share them.
   A waiting write turn polls its lock every 20 ms. A rollback takes the writer lock without
   waiting and checks the reader file, so a read-only turn of any process refuses it.
-- `POST /turns/{id}/rollback` puts the channel's tree (the feature's worktree, or the project
+- `POST /turns/{id}/rollback` puts the Space's tree (the feature's worktree, or the project
   path of a quick session) back as the turn's checkpoint saw it: the branch the checkpoint was
   taken on is checked out at the HEAD it had, so commits made since, and a branch the turn
   switched to, are left behind (a detached checkpoint resets whatever is checked out); tracked
   and untracked files get the content they had, the same changes are staged, and files made
-  since are removed. Ignored files are left alone. It claims the channel like a send. It is
-  409, never a wait, when the channel's tree is not the directory the checkpoint was taken in
-  (a quick session's turn after a promote), when a `reef chat` holds the channel, or when a
-  turn of any role of any channel runs on the tree (the write lock is held, or a read-only
+  since are removed. Ignored files are left alone. It claims the Space like a send. It is
+  409, never a wait, when the Space's tree is not the directory the checkpoint was taken in
+  (a quick session's turn after a promote), when a `reef chat` holds the Space, or when a
+  turn of any role of any Space runs on the tree (the write lock is held, or a read-only
   turn is a reader). A reader that starts during the restore is not held back. A turn with
   no `checkpoint` is 400. Then `reef` posts `Rolled back
-  to before turn N.` in the channel. The agent's session is not rewound. When a turn of
-  a role that has run before in the channel is sent, its prompt gets the lines `reef wrote: ...`
+  to before turn N.` in the Space. The agent's session is not rewound. When a turn of
+  a role that has run before in the Space is sent, its prompt gets the lines `reef wrote: ...`
   that `reef` posted since that role's last turn began, after the header line, so the role
   learns of the rollback (and of a restart failure note) even when its wake was held at a gate
   or is a retry; a role that never ran gets none. The wake kept as `wakeText` and shown in an
   approval does not have them.
 - `DELETE /features/{id}` cleans what Reef made for the feature. It stops the agents of the
-  feature's channels first (a running turn is stopped, as when a channel is deleted). A
+  feature's Spaces first (a running turn is stopped, as when a Space is deleted). A
   worktree with uncommitted changes (untracked files count) is 409 with `feature <slug> has
   uncommitted changes in <path>; commit or discard them first`, and nothing is removed.
   Otherwise the worktree is removed with `git worktree remove`, the feature rows are
-  deleted, and last the `refs/reef/checkpoints/<data folder>/<turn id>` refs of every turn of its channels
+  deleted, and last the `refs/reef/checkpoints/<data folder>/<turn id>` refs of every turn of its Spaces
   are deleted. The worktree goes first because it is the step that can refuse or fail, and a
   later wake of a feature makes it again; the refs go after the rows that name them, so a
   failure there leaves refs that no turn points to, and the delete is 500. The branch
   `feature/<slug>` is kept: it is the user's work. A feature with no worktree folder (no agent
-  ever started) only has its rows deleted. Deleting a channel keeps worktrees and refs.
+  ever started) only has its rows deleted. Deleting a Space keeps worktrees and refs.
   Right after the rows go, the memory items of the feature's `work_item:<id>` scope are
   closed: pending candidates are rejected and accepted items retired, so nothing of it is left
   in `reef memory pending`. Retired and rejected items are kept and still read.
 - `DELETE /projects/{id}` does the same for every feature of the project, and deletes the
-  checkpoint refs of the turns of every channel of the project, quick sessions included (their
+  checkpoint refs of the turns of every Space of the project, quick sessions included (their
   refs are taken in the project folder). It checks every worktree first: one with uncommitted
   changes is 409 for that feature, and nothing is removed. Then it removes all worktrees,
   deletes the project rows, and last deletes the refs, in the same order and with the same
   failure rule as a feature delete. Branches are kept. Its memory items are closed the same
   way, in the project's `project:<id>` scope and in the `work_item:<id>` scope of each of its
   features.
-- The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
+- The lead stays alive between turns, until `POST /spaces/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session. A background task a specialist started ends with its agent, and its
   answer is not posted. While no turn runs, the lead's events are read, so the answer of its
   background task is posted as its message when it arrives (decision 84).
-- The server holds `chat-<id>.lock` while the channel has a live session, so `reef chat
-  --channel ID` fails with `channel 1 is open elsewhere: conflict`. A send to a channel a
+- The server holds `chat-<id>.lock` while the Space has a live session, so `reef chat
+  --space ID` fails with `space 1 is open elsewhere: conflict`. A send to a Space a
   `reef chat` holds is 409 too.
 - `stop` interrupts a running turn (stored `failed`, `interrupted`), drops the wakes still
   waiting (so does a turn that fails: its chain ends and the wakes behind it do not run; the
   next send starts a chain that posts a message from reef naming the roles of those wakes, and
-  a restart before that send holds them instead), then stops every agent of the channel, deletes their tokens and releases the lock.
+  a restart before that send holds them instead), then stops every agent of the Space, deletes their tokens and releases the lock.
   It also works while the send is still checking the caps or starting an agent: the send then
-  answers 409 `channel 1 was stopped`, and no turn runs. Once the send has changed something
+  answers 409 `space 1 was stopped`, and no turn runs. Once the send has changed something
   (a promote's change) or stored the user message, it does not give up: it answers 202 as
   usual, and its turn runs with the stop already in effect, so it is stored `failed`,
   `interrupted` and the agent gets no prompt. A turn that fails for another reason also stops
-  every agent of the channel; the next turn opens them again, each by its own session id.
-- `DELETE /channels/{id}` does the same as `stop` before it deletes the channel.
-  `DELETE /features/{id}` and `DELETE /projects/{id}` do it for each of their channels.
-  From the start of that stop until the delete is done, a send to the channel is 404
-  `channel 1 is being deleted`, so no agent starts for a channel that is going away.
-- Server shutdown does the same for every channel before it stops listening.
+  every agent of the Space; the next turn opens them again, each by its own session id.
+- `DELETE /spaces/{id}` does the same as `stop` before it deletes the Space.
+  `DELETE /features/{id}` and `DELETE /projects/{id}` do it for each of their Spaces.
+  From the start of that stop until the delete is done, a send to the Space is 404
+  `space 1 is being deleted`, so no agent starts for a Space that is going away.
+- Server shutdown does the same for every Space before it stops listening.
 - A turn keeps the wake it ran as `wakeText`, `wakeParent` and `directMessageId`. `POST /turns/{id}/retry` on a
   `failed` turn runs that wake again for the same role as a new turn in a new chain, the way an
   approve does, with no new user message: the new turn answers in the same public thread or
@@ -718,7 +718,7 @@ a message wakes them.
   reply wakes is routed as usual. The failed turn is marked `retried` before the turn starts, so a
   second retry is 409; if the turn cannot start, the mark is taken back. Nothing retries a
   turn by itself. A turn is retryable when it is `failed`, not `retried`, has a `wakeText`, and
-  no later turn of its role ran in the channel: a turn that a later one supersedes is 409. A
+  no later turn of its role ran in the Space: a turn that a later one supersedes is 409. A
   turn the user stopped (`interrupted`) is retryable, since the user may want its wake run
   again. A routed wake that never sent is built again from the
   messages not yet sent, so a retry never resends a whole thread; a turn that sent runs its kept text again. A wrap-up or promote turn keeps no wake, so it is never retryable: the user wraps or
@@ -729,14 +729,14 @@ a message wakes them.
 
 When a turn ends, the server reads the messages stored since the last one it read and routes
 those written by the role of the turn that ended: its reply, which is stored as a message from
-the role, and any message it posted with the `post_to_channel` tool (see
-[memory.md](memory.md#reef-mcp)). A turn that posted with `post_to_channel` has one message: its
+the role, and any message it posted with the `post_to_space` tool (see
+[memory.md](memory.md#reef-mcp)). A turn that posted with `post_to_space` has one message: its
 plain reply at the end of the turn is not stored as a message, so it wakes no one a second time.
 The turn keeps it (`reply`, shown by the inspector). A post counts when its tool call did not
 fail. A turn that did not post, a failed or stopped turn, and a direct turn (its reply is the
 direct response) store the reply as before. Other messages, such as a `POST /messages` from the user in
 the middle of a chain, are skipped: they start no turn and do not reset the hop count. Each
-routed message goes through the router, [`channel.Route`](../channel/route.go), plain code with
+routed message goes through the router, [`space.Route`](../space/route.go), plain code with
 no model. In order:
 
 1. A reply from the user in a thread goes to the thread's owner, the author of the root. When
@@ -752,7 +752,7 @@ no model. In order:
 3. Otherwise a message from the user goes to the lead.
 4. Otherwise nobody: a message from an agent that hands off to no one wakes no one, in a thread or not.
 
-The lead is the channel's `role`: on a channel whose role is `developer`, `@lead` names no
+The lead is the Space's `role`: on a Space whose role is `developer`, `@lead` names no
 role, so the message goes to `developer` and no `lead` session starts.
 
 A role never wakes itself. The user's own message is routed by the same rules, so a send
@@ -761,18 +761,18 @@ architect with no lead turn. `POST /messages` stores a message and wakes nobody.
 and promote turns are not routed (see below).
 
 A wake is a turn of the woken role. Routing gives it the text it was routed with: a line
-`[channel 3, message 12]` for a top-level message, or `[channel 3, message 12, thread 9]` for a
-reply (the channel, the waking message and, for a reply, its thread root), then the user's
+`[space 3, message 12]` for a top-level message, or `[space 3, message 12, thread 9]` for a
+reply (the Space, the waking message and, for a reply, its thread root), then the user's
 text as it is, or `<author> wrote: <body>` for an agent's message. That text is what a gate
 shows and what the wake keeps if it never starts. The wake also carries its scopes, the threads
 (0 for the top level) of the messages it was routed with, as data from routing, never read back
 from message text, so a message that quotes a header changes nothing. The turn's own text is built
 when the turn starts, not when the message is routed, from what the role has not been sent in its session:
-the messages of the thread (or, for a top-level message, the channel's top level) that no
+the messages of the thread (or, for a top-level message, the Space's top level) that no
 earlier turn of the role in that session sent, oldest first, and never the role's own
 messages or reef's. It starts with a line naming the newest of them, in the same form. When
 there is more than one, all but the newest come after `New in the thread:` (or `New in the
-channel:`) as `<author>: <body>`, and the newest follows as the user's text or `<author>
+Space:`) as `<author>: <body>`, and the newest follows as the user's text or `<author>
 wrote: <body>`. A message stored after the wake was routed, before it runs, is in the text.
 A turn keeps what it sent for each scope (`turn.scopes`, the newest message of each): the role's
 later turns in the same session skip every message up to it, so a thread is sent once, and a
@@ -781,7 +781,7 @@ kept nothing, so the first wake after an upgrade sends each thread once more. A 
 nothing read, a new session's first wake, shows only its last 20 unread messages, with a line
 saying the older ones are in `read_thread`. A wake that finds nothing unread runs no turn and starts no agent: an earlier turn
 already sent what woke it. One routing pass wakes a role once: when several messages,
-top-level or in any thread, wake the same role, for example two `post_to_channel` calls of
+top-level or in any thread, wake the same role, for example two `post_to_space` calls of
 one turn that name `@architect`, they are one wake, so a gate holds one approval for
 them, and its text has one block for each thread, with its `Asked together` line. The woken
 role's reply is stored in the thread the header of the first message names (`parentId` is the
@@ -790,7 +790,7 @@ root of a thread the role owns, and the user's reply in it goes to the role.
 
 The first turn and the wakes after it are one chain. They run one at a time, in the order
 the messages were stored, and the messages each turn stores are routed in turn and queued at
-the end. The channel has a turn running until the chain is done, so a `wrap`, a `promote`, a
+the end. The Space has a turn running until the chain is done, so a `wrap`, a `promote`, a
 `continue`, a `rollback` or a `close` during the chain is 409. A `send` during a message chain,
 or an approve while any chain starts or runs, is accepted: the message is stored, and its wakes, or the approved
 wake, join the end of the chain's queue and run after the current turn and the wakes it
@@ -808,18 +808,18 @@ owns; the chain ends because the plan names no one. The lead gets no turn after 
 turn ends, only the named role wakes. A direct wake is gated the same way a public one is:
 a gate that is on holds it as a pending approval, and rejection wakes nobody. Reaching the
 hop or token cap pauses the chain with the held direct wakes. Direct and public wakes share
-the channel's hop count, so switching between them never resets it. Its prompt starts `[channel N, direct message N, chain
+the Space's hop count, so switching between them never resets it. Its prompt starts `[Space N, direct message N, chain
 N, source: direct request]`, names the sender, and carries the body. The recipient's ordinary
 reply is one direct response in the same chain (`replyToId` points to the request) and wakes
 the sender with `source: direct response`. The sender's ordinary reply to that response is
 not stored or routed. A further exchange requires an explicit `send_to_role`. The user reads
-all direct records with `GET /channels/{id}/direct-messages`; an MCP token reads only records
+all direct records with `GET /spaces/{id}/direct-messages`; an MCP token reads only records
 whose `from` or `to` is its role. `GET /search` finds public and direct messages together for
 the user; the MCP `search_sessions` returns a direct hit only to its sender or recipient.
 Rejecting the approval of a direct wake, a stop that sheds a queued direct wake, and a user
 message that drops a held direct wake after a hop cap pause, each give the request a `failed`
 response with body `rejected`, `stopped` or `dropped`, so the window tells them from a delivery that failed. Wrap-up and promote prompts list the
-channel's direct messages, marking a `failed` attempt `(failed)`. Partial output from a failed recipient turn is appended as
+Space's direct messages, marking a `failed` attempt `(failed)`. Partial output from a failed recipient turn is appended as
 a `failed` response attempt: it is inspectable but never routed. Retry appends a `done`
 response; a partial unique index allows only one `done` response per request, and only that
 response wakes the sender. `sourceMessageId` is the public message whose wake the sender was answering when it called
@@ -832,29 +832,29 @@ its request. Public `GET /messages` history is unchanged.
 A wake from a role to another is checked against the team's gates (see [gate](#gate)). A
 wake across a gate that is on does not run. The server stores an [approval](#approval) with
 the prompt it would have run and goes on with the rest of the chain. `GET
-/channels/{id}/approvals` lists the pending ones. `POST /channels/{id}/approvals/{aid}` with
-`{"approve":true}` runs the wake as a new chain (it needs an idle channel that is not
+/spaces/{id}/approvals` lists the pending ones. `POST /spaces/{id}/approvals/{aid}` with
+`{"approve":true}` runs the wake as a new chain (it needs an idle Space that is not
 paused, else 409 and the approval stays pending), or queues it on the chain that is starting or
 running, a wrap or promote one included. An approved wake resets the hop count to 0, so it runs at 6 hops. With `{"approve":false}` it only marks the
 approval `rejected`; for a direct wake it also records the `rejected` failed response. A decided approval is 409. Pending approvals are stored, so they survive a
 restart.
 
-### Channel names
+### Space names
 
-A channel created with the new-channel form's default name has `channel.name_auto` set to 1.
-The first user message sent to it (`POST /channels/{id}/send`, not a wrap or promote command)
-takes the one naming attempt (`name_auto` 2) and asks the channel's backend, in the background, for a name: one
+A Space created with the new-space form's default name has `space.name_auto` set to 1.
+The first user message sent to it (`POST /spaces/{id}/send`, not a wrap or promote command)
+takes the one naming attempt (`name_auto` 2) and asks the Space's backend, in the background, for a name: one
 throwaway turn in one shared empty folder (`reef-name` in the temp folder), with no tools (claude on `haiku`, codex
 `read-only`), so it makes no turn or message. The reply is cut to the convention: its first
 line, lowercase words of letters and digits (a hyphen splits words), at most four words and 40 characters
-(`fix login redirect loop`). The name is stored only if the attempt is still the channel's, in one
-statement, and `name_auto` goes to 0; a `PUT /channels/{id}` with another name, which sets
+(`fix login redirect loop`). The name is stored only if the attempt is still the Space's, in one
+statement, and `name_auto` goes to 0; a `PUT /spaces/{id}` with another name, which sets
 `name_auto` to 0, got there first and wins. A failed call, an empty name or a stopped server keeps the
-current name and is not tried again. Channels that existed before the column keep `name_auto` 0.
+current name and is not tried again. Spaces that existed before the column keep `name_auto` 0.
 
 ### Events
 
-`GET /channels/{id}/events` is a Server-Sent Events stream. It works for a channel that
+`GET /spaces/{id}/events` is a Server-Sent Events stream. It works for a Space that
 is not live: it waits. A `: keepalive` comment comes every 15 seconds. Seven kinds of event:
 
 - `turn`: `{"role":"architect","status":"running"}` when a turn of that role starts, then
@@ -862,27 +862,27 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Seven kin
   when it ends. A chain of wakes sends one pair for each turn, with no `idle` between them. A
   wrap or promote turn in which the agent made no proposal ends `{"role":"lead","status":"done","note":"no
   proposal made"}`. `{"status":"idle"}` has no role. It is sent only when a subscriber
-  connects and no turn runs. A turn woken by a direct message carries `"direct":true` in each of its frames; the channel shows such a turn
+  connects and no turn runs. A turn woken by a direct message carries `"direct":true` in each of its frames; the Space shows such a turn
   as working only, without its text or tool calls; the open Coordination panel of its exchange shows its text and tool rows live while it runs, and only the stored direct messages once it ends.
 - `agent`: one [agent event](agents.md) as JSON, as it comes, from the turn that is running.
-- `pause`: `{"reason":"..."}` when a cap pauses the channel: when a send finds the
+- `pause`: `{"reason":"..."}` when a cap pauses the Space: when a send finds the
   token budget used, or when the hop cap holds a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
 - `approval`: an [approval](#approval) as JSON, `pending` when a gate holds a wake, and again
   with `approved` or `rejected` when it is decided, and `pending` again when a chain ends
   without running a wake that was approved and queued.
 - `note`: `{}`, sent when a message is posted outside a turn, such as a [GitHub
   poll](#github-poll) note, so a subscriber knows to re-read `GET /messages`.
-- `name`: `{}`, sent when the provider's name replaces a channel's default name, so a subscriber knows to re-read `GET /channels`.
+- `name`: `{}`, sent when the provider's name replaces a Space's default name, so a subscriber knows to re-read `GET /spaces`.
 - `direct`: `{}`, sent when a chain ends without running a queued direct wake and gives it a
-  `failed` response after the last `turn` event, and when a rejected approval of a direct wake does the same, so a subscriber knows to re-read `GET /channels/{id}/direct-messages`. Every
+  `failed` response after the last `turn` event, and when a rejected approval of a direct wake does the same, so a subscriber knows to re-read `GET /spaces/{id}/direct-messages`. Every
   other change to a direct message happens before a `turn` event that ends its turn.
 
 A subscriber is brought up to date when it connects, so a reconnect needs no other
 request to know the state. The server keeps the events of the running chain in memory. A
 subscriber that connects during a chain first gets `turn` running and every `agent` event
 of the chain so far, then the live ones. One that connects between chains first gets
-`turn` idle. Either gets `pause` with the reason when the channel is paused. It does not get
-the pending approvals: read them with `GET /channels/{id}/approvals`. The stored messages
+`turn` idle. Either gets `pause` with the reason when the Space is paused. It does not get
+the pending approvals: read them with `GET /spaces/{id}/approvals`. The stored messages
 (`GET /messages`) are the history. A slow subscriber only lags; it never holds
 up the agent. When the server stops, a subscriber gets the last frames before the
 stream ends.
@@ -898,7 +898,7 @@ event: agent
 data: {"kind":"text","text":"@architect design the form"}
 
 event: approval
-data: {"id":1,"channelId":5,"from":"lead","to":"architect","messageId":28,"text":"[channel 5, message 28]\nlead wrote: @architect design the form","status":"pending","createdAt":"2026-10-13T09:00:10.123456Z"}
+data: {"id":1,"spaceId":5,"from":"lead","to":"architect","messageId":28,"text":"[Space 5, message 28]\nlead wrote: @architect design the form","status":"pending","createdAt":"2026-10-13T09:00:10.123456Z"}
 
 event: turn
 data: {"role":"lead","status":"done"}
@@ -906,61 +906,61 @@ data: {"role":"lead","status":"done"}
 
 ### Inbox
 
-`GET /inbox` lists what waits on the user in every channel. It is read from the rows of
-approvals, channels, turns and messages, so it has no table and a restart keeps it. Each
-item has `kind`, `channelId`, `featureId` (null for a quick session), `text` and `at`, and the
+`GET /inbox` lists what waits on the user in every Space. It is read from the rows of
+approvals, Spaces, turns and messages, so it has no table and a restart keeps it. Each
+item has `kind`, `spaceId`, `featureId` (null for a quick session), `text` and `at`, and the
 id to act with:
 
 | `kind` | Listed while | `text` | Also has | Cleared by |
 | --- | --- | --- | --- | --- |
 | `approval` | a gate holds a wake: a pending [approval](#approval) | `lead wants to wake architect` | `approvalId` | approve or reject |
-| `paused` | the channel's `paused` is not empty | the reason: hop cap, token budget or a routing or store failure | | `continue`, or a user message after a hop cap pause |
-| `failed` | a turn is retryable (see [Channels live](#channels-live)) and its error is not `interrupted`: a turn the user stopped is a decision, not an item | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
-| `waiting` | the channel's newest message is from an agent (not `user` or `reef`) and woke nobody: no wake held at a gate for it, no turn running, no other item for the channel, and the channel's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | `messageId` | any new message, such as a send; or `POST /channels/{id}/dismiss` with the item's `messageId`, which hides it until a newer message arrives |
+| `paused` | the Space's `paused` is not empty | the reason: hop cap, token budget or a routing or store failure | | `continue`, or a user message after a hop cap pause |
+| `failed` | a turn is retryable (see [Spaces live](#spaces-live)) and its error is not `interrupted`: a turn the user stopped is a decision, not an item | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
+| `waiting` | the Space's newest message is from an agent (not `user` or `reef`) and woke nobody: no wake held at a gate for it, no turn running, no other item for the Space, and the Space's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | `messageId` | any new message, such as a send; or `POST /spaces/{id}/dismiss` with the item's `messageId`, which hides it until a newer message arrives |
 
 `at` is the time of the approval, of the failed turn's end, of the message, and for `paused`
-the end of the channel's newest turn. A channel that has a chain running lists no `waiting`,
+the end of the Space's newest turn. A Space that has a chain running lists no `waiting`,
 `paused` or `failed` item, since the chain is not over and `continue` or `retry` would be 409. Rejecting a gate is a decision, so the message it held is
-not `waiting`. A hold of a pause is not an item of its own: its channel is `paused`.
+not `waiting`. A hold of a pause is not an item of its own: its Space is `paused`.
 
-`GET /inbox/events` is one Server-Sent Events stream for all channels, with a
+`GET /inbox/events` is one Server-Sent Events stream for all Spaces, with a
 `: keepalive` every 15 seconds. Its only event is `inbox`, whose data is the whole list as
 `GET /inbox` returns it. The first one comes when the stream connects; after that one comes each
 time the list differs from the last one sent. The list is read again after every event of every
-channel (turn, agent, pause, approval), when a chain ends, and after every request that is not a
-`GET`, since a reject, a delete or a `POST /messages` can change it with no channel event. A change
+Space (turn, agent, pause, approval), when a chain ends, and after every request that is not a
+`GET`, since a reject, a delete or a `POST /messages` can change it with no Space event. A change
 a `reef` process makes straight in the database shows at the next keepalive tick at the latest.
 When the server stops, a stream sends the last list and ends.
 
 ```
 event: inbox
-data: [{"kind":"approval","channelId":5,"featureId":2,"text":"lead wants to wake architect","at":"2026-10-14T09:00:10.123456Z","approvalId":1}]
+data: [{"kind":"approval","spaceId":5,"featureId":2,"text":"lead wants to wake architect","at":"2026-10-14T09:00:10.123456Z","approvalId":1}]
 ```
 
 ## Wrap-up and promotion
 
-`POST /channels/{id}/wrap` does what a send of the text `/wrap` does: it runs the wrap-up
-turn of [`Session.Wrap`](../channel/session.go) (see [memory.md](memory.md#wrap-up)). The
-agent calls `propose_wrap`; when the turn is done, `GET /channels/{id}/proposal` returns the
+`POST /spaces/{id}/wrap` does what a send of the text `/wrap` does: it runs the wrap-up
+turn of [`Session.Wrap`](../space/session.go) (see [memory.md](memory.md#wrap-up)). The
+agent calls `propose_wrap`; when the turn is done, `GET /spaces/{id}/proposal` returns the
 pending proposal, or 404 when the agent made none. `POST /proposals/{id}/approve` and
 `/reject` decide it with the same effect as `reef wrap approve` and `reject`. Approve
-saves the proposal's items, retires its `retire` ids, closes the channel (`closedAt`) and stops its agent, and returns `itemsAdded`, the items it saved (one already saved in its scope with the same body is skipped; each carries a `source` link to the proposal), and `warnings`. Two approvals of one proposal at the same moment run one after the other: the second is `400 already approved`. Saving the items comes first and is not part of the transaction that saves the brief and closes the channel: when it fails, the proposal stays pending and the channel open, and approving again finishes without saving an item twice; a closed channel refuses sends, wraps and wakes with 409 until `POST /channels/{id}/reopen`. A brief proposal (`propose_brief`, `kind` `brief`) does not close the channel or block its turns or a wrap; only a
-pending wrap blocks another wrap (409 `channel 2 has a wrap-up waiting for approval`). A proposal that is already decided is
+saves the proposal's items, retires its `retire` ids, closes the Space (`closedAt`) and stops its agent, and returns `itemsAdded`, the items it saved (one already saved in its scope with the same body is skipped; each carries a `source` link to the proposal), and `warnings`. Two approvals of one proposal at the same moment run one after the other: the second is `400 already approved`. Saving the items comes first and is not part of the transaction that saves the brief and closes the Space: when it fails, the proposal stays pending and the Space open, and approving again finishes without saving an item twice; a closed Space refuses sends, wraps and wakes with 409 until `POST /spaces/{id}/reopen`. A brief proposal (`propose_brief`, `kind` `brief`) does not close the Space or block its turns or a wrap; only a
+pending wrap blocks another wrap (409 `space 2 has a wrap-up waiting for approval`). A proposal that is already decided is
 400, like `invalid: proposal 1 is already approved` in the CLI.
 
-`POST /channels/{id}/promote` turns a quick session into a feature. It takes `{"slug":
-"login","name":"Login"}` to create the feature in the channel's project, or `{"featureId":
-3}` for a feature that exists in that project. Only a channel with no feature can be
-promoted. The server first checks that the channel has no feature, that a `featureId` is
-a feature of the channel's project and that a new slug is free, so a refused promote
+`POST /spaces/{id}/promote` turns a quick session into a feature. It takes `{"slug":
+"login","name":"Login"}` to create the feature in the space's project, or `{"featureId":
+3}` for a feature that exists in that project. Only a Space with no feature can be
+promoted. The server first checks that the Space has no feature, that a `featureId` is
+a feature of the Space's project and that a new slug is free, so a refused promote
 changes nothing and never opens the agent. It then checks that no turn runs and the caps,
 as for send, and once the agent is open, in one transaction creates the feature and sets
-the channel's `featureId`. It answers 202 with the
-channel and starts a turn: the stored user message is `/promote`, and the agent gets a
+the Space's `featureId`. It answers 202 with the
+Space and starts a turn: the stored user message is `/promote`, and the agent gets a
 prompt that names the feature and asks it to call `propose_wrap` once with the first brief,
 written from the session, and the memory items made so far, each with its scope. The user approves that
 proposal like a wrap-up, and approval makes brief version 1. The promote turn runs in the
-agent the quick session already has. When it ends, every agent of the channel is stopped, so
+agent the quick session already has. When it ends, every agent of the Space is stopped, so
 the next wake of each role resumes its session in the feature's worktree. The promote first
 posts a message from `reef`: `This feature works in <worktree path> on feature/<slug>.`, and
 ` Uncommitted changes stay on the main checkout.` after it when the main checkout has
@@ -973,47 +973,47 @@ its turn is stored `failed`, `interrupted`.
 
 ## Caps
 
-Two caps pause a channel. All are constants in the code, not settings.
+Two caps pause a Space. All are constants in the code, not settings.
 
-- Tokens per channel: the input, output and cache write tokens of all the channel's turns,
+- Tokens per Space: the input, output and cache write tokens of all the Space's turns,
   of every role, cache reads not counted, against `tokenBudget` (1,000,000). A running turn
   counts the usage it has streamed so far. A send, or a wake in a chain, that finds the sum at or
-  over the budget pauses the channel with `token budget of 1000000 used: 1000312 tokens`. The budget is
+  over the budget pauses the Space with `token budget of 1000000 used: 1000312 tokens`. The budget is
   checked only between turns: a turn that crosses it runs to its end.
 - Agent hops: a hop is a turn that an agent's message woke. The turn that answers the user's
-  message is not a hop. The server counts hops per channel since the last user message. The
-  7th hop does not run: the channel is paused with `hop cap: 6 agent hops without a user
+  message is not a hop. The server counts hops per Space since the last user message. The
+  7th hop does not run: the Space is paused with `hop cap: 6 agent hops without a user
   message`, and the `turn` event of the turn before it is followed by a `pause` event. The wake
   that did not run, and the wakes behind it, are stored as holds.
 
-A send to a paused channel is 409 with the reason in the error, except after the hop cap: that
+A send to a paused Space is 409 with the reason in the error, except after the hop cap: that
 pause is for agents, so a user message clears it, resets the hop count to 0, drops the held
-wakes and runs. `POST /channels/{id}/continue` clears the pause. When the token sum is at or
-over the budget it also sets `tokenBudget` to the sum plus 1,000,000. `continue` on a channel that is not paused, or has a turn running,
+wakes and runs. `POST /spaces/{id}/continue` clears the pause. When the token sum is at or
+over the budget it also sets `tokenBudget` to the sum plus 1,000,000. `continue` on a Space that is not paused, or has a turn running,
 is 409.
 
 Held wakes: when a wake cannot run because of a pause (the hop cap, or a token budget that ran
 out in the middle of a chain), the server stores it and the wakes behind it as `hold`
-rows of the `approval` table. `continue` claims the channel's pending holds once, resets the
+rows of the `approval` table. `continue` claims the Space's pending holds once, resets the
 hop count to 0 and runs them in order as a new chain, with `pause` `{"reason":""}` as the
-chain starts. If the chain cannot start, the channel stays paused and keeps the holds. That
+chain starts. If the chain cannot start, the Space stays paused and keeps the holds. That
 chain can reach the hop cap again, and then pauses again. Sending a user message resets the
 hop count to 0 too, and drops the holds; a dropped direct request gets a `failed` response with
 body `dropped`. Approving a gated wake resets it too, so that wake runs even at
-6 hops; wakes no one approved still count, so 6 hops with no approval pause the channel. The holds are stored, so
+6 hops; wakes no one approved still count, so 6 hops with no approval pause the Space. The holds are stored, so
 they survive a restart; the hop count is not, so a chain that runs after a restart counts from 0.
 
 The same pause holds work when the server cannot store an approval for a gated wake, or cannot
 read the messages or the direct messages a turn stored to route them, or when a store error
-stops the check before the next wake. The channel pauses with the error as the reason, and
+stops the check before the next wake. The Space pauses with the error as the reason, and
 nothing runs ungated. These wakes are held in memory only, since the database failed, until the server stops and stores them. `continue` stores the approval again, or does the routing read again from
-the message and the direct message before the turn's reply, and runs what that wakes. If it fails again the channel
+the message and the direct message before the turn's reply, and runs what that wakes. If it fails again the Space
 stays paused.
 
 No role has a tool call cap: a turn runs until the agent ends it, the user stops it, or the
-token budget is used. Before each line, `reef chat` runs the same pause and token budget check as send (`channel.CheckCaps`)
+token budget is used. Before each line, `reef chat` runs the same pause and token budget check as send (`space.CheckCaps`)
 and prints the reason instead of running the line. The line `/continue` does what
-`continue` does (`channel.Continue`). See [memory.md](memory.md#reef-chat). Hops do not
+`continue` does (`space.Continue`). See [memory.md](memory.md#reef-chat). Hops do not
 exist in `reef chat`: it wakes nobody.
 
 ## GitHub poll
@@ -1027,8 +1027,8 @@ folder. `statusCheckRollup` items are either a `CheckRun` (`name`, `status`, `co
 
 When the PR first appears, changes state (`open`, `merged`, `closed`) or a check run
 finishes (a `CheckRun` whose `status` is `COMPLETED`, or a `StatusContext` whose `state` is
-not `PENDING`/`EXPECTED`), the feature's most recent channel (the one with the newest
-message across the feature, or, when it has none, its most recently created channel) gets
+not `PENDING`/`EXPECTED`), the feature's most recent Space (the one with the newest
+message across the feature, or, when it has none, its most recently created Space) gets
 one message from author `reef`: `PR #12 open: <url>` or `<check name> succeeded`/`failed`.
 A check run is identified by its name plus its `detailsUrl`/`targetUrl` (falling back to
 `completedAt`/`startedAt`) as its run key; a rerun of the same check name, such as CI run
@@ -1040,25 +1040,25 @@ is stored one row per `(feature, name, run key)` (migration 16
 poll with the same answer posts nothing. No `gh` on `PATH`: nothing is posted, logged once.
 `gh` erroring (not logged in, no PR for the branch): nothing is posted, logged once per
 feature for that cause; logged again once the cause changes. A feature with a worktree but no
-channel yet has nowhere to post: the note is recorded as sent only once it is actually posted,
-so it is not lost and posts once the first channel exists.
+Space yet has nowhere to post: the note is recorded as sent only once it is actually posted,
+so it is not lost and posts once the first Space exists.
 
 Every failed run in a rollup (a `CheckRun` whose `conclusion` is `FAILURE`, `ERROR`,
 `TIMED_OUT` or `STARTUP_FAILURE`, or a `StatusContext` whose `state` is anything but
-`SUCCESS`/`PENDING`/`EXPECTED`) also wakes the `developer` role in that channel, once per run,
+`SUCCESS`/`PENDING`/`EXPECTED`) also wakes the `developer` role in that Space, once per run,
 also across restarts (`feature_github_check.woken`): several failed runs in the same rollup,
 not yet woken, are one wake, not one each, its text naming every one of them plus the last 50
 lines of `gh run view <run id> --log-failed` for each run whose id can be read from the
-`CheckRun`'s `detailsUrl` (`/actions/runs/<id>/`); no run id, no log for that run. A channel
+`CheckRun`'s `detailsUrl` (`/actions/runs/<id>/`); no run id, no log for that run. A Space
 whose team has no `developer` role gets the note only. The wake text, including any log
-fetch, is built before the channel is claimed, so a user send that arrives during the fetch
-finds the channel still idle and is not refused. The wake runs as its own chain, the way a
+fetch, is built before the Space is claimed, so a user send that arrives during the fetch
+finds the Space still idle and is not refused. The wake runs as its own chain, the way a
 retried turn does (decision 39), attributed to author `reef` rather than `user`: no gate holds
 it, since no role sent it, but it counts as a hop like any agent-originated wake, so a run of
 failing checks still pauses at the hop cap instead of resetting the count every time; the
-channel's other caps (pause, token budget) also still apply. A channel with a turn running, or
+Space's other caps (pause, token budget) also still apply. A Space with a turn running, or
 paused (including by the hop cap), cannot take the wake on that poll; the note still posts,
-the wake is retried on a later poll once the channel is idle, and the busy cause is logged
+the wake is retried on a later poll once the Space is idle, and the busy cause is logged
 once, not every poll.
 
 ## Append-only
@@ -1067,7 +1067,7 @@ The API has no way to change or remove these rows.
 
 - Messages and decisions: create and read only. `PUT`, `PATCH` and `DELETE` on
   `/messages/{id}` and `/decisions/{id}` return 405. The only way a message or decision
-  goes away is a cascade from its channel or feature. Deleting a channel does not delete
+  goes away is a cascade from its Space or feature. Deleting a Space does not delete
   its decisions; they only lose `messageId`. A decision's body is never edited, but it can
   be retired (`retiredAt`, `replacedBy`) by a new decision that replaces it or by an
   approved proposal; see decision 76.
@@ -1087,29 +1087,29 @@ fails them all, except the turns of a live `reef chat`. A second `reef serve` ne
 this far on a folder in use, so it cannot fail the turns of the server that owns it:
 
 - Each `running` turn becomes `failed`, with `error` `server restarted` and `endedAt` set.
-- Each affected channel gets one message from author `reef`, naming the turns. For turns 2
-  (developer) and 3 (tester) in one channel:
+- Each affected Space gets one message from author `reef`, naming the turns. For turns 2
+  (developer) and 3 (tester) in one Space:
 
   `Turn 2 by developer, turn 3 by tester failed: server restarted. The worktree may be dirty; retry or roll back.`
 
 - With one turn: `Turn 2 by developer failed: server restarted. The worktree may be dirty; retry or roll back.`
 - The server logs `marked N running turns failed: server restarted`.
-- A `running` turn in a channel whose `chat-<channel id>.lock` a live `reef chat` holds is
-  left `running`, and that channel gets no message from `reef`. `reef chat` is a separate
+- A `running` turn in a Space whose `chat-<space id>.lock` a live `reef chat` holds is
+  left `running`, and that Space gets no message from `reef`. `reef chat` is a separate
   process, so a server restart does not kill its agent, and its turn can still finish.
   The count in the log does not include it. A chat that died leaves its lock free, so
   its turn is failed like any other.
 
 An agent may have left half-done edits in the worktree, so the message tells the user to
 check before retrying. A turn failed this way keeps its `wakeText`, so `POST /turns/{id}/retry`
-can run it again (see [Channels live](#channels-live)).
+can run it again (see [Spaces live](#spaces-live)).
 
 A chain of wakes does not run on after a restart, but its waiting wakes are kept. When the
 server stops, the wakes a chain had queued behind the running turn, and the wakes held in memory
-because the database failed, are stored as holds, and the channel is paused with `app restarted:
+because the database failed, are stored as holds, and the Space is paused with `app restarted:
 wakes were waiting to run` unless it is paused already. The pause shows in the inbox, and
 `continue` runs the holds. A routing read that failed before the stop is done again then, and what it
-wakes is held too; if it fails again, the channel gets a message from `reef` saying which messages woke
+wakes is held too; if it fails again, the Space gets a message from `reef` saying which messages woke
 nobody. Only the hop count is lost: a chain that runs after a restart counts
 from 0. A pause is stored with its holds, and a pending approval is stored, so both survive too.
 A direct request that did not run still gets its `failed` response.
@@ -1136,11 +1136,11 @@ $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d
 $ curl -s -X PUT -H 'Content-Type: application/json' localhost:7700/features/1/brief -d '{"body":"Email and password login","author":"user"}'
 {"id":1,"featureId":1,"body":"Email and password login","author":"user","createdAt":"2026-10-13T09:00:02.123456Z"}
 
-$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/channels -d '{"projectId":1,"featureId":1,"name":"build","backend":"claude"}'
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/spaces -d '{"projectId":1,"featureId":1,"name":"build","backend":"claude"}'
 {"id":1,"projectId":1,"featureId":1,"name":"build","role":"lead","backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"team":"solo","createdAt":"2026-10-13T09:00:03.123456Z","closedAt":null}
 
-$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/messages -d '{"channelId":1,"author":"user","body":"Start with the form"}'
-{"id":1,"channelId":1,"parentId":null,"author":"user","body":"Start with the form","createdAt":"2026-10-13T09:00:04.123456Z"}
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/messages -d '{"spaceId":1,"author":"user","body":"Start with the form"}'
+{"id":1,"spaceId":1,"parentId":null,"author":"user","body":"Start with the form","createdAt":"2026-10-13T09:00:04.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/memory -d '{"kind":"decision","body":"Use sessions, not JWT","why":"One server, no token refresh","scope":"work_item:1"}'
 {"id":1,"kind":"decision","body":"Use sessions, not JWT","why":"One server, no token refresh","scope":"work_item:1","author":"user","role":"user","status":"accepted","retiredAt":null,"replacedBy":null,"createdAt":"2026-10-13T09:00:05.123456Z"}
@@ -1148,16 +1148,16 @@ $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/memory -d '
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/tasks -d '{"projectId":1,"featureId":1,"title":"Build the login form"}'
 {"id":1,"projectId":1,"featureId":1,"title":"Build the login form","body":"","status":"todo","createdAt":"2026-10-13T09:00:06.123456Z","updatedAt":"2026-10-13T09:00:06.123456Z"}
 
-$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/turns -d '{"channelId":1,"role":"developer","backend":"claude"}'
-{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":null,"wakeText":"","wakeParent":null,"retried":false,"checkpoint":null}
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/turns -d '{"spaceId":1,"role":"developer","backend":"claude"}'
+{"id":1,"spaceId":1,"role":"developer","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":null,"wakeText":"","wakeParent":null,"retried":false,"checkpoint":null}
 
 $ curl -s -X PATCH -H 'Content-Type: application/json' localhost:7700/turns/1 -d '{"status":"done","sessionId":"3c1296cc","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0}}'
-{"id":1,"channelId":1,"role":"developer","backend":"claude","sessionId":"3c1296cc","status":"done","error":"","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":"2026-10-13T09:00:08.123456Z","wakeText":"","wakeParent":null,"retried":false,"checkpoint":null}
+{"id":1,"spaceId":1,"role":"developer","backend":"claude","sessionId":"3c1296cc","status":"done","error":"","usage":{"inputTokens":4,"outputTokens":123,"cacheReadTokens":22898,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":"2026-10-13T09:00:08.123456Z","wakeText":"","wakeParent":null,"retried":false,"checkpoint":null}
 
 $ curl -s -X PATCH -H 'Content-Type: application/json' localhost:7700/turns/1 -d '{"status":"failed"}'
 {"error":"invalid: turn 1 already ended"}
 
-$ curl -s "localhost:7700/messages?channel=1&after=1"
+$ curl -s "localhost:7700/messages?space=1&after=1"
 []
 
 $ curl -s -X DELETE -w ' %{http_code}\n' localhost:7700/messages/1
@@ -1167,4 +1167,4 @@ $ curl -s -X DELETE -w ' %{http_code}\n' localhost:7700/messages/1
 
 To see restart recovery: create a turn, stop the server with Ctrl-C, start it again. The
 log shows `marked 1 running turns failed: server restarted`, `GET /turns/2` is `failed`, and
-`GET /messages?channel=1` ends with the message from `reef`.
+`GET /messages?space=1` ends with the message from `reef`.

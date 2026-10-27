@@ -697,7 +697,7 @@ EOF
 cmd_ui() {
 	load_run
 	[ $# -eq 1 ] || usage
-	[ -s "$SCR/serve.addr" ] || fail "no server up; run serve-start first (ANTHROPIC_MODEL=sonnet for claude channels)"
+	[ -s "$SCR/serve.addr" ] || fail "no server up; run serve-start first (ANTHROPIC_MODEL=sonnet for claude Spaces)"
 	ui="$REPO/.claude/skills/verify-reef/scripts/ui"
 	[ -d "$ui/node_modules" ] || (cd "$ui" && npm ci >&2) || fail "npm ci failed in $ui"
 	mkdir -p "$EV/ui"

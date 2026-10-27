@@ -19,8 +19,8 @@ Condensed from the [Uber Go Style Guide](https://github.com/uber-go/guide/blob/m
 **Defer**
 - Use `defer` to clean up files, locks and connections. The cost is negligible; the readability is not.
 
-**Channels**
-- Channel size is 1 or none. Any other size needs a written reason.
+**Spaces**
+- Space size is 1 or none. Any other size needs a written reason.
 
 **Enums**
 - Start enums at `iota + 1` unless the zero value is a meaningful default.
@@ -58,7 +58,7 @@ Condensed from the [Uber Go Style Guide](https://github.com/uber-go/guide/blob/m
 - Avoid `init()`. Do work in constructors and in `main`. No goroutines, I/O or global state in `init`.
 
 **Goroutines**
-- No fire-and-forget. Every goroutine has a way to be stopped and waited for (`sync.WaitGroup` or `errgroup`, plus a context or a done channel).
+- No fire-and-forget. Every goroutine has a way to be stopped and waited for (`sync.WaitGroup` or `errgroup`, plus a context or a done Space).
 - No goroutines in `init`.
 
 **Marshaled structs**

@@ -41,7 +41,7 @@ function check(ok, label, detail) {
 
 const chrome = process.env.REEF_VERIFY_CHROME;
 const browser = await chromium.launch(
-  chrome ? { executablePath: chrome, args: ['--no-sandbox'], headless: true } : { channel: 'chrome', headless: true },
+  chrome ? { executablePath: chrome, args: ['--no-sandbox'], headless: true } : { space: 'chrome', headless: true },
 );
 const page = await browser.newPage({ viewport: { width: 1200, height: 1000 } });
 const main = page.getByRole('main');
@@ -99,7 +99,7 @@ async function submitProject(name, folder) {
 // Adds a project through the form; returns its sidebar section.
 async function addProject() {
   const name = `ui-${scenario}-${Date.now().toString(36)}`;
-  // A channel of a feature runs in a git worktree of the project, so the folder needs a commit.
+  // A Space of a feature runs in a git worktree of the project, so the folder needs a commit.
   const git = (...args) => execFileSync('git', ['-C', projectDir, '-c', 'user.name=reef', '-c', 'user.email=reef@example.com', ...args], { encoding: 'utf8', stdio: 'pipe' });
   try {
     git('rev-parse', '--verify', 'HEAD');
@@ -124,15 +124,15 @@ async function addFeature(section, prefix, name) {
   await page.getByRole('heading', { name, level: 1 }).waitFor();
   return slug;
 }
-// Starts a claude channel from the form in `box` and returns its id.
-async function newChannel(box, openName, name, mode = 'acceptEdits') {
+// Starts a claude Space from the form in `box` and returns its id.
+async function newSpace(box, openName, name, mode = 'acceptEdits') {
   await box.getByRole('button', { name: openName }).click();
   await pick('Backend', 'claude', box);
   if (mode) await pick('Permission mode', mode, box);
   await box.getByLabel('Name', { exact: true }).fill(name);
   await box.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name, level: 1 }).waitFor();
-  return sql(`select id from channel where name='${name}' order by id desc limit 1`);
+  return sql(`select id from Space where name='${name}' order by id desc limit 1`);
 }
 
 // The label of the running turn names its role: `<role> is working`.
@@ -148,7 +148,7 @@ async function workingAs(role, timeout = 240000) {
   }
   return false;
 }
-// The running turn is one compact row in the channel; clicking it opens the panel with the full stream.
+// The running turn is one compact row in the Space; clicking it opens the panel with the full stream.
 const turnPanel = page.getByRole('complementary', { name: 'Turn' });
 async function openTurn() {
   await main.getByRole('button', { name: /is working/ }).click();
@@ -157,10 +157,10 @@ async function openTurn() {
 // The top-level message rows of the main list that `author` wrote (they have the Reply button).
 const rootRow = (author) =>
   main.locator('ul > li:has(> button)').filter({ has: page.getByText(author, { exact: true }) });
-// Starts a channel on `team` from the form (backend and permission mode stay the team's).
-async function newTeamChannel(team, name, step) {
-  await main.getByRole('button', { name: 'New channel' }).click();
-  const card = page.getByRole('dialog', { name: 'New channel' }).getByRole('button', { name: team, exact: true });
+// Starts a Space on `team` from the form (backend and permission mode stay the team's).
+async function newTeamSpace(team, name, step) {
+  await main.getByRole('button', { name: 'New Space' }).click();
+  const card = page.getByRole('dialog', { name: 'New Space' }).getByRole('button', { name: team, exact: true });
   await card.waitFor();
   const options = await card.locator('xpath=..').getByRole('button').allTextContents();
   await card.click();
@@ -177,7 +177,7 @@ async function live() {
   writeFileSync(path.join(projectDir, 'todo.txt'), 'Reef window check: todo file.\n');
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
-  const cid = await newChannel(main, 'New channel', 'live chat');
+  const cid = await newSpace(main, 'New Space', 'live chat');
   await send(
     'List the files in this directory with a tool, then read one of them with a tool, then summarize what you saw in two sentences.',
   );
@@ -197,8 +197,8 @@ async function live() {
   check(rows >= 1, 'tool rows shown in the turn panel while the turn runs', `${rows} rows, first: ${await turnPanel.locator('details summary').first().innerText()}`);
   await idle();
   await shot('final');
-  const lead = sql(`select count(*) from message where channel_id=${cid} and author='lead'`);
-  check(lead === '1', 'reply stored as one lead message', `message rows:\n${sql(`select id,author,substr(body,1,100) from message where channel_id=${cid}`)}`);
+  const lead = sql(`select count(*) from message where space_id=${cid} and author='lead'`);
+  check(lead === '1', 'reply stored as one lead message', `message rows:\n${sql(`select id,author,substr(body,1,100) from message where space_id=${cid}`)}`);
   check((await main.locator('details').count()) === 0, 'live view cleared after the turn');
 }
 
@@ -213,23 +213,23 @@ async function brief() {
   });
   check(res.status === 201, 'brief stored over REST', `PUT brief -> ${res.status}`);
   await page.reload();
-  const cid = await newChannel(main, 'New channel', 'brief check', '');
+  const cid = await newSpace(main, 'New Space', 'brief check', '');
   await send('what is the goal of this feature?');
   await working();
   await idle();
   await shot('answer');
-  const answer = sql(`select body from message where author='lead' and channel_id=${cid}`);
+  const answer = sql(`select body from message where author='lead' and space_id=${cid}`);
   console.log(`answer: ${answer}`);
-  check(/magic/i.test(answer), 'a new channel answers from the brief', 'answer mentions magic links');
+  check(/magic/i.test(answer), 'a new Space answers from the brief', 'answer mentions magic links');
 }
 
 async function promote() {
   ensureRepo();
   const section = await addProject();
-  const cid = await newChannel(aside, 'New channel', 'idea chat');
+  const cid = await newSpace(aside, 'New Space', 'idea chat');
   await exchange('I have an idea: a search bar for the shop that filters products as you type.');
   await exchange('Decision: search is client side only for now, because the catalog is small (under 200 items).');
-  const quick = sql(`select id from turn where channel_id=${cid} and checkpoint is not null order by id`).split('\n');
+  const quick = sql(`select id from turn where space_id=${cid} and checkpoint is not null order by id`).split('\n');
   const checkpoints = main.getByRole('region', { name: 'Checkpoints' });
   await checkpoints.getByText('2 checkpoints').waitFor({ timeout: 15000 });
   check(
@@ -256,7 +256,7 @@ async function promote() {
   check(
     !left.some((t) => t.includes('2 checkpoints') || quick.some((id) => t.includes(`before turn ${id} `))),
     'the quick-session checkpoints, taken in another tree, have no Roll back button after the promote',
-    `row: ${JSON.stringify(left)}; GET rollbackable: ${JSON.stringify((await getJson(`/turns?channel=${cid}&rollbackable=1`)).map((t) => t.id))}`,
+    `row: ${JSON.stringify(left)}; GET rollbackable: ${JSON.stringify((await getJson(`/turns?space=${cid}&rollbackable=1`)).map((t) => t.id))}`,
   );
   const under = section
     .locator('li', { has: page.getByRole('link', { name: 'Search', exact: true }) })
@@ -264,8 +264,8 @@ async function promote() {
   await under.waitFor();
   check(
     (await section.getByRole('heading', { name: 'Quick sessions' }).count()) === 0,
-    'sidebar moves the channel under the new feature',
-    `channel row: ${sql(`select id,feature_id from channel where id=${cid}`)}`,
+    'sidebar moves the Space under the new feature',
+    `space row: ${sql(`select id,feature_id from space where id=${cid}`)}`,
   );
   await panel.getByRole('button', { name: 'Approve' }).click();
   await page.getByText(/approved: \d+ items saved/).waitFor();
@@ -273,7 +273,7 @@ async function promote() {
   await section.getByRole('link', { name: 'Search', exact: true }).click();
   await page.getByText('Version 1 by').waitFor();
   await shot('feature-page');
-  const where = `feature_id=(select feature_id from channel where id=${cid})`;
+  const where = `feature_id=(select feature_id from Space where id=${cid})`;
   const count = sql(`select count(*) from brief where ${where}`);
   check(
     count === '1',
@@ -285,9 +285,9 @@ async function promote() {
 async function cap() {
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
-  const cid = await newChannel(main, 'New channel', 'cap chat');
+  const cid = await newSpace(main, 'New Space', 'cap chat');
   await exchange('Say hello.');
-  sql(`update channel set token_budget=1 where id=${cid}`, true);
+  sql(`update Space set token_budget=1 where id=${cid}`, true);
   await send('Say hello again.');
   const banner = page.getByRole('alert');
   await banner.waitFor({ timeout: 15000 });
@@ -304,9 +304,9 @@ async function cap() {
   await shot('continued');
   await exchange('Say hello a third time.');
   await shot('ran-after-continue');
-  const state = sql(`select token_budget,paused from channel where id=${cid}`);
-  const lead = sql(`select count(*) from message where channel_id=${cid} and author='lead'`);
-  check(lead === '2', 'next message ran after Continue', `channel row (budget|paused): ${state}; lead messages: ${lead}`);
+  const state = sql(`select token_budget,paused from Space where id=${cid}`);
+  const lead = sql(`select count(*) from message where space_id=${cid} and author='lead'`);
+  check(lead === '2', 'next message ran after Continue', `space row (budget|paused): ${state}; lead messages: ${lead}`);
 }
 
 async function pages() {
@@ -459,12 +459,12 @@ async function fixes() {
   );
   const tip = await aside.getByRole('link', { name }).getAttribute('title');
   check(!/ideation/i.test(tip ?? ''), 'the sidebar tooltip of a Fixes feature has no stage', `title "${tip}"`);
-  await newChannel(main, 'New channel', 'fix chat', '');
+  await newSpace(main, 'New Space', 'fix chat', '');
   const header = await main.getByRole('heading', { name: 'fix chat', level: 1 }).locator('..').innerText();
-  await shot('channel-header');
+  await shot('space-header');
   check(
     header.includes('1/2') && !/ideation/i.test(header),
-    'the channel header of a Fixes feature shows "1/2", not the stage',
+    'the Space header of a Fixes feature shows "1/2", not the stage',
     `header "${header.replace(/\s+/g, ' ')}"`,
   );
   await page.goto(base + '/');
@@ -599,16 +599,16 @@ async function theme() {
   const pid = sql(`select project_id from feature where id=${fid}`);
   await fetch(`${base}/tasks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: Number(pid), featureId: Number(fid), title: 'Wire the login form' }) });
   await fetch(`${base}/memory`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'decision', body: 'Sessions, not JWT', why: 'one server', scope: `work_item:${fid}` }) });
-  await newTeamChannel('gated', 'theme room');
+  await newTeamSpace('gated', 'theme room');
   await send('DESIGN a short plan for a login form.');
   await main.getByRole('button', { name: 'Approve' }).waitFor({ timeout: 240000 });
-  const channelUrl = page.url();
+  const spaceUrl = page.url();
 
   const screens = async (mode) => {
-    await page.goto(channelUrl);
+    await page.goto(spaceUrl);
     await main.getByRole('button', { name: 'Approve' }).waitFor();
-    await shot(`channel-${mode}`);
-    await contrast('channel');
+    await shot(`space-${mode}`);
+    await contrast('space');
     await page.goto(base + '/inbox');
     await main.getByRole('button', { name: 'Approve' }).waitFor();
     await shot(`inbox-${mode}`);
@@ -662,7 +662,7 @@ async function phone() {
   const section = await addProject();
   const slug = await addFeature(section, 'login', 'Login');
   const featureId = page.url().split('/').pop();
-  const { id: cid } = await newTeamChannel('gated', 'phone room');
+  const { id: cid } = await newTeamSpace('gated', 'phone room');
   await send('DESIGN a short plan for a login form.');
   const end = Date.now() + 120000;
   while ((await getJson('/inbox')).length === 0 && Date.now() < end) await page.waitForTimeout(1000);
@@ -695,16 +695,16 @@ async function phone() {
   };
 
   await page.getByRole('link', { name: 'Back' }).click();
-  await page.getByRole('heading', { name: 'Channels', level: 1 }).waitFor();
+  await page.getByRole('heading', { name: 'Spaces', level: 1 }).waitFor();
   check(await tabs.isVisible(), 'the tab bar shows below 768 px');
   check(!(await page.locator('aside:not([aria-label])').isVisible()), 'the sidebar is hidden below 768 px');
   await visit('today', /^Today/, page.getByLabel('Quick capture'));
   await page.getByLabel('Quick capture').fill('phone check');
   await page.getByRole('button', { name: 'Capture', exact: true }).click();
   await page.getByRole('status').filter({ hasText: 'Captured' }).waitFor();
-  await visit('channels', /^Channels/, page.getByRole('heading', { name: 'Channels', level: 1 }));
+  await visit('spaces', /^Spaces/, page.getByRole('heading', { name: 'Spaces', level: 1 }));
   const row = main.getByRole('link', { name: /#phone room/ });
-  check(await row.isVisible(), 'the Channels tab lists the channel under its feature', await main.innerText().then((t) => t.replace(/\s+/g, ' ').slice(0, 120)));
+  check(await row.isVisible(), 'the Spaces tab lists the Space under its feature', await main.innerText().then((t) => t.replace(/\s+/g, ' ').slice(0, 120)));
   await visit('needs-you', /^Needs you/, main.getByRole('button', { name: 'Approve' }));
   const badge = await tabs.getByLabel(/waiting$/).textContent();
   check(badge === '1', 'the Needs you tab shows a count badge of 1', badge);
@@ -724,27 +724,27 @@ async function phone() {
     const r = el.getBoundingClientRect();
     return { top: Math.round(r.top), bottom: Math.round(r.bottom), left: Math.round(r.left), right: Math.round(r.right) };
   });
-  const tree = path.join(data, 'worktrees', sql(`select project_id from channel where id=${cid}`), slug);
+  const tree = path.join(data, 'worktrees', sql(`select project_id from Space where id=${cid}`), slug);
   writeFileSync(path.join(tree, 'auth.go'), ['package auth', '', 'func check(r *http.Request) error {', '\ttok := r.URL.Query().Get("token")', '\treturn verify(tok)', '}', ''].join('\n'));
 
-  await tabs.getByRole('link', { name: /^Channels/ }).click();
+  await tabs.getByRole('link', { name: /^Spaces/ }).click();
   await main.getByRole('link', { name: /#phone room/ }).click();
   await page.getByRole('heading', { name: 'phone room', level: 1 }).waitFor();
   await main.getByRole('button', { name: 'Approve' }).waitFor();
-  check(!(await tabs.isVisible()), 'the tab bar is hidden in a channel');
+  check(!(await tabs.isVisible()), 'the tab bar is hidden in a Space');
   const back = main.getByRole('link', { name: 'Back' });
   const backBox = await box(back);
-  check((await back.getAttribute('href')) === '/channels' && backBox.bottom - backBox.top >= 44, 'the channel has a 44 px Back link to /channels', JSON.stringify(backBox));
-  await shot('channel');
-  await noScroll('channel');
+  check((await back.getAttribute('href')) === '/spaces' && backBox.bottom - backBox.top >= 44, 'the Space has a 44 px Back link to /spaces', JSON.stringify(backBox));
+  await shot('space');
+  await noScroll('space');
   const tiny = await small();
-  check(tiny.length === 0, 'channel has 44 px tap targets', tiny.join(', '));
+  check(tiny.length === 0, 'space has 44 px tap targets', tiny.join(', '));
 
   await main.getByRole('button', { name: 'Approve' }).click();
   const woke = Date.now() + 120000;
-  const architectTurns = () => Number(sql(`select count(*) from turn where channel_id=${cid} and role='architect' and status='done'`));
+  const architectTurns = () => Number(sql(`select count(*) from turn where space_id=${cid} and role='architect' and status='done'`));
   while (architectTurns() === 0 && Date.now() < woke) await page.waitForTimeout(1000);
-  check(architectTurns() === 1, 'Approve at phone width runs the architect wake', sql(`select role, status from turn where channel_id=${cid} order by id`));
+  check(architectTurns() === 1, 'Approve at phone width runs the architect wake', sql(`select role, status from turn where space_id=${cid} order by id`));
   await main.getByRole('button', { name: 'Approve' }).waitFor({ state: 'hidden' });
   check((await getJson('/inbox')).every((i) => i.kind !== 'approval'), 'the approval left the inbox');
   await idle();
@@ -807,7 +807,7 @@ async function phone() {
 async function stop() {
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
-  const cid = await newChannel(main, 'New channel', 'stop chat');
+  const cid = await newSpace(main, 'New Space', 'stop chat');
   await send('Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
   await working();
   await openTurn();
@@ -816,20 +816,20 @@ async function stop() {
   await page.getByRole('button', { name: 'Stop' }).click();
   await main.getByRole('button', { name: /Failed: interrupted/ }).waitFor({ timeout: 30000 });
   await shot('stopped');
-  check(true, 'Stop shows the turn failed', sql(`select id,status,error from turn where channel_id=${cid}`));
-  const partial = sql(`select substr(replace(body, char(10), ' '),1,40) from message where channel_id=${cid} and author='lead'`);
+  check(true, 'Stop shows the turn failed', sql(`select id,status,error from turn where space_id=${cid}`));
+  const partial = sql(`select substr(replace(body, char(10), ' '),1,40) from message where space_id=${cid} and author='lead'`);
   const shown = await main.getByText(partial.replace(/[*_`]/g, ''), { exact: false }).count();
   check(Boolean(partial) && shown === 1, 'the partial reply shows once, not as the message and as the live block', `partial: ${JSON.stringify(partial)}; shown ${shown} times`);
   await exchange('What was the secret word? Answer with the word only.');
   await shot('resumed');
-  const answer = sql(`select body from message where channel_id=${cid} and author='lead' order by id desc limit 1`);
+  const answer = sql(`select body from message where space_id=${cid} and author='lead' order by id desc limit 1`);
   check(/pineapple/i.test(answer), 'the next message resumes the session', `answer: ${answer}`);
 }
 
 async function retry() {
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
-  const cid = await newChannel(main, 'New channel', 'retry chat');
+  const cid = await newSpace(main, 'New Space', 'retry chat');
   await send('Write a 1500-word story about lighthouses. Use no tools.');
   await working();
   await page.waitForTimeout(4000);
@@ -843,7 +843,7 @@ async function retry() {
   await idle();
   await row.waitFor({ state: 'hidden' });
   await shot('retried');
-  const turns = sql(`select id||' '||role||' '||status||' retried='||retried from turn where channel_id=${cid} order by id`);
+  const turns = sql(`select id||' '||role||' '||status||' retried='||retried from turn where space_id=${cid} order by id`);
   check(/^\d+ lead failed retried=1\n\d+ lead done retried=0$/.test(turns), 'Retry runs the failed wake as a new turn that ends done', turns);
 }
 
@@ -866,8 +866,8 @@ async function rollback() {
   ensureRepo();
   const section = await addProject();
   const slug = await addFeature(section, 'login', 'Login');
-  const cid = await newChannel(main, 'New channel', 'rollback chat');
-  const tree = path.join(data, 'worktrees', sql(`select project_id from channel where id=${cid}`), slug);
+  const cid = await newSpace(main, 'New Space', 'rollback chat');
+  const tree = path.join(data, 'worktrees', sql(`select project_id from Space where id=${cid}`), slug);
   const state = () => [git(tree, 'rev-parse', 'HEAD'), git(tree, 'status', '--porcelain'), git(tree, 'log', '--oneline'), git(tree, 'ls-files')].join('\n--\n');
 
   await exchange('Say hello.');
@@ -878,7 +878,7 @@ async function rollback() {
   await idle();
   git(tree, 'add', '-A');
   git(tree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'by the turn');
-  const turnId = sql(`select id from turn where channel_id=${cid} order by id desc limit 1`);
+  const turnId = sql(`select id from turn where space_id=${cid} order by id desc limit 1`);
   const list = main.getByRole('region', { name: 'Checkpoints' });
   await list.getByText('2 checkpoints').waitFor({ timeout: 15000 });
   await shot('checkpoints');
@@ -906,12 +906,12 @@ async function rollback() {
     `ls: ${readdirSync(tree).filter((f) => f !== '.git').join(' ')}`,
   );
   check(
-    sql(`select count(*) from message where channel_id=${cid} and author='reef' and body='Rolled back to before turn ${turnId}.'`) === '1',
-    'the channel has the note from reef',
+    sql(`select count(*) from message where space_id=${cid} and author='reef' and body='Rolled back to before turn ${turnId}.'`) === '1',
+    'the Space has the note from reef',
   );
   await exchange('Did anything change in the files since your last answer? Answer in one sentence.');
   // The note is added to the prompt when it is sent, so it is in claude's session file, not in wake_text.
-  const sid = sql(`select session_id from turn where channel_id=${cid} order by id desc limit 1`);
+  const sid = sql(`select session_id from turn where space_id=${cid} order by id desc limit 1`);
   const projects = path.join(homedir(), '.claude', 'projects');
   const file = readdirSync(projects)
     .map((d) => path.join(projects, d, `${sid}.jsonl`))
@@ -925,12 +925,12 @@ async function diff() {
   const section = await addProject();
   const slugOf = await addFeature(section, 'login', 'Login');
   const featureId = page.url().split('/').pop();
-  const cid = await newChannel(main, 'New channel', 'diff chat');
+  const cid = await newSpace(main, 'New Space', 'diff chat');
 
   await page.goto(`${base}/features/${featureId}/review`);
   await main.getByText('No changes yet').waitFor({ timeout: 15000 });
   await shot('empty');
-  await fetch(`${base}/channels/${cid}/send`, {
+  await fetch(`${base}/spaces/${cid}/send`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: 'Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.' }),
@@ -961,20 +961,20 @@ async function diff() {
     'the feature page header meta line sums the changes and links to the review page',
     await meta.innerText(),
   );
-  await page.goto(`${base}/channels/${cid}`);
+  await page.goto(`${base}/spaces/${cid}`);
   await page.getByRole('button', { name: /^Diff \+1/ }).click();
   await main.getByRole('heading', { name: 'Changes', level: 1 }).waitFor();
   await main.getByRole('navigation', { name: 'Files' }).getByText('new.txt').waitFor();
   await shot('panel');
-  check(page.url().endsWith(`/channels/${cid}`), "the channel header's Diff button opens a side panel in the channel", page.url());
+  check(page.url().endsWith(`/spaces/${cid}`), "the Space header's Diff button opens a side panel in the space", page.url());
   const scope = main.getByRole('group', { name: 'Diff scope' });
   check(
     (await scope.getByRole('button', { name: 'Current changes' }).getAttribute('aria-pressed')) === 'true' &&
       (await main.getByText('uncommitted', { exact: true }).isVisible()),
-    'the channel panel opens on Current changes',
+    'the Space panel opens on Current changes',
     await scope.innerText(),
   );
-  const tree = path.join(data, 'worktrees', sql(`select project_id from channel where id=${cid}`), slugOf);
+  const tree = path.join(data, 'worktrees', sql(`select project_id from Space where id=${cid}`), slugOf);
   git(tree, 'add', '-A');
   git(tree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'old work');
   writeFileSync(path.join(tree, 'later.txt'), 'later\n');
@@ -1054,16 +1054,16 @@ async function diff() {
   await diffView.getByText('web/src/modules/deep/one.ts', { exact: true }).waitFor();
   check((await one.getAttribute('aria-current')) === 'true', 'clicking one.ts in the tree opens its diff', await diffView.locator('[data-line="1"]').innerText());
 
-  await page.goto(`${base}/channels/${cid}`);
+  await page.goto(`${base}/spaces/${cid}`);
   await page.getByRole('button', { name: /^Diff \+/ }).click();
   await folder.waitFor({ timeout: 15000 });
-  check((await pressed('Tree view')) === 'true', 'Tree view survives a reload of the channel');
+  check((await pressed('Tree view')) === 'true', 'Tree view survives a reload of the Space');
   await panelFiles.getByRole('button', { name: 'A long.txt', exact: true }).click();
   await last.waitFor({ state: 'attached' });
   const treeTop = await wheel(diffView);
   check(treeTop > 0, 'in Tree view at 1280x800 the wheel still scrolls the panel diff', `scrollTop=${treeTop}`);
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${base}/channels/${cid}`);
+  await page.goto(`${base}/spaces/${cid}`);
   await page.getByRole('button', { name: /^Diff \+/ }).click();
   await panelFiles.getByText('long.txt').waitFor({ timeout: 15000 });
   check(
@@ -1077,7 +1077,7 @@ async function diff() {
   await folder.waitFor({ timeout: 15000 });
   check((await pressed('Tree view')) === 'true', 'the review page opens in Tree view too');
   await shot('tree-review');
-  await page.goto(`${base}/channels/${cid}`);
+  await page.goto(`${base}/spaces/${cid}`);
   await page.getByRole('button', { name: /^Diff \+/ }).click();
   await page.setViewportSize({ width: 1200, height: 1000 });
   await main.getByRole('button', { name: 'Close diff' }).click();
@@ -1168,8 +1168,8 @@ async function memory() {
   await sessionDialog.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name: session, level: 1 }).waitFor();
   check(
-    sql(`select count(*) from channel where project_id=${pid} and feature_id is null and name='${session}'`) === '1',
-    'New quick session on the project page stores a channel with no feature and opens it',
+    sql(`select count(*) from Space where project_id=${pid} and feature_id is null and name='${session}'`) === '1',
+    'New quick session on the project page stores a Space with no feature and opens it',
   );
   await page.goto(`${base}/projects/${pid}`);
   await main.getByRole('link', { name: session }).waitFor();
@@ -1194,7 +1194,7 @@ async function memory() {
 async function inspector() {
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
-  const { id: cid } = await newTeamChannel('full', 'inspector room');
+  const { id: cid } = await newTeamSpace('full', 'inspector room');
   await send('Say ok in one word.');
   await workingAs('lead');
   await idle();
@@ -1208,7 +1208,7 @@ async function inspector() {
   await devRow.waitFor({ timeout: 15000 });
   await shot('panel');
 
-  const json = await getJson(`/channels/${cid}/inspector`);
+  const json = await getJson(`/spaces/${cid}/inspector`);
   const leadRole = json.roles.find((r) => r.role === 'lead');
   const devRole = json.roles.find((r) => r.role === 'developer');
   check(!!leadRole && !!devRole, 'the API lists a lead role and a developer role', JSON.stringify(json.roles));
@@ -1258,14 +1258,14 @@ async function inspector() {
 
 async function subagent() {
   writeFileSync(path.join(projectDir, 'sub.txt'), 'sub-hello\n');
-  // The channel runs in a worktree, which only has what is committed.
+  // The Space runs in a worktree, which only has what is committed.
   const git = (...args) => execFileSync('git', ['-C', projectDir, '-c', 'user.name=reef', '-c', 'user.email=reef@example.com', ...args], { stdio: 'pipe' });
   git('init', '-q');
   git('add', 'sub.txt');
   git('commit', '-q', '--allow-empty', '-m', 'sub.txt');
   const section = await addProject();
   await addFeature(section, 'subagent', 'Subagent');
-  const cid = await newChannel(main, 'New channel', 'subagent room');
+  const cid = await newSpace(main, 'New Space', 'subagent room');
   await send(
     'Use the Agent tool to start a subagent that reads the file sub.txt in the current directory with the Read tool. Then tell me its contents.',
   );
@@ -1286,7 +1286,7 @@ async function subagent() {
   await shot('turn-panel-done');
   await idle();
 
-  const json = await getJson(`/channels/${cid}/inspector`);
+  const json = await getJson(`/spaces/${cid}/inspector`);
   const calls = json.turns.flatMap((t) => t.toolCalls);
   const call = calls.find((c) => c.name === 'Agent');
   const nested = (call?.children ?? []).map((c) => c.name);
@@ -1318,8 +1318,8 @@ async function review() {
   const section = await addProject();
   const slug = await addFeature(section, 'login', 'Login');
   const featureId = page.url().split('/').pop();
-  const { id: cid } = await newTeamChannel('full', 'review room');
-  const tree = path.join(data, 'worktrees', sql(`select project_id from channel where id=${cid}`), slug);
+  const { id: cid } = await newTeamSpace('full', 'review room');
+  const tree = path.join(data, 'worktrees', sql(`select project_id from Space where id=${cid}`), slug);
   await send('@developer Use the Write tool to create new.txt in the current directory containing the word hi. Then reply done.');
   await workingAs('developer', 60000);
   await idle();
@@ -1329,7 +1329,7 @@ async function review() {
   await send('@developer Use the Bash tool to delete README.md. Then reply done.');
   await workingAs('developer', 60000);
   await idle();
-  const root = (await getJson(`/messages?channel=${cid}`))
+  const root = (await getJson(`/messages?space=${cid}`))
     .filter((m) => m.author === 'developer' && m.parentId === null)
     .at(-1);
   check(!!root, 'the developer posted a third top-level message, its latest thread root', root && `message ${root.id}`);
@@ -1365,19 +1365,19 @@ async function review() {
     await main.innerText(),
   );
   await shot('comments');
-  const before = Number(sql(`select count(*) from turn where channel_id=${cid} and role='developer'`));
+  const before = Number(sql(`select count(*) from turn where space_id=${cid} and role='developer'`));
   await sendButton.click();
   // The review message matches no recorded scenario, so the turn may error and end before
   // the window ever shows "is working": poll the turn row instead of workingAs/idle.
   let after = before;
   for (let i = 0; i < 60 && after === before; i++) {
     await page.waitForTimeout(500);
-    after = Number(sql(`select count(*) from turn where channel_id=${cid} and role='developer'`));
+    after = Number(sql(`select count(*) from turn where space_id=${cid} and role='developer'`));
   }
   await idle();
   await shot('sent');
 
-  const sent = (await getJson(`/messages?channel=${cid}`)).at(-1);
+  const sent = (await getJson(`/messages?space=${cid}`)).at(-1);
   check(
     sent.author === 'user' &&
       sent.body.includes('new.txt:1') &&
@@ -1421,17 +1421,17 @@ async function inbox() {
   const waitWaiting = async (cid, since) => {
     const end = Date.now() + 120000;
     while (Date.now() < end) {
-      const item = (await getJson('/inbox')).find((i) => i.kind === 'waiting' && String(i.channelId) === String(cid));
+      const item = (await getJson('/inbox')).find((i) => i.kind === 'waiting' && String(i.spaceId) === String(cid));
       if (item && item.at !== since) return item;
       await page.waitForTimeout(1000);
     }
     throw new Error('no new waiting item');
   };
   const sendApi = (cid, text) =>
-    fetch(`${base}/channels/${cid}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
+    fetch(`${base}/spaces/${cid}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
-  const { id: cid } = await newTeamChannel('gated', 'inbox room');
+  const { id: cid } = await newTeamSpace('gated', 'inbox room');
   const permission = await page.evaluate(() => Notification.permission);
   check(permission === 'granted', 'the window may show notifications', permission);
 
@@ -1446,7 +1446,7 @@ async function inbox() {
   const rowText = (await row.textContent()) ?? '';
   check(
     /Approval/.test(rowText) && /#inbox room/.test(rowText) && (await row.getByRole('button', { name: 'Approve' }).count()) === 1 && (await row.getByRole('button', { name: 'Reject' }).count()) === 1 && (await row.getByRole('button', { name: 'Dismiss' }).count()) === 0,
-    'a new approval of a channel that is not open shows in the inbox with Approve and Reject, and no Dismiss',
+    'a new approval of a Space that is not open shows in the inbox with Approve and Reject, and no Dismiss',
     rowText,
   );
   const badge = await aside.getByLabel(/waiting$/).textContent();
@@ -1454,19 +1454,19 @@ async function inbox() {
   await page.waitForTimeout(3000);
   const fired = await notes();
   check(fired.length === 1 && /^Approval: inbox room$/.test(fired[0].title) && fired[0].body === 'lead wants to wake architect', 'one notification fired for the approval', JSON.stringify(fired));
-  check(sql(`select count(*) from turn where channel_id=${cid} and role='architect'`) === '0', 'no architect turn ran before Approve');
+  check(sql(`select count(*) from turn where space_id=${cid} and role='architect'`) === '0', 'no architect turn ran before Approve');
 
-  const aid = sql(`select id from approval where channel_id=${cid}`);
+  const aid = sql(`select id from approval where space_id=${cid}`);
   await page.evaluate(() => window.__notes[0].note.onclick());
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
   let landed = await landedOn(`approval-${aid}`);
-  check(page.url().endsWith(`/channels/${cid}#approval-${aid}`) && landed.inView && landed.ringed, 'clicking the notification opens the channel at the approval row, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
+  check(page.url().endsWith(`/spaces/${cid}#approval-${aid}`) && landed.inView && landed.ringed, 'clicking the notification opens the Space at the approval row, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
   await aside.getByRole('link', { name: /^Needs you/ }).click();
-  await row.getByRole('link', { name: 'Open channel' }).click();
+  await row.getByRole('link', { name: 'Open Space' }).click();
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
   landed = await landedOn(`approval-${aid}`);
-  check(page.url().endsWith(`/channels/${cid}#approval-${aid}`) && landed.inView && landed.ringed, 'clicking an inbox item opens its channel at the approval row, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
-  await shot('item-opened-channel');
+  check(page.url().endsWith(`/spaces/${cid}#approval-${aid}`) && landed.inView && landed.ringed, 'clicking an inbox item opens its Space at the approval row, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
+  await shot('item-opened-space');
 
   await aside.getByRole('link', { name: /^Needs you/ }).click();
   await row.getByRole('button', { name: 'Approve' }).click();
@@ -1474,12 +1474,12 @@ async function inbox() {
   await shot('approved');
   check(true, 'Approve from the inbox removes the approval item');
   const end = Date.now() + 240000;
-  while (Date.now() < end && sql(`select count(*) from turn where channel_id=${cid} and role='architect' and status='done'`) === '0') await page.waitForTimeout(1000);
+  while (Date.now() < end && sql(`select count(*) from turn where space_id=${cid} and role='architect' and status='done'`) === '0') await page.waitForTimeout(1000);
   check(
-    sql(`select from_role||'>'||to_role||' '||status from approval where channel_id=${cid}`) === 'lead>architect approved' &&
-      sql(`select count(*) from turn where channel_id=${cid} and role='architect' and status='done'`) === '1',
+    sql(`select from_role||'>'||to_role||' '||status from approval where space_id=${cid}`) === 'lead>architect approved' &&
+      sql(`select count(*) from turn where space_id=${cid} and role='architect' and status='done'`) === '1',
     'Approve ran the wake: the approval is approved and the architect turn is done',
-    `approvals: ${sql(`select id,status from approval where channel_id=${cid}`)}; turns: ${sql(`select group_concat(role||' '||status) from (select role,status from turn where channel_id=${cid} order by id)`)}`,
+    `approvals: ${sql(`select id,status from approval where space_id=${cid}`)}; turns: ${sql(`select group_concat(role||' '||status) from (select role,status from turn where space_id=${cid} order by id)`)}`,
   );
   const waiting = main.getByRole('listitem').filter({ hasText: /Waiting.*inbox room/ });
   await waiting.waitFor({ timeout: 30000 });
@@ -1491,21 +1491,21 @@ async function inbox() {
   await waiting.getByRole('link', { name: 'Open' }).click();
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
   landed = await landedOn('latest-message');
-  check(page.url().endsWith(`/channels/${cid}#latest-message`) && landed.inView && landed.ringed, 'Open on a waiting item opens the channel at the newest message, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
-  await shot('waiting-opened-channel');
+  check(page.url().endsWith(`/spaces/${cid}#latest-message`) && landed.inView && landed.ringed, 'Open on a waiting item opens the Space at the newest message, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
+  await shot('waiting-opened-space');
 
   await sendApi(cid, 'Say ok in one word. Use no tools.');
   const visible = await waitWaiting(cid, before);
   await page.waitForTimeout(3000);
   const whileOpen = await notes();
-  check(whileOpen.length === 2, 'a new item of the open, visible channel fires no notification', JSON.stringify({ item: visible.text, notes: whileOpen.map((n) => n.title) }));
+  check(whileOpen.length === 2, 'a new item of the open, visible Space fires no notification', JSON.stringify({ item: visible.text, notes: whileOpen.map((n) => n.title) }));
 
   await page.evaluate(() => Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' }));
   await sendApi(cid, 'Say fine in one word. Use no tools.');
   await waitWaiting(cid, visible.at);
   await page.waitForTimeout(3000);
   const whileHidden = await notes();
-  check(whileHidden.length === 3 && /^Waiting: inbox room$/.test(whileHidden[2].title), 'the same channel hidden from view fires one notification', JSON.stringify(whileHidden.map((n) => n.title)));
+  check(whileHidden.length === 3 && /^Waiting: inbox room$/.test(whileHidden[2].title), 'the same Space hidden from view fires one notification', JSON.stringify(whileHidden.map((n) => n.title)));
 
   await page.goto(base + '/inbox');
   await waiting.waitFor();
@@ -1513,16 +1513,16 @@ async function inbox() {
   const afterReload = await notes();
   check(afterReload.length === 0, 'items present at load fire no notification', JSON.stringify(afterReload));
 
-  const dismissed = (await getJson('/inbox')).find((i) => i.kind === 'waiting' && String(i.channelId) === String(cid));
+  const dismissed = (await getJson('/inbox')).find((i) => i.kind === 'waiting' && String(i.spaceId) === String(cid));
   await shot('before-dismiss');
   await waiting.getByRole('button', { name: 'Dismiss' }).click();
   await waiting.waitFor({ state: 'hidden', timeout: 30000 });
   await shot('dismissed');
   check(
-    !(await getJson('/inbox')).some((i) => i.kind === 'waiting' && String(i.channelId) === String(cid)) &&
-      sql(`select dismissed_message_id from channel where id=${cid}`) === String(dismissed.messageId),
+    !(await getJson('/inbox')).some((i) => i.kind === 'waiting' && String(i.spaceId) === String(cid)) &&
+      sql(`select dismissed_message_id from Space where id=${cid}`) === String(dismissed.messageId),
     'Dismiss on a waiting item removes it and stores the message it was pressed on',
-    sql(`select dismissed_message_id from channel where id=${cid}`),
+    sql(`select dismissed_message_id from Space where id=${cid}`),
   );
   await page.reload();
   await page.getByRole('heading', { name: 'Needs you', level: 1 }).waitFor();
@@ -1538,7 +1538,7 @@ async function inbox() {
 async function wrap() {
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
-  const cid = await newChannel(main, 'New channel', 'wrap chat');
+  const cid = await newSpace(main, 'New Space', 'wrap chat');
   await exchange('We are building email login. Decision: sessions, not JWT, because there is one server.');
   await page.getByRole('button', { name: 'Wrap up' }).click();
   await working();
@@ -1551,12 +1551,12 @@ async function wrap() {
   );
   await panel.getByRole('button', { name: 'Reject' }).click();
   await page.getByText('rejected', { exact: true }).waitFor();
-  const fid = sql(`select feature_id from channel where id=${cid}`);
+  const fid = sql(`select feature_id from Space where id=${cid}`);
   check(
-    sql(`select status from proposal where channel_id=${cid} order by id desc limit 1`) === 'rejected' &&
+    sql(`select status from proposal where space_id=${cid} order by id desc limit 1`) === 'rejected' &&
       sql(`select count(*) from brief where feature_id=${fid}`) === '0',
     'Reject leaves the brief unchanged',
-    `proposals ${sql(`select id,status from proposal where channel_id=${cid}`)}`,
+    `proposals ${sql(`select id,status from proposal where space_id=${cid}`)}`,
   );
   await send('/wrap');
   await working();
@@ -1568,31 +1568,31 @@ async function wrap() {
   await page.getByText('Version 1 by').waitFor();
   check(sql(`select count(*) from brief where feature_id=${fid}`) === '1', '/wrap then Approve makes brief version 1', `brief rows ${sql(`select id,author from brief where feature_id=${fid}`)}`);
 
-  await page.goto(`${base}/channels/${cid}`);
+  await page.goto(`${base}/spaces/${cid}`);
   await main.getByText('Wrapped', { exact: true }).waitFor();
   await shot('wrapped');
   check(
     (await main.getByRole('button', { name: 'Reopen' }).count()) === 1 &&
       (await page.getByLabel('Message').count()) === 0 &&
       (await page.getByRole('button', { name: 'Wrap up' }).count()) === 0,
-    'an approved channel shows Wrapped and Reopen, no composer, no Wrap up',
-    `closed_at ${sql(`select closed_at from channel where id=${cid}`)}`,
+    'an approved Space shows Wrapped and Reopen, no composer, no Wrap up',
+    `closed_at ${sql(`select closed_at from space where id=${cid}`)}`,
   );
-  const queued = (await getJson('/inbox')).filter((i) => i.channelId === Number(cid));
+  const queued = (await getJson('/inbox')).filter((i) => i.spaceId === Number(cid));
   await page.goto(`${base}/inbox`);
   await page.getByRole('heading', { name: 'Needs you' }).waitFor();
   await shot('wrapped-needs-you');
-  check(queued.length === 0, 'Needs you has no item for the wrapped channel', JSON.stringify(queued));
-  await page.goto(`${base}/channels/${cid}`);
+  check(queued.length === 0, 'Needs you has no item for the wrapped Space', JSON.stringify(queued));
+  await page.goto(`${base}/spaces/${cid}`);
   await main.getByText('Wrapped', { exact: true }).waitFor();
   await aside.getByRole('button', { name: /^Wrapped \(1\)/ }).click();
   await section.getByRole('link', { name: /#wrap chat/ }).waitFor();
   await shot('wrapped-sidebar');
-  check(true, 'the channel is listed under Wrapped (1) in the sidebar');
+  check(true, 'the Space is listed under Wrapped (1) in the sidebar');
 
   await main.getByRole('button', { name: 'Reopen' }).click();
   await page.getByLabel('Message').waitFor();
-  check(sql(`select closed_at is null from channel where id=${cid}`) === '1', 'Reopen brings the composer back and clears closed_at');
+  check(sql(`select closed_at is null from Space where id=${cid}`) === '1', 'Reopen brings the composer back and clears closed_at');
 
   await section.getByRole('link', { name: 'Login', exact: true }).click();
   await main.getByRole('button', { name: 'Close feature' }).click();
@@ -1605,8 +1605,8 @@ async function wrap() {
   await shot('closed-feature');
   check(
     sql(`select closed_at is not null from feature where id=${fid}`) === '1' &&
-      sql(`select closed_at is not null from channel where id=${cid}`) === '1',
-    'Close feature closes the feature and its channel; it is listed under Closed (1)',
+      sql(`select closed_at is not null from Space where id=${cid}`) === '1',
+    'Close feature closes the feature and its Space; it is listed under Closed (1)',
   );
 }
 
@@ -1619,10 +1619,10 @@ async function teams() {
   const featureUrl = page.url();
   const projectId = sql('select max(id) from project');
 
-  const { id: cid, options } = await newTeamChannel('duo', 'duo room', 'team-picked');
-  check(options.includes('duo') && options.includes('gated') && options.includes('solo'), 'the New channel form lists the teams', options.join(', '));
-  const channel = await getJson(`/channels/${cid}`);
-  check(channel.team === 'duo' && channel.role === 'lead', 'the channel is created on team duo', JSON.stringify(channel));
+  const { id: cid, options } = await newTeamSpace('duo', 'duo room', 'team-picked');
+  check(options.includes('duo') && options.includes('gated') && options.includes('solo'), 'the New Space form lists the teams', options.join(', '));
+  const space = await getJson(`/spaces/${cid}`);
+  check(space.team === 'duo' && space.role === 'lead', 'the Space is created on team duo', JSON.stringify(space));
 
   await send('DESIGN a short plan for a login form.');
   const leadSeen = await workingAs('lead', 60000);
@@ -1633,7 +1633,7 @@ async function teams() {
   check(architectSeen, 'then the live turn names the architect');
   await rootRow('architect').first().waitFor({ timeout: 240000 });
   await idle();
-  const root = (await getJson(`/messages?channel=${cid}`)).find((m) => m.author === 'architect' && m.parentId === null);
+  const root = (await getJson(`/messages?space=${cid}`)).find((m) => m.author === 'architect' && m.parentId === null);
   check(!!root, 'the architect posted a top-level message', root && `message ${root.id}: ${root.body}`);
   const replyButton = rootRow('architect').last().getByRole('button');
   check((await replyButton.textContent()) === 'Reply', 'the architect root shows a Reply button');
@@ -1653,7 +1653,7 @@ async function teams() {
   await shot('thread-answered');
   const authors = await pane.locator('li').evaluateAll((items) => items.map((li) => li.querySelector('span.capitalize')?.textContent ?? 'user'));
   check(authors.join(',') === 'architect,user,architect', 'the Thread pane shows the root, the user reply and the architect answer', authors.join(','));
-  const inThread = (await getJson(`/messages?channel=${cid}`)).filter((m) => m.parentId === root.id).map((m) => m.author);
+  const inThread = (await getJson(`/messages?space=${cid}`)).filter((m) => m.parentId === root.id).map((m) => m.author);
   check(inThread.join(',') === 'user,architect', 'both replies are stored under the root', inThread.join(','));
   await pane.getByRole('button', { name: 'Close' }).click();
   const count = await rootRow('architect').last().getByRole('button').textContent();
@@ -1662,7 +1662,7 @@ async function teams() {
 
   await section.getByRole('link', { name: 'Login', exact: true }).click();
   await page.getByRole('heading', { name: 'Login', level: 1 }).waitFor();
-  const { id: gid } = await newTeamChannel('gated', 'gate room');
+  const { id: gid } = await newTeamSpace('gated', 'gate room');
   await send('DESIGN a password reset form.');
   const approve = main.getByRole('button', { name: 'Approve' });
   await approve.waitFor({ timeout: 240000 });
@@ -1670,10 +1670,10 @@ async function teams() {
   const row = (await approve.locator('xpath=ancestor::li[1]').textContent()) ?? '';
   check(
     /lead → architect/.test(row) && (await main.getByRole('button', { name: 'Reject' }).count()) === 1,
-    'the gated channel shows a lead → architect row with Approve and Reject',
+    'the gated Space shows a lead → architect row with Approve and Reject',
     row,
   );
-  check(sql(`select count(*) from turn where channel_id=${gid} and role='architect'`) === '0', 'no architect turn ran before Approve');
+  check(sql(`select count(*) from turn where space_id=${gid} and role='architect'`) === '0', 'no architect turn ran before Approve');
   await shot('gate-approval');
   await approve.click();
   const approvedSeen = await workingAs('architect', 120000);
@@ -1684,9 +1684,9 @@ async function teams() {
   check((await main.getByRole('button', { name: 'Approve' }).count()) === 0, 'the approval row is gone');
   await shot('gate-architect-posted');
   check(
-    sql(`select from_role||'>'||to_role||' '||status from approval where channel_id=${gid}`) === 'lead>architect approved',
+    sql(`select from_role||'>'||to_role||' '||status from approval where space_id=${gid}`) === 'lead>architect approved',
     'the approval is stored as approved',
-    `approvals: ${sql(`select id,from_role,to_role,status from approval where channel_id=${gid}`)}; turns: ${sql(`select group_concat(role) from (select role from turn where channel_id=${gid} order by id)`)}`,
+    `approvals: ${sql(`select id,from_role,to_role,status from approval where space_id=${gid}`)}; turns: ${sql(`select group_concat(role) from (select role from turn where space_id=${gid} order by id)`)}`,
   );
 
   // The switch of a default gate on /teams: team full lists no gates, so lead to developer is
@@ -1713,27 +1713,27 @@ async function teams() {
   };
   const handoff =
     'Reply with exactly one line and nothing else: an at sign immediately followed by the word developer, then a space, then the words: reply with one word, use no tools.';
-  const roles = (id) => sql(`select group_concat(role) from (select role from turn where channel_id=${id} order by id)`);
+  const roles = (id) => sql(`select group_concat(role) from (select role from turn where space_id=${id} order by id)`);
   await flipGate(false, 'gate-switched-off');
-  const { id: oid } = await newTeamChannel('full', 'open room');
+  const { id: oid } = await newTeamSpace('full', 'open room');
   await send(handoff);
   check(await workingAs('developer'), 'with the gate off the developer runs');
   await idle();
   check(
-    sql(`select count(*) from approval where channel_id=${oid}`) === '0' && roles(oid) === 'lead,developer',
+    sql(`select count(*) from approval where space_id=${oid}`) === '0' && roles(oid) === 'lead,developer',
     'with the gate off no approval is stored and the turns are lead, developer',
-    `approvals: ${sql(`select count(*) from approval where channel_id=${oid}`)}; turns: ${roles(oid)}`,
+    `approvals: ${sql(`select count(*) from approval where space_id=${oid}`)}; turns: ${roles(oid)}`,
   );
   await shot('gate-off-ran');
   await flipGate(true, 'gate-switched-on');
-  const { id: hid } = await newTeamChannel('full', 'held room');
+  const { id: hid } = await newTeamSpace('full', 'held room');
   await send(handoff);
   await main.getByRole('button', { name: 'Approve' }).waitFor({ timeout: 240000 });
   await idle();
   check(
-    sql(`select from_role||'>'||to_role||' '||status from approval where channel_id=${hid}`) === 'lead>developer pending' && roles(hid) === 'lead',
+    sql(`select from_role||'>'||to_role||' '||status from approval where space_id=${hid}`) === 'lead>developer pending' && roles(hid) === 'lead',
     'with the gate on again the wake is held and the developer has not run',
-    `approvals: ${sql(`select from_role,to_role,status from approval where channel_id=${hid}`)}; turns: ${roles(hid)}`,
+    `approvals: ${sql(`select from_role,to_role,status from approval where space_id=${hid}`)}; turns: ${roles(hid)}`,
   );
   await shot('gate-on-held');
 }
@@ -1954,15 +1954,15 @@ async function workshop() {
 
   // The next developer wake uses the new persona.
   await addFeature(section, 'login', 'Login');
-  const { id: cid } = await newTeamChannel('full', 'workshop room');
+  const { id: cid } = await newTeamSpace('full', 'workshop room');
   await send('@developer Say ok in one word.');
   await workingAs('developer');
   await idle();
-  await shot('channel-otter');
+  await shot('space-otter');
   const otters = await main.locator('svg [fill="#C08A5B"]').count();
   const penguins = await main.locator('svg [fill="#3FBFA0"]').count();
-  check(otters > 0 && penguins === 0, "the channel shows the otter picked for the developer, not the penguin", `otter shapes ${otters}, penguin shapes ${penguins}`);
-  const prompt = sql(`select prompt from turn where channel_id = ${cid} and role = 'developer' order by id limit 1`);
+  check(otters > 0 && penguins === 0, "the Space shows the otter picked for the developer, not the penguin", `otter shapes ${otters}, penguin shapes ${penguins}`);
+  const prompt = sql(`select prompt from turn where space_id = ${cid} and role = 'developer' order by id limit 1`);
   check(prompt.includes(marker), "the next developer wake's prompt carries the new persona", prompt.slice(0, 200));
 
   await page.goto(`${base}/settings?section=skills`);
@@ -1988,7 +1988,7 @@ async function pr() {
   const section = await addProject();
   const slug = await addFeature(section, 'pr', 'PR panel');
   const featureId = page.url().split('/').pop();
-  const cid = await newChannel(main, 'New channel', 'pr chat');
+  const cid = await newSpace(main, 'New Space', 'pr chat');
   await fetch(`${base}/features/${featureId}/worktree`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
 
   const view = (over) => ({
@@ -2012,8 +2012,8 @@ async function pr() {
   await panel.getByText('Add the login page').waitFor();
   await shot('conflicting');
   check(
-    page.url().endsWith(`/channels/${cid}`) && page.context().pages().length === 1,
-    'the header PR chip opens the panel in the channel, not the browser',
+    page.url().endsWith(`/spaces/${cid}`) && page.context().pages().length === 1,
+    'the header PR chip opens the panel in the Space, not the browser',
     page.url(),
   );
   const merge = panel.getByRole('button', { name: 'Merge', exact: true });
@@ -2059,20 +2059,20 @@ async function pr() {
     await panel.innerText(),
   );
   await main.getByRole('button', { name: 'PR #12 merged' }).waitFor({ timeout: 15000 });
-  check(true, 'the header chip follows to merged', sql(`select body from message where channel_id = ${cid} and author = 'reef' order by id desc limit 1`));
+  check(true, 'the header chip follows to merged', sql(`select body from message where space_id = ${cid} and author = 'reef' order by id desc limit 1`));
 }
 
-// Teammates' direct messages show as one compact item in the channel, never as bubbles. The
+// Teammates' direct messages show as one compact item in the Space, never as bubbles. The
 // gated team holds the lead's direct request for approval, and the fake architect answers slowly.
 async function coordination() {
   if ((await fetch(`${base}/teams/gated`)).status !== 200) throw new Error('apply the team gated first (see features/teams.md)');
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
-  const { id: cid } = await newTeamChannel('gated', 'coordination room');
+  const { id: cid } = await newTeamSpace('gated', 'coordination room');
   const panel = page.getByRole('complementary', { name: 'Coordination' });
   const items = page.getByRole('button', { name: /^lead and architect (are coordinating|coordinated) · \d+ messages?/i });
-  const direct = () => getJson(`/channels/${cid}/direct-messages`);
+  const direct = () => getJson(`/spaces/${cid}/direct-messages`);
   const stateOf = async (item) => (await item.innerText()).split('\n').at(-1).trim();
   const until = async (item, state, timeout = 120000) => {
     const end = Date.now() + timeout;
@@ -2092,7 +2092,7 @@ async function coordination() {
     const item = items.nth(chains - 1);
     check(await until(item, 'waiting approval'), `${label}: one item says waiting approval`, (await items.allInnerTexts()).join(' | '));
     await shot(`${label}-waiting`);
-    check((await page.getByRole('button', { name: 'Approve' }).count()) === 0, `${label}: the channel shows no Approve row for the private request`);
+    check((await page.getByRole('button', { name: 'Approve' }).count()) === 0, `${label}: the Space shows no Approve row for the private request`);
     await item.click();
     await panel.waitFor();
     await shot(`${label}-panel`);
@@ -2111,7 +2111,7 @@ async function coordination() {
     (await panel.getByRole('button', { name: 'Approve' }).count()) === 1 && (await panel.getByRole('button', { name: 'Reject' }).count()) === 1,
     'the panel offers Approve and Reject while waiting approval',
   );
-  const userMessage = (await getJson(`/messages?channel=${cid}`)).find((m) => m.author === 'user');
+  const userMessage = (await getJson(`/messages?space=${cid}`)).find((m) => m.author === 'user');
   const stored = (await direct())[0];
   check(stored.sourceMessageId === userMessage.id, 'the direct request stores the public message it was sent from', `sourceMessageId ${stored.sourceMessageId}, message ${userMessage.id}`);
   await panel.getByRole('button', { name: 'Open the message that started it' }).click();
@@ -2126,7 +2126,7 @@ async function coordination() {
   // The open panel shows the running architect turn growing, one fake chunk a second.
   const liveText = async () => ((await panel.innerText()).match(/Reviewing the plan[^]*/) ?? [''])[0].replace(/\s+/g, ' ').trim();
   const grown = [];
-  let inChannel = false;
+  let inSpace = false;
   let midShot = false;
   const counts = [];
   const t0 = Date.now();
@@ -2139,7 +2139,7 @@ async function coordination() {
     }
     if (text && text !== grown.at(-1)) {
       grown.push(text);
-      if (await main.locator('section').getByText('Reviewing the plan').count()) inChannel = true;
+      if (await main.locator('section').getByText('Reviewing the plan').count()) inSpace = true;
       console.log(`panel at ${Date.now() - t0} ms: ${text}`);
       if (grown.length <= 2) await shot(`desktop-1-live-${grown.length}`);
     }
@@ -2149,7 +2149,7 @@ async function coordination() {
     'the open Coordination panel shows the running direct turn text growing mid-turn',
     grown.join(' | '),
   );
-  check(!inChannel, 'the channel narrative still shows no direct text while the panel grows');
+  check(!inSpace, 'the Space narrative still shows no direct text while the panel grows');
   // From the live copy until the turn ends and the stored answer lands, the answer never shows twice.
   for (let settled = 0; settled < 8 && counts.length < 300; await page.waitForTimeout(200)) {
     counts.push(((await panel.innerText()).match(/Plan holds/g) ?? []).length);
@@ -2170,7 +2170,7 @@ async function coordination() {
   await panel.getByRole('button', { name: 'Close coordination' }).click();
   check(
     (await page.getByText('Please review the login plan').count()) === 0 && (await page.getByText('Plan holds').count()) === 0,
-    'no direct message renders as a bubble in the channel',
+    'no direct message renders as a bubble in the Space',
   );
 
   // Desktop: the second exchange is stopped and retried.
@@ -2215,7 +2215,7 @@ async function coordination() {
   await shot('phone-stopped');
   await panel.getByRole('button', { name: 'Close coordination' }).click();
   check(
-    sql(`select count(*) from turn where channel_id = ${cid} and status = 'failed' and error = 'interrupted'`) === '2',
+    sql(`select count(*) from turn where space_id = ${cid} and status = 'failed' and error = 'interrupted'`) === '2',
     'both stopped exchanges stored an interrupted turn',
   );
 
@@ -2245,7 +2245,7 @@ async function coordination() {
 async function team() {
   const section = await addProject();
   await addFeature(section, 'login', 'Login');
-  await newTeamChannel('full', 'team room');
+  await newTeamSpace('full', 'team room');
   await send('Say ok in one word.');
   await workingAs('lead');
   await idle();
@@ -2257,16 +2257,16 @@ async function team() {
   check((await page.getByText('working…', { exact: true }).count()) === 0, 'no floating working badge');
   const panel = page.getByRole('complementary', { name: 'Team' });
   check((await panel.count()) === 0, 'the team column is gone: nothing open until asked');
-  const channel = main.locator('section').first();
-  const before = await channel.boundingBox();
+  const space = main.locator('section').first();
+  const before = await space.boundingBox();
   await shot('closed-working');
   await main.getByRole('button', { name: 'Team', exact: true }).click();
   await panel.waitFor();
   const pop = await panel.locator('xpath=../..').boundingBox();
   const head = await main.locator('header').boundingBox();
-  const after = await channel.boundingBox();
+  const after = await space.boundingBox();
   check(pop.width === 320 && pop.y >= head.y + head.height && pop.x + pop.width <= 1200, 'the popover is 320 px wide under the header, inside the window', JSON.stringify(pop));
-  check(after.width === before.width, 'opening it does not change the channel width', `${before.width} -> ${after.width}`);
+  check(after.width === before.width, 'opening it does not change the Space width', `${before.width} -> ${after.width}`);
   const rows = await panel.getByRole('listitem').allInnerTexts();
   check(rows.length === 4 && rows.some((r) => /developer[\s\S]*working/i.test(r)), 'it lists four roles and the developer as working', rows.join(' | ').replace(/\n/g, ' '));
   await shot('popover-working');
@@ -2303,7 +2303,7 @@ async function denials() {
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
   await addFeature(section, 'fetch', 'Fetch');
-  const { id: cid } = await newTeamChannel('denials', 'denials room');
+  const { id: cid } = await newTeamSpace('denials', 'denials room');
   const card = main.getByRole('listitem').filter({ hasText: / was denied [A-Z]/ });
   const add = card.getByRole('button', { name: 'Add to role' });
   const ask = async (text) => {
@@ -2330,7 +2330,7 @@ async function denials() {
   const lines = turnLines('reviewer');
   const [before, after] = [lines.at(-2), lines.at(-1)];
   check(!allowed(before).includes('WebFetch') && allowed(after).includes('WebFetch'), 'the reviewer next start gets WebFetch in --allowedTools', `${allowed(before)} -> ${allowed(after)}`);
-  const result = sql(`select result from tool_call where turn_id = (select max(id) from turn where channel_id = ${cid} and role = 'reviewer') and name = 'WebFetch'`);
+  const result = sql(`select result from tool_call where turn_id = (select max(id) from turn where space_id = ${cid} and role = 'reviewer') and name = 'WebFetch'`);
   check(result.startsWith('The page title is'), 'the next wake runs WebFetch successfully', result);
   check((await card.count()) === 0, 'the card is gone once the role has a newer turn');
   await shot('reviewer-retried');
@@ -2363,16 +2363,16 @@ async function denials() {
   await ask(fetchPrompt('', true));
   const lead = turnLines('lead');
   check(pidOf(lead.at(-2)) !== pidOf(lead.at(-1)) && allowed(lead.at(-1)).includes('WebFetch'), 'the lead agent restarted and got WebFetch in --allowedTools', `pid ${pidOf(lead.at(-2))} -> ${pidOf(lead.at(-1))}, ${allowed(lead.at(-1))}`);
-  const leadResult = sql(`select result from tool_call where turn_id = (select max(id) from turn where channel_id = ${cid} and role = 'lead') and name = 'WebFetch'`);
+  const leadResult = sql(`select result from tool_call where turn_id = (select max(id) from turn where space_id = ${cid} and role = 'lead') and name = 'WebFetch'`);
   check(leadResult.startsWith('The page title is'), 'the lead next wake runs WebFetch successfully', leadResult);
-  check(sql(`select count(*) from turn where channel_id = ${cid} and status = 'failed'`) === '0', 'no turn failed');
+  check(sql(`select count(*) from turn where space_id = ${cid} and status = 'failed'`) === '0', 'no turn failed');
   await shot('lead-retried');
 }
 
 async function composer() {
   const section = await addProject();
   await addFeature(section, 'compose', 'Compose');
-  await newChannel(main, 'New channel', 'compose chat');
+  await newSpace(main, 'New Space', 'compose chat');
   const field = main.getByLabel('Message');
   const box = field.locator('xpath=ancestor::div[contains(@class,"bg-field")][1]');
   const geometry = () =>
@@ -2501,7 +2501,7 @@ async function composer() {
   await field.fill('');
 }
 
-// A channel started with its name left empty gets a name from its provider after the first
+// A Space started with its name left empty gets a name from its provider after the first
 // message; a typed name or a rename is never replaced.
 async function naming() {
   await addProject();
@@ -2510,20 +2510,20 @@ async function naming() {
     (readFileSync(process.env.REEF_FAKE_LOG ?? '/dev/null', 'utf8').match(/scenario=name-login/g) ?? []).length;
   const startUnnamed = async () => {
     const was = page.url();
-    await aside.getByRole('button', { name: 'New channel' }).click();
+    await aside.getByRole('button', { name: 'New Space' }).click();
     await pick('Backend', 'claude', aside);
     await aside.getByRole('button', { name: 'Start' }).click();
-    await page.waitForURL((u) => u.href !== was && /\/channels\/\d+$/.test(u.pathname));
+    await page.waitForURL((u) => u.href !== was && /\/spaces\/\d+$/.test(u.pathname));
     return page.url().split('/').pop();
   };
-  const row = (id) => sql(`select name, name_auto from channel where id=${id}`);
+  const row = (id) => sql(`select name, name_auto from Space where id=${id}`);
   const settled = async (id) => {
-    for (let i = 0; i < 100 && sql(`select name_auto from channel where id=${id}`) !== '0'; i++) await page.waitForTimeout(200);
+    for (let i = 0; i < 100 && sql(`select name_auto from Space where id=${id}`) !== '0'; i++) await page.waitForTimeout(200);
   };
 
   const first = await startUnnamed();
   const placeholder = row(first);
-  check(/^claude \d.*\|1$/.test(placeholder), 'a channel started with an empty name has a placeholder name and waits for a proposal', placeholder);
+  check(/^claude \d.*\|1$/.test(placeholder), 'a Space started with an empty name has a placeholder name and waits for a proposal', placeholder);
   await shot('placeholder');
   await send(probe);
   await working();
@@ -2531,9 +2531,9 @@ async function naming() {
   await aside.getByText('fix login redirect loop', { exact: true }).waitFor({ timeout: 20000 });
   await main.getByRole('heading', { name: /fix login redirect loop/, level: 1 }).waitFor();
   await shot('named');
-  check(row(first) === 'fix login redirect loop|0', 'the provider name replaces the placeholder in the database, the sidebar and the channel header', row(first));
-  const turns = sql(`select count(*) from turn where channel_id=${first}`);
-  const messages = sql(`select author from message where channel_id=${first} order by id`).split('\n').join(',');
+  check(row(first) === 'fix login redirect loop|0', 'the provider name replaces the placeholder in the database, the sidebar and the Space header', row(first));
+  const turns = sql(`select count(*) from turn where space_id=${first}`);
+  const messages = sql(`select author from message where space_id=${first} order by id`).split('\n').join(',');
   check(turns === '1' && messages === 'user,lead', 'the naming call is not stored as a turn or a message', `turns: ${turns}, messages: ${messages}`);
 
   const second = await startUnnamed();
@@ -2543,12 +2543,12 @@ async function naming() {
   await settled(second);
   check(/^claude \d.*\|0$/.test(row(second)), 'a failed proposal keeps the placeholder name', row(second));
   await exchange('Say it again.');
-  const done = sql(`select count(*) from turn where channel_id=${second} and status='done'`);
-  check(done === '2', 'the channel keeps working after a failed proposal', `done turns: ${done}`);
+  const done = sql(`select count(*) from turn where space_id=${second} and status='done'`);
+  check(done === '2', 'the Space keeps working after a failed proposal', `done turns: ${done}`);
   await shot('failed-proposal');
 
   const before = proposals();
-  const typed = await newChannel(aside, 'New channel', 'typed chat');
+  const typed = await newSpace(aside, 'New Space', 'typed chat');
   await send(probe);
   await working();
   await idle();
@@ -2558,10 +2558,10 @@ async function naming() {
   const project = (await getJson('/projects')).at(-1).id;
   const post = (method, route, body) =>
     fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const created = await (await post('POST', '/channels', { projectId: project, name: 'claude 02:32 PM', backend: 'claude' })).json();
-  await post('POST', `/channels/${created.id}/send`, { text: probe });
-  const renamed = await post('PUT', `/channels/${created.id}`, { name: 'mine' });
-  for (let i = 0; i < 150 && sql(`select count(*) from message where channel_id=${created.id} and author<>'user'`) === '0'; i++) await page.waitForTimeout(200);
+  const created = await (await post('POST', '/spaces', { projectId: project, name: 'claude 02:32 PM', backend: 'claude' })).json();
+  await post('POST', `/spaces/${created.id}/send`, { text: probe });
+  const renamed = await post('PUT', `/spaces/${created.id}`, { name: 'mine' });
+  for (let i = 0; i < 150 && sql(`select count(*) from message where space_id=${created.id} and author<>'user'`) === '0'; i++) await page.waitForTimeout(200);
   await page.waitForTimeout(2000);
   check(renamed.status === 200 && row(created.id) === 'mine|0', 'a rename sent right after the first message is never overwritten', `${row(created.id)}; PUT ${renamed.status}`);
 }
@@ -2573,7 +2573,7 @@ async function hovercard() {
   const section = await addProject();
   const slug = await addFeature(section, 'hover', 'Hover');
   const featureId = page.url().split('/').pop();
-  const { id: cid } = await newTeamChannel('full', 'hover chat');
+  const { id: cid } = await newTeamSpace('full', 'hover chat');
   await send('@developer Use the Write tool to create the file d.txt containing the word yes. Then reply done.');
   await working();
   await idle();
@@ -2587,8 +2587,8 @@ async function hovercard() {
     let state;
     const files = await getJson(`/features/${featureId}/diff`);
     const lines = files.flatMap((f) => f.hunks.flatMap((h) => h.lines));
-    const running = (await getJson('/turns?status=running')).filter((t) => String(t.channelId) === cid).map((t) => t.role);
-    const kinds = (await getJson('/inbox')).filter((i) => String(i.channelId) === cid).map((i) => i.kind);
+    const running = (await getJson('/turns?status=running')).filter((t) => String(t.spaceId) === cid).map((t) => t.role);
+    const kinds = (await getJson('/inbox')).filter((i) => String(i.spaceId) === cid).map((i) => i.kind);
     state = kinds.includes('approval') ? 'waiting for your approval' : kinds.includes('failed') ? 'a turn failed' : running.length ? 'working' : kinds.includes('waiting') ? 'waiting for you' : 'idle';
     const n = files.length;
     const changes = n ? `${n} file${n === 1 ? '' : 's'} +${lines.filter((l) => l.kind === 'add').length} −${lines.filter((l) => l.kind === 'del').length}` : 'no changes yet';
@@ -2602,7 +2602,7 @@ async function hovercard() {
   await tip.waitFor({ timeout: 3000 });
   await shot('waiting');
   const idleText = await flat();
-  check(idleText === (await expected()), 'waiting channel: name, state, branch, changes and every role match REST and SQLite', idleText);
+  check(idleText === (await expected()), 'waiting Space: name, state, branch, changes and every role match REST and SQLite', idleText);
   check(slug.startsWith('hover-') && idleText.startsWith('#hover chat waiting for you') && /1 file \+1 −0/.test(idleText), 'the finished developer turn left a waiting item, so the card says waiting for you; the diff has d.txt with its one added line', idleText);
   const [r, t] = [await row.boundingBox(), await tip.boundingBox()];
   check(t.x >= r.x + r.width, 'the card sits beside the row, not over it', `row right ${r.x + r.width}, card left ${t.x}`);
@@ -2616,15 +2616,15 @@ async function hovercard() {
   await tip.waitFor({ state: 'hidden', timeout: 2000 });
   check((await row.getAttribute('aria-describedby')) === null, 'the card closes when the pointer leaves, and the description goes');
 
-  for (const i of (await getJson('/inbox')).filter((i) => String(i.channelId) === cid && i.kind === 'waiting')) {
-    await fetch(`${base}/channels/${cid}/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: i.messageId }) });
+  for (const i of (await getJson('/inbox')).filter((i) => String(i.spaceId) === cid && i.kind === 'waiting')) {
+    await fetch(`${base}/spaces/${cid}/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: i.messageId }) });
   }
   await row.getByRole('img', { name: 'needs you' }).waitFor({ state: 'hidden', timeout: 15000 });
   await row.hover();
   await tip.waitFor();
   await shot('idle');
   const calm = await flat();
-  check(calm.startsWith('#hover chat idle branch') && calm === (await expected()), 'idle channel: once the waiting item is dismissed the card says idle and still matches REST', calm);
+  check(calm.startsWith('#hover chat idle branch') && calm === (await expected()), 'idle Space: once the waiting item is dismissed the card says idle and still matches REST', calm);
   await page.keyboard.press('Escape');
   await tip.waitFor({ state: 'hidden', timeout: 1000 });
   check(true, 'Escape closes the card');
@@ -2656,19 +2656,19 @@ async function hovercard() {
     }
     return false;
   };
-  check(await toRow(), 'Tab reaches the channel row');
+  check(await toRow(), 'Tab reaches the Space row');
   await tip.waitFor({ timeout: 1000 });
   check((await row.getAttribute('aria-describedby')) === (await tip.getAttribute('id')), 'keyboard focus on the row shows the card, described by it');
   await page.keyboard.press('Shift+Tab');
   await tip.waitFor({ state: 'hidden', timeout: 1000 });
   check(true, 'moving focus off the row closes the card');
 
-  await fetch(`${base}/channels/${cid}/send`, {
+  await fetch(`${base}/spaces/${cid}/send`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ text: 'Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.' }),
   });
-  for (let i = 0; i < 100 && !(await getJson('/turns?status=running')).some((x) => String(x.channelId) === cid); i++) await page.waitForTimeout(100);
+  for (let i = 0; i < 100 && !(await getJson('/turns?status=running')).some((x) => String(x.spaceId) === cid); i++) await page.waitForTimeout(100);
   await row.getByRole('img', { name: /is working$/ }).waitFor({ timeout: 10000 });
   await away();
   await row.hover();
@@ -2676,7 +2676,7 @@ async function hovercard() {
   await page.waitForTimeout(300);
   const runningText = await flat();
   await shot('running');
-  const stillRunning = (await getJson('/turns?status=running')).filter((x) => String(x.channelId) === cid);
+  const stillRunning = (await getJson('/turns?status=running')).filter((x) => String(x.spaceId) === cid);
   check(stillRunning.length === 1 && runningText === (await expected()), 'running turn: state Working and the running role shown working, matching /turns?status=running', `${runningText}; running ${JSON.stringify(stillRunning.map((x) => x.role))}`);
   await away();
   await working();
@@ -2706,19 +2706,19 @@ async function hovercard() {
   await away();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${base}/channels`);
+  await page.goto(`${base}/spaces`);
   const phoneRow = main.getByRole('link', { name: /#hover chat/ }).first();
   await phoneRow.waitFor();
   await phoneRow.hover();
   await page.waitForTimeout(900);
-  check((await tip.count()) === 0, 'phone layout (390x844): hovering a channel shows no card');
+  check((await tip.count()) === 0, 'phone layout (390x844): hovering a Space shows no card');
   await page.mouse.move(5, 5);
   for (let i = 0; i < 60; i++) {
     await page.keyboard.press('Tab');
     if (await phoneRow.evaluate((el) => el === document.activeElement)) break;
   }
   await page.waitForTimeout(500);
-  check((await phoneRow.evaluate((el) => el === document.activeElement)) && (await tip.count()) === 0, 'phone layout: keyboard focus on a channel shows no card');
+  check((await phoneRow.evaluate((el) => el === document.activeElement)) && (await tip.count()) === 0, 'phone layout: keyboard focus on a Space shows no card');
   await shot('phone');
 }
 
@@ -2728,7 +2728,7 @@ async function mention() {
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
   await addFeature(section, 'mention', 'Mention');
-  const { id: cid } = await newTeamChannel('full', 'mention chat');
+  const { id: cid } = await newTeamSpace('full', 'mention chat');
   await send('@lead and @developer, @nobody too: remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools. @tester ');
   await working();
 
@@ -2746,7 +2746,7 @@ async function mention() {
   };
   const expected = async (name) => {
     const role = team.roles.find((r) => r.name === name);
-    const running = (await getJson('/turns?status=running')).filter((t) => String(t.channelId) === cid).map((t) => t.role);
+    const running = (await getJson('/turns?status=running')).filter((t) => String(t.spaceId) === cid).map((t) => t.role);
     const models = { sonnet: 'Sonnet', opus: 'Opus', haiku: 'Haiku' };
     const backend = role.backend === 'claude' ? 'Claude Code' : 'Codex';
     const model = role.model ? ((role.backend === 'claude' && models[role.model]) || role.model) : 'default model';
@@ -2833,7 +2833,7 @@ async function mention() {
   await lead.hover();
   await tip.waitFor({ timeout: 3000 });
   const calmLead = await flat();
-  check(sameCard(calmLead, await expected('lead')) && calmLead.includes('State Idle') && (await getJson('/turns?status=running')).every((t) => String(t.channelId) !== cid), '@lead once the turn is done: Idle, matching /turns?status=running', calmLead);
+  check(sameCard(calmLead, await expected('lead')) && calmLead.includes('State Idle') && (await getJson('/turns?status=running')).every((t) => String(t.spaceId) !== cid), '@lead once the turn is done: Idle, matching /turns?status=running', calmLead);
   await shot('idle-lead');
   await away();
   await tip.waitFor({ state: 'hidden', timeout: 2000 });
@@ -2909,7 +2909,7 @@ async function mention() {
   await away();
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${base}/channels/${cid}`);
+  await page.goto(`${base}/spaces/${cid}`);
   const phoneLead = main.locator('.mention', { hasText: '@lead' }).first();
   await phoneLead.waitFor();
   await phoneLead.hover();

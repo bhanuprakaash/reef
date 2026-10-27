@@ -6,9 +6,9 @@ Reef is a personal Mac app where every feature keeps its own memory, and a team 
 
 **The problem.** Big features get split across sessions: plan in one, implement in another. Today the context is carried by hand, through a handoff file the agent writes so the next session can resume. Sessions pile up per project, and the history of why things were done is lost.
 
-**The idea.** Organize work around features, not chats. Each feature holds its tickets, decisions, sessions, PRs and post-release gaps. A team of agents (lead, architect, developer, tester) works on it in channels, and every session starts already knowing the goal and what was decided.
+**The idea.** Organize work around features, not chats. Each feature holds its tickets, decisions, sessions, PRs and post-release gaps. A team of agents (lead, architect, developer, tester) works on it in Spaces, and every session starts already knowing the goal and what was decided.
 
-**Why a team, not one agent.** Two reasons beyond memory. Visibility: a single Claude Code session is a black box; separate roles in a channel show who is doing what. One place: sessions, todos, features, PRs and browser live in one window, so there is no switching between tools.
+**Why a team, not one agent.** Two reasons beyond memory. Visibility: a single Claude Code session is a black box; separate roles in a Space show who is doing what. One place: sessions, todos, features, PRs and browser live in one window, so there is no switching between tools.
 
 **Relation to Jellyfish.** Jellyfish is the Go agent harness (a learning project on agents and MCP). Reef is the home where agents live and work together. Reef orchestrates Claude Code and Codex; Jellyfish can plug in as another backend.
 
@@ -25,12 +25,12 @@ Everything hangs off Projects and Features; Teams are defined once and plugged i
 | Task | A todo or ticket, tagged with project and optional feature | Global list |
 | Team | Reusable group of roles (lead, architect, developer, tester) | Global |
 | Role | Persona, skills, tools, MCP servers, backing agent (Claude Code or Codex) | Team |
-| Channel | What the user opens as a "session": a message log with a team in it | Feature or project |
-| Teammate session | One role's real agent session inside a channel | Channel |
+| Space | What the user opens as a "session": a message log with a team in it | Feature or project |
+| Teammate session | One role's real agent session inside a Space | Space |
 | Decision | A recorded choice: what, who, why, when | Feature |
 | Artifact | Branch, PR, commit, test run, bug | Feature |
 
-Hierarchy: Project → Features (versions, journey, channels, decisions, artifacts) and Quick sessions. Tasks show in one global list and board, filtered by tags.
+Hierarchy: Project → Features (versions, journey, Spaces, decisions, artifacts) and Quick sessions. Tasks show in one global list and board, filtered by tags.
 
 **Themed vocabulary** (brand only; the UI keeps plain terms): a bot is a jelly, the app is Reef.
 
@@ -38,7 +38,7 @@ Hierarchy: Project → Features (versions, journey, channels, decisions, artifac
 
 A feature is a product area that evolves through versions, not a one-time chat.
 
-**A feature contains:** About (goal, description, becomes the agent brief) · Journey stage · Tickets · Channels and their history · Decision log · Branches and PRs · Gaps and deferred · Issues found after release.
+**A feature contains:** About (goal, description, becomes the agent brief) · Journey stage · Tickets · Spaces and their history · Decision log · Branches and PRs · Gaps and deferred · Issues found after release.
 
 **Journey stages** are a label only, never a gate. They keep the user and the agents aligned on where the feature is. Each stage suggests the right role:
 
@@ -53,17 +53,17 @@ A feature is a product area that evolves through versions, not a one-time chat.
 
 **Gaps and deferred.** Things found after release, and things knowingly pushed out of scope. Agents can add to this list ("deferred: rate limiting, out of scope for v1").
 
-**Starting a feature.** Either create the feature and open its first channel with the lead (ideation), or start a quick session and promote it to a feature once it turns into real work. The feature then holds the goal, open questions and status.
+**Starting a feature.** Either create the feature and open its first Space with the lead (ideation), or start a quick session and promote it to a feature once it turns into real work. The feature then holds the goal, open questions and status.
 
 **Versions (later idea).** When v1 goes live, its gaps and deferred items seed v2. v2 inherits the brief and decisions and starts a fresh journey at Ideation. v1 history is archived but stays searchable. Not part of the baseline.
 
-## Teams and channels
+## Teams and Spaces
 
-A channel is what the user opens as a session; inside, each teammate is its own agent session, and the Reef server routes messages between them.
+A Space is what the user opens as a session; inside, each teammate is its own agent session, and the Reef server routes messages between them.
 
-**Starting a channel.** Pick a team. The team joins as a package: the lead is ready, specialists are set up with their persona, skills and MCPs but sleep until needed. A "solo" team (lead only) behaves like a normal session, for quick work.
+**Starting a Space.** Pick a team. The team joins as a package: the lead is ready, specialists are set up with their persona, skills and MCPs but sleep until needed. A "solo" team (lead only) behaves like a normal session, for quick work.
 
-**The lead.** One role per team that answers by default. The user talks to it naturally; it clarifies and pulls in specialists. Specialists post directly in the channel; the lead does not summarize them back and only speaks when addressed or @mentioned.
+**The lead.** One role per team that answers by default. The user talks to it naturally; it clarifies and pulls in specialists. Specialists post directly in the Space; the lead does not summarize them back and only speaks when addressed or @mentioned.
 
 **Routing rules** (plain code, not an LLM):
 
@@ -71,17 +71,17 @@ A channel is what the user opens as a session; inside, each teammate is its own 
 2. An @mention at the start of a message or line goes to that teammate
 3. Anything else from the user goes to the lead
 
-**How teammates talk.** A teammate uses `post_to_channel` for progress, decisions, blockers and outcomes the whole team needs. It uses `send_to_role` for detailed one-to-one coordination. A direct request wakes one role; that role's ordinary reply returns directly once. Handling the response does not reply again automatically, so another exchange requires an explicit `send_to_role`. Direct exchanges stay under the channel and are inspectable by the user, while only participating roles can read them through Reef tools.
+**How teammates talk.** A teammate uses `post_to_space` for progress, decisions, blockers and outcomes the whole team needs. It uses `send_to_role` for detailed one-to-one coordination. A direct request wakes one role; that role's ordinary reply returns directly once. Handling the response does not reply again automatically, so another exchange requires an explicit `send_to_role`. Direct exchanges stay under the Space and are inspectable by the user, while only participating roles can read them through Reef tools.
 
 **Example flow.** User asks lead for Google login → lead asks @architect for a plan → plan posted as a thread, user replies in the thread with questions → architect hands off to @developer → developer asks @architect a doubt → developer pings @tester → tester reports back.
 
 **Approval gates.** The user can require approval before work passes between roles. Defaults: lead → architect is free; lead → developer, architect → developer and developer → tester require approval. Each gate can be switched off per team.
 
-**Caps** (plain code): max agent-to-agent hops without a user message (default 6), max turns per teammate per wake (default 25), token budget per channel (default 1M). On any cap the channel pauses and an item goes to the needs-you inbox.
+**Caps** (plain code): max agent-to-agent hops without a user message (default 6), max turns per teammate per wake (default 25), token budget per Space (default 1M). On any cap the Space pauses and an item goes to the needs-you inbox.
 
-**Crash recovery.** Every turn is recorded as running, done or failed. On restart, running turns are marked failed and a note is posted to the channel; the worktree may be dirty. No automatic retry; the user retries or rolls back to a checkpoint.
+**Crash recovery.** Every turn is recorded as running, done or failed. On restart, running turns are marked failed and a note is posted to the Space; the worktree may be dirty. No automatic retry; the user retries or rolls back to a checkpoint.
 
-**Teammate identity.** Each teammate connects to Reef's MCP server with its own token, issued when the channel starts. One server, any number of teams and roles.
+**Teammate identity.** Each teammate connects to Reef's MCP server with its own token, issued when the Space starts. One server, any number of teams and roles.
 
 ## Context and memory
 
@@ -94,22 +94,22 @@ Never preload history, only a summary; details are fetched on demand.
 | Role | Persona, skills, tools, MCPs | Always |
 | Feature brief | Goal, status, key decisions, open questions; rewritten after each session | Always |
 | Memory items | Every live decision of the feature, and the newest findings, project, team and role items, each part with how many exist | Always |
-| Index | One line per task in progress, and a count of open tasks and earlier channels | Always |
-| Details | Full memory items, old tasks, old chats, PR diffs, channel threads | On demand via tools |
+| Index | One line per task in progress, and a count of open tasks and earlier Spaces | Always |
+| Details | Full memory items, old tasks, old chats, PR diffs, Space threads | On demand via tools |
 
-One assembler builds the first prompt of a channel and of a quick session in three sections: `## You` (persona, skills, role, feature, project, the user, goal, stage, base branch), `## How to work` (team rules, one line on the tools) and `## What we know` (brief, memory items, the index). A part with nothing in it is left out (decisions 85 to 87, 91).
+One assembler builds the first prompt of a Space and of a quick session in three sections: `## You` (persona, skills, role, feature, project, the user, goal, stage, base branch), `## How to work` (team rules, one line on the tools) and `## What we know` (brief, memory items, the index). A part with nothing in it is left out (decisions 85 to 87, 91).
 
 **Reef as an MCP server.** The on-demand tools (recall, read memory, search sessions, get PR diff, read thread) are exposed by Reef's own MCP server, so Claude Code and Codex query history the same way.
 
 **Browser tools.** The same MCP server lets teammates drive the built-in browser: open and navigate, read the page (accessibility snapshot), click, type, take screenshots, read console and network logs. The user watches live in the browser pane and can take over at any time. The tester uses this to verify UI changes.
 
-**Session lifetime.** Within a channel each teammate's session persists and resumes. When it gets long the backend compacts it, and the role's next turn gets the full first prompt again (decision 94). Across channels sessions are not shared: a teammate's memory of other channels is the brief, the memory items and the on-demand tools, never the raw session. After 30 to 40 chats the architect still starts small and relevant.
+**Session lifetime.** Within a Space each teammate's session persists and resumes. When it gets long the backend compacts it, and the role's next turn gets the full first prompt again (decision 94). Across Spaces sessions are not shared: a teammate's memory of other Spaces is the brief, the memory items and the on-demand tools, never the raw session. After 30 to 40 chats the architect still starts small and relevant.
 
-**Brief and memory items.** The agent writes the brief from the conversation and the shared understanding with the user; the user approves before it becomes the new brief. A memory item is never edited or deleted, but can be retired or replaced; each has an author and a role, and one an agent saves links to the channel or wrap-up it came from. An item the user adds in the window or with `reef decide` has no link.
+**Brief and memory items.** The agent writes the brief from the conversation and the shared understanding with the user; the user approves before it becomes the new brief. A memory item is never edited or deleted, but can be retired or replaced; each has an author and a role, and one an agent saves links to the Space or wrap-up it came from. An item the user adds in the window or with `reef decide` has no link.
 
 **Capturing what we learn.** Both ways: the agent saves decisions, findings, facts, conventions and lessons as it goes with `remember`, and at wrap-up it proposes as items any it did not save; those are approved with the brief (decision 93).
 
-**Wrapping up.** A channel ends explicitly: the user clicks "wrap up" or types `/wrap`. The agent then proposes the brief, memory items and the ids of stale items to retire. No idle timers.
+**Wrapping up.** A Space ends explicitly: the user clicks "wrap up" or types `/wrap`. The agent then proposes the brief, memory items and the ids of stale items to retire. No idle timers.
 
 **Reef CLI.** The same brief, memory items and tasks are reachable from a terminal (`reef brief`, `reef decide`, `reef memory`, `reef task`), so plain Claude Code works when the app is not open.
 
@@ -119,7 +119,7 @@ One assembler builds the first prompt of a channel and of a quick session in thr
 
 Not everything needs a feature; four lighter places cover the rest.
 
-- **Quick sessions:** a channel under a project with no feature, running on the main checkout. Promoting it creates the feature, re-parents the channel, and the lead reads the session to write the initial brief (costs one turn). It can also be attached to an existing feature.
+- **Quick sessions:** a Space under a project with no feature, running on the main checkout. Promoting it creates the feature, re-parents the Space, and the lead reads the session to write the initial brief (costs one turn). It can also be attached to an existing feature.
 - **Project memory:** memory items in the project's scope (conventions, facts, decisions) shared by every feature and quick session in a repo, like a smarter CLAUDE.md. The 10 newest load into every session.
 - **Team workshop:** tune teams and roles (personas, skills, tools, MCPs) separately from project work.
 - **Global tasks and board:** one Task entity tagged with project and optional feature, shown as a global todo list and as a kanban board. Tasks with no feature are personal todos; a feature's tickets are the same tasks filtered by tag.
@@ -129,14 +129,14 @@ Not everything needs a feature; four lighter places cover the rest.
 | Feature | What it does | Group |
 | --- | --- | --- |
 | Needs-you inbox | Every question, approval or finished task waiting on the user, with desktop notifications | Seamless |
-| Worktree per feature | One worktree per feature on branch `feature/<slug>`, shared by all its channels. Quick sessions use the main checkout | Robust |
+| Worktree per feature | One worktree per feature on branch `feature/<slug>`, shared by all its Spaces. Quick sessions use the main checkout | Robust |
 | Checkpoints and undo | Snapshot before each teammate's changes, one-click rollback | Robust |
 | Diff review panel | Inline comments on changes go back to the developer's thread | Robust |
 | Permissions per role | Only the developer edits code by default; it may spawn parallel subagents. Other roles are read-only unless the user grants write. Only the user merges to main | Robust |
 | Quick capture | Global shortcut to drop an idea, todo or bug into a project | Seamless |
 | Voice input | Talk to the lead by voice | Seamless |
 | Daily digest | Morning summary of what teams did, what is blocked, what waits on the user | Seamless |
-| GitHub integration | PR status and CI results flow into channels; failed CI pings the developer | Plug-in |
+| GitHub integration | PR status and CI results flow into Spaces; failed CI pings the developer | Plug-in |
 | Shared skills and MCP library | Define once, attach to any role | Plug-in |
 | Inspector | Each teammate's prompts, tool calls, tokens and cost | Learning |
 | Built-in terminal and browser | One window for terminal, browser, commits, PRs | Later |
@@ -148,7 +148,7 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | Layer | Choice | Role |
 | --- | --- | --- |
 | Backend | Go local server | Router, teammates, sessions, memory, Reef MCP server |
-| Storage | SQLite | Projects, features, tasks, channels, decisions |
+| Storage | SQLite | Projects, features, tasks, Spaces, decisions |
 | Agent adapters | Claude Code and Codex CLIs in headless JSON-streaming mode, both in the baseline | One common Agent interface (Start, Send, Events, Interrupt, Resume); Jellyfish later |
 | UI | React, rendered inside the Mac app window | Talks to the Go server over HTTP and Server-Sent Events on localhost |
 | Desktop shell | Electron (the Mac app) | Main process launches the Go server; renderer shows the UI; hosts the built-in browser pane |
@@ -161,41 +161,41 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 
 | # | Decision | Why |
 | --- | --- | --- |
-| 1 | Teams and channels are core, not optional | Visibility into what each role does, and one window for the whole workflow |
+| 1 | Teams and Spaces are core, not optional | Visibility into what each role does, and one window for the whole workflow |
 | 2 | Journey stage is a label, never a gate | Alignment on where the feature is; gating is the approval-gate feature |
 | 3 | Versions are a later idea, not baseline | Baseline the product first, ship one feature through it |
 | 4 | Reef data lives in a central app folder, not in repos | Replaces run files and handoffs; smooth transition |
 | 5 | Build from scratch in Go, copying T3 Code patterns | Learning goal; use Reef to build Reef once there is a baseline |
 | 6 | Brief and role notes are agent-written, user-approved. Amended by 91. | Agent captures the shared understanding; approval keeps it trustworthy |
 | 7 | Reef has a CLI alongside the app | Plain Claude Code keeps working when the app is closed |
-| 8 | Sessions persist per channel; across channels memory is notes + tools, not sessions. Amended by 91. | Continuity inside a channel, small context everywhere else |
+| 8 | Sessions persist per Space; across Spaces memory is notes + tools, not sessions. Amended by 91. | Continuity inside a Space, small context everywhere else |
 | 9 | Only the developer edits code by default; it may run parallel subagents | Avoids two roles writing one worktree; matches poteto-mode auto |
-| 10 | Caps: 4 hops, 25 turns, 1M tokens per channel; pause and ask | Stops loops without an LLM judge |
+| 10 | Caps: 4 hops, 25 turns, 1M tokens per Space; pause and ask | Stops loops without an LLM judge |
 | 11 | Failed turns are marked, never auto-retried | User decides retry vs rollback |
 | 12 | Per-teammate MCP tokens on one server | Teams are configurable; ports per role do not scale |
 | 13 | Lead does not summarize specialists back | User already sees the post; halves lead cost per handoff |
 | 14 | Gates default on for architect→developer and developer→tester, off for lead→architect | Gate the steps that cost tokens and touch code |
 | 15 | Decisions captured both live (tool) and at wrap-up (proposed, approved) | Accuracy plus a backstop |
-| 16 | Channels end explicitly via wrap-up, no idle timers | Rewrite at the right moment, no wasted tokens |
-| 17 | One worktree per feature, shared by its channels; quick sessions on main checkout | Follows from single-writer rule |
-| 18 | Promotion re-parents the channel and the lead writes the initial brief | Brief exists from day one of the feature |
+| 16 | Spaces end explicitly via wrap-up, no idle timers | Rewrite at the right moment, no wasted tokens |
+| 17 | One worktree per feature, shared by its Spaces; quick sessions on main checkout | Follows from single-writer rule |
+| 18 | Promotion re-parents the Space and the lead writes the initial brief | Brief exists from day one of the feature |
 | 19 | Claude Code and Codex both in the baseline | Prove the Agent interface with two real backends |
 | 20 | One stdio MCP process per teammate on one shared database, each with its own token (amends 12) | Works with the server down, adapters already launch stdio MCP servers, no ports |
-| 21 | Live agent output streams to the UI over Server-Sent Events, one GET stream per channel; users send messages with POST | Standard library only, data flows one way, and EventSource reconnects |
-| 22 | Routing runs when a turn ends, over the messages that turn stored. Wakes run one at a time per channel | No agent is interrupted, and the message log fixes the order |
+| 21 | Live agent output streams to the UI over Server-Sent Events, one GET stream per Space; users send messages with POST | Standard library only, data flows one way, and EventSource reconnects |
+| 22 | Routing runs when a turn ends, over the messages that turn stored. Wakes run one at a time per Space | No agent is interrupted, and the message log fixes the order |
 | 23 | A message from an agent wakes only the roles it @mentions, also a reply in a thread; the thread owner rule is for the user | Ends a chain, and the lead does not answer every specialist post |
 | 24 | Every agent starts when first woken. A specialist's agent stops after each wake and resumes its session next time; the lead stays live | Idle teammates cost nothing, and the lead is who the user talks to |
 | 25 | A wake across a gate that is on is held as a pending approval: approve runs it, reject drops it, and a restart keeps it | The user decides before tokens are spent, and a crash must not lose the question |
 | 26 | The hop count resets when the user sends a message or continues, not when the user approves a gate. A wake over the cap is held, and continue runs it | A user message is new intent; an approval only lets the same chain go on. Held, not dropped, so no work is lost |
 | 27 | Threads have one level: a reply points at a root message, never at another reply. A teammate woken from a thread replies in it; one woken from a top-level message replies top-level and owns that thread | "Who owns the thread" stays one lookup, and the window stays simple |
 | 28 | Wrap-up and promote turns wake nobody | They are the lead talking to the user about the feature, not a handoff |
-| 29 | A team is a JSON file applied with `reef team apply`; a team `solo` (lead only) always exists; a channel keeps the team it was created with | Smallest way to configurable teams now; the team workshop can edit them later |
+| 29 | A team is a JSON file applied with `reef team apply`; a team `solo` (lead only) always exists; a Space keeps the team it was created with | Smallest way to configurable teams now; the team workshop can edit them later |
 | 30 | A role's `tools` become Claude's allowed tools; Codex ignores them and is limited by its permission mode | Only Claude has a per-tool allow list |
-| 31 | Continue on a channel over its token budget sets the budget to the tokens used plus 1M (amends 10) | A flat +1M left a channel that used far more than its budget paused again at once |
+| 31 | Continue on a Space over its token budget sets the budget to the tokens used plus 1M (amends 10) | A flat +1M left a Space that used far more than its budget paused again at once |
 | 32 | Roles write only when the team file sets `write`; it maps to each backend's own limit (amends 9 and 30) | Checkpoints and the single-writer rule need one flag that does not depend on the backend |
 | 33 | A feature's worktree lives in the data folder and is made at its first wake, from the project's HEAD | Follows decision 4, and a feature nobody woke costs nothing |
-| 34 | Write turns on one tree run one at a time across channels | Decision 17's single writer holds with two channels on one feature |
-| 35 | Rollback resets the files and the branch to the checkpoint, not the agent's session, and leaves a note in the channel | Sessions cannot be rewound; the note tells the agent |
+| 34 | Write turns on one tree run one at a time across Spaces | Decision 17's single writer holds with two Spaces on one feature |
+| 35 | Rollback resets the files and the branch to the checkpoint, not the agent's session, and leaves a note in the Space | Sessions cannot be rewound; the note tells the agent |
 | 36 | The needs-you inbox is a view over approvals, pauses, failed turns and who spoke last; no ask-user tool | No new state to keep in sync, and Reef cannot tell a question from an answer |
 | 37 | Default gates also hold a lead's wake of the developer, and a tester's wake of the developer (amends 14) | Decision 14 gates the steps that touch code; an ungated lead→developer or tester→developer edge let either skip the architect→developer gate |
 | 38 | Default hop cap is 6 (amends 10) | The spec's full flow lead→architect→developer→tester→lead uses 4 hops; one clarifying question must fit without a pause |
@@ -203,15 +203,15 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 40 | Verification runs on a scripted `claude` that replays recorded real output and does its side effects; real `claude` runs only for Claude's own behaviour, at slice verification and when `agent/claude` changes | Real runs took 40+ minutes, cost tokens and failed at random; Reef's own code is what the lines check |
 | 41 | The app always starts and stops its own `reef serve` | One process owns the data folder; the user never runs `reef serve` by hand on a Mac |
 | 42 | `reef mcp`'s browser tools call the Reef app directly over a socket in the data folder, not through `reef serve` | The app owns the browser pane; `reef mcp` works even with the server down, like every other tool |
-| 43 | One browser pane for the whole window, shared by every channel | Matches the one-window product: agents and the user look at the same page |
+| 43 | One browser pane for the whole window, shared by every Space | Matches the one-window product: agents and the user look at the same page |
 | 44 | A "Take over" button on the browser pane stops every browser tool with `the user has the browser` until "Hand back"; the user's own address bar still works | The user needs the page to itself sometimes, without an agent acting on it underneath |
 | 45 | Project memory is one body per project, written by the user, loaded whole into every fresh session. Amended by 91. | Conventions and architecture notes apply to every feature and quick session, not one brief |
 | 46 | Diff review comments go as one user message to the developer's latest thread, or a top-level message starting `@developer` when it has none | Routing wakes the developer by the thread-owner rule without a new routing path |
 | 47 | The `/teams` page edits a team's roles and gates and saves with `PUT /teams/{name}`, which applies like `reef team apply`; a role's body that omits `mcpServers` keeps the ones already stored. Duplicate and "New team" send `?from=<source>`: `name` must not exist yet, and an omitted `mcpServers` takes `source`'s role instead | The window never sees a role's `mcpServers`, since they may carry keys; a copy must not silently overwrite a team or lose the source's servers |
-| 48 | Failed CI wakes the developer in the feature's most recent channel, as author `reef` so the wake counts as a hop like any agent turn | The developer is who acts on a broken build; the channel already carries the PR and check notes, and a wake with no user behind it must still respect the hop cap |
+| 48 | Failed CI wakes the developer in the feature's most recent Space, as author `reef` so the wake counts as a hop like any agent turn | The developer is who acts on a broken build; the Space already carries the PR and check notes, and a wake with no user behind it must still respect the hop cap |
 | 49 | A role in the team file may set `face` (one of eleven creatures); empty means the default for its name | A team of two developers or a custom role should not all look alike, and the file stays the one place a team is set up |
 | 50 | The window has a light theme and a Match macOS option, kept in `localStorage` | It is a per-device look, not project data, so the server stores nothing |
-| 51 | Below 768 px the same app becomes the phone layout (bottom tab bar, full-screen channel), not a second app | One codebase and one set of routes; a narrow window and a phone need the same screens |
+| 51 | Below 768 px the same app becomes the phone layout (bottom tab bar, full-screen Space), not a second app | One codebase and one set of routes; a narrow window and a phone need the same screens |
 | 52 | Today replaces Home as the landing page | One place for what waits on you and what moved, instead of a list of projects |
 | 53 | The desktop window opens on a local splash page and loads the app once `reef serve` listens | The window shows something at once instead of a blank page while the server starts |
 | 54 | Project memory (decision 45) is edited on the project page, not on Today. Amended by 91. | It belongs to the project, and Today is about what moved |
@@ -221,41 +221,41 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 58 | One Terminal toggle for the whole window, default off, remembered. It never creates a worktree: a feature without one shows an Open terminal button, and only that button makes it | Looking at a feature must not change the user's git repo |
 | 59 | A role with `write` has no tool call cap; the other roles keep 25 per turn | The writer does the long work (tests first, installs, checks), and the cap paused it mid-change; read-only roles stay capped so a looping reader stops |
 | 60 | A feature's worktree branches from the repo's default branch (the local branch `origin/HEAD` names, else `main`, else `master`, else HEAD), not from the checkout's HEAD; the feature diff is against the same ref. Replaces the HEAD part of 33 | A feature must not inherit the commits of whatever unrelated branch the checkout is on |
-| 61 | Approving a wrap-up closes the channel: the server refuses its turns with 409 until the user reopens it, and the sidebar folds it under Wrapped | Decision 16 ends a channel with wrap-up, but nothing stopped a message after it; "record and close" recorded the decisions twice |
-| 62 | A feature can be closed: closing it closes all its channels (409 while a turn runs) and moves it under Closed in the sidebar; reopening restores the feature only, each channel is reopened by hand. Stage stays a label (decision 2) | A finished feature should leave the working list without being deleted, and its channels must stop taking turns with it |
+| 61 | Approving a wrap-up closes the Space: the server refuses its turns with 409 until the user reopens it, and the sidebar folds it under Wrapped | Decision 16 ends a Space with wrap-up, but nothing stopped a message after it; "record and close" recorded the decisions twice |
+| 62 | A feature can be closed: closing it closes all its Spaces (409 while a turn runs) and moves it under Closed in the sidebar; reopening restores the feature only, each Space is reopened by hand. Stage stays a label (decision 2) | A finished feature should leave the working list without being deleted, and its Spaces must stop taking turns with it |
 | 63 | The user can dismiss a `waiting` item in Needs you; an approval, a pause and a failed turn have no dismiss | Waiting asks for no action and can pile up; the others block work until the user acts. Dismiss hides only the message it was pressed on, so a new agent message brings the item back |
 | 64 | A feature has a kind, `journey` (default) or `fixes`; a `fixes` feature carries the state of each fix in its tasks and shows `N of M done` instead of the stage bar and chip. Stage stays a label (decision 2) | Some features are a mix of small fixes, not one piece of work through the eight stages; the task store already has the states |
 | 65 | A role may name the `model` its agent runs on, passed to the backend as `--model` (claude) or the thread `model` (codex); empty is the backend's default | The lead can think on Opus while the developer writes on Sonnet, without changing the user's global default |
-| 66 | A feature's PR shows in a channel side panel, opened from the header's PR chip, with a Merge button that runs `gh pr merge --merge` (a merge commit) only when gh calls the PR mergeable; Azure DevOps is a later ticket | The user sees checks and reviews where the work happens and merges without leaving Reef; gh decides whether a merge is allowed and its message is shown when it refuses |
+| 66 | A feature's PR shows in a Space side panel, opened from the header's PR chip, with a Merge button that runs `gh pr merge --merge` (a merge commit) only when gh calls the PR mergeable; Azure DevOps is a later ticket | The user sees checks and reviews where the work happens and merges without leaving Reef; gh decides whether a merge is allowed and its message is shown when it refuses |
 | 67 | Every merge to `main` that passes tests is a numbered release `v0.1.N`; the everyday app is a release build, not the checkout | Reef builds Reef, so the app in use must not change while agents edit the repo |
 | 68 | Geist is the font everywhere in the web UI, self-hosted in the build | The user finds it easier to read than the system font; bundling it keeps it working offline and makes the window, the desktop app and a browser match |
 | 69 | No role has a tool call cap; a turn runs until the agent ends it, Stop, or the token budget, which is checked only between turns and never stops a turn mid-work. Replaces 59 | The cap paused read-only roles mid-work as often as it stopped loops; Stop and the token budget already bound a turn |
 | 70 | A project may name a base branch, set on its page. A new feature worktree fetches it from `origin` and branches from `origin/<base>` (else the local branch); the feature diff and the agents' context use the same branch. Empty keeps decision 60. Existing feature branches are not moved. Extends 60 | sm2 work targets `dev`, not the default `main`, and a stale local branch gave stale features |
-| 71 | A message or an approval that arrives while a message chain runs joins that chain's queue and runs after the current turn; turns still run one at a time. A wrap or promote turn running still refuses both. Extends 26 | The user and the lead can talk while a teammate works, and a busy channel must not lose an approval |
-| 72 | An approval that arrives while any chain starts or runs, a wrap or promote one included, joins that chain's queue and runs after its turn; if the chain ends or never starts, the approval is pending again. Messages keep decision 71. Extends 71 | Approving a gated wake while the channel was starting or wrapping up was 409 for no reason the user could act on |
-| 73 | Teammates may coordinate one-to-one with `send_to_role`; a request gets one automatic direct response, and continuing requires another explicit send. This replaces the "through the channel only" rule | Detailed handoffs stay out of the shared narrative, while the request/response boundary prevents automatic ping-pong loops |
-| 74 | An agent proposes a brief mid-channel with `propose_brief` when the user and the team agree on the goal, scope or plan. Approving it saves a brief version only: notes, decisions and the open channel stay. Extends 6 | The brief is about the feature, so it should change when the team agrees, not only when a channel ends |
-| 75 | An agent moves the feature's stage with the `set_stage` tool, with no approval, and Reef posts a `reef` note in the channel; a `fixes` feature has no stage. The context prompt lists the stages. Extends 2 | Agents see when the work moves; the user should not have to move the label by hand |
+| 71 | A message or an approval that arrives while a message chain runs joins that chain's queue and runs after the current turn; turns still run one at a time. A wrap or promote turn running still refuses both. Extends 26 | The user and the lead can talk while a teammate works, and a busy Space must not lose an approval |
+| 72 | An approval that arrives while any chain starts or runs, a wrap or promote one included, joins that chain's queue and runs after its turn; if the chain ends or never starts, the approval is pending again. Messages keep decision 71. Extends 71 | Approving a gated wake while the Space was starting or wrapping up was 409 for no reason the user could act on |
+| 73 | Teammates may coordinate one-to-one with `send_to_role`; a request gets one automatic direct response, and continuing requires another explicit send. This replaces the "through the Space only" rule | Detailed handoffs stay out of the shared narrative, while the request/response boundary prevents automatic ping-pong loops |
+| 74 | An agent proposes a brief mid-space with `propose_brief` when the user and the team agree on the goal, scope or plan. Approving it saves a brief version only: notes, decisions and the open Space stay. Extends 6 | The brief is about the feature, so it should change when the team agrees, not only when a Space ends |
+| 75 | An agent moves the feature's stage with the `set_stage` tool, with no approval, and Reef posts a `reef` note in the Space; a `fixes` feature has no stage. The context prompt lists the stages. Extends 2 | Agents see when the work moves; the user should not have to move the label by hand |
 | 76 | A decision is never edited or deleted, but it can be retired: `retiredAt`, and `replacedBy` when a newer decision replaces it. `record_decision` and a wrap decision take `replaces`; a wrap proposal takes `retire` for stale or duplicate ones; approving applies both. The context index and the feature page list live decisions only, retired ones fold under "Retired". Amends the append-only line in Context and memory. Amended by 91. | Stale and duplicate decisions bloated every prompt and the feature page, with no way to remove them |
-| 77 | A wrap-up or promote turn reads every direct exchange of its channel, and only that turn may read a pair's messages besides the pair and the user | The brief and decisions must reflect private work; wrap-up is user-approved, and roles still learn it only through the approved brief, decisions and public posts |
+| 77 | A wrap-up or promote turn reads every direct exchange of its Space, and only that turn may read a pair's messages besides the pair and the user | The brief and decisions must reflect private work; wrap-up is user-approved, and roles still learn it only through the approved brief, decisions and public posts |
 | 78 | One routing pass wakes a role once, whatever threads the messages that name it are in; the texts join and the reply goes where the first one did. Amends 27 | A thread reply and a top-level post that both handed work to the same role woke it twice and held two approvals for one handoff |
-| 79 | A channel created with the new-channel form's default name (backend or team, then the time) gets a name from its provider after its first user message: one throwaway turn with no tools, stored as no turn or message, once. A typed name, any rename, or a failed call keeps the name the channel has | The user never has to name a channel, and what they name or rename always wins |
+| 79 | A Space created with the new-space form's default name (backend or team, then the time) gets a name from its provider after its first user message: one throwaway turn with no tools, stored as no turn or message, once. A typed name, any rename, or a failed call keeps the name the Space has | The user never has to name a Space, and what they name or rename always wins |
 | 80 | Only a handoff @mention wakes a role: an `@name` at the start of a message or of a line, after optional spaces or tabs, and every `@name` of an unbroken run there (`@architect, @tester do X`). An `@name` anywhere else in a sentence wakes nobody, from an agent or the user. Refines 23 | "I'll report to @lead later" woke the lead for a turn that had nothing to do |
 | 81 | An approved wake resets the hop count, as a user message or continue does. Amends 26 | The user looked at that wake and said yes; pausing right after asked the same question twice |
-| 82 | The answer of a background task a role started is posted to the channel as that role's message | The user asked for that work, and it otherwise lands in no turn |
-| 83 | On Claude, a role without `write` whose `tools` allow a shell command outside the reading-command allow-list in `channel/session.go` (`Bash(git diff:*)`, `Bash(go test:*)`, `Bash(make:*)`) runs as a writer, with the single-writer lock and a checkpoint. Amends 32 | Such commands can change files, so they need the single-writer lock and an undo point |
+| 82 | The answer of a background task a role started is posted to the Space as that role's message | The user asked for that work, and it otherwise lands in no turn |
+| 83 | On Claude, a role without `write` whose `tools` allow a shell command outside the reading-command allow-list in `space/session.go` (`Bash(git diff:*)`, `Bash(go test:*)`, `Bash(make:*)`) runs as a writer, with the single-writer lock and a checkpoint. Amends 32 | Such commands can change files, so they need the single-writer lock and an undo point |
 | 84 | A specialist's process closes after its turn, so a background task it started ends with it and its answer is not posted. Only a role whose process stays alive, the lead, posts a background answer, also while no turn runs. Amends 82 | Keeping a specialist alive for a task it may never finish costs a process per role, and a closed one has no answer to read |
-| 85 | One assembler builds every first prompt, a feature channel's and a quick session's, in three sections in this order: `## You` (persona, skills, role, feature, project, the user, goal, stage, base branch), `## How to work` (team rules, then one line on the tools), `## What we know` (brief, project memory, the role's notes, live decisions, tasks in progress, one count line), each part under a `###` label: Brief, Project memory, Your notes, Decisions, Doing, On demand. The team rules keep their wording; only their `## Team` header goes, under `## How to work`. Amended by 91. | Instructions before knowledge, one header per kind of content, one place that builds it. The channel evals tested the rules' exact text; a rewrite needs its own eval run |
+| 85 | One assembler builds every first prompt, a feature Space's and a quick session's, in three sections in this order: `## You` (persona, skills, role, feature, project, the user, goal, stage, base branch), `## How to work` (team rules, then one line on the tools), `## What we know` (brief, project memory, the role's notes, live decisions, tasks in progress, one count line), each part under a `###` label: Brief, Project memory, Your notes, Decisions, Doing, On demand. The team rules keep their wording; only their `## Team` header goes, under `## How to work`. Amended by 91. | Instructions before knowledge, one header per kind of content, one place that builds it. The Space evals tested the rules' exact text; a rewrite needs its own eval run |
 | 86 | An empty part of the first prompt is left out: no "No brief yet.", "No notes yet." or "none"; a section with no part left is left out too | Those lines tell the agent nothing |
-| 87 | The first prompt lists only the tasks in `doing`. Open tasks and earlier channels are one count line with the tool to use: `23 open tasks (list_tasks). 3 earlier channels (search_sessions).` | A task has no owner and the wake names the work; the agent only needs to know that more exists |
-| 88 | A resumed role's wake holds what changed since its session's previous turn, right after its `[channel N, message N]` header line (at the top when it has none): every decision added since, whoever its author, and every one retired since, as index lines, under `### Changed since your last turn`, and the brief in full under `### New brief` when a newer version exists. A decision added and retired since is named as retired only, as the role may have seen it in its previous turn. Tasks are not in it. It comes before any `reef wrote:` lines. The first prompt, which reads the team and the role again, and this part are built after the turn's start is stamped, so an item written while the turn waits is in the text or the next one, never in neither. Amended by 92. | A role otherwise never learns of a new decision or brief during its session; a decision's author is only a role name, shared by the lead of every channel, so an own decision cannot be told apart |
-| 89 | A Go test builds the first prompt for a feature with 60 decisions, 40 tasks and 15 channels: no section twice, each limit holds, under 8,000 characters without the persona. Live decisions are not capped, so 60 full-length decision lines exceed it. Another checks the delta holds only the new items. `turn.prompt` stays the only record of what was sent | Size is checked by a test, not by eye; no new storage |
+| 87 | The first prompt lists only the tasks in `doing`. Open tasks and earlier Spaces are one count line with the tool to use: `23 open tasks (list_tasks). 3 earlier spaces (search_sessions).` | A task has no owner and the wake names the work; the agent only needs to know that more exists |
+| 88 | A resumed role's wake holds what changed since its session's previous turn, right after its `[space N, message N]` header line (at the top when it has none): every decision added since, whoever its author, and every one retired since, as index lines, under `### Changed since your last turn`, and the brief in full under `### New brief` when a newer version exists. A decision added and retired since is named as retired only, as the role may have seen it in its previous turn. Tasks are not in it. It comes before any `reef wrote:` lines. The first prompt, which reads the team and the role again, and this part are built after the turn's start is stamped, so an item written while the turn waits is in the text or the next one, never in neither. Amended by 92. | A role otherwise never learns of a new decision or brief during its session; a decision's author is only a role name, shared by the lead of every Space, so an own decision cannot be told apart |
+| 89 | A Go test builds the first prompt for a feature with 60 decisions, 40 tasks and 15 Spaces: no section twice, each limit holds, under 8,000 characters without the persona. Live decisions are not capped, so 60 full-length decision lines exceed it. Another checks the delta holds only the new items. `turn.prompt` stays the only record of what was sent | Size is checked by a test, not by eye; no new storage |
 | 90 | `remember` takes an optional scope: `work_item` (default), `project` or `teammate`; team items come only from the lead's wrap-up. Amends R23 | A finding about the whole project or about how one teammate works should not be filed under one feature; a team item changes how everyone works, so only the wrap-up proposes it and the user approves |
 | 91 | Memory items replace project memory, role notes and the decision table as what agents read and write: `remember`, `recall` and `read_memory` instead of `record_decision`, `read_decision` and notes, and retire takes memory ids. `## What we know` holds Brief, Decisions (every live one), Findings (5), Project (10), Team (5) and Your items (5), each the newest accepted first, and each counted part ends `N of M; recall(..., scope=...)`. The old tables are not migrated (R14). Amends 6, 8, 45, 54, 76 and 85 | One store with scopes holds what every feature, project, team and role learns, and the count tells the agent that more is there to recall |
 | 92 | The wake's `### Changed since your last turn` lists the memory items accepted or retired in the role's scopes since its session's previous turn. Amends 88 | Decisions are now memory items, and a finding or a project item changes what the role knows as much as a decision |
-| 93 | A wrap-up proposes memory items, each with a scope, and the ids of items to retire. Approve saves the items, retires the ids, then saves the brief and closes the channel; it is retry-safe, not one transaction. The lead's `team` items are saved as candidates | Saving an item may call the embedding API, which must not hold the database write lock; an approve that fails part-way is approved again without duplicates, and the user approves what changes how the whole team works |
+| 93 | A wrap-up proposes memory items, each with a scope, and the ids of items to retire. Approve saves the items, retires the ids, then saves the brief and closes the Space; it is retry-safe, not one transaction. The lead's `team` items are saved as candidates | Saving an item may call the embedding API, which must not hold the database write lock; an approve that fails part-way is approved again without duplicates, and the user approves what changes how the whole team works |
 | 94 | After the backend compacts a role's session, the role's next turn gets the full first prompt again, not the delta | The compacted session no longer holds the first prompt it was sent |
-| 95 | A solo channel is not a team: it has no `team` scope, so no Team part and no team items | Team lessons are about working together; a `team:solo` shelf would be one global shelf across every project |
+| 95 | A solo Space is not a team: it has no `team` scope, so no Team part and no team items | Team lessons are about working together; a `team:solo` shelf would be one global shelf across every project |
 
 ## Open questions
 

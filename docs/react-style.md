@@ -27,7 +27,7 @@ types/        Shared TypeScript types
 utils/        Shared utility functions
 ```
 
-Area code lives in `web/src/modules/<area>`, for example `modules/channels`,
+Area code lives in `web/src/modules/<area>`, for example `modules/spaces`,
 `modules/features` and `modules/tasks`. Use `modules`, not `features`: Feature is a Reef
 product entity. Add only the subfolders an area needs (`api`, `components`, `hooks`, `utils`).
 
@@ -54,9 +54,9 @@ Keep state at its narrowest useful scope.
 - Declare each request once beside its query or mutation hook in the module's `api/` folder.
   Give each response an explicit TypeScript type.
 - Name query keys after the resource, with identifying inputs as needed, such as
-  `['channels', featureId]`.
+  `['spaces', featureId]`.
 - After a mutation, invalidate the matching query keys so views refresh from the server.
-- Each channel receives live agent output over its own Server-Sent Events stream with
+- Each Space receives live agent output over its own Server-Sent Events stream with
   `EventSource`. User messages are sent with HTTP `POST`.
 
 ## Checks

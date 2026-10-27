@@ -10,7 +10,7 @@ stops everything it started. Contract: `docs/desktop.md`.
 ## Sub-features
 
 - `desktop-start` `/health` answers 200 on the app's port from a `reef serve` whose parent is the app's Electron main process (and which holds the port); `browser.sock` is in the data folder with mode 600.
-- `desktop-fake-claude` the app's `reef serve` resolves `claude` to `<scratch>/fake/claude` on the `PATH` it got from the login shell, so any channel turn runs on the scripted claude. Skipped with `REEF_VERIFY_CLAUDE=real`.
+- `desktop-fake-claude` the app's `reef serve` resolves `claude` to `<scratch>/fake/claude` on the `PATH` it got from the login shell, so any Space turn runs on the scripted claude. Skipped with `REEF_VERIFY_CLAUDE=real`.
 - `desktop-window` the main window is on `http://127.0.0.1:<port>/` with `window.reef` defined and the UI rendered; a screenshot of the screen is not blank.
 - `browser-navigate` `browser_navigate` to the test page answers `navigated to <url>`.
 - `browser-screenshot` `browser_screenshot` returns a PNG of the pane that is not blank.
@@ -39,7 +39,7 @@ stops everything it started. Contract: `docs/desktop.md`.
 Acceptance lines of the slice's verify-reef ticket: "starts the app, screenshots the window, and stops it with no process
 left" is `desktop-start`, `desktop-window`, `desktop-quit`; "drives each browser tool and the
 terminal pane" is the `browser-*` ids and `terminal-feature`; "runs on the scripted claude for
-any channel turn" is `desktop-fake-claude` (the run makes no channel turn). Not driven here: the
+any Space turn" is `desktop-fake-claude` (the run makes no Space turn). Not driven here: the
 Take over button's own click and label, the address bar, a quick session's terminal, the
 packaged `.deb` and the Mac app (open those by hand).
 
@@ -50,9 +50,9 @@ Acceptance lines of the quick capture ticket: "the shortcut opens the capture wi
 ## How to get to it (user POV)
 
 - Open the app (`cd desktop && npm start`, the `.deb`'s `reef-desktop`, or Reef.app).
-- An agent in a channel calls the `mcp__reef__browser_*` tools; the pane on the right follows.
+- An agent in a Space calls the `mcp__reef__browser_*` tools; the pane on the right follows.
 - Take over / Hand back is the button in the banner under the address bar while an agent drives, else next to it. The Browser toggle at the window's top right shows or hides the pane, and the pane's own close button hides it; Back, Forward and Reload sit left of the address bar.
-- On a channel or feature page the Terminal toggle at the window's top right shows the Terminal section (bottom of the page on a feature).
+- On a Space or feature page the Terminal toggle at the window's top right shows the Terminal section (bottom of the page on a feature).
 - `CommandOrControl+Shift+Space`, or the sidebar's Capture link, opens the quick capture window.
 - Quit from the menu, Cmd+Q, closing the window, or a signal.
 

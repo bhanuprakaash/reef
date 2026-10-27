@@ -15,14 +15,14 @@ Ten slices, tracked as GitHub issues labeled `slice`. Each slice is split into s
 | Slice | Issue | Outcome |
 | --- | --- | --- |
 | 1 Agent adapters | #1 | One `Agent` interface, Claude Code + Codex adapters, `reef-agent` harness, `docs/agents.md` |
-| 2 Core data + server | #2 | SQLite schema and REST for project, feature, channel, message, turn, decision, task, brief, role notes |
-| 3 Memory loop | #3 | Reef MCP server, `reef` CLI, wrap-up with approval, context injection. Done = one real feature across 3 channels, no handoff file |
-| 4 Solo channel | #4 | React UI, streaming channel, feature page, task list, promote quick session, caps |
+| 2 Core data + server | #2 | SQLite schema and REST for project, feature, Space, message, turn, decision, task, brief, role notes |
+| 3 Memory loop | #3 | Reef MCP server, `reef` CLI, wrap-up with approval, context injection. Done = one real feature across 3 Spaces, no handoff file |
+| 4 Solo Space | #4 | React UI, streaming Space, feature page, task list, promote quick session, caps |
 | 5 Lead + architect | #5 | Teams, roles, routing, threads, @mention, hop cap |
 | 6 Full team | #6 | Developer, tester, permissions, worktrees, gates, checkpoints, inbox |
 | 7 Mac app | #7 | Electron shell, browser pane with agent control, terminal |
 | 8 Polish | #8 | Board, GitHub, inspector, diff review, project memory, workshop |
-| 9 Window redesign | #199 | The design canvas in code: tokens, creatures, sidebar, channel, every screen, phone layout, light theme ([docs/design.md](docs/design.md)) |
+| 9 Window redesign | #199 | The design canvas in code: tokens, creatures, sidebar, Space, every screen, phone layout, light theme ([docs/design.md](docs/design.md)) |
 | 10 Releases | #242 | Every merge to `main` is a release; one-command install; the app updates itself with rollback; dev copy on its own port and data |
 
 Memory first: 1, 2, 3 before any UI. 1 and 2 have no dependency on each other.
@@ -43,7 +43,7 @@ Each slice issue carries this checklist in a **Verification** section.
 
 ```
 agent/        Agent interface, Event type, adapters (agent/claude, agent/codex)
-channel/      Runner and context prompt for a channel
+space/      Runner and context prompt for a Space
 cmd/reef-agent  harness CLI
 cmd/reef      main server + CLI (later)
 store/        SQLite schema and queries
@@ -66,4 +66,4 @@ Create a folder only when a ticket needs it.
 - React: follow `docs/react-style.md`.
 - Commits: conventional prefix (`feat:`, `fix:`, `docs:`, `chore:`), one-line subject, no ticket ids in the subject. No AI attribution anywhere.
 - Comments only for a constraint the code cannot show.
-- Plain words in UI and code: feature, channel, team, role, brief, decision, task. "Reef" and "jelly" are brand only.
+- Plain words in UI and code: feature, Space, team, role, brief, decision, task. "Reef" and "jelly" are brand only.

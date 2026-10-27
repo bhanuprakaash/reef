@@ -71,7 +71,7 @@ focus; a browser has no bridge and shows no chip. Only the first copied file sho
 ## Browser pane
 
 One `WebContentsView` ([`desktop/browser.js`](../desktop/browser.js)), for the whole window,
-shared by every channel. It sits to the right of the main area with Back, Forward and Reload
+shared by every Space. It sits to the right of the main area with Back, Forward and Reload
 buttons and an address bar; a preload script reports the pane's size to the main process so the
 native view stays lined up with it. The Browser toggle at the window's top right (every page)
 shows or hides the pane, as does the pane's own close button; the choice is remembered and the
@@ -116,9 +116,9 @@ one entry per call with its level (`log`, `error`, ...); `Network.requestWillBeS
 method, URL and status. Both lists are cleared on `Page.frameStartedLoading` for the page's main
 frame, so a new navigation starts them empty, and each is capped at the last 500 entries.
 
-While a browser tool call (`mcp__reef__browser_*`) runs in the open channel's live turn, a banner
+While a browser tool call (`mcp__reef__browser_*`) runs in the open Space's live turn, a banner
 under the address bar shows that role's creature and `<Role> is driving · <what it is doing>`.
-The banner comes from the channel's live events, not from the socket, and goes when the call
+The banner comes from the Space's live events, not from the socket, and goes when the call
 ends. A "Take over" button (in the banner, else next to the address bar) flips a boolean in the
 main process. While it is on, every tool call over `browser.sock` fails with `the user has the
 browser`, the banner reads "You have the browser", and the button reads "Hand back" to release it. The button's own address-bar navigation goes over IPC, not the socket,
@@ -129,15 +129,15 @@ take-over back off, so the button and the main process agree.
 
 One shell per working tree ([`desktop/terminal.js`](../desktop/terminal.js)): a feature's
 worktree, or a project checkout for a quick session. Neither the toggle nor viewing a page ever
-makes a worktree. With the toggle on, a feature page or feature channel reads
+makes a worktree. With the toggle on, a feature page or feature Space reads
 `GET /features/{id}/worktree`: when the feature has one, the pane opens the shell there; when it
 has none, the pane shows "No worktree yet" and an Open terminal button, and only that button
 calls `POST /features/{id}/worktree` (making the worktree the same way a first wake would), then
 opens the shell in the returned path; a failed call shows its error in the pane. A quick session
 opens in the project path. The pane is keyed by feature, so moving to another feature never keeps
 the previous one's shell.
-The Terminal toggle sits next to the Browser toggle at the window's top right, only on a channel or
-feature page (a page with a folder); one on/off choice for the window (default off, quick sessions included), remembered. On a channel
+The Terminal toggle sits next to the Browser toggle at the window's top right, only on a Space or
+feature page (a page with a folder); one on/off choice for the window (default off, quick sessions included), remembered. On a Space
 page the terminal is a drawer under the messages, on a feature page a panel pinned to the bottom,
 with a header (folder, Clear, hide); the toggle or the hide button turns it off.
 The pane renders nothing in a plain browser. `node-pty` spawns the login shell with the `PATH`

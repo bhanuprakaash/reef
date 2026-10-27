@@ -14,7 +14,7 @@ Later slices add the Mac shell; add a file here for each feature they bring.
   from HEAD, pre-run pids saved.
 - Every `--backend claude` drive sets `ANTHROPIC_MODEL=sonnet`.
 - Never drive a `reef-agent`, `reef serve` or `reef chat` that this run did not start.
-- A channel on a feature runs in a git worktree of its project. Before any recipe
+- A Space on a feature runs in a git worktree of its project. Before any recipe
   that wakes an agent on a feature, make the scratch cwd a git repo with one commit:
   `git -C <scratch>/cwd init -q -b main && git -C <scratch>/cwd -c user.name=v -c user.email=v@example.com commit -q --allow-empty -m init`.
   A feature's branch `feature/<slug>` can be checked out in one worktree only, so two data
@@ -70,14 +70,14 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 
 - [Server](./server.md): start and stop, data folder and lock, localhost only, request guard, JSON errors, newer database, odd folder names.
 - [Projects and features](./projects-features.md): project CRUD, features and slugs, brief versions, the role notes routes (nothing reads them since memory items).
-- [Channels and messages](./channels-messages.md): quick-session and feature channels, filters, append-only messages, cascade.
+- [Spaces and messages](./spaces-messages.md): quick-session and feature Spaces, filters, append-only messages, cascade.
 - [Tasks](./tasks.md): global list, filters, status, `updatedAt`, feature delete keeps the task.
 - [Turns and restart recovery](./turns-recovery.md): running, done, failed; end once; recovery after a crash or stop; an open chat's turn is skipped.
 - [Decisions](./decisions.md): the old decision routes (nothing reads them since memory items): append-only, author and message rules, cascade.
-- [Live channels](./live-channels.md): send, the event stream, stop and resume, `/wrap` and `/promote` text, wrap-up, promote, approve and reject, caps and continue, delete a live channel. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
-- [Teams](./teams.md): `reef team apply` and `list`, a channel on a team, threads, one agent session per teammate, routing by thread, `@mention` and `post_to_channel`, the hop cap, approval gates, wrap wakes nobody, restart, a codex teammate on the test fixture. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
+- [Live Spaces](./live-spaces.md): send, the event stream, stop and resume, `/wrap` and `/promote` text, wrap-up, promote, approve and reject, caps and continue, delete a live Space. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
+- [Teams](./teams.md): `reef team apply` and `list`, a Space on a team, threads, one agent session per teammate, routing by thread, `@mention` and `post_to_space`, the hop cap, approval gates, wrap wakes nobody, restart, a codex teammate on the test fixture. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [Full team](./full-team.md): `write` per role on claude and codex, `teams/full.json`, one worktree per feature, one writer per tree, checkpoints, rollback, retry, the inbox and its stream, the window's Retry, Rollback and Inbox, and the Google login run end to end with gates. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
-- [GitHub poll](./github.md): a fake `gh` on `PATH`, a PR note and its dedupe, a finished check's note, a failed check's note and developer wake keyed by run, a restart, a solo-team channel (note only) and no `gh` on `PATH`. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
+- [GitHub poll](./github.md): a fake `gh` on `PATH`, a PR note and its dedupe, a finished check's note, a failed check's note and developer wake keyed by run, a restart, a solo-team Space (note only) and no `gh` on `PATH`. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
 
 ### Memory loop
 
@@ -92,7 +92,7 @@ data folder with `$H reef --data-name NAME` and assumes ids start at 1.
 
 Drive this with `$H ui SCENARIO` against a server started with `ANTHROPIC_MODEL=sonnet $H serve-start`, after building the web app.
 
-- [Window](./window.md): live channel with tool rows, a new channel that answers from the brief, promote a quick session and approve its brief, a cap banner and Continue, teams (team picker, Thread pane, Approve and Reject: `$H ui teams`, setup in [Teams](./teams.md)).
+- [Window](./window.md): live Space with tool rows, a new Space that answers from the brief, promote a quick session and approve its brief, a cap banner and Continue, teams (team picker, Thread pane, Approve and Reject: `$H ui teams`, setup in [Teams](./teams.md)).
 
 ### Desktop app
 
