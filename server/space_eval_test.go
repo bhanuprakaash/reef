@@ -320,6 +320,9 @@ func (a *evalAgent) replay(ctx context.Context, prompt string) error {
 			failed[ev.ToolID] = true
 		}
 	}
+	// The recording was cut into chains by a hop cap that counted every turn. Only reef's own
+	// tool calls are replayed, so the replayed turns are talk-only and the cap cuts the same way.
+	offStage := map[string]bool{}
 	for _, ev := range evs {
 		tool, ok := strings.CutPrefix(ev.ToolName, "mcp__reef__")
 		if ok && ev.Kind == agent.KindToolCall && !failed[ev.ToolID] {
@@ -344,6 +347,10 @@ func (a *evalAgent) replay(ctx context.Context, prompt string) error {
 			e.mu.Lock()
 			e.used[a.role] = *ev.SessionUsage
 			e.mu.Unlock()
+		}
+		if ev.ToolName != "" && !ok || offStage[ev.ToolID] {
+			offStage[ev.ToolID] = true
+			continue
 		}
 		a.events <- ev
 	}

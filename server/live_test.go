@@ -32,6 +32,8 @@ type fakeSession struct {
 	// onRun, when set, runs inside every message turn: it stands in for the messages an
 	// agent stores while it works.
 	onRun func(role, text string, parent *int64)
+	// tools, when set, names the tool each role calls at the start of its message turns.
+	tools map[string]string
 
 	mu     sync.Mutex
 	ran    []string
@@ -70,6 +72,9 @@ func (f *fakeSession) RunAs(
 	f.mu.Unlock()
 	if f.onRun != nil {
 		f.onRun(role, text, parent)
+	}
+	if tool := f.tools[role]; tool != "" {
+		onEvent(agent.Event{Kind: agent.KindToolCall, ToolID: "t", ToolName: tool})
 	}
 	if strings.HasSuffix(text, "fail") {
 		return errors.New("boom")

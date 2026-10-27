@@ -80,6 +80,63 @@ func TestSpaceTokens_ExcludesCacheReads(t *testing.T) {
 	}
 }
 
+func TestSpaceBudget_SharedByTheWorkItem(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
+		t.Fatal(err)
+	}
+	item, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: 1, Title: "login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := s.CreateSpace(ctx, Space{ProjectID: 1, WorkItemID: &item.ID, Name: "first"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.db.ExecContext(ctx, "UPDATE space SET closed_at = ? WHERE id = ?",
+		time.Now().UTC().Format(time.RFC3339Nano), first.ID); err != nil {
+		t.Fatal(err)
+	}
+	second, err := s.CreateSpace(ctx, Space{ProjectID: 1, WorkItemID: &item.ID, Name: "second"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, u := range []struct {
+		spaceID int64
+		tokens  int64
+	}{{first.ID, 600_000}, {second.ID, 500_000}} {
+		tr, err := s.CreateTurn(ctx, Turn{SpaceID: u.spaceID, Role: "lead", Backend: "claude"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tr.Status, tr.Usage = "done", agent.Usage{InputTokens: u.tokens}
+		if _, err := s.EndTurn(ctx, tr); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	if got, err := s.SpaceTokens(ctx, second.ID); err != nil || got != 1_100_000 {
+		t.Errorf("SpaceTokens(second) = %d, %v, want 1100000: both Spaces count", got, err)
+	}
+	if err := s.PauseSpace(ctx, second.ID, "capped"); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ContinueSpace(ctx, second.ID, 2_100_000); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.WorkItem(ctx, item.ID); err != nil || got.TokenBudget != 2_100_000 {
+		t.Errorf("work item budget = %d, %v, want 2100000", got.TokenBudget, err)
+	}
+	if got, err := s.Space(ctx, second.ID); err != nil || got.TokenBudget != 2_100_000 {
+		t.Errorf("Space budget = %d, %v, want the work item's 2100000", got.TokenBudget, err)
+	}
+}
+
 func TestPauseAndContinueSpace(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())

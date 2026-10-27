@@ -27,6 +27,10 @@ var errStopping = errors.New("server is stopping")
 
 const _hopReasonPrefix = "hop cap:"
 
+// _reefToolPrefix starts the name of every tool of Reef's own MCP server. A turn that calls only
+// these tools is talk-only; any other tool call is work and resets the hop count.
+const _reefToolPrefix = "mcp__reef__"
+
 const _restartReason = "app restarted: wakes were waiting to run"
 
 var _hopReason = fmt.Sprintf("%s %d agent hops without a user message", _hopReasonPrefix, store.HopCap)
@@ -89,8 +93,9 @@ type live struct {
 	frames []frame
 	// ready is closed when the starting chain is running or has ended.
 	ready chan struct{}
-	// hops counts the turns agent messages woke since the last user message; held is the
-	// queue of wakes a database failure kept from running; retry is the routing read that failed.
+	// hops counts the turns agent messages woke since the last user message or the last turn
+	// that called a tool other than Reef's own; held is the queue of wakes a database failure
+	// kept from running; retry is the routing read that failed.
 	hops  int
 	held  []wake
 	retry *retry
@@ -439,6 +444,9 @@ func (s *server) runOne(
 ) (end turnState, ok bool) {
 	onEvent := func(ev agent.Event) {
 		l.mu.Lock()
+		if ev.Kind == agent.KindToolCall && !strings.HasPrefix(ev.ToolName, _reefToolPrefix) {
+			l.hops = 0
+		}
 		l.publishLocked("agent", ev)
 		l.mu.Unlock()
 	}
@@ -1255,7 +1263,8 @@ func (l *live) awaitStart(ctx context.Context) error {
 }
 
 // countHop counts w as a hop when a message from an agent woke it, and reports whether w
-// may run: a wake over the cap may not. A message from the user resets the count.
+// may run: a wake over the cap may not. A message from the user resets the count, and so does
+// a turn that calls a tool other than Reef's own.
 func (l *live) countHop(w wake) bool {
 	if w.from == _userAuthor {
 		l.hops = 0

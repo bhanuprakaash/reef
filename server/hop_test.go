@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"strings"
 	"sync/atomic"
 	"testing"
 )
@@ -48,6 +49,63 @@ func TestSend_HopCapPausesSpace(t *testing.T) {
 	sub.want(t, `pause {"reason":"`+_hopPause+`"}`)
 	if got := len(env.ranTexts()); got != 13 {
 		t.Errorf("turns run after continue = %d, want 13: the held wake and 5 more hops", got)
+	}
+}
+
+// pingPongTools makes the lead and the architect answer each other, each calling its tool from
+// tools at the start of a turn, until the hop cap pauses the Space or the 13th turn, which posts
+// nothing, ends the chain. It returns the Space's id and how many turns ran.
+func (e *liveEnv) pingPongTools(t *testing.T, tools map[string]string) (int, int) {
+	t.Helper()
+	id, post := e.teamSpace(t)
+	e.fake.tools = tools
+	var runs atomic.Int32
+	e.fake.onRun = func(role, _ string, _ *int64) {
+		if runs.Add(1) == 13 {
+			return
+		}
+		if role == "lead" {
+			post("lead", "@architect again", nil)
+		} else {
+			post("architect", "@lead again", nil)
+		}
+	}
+	sub := subscribeTo(t, e.url, id)
+	sub.want(t, _idleFrame)
+	e.sendTo(t, id, "go")
+	done := 0
+	for done < 13 {
+		frame := sub.next(t)
+		if strings.HasPrefix(frame, "pause ") {
+			break
+		}
+		if strings.HasPrefix(frame, "turn ") && strings.HasSuffix(frame, `"status":"done"}`) {
+			done++
+		}
+	}
+	return id, len(e.ranTexts())
+}
+
+func TestSend_ReefToolTurnsHitHopCap(t *testing.T) {
+	env := newLiveEnv(t)
+	id, ran := env.pingPongTools(t, map[string]string{
+		"lead": "mcp__reef__post_to_space", "architect": "mcp__reef__remember"})
+	if ch, err := env.st.Space(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
+		t.Errorf("space = %+v, %v, want paused with the hop cap reason", ch, err)
+	}
+	if ran != 7 {
+		t.Errorf("turns run = %d, want 7: the user's turn and 6 hops", ran)
+	}
+}
+
+func TestSend_WorkToolTurnsResetHops(t *testing.T) {
+	env := newLiveEnv(t)
+	id, ran := env.pingPongTools(t, map[string]string{"lead": "Edit", "architect": "Bash"})
+	if ch, err := env.st.Space(context.Background(), int64(id)); err != nil || ch.Paused != "" {
+		t.Errorf("space = %+v, %v, want not paused", ch, err)
+	}
+	if ran != 13 {
+		t.Errorf("turns run = %d, want 13: the user's turn and 12 hops", ran)
 	}
 }
 

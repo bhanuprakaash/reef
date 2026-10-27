@@ -8,10 +8,12 @@ import (
 	"time"
 )
 
-// TokenBudget is the default Space budget and what continuing over budget leaves free.
+// TokenBudget is the default token budget of a top-level Work item or free Space, and what
+// continuing over budget leaves free.
 const TokenBudget = 1_000_000
 
-// HopCap is how many turns woken by agent messages a Space runs between user messages.
+// HopCap is how many talk-only turns woken by agent messages a Space runs in a row: a user
+// message or a turn that calls a tool other than Reef's own starts the count again.
 const HopCap = 6
 
 // Active-turn kinds stored on space.active_turn, a live-state hint for processes
@@ -42,7 +44,9 @@ const (
 
 const _spaceCols = "space.id, space.project_id, space.work_item_id, space.name, " +
 	"space.role, space.backend, space.permission_mode, space.paused, " +
-	"space.token_budget, space.created_at, space.closed_at, space.active_turn, " +
+	"COALESCE((SELECT root.token_budget FROM work_item item JOIN work_item root " +
+	"ON root.id = COALESCE(item.parent_id, item.id) WHERE item.id = space.work_item_id), " +
+	"space.token_budget), space.created_at, space.closed_at, space.active_turn, " +
 	"COALESCE((SELECT name FROM team WHERE id = space.team_id), ''), space.kind"
 
 // Space with a nil WorkItemID is a free Space or a direct conversation. Team is empty for a
@@ -397,7 +401,8 @@ func (s *Store) moveSpaceItem(ctx context.Context, id int64, from, to string) er
 }
 
 // ContinueSpace clears the pause, drops the pending holds it left and raises the budget to
-// at least budget. Its Work item, if in needs_you, goes back to in_progress.
+// at least budget: its top-level Work item's, or the Space's own when it has no item. Its Work
+// item, if in needs_you, goes back to in_progress.
 func (s *Store) ContinueSpace(ctx context.Context, id, budget int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -416,6 +421,13 @@ func (s *Store) ContinueSpace(ctx context.Context, id, budget int64) error {
 	}
 	if n == 0 {
 		return fmt.Errorf("space %d is not paused: %w", id, ErrConflict)
+	}
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE work_item SET token_budget = MAX(token_budget, ?1) WHERE id = "+
+			"(SELECT COALESCE(item.parent_id, item.id) FROM work_item item "+
+			"WHERE item.id = (SELECT work_item_id FROM space WHERE id = ?2))",
+		budget, id); err != nil {
+		return fmt.Errorf("update work item budget: %w", err)
 	}
 	if _, err := tx.ExecContext(ctx,
 		"UPDATE approval SET status = ? WHERE space_id = ? AND status = ? AND kind = ?",
@@ -438,11 +450,17 @@ func (s *Store) ReopenSpace(ctx context.Context, id int64) error {
 	return err
 }
 
-// SpaceTokens sums input, output and cache write tokens; cache reads are not counted.
+// SpaceTokens sums input, output and cache write tokens against the Space's budget: every
+// Space of its top-level Work item, sub-items included, shares one; a free Space counts only
+// its own. Cache reads are not counted.
 func (s *Store) SpaceTokens(ctx context.Context, id int64) (int64, error) {
 	var n int64
 	err := s.db.QueryRowContext(ctx,
-		"SELECT COALESCE(SUM(input_tokens + output_tokens + cache_write_tokens), 0) FROM turn WHERE space_id = ?",
+		"SELECT COALESCE(SUM(turn.input_tokens + turn.output_tokens + turn.cache_write_tokens), 0) "+
+			"FROM turn JOIN space ON space.id = turn.space_id WHERE space.id = ?1 OR space.work_item_id IN "+
+			"(SELECT w.id FROM work_item w WHERE COALESCE(w.parent_id, w.id) = "+
+			"(SELECT COALESCE(item.parent_id, item.id) FROM work_item item "+
+			"WHERE item.id = (SELECT work_item_id FROM space WHERE id = ?1)))",
 		id).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("sum Space tokens: %w", err)
