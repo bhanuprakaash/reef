@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"strconv"
 
 	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/memory"
@@ -213,7 +214,12 @@ func saveItems(
 			}
 		}
 		res, err := ms.Remember(ctx,
-			memory.Writer{Author: p.Role, Role: p.Role, Scope: scopes[i]},
+			memory.Writer{
+				Author: p.Role, Role: p.Role, Scope: scopes[i],
+				Links: []memory.Link{{
+					Rel: memory.RelSource, ToKind: "proposal", ToID: strconv.FormatInt(p.ID, 10),
+				}},
+			},
 			memory.Note{Kind: it.Kind, Body: it.Body, Why: it.Why, Replaces: replaces})
 		if err != nil {
 			return added, warnings, fmt.Errorf("save item %q: %w", it.Body, err)

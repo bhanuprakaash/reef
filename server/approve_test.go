@@ -73,6 +73,10 @@ func TestApproveProposalSavesItemsAndRetires(t *testing.T) {
 	if it, _ := ms.Read(ctx, 4); it.Author != "architect" || it.Kind != "decision" || it.Why != "simple" {
 		t.Errorf("memory 4 = %+v, want architect's decision \"simple\"", it)
 	}
+	if it, _ := ms.Read(ctx, 4); !reflect.DeepEqual(it.Links,
+		[]memory.Link{{Rel: memory.RelSource, ToKind: "proposal", ToID: "1"}}) {
+		t.Errorf("memory 4 links = %+v, want the source proposal 1", it.Links)
+	}
 	if b, err := st.Brief(ctx, 1); err != nil || b.Body != "v2" {
 		t.Errorf("brief = %q, %v, want v2", b.Body, err)
 	}

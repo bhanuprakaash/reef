@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -348,7 +349,12 @@ func (m *mcpServer) remember(
 		}
 	}
 	res, err := m.ms.Remember(ctx,
-		memory.Writer{Author: m.tok.Role, Role: m.tok.Role, Scope: scopes[i]},
+		memory.Writer{
+			Author: m.tok.Role, Role: m.tok.Role, Scope: scopes[i],
+			Links: []memory.Link{{
+				Rel: memory.RelSource, ToKind: "channel", ToID: strconv.FormatInt(m.tok.ChannelID, 10),
+			}},
+		},
 		memory.Note{
 			Kind: in.Kind, Body: in.Body, Why: in.Why, About: about, Replaces: in.Replaces,
 			NeedsApproval: in.NeedsApproval,
