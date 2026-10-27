@@ -121,7 +121,7 @@ async function plus(item) {
 // Adds a work item and returns its id, which names its worktree folder and branch.
 async function addFeature(name) {
   await plus('New Work item');
-  await aside.getByLabel('Feature title').fill(name);
+  await aside.getByLabel('Work item title').fill(name);
   await aside.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('heading', { name, level: 1 }).waitFor();
   return page.url().split('/').pop();
@@ -539,7 +539,7 @@ async function theme() {
     await main.getByRole('link', { name: 'Open', exact: true }).first().waitFor();
     await shot(`inbox-${mode}`);
     await contrast('inbox');
-    await page.goto(`${base}/features/${fid}`);
+    await page.goto(`${base}/work-items/${fid}`);
     await page.getByRole('heading', { name: 'Login', level: 1 }).waitFor();
     await page.waitForTimeout(500);
     await shot(`feature-${mode}`);
@@ -846,7 +846,7 @@ async function diff() {
   const featureId = page.url().split('/').pop();
   const cid = await newSpace(main, 'New Space', 'diff chat');
 
-  await page.goto(`${base}/features/${featureId}/review`);
+  await page.goto(`${base}/work-items/${featureId}/review`);
   await main.getByText('No changes yet').waitFor({ timeout: 15000 });
   await shot('empty');
   await fetch(`${base}/spaces/${cid}/send`, {
@@ -870,13 +870,13 @@ async function diff() {
     JSON.stringify(json),
   );
 
-  await page.goto(`${base}/features/${featureId}`);
+  await page.goto(`${base}/work-items/${featureId}`);
   const meta = main.getByRole('link', { name: /^1 file/ });
   await meta.waitFor();
   await shot('summary');
   check(
     (await meta.innerText()).replace(/\s+/g, ' ').includes('1 file +1 −0') &&
-      (await meta.getAttribute('href')) === `/features/${featureId}/review`,
+      (await meta.getAttribute('href')) === `/work-items/${featureId}/review`,
     'the feature page header meta line sums the changes and links to the review page',
     await meta.innerText(),
   );
@@ -992,7 +992,7 @@ async function diff() {
     (await rows()).slice(0, 4).join(', '),
   );
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto(`${base}/features/${featureId}/review`);
+  await page.goto(`${base}/work-items/${featureId}/review`);
   await folder.waitFor({ timeout: 15000 });
   check((await pressed('Tree view')) === 'true', 'the review page opens in Tree view too');
   await shot('tree-review');
@@ -1003,7 +1003,7 @@ async function diff() {
   await main.getByRole('heading', { name: 'Changes', level: 1 }).waitFor({ state: 'hidden' });
   await page.getByRole('button', { name: /^Diff \+/ }).click();
   await main.getByRole('link', { name: 'Expand diff' }).click();
-  await page.waitForURL(`**/features/${featureId}/review`);
+  await page.waitForURL(`**/work-items/${featureId}/review`);
   check(true, "the panel's expand button opens the full review page", page.url());
 }
 
@@ -1058,26 +1058,26 @@ async function memory() {
   check(baseValue === 'dev', 'the saved base branch survives a reload', baseValue);
 
   const id = Date.now().toString(36);
-  await main.getByRole('button', { name: 'New feature' }).click();
-  const featureDialog = page.getByRole('dialog', { name: 'New feature' });
-  await featureDialog.getByLabel('Feature title').fill(`Pp ${id}`);
+  await main.getByRole('button', { name: 'New Work item' }).click();
+  const featureDialog = page.getByRole('dialog', { name: 'New Work item' });
+  await featureDialog.getByLabel('Work item title').fill(`Pp ${id}`);
   await featureDialog.getByRole('button', { name: 'Add', exact: true }).click();
   await main.getByRole('link', { name: `Pp ${id}` }).waitFor();
   await shot('feature-added');
   check(
     sql(`select count(*) from work_item where project_id=${pid} and title='Pp ${id}'`) === '1',
-    'New feature on the project page stores the work item and lists it',
+    'New Work item on the project page stores the work item and lists it',
   );
 
   const session = `quick-${Date.now().toString(36)}`;
-  await main.getByRole('button', { name: 'New quick session' }).click();
-  const sessionDialog = page.getByRole('dialog', { name: 'New quick session' });
+  await main.getByRole('button', { name: 'New free Space' }).click();
+  const sessionDialog = page.getByRole('dialog', { name: 'New free Space' });
   await sessionDialog.getByLabel('Name', { exact: true }).fill(session);
   await sessionDialog.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name: session, level: 1 }).waitFor();
   check(
     sql(`select count(*) from Space where project_id=${pid} and work_item_id is null and name='${session}'`) === '1',
-    'New quick session on the project page stores a Space with no feature and opens it',
+    'New free Space on the project page stores a Space with no feature and opens it',
   );
   await page.goto(`${base}/projects/${pid}`);
   await main.getByRole('link', { name: session }).waitFor();
@@ -1087,7 +1087,7 @@ async function memory() {
   const reefBin = process.env.REEF_UI_REEF;
   const reefOut = execFileSync(reefBin, ['memory', '--data', data, 'add', 'fact', 'Tokens live in Keychain.', '--scope', `work_item:${fid}`, '--as', 'developer'], { encoding: 'utf8' });
   console.log(reefOut.trim());
-  await page.goto(`${base}/features/${fid}`);
+  await page.goto(`${base}/work-items/${fid}`);
   const featureMemory = main.getByRole('region', { name: 'Memory' });
   await featureMemory.getByText('Tokens live in Keychain.').waitFor();
   await page.waitForTimeout(500);
@@ -1243,7 +1243,7 @@ async function review() {
   check(!!root, 'the developer posted a third top-level message, its latest thread root', root && `message ${root.id}`);
 
   writeFileSync(path.join(tree, 'blob.bin'), Buffer.from([0, 1, 2, 0]));
-  await page.goto(`${base}/features/${featureId}/review`);
+  await page.goto(`${base}/work-items/${featureId}/review`);
   const files = main.getByRole('navigation', { name: 'Files' });
   const diffView = main.getByRole('region', { name: 'Diff' });
   const sendButton = main.getByRole('button', { name: /^Send to/ });
@@ -1541,7 +1541,7 @@ async function wrap() {
   await panel.getByRole('button', { name: 'Approve' }).click();
   await page.getByText(/approved: \d+ items saved/).waitFor();
   await shot('approved');
-  await page.goto(`${base}/features/${fid}`);
+  await page.goto(`${base}/work-items/${fid}`);
   await page.getByText('Version 1 by').waitFor();
   check(sql(`select count(*) from brief where work_item_id=${fid}`) === '1', '/wrap then Approve makes brief version 1', `brief rows ${sql(`select id,author from brief where work_item_id=${fid}`)}`);
 
@@ -1575,17 +1575,17 @@ async function wrap() {
   await page.getByLabel('Message').waitFor();
   check(sql(`select closed_at is null from Space where id=${cid}`) === '1', 'Reopen brings the composer back and clears closed_at');
 
-  await page.goto(`${base}/features/${fid}`);
-  await main.getByRole('button', { name: 'Close feature' }).click();
-  await page.getByRole('dialog', { name: 'Close feature' }).waitFor();
+  await page.goto(`${base}/work-items/${fid}`);
+  await main.getByRole('button', { name: 'Close Work item' }).click();
+  await page.getByRole('dialog', { name: 'Close Work item' }).waitFor();
   await shot('close-dialog');
-  await page.getByRole('dialog', { name: 'Close feature' }).getByRole('button', { name: 'Close feature' }).click();
+  await page.getByRole('dialog', { name: 'Close Work item' }).getByRole('button', { name: 'Close Work item' }).click();
   await main.getByRole('button', { name: 'Reopen' }).waitFor();
   await shot('closed-feature');
   check(
     sql(`select closed_at is not null from work_item where id=${fid}`) === '1' &&
       sql(`select closed_at is not null from Space where id=${cid}`) === '1',
-    'Close feature closes the feature and its Space',
+    'Close Work item closes the feature and its Space',
   );
 }
 
@@ -1637,7 +1637,7 @@ async function teams() {
   check(count === '2 replies in thread', 'the main list shows the root with a replies button', count);
   await shot('main-list');
 
-  await page.goto(`${base}/features/${loginId}`);
+  await page.goto(`${base}/work-items/${loginId}`);
   await page.getByRole('heading', { name: 'Login', level: 1 }).waitFor();
   const handoff =
     'Reply with exactly one line and nothing else: an at sign immediately followed by the word developer, then a space, then the words: reply with one word, use no tools.';
@@ -3246,11 +3246,11 @@ async function sidebar() {
   check(urlPath() === '/', 'the logo opens Today');
 
   await plus('New Work item');
-  await aside.getByLabel('Feature title').fill('Sidebar item');
+  await aside.getByLabel('Work item title').fill('Sidebar item');
   await aside.getByRole('button', { name: 'Add', exact: true }).click();
   await main.getByRole('heading', { name: 'Sidebar item', level: 1 }).waitFor();
   const item = sql(`select id,type,status from work_item where project_id=${project} and title='Sidebar item'`);
-  check(urlPath() === `/features/${item.split('|')[0]}` && item.endsWith('|backlog'), '+ New Work item stores a Work item and opens it', `${item} at ${urlPath()}`);
+  check(urlPath() === `/work-items/${item.split('|')[0]}` && item.endsWith('|backlog'), '+ New Work item stores a Work item and opens it', `${item} at ${urlPath()}`);
 
   await plus('New Space');
   await pick('Backend', 'claude', aside);
@@ -3717,17 +3717,17 @@ async function workItem() {
   const parentLink = main.getByRole('link', { name: 'Work item page', exact: true });
   check(none.every((n) => n === 0), 'a sub-item page has no brief, sub-items or proof', JSON.stringify(none));
   check(
-    (await parentLink.count()) === 1 && (await parentLink.getAttribute('href')) === `/features/${id}` && (await main.getByRole('region', { name: 'Acceptance lines' }).count()) === 1,
+    (await parentLink.count()) === 1 && (await parentLink.getAttribute('href')) === `/work-items/${id}` && (await main.getByRole('region', { name: 'Acceptance lines' }).count()) === 1,
     'a sub-item page links to its parent and keeps its acceptance lines',
     `sub-item ${subId}, parent link ${await parentLink.getAttribute('href')}`,
   );
   await shot('sub-item-1280x800');
   await parentLink.click();
   await main.getByRole('heading', { name: 'Work item page', level: 1 }).waitFor();
-  check(page.url().endsWith(`/features/${id}`), 'the parent link opens the parent page', page.url());
+  check(page.url().endsWith(`/work-items/${id}`), 'the parent link opens the parent page', page.url());
 
   await page.setViewportSize({ width: 390, height: 844 });
-  for (const [name, route] of [['parent', `/features/${id}`], ['sub-item', `/features/${subId}`]]) {
+  for (const [name, route] of [['parent', `/work-items/${id}`], ['sub-item', `/work-items/${subId}`]]) {
     await page.goto(base + route);
     await main.getByRole('heading', { level: 1 }).waitFor();
     await page.waitForTimeout(500);
@@ -3772,7 +3772,7 @@ async function workItemReview() {
   check(proposal.kind === 'wrap' && proposal.items.length > 0, 'the lead submitted: the item is in review with a pending wrap-up proposal', `status ${await status()}, ${proposal.items.length} items`);
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  await page.goto(`${base}/features/${id}`);
+  await page.goto(`${base}/work-items/${id}`);
   const review = main.getByRole('region', { name: 'Review', exact: true });
   await review.waitFor();
   await review.getByText('Wrap-up proposal from lead').waitFor();
@@ -3818,7 +3818,7 @@ async function workItemReview() {
 
   const parent = await call('POST', '/work-items', { projectId: pid, title: 'Parent of a review' });
   const sub = await call('POST', '/work-items', { projectId: pid, parentId: parent.id, title: 'Sub in review', status: 'review' });
-  await page.goto(`${base}/features/${sub.id}`);
+  await page.goto(`${base}/work-items/${sub.id}`);
   await main.getByRole('heading', { name: 'Sub in review', level: 1 }).waitFor();
   const subHeader = (await main.getByRole('heading', { name: 'Sub in review', level: 1 }).locator('xpath=..').innerText()).replace(/\s+/g, ' ');
   const offered = (await main.getByRole('region', { name: 'Review', exact: true }).count()) + (await main.getByRole('button', { name: 'Done', exact: true }).count());
@@ -3840,7 +3840,7 @@ async function workItemReview() {
   await call('POST', `/spaces/${rsid}/send`, { text: 'SUBMIT FOR REVIEW' });
   await eventually(async () => (await fetch(`${base}/spaces/${rsid}/proposal`)).status === 200);
   await eventually(() => idle(rsid));
-  await page.goto(`${base}/features/${rev.id}`);
+  await page.goto(`${base}/work-items/${rev.id}`);
   await main.getByRole('region', { name: 'Review', exact: true }).waitFor();
   await page.waitForTimeout(500);
   const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
@@ -3962,7 +3962,7 @@ async function spaceHeader() {
   check((await actions()) === 'Open Work item', 'the attached Space offers Open Work item only', await actions());
   await shot('desktop-attached');
   await header.getByRole('link', { name: 'Open Work item', exact: true }).click();
-  await page.waitForURL(`**/features/${itemB.id}`);
+  await page.waitForURL(`**/work-items/${itemB.id}`);
   const spaces = main.getByRole('region', { name: 'Spaces' });
   await spaces.getByRole('link', { name: new RegExp(`free-space-${suffix}`) }).waitFor();
   check((await getJson(`/spaces?workItem=${itemB.id}`)).map((s) => s.id).join() === String(freeSpace.id), "the Space is on the item's page and in GET /spaces?workItem=", `${itemB.id}`);

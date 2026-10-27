@@ -318,7 +318,7 @@ js_wt=$(python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$WT")
 # xterm paints only while the pane is on screen, so scroll it into view before each read.
 rows='(document.querySelector(".xterm")?.scrollIntoView(),
   [...document.querySelectorAll(".xterm-rows > div")].map((r) => r.textContent.trimEnd()).join("\n").trim())'
-cdp "history.pushState({}, '', '/features/$fid'); dispatchEvent(new PopStateEvent('popstate')); location.pathname" >/dev/null
+cdp "history.pushState({}, '', '/work-items/$fid'); dispatchEvent(new PopStateEvent('popstate')); location.pathname" >/dev/null
 # Neither viewing a feature nor the Terminal toggle makes a worktree; the pane's Open terminal button does.
 opened=""
 for _ in $(seq 25); do
@@ -391,7 +391,7 @@ sd=$(shot terminal-settings)
 check terminal-app-settings "$([ "$labels" = "$expect_apps" ] && [ "$(cdp "localStorage.getItem('reef.terminalApp')")" = '"FakeTerm"' ] && echo 1)" \
 	"Settings > Terminal lists $labels (installed apps here: $expect_apps); Custom FakeTerm is stored as reef.terminalApp ($D/terminal-settings.png std dev $sd)"
 
-spa "/features/$fid"
+spa "/work-items/$fid"
 click_toggle
 wait_opened 1
 sleep 1.5
@@ -404,7 +404,7 @@ check terminal-app-launch "$([ "$calls" = "$want" ] && [ "$xterm" = false ] && e
 
 cdp 'setTimeout(() => location.reload(), 0)' >/dev/null 2>&1
 for _ in $(seq 50); do [ "$(cdp "document.readyState + !!window.reef" 2>/dev/null)" = '"completetrue"' ] && break; sleep 0.2; done
-spa "/features/$fid"
+spa "/work-items/$fid"
 click_toggle
 wait_opened 2
 sleep 1.5
@@ -413,7 +413,7 @@ kept=$(cdp "localStorage.getItem('reef.terminalApp')")
 check terminal-app-reload "$([ "$kept" = '"FakeTerm"' ] && [ "$after" = 2 ] && [ "$(cdp "!!document.querySelector('.xterm')")" = false ] && echo 1)" \
 	"after a reload reef.terminalApp is $kept and the toggle ran open again ($after calls), still no xterm pane"
 
-spa "/features/$bare"
+spa "/work-items/$bare"
 click_toggle
 sleep 1.5
 bare_text=$(cdp "document.querySelector('section[aria-label=Terminal]')?.textContent ?? ''")
@@ -421,7 +421,7 @@ check terminal-app-no-worktree "$([ "$(opened_count)" = 2 ] && [ ! -e "$DATA/wor
 	"on a feature with no worktree the toggle shows $bare_text, runs no open ($(opened_count) in all) and makes no $DATA/worktrees/$proj/$bare"
 
 stub_open "(cb) => setTimeout(() => cb(null, '', ''), 1000)"
-spa "/features/$fid"
+spa "/work-items/$fid"
 click_toggle
 click_toggle
 sleep 2
@@ -436,8 +436,8 @@ for _ in $(seq 25); do
 	case $err in *Unable*) break ;; esac
 	sleep 0.2
 done
-spa "/features/$bare"
-spa "/features/$fid"
+spa "/work-items/$bare"
+spa "/work-items/$fid"
 sleep 1.5
 check terminal-app-error "$([ "$(opened_count)" = 4 ] && [ "$(cdp "document.querySelector('button[aria-label=Terminal]').ariaPressed")" = '"false"' ] && case $err in *'Unable to find application named FakeTerm'*) echo 1 ;; esac)" \
 	"a failed open shows $err in the pane; moving to another feature and back runs no open again ($(opened_count) in all) and the toggle is off"
@@ -448,7 +448,7 @@ for _ in $(seq 25); do
 	sleep 0.2
 done
 cdp "[...document.querySelectorAll('[role=radiogroup] label')].find((l) => l.textContent === 'Built-in pane').querySelector('input').click()" >/dev/null
-spa "/features/$fid"
+spa "/work-items/$fid"
 for _ in $(seq 25); do
 	[ "$(cdp "!!document.querySelector('.xterm')" 2>/dev/null)" = true ] && break
 	sleep 0.2
