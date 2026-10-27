@@ -356,6 +356,30 @@
       "forbidden": ["linked"]
     },
     {
+      "name": "space-shelf-is-recalled",
+      "category": "space scope",
+      "items": [
+        { "ref": "mine", "kind": "fact", "scope": "space:3", "body": "The kitchen rota changes every Monday" },
+        { "ref": "other", "kind": "fact", "scope": "space:4", "body": "The kitchen rota is pinned to the fridge" },
+        { "ref": "project", "kind": "fact", "scope": "project:1", "body": "Billing exports run nightly at 02:00 UTC" }
+      ],
+      "query": { "text": "kitchen rota", "scopes": ["space:3", "project:1", "teammate:ada"] },
+      "expect": ["mine"],
+      "forbidden": ["other", "project"]
+    },
+    {
+      "name": "conversation-item-found-from-the-next-conversation",
+      "category": "conversation scope",
+      "items": [
+        { "ref": "earlier", "kind": "fact", "scope": "conversation:5", "body": "Ada prefers tabs over spaces in Go files" },
+        { "ref": "stranger", "kind": "fact", "scope": "conversation:9", "body": "Ada prefers tabs when she reads a diff" },
+        { "ref": "mine", "kind": "lesson", "scope": "teammate:ada", "author": "ada", "role": "developer", "body": "Run gofmt before every commit" }
+      ],
+      "query": { "text": "prefers tabs", "scopes": ["conversation:5", "conversation:6", "project:1", "teammate:ada"] },
+      "expect": ["earlier"],
+      "forbidden": ["stranger", "mine"]
+    },
+    {
       "name": "candidate-convention-not-recalled",
       "category": "candidate",
       "items": [

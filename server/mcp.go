@@ -39,13 +39,13 @@ type (
 		About         []string `json:"about,omitempty" jsonschema:"what it is about, each as kind:id, such as work_item:3"`
 		Replaces      []int64  `json:"replaces,omitempty" jsonschema:"ids of accepted items this one amends or replaces; they are retired"`
 		Why           string   `json:"why,omitempty" jsonschema:"the reason for it"`
-		Scope         string   `json:"scope,omitempty" jsonschema:"where it is kept: work_item (this work item, the default), project or teammate (you, on every work item)"`
+		Scope         string   `json:"scope,omitempty" jsonschema:"where it is kept: this work item, this Space (a free Space) or this conversation (a direct one), whichever you are in, by default; project, or teammate (you, on every work item)"`
 		NeedsApproval bool     `json:"needsApproval,omitempty" jsonschema:"ask the user to approve it before it counts"`
 	}
 	recallIn struct {
 		Query string `json:"query" jsonschema:"text to find"`
 		Limit int    `json:"limit,omitempty" jsonschema:"most hits to return, default 10"`
-		Scope string `json:"scope,omitempty" jsonschema:"only this scope: work_item, project, team or teammate; omit for all you can read"`
+		Scope string `json:"scope,omitempty" jsonschema:"only this scope: work_item, space, conversation, project, team or teammate; omit for all you can read"`
 	}
 	readMemoryIn struct {
 		ID int64 `json:"id" jsonschema:"memory id"`
@@ -189,8 +189,9 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "remember",
 		Description: "Remember something for later, with why. A decision is a choice about how " +
-			"the work goes, not progress, proof or a won't-fix list. Scope work_item (the " +
-			"default) keeps it on this work item, project on every work item of the project, " +
+			"the work goes, not progress, proof or a won't-fix list. The default scope keeps it " +
+			"on this work item, free Space or direct conversation, whichever you are in (a " +
+			"conversation item is found only with recall), project on every work item of the project, " +
 			"teammate on you across work items. Pass replaces when it amends or replaces " +
 			"earlier items: they are retired. A convention from a role other than architect " +
 			"or lead waits for the user's approval.",
@@ -343,14 +344,6 @@ func (m *mcpServer) getBrief(
 func (m *mcpServer) remember(
 	ctx context.Context, _ *mcp.CallToolRequest, in rememberIn,
 ) (*mcp.CallToolResult, rememberOut, error) {
-	switch in.Scope {
-	case "":
-		in.Scope = memory.ScopeWorkItem
-	case memory.ScopeWorkItem, memory.ScopeProject, memory.ScopeTeammate:
-	default:
-		return nil, rememberOut{}, fmt.Errorf("%w: scope %q is not work_item, project or teammate",
-			store.ErrInvalid, in.Scope)
-	}
 	c, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, rememberOut{}, err
@@ -359,9 +352,22 @@ func (m *mcpServer) remember(
 	if err != nil {
 		return nil, rememberOut{}, err
 	}
+	switch in.Scope {
+	case "":
+		in.Scope = scopes[0].Kind
+	case memory.ScopeWorkItem, memory.ScopeSpace, memory.ScopeConversation, memory.ScopeProject,
+		memory.ScopeTeammate:
+	default:
+		return nil, rememberOut{}, fmt.Errorf(
+			"%w: scope %q is not work_item, space, conversation, project or teammate",
+			store.ErrInvalid, in.Scope)
+	}
 	i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == in.Scope })
-	if i < 0 {
+	if i < 0 && in.Scope == memory.ScopeWorkItem {
 		return nil, rememberOut{}, errors.New("this Space has no work item")
+	}
+	if i < 0 {
+		return nil, rememberOut{}, fmt.Errorf("%w: you have no %q scope here", store.ErrInvalid, in.Scope)
 	}
 	about := make([]memory.Ref, 0, len(in.About))
 	for _, a := range in.About {
@@ -405,18 +411,17 @@ func (m *mcpServer) recall(
 	if err != nil {
 		return nil, recallOut{}, err
 	}
-	scopes, err := space.Scopes(ctx, m.st, c, m.tok.Role)
+	scopes, err := space.ReadScopes(ctx, m.st, c, m.tok.Role)
 	if err != nil {
 		return nil, recallOut{}, err
 	}
-	q := memory.Query{Scopes: scopes, Text: in.Query, Limit: in.Limit}
 	if in.Scope != "" {
-		i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == in.Scope })
-		if i < 0 {
+		scopes = slices.DeleteFunc(scopes, func(r memory.Ref) bool { return r.Kind != in.Scope })
+		if len(scopes) == 0 {
 			return nil, recallOut{}, fmt.Errorf("%w: you have no %q scope here", store.ErrInvalid, in.Scope)
 		}
-		q.Scope = &scopes[i]
 	}
+	q := memory.Query{Scopes: scopes, Text: in.Query, Limit: in.Limit}
 	hits, err := m.ms.Recall(ctx, q)
 	if err != nil {
 		return nil, recallOut{}, err
@@ -437,7 +442,7 @@ func (m *mcpServer) readMemory(
 	if err != nil {
 		return nil, itemOut{}, err
 	}
-	scopes, err := space.Scopes(ctx, m.st, c, m.tok.Role)
+	scopes, err := space.ReadScopes(ctx, m.st, c, m.tok.Role)
 	if err != nil {
 		return nil, itemOut{}, err
 	}

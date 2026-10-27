@@ -403,7 +403,7 @@ func TestMCPRemember(t *testing.T) {
 			name:    "scope team is refused",
 			call:    dev,
 			give:    map[string]any{"kind": "lesson", "body": "item 6", "scope": "team"},
-			want:    `invalid: scope "team" is not work_item, project or teammate`,
+			want:    `invalid: scope "team" is not work_item, space, conversation, project or teammate`,
 			wantErr: true,
 		},
 		{
@@ -420,6 +420,58 @@ func TestMCPRemember(t *testing.T) {
 				t.Errorf("remember = %q (error %v), want %q (error %v)", got, isErr, tt.want, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestMCPRememberDefaultsToTheSpacesOwnShelf(t *testing.T) {
+	ctx := context.Background()
+	st, tok := mcpFixture(t)
+	ms := openMemory(t, st)
+	callIn := func(spaceID int64, role string) func(string, map[string]any) (string, bool) {
+		tok, err := st.CreateToken(ctx, spaceID, role)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return callToolMemory(t, st, ms, tok, t.TempDir())
+	}
+	chat := func() int64 {
+		c, err := st.CreateTeammateSpace(ctx,
+			store.Space{ProjectID: 1, Name: "chat", Kind: store.KindConversation}, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c.ID
+	}
+	first, second := chat(), chat()
+
+	free := callIn(4, tok.Role)
+	got, isErr := free("remember", map[string]any{"kind": "fact", "body": "Lunch is at noon"})
+	if !strings.Contains(got, `"scope":"space:4"`) || isErr {
+		t.Errorf("remember in a free Space = %q (error %v), want scope space:4", got, isErr)
+	}
+	got, isErr = free("remember", map[string]any{"kind": "fact", "body": "x", "scope": "work_item"})
+	if want := "this Space has no work item"; got != want || !isErr {
+		t.Errorf("work_item in a free Space = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = callIn(1, "lead")("remember", map[string]any{"kind": "fact", "body": "x", "scope": "space"})
+	if want := `invalid: you have no "space" scope here`; got != want || !isErr {
+		t.Errorf("space on a work item Space = %q (error %v), want %q", got, isErr, want)
+	}
+
+	got, isErr = callIn(first, "lead")("remember", map[string]any{"kind": "fact", "body": "Prefers tabs"})
+	if !strings.Contains(got, `"scope":"conversation:`+strconv.FormatInt(first, 10)+`"`) || isErr {
+		t.Errorf("remember in a conversation = %q (error %v), want its conversation scope", got, isErr)
+	}
+	for _, give := range []map[string]any{
+		{"query": "tabs"}, {"query": "tabs", "scope": "conversation"},
+	} {
+		got, isErr = callIn(second, "lead")("recall", give)
+		if !strings.Contains(got, `"body":"Prefers tabs"`) || isErr {
+			t.Errorf("recall %v in the next conversation = %q (error %v), want the item", give, got, isErr)
+		}
+	}
+	if got, _ = free("recall", map[string]any{"query": "tabs"}); strings.Contains(got, "Prefers tabs") {
+		t.Errorf("recall in a Space of another role = %q, want no conversation item", got)
 	}
 }
 
@@ -957,7 +1009,6 @@ func TestMCPQuickSession(t *testing.T) {
 		give map[string]any
 	}{
 		{"get_brief", nil},
-		{"remember", map[string]any{"kind": "decision", "body": "d"}},
 		{"search_sessions", map[string]any{"query": "q"}},
 		{"read_thread", map[string]any{"spaceId": 1}},
 		{"propose_wrap", map[string]any{"brief": "b"}},

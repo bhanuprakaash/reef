@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -19,6 +20,7 @@ const (
 	_youHeader     = "## You\n"
 	_findingsLimit = 5
 	_projectLimit  = 10
+	_spaceLimit    = 5
 	_teamLimit     = 5
 	_yourLimit     = 5
 	_toolsLine     = "Details are on demand through the reef MCP tools recall, read_memory, " +
@@ -43,6 +45,7 @@ var _shelfParts = map[string][]shelfPart{
 		{label: "Decisions", kinds: []string{memory.KindDecision}},
 		{label: "Findings", kinds: _findingKinds, limit: _findingsLimit},
 	},
+	memory.ScopeSpace:    {{label: "Space", limit: _spaceLimit}},
 	memory.ScopeProject:  {{label: "Project", limit: _projectLimit}},
 	memory.ScopeTeam:     {{label: "Team", limit: _teamLimit}},
 	memory.ScopeTeammate: {{label: "Your items", limit: _yourLimit}},
@@ -60,10 +63,11 @@ func Context(
 	return firstPrompt(ctx, st, ms, f.ProjectID, &f.ID, 0, store.Team{}, store.Role{Name: role})
 }
 
-// Scopes are the shelves of memory a role reads and writes in ch: the work item's when it has
-// one, the project's, the team's unless it is the solo team, and the Teammate's own, named by
-// its id. A role the Space does not have, such as an agent attached by hand with reef token, has
-// no Teammate: its shelf is named by the role.
+// Scopes are the shelves of memory a role reads and writes in ch. The first is the Space's own:
+// the work item's, the Space's for a free Space, or the conversation's. Then the project's, the
+// team's unless it is the solo team, and the Teammate's own, named by its id. A role the Space
+// does not have, such as an agent attached by hand with reef token, has no Teammate: its shelf
+// is named by the role.
 func Scopes(
 	ctx context.Context, st *store.Store, ch store.Space, role string,
 ) ([]memory.Ref, error) {
@@ -75,9 +79,15 @@ func Scopes(
 		return nil, err
 	}
 	var scopes []memory.Ref
-	if ch.WorkItemID != nil {
+	switch {
+	case ch.WorkItemID != nil:
 		scopes = append(scopes,
 			memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*ch.WorkItemID, 10)})
+	case ch.Kind == store.KindConversation:
+		scopes = append(scopes,
+			memory.Ref{Kind: memory.ScopeConversation, ID: strconv.FormatInt(ch.ID, 10)})
+	default:
+		scopes = append(scopes, memory.Ref{Kind: memory.ScopeSpace, ID: strconv.FormatInt(ch.ID, 10)})
 	}
 	scopes = append(scopes,
 		memory.Ref{Kind: memory.ScopeProject, ID: strconv.FormatInt(ch.ProjectID, 10)})
@@ -85,6 +95,44 @@ func Scopes(
 		scopes = append(scopes, memory.Ref{Kind: memory.ScopeTeam, ID: ch.Team})
 	}
 	return append(scopes, memory.Ref{Kind: memory.ScopeTeammate, ID: teammate}), nil
+}
+
+// ReadScopes are Scopes and the conversation shelves of every direct conversation the role's
+// Teammate has had. They are never loaded at wake: only recall and read_memory reach them.
+func ReadScopes(
+	ctx context.Context, st *store.Store, ch store.Space, role string,
+) ([]memory.Ref, error) {
+	scopes, err := Scopes(ctx, st, ch, role)
+	if err != nil {
+		return nil, err
+	}
+	id, err := st.SpaceMemberTeammateID(ctx, ch.ID, role)
+	if errors.Is(err, store.ErrNotFound) {
+		return scopes, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	convs, err := st.TeammateConversations(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	for _, c := range convs {
+		r := memory.Ref{Kind: memory.ScopeConversation, ID: strconv.FormatInt(c.ID, 10)}
+		if !slices.Contains(scopes, r) {
+			scopes = append(scopes, r)
+		}
+	}
+	return scopes, nil
+}
+
+// wakeScopes are the shelves of scopes loaded at wake. A conversation shelf never is, and a
+// direct conversation loads only its Teammate's.
+func wakeScopes(ch store.Space, scopes []memory.Ref) []memory.Ref {
+	return slices.DeleteFunc(slices.Clone(scopes), func(r memory.Ref) bool {
+		return r.Kind == memory.ScopeConversation ||
+			ch.Kind == store.KindConversation && r.Kind != memory.ScopeTeammate
+	})
 }
 
 // firstPrompt is the first prompt of a role in three sections: You, How to work and What we
@@ -105,6 +153,13 @@ func firstPrompt(
 	}
 
 	ch := store.Space{ID: spaceID, ProjectID: projectID, WorkItemID: workItemID, Team: team.Name}
+	if spaceID != 0 {
+		sp, err := st.Space(ctx, spaceID)
+		if err != nil {
+			return "", err
+		}
+		ch.Kind = sp.Kind
+	}
 	var b strings.Builder
 	b.WriteString(_youHeader + roleIntro(r))
 	var know []string
@@ -215,7 +270,7 @@ func itemParts(
 	if err != nil {
 		return nil, err
 	}
-	for _, scope := range scopes {
+	for _, scope := range wakeScopes(ch, scopes) {
 		for _, sp := range _shelfParts[scope.Kind] {
 			items, total, err := ms.Newest(ctx, scope, sp.kinds, sp.limit)
 			if err != nil {
@@ -251,7 +306,7 @@ func changedSince(
 	if err != nil {
 		return "", err
 	}
-	added, retired, err := ms.Changed(ctx, scopes, since)
+	added, retired, err := ms.Changed(ctx, wakeScopes(ch, scopes), since)
 	if err != nil {
 		return "", err
 	}

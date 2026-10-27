@@ -194,7 +194,7 @@ It serves Reef's MCP tools over stdio, with the official Go SDK
 with exit code 1, when `REEF_TOKEN` is empty (`REEF_TOKEN is not set`) or matches no
 token (`unknown REEF_TOKEN`). It stops when stdin closes.
 
-Every tool except `post_to_space`, `send_to_role`, `read_direct_messages`, `propose_work_item`, `recall` and `read_memory` works on the token's work item, and so does `remember` unless its scope is `project` or `teammate`. On a quick-session Space
+Every tool except `post_to_space`, `send_to_role`, `read_direct_messages`, `propose_work_item`, `recall` and `read_memory` works on the token's work item, and so does `remember` unless its scope is `space`, `conversation`, `project` or `teammate`. On a quick-session Space
 (no work item) those tools fail with `this space has no work item`, except `read_thread` of the
 token's own Space. A result is one JSON object as text. A
 tool error comes back as a result with `isError: true` and the message as text, so the
@@ -205,8 +205,8 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | Tool | Input | Output | Errors |
 | --- | --- | --- | --- |
 | `get_brief` | none | `{"brief": "..."}`: the latest brief, `""` when there is none yet. The role's own items are in scope `teammate`: read them with `recall` | |
-| `remember` | `kind` (`decision`, `convention`, `finding`, `fact` or `lesson`) and `body` (required), `about` (strings `kind:id`), `replaces` (ids of accepted items it amends or replaces), `why`, `scope` (`work_item`, the default, `project` or `teammate`), `needsApproval` | `{"item": {...}, "similar": [{"id", "body"}], "embedError": "..."}`: the stored item with `id`, `kind`, `body`, `why`, `scope` (`work_item:1`), `author` and `role` (both the token's role), `status`, `retiredAt`, `replacedBy`, `createdAt` and `links` (`{"rel", "to"}`: the item's `source` is `space:<id>`); `similar` appears only when stored items look like it, and `embedError` only when no vector could be stored for it. `work_item` is the token's work item, `project` its project, `teammate` the token's role on every work item. The item is `accepted`, or a `candidate` that waits for the user when `needsApproval` is set or the kind is `convention` from a role other than `architect` or `lead`. Each `replaces` item must be an accepted item of the same scope as the new one; it is retired and points at the new one, or when the new one is a candidate, after the user approves it. `team` is never written from here: team items come only from the lead's wrap-up | `invalid: scope "team" is not work_item, project or teammate`, `this space has no work item` (`work_item` on a quick session), `invalid: unknown kind "x"`, `invalid: body is required`, `memory 9: not found` (a `replaces` id that is not readable here), `invalid: memory 3 is in scope project:1, not work_item:1` (a `replaces` id on another shelf) (nothing is written) |
-| `recall` | `query` (required), `limit` (default 10), `scope` (`work_item`, `project`, `team` or `teammate`: only that one) | `{"hits": [{"id", "kind", "body", "scope", "status", "via"}]}`: matches in every scope the token can read, retired items included and marked, plus items one link away; `via` is `direct` or the link it came through. A work item's `work_item` items are read only on that work item; `team` only on a Space with a team. `hits` is `[]` when nothing matches | `query is required`, `invalid: you have no "team" scope here` |
+| `remember` | `kind` (`decision`, `convention`, `finding`, `fact` or `lesson`) and `body` (required), `about` (strings `kind:id`), `replaces` (ids of accepted items it amends or replaces), `why`, `scope` (`work_item`, `space`, `conversation`, `project` or `teammate`; the default is the Space's own shelf: `work_item` on a work item's Space, `space` on a free Space, `conversation` in a direct conversation), `needsApproval` | `{"item": {...}, "similar": [{"id", "body"}], "embedError": "..."}`: the stored item with `id`, `kind`, `body`, `why`, `scope` (`work_item:1`), `author` and `role` (both the token's role), `status`, `retiredAt`, `replacedBy`, `createdAt` and `links` (`{"rel", "to"}`: the item's `source` is `space:<id>`); `similar` appears only when stored items look like it, and `embedError` only when no vector could be stored for it. `work_item` is the token's work item, `space` and `conversation` the token's own Space, `project` its project, `teammate` the token's role on every work item. Attaching a free Space to a work item moves its `space` items to `work_item`. The item is `accepted`, or a `candidate` that waits for the user when `needsApproval` is set or the kind is `convention` from a role other than `architect` or `lead`. Each `replaces` item must be an accepted item of the same scope as the new one; it is retired and points at the new one, or when the new one is a candidate, after the user approves it. `team` is never written from here: team items come only from the lead's wrap-up | `invalid: scope "team" is not work_item, space, conversation, project or teammate`, `this space has no work item` (`work_item` on a Space with none), `invalid: you have no "space" scope here` (`space` on a work item's Space, `conversation` outside a direct conversation), `invalid: unknown kind "x"`, `invalid: body is required`, `memory 9: not found` (a `replaces` id that is not readable here), `invalid: memory 3 is in scope project:1, not work_item:1` (a `replaces` id on another shelf) (nothing is written) |
+| `recall` | `query` (required), `limit` (default 10), `scope` (`work_item`, `space`, `conversation`, `project`, `team` or `teammate`: only that one) | `{"hits": [{"id", "kind", "body", "scope", "status", "via"}]}`: matches in every scope the token can read, retired items included and marked, plus items one link away; `via` is `direct` or the link it came through. A work item's `work_item` items are read only on that work item; `team` only on a Space with a team, `space` only on its own free Space. The `conversation` items of every direct conversation the role's Teammate has had are read from any Space, and only here and in `read_memory`: they are never loaded at wake. `hits` is `[]` when nothing matches | `query is required`, `invalid: you have no "team" scope here` |
 | `read_memory` | `id` (required) | the item as `remember` returns it, with its `links` | `memory 99: not found`, also for an item in a scope the token cannot read |
 | `search_sessions` | `query` (required), `limit` (default 20) | `{"hits": [{"spaceId", "messageId", "kind", "author", "snippet"}]}`: messages in all of the work item's Spaces that contain `query`, newest first. `kind` is `public` or `direct`. A direct hit appears only when the token's role is its sender or recipient, in any Space of the work item, and also has `from`, `to` and `chainId`; its `messageId` is the direct message id, which `read_thread` does not take. Case is ignored for ASCII. The snippet is about 120 characters around the match. `hits` is `null` when nothing matches | `query is required` |
 | `read_thread` | `spaceId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the Space's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `space 9: not found`, also for a Space of another work item or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the Space |
@@ -322,6 +322,7 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
      with no limit. Work items only.
    - `### Findings`: the 5 newest accepted findings, facts, conventions and lessons in the
      work item's `work_item` scope. Work items only.
+   - `### Space`: the 5 newest accepted items in the Space's own scope, on a free Space only.
    - `### Project`: the 10 newest accepted items in the project's scope.
    - `### Team`: the 5 newest accepted items in the team's scope, only when the Space's team
      is a real team: the `solo` team is no team and has none. `reef context` prints none.
@@ -339,8 +340,10 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
    Each line reads `kind id: first line of the body (author, date)`,
    the line cut at 100 characters with `…`. Findings, Project, Team and Your items end with
    `N of M; recall(..., scope=<kind>)`, where N is the lines shown and M the accepted items in
-   that scope, so the agent knows to recall the rest. A quick session has only Project, Team
-   and Your items. The old decision, notes and project memory tables are not read.
+   that scope, so the agent knows to recall the rest. A free Space has only Space, Project,
+   Team (when it has a real team) and Your items. A direct conversation has only Your items; its
+   `conversation` items are never loaded, only found with `recall`. The old decision, notes and
+   project memory tables are not read.
 
 Example, for a work item with one approved wrap-up, asked by the developer of a team of two:
 
@@ -424,8 +427,8 @@ its first turn: a first message that goes to a specialist starts no lead.
   parts.
   Under `### Changed since your last turn`: one index line, as in the first prompt
   (`decision 3: Use WAL (lead, 2026-10-27)`), for each memory item accepted since (a candidate counts from the moment the user approves it) in the
-  scopes the role reads (`work_item`, `project`, the Space's `team` unless it is `solo`, and the role's own
-  `teammate`), whatever its author (the author is only a role name, which every Space's lead
+  scopes the role reads (`work_item` or `space`, `project`, the Space's `team` unless it is `solo`, and the role's own
+  `teammate`; a direct conversation loads only `teammate`), whatever its author (the author is only a role name, which every Space's lead
   shares), and `decision N is retired, replaced by decision M.` (`decision N is retired.` when
   nothing replaced it) for each one retired since. An item added and retired since is named as
   retired only: the role may have seen it in its previous turn. A candidate, a rejected item

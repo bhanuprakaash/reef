@@ -163,6 +163,63 @@ func TestFirstPrompt_QuickSessionHasNoFeatureParts(t *testing.T) {
 	}
 }
 
+func TestFirstPrompt_FreeSpaceAndConversationShelves(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ms := testMemory(t, st)
+	newSpace := func(kind string) store.Space {
+		c, err := st.CreateTeammateSpace(ctx, store.Space{
+			Kind: kind, ProjectID: f.ProjectID, Name: "chat", Role: "lead", Backend: "claude",
+		}, 1)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	ref := func(kind string, c store.Space) memory.Ref {
+		return memory.Ref{Kind: kind, ID: strconv.FormatInt(c.ID, 10)}
+	}
+	free, other := newSpace(store.KindFree), newSpace(store.KindFree)
+	chat, nextChat := newSpace(store.KindConversation), newSpace(store.KindConversation)
+	remember(t, ms, ref(memory.ScopeSpace, free), memory.KindFact, "lead", "free space fact")
+	remember(t, ms, ref(memory.ScopeSpace, other), memory.KindFact, "lead", "other space fact")
+	remember(t, ms, ref(memory.ScopeConversation, chat), memory.KindFact, "lead", "conversation fact")
+	remember(t, ms, projectScope(f), memory.KindFact, "user", "a project fact")
+	remember(t, ms, memory.Ref{Kind: memory.ScopeTeam, ID: "core"}, memory.KindLesson, "user", "a team lesson")
+	remember(t, ms, memory.Ref{Kind: memory.ScopeTeammate, ID: "1"}, memory.KindLesson, "lead", "a lead lesson")
+
+	prompt := func(c store.Space) string {
+		got, err := firstPrompt(ctx, st, ms, f.ProjectID, nil, c.ID, store.Team{}, store.Role{Name: "lead"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+	got := prompt(free)
+	for _, want := range []string{"### Space\nfact 1: free space fact (", "### Project\nfact 4: a project fact (",
+		"### Your items\nlesson 6: a lead lesson ("} {
+		if !strings.Contains(got, want) {
+			t.Errorf("free Space =\n%s\nwant it to contain %q", got, want)
+		}
+	}
+	for _, gone := range []string{"### Team", "other space fact", "conversation fact"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("free Space contains %q:\n%s", gone, got)
+		}
+	}
+	for _, c := range []store.Space{chat, nextChat} {
+		got = prompt(c)
+		if !strings.Contains(got, "### Your items\nlesson 6: a lead lesson (") {
+			t.Errorf("conversation %d =\n%s\nwant the Teammate's items", c.ID, got)
+		}
+		for _, gone := range []string{"### Space", "### Project", "### Team", "conversation fact"} {
+			if strings.Contains(got, gone) {
+				t.Errorf("conversation %d contains %q:\n%s", c.ID, gone, got)
+			}
+		}
+	}
+}
+
 func TestOpen_FirstPromptIsWhatReefContextPrints(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
@@ -249,7 +306,24 @@ func TestScopes(t *testing.T) {
 				return save(t, store.Space{Team: "core"}), ""
 			},
 			want: []memory.Ref{
-				{Kind: "project", ID: "1"}, {Kind: "team", ID: "core"}, {Kind: "teammate", ID: "2"},
+				{Kind: "space", ID: "S"}, {Kind: "project", ID: "1"}, {Kind: "team", ID: "core"},
+				{Kind: "teammate", ID: "2"},
+			},
+		},
+		{
+			name: "direct conversation",
+			give: func(t *testing.T) (store.Space, string) {
+				c, err := st.CreateTeammateSpace(ctx, store.Space{
+					Kind: store.KindConversation, ProjectID: f.ProjectID, Name: "chat", Role: "lead",
+					Backend: "claude",
+				}, 2)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return c, ""
+			},
+			want: []memory.Ref{
+				{Kind: "conversation", ID: "S"}, {Kind: "project", ID: "1"}, {Kind: "teammate", ID: "lead"},
 			},
 		},
 		{
@@ -257,7 +331,9 @@ func TestScopes(t *testing.T) {
 			give: func(t *testing.T) (store.Space, string) {
 				return store.Space{ProjectID: 3}, ""
 			},
-			want: []memory.Ref{{Kind: "project", ID: "3"}, {Kind: "teammate", ID: "lead"}},
+			want: []memory.Ref{
+				{Kind: "space", ID: "S"}, {Kind: "project", ID: "3"}, {Kind: "teammate", ID: "lead"},
+			},
 		},
 	}
 	for _, tt := range tests {
@@ -271,6 +347,9 @@ func TestScopes(t *testing.T) {
 			for i, r := range want {
 				if r.ID == "W" {
 					want[i].ID = workItemID
+				}
+				if r.ID == "S" {
+					want[i].ID = strconv.FormatInt(ch.ID, 10)
 				}
 			}
 			if !reflect.DeepEqual(got, want) {
