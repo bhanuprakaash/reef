@@ -305,31 +305,10 @@ func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
 		}
 	}
 	m.run.Scopes = sent
-	delta, err := s.delta(ctx, m)
-	if err != nil {
-		return s.failTurn(ctx, m.run.role, m.run.backend, in, err)
-	}
-	m.run.Delta = delta
 	if in.direct != nil {
 		return m.run.RunDirect(ctx, text, *in.direct, in.onEvent)
 	}
 	return m.run.Run(ctx, text, parent, in.onEvent)
-}
-
-// delta is what changed in the channel's feature since m's session was last sent a prompt. It
-// is empty for a channel without a feature and for a session that has been sent none. A turn
-// that failed before it sent told the agent nothing, so it does not move the point.
-func (s *Session) delta(ctx context.Context, m *member) (string, error) {
-	ctx = context.WithoutCancel(ctx)
-	ch, err := s.st.Channel(ctx, s.ch.ID)
-	if err != nil || ch.FeatureID == nil || m.run.sessionID == "" {
-		return "", err
-	}
-	since, ok, err := s.st.LastSentAt(ctx, ch.ID, m.run.role, m.run.sessionID)
-	if err != nil || !ok {
-		return "", err
-	}
-	return changedSince(ctx, s.st, *ch.FeatureID, m.run.role, since)
 }
 
 // failTurn stores a failed turn of role for a turn that never started and returns cause
@@ -531,9 +510,6 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		}
 		err = ag.Resume(ctx, cfg, last.SessionID)
 	default:
-		if preamble, err = startPrompt(wctx, s.st, s.ch.ID, team, r); err != nil {
-			return nil, err
-		}
 		err = ag.Start(ctx, cfg)
 	}
 	if err != nil {
@@ -541,6 +517,15 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.sessionID = last.SessionID
+	if last.SessionID == "" {
+		m.run.Start = func(ctx context.Context) (string, error) {
+			ch, err := s.st.Channel(ctx, s.ch.ID)
+			if err != nil {
+				return "", err
+			}
+			return firstPrompt(ctx, s.st, ch.ProjectID, ch.FeatureID, ch.ID, team, r)
+		}
+	}
 	m.run.OnPrompt = s.onPrompt
 	if m.write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
 		m.run.CheckpointDir = cwd
@@ -777,16 +762,6 @@ func InUse(dataDir string, channelID int64) bool {
 	return errors.Is(syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB), syscall.EWOULDBLOCK)
 }
 
-func startPrompt(
-	ctx context.Context, st *store.Store, channelID int64, team store.Team, r store.Role,
-) (string, error) {
-	ch, err := st.Channel(ctx, channelID)
-	if err != nil {
-		return "", err
-	}
-	return firstPrompt(ctx, st, ch.ProjectID, ch.FeatureID, ch.ID, team, r)
-}
-
 func failStaleTurns(ctx context.Context, st *store.Store, channelID int64) error {
 	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &channelID, Status: "running"})
 	if err != nil {
@@ -829,7 +804,7 @@ func sessionMissing(msg string) bool {
 }
 
 // introSent is the role intro its session (same session id) in the channel was last given:
-// the session's first turn always carries one, from startPrompt, after its "## You" header,
+// the session's first turn always carries one, from firstPrompt, after its "## You" header,
 // and a later turn carries one when the role's persona or skills changed since, from
 // updatedRoleIntro. Empty when neither applies, so a prefix check against it never matches a
 // non-empty roleIntro.

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -118,8 +119,8 @@ func TestFirstPrompt_Size(t *testing.T) {
 	if strings.Contains(got, "second line") {
 		t.Error("a decision shows its second line")
 	}
-	if len(got) >= 8000 {
-		t.Errorf("prompt = %d characters, want under 8000", len(got))
+	if n := utf8.RuneCountInString(got); n >= 8000 {
+		t.Errorf("prompt = %d characters, want under 8000", n)
 	}
 }
 

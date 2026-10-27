@@ -174,11 +174,11 @@ func decisionLine(d store.Decision) string {
 }
 
 // changedSince is what the feature gained after since that a role whose session was told of
-// everything before it has not seen: the decisions others added, the decisions anyone retired
-// and the brief in full when a version is newer. It is empty when nothing changed. Tasks are
-// left out.
+// everything before it has not seen: the decisions added, the decisions retired and the brief
+// in full when a version is newer. A decision added and retired since is in neither list: the
+// role never saw it and it is gone. It is empty when nothing changed. Tasks are left out.
 func changedSince(
-	ctx context.Context, st *store.Store, featureID int64, role string, since time.Time,
+	ctx context.Context, st *store.Store, featureID int64, since time.Time,
 ) (string, error) {
 	decisions, err := st.Decisions(ctx, featureID)
 	if err != nil {
@@ -186,12 +186,12 @@ func changedSince(
 	}
 	var lines []string
 	for _, d := range decisions {
-		if d.CreatedAt.After(since) && d.Author != role {
+		if d.CreatedAt.After(since) && d.RetiredAt == nil {
 			lines = append(lines, decisionLine(d))
 		}
 	}
 	for _, d := range decisions {
-		if d.RetiredAt == nil || !d.RetiredAt.After(since) {
+		if d.RetiredAt == nil || !d.RetiredAt.After(since) || d.CreatedAt.After(since) {
 			continue
 		}
 		line := fmt.Sprintf("decision %d is retired", d.ID)
@@ -210,14 +210,7 @@ func changedSince(
 	var parts []string
 	parts = appendPart(parts, "Changed since your last turn", strings.Join(lines, "\n"))
 	parts = appendPart(parts, "New brief", brief.Body)
-	return strings.Join(parts, ""), nil
-}
-
-func plural(n int, noun string) string {
-	if n == 1 {
-		return noun
-	}
-	return noun + "s"
+	return strings.Join(parts, "\n"), nil
 }
 
 // roleIntro is the role's persona and skills, when it has any, to put before its context.
@@ -310,4 +303,11 @@ func appendPart(parts []string, label, body string) []string {
 		return parts
 	}
 	return append(parts, "### "+label+"\n"+body+"\n")
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return noun
+	}
+	return noun + "s"
 }

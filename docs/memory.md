@@ -405,17 +405,22 @@ its first turn: a first message that goes to a specialist starts no lead.
 - With a turn of the role that has a session id, the agent resumes the session of the newest
   such turn, and the context prompt is not sent again, unless the role's persona or skills
   changed since that turn: then the persona and skills go before the wake text, marked as changed.
-  On a channel with a feature, the wake text then starts with what changed since the session's
+  On a channel with a feature, the wake text then holds what changed since the session's
   previous turn: the newest turn of that role, channel and session that sent its prompt, by its
   start time. A turn that failed before it sent told the agent nothing, so it does not count.
+  The text goes right after the wake's `[channel N, message N]` header line, as the `reef wrote:`
+  lines do, or at the top when the turn has no header (wrap-up, promote). It has two parts.
   Under `### Changed since your last turn`: one `decision N: ...` index line for each decision
-  another role or the user added, `decision N is retired, replaced by decision M.` for each one
-  anyone retired. Under `### New brief`: the latest brief, in full, when a version is newer; the
-  next turn does not repeat it. A wake with no change has neither part, tasks are never in it, and
-  a change alone starts no turn. Nothing is stored for it: the turn's `prompt` holds the text.
+  added since, whatever its author (the author is only a role name, which every channel's lead
+  shares), and `decision N is retired, replaced by decision M.` for each one retired since. A
+  decision added and retired since is in neither list. Under `### New brief`: the latest brief,
+  in full, when a version is newer; the next turn does not repeat it. A wake with no change has
+  neither part, tasks are never in it, and a change alone starts no turn. Nothing is stored for
+  it: the turn's `prompt` holds the text. It is built after the turn's start is stamped, so what
+  is written while the turn waits for its tree is in it or in the next one, never in neither.
 - Without one, the agent starts a new session and the context prompt goes before the
   first message, in the same prompt: the three sections above, for a channel on a feature
-  and for a quick session alike.
+  and for a quick session alike. It is built after the turn's start is stamped.
 
 New channel (`<feature> --role R --backend B`): it makes a channel named `N` (default
 `<role> chat`) on the feature, with the role, backend and `--permission-mode`, then opens
