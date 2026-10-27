@@ -690,3 +690,97 @@ func TestDirectSelfLoopPrevented(t *testing.T) {
 		t.Fatalf("self send = %q (error %v), want self error", got, isErr)
 	}
 }
+
+// requestStates maps the id of each direct request in the Space to its state.
+func requestStates(t *testing.T, env *liveEnv, id int) map[int64]string {
+	t.Helper()
+	direct, err := env.st.DirectMessages(context.Background(), int64(id), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	states := map[int64]string{}
+	for _, m := range direct {
+		if m.ReplyToID == nil {
+			states[m.ID] = m.State
+		}
+	}
+	return states
+}
+
+// TestDirectResponseWakeDroppedFailsRequest holds the response wake of an answered request at
+// the hop cap. The request reads answered while it is held and failed once a user message
+// drops the wake.
+func TestDirectResponseWakeDroppedFailsRequest(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamSpace(t)
+	var led atomic.Bool
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		switch {
+		case role == "lead" && !led.Swap(true):
+			post("lead", "@architect go", nil)
+		case role == "architect":
+			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
+				SpaceID: int64(id), From: "architect", To: "lead", Body: "ping",
+			}); err != nil {
+				t.Error(err)
+			}
+		}
+	}
+	env.sendTo(t, id, "go")
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if ch, _ := env.st.Space(ctx, int64(id)); ch.Paused != "" {
+			break
+		}
+	}
+	env.waitIdle(t, id)
+	if n := countHolds(t, env.dir, int64(id)); n != 1 {
+		t.Fatalf("holds = %d, want the one response wake", n)
+	}
+	direct, err := env.st.DirectMessages(ctx, int64(id), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held := direct[len(direct)-1]
+	if held.ReplyToID == nil || held.Status != store.DirectDone || held.To != "architect" {
+		t.Fatalf("last direct message = %+v, want the done response held for the architect", held)
+	}
+	if got := requestStates(t, env, id)[*held.ReplyToID]; got != store.DirectAnswered {
+		t.Errorf("request state while its response wake is held = %q, want answered", got)
+	}
+
+	if status, _ := env.sendTo(t, id, "more"); status != 202 {
+		t.Fatalf("send while hop paused = %d, want 202", status)
+	}
+	env.waitIdle(t, id)
+	if got := requestStates(t, env, id)[*held.ReplyToID]; got != store.DirectFailed {
+		t.Errorf("request state after its response wake was dropped = %q, want failed", got)
+	}
+}
+
+// TestDirectResponseWakeFailureFailsRequest fails the turn the response of a request wakes.
+func TestDirectResponseWakeFailureFailsRequest(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, _ := env.teamSpace(t)
+	var runs atomic.Int32
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role != "lead" {
+			return
+		}
+		if runs.Add(1) == 1 {
+			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
+				SpaceID: int64(id), From: "lead", To: "architect", Body: "ping",
+			}); err != nil {
+				t.Error(err)
+			}
+			return
+		}
+		env.fake.directFail = errors.New("boom")
+	}
+	env.sendTo(t, id, "go")
+	env.waitIdle(t, id)
+	if got := requestStates(t, env, id); len(got) != 1 || got[1] != store.DirectFailed {
+		t.Errorf("request states = %v, want the one request failed", got)
+	}
+}

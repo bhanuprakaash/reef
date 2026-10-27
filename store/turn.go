@@ -119,6 +119,11 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 	if err != nil {
 		return Turn{}, fmt.Errorf("insert turn: %w", err)
 	}
+	if t.DirectMessageID != nil {
+		if err := s.startDirect(ctx, *t.DirectMessageID); err != nil {
+			return Turn{}, err
+		}
+	}
 	return Turn{
 		ID: id, SpaceID: t.SpaceID, Role: t.Role, Backend: t.Backend,
 		SessionID: t.SessionID, Status: _turnRunning, StartedAt: now,
@@ -470,6 +475,10 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(spaceID int64) b
 			case !replyTo.Valid:
 				if _, err := s.CreateFailedDirectResponseTx(ctx, tx, *t.DirectMessageID,
 					t.Role, ""); err != nil {
+					return nil, fmt.Errorf("fail running turns: %w", err)
+				}
+			case replyTo.Valid:
+				if err := setDirectState(ctx, tx, replyTo.Int64, DirectFailed); err != nil {
 					return nil, fmt.Errorf("fail running turns: %w", err)
 				}
 			}

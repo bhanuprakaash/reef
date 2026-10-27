@@ -428,11 +428,11 @@ func (r *Runner) keepReply(
 			// A response to a direct request never produces another direct reply.
 			return nil
 		}
-		// A successful direct turn with no reply stores no response. A failed turn,
-		// even one with no partial output, leaves a failed response so the sender can
-		// see that delivery did not complete.
+		// A successful direct turn with no reply stores no response, and the request
+		// has nothing more to wait for. A failed turn, even one with no partial output,
+		// leaves a failed response so the sender can see that delivery did not complete.
 		if reply == "" && state == _replyDone {
-			return nil
+			return r.st.SetDirectRequestState(ctx, r.direct.ID, store.DirectAnswered)
 		}
 		if state == _replyDone {
 			_, err := r.st.CreateDirectResponse(ctx, r.direct.ID, r.role, reply)

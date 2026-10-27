@@ -477,6 +477,18 @@ func (s *server) runOne(
 		if ctx.Err() != nil {
 			end.Error = "interrupted"
 		}
+		if w.direct != nil {
+			request, state := w.direct.ID, store.DirectFailed
+			if w.direct.ReplyToID != nil {
+				request = *w.direct.ReplyToID
+			}
+			if end.Error == "interrupted" {
+				state = store.DirectStopped
+			}
+			if err := s.st.SetDirectRequestState(context.WithoutCancel(ctx), request, state); err != nil {
+				log.Print(err)
+			}
+		}
 		log.Printf("turn of %s in Space %d failed: %s", w.role, id, end.Error)
 		if err := sess.Close(); err != nil {
 			log.Printf("close session: %v", err)
@@ -561,15 +573,11 @@ func (s *server) wakeOf(ctx context.Context, h store.Hold) (wake, error) {
 	return w, nil
 }
 
-// failDirect gives a held request that will not run a failed response, so the message list
-// tells it from a delivery that failed.
+// failDirect records that a held direct wake will not run, so the message list tells it from a
+// delivery that failed.
 func (s *server) failDirect(ctx context.Context, spaceID int64, h store.Hold, body string) {
 	ctx = context.WithoutCancel(ctx)
-	dm, err := s.st.DirectMessage(ctx, *h.DirectMessageID)
-	if err == nil && dm.ReplyToID == nil {
-		err = recordFailedDirect(ctx, s.st, dm.ID, h.To, body)
-	}
-	if err != nil {
+	if err := recordFailedDirect(ctx, s.st, *h.DirectMessageID, h.To, body); err != nil {
 		log.Printf("%s direct message %d: %v", body, *h.DirectMessageID, err)
 		return
 	}
@@ -1314,11 +1322,20 @@ func newFrame(event string, v any) (frame, bool) {
 	return frame{event: event, data: data}, true
 }
 
-// recordFailedDirect stores a failed direct response with body unless one already exists. A
-// conflict is expected when a response was already recorded; any other error is returned.
+// recordFailedDirect records that the wake of direct message directID will not run. A request
+// gets a failed response with body unless one already exists; a conflict is expected when a
+// response was already recorded, and any other error is returned. A response has no response of
+// its own, so its request takes the failed state.
 func recordFailedDirect(
 	ctx context.Context, st *store.Store, directID int64, role, body string,
 ) error {
+	dm, err := st.DirectMessage(ctx, directID)
+	if err != nil {
+		return err
+	}
+	if dm.ReplyToID != nil {
+		return st.SetDirectRequestState(ctx, *dm.ReplyToID, store.FailedDirectState(body))
+	}
 	if _, err := st.CreateFailedDirectResponse(ctx, directID, role, body); err != nil &&
 		!errors.Is(err, store.ErrConflict) {
 		return err
