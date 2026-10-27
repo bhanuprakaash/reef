@@ -35,7 +35,11 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 	if _, body := do(t, http.MethodGet, env.url+"/turns?space=3&rollbackable=1", ""); !strings.Contains(body, `"id":2,`) {
 		t.Errorf("rollbackable turns of the quick session = %s, want turn 2", body)
 	}
-	if _, err := env.st.PromoteSpace(ctx, 3, store.WorkItem{Title: "Search"}); err != nil {
+	search, err := env.st.CreateWorkItem(ctx, store.WorkItem{ProjectID: 2, Title: "Search"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := env.st.AttachSpace(ctx, 3, search.ID); err != nil {
 		t.Fatal(err)
 	}
 	other := worktree.Path(env.dir, 2, "2")
@@ -45,7 +49,7 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 	writeIn(t, other, "work.txt", "w")
 
 	if status, body := do(t, http.MethodGet, env.url+"/turns?space=3&rollbackable=1", ""); status != 200 || body != "[]" {
-		t.Errorf("rollbackable turns after promote = %d %s, want 200 []", status, body)
+		t.Errorf("rollbackable turns after attach = %d %s, want 200 []", status, body)
 	}
 	if status, body := do(t, http.MethodGet, env.url+"/turns?rollbackable=1", ""); status != 400 {
 		t.Errorf("rollbackable without a Space = %d %s, want 400", status, body)
@@ -53,7 +57,7 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 	status, body := do(t, http.MethodPost, env.url+"/turns/2/rollback", "")
 	want := `{"error":"turn 2 was checkpointed in ` + p.Path + `, not ` + other + `: conflict"}`
 	if status != 409 || body != want {
-		t.Errorf("rollback after promote = %d %s, want 409 %s", status, body, want)
+		t.Errorf("rollback after attach = %d %s, want 409 %s", status, body, want)
 	}
 	if got := gitIn(t, other, "status", "--porcelain"); got != "?? work.txt" {
 		t.Errorf("status of the work item worktree = %q, want work.txt left alone", got)

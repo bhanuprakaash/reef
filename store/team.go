@@ -173,24 +173,30 @@ func (s *Store) Team(ctx context.Context, name string) (Team, error) {
 	case err != nil:
 		return Team{}, fmt.Errorf("read team %s: %w", name, err)
 	}
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT teammate.id, member.name, member.lead, member.write, teammate.backend, "+
-			"member.permission_mode, teammate.persona, teammate.skills, teammate.face, teammate.model, "+
-			"teammate.provider, member.tools, member.mcp_servers "+
-			"FROM team_member member JOIN teammate ON teammate.id = member.teammate_id "+
-			"WHERE member.team_id = ? ORDER BY member.lead DESC, member.id",
-		teamID)
+	roles, err := s.roles(ctx, "team_member", "team_id", teamID)
 	if err != nil {
 		return Team{}, fmt.Errorf("read team %s: %w", name, err)
-	}
-	roles, err := scanAll(rows, scanRole)
-	if err != nil {
-		return Team{}, err
 	}
 	if len(roles) == 0 {
 		return Team{}, fmt.Errorf("team %s: %w", name, ErrNotFound)
 	}
 	return Team{Name: name, Roles: roles}, nil
+}
+
+// roles lists the members in table (team_member or space_member) whose key column is id, lead
+// first, with the Teammate's persona, skills, backend and face. The access rules are the
+// member's own.
+func (s *Store) roles(ctx context.Context, table, key string, id int64) ([]Role, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT teammate.id, member.name, member.lead, member.write, teammate.backend, "+
+			"member.permission_mode, teammate.persona, teammate.skills, teammate.face, teammate.model, "+
+			"teammate.provider, member.tools, member.mcp_servers "+
+			"FROM "+table+" member JOIN teammate ON teammate.id = member.teammate_id "+
+			"WHERE member."+key+" = ? ORDER BY member.lead DESC, member.id", id)
+	if err != nil {
+		return nil, err
+	}
+	return scanAll(rows, scanRole)
 }
 
 // Teams lists all teams by name.

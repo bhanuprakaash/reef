@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
-	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -354,44 +353,6 @@ func TestDelete_StopsLiveSpace(t *testing.T) {
 	env.h.s.mu.Unlock()
 	if marks != 0 {
 		t.Errorf("deleting marks = %d, want 0 after delete", marks)
-	}
-}
-
-func TestStop_AfterPrepareTheTurnStillRuns(t *testing.T) {
-	tests := []struct {
-		name      string
-		inPrepare bool
-	}{
-		{name: "in prepare", inPrepare: true},
-		{name: "in say", inPrepare: false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			env := newLiveEnv(t)
-			stopWhile, stopped, ag := stopAfterOpen(env)
-			if !tt.inPrepare {
-				env.fake.say = stopWhile
-			}
-			prepare := func() error {
-				_, err := env.st.PromoteSpace(
-					context.Background(), 1, store.WorkItem{Title: "Login"})
-				if tt.inPrepare {
-					stopWhile()
-				}
-				return err
-			}
-
-			err := env.h.s.startUserTurn(context.Background(), 1,
-				userTurn{kind: _promote, text: space.PromoteCommand, prepare: prepare})
-			if err != nil {
-				t.Fatalf("startUserTurn = %v, want nil", err)
-			}
-			<-stopped
-			env.wantInterruptedPromote(t, ag)
-			if status, _ := env.send(t, "again"); status != 202 {
-				t.Errorf("send after the stop = %d, want 202", status)
-			}
-		})
 	}
 }
 

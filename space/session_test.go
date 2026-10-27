@@ -409,7 +409,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	}
 }
 
-func TestSession_RunAsRoleAppliedAfterOpen(t *testing.T) {
+func TestSession_RunAsMemberAddedAfterOpen(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
@@ -438,8 +438,11 @@ func TestSession_RunAsRoleAppliedAfterOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tester := store.Role{Name: "tester", Backend: "claude", Persona: "You test."}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, tester}}); err != nil {
+	tester, err := st.CreateTeammate(ctx, store.Teammate{Name: "tester", Backend: "claude", Persona: "You test."})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.AddSpaceMember(ctx, ch.ID, tester.ID); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.RunAs(ctx, "tester", "check it", nil, discard); err != nil {
@@ -685,7 +688,7 @@ func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
 	}
 }
 
-func TestSession_WriteEditReachesLiveLead(t *testing.T) {
+func TestSession_TeamWriteEditLeavesRunningSpaceAlone(t *testing.T) {
 	for _, tc := range []struct {
 		name          string
 		before, after bool
@@ -728,16 +731,15 @@ func TestSession_WriteEditReachesLiveLead(t *testing.T) {
 			if err := s.Run(ctx, "again", nil, discard); err != nil {
 				t.Fatal(err)
 			}
-			if len(ags) != 2 || !ags[0].closed || ags[1].resumed != "s1" {
-				t.Fatalf("agents = %d, first closed = %v, second resumed %q; want 2, true, s1",
-					len(ags), ags[0].closed, ags[1].resumed)
+			if len(ags) != 1 || ags[0].closed {
+				t.Fatalf("agents = %d, first closed = %v; want the one agent kept", len(ags), ags[0].closed)
 			}
-			cfg := ags[1].cfg
-			if got := !slices.Contains(cfg.DisallowedTools, "Edit"); got != tc.after {
-				t.Errorf("next turn can edit = %v, want %v (disallowed %v)", got, tc.after, cfg.DisallowedTools)
+			cfg := ags[0].cfg
+			if got := !slices.Contains(cfg.DisallowedTools, "Edit"); got != tc.before {
+				t.Errorf("next turn can edit = %v, want %v (disallowed %v)", got, tc.before, cfg.DisallowedTools)
 			}
-			if got := s.members["lead"].run.CheckpointDir != ""; got != tc.after {
-				t.Errorf("next turn has a checkpoint = %v, want %v", got, tc.after)
+			if got := s.members["lead"].run.CheckpointDir != ""; got != tc.before {
+				t.Errorf("next turn has a checkpoint = %v, want %v", got, tc.before)
 			}
 		})
 	}
@@ -1204,101 +1206,6 @@ func TestSession_WrapIgnoresBriefProposal(t *testing.T) {
 	}
 }
 
-func TestSession_Promote(t *testing.T) {
-	ctx := context.Background()
-	st, f := openStore(t)
-	ch := sessionSpace(t, st, f, true)
-	ag := newRecordingAgent()
-	ag.st, ag.spaceID, ag.propose = st, ch.ID, true
-	dir := t.TempDir()
-	s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-
-	if _, err := s.Promote(ctx, discard); !errors.Is(err, store.ErrInvalid) {
-		t.Errorf("Promote before the Space has a work item error = %v, want ErrInvalid", err)
-	}
-	if _, err := st.PromoteSpace(ctx, ch.ID, store.WorkItem{Title: "Big idea"}); err != nil {
-		t.Fatal(err)
-	}
-	p, err := s.Promote(ctx, discard)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.ID != 1 || p.Brief != "new brief" {
-		t.Errorf("proposal = %+v, want proposal 1 with the new brief", p)
-	}
-	msgs, err := st.Messages(ctx, ch.ID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	note := "This work item works in " + dir + "/worktrees/1/2 on work-item/2."
-	if len(msgs) != 2 || msgs[0].Author != "reef" || msgs[0].Body != note || msgs[1].Author != "architect" {
-		t.Errorf("messages = %+v, want the note %q from a clean checkout, then the agent's reply", msgs, note)
-	}
-	want := `This quick session is now work item "Big idea" (2). Call the propose_wrap tool once`
-	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], want) {
-		t.Errorf("prompts = %q, want one with %q", ag.prompts, want)
-	}
-}
-
-func TestSession_PromoteMovesNextWakeToWorktree(t *testing.T) {
-	ctx := context.Background()
-	st, f := openStore(t)
-	p, err := st.Project(ctx, f.ProjectID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ch := sessionSpace(t, st, f, true)
-	var ags []*recordingAgent
-	mk := func(string) (agent.Agent, error) {
-		ag := newRecordingAgent()
-		ag.st, ag.spaceID, ag.propose = st, ch.ID, true
-		ags = append(ags, ag)
-		return ag, nil
-	}
-	dir := t.TempDir()
-	s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-	if err := s.Run(ctx, "hi", nil, discard); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(filepath.Join(p.Path, "wip.txt"), []byte("wip"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := st.PromoteSpace(ctx, ch.ID, store.WorkItem{Title: "Big idea"}); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := s.Promote(ctx, discard); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.Run(ctx, "go on", nil, discard); err != nil {
-		t.Fatal(err)
-	}
-
-	worktree := dir + "/worktrees/1/2"
-	if len(ags) != 2 || ags[0].cfg.Cwd != p.Path || !ags[0].closed ||
-		ags[1].cfg.Cwd != worktree || ags[1].resumed != "s1" {
-		t.Errorf("agents = %+v, want the first in %s and closed by the promote, the second resumed in %s",
-			ags, p.Path, worktree)
-	}
-	msgs, err := st.Messages(ctx, ch.ID, 0)
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "This work item works in " + worktree +
-		" on work-item/2. Uncommitted changes stay on the main checkout."
-	if len(msgs) < 2 || msgs[1].Author != "reef" || msgs[1].Body != want {
-		t.Errorf("messages = %+v, want the second from reef saying %q", msgs, want)
-	}
-}
-
 func TestSession_NoWorktreeFailsTurn(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
@@ -1376,17 +1283,13 @@ func TestSession_RecreatesRemovedWorktree(t *testing.T) {
 	}
 }
 
-func TestSession_WrapOrPromoteCancelledStoresTurn(t *testing.T) {
+func TestSession_WrapCancelledStoresTurn(t *testing.T) {
 	tests := []struct {
 		name string
 		give func(s *Session, ctx context.Context) error
 	}{
 		{"wrap", func(s *Session, ctx context.Context) error {
 			_, err := s.Wrap(ctx, discard)
-			return err
-		}},
-		{"promote", func(s *Session, ctx context.Context) error {
-			_, err := s.Promote(ctx, discard)
 			return err
 		}},
 	}
@@ -1445,34 +1348,6 @@ func TestSession_LockErrorStoresItsOwnReason(t *testing.T) {
 	}
 	if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Error == "interrupted" {
 		t.Errorf("turns = %+v, want one failed turn with the lock's own reason", turns)
-	}
-}
-
-func TestSession_PromoteIntoFeatureWithBrief(t *testing.T) {
-	ctx := context.Background()
-	st, f := openStore(t)
-	if _, err := st.PutBrief(ctx, store.Brief{WorkItemID: f.ID, Body: "old brief", Author: "user"}); err != nil {
-		t.Fatal(err)
-	}
-	ch := sessionSpace(t, st, f, true)
-	ag := newRecordingAgent()
-	ag.st, ag.spaceID, ag.propose = st, ch.ID, true
-	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-	if _, err := st.PromoteSpace(ctx, ch.ID, store.WorkItem{ID: f.ID}); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := s.Promote(ctx, discard); err != nil {
-		t.Fatal(err)
-	}
-	want := `This quick session is now part of work item "Login" (1), which already has a brief. ` +
-		`Call the get_brief tool first.`
-	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], want) {
-		t.Errorf("prompts = %q, want one with %q", ag.prompts, want)
 	}
 }
 
@@ -1586,7 +1461,7 @@ func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
 	}
 }
 
-func TestSession_RemovedRoleStoresFailedTurn(t *testing.T) {
+func TestSession_RoleTheSpaceLacksStoresFailedTurn(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
@@ -1606,22 +1481,22 @@ func TestSession_RemovedRoleStoresFailedTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
 		t.Fatal(err)
 	}
 
-	err = s.RunAs(ctx, "architect", "plan it", nil, discard)
+	err = s.RunAs(ctx, "tester", "plan it", nil, discard)
 	if !errors.Is(err, store.ErrInvalid) {
-		t.Fatalf("RunAs for a removed role error = %v, want invalid", err)
+		t.Fatalf("RunAs for a role the Space lacks error = %v, want invalid", err)
 	}
 	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &ch.ID})
 	if err != nil || len(turns) != 1 {
 		t.Fatalf("turns = %+v, %v, want one", turns, err)
 	}
 	got := turns[0]
-	if got.Role != "architect" || got.Status != "failed" || got.WakeText != "plan it" ||
-		got.Error != "invalid: team core has no role architect" {
-		t.Errorf("turn = %+v, want a failed architect turn with wake \"plan it\" and the start error", got)
+	if got.Role != "tester" || got.Status != "failed" || got.WakeText != "plan it" ||
+		got.Error != "invalid: team core has no role tester" {
+		t.Errorf("turn = %+v, want a failed tester turn with wake \"plan it\" and the start error", got)
 	}
 }
 

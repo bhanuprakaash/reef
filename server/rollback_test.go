@@ -115,6 +115,7 @@ func TestRollback_RestoresTheWorktree(t *testing.T) {
 
 func TestRollback_NotesEverySpaceOnTheTree(t *testing.T) {
 	env, _ := rollbackEnv(t)
+	env.exec(t, "UPDATE space SET closed_at = '2026-01-01T00:00:00Z' WHERE id = 2")
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":1,"name":"d","backend":"claude"}`)
 
 	if status, body := do(t, http.MethodPost, env.url+"/turns/1/rollback", ""); status != 204 || body != "" {

@@ -77,6 +77,7 @@ func (r *treeRig) session(t *testing.T, name string, f store.WorkItem) *Session 
 	if err != nil {
 		t.Fatal(err)
 	}
+	closeSpace(t, r.st, ch.ID)
 	mk := func(string) (agent.Agent, error) {
 		return &blockingAgent{
 			recordingAgent: newRecordingAgent(), space: name, blocks: r.blocks, started: r.started,
@@ -340,6 +341,7 @@ func TestSession_ShellThatChangesFilesRunsAsAWriteTurn(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+			closeSpace(t, st, ch.ID)
 			trees := NewTrees(t.TempDir())
 			canLock := make(chan bool, 1)
 			mk := func(string) (agent.Agent, error) {

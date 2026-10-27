@@ -43,6 +43,7 @@ func TestFirstPrompt_Size(t *testing.T) {
 		if _, err := st.CreateMessage(ctx, store.Message{SpaceID: c.ID, Author: "user", Body: "hi"}); err != nil {
 			t.Fatal(err)
 		}
+		closeSpace(t, st, c.ID)
 	}
 	lead := store.Role{Name: "lead", Lead: true}
 	team := store.Team{Name: "core", Roles: []store.Role{lead, {Name: "developer"}}}
@@ -104,6 +105,9 @@ func TestFirstPrompt_OnDemandSingular(t *testing.T) {
 			t.Fatal(err)
 		}
 		spaces = append(spaces, c)
+		if name == "spike" {
+			closeSpace(t, st, c.ID)
+		}
 	}
 
 	got, err := firstPrompt(ctx, st, testMemory(t, st), f.ProjectID, &f.ID, spaces[1].ID, store.Team{}, store.Role{Name: "lead"})

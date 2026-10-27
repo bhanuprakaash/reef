@@ -27,7 +27,6 @@ type fakeSession struct {
 	release    chan struct{}
 	closed     atomic.Int32
 	spaceID    atomic.Int64
-	promoted   atomic.Int32
 	noProposal atomic.Bool
 
 	// onRun, when set, runs inside every message turn: it stands in for the messages an
@@ -157,12 +156,6 @@ func (f *fakeSession) Wrap(_ context.Context, onEvent func(agent.Event)) (store.
 	return store.Proposal{}, nil
 }
 
-func (f *fakeSession) Promote(_ context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
-	f.promoted.Add(1)
-	onEvent(agent.Event{Kind: agent.KindText, Text: "promoted"})
-	return store.Proposal{}, nil
-}
-
 func (f *fakeSession) SetOnNote(fn func()) {
 	f.mu.Lock()
 	f.onNote = fn
@@ -172,56 +165,6 @@ func (f *fakeSession) SetOnNote(fn func()) {
 func (f *fakeSession) Close() error {
 	f.closed.Add(1)
 	return nil
-}
-
-// countingAgent counts the prompts it gets and ends every turn at once.
-type countingAgent struct {
-	sends  atomic.Int32
-	events chan agent.Event
-}
-
-func (a *countingAgent) Start(context.Context, agent.Config) error { return nil }
-
-func (a *countingAgent) Resume(context.Context, agent.Config, string) error { return nil }
-
-func (a *countingAgent) Events() <-chan agent.Event { return a.events }
-
-func (a *countingAgent) Interrupt() error { return nil }
-
-func (a *countingAgent) Send(context.Context, string) error {
-	a.sends.Add(1)
-	a.events <- agent.Event{Kind: agent.KindTurnEnd}
-	return nil
-}
-
-// runnerSession stores its turns with a real space.Runner; the rest is fakeSession.
-type runnerSession struct {
-	*fakeSession
-	run *space.Runner
-}
-
-func (r runnerSession) RunAs(
-	ctx context.Context, _, text string, parent *int64, onEvent func(agent.Event),
-) error {
-	return r.run.Run(ctx, text, parent, onEvent)
-}
-
-func (r runnerSession) WakeAs(
-	ctx context.Context, role, routed string, _ store.Scopes, parent *int64,
-	onEvent func(agent.Event),
-) error {
-	return r.RunAs(ctx, role, routed, parent, onEvent)
-}
-
-func (r runnerSession) RunDirectAs(
-	ctx context.Context, _ string, text string, dm store.DirectMessage,
-	onEvent func(agent.Event),
-) error {
-	return r.run.RunDirect(ctx, text, dm, onEvent)
-}
-
-func (r runnerSession) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
-	return store.Proposal{}, r.run.Run(ctx, space.PromoteCommand, nil, onEvent)
 }
 
 // hookCtx calls hook on its first Done call, which the store makes as a query starts.
@@ -512,14 +455,17 @@ func TestSend_Parent(t *testing.T) {
 	}
 }
 
-// teamSpace adds the team core, a lead and an architect, and a Space of it. It returns
-// the Space's id and a function that stores a message as author.
-func (e *liveEnv) teamSpace(t *testing.T) (int, func(author, body string, parent *int64)) {
+// teamSpace adds the team core, a lead and an architect or the roles given, and a Space of it.
+// It returns the Space's id and a function that stores a message as author.
+func (e *liveEnv) teamSpace(t *testing.T, roles ...store.Role) (int, func(author, body string, parent *int64)) {
 	t.Helper()
-	_, err := e.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-		{Name: "architect", Backend: "claude"},
-	}})
+	if len(roles) == 0 {
+		roles = []store.Role{
+			{Name: "lead", Lead: true, Backend: "claude"},
+			{Name: "architect", Backend: "claude"},
+		}
+	}
+	_, err := e.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: roles})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1349,33 +1295,6 @@ func TestCreateSpace_RoleDefaultsToLead(t *testing.T) {
 	}
 }
 
-func TestSend_PromoteTextIsAMessage(t *testing.T) {
-	env := newLiveEnv(t)
-	id := env.workItemSpace(t)
-	sub := subscribeTo(t, env.url, id)
-
-	if status, _ := env.sendTo(t, id, "/promote"); status != 202 {
-		t.Fatalf("send = %d, want 202", status)
-	}
-	sub.want(t,
-		_idleFrame,
-		`turn {"role":"lead","status":"running"}`,
-		`agent {"kind":"text","text":"hi"}`,
-		`turn {"role":"lead","status":"done"}`,
-	)
-	env.fake.mu.Lock()
-	ran := env.fake.ran
-	env.fake.mu.Unlock()
-	if !slices.Equal(ran, []string{"[Space 2, message 1]\n/promote"}) || env.fake.promoted.Load() != 0 {
-		t.Errorf("ran = %q, promotes = %d, want the text run as a message, no promote",
-			ran, env.fake.promoted.Load())
-	}
-	_, body := do(t, http.MethodGet, fmt.Sprintf("%s/messages?space=%d", env.url, id), "")
-	if !strings.Contains(body, `"author":"user","body":"/promote"`) {
-		t.Errorf("messages = %s, want the user message /promote", body)
-	}
-}
-
 func TestSend_StoresUserMessageBefore202(t *testing.T) {
 	env := newLiveEnv(t)
 	if status, _ := env.send(t, "block"); status != 202 {
@@ -1408,7 +1327,7 @@ func TestSubscribe_StateOnConnect(t *testing.T) {
 
 func TestWrap_QuickSession(t *testing.T) {
 	env := newLiveEnv(t)
-	const want = `{"error":"invalid: Space 1 is a quick session, promote it before wrapping up"}`
+	const want = `{"error":"invalid: Space 1 has no work item, attach it to one before wrapping up"}`
 	if status, body := do(t, http.MethodPost, env.url+"/spaces/1/wrap", ""); status != 400 || body != want {
 		t.Errorf("wrap = %d %s, want 400 %s", status, body, want)
 	}
@@ -1428,74 +1347,6 @@ func TestWrap_NoProposalNote(t *testing.T) {
 	env.sendTo(t, id, "/wrap")
 	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"wrapped"}`,
 		`turn {"role":"lead","status":"done","note":"no proposal made"}`)
-}
-
-// stopAfterOpen makes the agent open on a runner session over a counting agent. The returned
-// stopWhile, meant for a hook, stops the Space and waits until the turn's context is
-// cancelled; stopped closes when the stop has finished, which is when the turn has ended.
-func stopAfterOpen(env *liveEnv) (stopWhile func(), stopped chan struct{}, ag *countingAgent) {
-	ag = &countingAgent{events: make(chan agent.Event, 8)}
-	opened := make(chan context.Context, 1)
-	env.open = func(ctx context.Context) (session, error) {
-		opened <- ctx
-		run := space.NewRunner(env.st, ag, 1, "lead", "claude", "")
-		return runnerSession{env.fake, run}, nil
-	}
-	stopped = make(chan struct{})
-	var once sync.Once
-	stopWhile = func() {
-		once.Do(func() {
-			ctx := <-opened
-			go func() {
-				defer close(stopped)
-				env.h.s.stopLive(env.h.s.lookup(1))
-			}()
-			<-ctx.Done()
-		})
-	}
-	return stopWhile, stopped, ag
-}
-
-func (e *liveEnv) wantInterruptedPromote(t *testing.T, ag *countingAgent) {
-	t.Helper()
-	ch, err := e.st.Space(context.Background(), 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ch.WorkItemID == nil {
-		t.Error("space has no work item, want the promote to stand")
-	}
-	turns, err := e.st.Turns(context.Background(), store.TurnFilter{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(turns) != 1 || turns[0].Status != "failed" || turns[0].Error != "interrupted" {
-		t.Errorf("turns = %+v, want one failed interrupted turn", turns)
-	}
-	if got := ag.sends.Load(); got != 0 {
-		t.Errorf("agent prompts = %d, want 0", got)
-	}
-	_, body := do(t, http.MethodGet, e.url+"/messages?space=1", "")
-	if !strings.Contains(body, `"author":"user","body":"/promote"`) {
-		t.Errorf("messages = %s, want the user message /promote", body)
-	}
-	if got := e.fake.closed.Load(); got != 1 {
-		t.Errorf("session closes = %d, want 1", got)
-	}
-}
-
-func TestPromote_StopDuringSayAnswers202(t *testing.T) {
-	env := newLiveEnv(t)
-	gitProject(t, env, 1)
-	stopWhile, stopped, ag := stopAfterOpen(env)
-	env.fake.say = stopWhile
-
-	status, body := do(t, http.MethodPost, env.url+"/spaces/1/promote", `{"title":"Login"}`)
-	if status != 202 || !strings.Contains(body, `"workItemId":1`) {
-		t.Fatalf("promote = %d %s, want 202 and the promoted space", status, body)
-	}
-	<-stopped
-	env.wantInterruptedPromote(t, ag)
 }
 
 func TestSend_RefusedWhileSpaceIsBeingDeleted(t *testing.T) {

@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"reflect"
+	"slices"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -194,53 +196,85 @@ func TestOpen_FirstPromptIsWhatReefContextPrints(t *testing.T) {
 }
 
 func TestScopes(t *testing.T) {
-	st, _ := openStore(t)
-	if _, err := st.ApplyTeam(context.Background(), store.Team{Name: "core",
+	ctx := context.Background()
+	st, f := openStore(t)
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core",
 		Roles: []store.Role{{Name: "lead", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
-	feature := int64(7)
+	item := func(t *testing.T, title string) int64 {
+		w, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: f.ProjectID, Title: title})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return w.ID
+	}
+	save := func(t *testing.T, c store.Space) store.Space {
+		c.ProjectID, c.Name, c.Role, c.Backend = f.ProjectID, "chat", "lead", "claude"
+		c, err := st.CreateSpace(ctx, c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
 	tests := []struct {
 		name string
-		give store.Space
+		give func(t *testing.T) (store.Space, string)
 		want []memory.Ref
 	}{
 		{
-			name: "feature Space of a real team",
-			give: store.Space{ProjectID: 3, WorkItemID: &feature, Team: "core"},
+			name: "work item Space of a real team",
+			give: func(t *testing.T) (store.Space, string) {
+				w := item(t, "core item")
+				return save(t, store.Space{WorkItemID: &w, Team: "core"}), strconv.FormatInt(w, 10)
+			},
 			want: []memory.Ref{
-				{Kind: "work_item", ID: "7"}, {Kind: "project", ID: "3"},
+				{Kind: "work_item", ID: "W"}, {Kind: "project", ID: "1"},
 				{Kind: "team", ID: "core"}, {Kind: "teammate", ID: "2"},
 			},
 		},
 		{
-			name: "feature Space of the solo team",
-			give: store.Space{ProjectID: 3, WorkItemID: &feature, Team: store.SoloTeam},
+			name: "work item Space of the solo team",
+			give: func(t *testing.T) (store.Space, string) {
+				w := item(t, "solo item")
+				return save(t, store.Space{WorkItemID: &w, Team: store.SoloTeam}), strconv.FormatInt(w, 10)
+			},
 			want: []memory.Ref{
-				{Kind: "work_item", ID: "7"}, {Kind: "project", ID: "3"}, {Kind: "teammate", ID: "1"},
+				{Kind: "work_item", ID: "W"}, {Kind: "project", ID: "1"}, {Kind: "teammate", ID: "1"},
 			},
 		},
 		{
-			name: "quick session of a real team",
-			give: store.Space{ProjectID: 3, Team: "core"},
+			name: "free Space of a real team",
+			give: func(t *testing.T) (store.Space, string) {
+				return save(t, store.Space{Team: "core"}), ""
+			},
 			want: []memory.Ref{
-				{Kind: "project", ID: "3"}, {Kind: "team", ID: "core"}, {Kind: "teammate", ID: "2"},
+				{Kind: "project", ID: "1"}, {Kind: "team", ID: "core"}, {Kind: "teammate", ID: "2"},
 			},
 		},
 		{
-			name: "space with no team",
-			give: store.Space{ProjectID: 3},
+			name: "Space that is not stored",
+			give: func(t *testing.T) (store.Space, string) {
+				return store.Space{ProjectID: 3}, ""
+			},
 			want: []memory.Ref{{Kind: "project", ID: "3"}, {Kind: "teammate", ID: "lead"}},
 		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Scopes(context.Background(), st, tt.give, "lead")
+			ch, workItemID := tt.give(t)
+			got, err := Scopes(ctx, st, ch, "lead")
 			if err != nil {
 				t.Fatal(err)
 			}
-			if !reflect.DeepEqual(got, tt.want) {
-				t.Errorf("Scopes = %v, want %v", got, tt.want)
+			want := slices.Clone(tt.want)
+			for i, r := range want {
+				if r.ID == "W" {
+					want[i].ID = workItemID
+				}
+			}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("Scopes = %v, want %v", got, want)
 			}
 		})
 	}

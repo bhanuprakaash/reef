@@ -212,10 +212,8 @@ func TestWakeAs_ItemRecordedDuringTheTurnThenReplacedIsNamedAsRetired(t *testing
 func TestWakeAs_DecisionWrittenWhileAWriterHoldsTheTreeIsInTheFirstPrompt(t *testing.T) {
 	ctx := context.Background()
 	e := newWakeEnv(t)
-	if _, err := e.st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-		{Name: "developer", Backend: "claude", Write: true},
-	}}); err != nil {
+	if _, err := e.st.DB().ExecContext(ctx,
+		"UPDATE space_member SET write = 1 WHERE space_id = ? AND name = 'developer'", e.ch.ID); err != nil {
 		t.Fatal(err)
 	}
 	dir, _, err := WorkDir(ctx, e.st, e.s.dataDir, e.ch.ID)
@@ -255,7 +253,7 @@ func TestWakeAs_DecisionWrittenWhileAWriterHoldsTheTreeIsInTheFirstPrompt(t *tes
 	}
 }
 
-func TestWakeAs_TeamEditedBetweenAFailedFirstSendAndItsRetryIsInTheRetriedPrompt(t *testing.T) {
+func TestWakeAs_MemberAddedBetweenAFailedFirstSendAndItsRetryIsInTheRetriedPrompt(t *testing.T) {
 	ctx := context.Background()
 	e := newWakeEnv(t)
 	scopes := store.Scopes{{Read: e.say("user", "one", nil)}}
@@ -264,11 +262,11 @@ func TestWakeAs_TeamEditedBetweenAFailedFirstSendAndItsRetryIsInTheRetriedPrompt
 		t.Fatal("wake with a failing send succeeded")
 	}
 	e.sendErr = nil
-	if _, err := e.st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-		{Name: "developer", Backend: "claude"},
-		{Name: "tester", Backend: "claude"},
-	}}); err != nil {
+	tester, err := e.st.CreateTeammate(ctx, store.Teammate{Name: "tester", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.st.AddSpaceMember(ctx, e.ch.ID, tester.ID); err != nil {
 		t.Fatal(err)
 	}
 

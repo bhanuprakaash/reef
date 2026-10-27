@@ -505,7 +505,7 @@ func (s *server) wakeDeveloper(
 	if err != nil {
 		return err
 	}
-	team, err := s.st.Team(ctx, ch.Team)
+	team, err := s.st.SpaceTeam(ctx, ch.ID)
 	if err != nil {
 		return err
 	}

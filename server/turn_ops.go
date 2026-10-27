@@ -155,7 +155,7 @@ func (s *server) restoreTree(ctx context.Context, c *chain, ch store.Space, t st
 }
 
 // checkpointTrees is the directory the checkpoint of t was taken in, and the directory its
-// Space ch runs in now. They differ for a quick session's turn after a promote.
+// Space ch runs in now. They differ for a free Space's turn after an attach.
 func (s *server) checkpointTrees(
 	ctx context.Context, ch store.Space, t store.Turn,
 ) (from, dir string, err error) {

@@ -62,6 +62,7 @@ func TestSession_OneTeammateRunsWithTheAccessOfEachMembership(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
+		closeSpace(t, st, ch.ID)
 		ag := newRecordingAgent()
 		s, err := Open(ctx, st, ms, dataDir, "/bin/reef", ch.ID, NewTrees(t.TempDir()),
 			func(string) (agent.Agent, error) { return ag, nil })

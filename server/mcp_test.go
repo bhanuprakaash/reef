@@ -26,6 +26,15 @@ var _timestamp = regexp.MustCompile(`"(createdAt|updatedAt|retiredAt)":"[^"]*"`)
 // mcpFixture has work items 1 (auth) and 2 (billing). The returned token is the
 // architect in Space 1; Space 2 is a second Space of auth, Space 3 is
 // billing's and Space 4 is a quick session.
+// closeSpace ends the Space, as approving its wrap-up does, so its work item may have another.
+func closeSpace(t *testing.T, st *store.Store, id int64) {
+	t.Helper()
+	if _, err := st.DB().Exec("UPDATE space SET closed_at = ? WHERE id = ?",
+		time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 	t.Helper()
 	ctx := context.Background()
@@ -54,8 +63,15 @@ func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 		{ProjectID: 1, WorkItemID: &two, Name: "architect"},
 		{ProjectID: 1, Name: "quick"},
 	} {
+		if c.Name == "developer" {
+			closeSpace(t, st, 1)
+		}
 		_, err = st.CreateSpace(ctx, c)
 		must(err)
+		if c.Name == "developer" {
+			closeSpace(t, st, 2)
+			must(st.ReopenSpace(ctx, 1))
+		}
 	}
 	for _, m := range []store.Message{
 		{SpaceID: 1, Author: "user", Body: "use sessions for auth"},
@@ -604,6 +620,7 @@ func TestMCPProposeWrapTeamItemsOnlyFromTheLeadOfARealTeam(t *testing.T) {
 		t.Fatal(err)
 	}
 	one := int64(1)
+	closeSpace(t, st, 1)
 	ch, err := st.CreateSpace(ctx, store.Space{
 		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
 	})
@@ -661,6 +678,7 @@ func TestMCPDirectMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	one := int64(1)
+	closeSpace(t, st, 1)
 	ch, err := st.CreateSpace(ctx, store.Space{
 		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
 	})

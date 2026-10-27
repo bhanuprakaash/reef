@@ -48,6 +48,10 @@ func TestCLI_Wrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	if _, err := st.DB().ExecContext(ctx, "UPDATE space SET closed_at = ? WHERE id = ?",
+		time.Now().UTC().Format(time.RFC3339Nano), ch.ID); err != nil {
+		t.Fatal(err)
+	}
 	brief, err := st.CreateSpace(ctx, store.Space{ProjectID: other.ID, WorkItemID: &f.ID, Name: "plan"})
 	if err != nil {
 		t.Fatal(err)

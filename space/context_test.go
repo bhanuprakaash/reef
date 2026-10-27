@@ -109,6 +109,7 @@ func TestContext(t *testing.T) {
 				t.Fatal(err)
 			}
 		}
+		closeSpace(t, st, c.ID)
 	}
 	if _, err := st.CreateSpace(ctx, store.Space{
 		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "empty",

@@ -88,7 +88,7 @@ func chatCmd(
 		if err != nil {
 			return err
 		}
-		team, err := st.Team(ctx, ch.Team)
+		team, err := st.SpaceTeam(ctx, ch.ID)
 		if err != nil {
 			return err
 		}

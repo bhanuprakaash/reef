@@ -10,14 +10,11 @@ import (
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
-	"github.com/bhanuprakaash/reef/worktree"
 )
 
 func (s *server) proposalRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /spaces/{id}/wrap", s.wrap)
 	mux.HandleFunc("/spaces/{id}/wrap", methodNotAllowed)
-	mux.HandleFunc("POST /spaces/{id}/promote", s.promote)
-	mux.HandleFunc("/spaces/{id}/promote", methodNotAllowed)
 	mux.HandleFunc("GET /spaces/{id}/proposal", s.pendingProposal)
 	mux.HandleFunc("/spaces/{id}/proposal", methodNotAllowed)
 	mux.HandleFunc("POST /proposals/{id}/approve", s.approveProposal)
@@ -37,60 +34,6 @@ func (s *server) wrap(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusAccepted)
-}
-
-func (s *server) promote(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	var in struct {
-		Title      string `json:"title"`
-		WorkItemID *int64 `json:"workItemId"`
-	}
-	if err := readJSON(r, &in); err != nil {
-		writeError(w, err)
-		return
-	}
-	if (in.Title != "") == (in.WorkItemID != nil) {
-		writeError(w, fmt.Errorf("%w: give title, or workItemId", store.ErrInvalid))
-		return
-	}
-	var f store.WorkItem
-	if in.WorkItemID != nil {
-		f.ID = *in.WorkItemID
-	} else {
-		f.Title = in.Title
-	}
-	if err := s.st.CheckPromote(r.Context(), id, f); err != nil {
-		writeError(w, err)
-		return
-	}
-	var ch store.Space
-	err = s.startUserTurn(r.Context(), id, userTurn{
-		kind: _promote, text: space.PromoteCommand,
-		prepare: func() error {
-			before, err := s.st.Space(r.Context(), id)
-			if err != nil {
-				return err
-			}
-			p, err := s.st.Project(r.Context(), before.ProjectID)
-			if err != nil {
-				return err
-			}
-			if !worktree.HasCommit(r.Context(), p.Path) {
-				return fmt.Errorf("%w: project %s is not a git repo with a commit", store.ErrInvalid, p.Path)
-			}
-			ch, err = s.st.PromoteSpace(r.Context(), id, f)
-			return err
-		},
-	})
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusAccepted, ch)
 }
 
 func (s *server) pendingProposal(w http.ResponseWriter, r *http.Request) {

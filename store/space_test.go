@@ -9,7 +9,7 @@ import (
 	"github.com/bhanuprakaash/reef/agent"
 )
 
-func TestSpace_NilTeamUsesSoloTeam(t *testing.T) {
+func TestSpace_NilTeamIsNoTeam(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
 	if err != nil {
@@ -32,12 +32,12 @@ func TestSpace_NilTeamUsesSoloTeam(t *testing.T) {
 	}
 
 	ch, err := s.Space(ctx, id)
-	if err != nil || ch.Team != SoloTeam {
-		t.Errorf("Space(%d) = %+v, %v, want team %q", id, ch, err, SoloTeam)
+	if err != nil || ch.Team != "" {
+		t.Errorf("Space(%d) = %+v, %v, want no team", id, ch, err)
 	}
 	spaces, err := s.Spaces(ctx, SpaceFilter{ProjectID: &project.ID})
-	if err != nil || len(spaces) != 1 || spaces[0].Team != SoloTeam {
-		t.Errorf("Spaces() = %+v, %v, want one Space with team %q", spaces, err, SoloTeam)
+	if err != nil || len(spaces) != 1 || spaces[0].Team != "" {
+		t.Errorf("Spaces() = %+v, %v, want one Space with no team", spaces, err)
 	}
 }
 
@@ -116,41 +116,6 @@ func TestPauseAndContinueSpace(t *testing.T) {
 	}
 	if err := s.PauseSpace(ctx, 99, "x"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("PauseSpace on unknown Space = %v, want ErrNotFound", err)
-	}
-}
-
-func TestCheckPromote_ChangesNothing(t *testing.T) {
-	ctx := context.Background()
-	s, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "chat"}); err != nil {
-		t.Fatal(err)
-	}
-
-	if err := s.CheckPromote(ctx, 1, WorkItem{Title: "Login"}); err != nil {
-		t.Fatalf("CheckPromote = %v, want nil", err)
-	}
-	if got, err := s.Space(ctx, 1); err != nil || got.WorkItemID != nil {
-		t.Errorf("space after check = %+v, %v, want no work item", got, err)
-	}
-	if fs, err := s.WorkItems(ctx, WorkItemFilter{}); err != nil || len(fs) != 0 {
-		t.Errorf("work items after check = %+v, %v, want none", fs, err)
-	}
-
-	if _, err := s.PromoteSpace(ctx, 1, WorkItem{Title: "Login"}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "second"}); err != nil {
-		t.Fatal(err)
-	}
-	if err := s.CheckPromote(ctx, 1, WorkItem{ID: 1}); !errors.Is(err, ErrInvalid) {
-		t.Errorf("CheckPromote on a Space with a work item = %v, want ErrInvalid", err)
 	}
 }
 

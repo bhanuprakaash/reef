@@ -62,13 +62,13 @@ func Context(
 
 // Scopes are the shelves of memory a role reads and writes in ch: the work item's when it has
 // one, the project's, the team's unless it is the solo team, and the Teammate's own, named by
-// its id. A role the team does not have, such as an agent attached by hand with reef token, has
+// its id. A role the Space does not have, such as an agent attached by hand with reef token, has
 // no Teammate: its shelf is named by the role.
 func Scopes(
 	ctx context.Context, st *store.Store, ch store.Space, role string,
 ) ([]memory.Ref, error) {
 	teammate := role
-	switch id, err := st.MemberTeammateID(ctx, ch.Team, role); {
+	switch id, err := st.SpaceMemberTeammateID(ctx, ch.ID, role); {
 	case err == nil:
 		teammate = strconv.FormatInt(id, 10)
 	case !errors.Is(err, store.ErrNotFound):

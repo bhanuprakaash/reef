@@ -162,6 +162,10 @@ func TestPendingProposals(t *testing.T) {
 		t.Fatal(err)
 	}
 	one, two := int64(1), int64(2)
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE space SET closed_at = '2026-01-01T00:00:00Z' WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
 	for _, c := range []Space{
 		{ProjectID: 1, WorkItemID: &two, Name: "dev"},
 		{ProjectID: 1, WorkItemID: &one, Name: "review"},

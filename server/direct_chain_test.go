@@ -636,18 +636,6 @@ func TestDirectRejectSendDuringWrap(t *testing.T) {
 	}
 }
 
-// TestDirectRejectSendDuringPromote rejects send_to_role while promoting.
-func TestDirectRejectSendDuringPromote(t *testing.T) {
-	st, tok := mcpFixture(t)
-	if err := st.SetActiveTurn(context.Background(), 1, store.ActiveTurnPromote); err != nil {
-		t.Fatal(err)
-	}
-	got, isErr := callTool(t, st, tok)("send_to_role", map[string]any{"to": "developer", "body": "hi"})
-	if !isErr || !strings.Contains(got, "promoting") {
-		t.Fatalf("send during promote = %q (error %v), want promoting error", got, isErr)
-	}
-}
-
 // TestDirectCloseRejectsSend rejects send_to_role on a closed Space.
 func TestDirectCloseRejectsSend(t *testing.T) {
 	ctx := context.Background()
@@ -670,6 +658,7 @@ func TestDirectCloseRejectsSend(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
+	closeSpace(t, st, 1)
 	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)

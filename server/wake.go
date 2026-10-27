@@ -106,7 +106,7 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 	if err != nil {
 		return nil, err
 	}
-	team, err := s.st.Team(ctx, ch.Team)
+	team, err := s.st.SpaceTeam(ctx, ch.ID)
 	if err != nil {
 		return nil, err
 	}

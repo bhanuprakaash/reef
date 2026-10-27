@@ -21,26 +21,36 @@ const (
 	ActiveTurnStarting = "starting"
 	ActiveTurnMessage  = "message"
 	ActiveTurnWrap     = "wrap"
-	ActiveTurnPromote  = "promote"
 )
 
 // validActiveTurn reports whether kind is one of the stored active-turn kinds.
 func validActiveTurn(kind string) bool {
 	switch kind {
-	case ActiveTurnNone, ActiveTurnStarting, ActiveTurnMessage, ActiveTurnWrap, ActiveTurnPromote:
+	case ActiveTurnNone, ActiveTurnStarting, ActiveTurnMessage, ActiveTurnWrap:
 		return true
 	}
 	return false
 }
 
+// Space kinds: a Work item's Space, a free Space with no Work item, and a direct conversation
+// with one Teammate.
+const (
+	KindWorkItem     = "work_item"
+	KindFree         = "free"
+	KindConversation = "conversation"
+)
+
 const _spaceCols = "space.id, space.project_id, space.work_item_id, space.name, " +
 	"space.role, space.backend, space.permission_mode, space.paused, " +
 	"space.token_budget, space.created_at, space.closed_at, space.active_turn, " +
-	"COALESCE((SELECT name FROM team WHERE id = space.team_id), '" + SoloTeam + "')"
+	"COALESCE((SELECT name FROM team WHERE id = space.team_id), ''), space.kind"
 
-// Space with a nil WorkItemID is a quick session.
+// Space with a nil WorkItemID is a free Space or a direct conversation. Team is empty for a
+// Space made from one Teammate. Who is in the Space is its space_member list, copied when the
+// Space was made.
 type Space struct {
 	ID             int64      `json:"id"`
+	Kind           string     `json:"kind"`
 	ProjectID      int64      `json:"projectId"`
 	WorkItemID     *int64     `json:"workItemId"`
 	Name           string     `json:"name"`
@@ -52,8 +62,8 @@ type Space struct {
 	Team           string     `json:"team"`
 	CreatedAt      time.Time  `json:"createdAt"`
 	ClosedAt       *time.Time `json:"closedAt"`
-	// ActiveTurn is the kind of turn currently running on the Space ("message",
-	// "wrap", "promote", or "" when idle). It is a live-state hint for processes that
+	// ActiveTurn is the kind of turn currently running on the Space ("message" or
+	// "wrap", or "" when idle). It is a live-state hint for processes that
 	// cannot see the server's in-memory chain, such as reef mcp; it is not client data.
 	ActiveTurn string `json:"-"`
 }
@@ -93,13 +103,11 @@ func (f SpaceFilter) where() (string, []any) {
 	return q, args
 }
 
-// CreateSpace adds c in team c.Team (solo when empty), which must exist. A set
-// WorkItemID must be a work item of c.ProjectID.
+// CreateSpace adds c with a copy of the members of team c.Team (solo when empty), which must
+// exist. A set WorkItemID must be a work item of c.ProjectID, and that item must have no
+// other active Space.
 func (s *Store) CreateSpace(ctx context.Context, c Space) (Space, error) {
 	if err := c.validate(); err != nil {
-		return Space{}, err
-	}
-	if err := s.checkWorkItemInProject(ctx, c.WorkItemID, c.ProjectID); err != nil {
 		return Space{}, err
 	}
 	if c.Team == "" {
@@ -113,22 +121,95 @@ func (s *Store) CreateSpace(ctx context.Context, c Space) (Space, error) {
 	if err != nil {
 		return Space{}, fmt.Errorf("read team: %w", err)
 	}
-	now := time.Now().UTC()
-	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO space (project_id, work_item_id, name, role, backend, permission_mode, "+
-			"token_budget, created_at, team_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		c.ProjectID, c.WorkItemID, c.Name, c.Role, c.Backend, c.PermissionMode, TokenBudget,
-		now.Format(time.RFC3339Nano), teamID)
+	c.Kind = KindFree
+	if c.WorkItemID != nil {
+		c.Kind = KindWorkItem
+	}
+	return s.insertSpace(ctx, c, &teamID, func(tx *sql.Tx, id int64) error {
+		_, err := tx.ExecContext(ctx,
+			"INSERT INTO space_member (space_id, teammate_id, name, lead, tools, mcp_servers, write, "+
+				"permission_mode) SELECT ?, teammate_id, name, lead, tools, mcp_servers, write, "+
+				"permission_mode FROM team_member WHERE team_id = ?", id, teamID)
+		return err
+	})
+}
+
+// CreateTeammateSpace adds c with no Team and one member, the lead: a copy of the Teammate's
+// default access rules. c.Kind is KindConversation for a direct conversation, which cannot have
+// a work item; any other value makes a free Space, or a work item's Space when WorkItemID is set.
+func (s *Store) CreateTeammateSpace(ctx context.Context, c Space, teammateID int64) (Space, error) {
+	if err := c.validate(); err != nil {
+		return Space{}, err
+	}
+	switch {
+	case c.Kind == KindConversation && c.WorkItemID != nil:
+		return Space{}, fmt.Errorf("%w: a direct conversation has no work item", ErrInvalid)
+	case c.Kind != KindConversation && c.WorkItemID != nil:
+		c.Kind = KindWorkItem
+	case c.Kind != KindConversation:
+		c.Kind = KindFree
+	}
+	return s.insertSpace(ctx, c, nil, func(tx *sql.Tx, id int64) error {
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO space_member (space_id, teammate_id, name, lead, tools, mcp_servers, write, "+
+				"permission_mode) SELECT ?, id, name, 1, tools, mcp_servers, write, permission_mode "+
+				"FROM teammate WHERE id = ?", id, teammateID)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err == nil && n == 0 {
+			return fmt.Errorf("%w: unknown teammate %d", ErrInvalid, teammateID)
+		}
+		return nil
+	})
+}
+
+// insertSpace stores c, then calls members to copy its members, in one transaction.
+func (s *Store) insertSpace(
+	ctx context.Context, c Space, teamID *int64, members func(tx *sql.Tx, id int64) error,
+) (Space, error) {
+	if err := s.checkWorkItemInProject(ctx, c.WorkItemID, c.ProjectID); err != nil {
+		return Space{}, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
-		return Space{}, s.writeErr(ctx, "insert space", err, ErrInvalid,
+		return Space{}, fmt.Errorf("begin create Space: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	now := time.Now().UTC()
+	res, err := tx.ExecContext(ctx,
+		"INSERT INTO space (project_id, work_item_id, name, role, backend, permission_mode, "+
+			"token_budget, created_at, team_id, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		c.ProjectID, c.WorkItemID, c.Name, c.Role, c.Backend, c.PermissionMode, TokenBudget,
+		now.Format(time.RFC3339Nano), teamID, c.Kind)
+	if err != nil {
+		_ = tx.Rollback()
+		return Space{}, s.spaceWriteErr(ctx, "insert space", err, c.WorkItemID,
 			parent{table: "project", id: &c.ProjectID}, parent{table: "work_item", id: c.WorkItemID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
 		return Space{}, fmt.Errorf("insert Space: %w", err)
 	}
+	if err := members(tx, id); err != nil {
+		return Space{}, fmt.Errorf("insert Space members: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return Space{}, fmt.Errorf("commit create Space: %w", err)
+	}
 	c.ID, c.Paused, c.TokenBudget, c.CreatedAt = id, "", TokenBudget, now
 	return c, nil
+}
+
+// spaceWriteErr turns a failed write of a Space row into ErrConflict when the work item
+// already has an active Space, and otherwise as writeErr does.
+func (s *Store) spaceWriteErr(
+	ctx context.Context, op string, err error, workItemID *int64, parents ...parent,
+) error {
+	if isUnique(err) && workItemID != nil {
+		return fmt.Errorf("%w: work item %d already has an active Space", ErrConflict, *workItemID)
+	}
+	return s.writeErr(ctx, op, err, ErrInvalid, parents...)
 }
 
 // Space returns the Space with the id, or ErrNotFound.
@@ -184,7 +265,7 @@ func (s *Store) SpacePreviews(ctx context.Context, f SpaceFilter) ([]SpacePrevie
 }
 
 // UpdateSpace sets the name and permission mode of c.ID. A Space never changes
-// project, and its work item changes only from nil, through PromoteSpace.
+// project, and its work item changes only from nil, through AttachSpace.
 func (s *Store) UpdateSpace(ctx context.Context, c Space) (Space, error) {
 	if err := c.validate(); err != nil {
 		return Space{}, err
@@ -249,78 +330,30 @@ func (s *Store) nameStep(ctx context.Context, query string, args ...any) (bool, 
 	return n > 0, nil
 }
 
-// PromoteSpace attaches quick session id to work item w: the existing one when w.ID
-// is set, else a new one. A Space that already has a work item is ErrInvalid.
-func (s *Store) PromoteSpace(ctx context.Context, id int64, w WorkItem) (Space, error) {
-	tx, err := s.promote(ctx, id, w)
+// AttachSpace gives free Space id the work item, which must be in its project and have no
+// other active Space. Its kind becomes KindWorkItem.
+func (s *Store) AttachSpace(ctx context.Context, id, workItemID int64) (Space, error) {
+	c, err := s.Space(ctx, id)
 	if err != nil {
 		return Space{}, err
 	}
-	if err := tx.Commit(); err != nil {
-		return Space{}, fmt.Errorf("commit promote: %w", err)
+	switch {
+	case c.WorkItemID != nil:
+		return Space{}, fmt.Errorf("%w: Space %d already has work item %d", ErrInvalid, id, *c.WorkItemID)
+	case c.Kind != KindFree:
+		return Space{}, fmt.Errorf("%w: only a free Space attaches to a work item, Space %d is a %s",
+			ErrInvalid, id, c.Kind)
+	}
+	if err := s.checkWorkItemInProject(ctx, &workItemID, c.ProjectID); err != nil {
+		return Space{}, err
+	}
+	_, err = s.db.ExecContext(ctx,
+		"UPDATE space SET work_item_id = ?, kind = ? WHERE id = ? AND work_item_id IS NULL",
+		workItemID, KindWorkItem, id)
+	if err != nil {
+		return Space{}, s.spaceWriteErr(ctx, "attach Space", err, &workItemID)
 	}
 	return s.Space(ctx, id)
-}
-
-// CheckPromote returns the error PromoteSpace would return, and changes nothing.
-func (s *Store) CheckPromote(ctx context.Context, id int64, w WorkItem) error {
-	tx, err := s.promote(ctx, id, w)
-	if err != nil {
-		return err
-	}
-	return tx.Rollback()
-}
-
-// promote does the work of PromoteSpace in a transaction it leaves open for the
-// caller to commit or roll back. On error it has rolled the transaction back.
-func (s *Store) promote(ctx context.Context, id int64, w WorkItem) (_ *sql.Tx, err error) {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return nil, fmt.Errorf("begin promote: %w", err)
-	}
-	defer func() {
-		if err != nil {
-			_ = tx.Rollback()
-		}
-	}()
-	var projectID int64
-	var workItemID *int64
-	err = tx.QueryRowContext(ctx, "SELECT project_id, work_item_id FROM space WHERE id = ?", id).
-		Scan(&projectID, &workItemID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return nil, fmt.Errorf("space %d: %w", id, ErrNotFound)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("read Space %d: %w", id, err)
-	}
-	if workItemID != nil {
-		return nil, fmt.Errorf("%w: Space %d already has work item %d", ErrInvalid, id, *workItemID)
-	}
-	if w.ID != 0 {
-		var inProject bool
-		err = tx.QueryRowContext(ctx,
-			"SELECT EXISTS (SELECT 1 FROM work_item WHERE id = ? AND project_id = ?)",
-			w.ID, projectID).Scan(&inProject)
-		if err != nil {
-			return nil, fmt.Errorf("check work item: %w", err)
-		}
-		if !inProject {
-			return nil, fmt.Errorf("%w: work item %d is not in project %d", ErrInvalid, w.ID, projectID)
-		}
-	} else {
-		if err := w.validate(); err != nil {
-			return nil, err
-		}
-		w.ProjectID = projectID
-		if w, err = insertWorkItem(ctx, tx, w); err != nil {
-			return nil, err
-		}
-	}
-	if _, err := tx.ExecContext(ctx,
-		"UPDATE space SET work_item_id = ? WHERE id = ?", w.ID, id); err != nil {
-		return nil, fmt.Errorf("update Space: %w", err)
-	}
-	return tx, nil
 }
 
 // PauseSpace pauses the Space; the reason must not be empty.
@@ -360,9 +393,14 @@ func (s *Store) ContinueSpace(ctx context.Context, id, budget int64) error {
 	return tx.Commit()
 }
 
-// ReopenSpace clears the Space's closed_at.
+// ReopenSpace clears the Space's closed_at. It is ErrConflict when the Space's work item has
+// another active Space.
 func (s *Store) ReopenSpace(ctx context.Context, id int64) error {
-	return s.setSpace(ctx, id, "closed_at = NULL")
+	err := s.setSpace(ctx, id, "closed_at = NULL")
+	if isUnique(err) {
+		return fmt.Errorf("%w: the work item of Space %d already has an active Space", ErrConflict, id)
+	}
+	return err
 }
 
 // SpaceTokens sums input, output and cache write tokens; cache reads are not counted.
@@ -423,6 +461,7 @@ func scanSpacePreview(r interface{ Scan(...any) error }) (SpacePreview, error) {
 	// exposing it: the Space JSON omits it.
 	if err := r.Scan(&p.ID, &p.ProjectID, &p.WorkItemID, &p.Name, &p.Role, &p.Backend,
 		&p.PermissionMode, &p.Paused, &p.TokenBudget, &created, &closed, &p.ActiveTurn, &p.Team,
+		&p.Kind,
 		&author, &body, &lastCreated); err != nil {
 		return SpacePreview{}, err
 	}
@@ -450,7 +489,8 @@ func scanSpace(r interface{ Scan(...any) error }) (Space, error) {
 	var created string
 	var closed sql.NullString
 	if err := r.Scan(&c.ID, &c.ProjectID, &c.WorkItemID, &c.Name, &c.Role, &c.Backend,
-		&c.PermissionMode, &c.Paused, &c.TokenBudget, &created, &closed, &c.ActiveTurn, &c.Team); err != nil {
+		&c.PermissionMode, &c.Paused, &c.TokenBudget, &created, &closed, &c.ActiveTurn, &c.Team,
+		&c.Kind); err != nil {
 		return Space{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)
@@ -464,8 +504,8 @@ func scanSpace(r interface{ Scan(...any) error }) (Space, error) {
 	return c, nil
 }
 
-// SetActiveTurn records the kind of turn currently running on Space id: "message",
-// "wrap", "promote" or "" when idle. It is a live-state hint for processes that cannot
+// SetActiveTurn records the kind of turn currently running on Space id: "message" or
+// "wrap", or "" when idle. It is a live-state hint for processes that cannot
 // see the server's in-memory chain, such as reef mcp.
 func (s *Store) SetActiveTurn(ctx context.Context, id int64, kind string) error {
 	if !validActiveTurn(kind) {

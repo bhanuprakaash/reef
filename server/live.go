@@ -39,7 +39,6 @@ type session interface {
 	RunDirectAs(ctx context.Context, role, text string, dm store.DirectMessage,
 		onEvent func(agent.Event)) error
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
-	Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 	SetOnNote(f func())
 	Close() error
 }
@@ -69,7 +68,6 @@ const (
 	_noTurn turnKind = iota
 	_message
 	_wrap
-	_promote
 )
 
 type liveState int
@@ -120,13 +118,11 @@ type retry struct {
 
 // userTurn is a turn that starts with a user message: text, a reply in the thread of parent
 // when it is set. A message turn runs for the role the message is routed to, and its reply
-// goes in the same thread; wrap and promote turns run for the lead. prepare, when set, runs
-// once the agent is open; if it fails no turn starts.
+// goes in the same thread; a wrap turn runs for the lead.
 type userTurn struct {
-	kind    turnKind
-	text    string
-	parent  *int64
-	prepare func() error
+	kind   turnKind
+	text   string
+	parent *int64
 }
 
 // chain is the claim on an idle Space to run a chain of turns. It ends with start, which
@@ -346,11 +342,6 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 	if err != nil {
 		return c.release(err)
 	}
-	if t.prepare != nil {
-		if err := t.prepare(); err != nil {
-			return c.release(err)
-		}
-	}
 	msg, err := sess.Say(ctx, t.text, t.parent)
 	if err != nil {
 		return c.release(err)
@@ -455,8 +446,6 @@ func (s *server) runOne(
 	switch kind {
 	case _wrap:
 		_, err = sess.Wrap(ctx, onEvent)
-	case _promote:
-		_, err = sess.Promote(ctx, onEvent)
 	default:
 		if w.direct != nil {
 			err = sess.RunDirectAs(ctx, w.role, w.text, *w.direct, onEvent)
@@ -485,9 +474,9 @@ func (s *server) runOne(
 }
 
 // checkSpace refuses a turn the Space may not run: any turn on a closed Space, a wrap
-// on a quick session or while a wrap-up waits for approval, and any turn while the Space is
-// paused or over its token budget. It returns the Space's lead role, the role a wrap or
-// promote runs for.
+// on a Space with no work item or while a wrap-up waits for approval, and any turn while the
+// Space is paused or over its token budget. It returns the Space's lead role, the role a wrap
+// runs for.
 func (s *server) checkSpace(
 	ctx context.Context, l *live, kind turnKind, ch store.Space,
 ) (string, error) {
@@ -495,7 +484,7 @@ func (s *server) checkSpace(
 		return "", fmt.Errorf("space %d is closed: %w", ch.ID, store.ErrConflict)
 	}
 	if kind == _wrap && ch.WorkItemID == nil {
-		return "", fmt.Errorf("%w: Space %d is a quick session, promote it before wrapping up",
+		return "", fmt.Errorf("%w: Space %d has no work item, attach it to one before wrapping up",
 			store.ErrInvalid, ch.ID)
 	}
 	if kind == _wrap {
@@ -1065,11 +1054,8 @@ func (c *chain) start(
 	ctx context.Context, sess session, kind turnKind, queue []wake, after int64,
 ) error {
 	kindStr := store.ActiveTurnMessage
-	switch kind {
-	case _wrap:
+	if kind == _wrap {
 		kindStr = store.ActiveTurnWrap
-	case _promote:
-		kindStr = store.ActiveTurnPromote
 	}
 	if c.ownsActiveTurn {
 		if err := c.s.st.SetActiveTurn(ctx, c.id, kindStr); err != nil {
@@ -1138,7 +1124,7 @@ func (c *chain) resume(ctx context.Context, ch store.Space, queue []wake) error 
 
 // runTurn runs the first turn, then the turns its messages wake, one after another, and
 // leaves the Space idle once none is left. The queue is the one place a wake is added;
-// a wrap or promote turn talks to the user and wakes nobody.
+// a wrap turn talks to the user and wakes nobody.
 // A turn that fails, or a Space that is paused, ends the chain.
 func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterDirect int64) {
 	s, l := c.s, c.l

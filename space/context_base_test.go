@@ -4,7 +4,19 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/bhanuprakaash/reef/store"
 )
+
+// closeSpace ends the Space, as approving its wrap-up does, so its work item may have another.
+func closeSpace(t *testing.T, st *store.Store, id int64) {
+	t.Helper()
+	if _, err := st.DB().Exec("UPDATE space SET closed_at = ? WHERE id = ?",
+		time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestContext_BaseBranch(t *testing.T) {
 	ctx := context.Background()

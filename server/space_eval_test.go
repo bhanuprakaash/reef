@@ -396,7 +396,11 @@ func TestSpaceEval_WakeCountsItsDelta(t *testing.T) {
 	}
 	gitIn(t, p.Path, "init", "-b", "main")
 	gitIn(t, p.Path, "commit", "--allow-empty", "-m", "first")
-	if _, err := e.store().PromoteSpace(ctx, 1, store.WorkItem{Title: "Toolbar"}); err != nil {
+	toolbar, err := e.store().CreateWorkItem(ctx, store.WorkItem{ProjectID: 1, Title: "Toolbar"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := e.store().AttachSpace(ctx, 1, toolbar.ID); err != nil {
 		t.Fatal(err)
 	}
 	e.say(evalBody("", 0, "0", ""), nil)

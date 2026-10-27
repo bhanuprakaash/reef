@@ -695,3 +695,35 @@ func TestRetireScope_RejectsCandidatesAndRetiresAcceptedItemsOfOneScope(t *testi
 		t.Errorf("second RetireScope: %v", err)
 	}
 }
+
+func TestRescope_MovesLiveItemsOfOneScope(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	from, to, other := Ref{Kind: ScopeSpace, ID: "4"}, Ref{Kind: ScopeWorkItem, ID: "9"}, Ref{Kind: ScopeSpace, ID: "5"}
+	remember := func(scope Ref, body string) int64 {
+		res, err := s.Remember(ctx, Writer{Author: "user", Scope: scope}, Note{Kind: KindFact, Body: body})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Item.ID
+	}
+	moved, stale, kept := remember(from, "sessions, not JWT"), remember(from, "tabs"), remember(other, "yaml")
+	cand := candidate(t, s, from, "use sqlite")
+	if err := s.Retire(ctx, stale); err != nil {
+		t.Fatal(err)
+	}
+
+	n, err := s.Rescope(ctx, from, to)
+	if err != nil || n != 2 {
+		t.Fatalf("Rescope = %d, %v, want 2", n, err)
+	}
+
+	for id, want := range map[int64]Ref{moved: to, cand: to, stale: from, kept: other} {
+		if it, err := s.Read(ctx, id); err != nil || it.Scope != want {
+			t.Errorf("item %d = %+v, %v; want scope %v", id, it, err, want)
+		}
+	}
+	if _, err := s.Rescope(ctx, from, Ref{Kind: "nowhere", ID: "1"}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("Rescope to an unknown kind = %v, want ErrInvalid", err)
+	}
+}

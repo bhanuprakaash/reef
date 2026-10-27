@@ -456,8 +456,8 @@ func (m *mcpServer) sendToRole(
 	if ch.ActiveTurn == store.ActiveTurnStarting {
 		return nil, store.DirectMessage{}, fmt.Errorf("space %d is starting: %w", ch.ID, store.ErrConflict)
 	}
-	if ch.ActiveTurn == store.ActiveTurnWrap || ch.ActiveTurn == store.ActiveTurnPromote {
-		return nil, store.DirectMessage{}, fmt.Errorf("space %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
+	if ch.ActiveTurn == store.ActiveTurnWrap {
+		return nil, store.DirectMessage{}, fmt.Errorf("space %d is wrapping: %w", ch.ID, store.ErrConflict)
 	}
 	running, err := m.st.Turns(ctx, store.TurnFilter{SpaceID: &ch.ID, Status: "running"})
 	if err != nil {
@@ -486,7 +486,7 @@ func (m *mcpServer) sendToRole(
 	if !sending {
 		return nil, store.DirectMessage{}, fmt.Errorf("%w: %s has no running turn to send from", store.ErrInvalid, m.tok.Role)
 	}
-	team, err := m.st.Team(ctx, ch.Team)
+	team, err := m.st.SpaceTeam(ctx, ch.ID)
 	if err != nil {
 		return nil, store.DirectMessage{}, err
 	}
@@ -552,7 +552,7 @@ func (m *mcpServer) proposeWrap(
 				store.ErrInvalid, it.Scope, strings.Join(kinds, ", "))
 		}
 		if it.Scope == memory.ScopeTeam {
-			if err := m.requireLead(ctx, c.Team); err != nil {
+			if err := m.requireLead(ctx, c); err != nil {
 				return nil, wrapOut{}, err
 			}
 		}
@@ -572,13 +572,13 @@ func (m *mcpServer) proposeWrap(
 	return nil, wrapOut{ID: p.ID, Message: "proposal saved; the user will approve it"}, nil
 }
 
-func (m *mcpServer) requireLead(ctx context.Context, team string) error {
-	t, err := m.st.Team(ctx, team)
+func (m *mcpServer) requireLead(ctx context.Context, c store.Space) error {
+	t, err := m.st.SpaceTeam(ctx, c.ID)
 	if err != nil {
 		return err
 	}
 	if !slices.ContainsFunc(t.Roles, func(r store.Role) bool { return r.Lead && r.Name == m.tok.Role }) {
-		return fmt.Errorf("%w: only the lead of team %q can propose team items", store.ErrInvalid, team)
+		return fmt.Errorf("%w: only the lead of team %q can propose team items", store.ErrInvalid, c.Team)
 	}
 	return nil
 }

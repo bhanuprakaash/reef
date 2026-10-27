@@ -5,10 +5,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"regexp"
+	"strconv"
 
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
+	"github.com/bhanuprakaash/reef/worktree"
 )
 
 func (s *server) spaceRoutes(mux *http.ServeMux) {
@@ -19,6 +23,11 @@ func (s *server) spaceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /spaces/{id}", s.updateSpace)
 	mux.HandleFunc("DELETE /spaces/{id}", s.deleteSpace)
 	mux.HandleFunc("/spaces/{id}", methodNotAllowed)
+	mux.HandleFunc("POST /spaces/{id}/attach", s.attachSpace)
+	mux.HandleFunc("/spaces/{id}/attach", methodNotAllowed)
+	mux.HandleFunc("GET /spaces/{id}/members", s.listSpaceMembers)
+	mux.HandleFunc("POST /spaces/{id}/members", s.addSpaceMember)
+	mux.HandleFunc("/spaces/{id}/members", methodNotAllowed)
 	mux.HandleFunc("POST /spaces/{id}/reopen", s.reopenSpace)
 	mux.HandleFunc("/spaces/{id}/reopen", methodNotAllowed)
 	mux.HandleFunc("GET /spaces/{id}/inspector", s.getInspector)
@@ -117,9 +126,16 @@ func (s *server) listSpaces(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
-	var in store.Space
+	var in struct {
+		store.Space
+		TeammateID int64 `json:"teammateId"`
+	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
+		return
+	}
+	if in.TeammateID != 0 {
+		s.createTeammateSpace(w, r, in.Space, in.TeammateID)
 		return
 	}
 	if in.Role == "" {
@@ -153,7 +169,40 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	c, err := s.st.CreateSpace(r.Context(), in)
+	c, err := s.st.CreateSpace(r.Context(), in.Space)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if autoName {
+		if err := s.st.MarkNamePending(r.Context(), c.ID); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	writeJSON(w, http.StatusCreated, c)
+}
+
+// createTeammateSpace creates a Space with no Team and one member, the Teammate, which leads it
+// with its backend and default access rules.
+func (s *server) createTeammateSpace(
+	w http.ResponseWriter, r *http.Request, in store.Space, teammateID int64,
+) {
+	if in.Team != "" {
+		writeError(w, fmt.Errorf("%w: give teammateId or team, not both", store.ErrInvalid))
+		return
+	}
+	t, err := s.st.Teammate(r.Context(), teammateID)
+	if errors.Is(err, store.ErrNotFound) {
+		err = fmt.Errorf("%w: unknown teammate %d", store.ErrInvalid, teammateID)
+	}
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	autoName := isDefaultName(in.Name, cmp.Or(in.Backend, t.Name))
+	in.Role, in.Backend, in.PermissionMode = t.Name, t.Backend, t.PermissionMode
+	c, err := s.st.CreateTeammateSpace(r.Context(), in, teammateID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -236,6 +285,109 @@ func (s *server) deleteSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// attachSpace gives a free Space a work item and moves its space items to the work item's.
+// The Space must be idle: its agents are stopped, so their next turn runs in the item's worktree,
+// and the Space gets a note saying where that is.
+func (s *server) attachSpace(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		WorkItemID *int64 `json:"workItemId"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	if in.WorkItemID == nil {
+		writeError(w, fmt.Errorf("%w: workItemId is required", store.ErrInvalid))
+		return
+	}
+	c, ch, err := s.claim(r.Context(), id, _noTurn)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	attached, err := s.attach(r.Context(), ch, *in.WorkItemID)
+	if err = c.release(err); err != nil {
+		writeError(w, err)
+		return
+	}
+	if l := s.lookup(id); l != nil {
+		s.stopLive(l)
+	}
+	writeJSON(w, http.StatusOK, attached)
+}
+
+func (s *server) attach(ctx context.Context, ch store.Space, workItemID int64) (store.Space, error) {
+	p, err := s.st.Project(ctx, ch.ProjectID)
+	if err != nil {
+		return store.Space{}, err
+	}
+	if !worktree.HasCommit(ctx, p.Path) {
+		return store.Space{}, fmt.Errorf("%w: project %s is not a git repo with a commit", store.ErrInvalid, p.Path)
+	}
+	attached, err := s.st.AttachSpace(ctx, ch.ID, workItemID)
+	if err != nil {
+		return store.Space{}, err
+	}
+	from := memory.Ref{Kind: memory.ScopeSpace, ID: strconv.FormatInt(ch.ID, 10)}
+	to := memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(workItemID, 10)}
+	if _, err := s.ms.Rescope(ctx, from, to); err != nil {
+		return store.Space{}, err
+	}
+	f, err := s.st.WorkItem(ctx, workItemID)
+	if err != nil {
+		return store.Space{}, err
+	}
+	body := fmt.Sprintf("This Space is now attached to work item %q (%d). It works in %s on %s.",
+		f.Title, f.ID, worktree.Path(s.dataDir, p.ID, f.TreeKey()), worktree.Branch(f.TreeKey()))
+	if dirty, err := worktree.Dirty(ctx, p.Path); err != nil {
+		log.Printf("check %s for changes: %v", p.Path, err)
+	} else if dirty {
+		body += " Uncommitted changes stay on the main checkout."
+	}
+	_, err = s.st.CreateMessage(ctx, store.Message{SpaceID: ch.ID, Author: store.ReefAuthor, Body: body})
+	return attached, err
+}
+
+func (s *server) listSpaceMembers(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	t, err := s.st.SpaceTeam(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, t.Roles)
+}
+
+func (s *server) addSpaceMember(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var in struct {
+		TeammateID int64 `json:"teammateId"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	role, err := s.st.AddSpaceMember(r.Context(), id, in.TeammateID)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, role)
 }
 
 func (s *server) reopenSpace(w http.ResponseWriter, r *http.Request) {

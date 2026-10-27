@@ -13,8 +13,8 @@ import (
 
 // Teammate is one persistent agent: who it is (persona, skills, face) and what runs it (backend,
 // model, provider). Tools, MCPServers, Write and PermissionMode are its default access rules,
-// copied into a team_member row when it joins a Team; editing them later leaves memberships
-// alone.
+// copied into a team_member or space_member row when it joins a Team or a Space; editing them
+// later leaves memberships alone.
 type Teammate struct {
 	ID             int64             `json:"id"`
 	Name           string            `json:"name"`
@@ -156,6 +156,15 @@ func (s *Store) DeleteTeammate(ctx context.Context, id int64) error {
 		return fmt.Errorf("%w: teammate %s is in team %s; remove it from the team first",
 			ErrInvalid, name, strings.Join(teams, ", "))
 	}
+	var spaces int
+	if err := tx.QueryRowContext(ctx,
+		"SELECT COUNT(*) FROM space_member WHERE teammate_id = ?", id).Scan(&spaces); err != nil {
+		return fmt.Errorf("read spaces of teammate: %w", err)
+	}
+	if spaces > 0 {
+		return fmt.Errorf("%w: teammate %s is a member of %d Spaces; delete them first",
+			ErrInvalid, name, spaces)
+	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM teammate WHERE id = ?", id); err != nil {
 		return fmt.Errorf("delete teammate: %w", err)
 	}
@@ -293,22 +302,6 @@ func checkLead(ctx context.Context, tx *sql.Tx, teamID, teammateID int64, lead b
 		return fmt.Errorf("read lead: %w", err)
 	}
 	return fmt.Errorf("%w: the team already has a lead, %s", ErrInvalid, name)
-}
-
-// MemberTeammateID returns the id of the Teammate that holds the role in the team, or
-// ErrNotFound.
-func (s *Store) MemberTeammateID(ctx context.Context, team, role string) (int64, error) {
-	var id int64
-	err := s.db.QueryRowContext(ctx,
-		"SELECT member.teammate_id FROM team_member member JOIN team ON team.id = member.team_id "+
-			"WHERE team.name = ? AND member.name = ?", team, role).Scan(&id)
-	if errors.Is(err, sql.ErrNoRows) {
-		return 0, fmt.Errorf("role %s in team %s: %w", role, team, ErrNotFound)
-	}
-	if err != nil {
-		return 0, fmt.Errorf("read teammate of role %s: %w", role, err)
-	}
-	return id, nil
 }
 
 func (s *Store) member(ctx context.Context, team string, teammateID int64) (Role, error) {

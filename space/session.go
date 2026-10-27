@@ -60,11 +60,10 @@ type runInput struct {
 }
 
 // TokenEnv carries the token to the Space's reef mcp. WrapCommand is the text that asks
-// for a wrap-up; PromoteCommand is the stored message of a promote turn.
+// for a wrap-up.
 const (
-	TokenEnv       = "REEF_TOKEN"
-	WrapCommand    = "/wrap"
-	PromoteCommand = "/promote"
+	TokenEnv    = "REEF_TOKEN"
+	WrapCommand = "/wrap"
 
 	_wrapPrompt = "Wrap up this Space. Call the get_brief tool first. Then call the " +
 		"propose_wrap tool once with the full brief rewritten as the latest brief plus what " +
@@ -84,17 +83,6 @@ const (
 	_directIntro = "Direct exchanges in this Space, private between two teammates:\n"
 	_directAsk   = "Propose as items what these exchanges decided or found that is not saved yet, " +
 		"and a brief that reflects the direct work that is complete.\n\n"
-
-	_promotePrompt = "This quick session is now work item %q (%d). Call the propose_wrap tool " +
-		"once with the first brief (goal, status, key decisions, open questions) written from " +
-		"this session, and the items made so far (decisions, findings, facts, lessons, " +
-		"conventions), each with its scope. " +
-		"Then reply with one line saying it is proposed."
-	_promoteIntoBriefPrompt = "This quick session is now part of work item %q (%d), which " +
-		"already has a brief. Call the get_brief tool first. Then call the propose_wrap tool " +
-		"once with the full brief rewritten to merge this session into the existing brief: " +
-		"keep its content and add this session's, and the items made so far. Then reply with " +
-		"one line saying it is proposed."
 )
 
 // ErrNoProposal is returned by Wrap when the agent made no proposal.
@@ -206,7 +194,7 @@ func (s *Session) allRead(ctx context.Context, role string, scopes store.Scopes)
 		}
 		sessionID = m.run.sessionID
 	} else {
-		team, err := s.st.Team(ctx, s.ch.Team)
+		team, err := s.st.SpaceTeam(ctx, s.ch.ID)
 		if err != nil {
 			return false
 		}
@@ -347,53 +335,6 @@ func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Pr
 	return s.propose(ctx, _wrapPrompt, onEvent)
 }
 
-// Promote runs a promote turn and returns the proposal the agent made, or ErrNoProposal.
-// The Space must already have its work item. Like Run, a cancelled ctx still stores the turn.
-// Every agent is stopped afterwards, so the next turn of each role runs in the work item's
-// worktree.
-func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
-	rctx := context.WithoutCancel(ctx)
-	ch, err := s.st.Space(rctx, s.ch.ID)
-	if err != nil {
-		return store.Proposal{}, err
-	}
-	if ch.WorkItemID == nil {
-		return store.Proposal{}, fmt.Errorf("%w: Space %d has no work item", store.ErrInvalid, ch.ID)
-	}
-	f, err := s.st.WorkItem(rctx, *ch.WorkItemID)
-	if err != nil {
-		return store.Proposal{}, err
-	}
-	prompt := _promotePrompt
-	if _, err := s.st.Brief(rctx, f.ID); err == nil {
-		prompt = _promoteIntoBriefPrompt
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return store.Proposal{}, err
-	}
-	if err := s.noteWorktree(rctx, f); err != nil {
-		return store.Proposal{}, err
-	}
-	p, err := s.propose(ctx, fmt.Sprintf(prompt, f.Title, f.ID), onEvent)
-	return p, errors.Join(err, s.closeMembers())
-}
-
-// noteWorktree tells the Space where its work goes from now on, and that uncommitted
-// changes of the main checkout stay there.
-func (s *Session) noteWorktree(ctx context.Context, f store.WorkItem) error {
-	dirty, err := worktree.Dirty(ctx, s.project.Path)
-	if err != nil {
-		log.Printf("check %s for changes: %v", s.project.Path, err)
-	}
-	body := fmt.Sprintf("This work item works in %s on %s.",
-		worktree.Path(s.dataDir, s.project.ID, f.TreeKey()), worktree.Branch(f.TreeKey()))
-	if dirty {
-		body += " Uncommitted changes stay on the main checkout."
-	}
-	_, err = s.st.CreateMessage(ctx,
-		store.Message{SpaceID: s.ch.ID, Author: store.ReefAuthor, Body: body})
-	return err
-}
-
 // Close ends the Session.
 func (s *Session) Close() error {
 	return errors.Join(s.closeMembers(), s.lock.Close())
@@ -410,16 +351,15 @@ func (s *Session) closeMembers() error {
 }
 
 // member returns the agent session of role, starting or resuming it from the role's own
-// newest turn with a session id on the role's backend. A new session reads the team from the
-// store, so a team applied since the Space opened is the one it gets, and its first prompt
-// reads the team and the role again when it is built. An agent that fails to start, for any
+// newest turn with a session id on the role's backend. A new session reads the Space's members
+// from the store, and its first prompt reads them and the role again when it is built. An agent that fails to start, for any
 // reason, leaves a failed turn for the role that keeps the wake it was starting for, and so
 // does a ctx cancelled before it starts: the turn is interrupted. The store is read even
 // then, as Run stores its turn. A role the team no longer has leaves one too, on the
 // Space's backend.
 func (s *Session) member(ctx context.Context, role string, in runInput) (_ *member, err error) {
 	wctx := context.WithoutCancel(ctx)
-	team, err := s.st.Team(wctx, s.ch.Team)
+	team, err := s.st.SpaceTeam(wctx, s.ch.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -536,7 +476,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		if err != nil {
 			return "", err
 		}
-		team, err := s.st.Team(ctx, s.ch.Team)
+		team, err := s.st.SpaceTeam(ctx, s.ch.ID)
 		if err != nil {
 			return "", err
 		}
@@ -574,7 +514,7 @@ func sameAccess(a, b agent.Config) bool {
 }
 
 // WorkDir is where an agent of Space spaceID runs: the worktree of its work item, or the
-// project for a quick session. The work item is read now, as a promote may have given it one
+// project for a quick session. The work item is read now, as an attach may have given it one
 // since the Space opened. key is the work item's tree key, empty for a quick session.
 func WorkDir(
 	ctx context.Context, st *store.Store, dataDir string, spaceID int64,
@@ -735,8 +675,8 @@ func (s *Session) propose(
 	return p, nil
 }
 
-// directExchanges is the Space's newest direct messages as plain text for a wrap-up or
-// promote prompt, or empty when there are none.
+// directExchanges is the Space's newest direct messages as plain text for a wrap-up prompt,
+// or empty when there are none.
 func (s *Session) directExchanges(ctx context.Context) (string, error) {
 	msgs, err := s.st.DirectMessages(ctx, s.ch.ID, 0)
 	if err != nil || len(msgs) == 0 {
