@@ -19,8 +19,19 @@ Five user surfaces exist so far:
 - The desktop app (`desktop/`): Electron around its own `reef serve` and the window, with a
   browser pane agents drive through `reef mcp` and a terminal pane. Contract: `docs/desktop.md`.
 
-The feature map is in [`features/README.md`](features/README.md). Read the matching feature
+The map of recipe files is in [`features/README.md`](features/README.md). Read the matching
 file before a run.
+
+## The model
+
+Recipes use the server's own nouns:
+
+- **Project**: a name and a repo folder.
+- **Work item**: a title, a description, acceptance lines, a type that is only a label (`feature`, `bug`, `incident`, `investigation`, `task`, `improvement`) and a status (`backlog`, `queued`, `in_progress`, `needs_you`, `review`, `done`, `dropped`). A top-level item has a Team, a brief and a worktree `<data folder>/worktrees/<project id>/<work item id>` on the branch `work-item/<id>`. A sub-item has a parent, shares its Space and worktree, has no brief, and only the lead moves it.
+- **Teammate**: a persona, skills, a backend, a model, a face and default access rules. A **Team** is a lead and members copied from Teammates, with a responsibility text; the seeded `solo` Team has the seeded `lead` Teammate. A Team works one top-level item at a time: the queue starts the next one when an item reaches `review`, `done` or `dropped`, and an item in `needs_you` keeps the Team busy.
+- **Space**: free (no work item), a work item's (one active Space per item) or a conversation (one Teammate, one session). Its members are Teammates; `@name` or Add Teammate moves a conversation to a new Space. A Space pauses at a cap and the work item goes to `needs_you`.
+- **Review**: the lead sets sub-items done and calls `submit_for_review` with proof (ticked acceptance lines with notes, test commands and output, screenshots); the user sends the item back with a note (to the top of the queue) or sets it `done`, which approves the lead's wrap-up.
+- **Memory items** live in the scopes `work_item`, `space`, `conversation`, `project`, `teammate` and `team`. Agents also have `create_sub_item`, `set_sub_item_status` (lead only), `submit_for_review` (lead only) and `propose_work_item`.
 
 All commands below run from the repo root. `H=.claude/skills/verify-reef/scripts/verify-reef`.
 Each Bash call starts a new shell, so pass `REEF_VERIFY_RUN=<id>` on every call.
@@ -42,7 +53,7 @@ the scratch cwd `<scratch>/cwd/`, and writes
 printed an id and exited 0.
 
 `<scratch>` is `/tmp/reef-verify/<id>` on Linux and `/private/tmp/reef-verify/<id>` on macOS: the
-helper resolves `/tmp` with `pwd -P`. This skill and its feature files write `<scratch>` for it.
+helper resolves `/tmp` with `pwd -P`. This skill and its recipe files write `<scratch>` for it.
 `<key>` is `<scratch>/cwd` with every character outside A-Z a-z 0-9 turned into `-`: claude keeps
 the scratch cwd's sessions in `~/.claude/projects/<key>/`.
 
@@ -72,7 +83,7 @@ REEF_VERIFY_CLAUDE=real ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run -- --
 ```
 
 In `fake` mode the binary reads one stdin line (one turn) at a time: it picks a scenario from
-the role (read off the first prompt, `You are the <role> on feature` / `in project`) and the
+the role (read off the first prompt, `You are the <role> on work item` / `in project`) and the
 newest message of the prompt's last wake block (after its `[Space N, message N]` header, reef's
 notes, `Asked together:` and the `New in the Space:` list: `<role> wrote: <body>` or the
 user's text), by a table of name/role/regexp in
@@ -173,7 +184,7 @@ Rules for live runs:
 ## Server
 
 `reef serve` is long-lived, so it is the one thing that stays up between Bash calls. One
-server per run, driven serially. Read the matching feature file first.
+server per run, driven serially. Read the matching recipe file first.
 
 Launch:
 
@@ -216,7 +227,7 @@ REEF_VERIFY_RUN=<id> $H serve-stop --kill
 Rules:
 - One long-lived server per run, driven serially. Never drive a `reef serve` this run did not start.
 - Every write sends JSON. A body that is not JSON is only for the 415 check.
-- Ids start at 1 on a fresh data folder and are never reused. Each feature file says which
+- Ids start at 1 on a fresh data folder and are never reused. Each recipe file says which
   state it assumes.
 - Quote lines of `api.log` (`> METHOD PATH body`, `< status body`) as proof, plus the
   `sql.log` rows for side effects.
@@ -226,7 +237,7 @@ Rules:
 
 The CLI, `reef mcp` and `reef chat` open the data folder themselves, so they need no
 server. They share the run's data folder with `serve-start` and `sql`. Read the matching
-feature file first.
+recipe file first.
 
 ```sh
 REEF_VERIFY_RUN=<id> $H reef --data-name cli -- project add
@@ -266,7 +277,7 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/
 
 Rules:
 - Every `--backend claude` `reef chat` drive sets `ANTHROPIC_MODEL=sonnet`. Keep chats to the
-  lines of the feature file.
+  lines of the recipe file.
 - Quote `reef.log` and `reef-mcp.log` lines as proof, plus the `sql.log` rows for side effects.
 
 ## Window
@@ -348,7 +359,7 @@ REEF_VERIFY_RUN=<id> $H ui pr        # the header PR chip opens the PR panel: ch
 
 `teams` needs the teams `duo` and `full` (and `inbox`, `theme`, `phone`, `coordination` need `duo`) applied to the `ui` folder first: run
 `$H reef --data-name ui -- team apply FILE.json` for each before `serve-start --data-name ui` (the
-files are in `features/teams.md`). `inbox` counts every item of the server, so run it first, or
+files are in `features/teammates.md`). `inbox` counts every item of the server, so run it first, or
 on a folder of its own (`--data-name inbox`, with `duo` applied). `inspector`, `review` and `workshop`
 need the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"`.
 
@@ -430,10 +441,27 @@ Rules:
 
 `REEF_VERIFY_RUN=<id> $H feature NAME` runs `features/NAME.sh` (needs `build` and `doctor`
 done) with `H`, `REEF_VERIFY_RUN`, `E` and `S` exported, tees its output to
-`~/.reef-verify/<id>/feature-NAME.log`, and exits 1 if any line is `FAIL`. So far there is
-`features/full-team.sh`, which drives every line of `full-team.md` and prints one
-`PASS <id>: ...` or `FAIL <id>: ...` per sub-feature id, in the order of its Sub-features list.
-It works the same whichever `claude` is on `PATH` (fake, record or real). Its five sections
+`~/.reef-verify/<id>/feature-NAME.log`, and exits 1 if any line is `FAIL`. Each script prints one
+`PASS <id>: ...` or `FAIL <id>: ...` per sub-feature id of its recipe file:
+
+| Script | Drives |
+| --- | --- |
+| `work-item-flow.sh` | the `flow-*` lines of `queue-and-review.md`, `work-items.md` and `conversations.md` and the `hop-*` lines of `caps.md`: two work items queued on a Team, the lead's sub-items, developer and tester, submit for review, send back, Done, a conversation with a Teammate added, a proposed work item, the hop cap |
+| `queue-and-review.sh` | the `queue-*` lines of `queue-and-review.md` |
+| `full-team.sh` | every line of `full-team.md` |
+| `github.sh` | every line of `github.md` |
+
+`work-item-flow` runs on the fake `claude` only: its recordings are the `flow-*` ones in
+`fake/recordings/`. Its three sections (`flow`, `conv`, `caps`) run at the same time, each as its
+own run `<id>/<section>` (`build`, `doctor`, its own scratch folder and server), so the run takes
+about a minute. Name sections after it to run only those (`$H feature work-item-flow conv`); an
+unknown section name exits 2. Each section's output is in `~/.reef-verify/<id>/<section>/work-item-flow.log`.
+
+```sh
+ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H feature work-item-flow
+```
+
+`full-team.sh` works the same whichever `claude` is on `PATH` (fake, record or real). Its five sections
 (`full`, `cx`, `ui2`, `google`, `fu`) run at the same time, each as its own run
 `<id>/<section>` (`build`, `doctor`, its own scratch folder and server), so the run takes about
 as long as its longest section (`google`, about 3.5 minutes on the fake). Each section's full output is in
