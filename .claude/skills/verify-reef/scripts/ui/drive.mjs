@@ -3522,6 +3522,7 @@ async function board() {
 
   await pick('Type', 'bug');
   await region('Backlog').getByRole('link', { name: 'login bug' }).waitFor();
+  await eventually(async () => (await main.getByRole('link').count()) === 1);
   const shown = await main.getByRole('link').allInnerTexts();
   check(shown.length === 1 && shown[0].startsWith('login bug'), 'the type filter hides the other types', shown.join(' | '));
   check(page.url().includes('type=bug'), 'the filter is in the URL', page.url());
@@ -3896,7 +3897,8 @@ async function workItemReview() {
   );
   await shot('sub-item-review-1280x800');
 
-  const bare = await call('POST', '/work-items', { projectId: pid, title: 'Review without proof', status: 'review' });
+  const bare = await call('POST', '/work-items', { projectId: pid, title: 'Review without proof' });
+  sql(`update work_item set status='review' where id=${bare.id}`, true);
   await page.goto(`${base}/work-items/${bare.id}`);
   const bareReview = main.getByRole('region', { name: 'Review', exact: true });
   await bareReview.getByText('No proof submitted.').waitFor();
