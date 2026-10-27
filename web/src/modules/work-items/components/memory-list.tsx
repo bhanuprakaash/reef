@@ -77,7 +77,7 @@ export function MemoryList({ items, faces, onRetire, retiring }: Props) {
         <div className="px-6 pb-5">
           <EmptyState
             title="Nothing remembered yet"
-            body="What the team saves for this feature lands here."
+            body="What the team saves for this Work item lands here."
             face="whale"
             compact
           />

@@ -15,7 +15,7 @@ export function reviewText(comments: ReviewComment[]): string {
     .join('\n\n');
 }
 
-// pickSpace returns the feature's Space whose team has a developer role, the most
+// pickSpace returns the Work item's Space whose team has a developer role, the most
 // recently created one when there are several.
 export function pickSpace(spaces: Space[], teams: Team[]): Space | undefined {
   const developerTeams = new Set(
@@ -44,7 +44,7 @@ export function useSendReview(workItemId: number) {
         spaces.filter((c) => c.workItemId === workItemId),
         teams,
       );
-      if (!space) throw new Error('no Space with a developer role on this feature');
+      if (!space) throw new Error('no Space with a developer role on this Work item');
       const messages = await queryClient.fetchQuery(messagesQuery(space.id));
       const parent = pickRoot(messages);
       const text = reviewText(comments);

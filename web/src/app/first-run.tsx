@@ -136,7 +136,7 @@ export function FirstRun() {
         <p className="text-base text-muted">
           {askName
             ? 'Your team uses your name when they talk to you.'
-            : 'Point Reef at a repo. Every feature you start there keeps its own memory, and a team works on it with you.'}
+            : 'Point Reef at a repo. Every Work item you start there keeps its own memory, and a team works on it with you.'}
         </p>
         {askName ? <NameStep /> : <ProjectStep />}
         <p className="text-[13px] text-muted">

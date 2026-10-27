@@ -81,7 +81,7 @@ describe('SpaceCard', () => {
     expect(useDiff).toHaveBeenCalledWith(2);
   });
 
-  it('has no branch or changes for a quick session and does not fetch a diff', () => {
+  it('has no branch or changes for a free Space and does not fetch a diff', () => {
     useDiff.mockClear();
     const markup = renderToStaticMarkup(
       <SpaceCard
@@ -96,7 +96,7 @@ describe('SpaceCard', () => {
     expect(useDiff).not.toHaveBeenCalled();
   });
 
-  it('says so when the feature has no changes', () => {
+  it('says so when the Work item has no changes', () => {
     useDiff.mockReturnValue({ data: [] });
     const markup = renderToStaticMarkup(
       <SpaceCard space={space} workItem={workItem} faces={faces} working={[]} waiting={[]} />,

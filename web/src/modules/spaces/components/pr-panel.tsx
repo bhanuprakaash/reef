@@ -67,7 +67,7 @@ export function PrPanel({ workItemId, onClose }: { workItemId: number; onClose: 
       {query.isPending && <p className="text-sm text-muted">Loading...</p>}
       {query.isError && <p className="text-sm text-danger">{query.error.message}</p>}
       {query.data && !pr && (
-        <p className="text-sm text-muted">No pull request for this feature yet.</p>
+        <p className="text-sm text-muted">No pull request for this Work item yet.</p>
       )}
       {pr && (
         <>

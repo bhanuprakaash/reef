@@ -38,7 +38,7 @@ describe('useDecideProposal', () => {
     expect(client.getQueryState(['memory', 'work_item:2'])?.isInvalidated).toBe(true);
   });
 
-  it('marks the project memory query stale after an approve in a quick session', async () => {
+  it('marks the project memory query stale after an approve in a free Space', async () => {
     const client = await approve(null);
 
     expect(client.getQueryState(['memory', 'project:1'])?.isInvalidated).toBe(true);

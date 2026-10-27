@@ -47,10 +47,10 @@ export function ProjectPage() {
           <h1 className="mt-1 text-[32px] font-normal tracking-[-0.02em]">{project.name}</h1>
         </div>
         <Button type="button" onClick={() => setDialog('space')}>
-          New quick session
+          New free Space
         </Button>
         <Button variant="primary" type="button" onClick={() => setDialog('work-item')}>
-          New feature
+          New Work item
         </Button>
       </header>
 
@@ -60,12 +60,12 @@ export function ProjectPage() {
         </div>
         <div className="flex min-w-[300px] flex-1 flex-col gap-4">
           <ProjectBaseBranchForm project={project} />
-          <Card title="Features">
+          <Card title="Work items">
             {workItems.isError && <p className="text-sm text-danger">{workItems.error.message}</p>}
             {projectWorkItems.length === 0 && (
               <EmptyState
-                title="No features yet"
-                body="Add one with New feature."
+                title="No Work items yet"
+                body="Add one with New Work item."
                 face="whale"
                 compact
               />
@@ -85,12 +85,12 @@ export function ProjectPage() {
               ))}
             </ul>
           </Card>
-          <Card title="Quick sessions">
+          <Card title="Free Spaces">
             {spaces.isError && <p className="text-sm text-danger">{spaces.error.message}</p>}
             {freeSpaces.length === 0 && (
               <EmptyState
-                title="No quick sessions"
-                body="Start one for a chat outside a feature."
+                title="No free Spaces"
+                body="Start one for a chat outside a Work item."
                 face="jellyfish"
                 compact
               />
@@ -112,12 +112,12 @@ export function ProjectPage() {
         </div>
       </div>
 
-      <Dialog open={dialog === 'work-item'} onClose={() => setDialog(null)} title="New feature">
+      <Dialog open={dialog === 'work-item'} onClose={() => setDialog(null)} title="New Work item">
         {dialog === 'work-item' && (
           <AddWorkItemForm projectId={id} onClose={() => setDialog(null)} />
         )}
       </Dialog>
-      <Dialog open={dialog === 'space'} onClose={() => setDialog(null)} title="New quick session">
+      <Dialog open={dialog === 'space'} onClose={() => setDialog(null)} title="New free Space">
         {dialog === 'space' && (
           <NewSpaceForm projectId={id} workItemId={null} onClose={() => setDialog(null)} />
         )}

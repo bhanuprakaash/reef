@@ -31,7 +31,7 @@ export function AddWorkItemForm({ projectId, onClose, onCreated }: Props) {
       <TextField
         className="w-full"
         placeholder="Title"
-        aria-label="Feature title"
+        aria-label="Work item title"
         value={title}
         onChange={(e) => setTitle(e.target.value)}
         required
@@ -40,7 +40,7 @@ export function AddWorkItemForm({ projectId, onClose, onCreated }: Props) {
         className="w-full"
         rows={3}
         placeholder="Description"
-        aria-label="Feature description"
+        aria-label="Work item description"
         value={description}
         onChange={(e) => setDescription(e.target.value)}
       />

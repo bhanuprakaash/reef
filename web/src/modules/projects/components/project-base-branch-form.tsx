@@ -26,7 +26,7 @@ export function ProjectBaseBranchForm({ project }: { project: Project }) {
           value={value}
           onChange={(e) => setDraft(e.target.value)}
         />
-        <p className="text-[12.5px] text-muted">New features start here, and PRs target it.</p>
+        <p className="text-[12.5px] text-muted">New Work items start here, and PRs target it.</p>
         {update.isError && <p className="text-sm text-danger">{update.error.message}</p>}
         <div className="flex items-center justify-end gap-2.5">
           {update.isSuccess && draft === null && (

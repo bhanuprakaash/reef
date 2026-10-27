@@ -178,13 +178,13 @@ export function HomePage() {
         )}
       </section>
 
-      <section aria-labelledby="today-features" className="flex flex-col gap-2.5">
-        <h2 id="today-features" className="text-[15px]">
-          Features
+      <section aria-labelledby="today-work-items" className="flex flex-col gap-2.5">
+        <h2 id="today-work-items" className="text-[15px]">
+          Work items
         </h2>
         {projectWorkItems?.length === 0 && (
           <p className="text-[13px] text-muted">
-            No features yet. Add one from <span className="md:hidden">Spaces.</span>
+            No Work items yet. Add one from <span className="md:hidden">Spaces.</span>
             <span className="hidden md:inline">the sidebar.</span>
           </p>
         )}

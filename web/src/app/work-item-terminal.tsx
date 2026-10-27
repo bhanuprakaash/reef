@@ -3,8 +3,8 @@ import { useEnsureWorktree } from '@/modules/work-items/api/ensure-worktree';
 import { useWorktree } from '@/modules/work-items/api/get-worktree';
 import { Button } from '@/components/button';
 
-// WorkItemTerminal opens the shell in the feature's worktree when there is one. Without one it
-// asks first, so showing the terminal never makes a worktree by itself. Key it by feature.
+// WorkItemTerminal opens the shell in the Work item's worktree when there is one. Without one it
+// asks first, so showing the terminal never makes a worktree by itself. Key it by Work item.
 export function WorkItemTerminal({
   workItemId,
   onHide,

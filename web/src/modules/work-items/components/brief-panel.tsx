@@ -46,7 +46,7 @@ export function BriefPanel({ versions }: { versions: Brief[] }) {
       {!latest ? (
         <EmptyState
           title="No brief yet"
-          body="What this feature is for goes here."
+          body="What this Work item is for goes here."
           face="whale"
           compact
         />

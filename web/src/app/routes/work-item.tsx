@@ -113,7 +113,7 @@ export function WorkItemPage() {
             disabled={setClosed.isPending}
             onClick={() => (f.closedAt === null ? setDialog('close') : setClosed.mutate(false))}
           >
-            {f.closedAt === null ? 'Close feature' : 'Reopen'}
+            {f.closedAt === null ? 'Close Work item' : 'Reopen'}
           </Button>
         </div>
       </header>
@@ -159,7 +159,7 @@ export function WorkItemPage() {
           </Card>
         </div>
       </div>
-      <Dialog open={dialog === 'edit'} onClose={() => setDialog(null)} title="Edit feature">
+      <Dialog open={dialog === 'edit'} onClose={() => setDialog(null)} title="Edit Work item">
         {dialog === 'edit' && <WorkItemForm item={f} onDone={() => setDialog(null)} />}
       </Dialog>
       <Dialog open={dialog === 'space'} onClose={() => setDialog(null)} title="New Space">
@@ -167,7 +167,7 @@ export function WorkItemPage() {
           <NewSpaceForm projectId={f.projectId} workItemId={id} onClose={() => setDialog(null)} />
         )}
       </Dialog>
-      <Dialog open={dialog === 'close'} onClose={() => setDialog(null)} title="Close feature">
+      <Dialog open={dialog === 'close'} onClose={() => setDialog(null)} title="Close Work item">
         <p className="mb-5 text-sm text-muted">
           Close {f.title}? Its Spaces close too and their agents stop. You can reopen it later.
         </p>
@@ -183,7 +183,7 @@ export function WorkItemPage() {
               setDialog(null);
             }}
           >
-            Close feature
+            Close Work item
           </Button>
         </div>
       </Dialog>
