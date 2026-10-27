@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { useDecideReview } from '@/modules/features/api/decide-review';
-import { useProof } from '@/modules/features/api/get-proof';
+import { useDecideReview } from '@/modules/work-items/api/decide-review';
+import { useProof } from '@/modules/work-items/api/get-proof';
 import { useProposal } from '@/modules/spaces/api/get-proposal';
 import { ProposalBody } from '@/modules/spaces/components/proposal-body';
 import { Button } from '@/components/button';

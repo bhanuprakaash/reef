@@ -10,6 +10,6 @@ export function useReorderQueue() {
         method: 'PUT',
         body: JSON.stringify({ position }),
       }),
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['features'] }),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: ['work-items'] }),
   });
 }

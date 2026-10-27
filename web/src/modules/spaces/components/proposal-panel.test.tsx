@@ -34,7 +34,7 @@ const proposal: Proposal = {
 function render(pending: Proposal | undefined, decided?: object) {
   useProposal.mockReturnValue({ data: pending, isError: false });
   useDecideProposal.mockReturnValue({ data: decided, isPending: false, isError: false });
-  return renderToStaticMarkup(<ProposalPanel spaceId={1} featureId={2} faces={{}} />);
+  return renderToStaticMarkup(<ProposalPanel spaceId={1} workItemId={2} faces={{}} />);
 }
 
 describe('ProposalPanel', () => {

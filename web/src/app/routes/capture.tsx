@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useCurrentProject } from '@/lib/current-project';
 import { useTeammates } from '@/lib/api/get-teammates';
-import { useCreateFeature } from '@/modules/features/api/create-feature';
+import { useCreateWorkItem } from '@/modules/work-items/api/create-work-item';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { useStartConversation } from '@/modules/spaces/api/start-conversation';
 import { Button } from '@/components/button';
@@ -23,7 +23,7 @@ const TYPES: { value: WorkItemType; label: string }[] = [
 export function CapturePage() {
   const projects = useProjects();
   const teammates = useTeammates();
-  const createItem = useCreateFeature();
+  const createItem = useCreateWorkItem();
   const startConversation = useStartConversation();
   const [project, pickProject] = useCurrentProject(projects.data);
   const [type, setType] = useState<WorkItemType>('task');

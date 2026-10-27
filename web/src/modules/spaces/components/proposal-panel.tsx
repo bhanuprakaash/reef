@@ -7,15 +7,15 @@ import { Creature, type Faces } from '@/components/creature';
 
 export function ProposalPanel({
   spaceId,
-  featureId,
+  workItemId,
   faces,
 }: {
   spaceId: number;
-  featureId: number | null;
+  workItemId: number | null;
   faces: Faces;
 }) {
   const proposal = useProposal(spaceId);
-  const decide = useDecideProposal(spaceId, featureId);
+  const decide = useDecideProposal(spaceId, workItemId);
   const panel = useRef<HTMLElement>(null);
   const proposalId = proposal.data?.id;
 

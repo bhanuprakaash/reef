@@ -1,9 +1,9 @@
 import { Fragment, type ReactNode, useState } from 'react';
 import { Link } from 'react-router';
-import { type DiffScope } from '@/modules/features/api/get-diff';
-import { type ReviewComment, useSendReview } from '@/modules/features/api/send-review';
-import { diffCounts } from '@/modules/features/utils/diff-counts';
-import { buildFileTree, type TreeNode } from '@/modules/features/utils/file-tree';
+import { type DiffScope } from '@/modules/work-items/api/get-diff';
+import { type ReviewComment, useSendReview } from '@/modules/work-items/api/send-review';
+import { diffCounts } from '@/modules/work-items/utils/diff-counts';
+import { buildFileTree, type TreeNode } from '@/modules/work-items/utils/file-tree';
 import type { DiffLine, FileDiff } from '@/types/api';
 import { Button } from '@/components/button';
 import { Creature, type Look } from '@/components/creature';
@@ -42,8 +42,8 @@ function Counts({ files }: { files: FileDiff[] }) {
 
 type Props = {
   files: FileDiff[];
-  featureId: number;
-  featureName: string;
+  workItemId: number;
+  workItemName: string;
   branch: string;
   baseBranch: string;
   scope: DiffScope;
@@ -55,8 +55,8 @@ type Props = {
 
 export function DiffPanel({
   files,
-  featureId,
-  featureName,
+  workItemId,
+  workItemName,
   branch,
   baseBranch,
   scope,
@@ -72,7 +72,7 @@ export function DiffPanel({
   const [treeView, toggleTreeView] = useStoredFlag('reef.diffFileTree');
   const [collapsed, setCollapsed] = useState<string[]>([]);
   const wide = useMediaQuery('(min-width: 768px)');
-  const send = useSendReview(featureId);
+  const send = useSendReview(workItemId);
   const file = files.find((f) => f.path === selected) ?? files[0];
 
   function addComment() {
@@ -148,8 +148,8 @@ export function DiffPanel({
         className={`flex min-h-14 flex-wrap items-center gap-2.5 border-b border-hairline py-2 pl-3.5 pr-3.5 md:pl-[22px] md:pr-4 ${actions ? '' : 'in-data-desktop:pr-[88px]!'}`}
       >
         {leading}
-        <Link to={`/features/${featureId}`} className="text-[13px] text-muted hover:text-fg">
-          {featureName}
+        <Link to={`/work-items/${workItemId}`} className="text-[13px] text-muted hover:text-fg">
+          {workItemName}
         </Link>
         <svg
           width="12"

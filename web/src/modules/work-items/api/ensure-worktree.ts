@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import { worktreeKey } from '@/modules/features/api/get-worktree';
+import { worktreeKey } from '@/modules/work-items/api/get-worktree';
 
 // useEnsureWorktree makes the work item's worktree, the same way a first wake would, and
 // returns its path. It runs only when the user asks for the terminal, never on page view.

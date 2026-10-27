@@ -6,7 +6,7 @@ import type { Proposal } from '@/types/api';
 type Decision = { proposal: Proposal; action: 'approve' | 'reject' };
 type Decided = Proposal & { itemsAdded?: number; warnings?: string[] };
 
-export function useDecideProposal(spaceId: number, featureId: number | null) {
+export function useDecideProposal(spaceId: number, workItemId: number | null) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: ({ proposal, action }: Decision) =>
@@ -18,8 +18,8 @@ export function useDecideProposal(spaceId: number, featureId: number | null) {
       void queryClient.invalidateQueries({ queryKey: ['proposal', spaceId] });
       void queryClient.invalidateQueries({ queryKey: ['spaces'] });
       void queryClient.invalidateQueries({ queryKey: memoryRootKey });
-      if (featureId === null) return;
-      void queryClient.invalidateQueries({ queryKey: briefsKey(featureId) });
+      if (workItemId === null) return;
+      void queryClient.invalidateQueries({ queryKey: briefsKey(workItemId) });
     },
   });
 }

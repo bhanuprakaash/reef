@@ -6,9 +6,9 @@ import { Dialog } from '@/components/dialog';
 import { Select } from '@/components/select';
 import { useTeams } from '@/lib/api/get-teams';
 import { useCurrentProject } from '@/lib/current-project';
-import { featuresQuery } from '@/modules/features/api/get-features';
-import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
-import { Board } from '@/modules/features/components/board';
+import { workItemsQuery } from '@/modules/work-items/api/get-work-items';
+import { AddWorkItemForm } from '@/modules/work-items/components/add-work-item-form';
+import { Board } from '@/modules/work-items/components/board';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import type { WorkItemType } from '@/types/api';
 
@@ -22,7 +22,7 @@ const TYPES: WorkItemType[] = [
 ];
 
 export function BoardPage() {
-  const features = useQuery({ ...featuresQuery, refetchInterval: 5000 });
+  const workItems = useQuery({ ...workItemsQuery, refetchInterval: 5000 });
   const teams = useTeams();
   const projects = useProjects();
   const [current] = useCurrentProject(projects.data);
@@ -35,14 +35,14 @@ export function BoardPage() {
   const filter = (key: string) => (value: string) =>
     setParams((p) => (p.set(key, value), p), { replace: true });
 
-  const items = (features.data ?? []).filter(
+  const items = (workItems.data ?? []).filter(
     (i) =>
       (type === 'all' || i.type === type) &&
       (team === 'all' || String(i.teamId) === team) &&
       (project === 'all' || String(i.projectId) === project),
   );
   const addTo = projects.data?.find((p) => String(p.id) === project) ?? current;
-  const error = features.error ?? teams.error ?? projects.error;
+  const error = workItems.error ?? teams.error ?? projects.error;
 
   return (
     <div className="flex flex-col gap-4 py-2">
@@ -86,7 +86,7 @@ export function BoardPage() {
       <Board items={items} teams={teams.data ?? []} />
       <Dialog open={adding} onClose={() => setAdding(false)} title="New work item">
         {adding && addTo && (
-          <AddFeatureForm projectId={addTo.id} onClose={() => setAdding(false)} />
+          <AddWorkItemForm projectId={addTo.id} onClose={() => setAdding(false)} />
         )}
       </Dialog>
     </div>

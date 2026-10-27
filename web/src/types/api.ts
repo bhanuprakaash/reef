@@ -266,7 +266,7 @@ export type Inspector = {
   turns: InspectorTurn[];
 };
 
-export type FeaturePR = {
+export type WorkItemPR = {
   number: number;
   title: string;
   state: 'OPEN' | 'MERGED' | 'CLOSED';

@@ -4,9 +4,9 @@ import type { SpacePreview, WorkItem, FileDiff } from '@/types/api';
 import { SpaceCard, spaceState } from './space-hovercard';
 
 const { useDiff } = vi.hoisted(() => ({ useDiff: vi.fn() }));
-vi.mock('@/modules/features/api/get-diff', () => ({ useDiff }));
+vi.mock('@/modules/work-items/api/get-diff', () => ({ useDiff }));
 
-const feature: WorkItem = {
+const workItem: WorkItem = {
   id: 2,
   projectId: 1,
   parentId: null,
@@ -69,7 +69,7 @@ describe('SpaceCard', () => {
     const markup = renderToStaticMarkup(
       <SpaceCard
         space={space}
-        feature={feature}
+        workItem={workItem}
         faces={faces}
         working={['developer']}
         waiting={[]}
@@ -86,7 +86,7 @@ describe('SpaceCard', () => {
     const markup = renderToStaticMarkup(
       <SpaceCard
         space={{ ...space, workItemId: null }}
-        feature={undefined}
+        workItem={undefined}
         faces={faces}
         working={[]}
         waiting={[]}
@@ -99,7 +99,7 @@ describe('SpaceCard', () => {
   it('says so when the feature has no changes', () => {
     useDiff.mockReturnValue({ data: [] });
     const markup = renderToStaticMarkup(
-      <SpaceCard space={space} feature={feature} faces={faces} working={[]} waiting={[]} />,
+      <SpaceCard space={space} workItem={workItem} faces={faces} working={[]} waiting={[]} />,
     );
     expect(text(markup)).toContain('Changes No changes yet');
   });

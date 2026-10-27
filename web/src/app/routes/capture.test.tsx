@@ -2,8 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CapturePage } from './capture';
 
-const { useCreateFeature, useProjects, useTeammates, useStartConversation } = vi.hoisted(() => ({
-  useCreateFeature: vi.fn(),
+const { useCreateWorkItem, useProjects, useTeammates, useStartConversation } = vi.hoisted(() => ({
+  useCreateWorkItem: vi.fn(),
   useProjects: vi.fn(),
   useTeammates: vi.fn(() => ({ data: [] })),
   useStartConversation: vi.fn(() => ({
@@ -15,7 +15,7 @@ const { useCreateFeature, useProjects, useTeammates, useStartConversation } = vi
   })),
 }));
 
-vi.mock('@/modules/features/api/create-feature', () => ({ useCreateFeature }));
+vi.mock('@/modules/work-items/api/create-work-item', () => ({ useCreateWorkItem }));
 vi.mock('@/modules/projects/api/get-projects', () => ({ useProjects }));
 vi.mock('@/lib/api/get-teammates', () => ({ useTeammates }));
 vi.mock('@/modules/spaces/api/start-conversation', () => ({ useStartConversation }));
@@ -31,7 +31,7 @@ describe('CapturePage', () => {
   it('shows the error when the capture request fails', () => {
     stubWindow();
     useProjects.mockReturnValue({ data: [] });
-    useCreateFeature.mockReturnValue({
+    useCreateWorkItem.mockReturnValue({
       isPending: false,
       isError: true,
       isSuccess: false,
@@ -47,7 +47,7 @@ describe('CapturePage', () => {
   it('shows Captured after a successful capture in a plain browser', () => {
     stubWindow();
     useProjects.mockReturnValue({ data: [] });
-    useCreateFeature.mockReturnValue({
+    useCreateWorkItem.mockReturnValue({
       isPending: false,
       isError: false,
       isSuccess: true,
@@ -63,7 +63,7 @@ describe('CapturePage', () => {
   it('does not show Captured in the desktop window', () => {
     stubWindow({ capture: vi.fn() });
     useProjects.mockReturnValue({ data: [] });
-    useCreateFeature.mockReturnValue({
+    useCreateWorkItem.mockReturnValue({
       isPending: false,
       isError: false,
       isSuccess: true,

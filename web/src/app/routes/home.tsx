@@ -6,8 +6,8 @@ import { EmptyState } from '@/components/empty-state';
 import { useSpaces } from '@/lib/api/get-spaces';
 import { useTeams } from '@/lib/api/get-teams';
 import { useCurrentProject } from '@/lib/current-project';
-import { useCreateFeature } from '@/modules/features/api/create-feature';
-import { useFeatures } from '@/modules/features/api/get-features';
+import { useCreateWorkItem } from '@/modules/work-items/api/create-work-item';
+import { useWorkItems } from '@/modules/work-items/api/get-work-items';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { InboxRow } from '@/modules/inbox/components/inbox-row';
 import { itemKey } from '@/modules/inbox/utils/new-items';
@@ -22,7 +22,7 @@ function greeting(now: Date) {
 
 function QuickCapture() {
   const projects = useProjects();
-  const create = useCreateFeature();
+  const create = useCreateWorkItem();
   const [text, setText] = useState('');
   const [project] = useCurrentProject(projects.data);
   const isDesktop = typeof window !== 'undefined' && window.reef != null;
@@ -88,25 +88,25 @@ function QuickCapture() {
   );
 }
 
-function FeatureCard({ feature }: { feature: WorkItem }) {
+function WorkItemCard({ workItem }: { workItem: WorkItem }) {
   const spaces = useSpaces();
   const teams = useTeams();
   const inbox = useInbox();
-  const mine = spaces.data?.filter((c) => c.workItemId === feature.id) ?? [];
+  const mine = spaces.data?.filter((c) => c.workItemId === workItem.id) ?? [];
   const latest = mine[mine.length - 1];
   const team = teams.data?.find((t) => t.name === latest?.team);
   const roles = team ? team.roles.map((r) => r.name) : latest ? [latest.role] : [];
   const faces = roleFaces(teams.data, latest?.team);
-  const waiting = inbox.data?.some((i) => i.workItemId === feature.id) ?? false;
+  const waiting = inbox.data?.some((i) => i.workItemId === workItem.id) ?? false;
 
   return (
     <Link
-      to={`/features/${feature.id}`}
+      to={`/work-items/${workItem.id}`}
       className="flex flex-1 flex-col gap-3 rounded-card bg-sidebar p-4 [--creature-ring:var(--color-sidebar)]"
     >
       <div className="flex items-center gap-2">
-        <span className="truncate text-base">{feature.title}</span>
-        <span className="ml-auto shrink-0 text-[12.5px] text-muted">{feature.status}</span>
+        <span className="truncate text-base">{workItem.title}</span>
+        <span className="ml-auto shrink-0 text-[12.5px] text-muted">{workItem.status}</span>
       </div>
       <div
         className={`flex items-center gap-2 text-[13px] ${waiting ? 'text-paused' : 'text-muted'}`}
@@ -124,15 +124,15 @@ function FeatureCard({ feature }: { feature: WorkItem }) {
 
 export function HomePage() {
   const projects = useProjects();
-  const features = useFeatures();
+  const workItems = useWorkItems();
   const inbox = useInbox();
   const spaces = useSpaces();
   const [project] = useCurrentProject(projects.data);
   const now = new Date();
 
   const waiting = inbox.data ?? [];
-  const error = projects.error ?? features.error ?? inbox.error;
-  const projectFeatures = features.data?.filter((f) => f.projectId === project?.id);
+  const error = projects.error ?? workItems.error ?? inbox.error;
+  const projectWorkItems = workItems.data?.filter((f) => f.projectId === project?.id);
   const summary = [
     waiting.length > 0 &&
       (waiting.length === 1 ? 'One thing waits on you.' : `${waiting.length} things wait on you.`),
@@ -182,16 +182,16 @@ export function HomePage() {
         <h2 id="today-features" className="text-[15px]">
           Features
         </h2>
-        {projectFeatures?.length === 0 && (
+        {projectWorkItems?.length === 0 && (
           <p className="text-[13px] text-muted">
             No features yet. Add one from <span className="md:hidden">Spaces.</span>
             <span className="hidden md:inline">the sidebar.</span>
           </p>
         )}
         <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-          {projectFeatures?.map((f) => (
+          {projectWorkItems?.map((f) => (
             <li key={f.id} className="flex">
-              <FeatureCard feature={f} />
+              <WorkItemCard workItem={f} />
             </li>
           ))}
         </ul>

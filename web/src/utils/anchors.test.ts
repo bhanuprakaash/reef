@@ -30,6 +30,6 @@ describe('itemPath', () => {
       workItemId: 7,
     };
 
-    expect(itemPath(review)).toBe('/features/7');
+    expect(itemPath(review)).toBe('/work-items/7');
   });
 });

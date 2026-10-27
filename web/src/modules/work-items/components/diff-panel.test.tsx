@@ -1,13 +1,13 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
-import type { DiffScope } from '@/modules/features/api/get-diff';
+import type { DiffScope } from '@/modules/work-items/api/get-diff';
 import type { FileDiff } from '@/types/api';
 import { DiffPanel } from './diff-panel';
 
 const { useSendReview } = vi.hoisted(() => ({ useSendReview: vi.fn() }));
 
-vi.mock('@/modules/features/api/send-review', () => ({
+vi.mock('@/modules/work-items/api/send-review', () => ({
   useSendReview,
 }));
 
@@ -17,8 +17,8 @@ function render(files: FileDiff[], scope: DiffScope = 'current') {
     <MemoryRouter>
       <DiffPanel
         files={files}
-        featureId={1}
-        featureName="Login"
+        workItemId={1}
+        workItemName="Login"
         branch="work-item/1"
         baseBranch="dev"
         scope={scope}

@@ -10,6 +10,6 @@ function itemAnchor(item: InboxItem): string {
 }
 
 export function itemPath(item: InboxItem): string {
-  if (item.spaceId === 0) return `/features/${item.workItemId}`;
+  if (item.spaceId === 0) return `/work-items/${item.workItemId}`;
   return `/spaces/${item.spaceId}#${itemAnchor(item)}`;
 }

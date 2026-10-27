@@ -6,7 +6,7 @@ import { useDecideProposal } from './decide-proposal';
 
 const proposal = { id: 3 } as Proposal;
 
-async function approve(featureId: number | null) {
+async function approve(workItemId: number | null) {
   vi.stubGlobal(
     'fetch',
     vi.fn(async () => new Response(JSON.stringify({ id: 3, status: 'approved' }))),
@@ -16,7 +16,7 @@ async function approve(featureId: number | null) {
   client.setQueryData(['memory', 'work_item:2'], []);
   let decide!: ReturnType<typeof useDecideProposal>;
   function Probe() {
-    decide = useDecideProposal(1, featureId);
+    decide = useDecideProposal(1, workItemId);
     return null;
   }
   renderToStaticMarkup(

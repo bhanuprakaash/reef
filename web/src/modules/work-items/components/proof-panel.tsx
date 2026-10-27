@@ -1,5 +1,5 @@
 import { Link } from 'react-router';
-import { useProof } from '@/modules/features/api/get-proof';
+import { useProof } from '@/modules/work-items/api/get-proof';
 import { Card } from '@/components/card';
 import { EmptyState } from '@/components/empty-state';
 

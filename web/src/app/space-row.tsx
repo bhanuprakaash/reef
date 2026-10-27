@@ -7,7 +7,7 @@ import { StatusDot } from '@/components/status-dot';
 import { useTeammates } from '@/lib/api/get-teammates';
 import { useTeams } from '@/lib/api/get-teams';
 import { useRunningTurns } from '@/modules/spaces/api/get-turns';
-import { useFeatures } from '@/modules/features/api/get-features';
+import { useWorkItems } from '@/modules/work-items/api/get-work-items';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import type { SpacePreview } from '@/types/api';
 import { roleFaces } from '@/utils/role-faces';
@@ -18,7 +18,7 @@ const oneLine = (m: NonNullable<SpacePreview['lastMessage']>) =>
 
 export function SpaceRow({ space: c }: { space: SpacePreview }) {
   const { pathname } = useLocation();
-  const features = useFeatures();
+  const workItems = useWorkItems();
   const teams = useTeams();
   const teammates = useTeammates();
   const inbox = useInbox();
@@ -31,7 +31,7 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
       : roleFaces(teams.data, c.team);
   const roles = Object.keys(faces);
   const roleNames = (running.data ?? []).filter((t) => t.spaceId === c.id).map((t) => t.role);
-  const feature = features.data?.find((f) => f.id === c.workItemId);
+  const workItem = workItems.data?.find((f) => f.id === c.workItemId);
   const title = c.kind === 'work_item' ? `#${c.name}` : c.name;
 
   return (
@@ -39,7 +39,7 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
       content={
         <SpaceCard
           space={c}
-          feature={feature}
+          workItem={workItem}
           faces={faces}
           working={roleNames}
           waiting={waiting.filter((i) => i.spaceId === c.id).map((i) => i.kind)}

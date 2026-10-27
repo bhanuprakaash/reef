@@ -14,7 +14,7 @@ export function useDecideReview(workItemId: number) {
         body: JSON.stringify(decision),
       }),
     onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: ['features'] });
+      void queryClient.invalidateQueries({ queryKey: ['work-items'] });
       void queryClient.invalidateQueries({ queryKey: ['proposal'] });
       void queryClient.invalidateQueries({ queryKey: ['spaces'] });
       void queryClient.invalidateQueries({ queryKey: memoryRootKey });

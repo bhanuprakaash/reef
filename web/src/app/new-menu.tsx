@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router';
 import { Dialog } from '@/components/dialog';
 import { Menu, MenuItem } from '@/components/menu';
 import { useDismiss } from '@/lib/use-dismiss';
-import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
+import { AddWorkItemForm } from '@/modules/work-items/components/add-work-item-form';
 import { NewConversationForm } from '@/modules/spaces/components/new-conversation-form';
 import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
 import type { Project } from '@/types/api';
@@ -66,14 +66,14 @@ export function NewMenu({ project }: { project: Project | undefined }) {
       {project && (
         <Dialog open={creating !== null} onClose={close} title={TITLES[creating ?? 'space']}>
           {creating === 'work-item' && (
-            <AddFeatureForm
+            <AddWorkItemForm
               projectId={project.id}
               onClose={close}
-              onCreated={(item) => void navigate(`/features/${item.id}`)}
+              onCreated={(item) => void navigate(`/work-items/${item.id}`)}
             />
           )}
           {creating === 'space' && (
-            <NewSpaceForm projectId={project.id} featureId={null} onClose={close} />
+            <NewSpaceForm projectId={project.id} workItemId={null} onClose={close} />
           )}
           {creating === 'conversation' && (
             <NewConversationForm projectId={project.id} onClose={close} />

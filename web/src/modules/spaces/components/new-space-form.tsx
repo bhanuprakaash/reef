@@ -10,9 +10,9 @@ import { TextField } from '@/components/text-field';
 
 const labelClass = 'mb-1.5 block text-[12.5px] text-muted';
 
-type Props = { projectId: number; featureId: number | null; onClose: () => void };
+type Props = { projectId: number; workItemId: number | null; onClose: () => void };
 
-export function NewSpaceForm({ projectId, featureId, onClose }: Props) {
+export function NewSpaceForm({ projectId, workItemId, onClose }: Props) {
   const [backend, setBackend] = useState('');
   const [permissionMode, setPermissionMode] = useState('');
   const [team, setTeam] = useState('solo');
@@ -32,7 +32,7 @@ export function NewSpaceForm({ projectId, featureId, onClose }: Props) {
         create.mutate(
           {
             projectId,
-            workItemId: featureId,
+            workItemId,
             name: name.trim() || `${backend || team} ${time}`,
             team,
             backend,

@@ -43,7 +43,7 @@ type Props = {
   space: SpaceDetail;
   scope: ReactNode;
   status?: string;
-  features: WorkItem[];
+  workItems: WorkItem[];
   diff?: { added: number; removed: number };
   diffPanel?: (onClose: () => void) => ReactNode;
   brief?: string;
@@ -64,7 +64,7 @@ export function SpaceView({
   space,
   scope,
   status,
-  features,
+  workItems,
   diff,
   diffPanel,
   brief,
@@ -169,7 +169,7 @@ export function SpaceView({
       {space.workItemId === null && (
         <Dialog open={attaching} onClose={() => setAttaching(false)} title="Attach to a work item">
           {attaching && (
-            <AttachForm space={space} workItems={features} onClose={() => setAttaching(false)} />
+            <AttachForm space={space} workItems={workItems} onClose={() => setAttaching(false)} />
           )}
         </Dialog>
       )}
@@ -216,7 +216,7 @@ export function SpaceView({
               />
               <CheckpointRows spaceId={space.id} running={running} />
               <DeniedToolRows space={space} roles={roles} running={running} />
-              <ProposalPanel spaceId={space.id} featureId={space.workItemId} faces={faces} />
+              <ProposalPanel spaceId={space.id} workItemId={space.workItemId} faces={faces} />
             </div>
           </div>
           {!atBottom && (
@@ -349,7 +349,7 @@ export function SpaceView({
                 <InspectorPanel spaceId={space.id} faces={faces} onClose={closeSide} />
               )}
               {side?.kind === 'pr' && space.workItemId !== null && (
-                <PrPanel featureId={space.workItemId} onClose={closeSide} />
+                <PrPanel workItemId={space.workItemId} onClose={closeSide} />
               )}
             </div>
           </div>
@@ -376,7 +376,7 @@ export function SpaceView({
               </div>
               <TeamPanel
                 spaceId={space.id}
-                featureId={space.workItemId}
+                workItemId={space.workItemId}
                 roles={roles}
                 working={running ? working : null}
                 brief={brief}

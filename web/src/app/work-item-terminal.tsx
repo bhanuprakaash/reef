@@ -1,13 +1,19 @@
 import { TerminalPane } from '@/app/terminal-pane';
-import { useEnsureWorktree } from '@/modules/features/api/ensure-worktree';
-import { useWorktree } from '@/modules/features/api/get-worktree';
+import { useEnsureWorktree } from '@/modules/work-items/api/ensure-worktree';
+import { useWorktree } from '@/modules/work-items/api/get-worktree';
 import { Button } from '@/components/button';
 
-// FeatureTerminal opens the shell in the feature's worktree when there is one. Without one it
+// WorkItemTerminal opens the shell in the feature's worktree when there is one. Without one it
 // asks first, so showing the terminal never makes a worktree by itself. Key it by feature.
-export function FeatureTerminal({ featureId, onHide }: { featureId: number; onHide: () => void }) {
-  const worktree = useWorktree(featureId);
-  const ensure = useEnsureWorktree(featureId);
+export function WorkItemTerminal({
+  workItemId,
+  onHide,
+}: {
+  workItemId: number;
+  onHide: () => void;
+}) {
+  const worktree = useWorktree(workItemId);
+  const ensure = useEnsureWorktree(workItemId);
   if (worktree.data?.path) return <TerminalPane cwd={worktree.data.path} onHide={onHide} />;
   if (!worktree.data && !worktree.isError) return null;
   const error = worktree.error ?? ensure.error;

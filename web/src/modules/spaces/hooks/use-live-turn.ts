@@ -41,7 +41,7 @@ export function useLiveTurn(spaceId: number): LiveTurn {
         void queryClient.invalidateQueries({ queryKey: ['spaces'] });
         void queryClient.invalidateQueries({ queryKey: ['proposal', spaceId] });
         void queryClient.invalidateQueries({ queryKey: inspectorKey(spaceId) });
-        void queryClient.invalidateQueries({ queryKey: ['features'] });
+        void queryClient.invalidateQueries({ queryKey: ['work-items'] });
       } else if (data.status === 'failed') {
         void refresh();
       }

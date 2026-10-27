@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { FeatureTerminal } from '@/app/feature-terminal';
+import { WorkItemTerminal } from '@/app/work-item-terminal';
 import { ReviewPanel } from '@/app/review-panel';
 import { useTerminal } from '@/app/use-terminal';
 import { SpaceList } from '@/modules/spaces/components/space-list';
@@ -9,18 +9,18 @@ import { useMemory } from '@/lib/api/get-memory';
 import { useRetireMemory } from '@/lib/api/retire-memory';
 import { useTeams } from '@/lib/api/get-teams';
 import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
-import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
-import { useDiff } from '@/modules/features/api/get-diff';
-import { useFeature } from '@/modules/features/api/get-feature';
-import { useSetFeatureClosed } from '@/modules/features/api/set-feature-closed';
-import { AcceptanceLines } from '@/modules/features/components/acceptance-lines';
-import { BriefPanel } from '@/modules/features/components/brief-panel';
-import { MemoryList } from '@/modules/features/components/memory-list';
-import { FeatureForm } from '@/modules/features/components/feature-form';
-import { ProofPanel } from '@/modules/features/components/proof-panel';
-import { SubItems } from '@/modules/features/components/sub-items';
-import { diffCounts } from '@/modules/features/utils/diff-counts';
-import { statusLabel } from '@/modules/features/utils/status-label';
+import { useBriefVersions } from '@/modules/work-items/api/get-brief-versions';
+import { useDiff } from '@/modules/work-items/api/get-diff';
+import { useWorkItem } from '@/modules/work-items/api/get-work-item';
+import { useSetWorkItemClosed } from '@/modules/work-items/api/set-work-item-closed';
+import { AcceptanceLines } from '@/modules/work-items/components/acceptance-lines';
+import { BriefPanel } from '@/modules/work-items/components/brief-panel';
+import { MemoryList } from '@/modules/work-items/components/memory-list';
+import { WorkItemForm } from '@/modules/work-items/components/work-item-form';
+import { ProofPanel } from '@/modules/work-items/components/proof-panel';
+import { SubItems } from '@/modules/work-items/components/sub-items';
+import { diffCounts } from '@/modules/work-items/utils/diff-counts';
+import { statusLabel } from '@/modules/work-items/utils/status-label';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { roleFaces } from '@/utils/role-faces';
 import { BackButton } from '@/components/back-button';
@@ -30,17 +30,17 @@ import { Chip } from '@/components/chip';
 import { Dialog } from '@/components/dialog';
 
 function ParentLink({ id }: { id: number }) {
-  const parent = useFeature(id);
+  const parent = useWorkItem(id);
   return (
-    <Link to={`/features/${id}`} className="border-b border-line text-soft">
+    <Link to={`/work-items/${id}`} className="border-b border-line text-soft">
       {parent.data?.title ?? `work item ${id}`}
     </Link>
   );
 }
 
-export function FeaturePage() {
+export function WorkItemPage() {
   const id = Number(useParams().id);
-  const feature = useFeature(id);
+  const workItem = useWorkItem(id);
   const projects = useProjects();
   const briefs = useBriefVersions(id);
   const scope = `work_item:${id}`;
@@ -50,16 +50,16 @@ export function FeaturePage() {
   const spaces = useSpaces();
   const teams = useTeams();
   const terminal = useTerminal(true);
-  const setClosed = useSetFeatureClosed(id);
+  const setClosed = useSetWorkItemClosed(id);
   const [dialog, setDialog] = useState<'edit' | 'space' | 'close' | null>(null);
 
-  if (feature.isPending) return <p className="text-sm text-muted">Loading...</p>;
-  if (feature.isError) return <p className="text-sm text-danger">{feature.error.message}</p>;
+  if (workItem.isPending) return <p className="text-sm text-muted">Loading...</p>;
+  if (workItem.isError) return <p className="text-sm text-danger">{workItem.error.message}</p>;
 
-  const f = feature.data;
+  const f = workItem.data;
   const project = projects.data?.find((p) => p.id === f.projectId);
-  const featureSpaces = spaces.data?.filter((c) => c.workItemId === id) ?? [];
-  const latestSpace = featureSpaces[featureSpaces.length - 1];
+  const workItemSpaces = spaces.data?.filter((c) => c.workItemId === id) ?? [];
+  const latestSpace = workItemSpaces[workItemSpaces.length - 1];
   const team = teams.data?.find((t) => t.id === f.teamId);
   const reviewing = f.parentId === null && f.status === 'review';
 
@@ -87,7 +87,7 @@ export function FeaturePage() {
               diff.data &&
               (diff.data.length ? (
                 <Link
-                  to={`/features/${id}/review`}
+                  to={`/work-items/${id}/review`}
                   className="ml-2 inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap hover:text-fg md:min-h-0"
                 >
                   <span aria-hidden="true">·</span>
@@ -151,7 +151,7 @@ export function FeaturePage() {
             {spaces.isError ? (
               <p className="text-sm text-danger">{spaces.error.message}</p>
             ) : (
-              <SpaceList spaces={featureSpaces} />
+              <SpaceList spaces={workItemSpaces} />
             )}
             <Button type="button" className="mt-3" onClick={() => setDialog('space')}>
               New Space
@@ -160,11 +160,11 @@ export function FeaturePage() {
         </div>
       </div>
       <Dialog open={dialog === 'edit'} onClose={() => setDialog(null)} title="Edit feature">
-        {dialog === 'edit' && <FeatureForm item={f} onDone={() => setDialog(null)} />}
+        {dialog === 'edit' && <WorkItemForm item={f} onDone={() => setDialog(null)} />}
       </Dialog>
       <Dialog open={dialog === 'space'} onClose={() => setDialog(null)} title="New Space">
         {dialog === 'space' && (
-          <NewSpaceForm projectId={f.projectId} featureId={id} onClose={() => setDialog(null)} />
+          <NewSpaceForm projectId={f.projectId} workItemId={id} onClose={() => setDialog(null)} />
         )}
       </Dialog>
       <Dialog open={dialog === 'close'} onClose={() => setDialog(null)} title="Close feature">
@@ -189,7 +189,7 @@ export function FeaturePage() {
       </Dialog>
       {terminal.open && (
         <div className="sticky bottom-0 z-10 overflow-hidden rounded-card border border-hairline">
-          <FeatureTerminal key={id} featureId={id} onHide={terminal.hide} />
+          <WorkItemTerminal key={id} workItemId={id} onHide={terminal.hide} />
         </div>
       )}
     </div>

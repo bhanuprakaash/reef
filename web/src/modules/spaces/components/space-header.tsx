@@ -90,7 +90,7 @@ export function SpaceHeader({
           <span className="flex min-w-0 items-center gap-2 text-[13px] text-muted">{scope}</span>
         ) : (
           <Link
-            to={`/features/${space.workItemId}`}
+            to={`/work-items/${space.workItemId}`}
             className="flex min-w-0 items-center gap-2 text-[13px] text-muted hover:text-fg"
           >
             {scope}
@@ -186,7 +186,7 @@ export function SpaceHeader({
           <span className="max-md:hidden">Team</span>
         </Button>
         {space.workItemId !== null && (
-          <Link to={`/features/${space.workItemId}`} className={`${buttonClass()} ml-1.5`}>
+          <Link to={`/work-items/${space.workItemId}`} className={`${buttonClass()} ml-1.5`}>
             Open Work item
           </Link>
         )}

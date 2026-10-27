@@ -12,7 +12,7 @@ export function useAttachSpace(spaceId: number) {
     onSuccess: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: ['spaces'] }),
-        queryClient.invalidateQueries({ queryKey: ['features'] }),
+        queryClient.invalidateQueries({ queryKey: ['work-items'] }),
         queryClient.invalidateQueries({ queryKey: ['messages', spaceId] }),
       ]),
   });

@@ -1,18 +1,18 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
-import type { FeaturePR } from '@/types/api';
+import type { WorkItemPR } from '@/types/api';
 import { PrPanel } from './pr-panel';
 
-const { useFeaturePR, useMergeFeaturePR } = vi.hoisted(() => ({
-  useFeaturePR: vi.fn(),
-  useMergeFeaturePR: vi.fn(),
+const { useWorkItemPR, useMergeWorkItemPR } = vi.hoisted(() => ({
+  useWorkItemPR: vi.fn(),
+  useMergeWorkItemPR: vi.fn(),
 }));
 
-vi.mock('@/modules/spaces/api/get-feature-pr', () => ({ useFeaturePR }));
-vi.mock('@/modules/spaces/api/merge-feature-pr', () => ({ useMergeFeaturePR }));
+vi.mock('@/modules/spaces/api/get-work-item-pr', () => ({ useWorkItemPR }));
+vi.mock('@/modules/spaces/api/merge-work-item-pr', () => ({ useMergeWorkItemPR }));
 
-const pr: FeaturePR = {
+const pr: WorkItemPR = {
   number: 12,
   title: 'Add login',
   state: 'OPEN',
@@ -32,12 +32,12 @@ const pr: FeaturePR = {
   ],
 };
 
-function render(data: FeaturePR) {
-  useFeaturePR.mockReturnValue({ isPending: false, isError: false, data: { pr: data } });
-  useMergeFeaturePR.mockReturnValue({ isPending: false, isError: false });
+function render(data: WorkItemPR) {
+  useWorkItemPR.mockReturnValue({ isPending: false, isError: false, data: { pr: data } });
+  useMergeWorkItemPR.mockReturnValue({ isPending: false, isError: false });
   return renderToStaticMarkup(
     <MemoryRouter>
-      <PrPanel featureId={4} onClose={() => {}} />
+      <PrPanel workItemId={4} onClose={() => {}} />
     </MemoryRouter>,
   );
 }
@@ -71,7 +71,7 @@ describe('PrPanel', () => {
     ]) {
       expect(markup).toMatch(
         new RegExp(
-          `<a [^>]*href="/features/4/review"[^>]*>(?:(?!</a>).)*${path}(?:(?!</a>).)*\\+${add}(?:(?!</a>).)*−${del}(?:(?!</a>).)*</a>`,
+          `<a [^>]*href="/work-items/4/review"[^>]*>(?:(?!</a>).)*${path}(?:(?!</a>).)*\\+${add}(?:(?!</a>).)*−${del}(?:(?!</a>).)*</a>`,
           's',
         ),
       );

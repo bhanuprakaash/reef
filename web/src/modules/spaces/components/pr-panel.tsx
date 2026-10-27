@@ -3,9 +3,9 @@ import { Link } from 'react-router';
 import { Button, buttonClass } from '@/components/button';
 import { Dialog } from '@/components/dialog';
 import { StageChip } from '@/components/stage-chip';
-import { useFeaturePR } from '@/modules/spaces/api/get-feature-pr';
-import { useMergeFeaturePR } from '@/modules/spaces/api/merge-feature-pr';
-import type { FeaturePR } from '@/types/api';
+import { useWorkItemPR } from '@/modules/spaces/api/get-work-item-pr';
+import { useMergeWorkItemPR } from '@/modules/spaces/api/merge-work-item-pr';
+import type { WorkItemPR } from '@/types/api';
 
 const REVIEW: Record<string, string> = {
   APPROVED: 'Approved',
@@ -13,14 +13,14 @@ const REVIEW: Record<string, string> = {
   REVIEW_REQUIRED: 'Review required',
 };
 
-const STATE: Record<FeaturePR['state'], { label: string; color: string }> = {
+const STATE: Record<WorkItemPR['state'], { label: string; color: string }> = {
   OPEN: { label: 'Open', color: 'var(--color-done)' },
   MERGED: { label: 'Merged', color: 'var(--color-architect)' },
   CLOSED: { label: 'Closed', color: 'var(--color-failed)' },
 };
 
 const CHECK_ICON: Record<
-  FeaturePR['checks'][number]['state'],
+  WorkItemPR['checks'][number]['state'],
   { label: string; cls: string; d: string }
 > = {
   pass: { label: 'passed', cls: 'text-done', d: 'M5 12.5l4.5 4.5L19 7' },
@@ -32,9 +32,9 @@ const CHECK_ICON: Record<
   },
 };
 
-export function PrPanel({ featureId, onClose }: { featureId: number; onClose: () => void }) {
-  const query = useFeaturePR(featureId);
-  const merge = useMergeFeaturePR(featureId);
+export function PrPanel({ workItemId, onClose }: { workItemId: number; onClose: () => void }) {
+  const query = useWorkItemPR(workItemId);
+  const merge = useMergeWorkItemPR(workItemId);
   const [confirming, setConfirming] = useState(false);
   const pr = query.data?.pr;
 
@@ -135,7 +135,7 @@ export function PrPanel({ featureId, onClose }: { featureId: number; onClose: ()
                 {pr.files.map((f) => (
                   <li key={f.path}>
                     <Link
-                      to={`/features/${featureId}/review`}
+                      to={`/work-items/${workItemId}/review`}
                       className="flex items-center gap-2.5 rounded-menu bg-field px-3 py-2 text-[13.5px] hover:bg-hover"
                     >
                       <span className="min-w-0 flex-1 truncate font-mono">{f.path}</span>

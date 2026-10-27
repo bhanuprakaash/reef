@@ -3,15 +3,15 @@ import { Link, useNavigate, useParams } from 'react-router';
 import { buttonClass } from '@/components/button';
 import { useSpaces } from '@/lib/api/get-spaces';
 import { useTeams } from '@/lib/api/get-teams';
-import { featuresQuery } from '@/modules/features/api/get-features';
-import { TeamQueue } from '@/modules/features/components/team-queue';
+import { workItemsQuery } from '@/modules/work-items/api/get-work-items';
+import { TeamQueue } from '@/modules/work-items/components/team-queue';
 import { RoleRow } from '@/modules/teams/components/role-row';
 
 export function TeamPage() {
   const { name = '' } = useParams();
   const navigate = useNavigate();
   const teams = useTeams();
-  const items = useQuery({ ...featuresQuery, refetchInterval: 5000 });
+  const items = useQuery({ ...workItemsQuery, refetchInterval: 5000 });
   const spaces = useSpaces();
   const team = teams.data?.find((t) => t.name === name);
   const error = teams.error ?? items.error ?? spaces.error;

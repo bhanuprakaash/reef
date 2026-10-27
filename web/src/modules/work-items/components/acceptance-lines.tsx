@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useUpdateFeature } from '@/modules/features/api/update-feature';
+import { useUpdateWorkItem } from '@/modules/work-items/api/update-work-item';
 import type { WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
@@ -9,7 +9,7 @@ import { TextField } from '@/components/text-field';
 
 export function AcceptanceLines({ item }: { item: WorkItem }) {
   const [text, setText] = useState('');
-  const update = useUpdateFeature(item.id);
+  const update = useUpdateWorkItem(item.id);
   const lines = item.acceptanceLines;
   const ticked = lines.filter((l) => l.checked).length;
 

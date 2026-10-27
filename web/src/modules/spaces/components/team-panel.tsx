@@ -7,7 +7,7 @@ import { Creature, type CreatureState } from '@/components/creature';
 
 type Props = {
   spaceId: number;
-  featureId: number | null;
+  workItemId: number | null;
   roles: Role[];
   working: string | null;
   brief?: string;
@@ -24,7 +24,7 @@ const stateLabel: Record<CreatureState, string> = {
   failed: 'failed',
 };
 
-export function TeamPanel({ spaceId, featureId, roles, working, brief, onClose }: Props) {
+export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose }: Props) {
   const inspector = useInspector(spaceId, true);
 
   function stateOf(role: Role): CreatureState {
@@ -90,7 +90,7 @@ export function TeamPanel({ spaceId, featureId, roles, working, brief, onClose }
           })}
         </ul>
       </div>
-      {featureId !== null && (
+      {workItemId !== null && (
         <div>
           <h2 className="mb-1.5 text-[13px] text-muted">Brief</h2>
           <div className="text-[13.5px] text-soft">

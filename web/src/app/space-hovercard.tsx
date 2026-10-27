@@ -1,8 +1,8 @@
 import { Creature, type CreatureState, type Faces } from '@/components/creature';
 import { Skeleton } from '@/components/skeleton';
 import { StatusDot, type Status } from '@/components/status-dot';
-import { useDiff } from '@/modules/features/api/get-diff';
-import { diffCounts } from '@/modules/features/utils/diff-counts';
+import { useDiff } from '@/modules/work-items/api/get-diff';
+import { diffCounts } from '@/modules/work-items/utils/diff-counts';
 import type { SpacePreview, WorkItem, InboxItem } from '@/types/api';
 
 export function spaceState(
@@ -18,8 +18,8 @@ export function spaceState(
   return { status: 'asleep', label: 'Idle' };
 }
 
-function Changes({ featureId }: { featureId: number }) {
-  const diff = useDiff(featureId);
+function Changes({ workItemId }: { workItemId: number }) {
+  const diff = useDiff(workItemId);
   if (diff.isError) return <span className="text-danger">Unavailable</span>;
   if (!diff.data) return <Skeleton className="h-4 w-24" />;
   if (diff.data.length === 0) return <span className="text-muted">No changes yet</span>;
@@ -34,13 +34,13 @@ function Changes({ featureId }: { featureId: number }) {
 
 export function SpaceCard({
   space,
-  feature,
+  workItem,
   faces,
   working,
   waiting,
 }: {
   space: SpacePreview;
-  feature: WorkItem | undefined;
+  workItem: WorkItem | undefined;
   faces: Faces;
   working: string[];
   waiting: InboxItem['kind'][];
@@ -57,13 +57,13 @@ export function SpaceCard({
           <span className="line-clamp-2">{state.label}</span>
         </div>
       </div>
-      {feature && (
+      {workItem && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[13px]">
           <dt className="text-muted">Branch</dt>
-          <dd className="truncate font-mono text-xs leading-5">work-item/{feature.id}</dd>
+          <dd className="truncate font-mono text-xs leading-5">work-item/{workItem.id}</dd>
           <dt className="text-muted">Changes</dt>
           <dd>
-            <Changes featureId={feature.id} />
+            <Changes workItemId={workItem.id} />
           </dd>
         </dl>
       )}

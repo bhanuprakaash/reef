@@ -2,42 +2,42 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter, Route, Routes } from 'react-router';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { FeaturePage } from './feature';
+import { WorkItemPage } from './work-item';
 
 const hooks = vi.hoisted(() => ({
-  useFeature: vi.fn(),
+  useWorkItem: vi.fn(),
   useDiff: vi.fn(),
   none: () => ({ data: [], isPending: false, isError: false }),
 }));
 
-vi.mock('@/modules/features/api/get-feature', () => ({ useFeature: hooks.useFeature }));
-vi.mock('@/modules/features/api/get-diff', () => ({ useDiff: hooks.useDiff }));
-vi.mock('@/modules/features/api/get-brief-versions', () => ({ useBriefVersions: hooks.none }));
+vi.mock('@/modules/work-items/api/get-work-item', () => ({ useWorkItem: hooks.useWorkItem }));
+vi.mock('@/modules/work-items/api/get-diff', () => ({ useDiff: hooks.useDiff }));
+vi.mock('@/modules/work-items/api/get-brief-versions', () => ({ useBriefVersions: hooks.none }));
 vi.mock('@/lib/api/get-memory', () => ({ useMemory: hooks.none }));
-vi.mock('@/modules/features/api/set-feature-closed', () => ({
-  useSetFeatureClosed: () => ({ isError: false, mutate: vi.fn() }),
+vi.mock('@/modules/work-items/api/set-work-item-closed', () => ({
+  useSetWorkItemClosed: () => ({ isError: false, mutate: vi.fn() }),
 }));
 vi.mock('@/modules/projects/api/get-projects', () => ({ useProjects: hooks.none }));
 vi.mock('@/lib/api/get-spaces', () => ({ useSpaces: hooks.none }));
 vi.mock('@/lib/api/get-teams', () => ({ useTeams: hooks.none }));
 vi.mock('@/app/use-terminal', () => ({ useTerminal: () => ({}) }));
-vi.mock('@/app/feature-terminal', () => ({ FeatureTerminal: () => null }));
+vi.mock('@/app/work-item-terminal', () => ({ WorkItemTerminal: () => null }));
 
 function render() {
   return renderToStaticMarkup(
     <QueryClientProvider client={new QueryClient()}>
-      <MemoryRouter initialEntries={['/features/1']}>
+      <MemoryRouter initialEntries={['/work-items/1']}>
         <Routes>
-          <Route path="/features/:id" element={<FeaturePage />} />
+          <Route path="/work-items/:id" element={<WorkItemPage />} />
         </Routes>
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
-describe('FeaturePage header', () => {
+describe('WorkItemPage header', () => {
   beforeEach(() => {
-    hooks.useFeature.mockReturnValue({
+    hooks.useWorkItem.mockReturnValue({
       isPending: false,
       isError: false,
       data: {
@@ -79,15 +79,15 @@ describe('FeaturePage header', () => {
 
   it('links a sub-item to its parent and leaves out the brief, sub-items and proof', () => {
     hooks.useDiff.mockReturnValue({ isPending: true, isError: false, data: undefined });
-    hooks.useFeature.mockReturnValue({
+    hooks.useWorkItem.mockReturnValue({
       isPending: false,
       isError: false,
-      data: { ...hooks.useFeature().data, id: 2, parentId: 1, title: 'Step', type: 'task' },
+      data: { ...hooks.useWorkItem().data, id: 2, parentId: 1, title: 'Step', type: 'task' },
     });
 
     const html = render();
 
-    expect(html).toMatch(/sub-item of <a [^>]*href="\/features\/1"/);
+    expect(html).toMatch(/sub-item of <a [^>]*href="\/work-items\/1"/);
     expect(html).not.toContain('>Brief<');
     expect(html).not.toContain('>Sub-items<');
     expect(html).not.toContain('>Proof<');

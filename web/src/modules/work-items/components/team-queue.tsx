@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { useReorderQueue } from '@/modules/features/api/reorder-queue';
-import { dropAction } from '@/modules/features/utils/board-drop';
-import { statusLabel } from '@/modules/features/utils/status-label';
+import { useReorderQueue } from '@/modules/work-items/api/reorder-queue';
+import { dropAction } from '@/modules/work-items/utils/board-drop';
+import { statusLabel } from '@/modules/work-items/utils/status-label';
 import type { Space, WorkItem } from '@/types/api';
 
 type Props = { items: WorkItem[]; spaces: Space[] };
@@ -36,7 +36,7 @@ export function TeamQueue({ items, spaces }: Props) {
           {active ? statusLabel(active.status) : 'Idle'}
         </h2>
         {active ? (
-          <Link to={space ? `/spaces/${space.id}` : `/features/${active.id}`} className={row}>
+          <Link to={space ? `/spaces/${space.id}` : `/work-items/${active.id}`} className={row}>
             <span className="min-w-0 flex-1">
               <span className="block text-[14.5px] break-words">{active.title}</span>
               <span className="block text-xs text-muted">
@@ -62,7 +62,7 @@ export function TeamQueue({ items, spaces }: Props) {
           {queued.map((item) => (
             <li key={item.id} onDragOver={(e) => e.preventDefault()} onDrop={() => drop(item)}>
               <Link
-                to={`/features/${item.id}`}
+                to={`/work-items/${item.id}`}
                 draggable
                 onDragStart={() => {
                   reorder.reset();

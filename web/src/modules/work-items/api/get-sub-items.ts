@@ -4,7 +4,7 @@ import type { WorkItem } from '@/types/api';
 
 export function useSubItems(parentId: number) {
   return useQuery({
-    queryKey: ['features', parentId, 'sub-items'],
+    queryKey: ['work-items', parentId, 'sub-items'],
     queryFn: () => api<WorkItem[]>(`/work-items?parent=${parentId}`),
   });
 }

@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { useCreateFeature } from '@/modules/features/api/create-feature';
+import { useCreateWorkItem } from '@/modules/work-items/api/create-work-item';
 import { Button } from '@/components/button';
 import { TextArea } from '@/components/text-area';
 import { TextField } from '@/components/text-field';
@@ -7,10 +7,10 @@ import type { WorkItem } from '@/types/api';
 
 type Props = { projectId: number; onClose: () => void; onCreated?: (item: WorkItem) => void };
 
-export function AddFeatureForm({ projectId, onClose, onCreated }: Props) {
+export function AddWorkItemForm({ projectId, onClose, onCreated }: Props) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
-  const create = useCreateFeature();
+  const create = useCreateWorkItem();
 
   return (
     <form

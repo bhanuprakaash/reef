@@ -4,7 +4,7 @@ import { CapturePage } from '@/app/routes/capture';
 import { BoardPage } from '@/app/routes/board';
 import { SpacePage } from '@/app/routes/space';
 import { ConversationsPage, SpacesPage } from '@/app/routes/spaces';
-import { FeaturePage } from '@/app/routes/feature';
+import { WorkItemPage } from '@/app/routes/work-item';
 import { HomePage } from '@/app/routes/home';
 import { InboxPage } from '@/app/routes/inbox';
 import { ProjectPage } from '@/app/routes/project';
@@ -22,8 +22,8 @@ export const router = createBrowserRouter([
     children: [
       { path: '/', element: <HomePage /> },
       { path: '/board', element: <BoardPage /> },
-      { path: '/features/:id', element: <FeaturePage /> },
-      { path: '/features/:id/review', element: <ReviewPage /> },
+      { path: '/work-items/:id', element: <WorkItemPage /> },
+      { path: '/work-items/:id/review', element: <ReviewPage /> },
       { path: '/spaces', element: <SpacesPage /> },
       { path: '/conversations', element: <ConversationsPage /> },
       { path: '/spaces/:id', element: <SpacePage /> },

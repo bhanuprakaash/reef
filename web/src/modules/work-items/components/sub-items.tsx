@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { useCreateFeature } from '@/modules/features/api/create-feature';
-import { useSubItems } from '@/modules/features/api/get-sub-items';
-import { statusLabel } from '@/modules/features/utils/status-label';
+import { useCreateWorkItem } from '@/modules/work-items/api/create-work-item';
+import { useSubItems } from '@/modules/work-items/api/get-sub-items';
+import { statusLabel } from '@/modules/work-items/utils/status-label';
 import type { WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
@@ -12,7 +12,7 @@ import { TextField } from '@/components/text-field';
 export function SubItems({ parent }: { parent: WorkItem }) {
   const [title, setTitle] = useState('');
   const subs = useSubItems(parent.id);
-  const create = useCreateFeature();
+  const create = useCreateWorkItem();
 
   return (
     <Card title="Sub-items">
@@ -29,7 +29,7 @@ export function SubItems({ parent }: { parent: WorkItem }) {
         {subs.data?.map((s) => (
           <li key={s.id}>
             <Link
-              to={`/features/${s.id}`}
+              to={`/work-items/${s.id}`}
               className="flex min-h-10 items-center gap-2.5 text-soft hover:text-fg"
             >
               {s.title}

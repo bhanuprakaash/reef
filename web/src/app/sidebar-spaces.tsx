@@ -2,7 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router';
 import { SpaceRow } from '@/app/space-row';
 import { spacesQuery } from '@/lib/api/get-spaces';
-import { featuresQuery } from '@/modules/features/api/get-features';
+import { workItemsQuery } from '@/modules/work-items/api/get-work-items';
 import type { Project, SpacePreview } from '@/types/api';
 
 const RECENT_CONVERSATIONS = 8;
@@ -42,7 +42,7 @@ function Section({
 
 export function SidebarSpaces({ project, query }: { project: Project; query: string }) {
   const spaces = useQuery({ ...spacesQuery, refetchInterval: 5000 });
-  const items = useQuery({ ...featuresQuery, refetchInterval: 5000 });
+  const items = useQuery({ ...workItemsQuery, refetchInterval: 5000 });
 
   const q = query.trim().toLowerCase();
   const mine = (spaces.data ?? []).filter(

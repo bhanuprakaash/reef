@@ -1,8 +1,8 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { useMoveFeature } from '@/modules/features/api/move-feature';
-import { useReorderQueue } from '@/modules/features/api/reorder-queue';
-import { COLUMNS, dropAction } from '@/modules/features/utils/board-drop';
+import { useMoveWorkItem } from '@/modules/work-items/api/move-work-item';
+import { useReorderQueue } from '@/modules/work-items/api/reorder-queue';
+import { COLUMNS, dropAction } from '@/modules/work-items/utils/board-drop';
 import type { Team, WorkItem, WorkItemStatus } from '@/types/api';
 
 type Props = { items: WorkItem[]; teams: Team[] };
@@ -10,7 +10,7 @@ type Props = { items: WorkItem[]; teams: Team[] };
 const byPosition = (a: WorkItem, b: WorkItem) => (a.queuePosition ?? 0) - (b.queuePosition ?? 0);
 
 export function Board({ items, teams }: Props) {
-  const move = useMoveFeature();
+  const move = useMoveWorkItem();
   const reorder = useReorderQueue();
   const [dragging, setDragging] = useState<WorkItem | null>(null);
   const [refusal, setRefusal] = useState<string | null>(null);
@@ -30,7 +30,7 @@ export function Board({ items, teams }: Props) {
     return (
       <li key={item.id} onDrop={(e) => (e.stopPropagation(), drop(item.status, item))}>
         <Link
-          to={`/features/${item.id}`}
+          to={`/work-items/${item.id}`}
           draggable
           onDragStart={() => {
             setRefusal(null);

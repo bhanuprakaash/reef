@@ -9,7 +9,7 @@ import { Logo } from '@/components/logo';
 import { Row } from '@/components/row';
 import { useProfile } from '@/lib/api/get-profile';
 import { useCurrentProject } from '@/lib/current-project';
-import { useFeatures } from '@/modules/features/api/get-features';
+import { useWorkItems } from '@/modules/work-items/api/get-work-items';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { useInboxEvents } from '@/modules/inbox/hooks/use-inbox-events';
 import { useProjects } from '@/modules/projects/api/get-projects';
@@ -79,16 +79,16 @@ export function Sidebar() {
   const navigate = useNavigate();
   const projects = useProjects();
   const profileName = useProfile().data?.name ?? '';
-  const features = useFeatures();
+  const workItems = useWorkItems();
   const inbox = useInbox();
   useInboxEvents(useCallback((item) => void navigate(itemPath(item)), [navigate]));
   const [query, setQuery] = useState('');
 
   const [current] = useCurrentProject(projects.data);
-  const error = projects.error ?? features.error;
+  const error = projects.error ?? workItems.error;
   const waiting = inbox.data ?? [];
   const openItems =
-    features.data?.filter(
+    workItems.data?.filter(
       (f) => f.projectId === current?.id && f.status !== 'done' && f.status !== 'dropped',
     ).length ?? 0;
 

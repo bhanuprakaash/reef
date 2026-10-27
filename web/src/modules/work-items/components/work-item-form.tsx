@@ -1,14 +1,14 @@
 import { useState } from 'react';
-import { useUpdateFeature } from '@/modules/features/api/update-feature';
+import { useUpdateWorkItem } from '@/modules/work-items/api/update-work-item';
 import type { WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
 import { TextArea } from '@/components/text-area';
 import { TextField } from '@/components/text-field';
 
-export function FeatureForm({ item, onDone }: { item: WorkItem; onDone: () => void }) {
+export function WorkItemForm({ item, onDone }: { item: WorkItem; onDone: () => void }) {
   const [title, setTitle] = useState(item.title);
   const [description, setDescription] = useState(item.description);
-  const update = useUpdateFeature(item.id);
+  const update = useUpdateWorkItem(item.id);
 
   return (
     <form

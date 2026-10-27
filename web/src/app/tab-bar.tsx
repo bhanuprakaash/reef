@@ -48,7 +48,7 @@ function Tab({
 export function TabBar({ onMenu }: { onMenu: () => void }) {
   const inbox = useInbox();
   const inSpace = useMatch('/spaces/:id');
-  const inReview = useMatch('/features/:id/review');
+  const inReview = useMatch('/work-items/:id/review');
   if (inSpace || inReview) return null;
 
   return (
