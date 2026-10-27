@@ -9,8 +9,8 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -112,7 +112,7 @@ func (s *server) updateFeature(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, f)
 }
 
-// closeFeature closes the feature and all its channels, and stops their agents. A channel with
+// closeFeature closes the feature and all its Spaces, and stops their agents. A Space with
 // a turn running is 409 and nothing is closed.
 func (s *server) closeFeature(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
@@ -120,7 +120,7 @@ func (s *server) closeFeature(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	cs, err := s.st.Channels(r.Context(), store.ChannelFilter{FeatureID: &id})
+	cs, err := s.st.Spaces(r.Context(), store.SpaceFilter{FeatureID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -131,12 +131,12 @@ func (s *server) closeFeature(w http.ResponseWriter, r *http.Request) {
 			busy := l.state != _idle
 			l.mu.Unlock()
 			if busy {
-				writeError(w, fmt.Errorf("channel %d has a turn running: %w", c.ID, store.ErrConflict))
+				writeError(w, fmt.Errorf("space %d has a turn running: %w", c.ID, store.ErrConflict))
 				return
 			}
 		}
 	}
-	lift, err := s.stopChannels(r.Context(), store.ChannelFilter{FeatureID: &id})
+	lift, err := s.stopSpaces(r.Context(), store.SpaceFilter{FeatureID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -163,8 +163,8 @@ func (s *server) reopenFeature(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteFeature deletes the feature, its worktree and the checkpoint refs of its turns. The
-// branch is kept. A running turn of its channels is stopped first, as for a channel delete.
-// A worktree with uncommitted changes is 409 and nothing is removed; so is a channel with a
+// branch is kept. A running turn of its Spaces is stopped first, as for a Space delete.
+// A worktree with uncommitted changes is 409 and nothing is removed; so is a Space with a
 // turn running elsewhere, or open in reef chat. The worktree goes first: it is the step that
 // can refuse or fail, and the next wake makes it again. The refs go last, after the rows that
 // name them. A project folder that is gone is not git cleaned up: its worktree folder, if
@@ -175,7 +175,7 @@ func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	lift, err := s.stopChannels(r.Context(), store.ChannelFilter{FeatureID: &id})
+	lift, err := s.stopSpaces(r.Context(), store.SpaceFilter{FeatureID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -191,11 +191,11 @@ func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if err := s.channelsInUse(r.Context(), store.ChannelFilter{FeatureID: &id}); err != nil {
+	if err := s.spacesInUse(r.Context(), store.SpaceFilter{FeatureID: &id}); err != nil {
 		writeError(w, err)
 		return
 	}
-	refs, err := s.checkpointRefs(r.Context(), store.ChannelFilter{FeatureID: &id})
+	refs, err := s.checkpointRefs(r.Context(), store.SpaceFilter{FeatureID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -229,18 +229,18 @@ func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// channelsInUse is 409 for the first channel matching f that a `reef chat` has open, or whose
+// spacesInUse is 409 for the first Space matching f that a `reef chat` has open, or whose
 // tree a turn is running on, in this process or another.
-func (s *server) channelsInUse(ctx context.Context, f store.ChannelFilter) error {
-	cs, err := s.st.Channels(ctx, f)
+func (s *server) spacesInUse(ctx context.Context, f store.SpaceFilter) error {
+	cs, err := s.st.Spaces(ctx, f)
 	if err != nil {
 		return err
 	}
 	for _, c := range cs {
-		if channel.InUse(s.dataDir, c.ID) {
-			return fmt.Errorf("channel %d is open elsewhere: %w", c.ID, store.ErrConflict)
+		if space.InUse(s.dataDir, c.ID) {
+			return fmt.Errorf("space %d is open elsewhere: %w", c.ID, store.ErrConflict)
 		}
-		dir, _, err := channel.WorkDir(ctx, s.st, s.dataDir, c.ID)
+		dir, _, err := space.WorkDir(ctx, s.st, s.dataDir, c.ID)
 		if err != nil {
 			return err
 		}
@@ -260,15 +260,15 @@ func projectGone(path string) bool {
 	return errors.Is(err, os.ErrNotExist)
 }
 
-// checkpointRefs lists the checkpoint refs of the turns of the channels that match f.
-func (s *server) checkpointRefs(ctx context.Context, f store.ChannelFilter) ([]string, error) {
-	cs, err := s.st.Channels(ctx, f)
+// checkpointRefs lists the checkpoint refs of the turns of the Spaces that match f.
+func (s *server) checkpointRefs(ctx context.Context, f store.SpaceFilter) ([]string, error) {
+	cs, err := s.st.Spaces(ctx, f)
 	if err != nil {
 		return nil, err
 	}
 	var refs []string
 	for _, c := range cs {
-		ts, err := s.st.Turns(ctx, store.TurnFilter{ChannelID: &c.ID})
+		ts, err := s.st.Turns(ctx, store.TurnFilter{SpaceID: &c.ID})
 		if err != nil {
 			return nil, err
 		}
@@ -328,7 +328,7 @@ func (s *server) getFeatureWorktree(w http.ResponseWriter, r *http.Request) {
 }
 
 // ensureFeatureWorktree makes the feature's worktree, the same way the first wake of one of
-// its channels would, and returns its path. A worktree or branch that already exists is
+// its Spaces would, and returns its path. A worktree or branch that already exists is
 // reused.
 func (s *server) ensureFeatureWorktree(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
@@ -347,7 +347,7 @@ func (s *server) ensureFeatureWorktree(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
-	if err := channel.EnsureWorktree(r.Context(), s.trees, p, dir, f.Slug); err != nil {
+	if err := space.EnsureWorktree(r.Context(), s.trees, p, dir, f.Slug); err != nil {
 		writeError(w, err)
 		return
 	}

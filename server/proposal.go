@@ -7,19 +7,19 @@ import (
 	"slices"
 	"strconv"
 
-	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
 func (s *server) proposalRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("POST /channels/{id}/wrap", s.wrap)
-	mux.HandleFunc("/channels/{id}/wrap", methodNotAllowed)
-	mux.HandleFunc("POST /channels/{id}/promote", s.promote)
-	mux.HandleFunc("/channels/{id}/promote", methodNotAllowed)
-	mux.HandleFunc("GET /channels/{id}/proposal", s.pendingProposal)
-	mux.HandleFunc("/channels/{id}/proposal", methodNotAllowed)
+	mux.HandleFunc("POST /spaces/{id}/wrap", s.wrap)
+	mux.HandleFunc("/spaces/{id}/wrap", methodNotAllowed)
+	mux.HandleFunc("POST /spaces/{id}/promote", s.promote)
+	mux.HandleFunc("/spaces/{id}/promote", methodNotAllowed)
+	mux.HandleFunc("GET /spaces/{id}/proposal", s.pendingProposal)
+	mux.HandleFunc("/spaces/{id}/proposal", methodNotAllowed)
 	mux.HandleFunc("POST /proposals/{id}/approve", s.approveProposal)
 	mux.HandleFunc("/proposals/{id}/approve", methodNotAllowed)
 	mux.HandleFunc("POST /proposals/{id}/reject", s.rejectProposal)
@@ -32,7 +32,7 @@ func (s *server) wrap(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if err := s.startUserTurn(r.Context(), id, userTurn{kind: _wrap, text: channel.WrapCommand}); err != nil {
+	if err := s.startUserTurn(r.Context(), id, userTurn{kind: _wrap, text: space.WrapCommand}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -69,11 +69,11 @@ func (s *server) promote(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	var ch store.Channel
+	var ch store.Space
 	err = s.startUserTurn(r.Context(), id, userTurn{
-		kind: _promote, text: channel.PromoteCommand,
+		kind: _promote, text: space.PromoteCommand,
 		prepare: func() error {
-			before, err := s.st.Channel(r.Context(), id)
+			before, err := s.st.Space(r.Context(), id)
 			if err != nil {
 				return err
 			}
@@ -84,7 +84,7 @@ func (s *server) promote(w http.ResponseWriter, r *http.Request) {
 			if !worktree.HasCommit(r.Context(), p.Path) {
 				return fmt.Errorf("%w: project %s is not a git repo with a commit", store.ErrInvalid, p.Path)
 			}
-			ch, err = s.st.PromoteChannel(r.Context(), id, f)
+			ch, err = s.st.PromoteSpace(r.Context(), id, f)
 			return err
 		},
 	})
@@ -123,7 +123,7 @@ func (s *server) approveProposal(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if a.Proposal.Kind == store.ProposalWrap {
-		if l := s.lookup(a.Proposal.ChannelID); l != nil {
+		if l := s.lookup(a.Proposal.SpaceID); l != nil {
 			s.stopLive(l)
 		}
 	}
@@ -145,8 +145,8 @@ type Approval struct {
 // ApproveProposal approves a pending proposal. A wrap first saves each item with its role as
 // author, skipping one whose exact body is already accepted or candidate in its scope, then
 // retires its retire ids, skipping any already retired; only then does the store save the
-// brief, close the channel and mark the proposal approved, in one transaction. It is not one
-// transaction as a whole: a failure leaves the proposal pending and the channel open, and
+// brief, close the Space and mark the proposal approved, in one transaction. It is not one
+// transaction as a whole: a failure leaves the proposal pending and the Space open, and
 // approving again saves each item once. Two approves of one proposal at once can both save its
 // items; the REST handler serializes them.
 func ApproveProposal(
@@ -162,11 +162,11 @@ func ApproveProposal(
 	}
 	var a Approval
 	if p.Kind == store.ProposalWrap {
-		c, err := st.Channel(ctx, p.ChannelID)
+		c, err := st.Space(ctx, p.SpaceID)
 		if err != nil {
 			return Approval{}, err
 		}
-		if a.Added, a.Warnings, err = saveItems(ctx, ms, channel.Scopes(c, p.Role), p); err != nil {
+		if a.Added, a.Warnings, err = saveItems(ctx, ms, space.Scopes(c, p.Role), p); err != nil {
 			return Approval{}, err
 		}
 		for _, rid := range p.Retire {
@@ -194,7 +194,7 @@ func saveItems(
 	for _, it := range p.Items {
 		i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == it.Scope })
 		if i < 0 {
-			return added, warnings, fmt.Errorf("%w: scope %q is not one of the channel's", store.ErrInvalid, it.Scope)
+			return added, warnings, fmt.Errorf("%w: scope %q is not one of the Space's", store.ErrInvalid, it.Scope)
 		}
 		replaces := make([]int64, 0, len(it.Replaces))
 		for _, rid := range it.Replaces {

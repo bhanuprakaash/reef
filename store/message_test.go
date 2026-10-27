@@ -17,16 +17,16 @@ func TestMessages_Thread(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"a", "b"} {
-		if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: name}); err != nil {
+		if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: name}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	one := int64(1)
 	for _, m := range []Message{
-		{ChannelID: 1, Author: "user", Body: "root"},
-		{ChannelID: 1, Author: "user", Body: "other"},
-		{ChannelID: 1, ParentID: &one, Author: "lead", Body: "reply"},
-		{ChannelID: 1, Author: "architect", Body: "plan"},
+		{SpaceID: 1, Author: "user", Body: "root"},
+		{SpaceID: 1, Author: "user", Body: "other"},
+		{SpaceID: 1, ParentID: &one, Author: "lead", Body: "reply"},
+		{SpaceID: 1, Author: "architect", Body: "plan"},
 	} {
 		if _, err := s.CreateMessage(ctx, m); err != nil {
 			t.Fatal(err)
@@ -34,7 +34,7 @@ func TestMessages_Thread(t *testing.T) {
 	}
 
 	three, four, nine := int64(3), int64(4), int64(9)
-	reply := Message{ChannelID: 1, ParentID: &four, Author: "user", Body: "ok"}
+	reply := Message{SpaceID: 1, ParentID: &four, Author: "user", Body: "ok"}
 	if _, err := s.CreateMessage(ctx, reply); err != nil {
 		t.Fatal(err)
 	}
@@ -42,9 +42,9 @@ func TestMessages_Thread(t *testing.T) {
 		name string
 		give Message
 	}{
-		{"reply to a reply", Message{ChannelID: 1, ParentID: &three, Author: "user", Body: "x"}},
-		{"parent in another one", Message{ChannelID: 2, ParentID: &one, Author: "user", Body: "x"}},
-		{"unknown parent", Message{ChannelID: 1, ParentID: &nine, Author: "user", Body: "x"}},
+		{"reply to a reply", Message{SpaceID: 1, ParentID: &three, Author: "user", Body: "x"}},
+		{"parent in another one", Message{SpaceID: 2, ParentID: &one, Author: "user", Body: "x"}},
+		{"unknown parent", Message{SpaceID: 1, ParentID: &nine, Author: "user", Body: "x"}},
 	}
 	for _, tt := range creates {
 		t.Run(tt.name, func(t *testing.T) {
@@ -99,12 +99,12 @@ func TestDirectMessages_RequestAndResponse(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "work"}); err != nil {
+	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "work"}); err != nil {
 		t.Fatal(err)
 	}
 
 	req, err := s.CreateDirectMessage(ctx, DirectMessage{
-		ChannelID: 1, From: "lead", To: "developer", Body: "build it",
+		SpaceID: 1, From: "lead", To: "developer", Body: "build it",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -147,11 +147,11 @@ func TestDirectMessages_RequestGetsOnlyOneResponse(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "work"}); err != nil {
+	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "work"}); err != nil {
 		t.Fatal(err)
 	}
 	req, err := s.CreateDirectMessage(ctx, DirectMessage{
-		ChannelID: 1, From: "lead", To: "developer", Body: "build it",
+		SpaceID: 1, From: "lead", To: "developer", Body: "build it",
 	})
 	if err != nil {
 		t.Fatal(err)

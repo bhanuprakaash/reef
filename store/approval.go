@@ -18,20 +18,20 @@ const (
 )
 
 // Approval kinds: a gate holds a wake until the user approves it; a hold keeps a wake a pause
-// kept from running until the channel continues.
+// kept from running until the Space continues.
 const (
 	ApprovalGate = "gate"
 	ApprovalHold = "hold"
 )
 
-const _approvalCols = "id, channel_id, from_role, to_role, message_id, direct_message_id, text, parent, status, kind, created_at, scopes"
+const _approvalCols = "id, space_id, from_role, to_role, message_id, direct_message_id, text, parent, status, kind, created_at, scopes"
 
 // Approval is a wake held at a gate or by a pause: Text is what To would run for the message
 // MessageID that From wrote, as a reply in the thread of Parent when it is set. An empty Kind
 // is a gate.
 type Approval struct {
 	ID              int64     `json:"id"`
-	ChannelID       int64     `json:"channelId"`
+	SpaceID         int64     `json:"spaceId"`
 	From            string    `json:"from"`
 	To              string    `json:"to"`
 	MessageID       int64     `json:"messageId"`
@@ -55,13 +55,13 @@ func (s *Store) CreateApproval(ctx context.Context, a Approval) (Approval, error
 		messageID = a.MessageID
 	}
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO approval (channel_id, from_role, to_role, message_id, direct_message_id, text, parent, kind, created_at, scopes) "+
+		"INSERT INTO approval (space_id, from_role, to_role, message_id, direct_message_id, text, parent, kind, created_at, scopes) "+
 			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		a.ChannelID, a.From, a.To, messageID, a.DirectMessageID, a.Text, a.Parent, a.Kind,
+		a.SpaceID, a.From, a.To, messageID, a.DirectMessageID, a.Text, a.Parent, a.Kind,
 		now.Format(time.RFC3339Nano), a.Scopes)
 	if err != nil {
 		return Approval{}, s.writeErr(ctx, "insert approval", err, ErrNotFound,
-			parent{table: "channel", id: &a.ChannelID}, parent{table: "message", id: &a.MessageID})
+			parent{table: "space", id: &a.SpaceID}, parent{table: "message", id: &a.MessageID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -71,28 +71,28 @@ func (s *Store) CreateApproval(ctx context.Context, a Approval) (Approval, error
 	return a, nil
 }
 
-// PendingApprovals lists the channel's pending gate approvals, oldest first.
-func (s *Store) PendingApprovals(ctx context.Context, channelID int64) ([]Approval, error) {
-	if err := s.requireChannel(ctx, channelID); err != nil {
+// PendingApprovals lists the Space's pending gate approvals, oldest first.
+func (s *Store) PendingApprovals(ctx context.Context, spaceID int64) ([]Approval, error) {
+	if err := s.requireSpace(ctx, spaceID); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT "+_approvalCols+" FROM approval WHERE channel_id = ? AND status = ? AND kind = ? ORDER BY id",
-		channelID, ApprovalPending, ApprovalGate)
+		"SELECT "+_approvalCols+" FROM approval WHERE space_id = ? AND status = ? AND kind = ? ORDER BY id",
+		spaceID, ApprovalPending, ApprovalGate)
 	if err != nil {
 		return nil, fmt.Errorf("list approvals: %w", err)
 	}
 	return scanAll(rows, scanApproval)
 }
 
-// Approval returns the gate approval of the channel with the id in any status, or ErrNotFound.
-func (s *Store) Approval(ctx context.Context, channelID, id int64) (Approval, error) {
+// Approval returns the gate approval of the Space with the id in any status, or ErrNotFound.
+func (s *Store) Approval(ctx context.Context, spaceID, id int64) (Approval, error) {
 	row := s.db.QueryRowContext(ctx,
-		"SELECT "+_approvalCols+" FROM approval WHERE id = ? AND channel_id = ? AND kind = ?",
-		id, channelID, ApprovalGate)
+		"SELECT "+_approvalCols+" FROM approval WHERE id = ? AND space_id = ? AND kind = ?",
+		id, spaceID, ApprovalGate)
 	a, err := scanApproval(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Approval{}, fmt.Errorf("approval %d of channel %d: %w", id, channelID, ErrNotFound)
+		return Approval{}, fmt.Errorf("approval %d of Space %d: %w", id, spaceID, ErrNotFound)
 	}
 	return a, err
 }
@@ -115,24 +115,24 @@ func (s *Store) DecideApproval(ctx context.Context, id int64, status string) err
 	return nil
 }
 
-// PendingHolds lists the channel's pending holds, oldest first.
-func (s *Store) PendingHolds(ctx context.Context, channelID int64) ([]Approval, error) {
+// PendingHolds lists the Space's pending holds, oldest first.
+func (s *Store) PendingHolds(ctx context.Context, spaceID int64) ([]Approval, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT "+_approvalCols+" FROM approval WHERE channel_id = ? AND status = ? AND kind = ? ORDER BY id",
-		channelID, ApprovalPending, ApprovalHold)
+		"SELECT "+_approvalCols+" FROM approval WHERE space_id = ? AND status = ? AND kind = ? ORDER BY id",
+		spaceID, ApprovalPending, ApprovalHold)
 	if err != nil {
 		return nil, fmt.Errorf("list holds: %w", err)
 	}
 	return scanAll(rows, scanApproval)
 }
 
-// ClaimHolds sets the channel's pending holds to approved and returns them, oldest first.
+// ClaimHolds sets the Space's pending holds to approved and returns them, oldest first.
 // A second call finds none, so a hold is claimed once.
-func (s *Store) ClaimHolds(ctx context.Context, channelID int64) ([]Approval, error) {
+func (s *Store) ClaimHolds(ctx context.Context, spaceID int64) ([]Approval, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"UPDATE approval SET status = ? WHERE channel_id = ? AND status = ? AND kind = ? "+
+		"UPDATE approval SET status = ? WHERE space_id = ? AND status = ? AND kind = ? "+
 			"RETURNING "+_approvalCols,
-		ApprovalApproved, channelID, ApprovalPending, ApprovalHold)
+		ApprovalApproved, spaceID, ApprovalPending, ApprovalHold)
 	if err != nil {
 		return nil, fmt.Errorf("claim holds: %w", err)
 	}
@@ -158,7 +158,7 @@ func scanApproval(r interface{ Scan(...any) error }) (Approval, error) {
 	var created string
 	var messageID sql.NullInt64
 	var directMessageID sql.NullInt64
-	if err := r.Scan(&a.ID, &a.ChannelID, &a.From, &a.To, &messageID, &directMessageID, &a.Text, &a.Parent,
+	if err := r.Scan(&a.ID, &a.SpaceID, &a.From, &a.To, &messageID, &directMessageID, &a.Text, &a.Parent,
 		&a.Status, &a.Kind, &created, &a.Scopes); err != nil {
 		return Approval{}, err
 	}

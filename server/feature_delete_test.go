@@ -126,7 +126,7 @@ func TestDeleteFeature_RefusedWhileTheTreeIsLocked(t *testing.T) {
 	}
 }
 
-func TestDeleteFeature_RefusedWhileReefChatHasTheChannel(t *testing.T) {
+func TestDeleteFeature_RefusedWhileReefChatHasTheSpace(t *testing.T) {
 	env, _ := rollbackEnv(t)
 	lock, err := os.Create(filepath.Join(env.dir, "chat-2.lock"))
 	if err != nil {
@@ -138,8 +138,8 @@ func TestDeleteFeature_RefusedWhileReefChatHasTheChannel(t *testing.T) {
 	}
 
 	status, body := do(t, http.MethodDelete, env.url+"/features/1", "")
-	if want := `{"error":"channel 2 is open elsewhere: conflict"}`; status != 409 || body != want {
-		t.Errorf("delete while reef chat has the channel = %d %s, want 409 %s", status, body, want)
+	if want := `{"error":"space 2 is open elsewhere: conflict"}`; status != 409 || body != want {
+		t.Errorf("delete while reef chat has the Space = %d %s, want 409 %s", status, body, want)
 	}
 	if status, _ := do(t, http.MethodGet, env.url+"/features/1", ""); status != 200 {
 		t.Errorf("GET feature after refused delete = %d, want 200", status)

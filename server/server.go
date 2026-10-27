@@ -15,8 +15,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -25,9 +25,9 @@ type server struct {
 	st      *store.Store
 	ms      *memory.Store
 	dataDir string
-	trees   *channel.Trees
-	open    func(ctx context.Context, channelID int64) (session, error)
-	// name proposes a channel name from its first message, with the channel's backend.
+	trees   *space.Trees
+	open    func(ctx context.Context, spaceID int64) (session, error)
+	// name proposes a Space name from its first message, with the Space's backend.
 	name func(ctx context.Context, backend, message string) (string, error)
 
 	ctx    context.Context
@@ -64,9 +64,9 @@ type Handler struct {
 
 // New returns the API over st.
 func New(st *store.Store, ms *memory.Store, dataDir, exe string) *Handler {
-	trees := channel.NewTrees(dataDir)
-	return newHandler(st, ms, dataDir, trees, func(ctx context.Context, channelID int64) (session, error) {
-		sess, err := channel.Open(ctx, st, ms, dataDir, exe, channelID, trees, channel.NewAgent)
+	trees := space.NewTrees(dataDir)
+	return newHandler(st, ms, dataDir, trees, func(ctx context.Context, spaceID int64) (session, error) {
+		sess, err := space.Open(ctx, st, ms, dataDir, exe, spaceID, trees, space.NewAgent)
 		if err != nil {
 			return nil, err
 		}
@@ -80,12 +80,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.h.ServeH
 func (h *Handler) Close() { h.s.close() }
 
 func newHandler(
-	st *store.Store, ms *memory.Store, dataDir string, trees *channel.Trees,
-	open func(ctx context.Context, channelID int64) (session, error),
+	st *store.Store, ms *memory.Store, dataDir string, trees *space.Trees,
+	open func(ctx context.Context, spaceID int64) (session, error),
 ) *Handler {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
-		st: st, ms: ms, dataDir: dataDir, trees: trees, open: open, name: channel.ProposeName,
+		st: st, ms: ms, dataDir: dataDir, trees: trees, open: open, name: space.ProposeName,
 		ctx: ctx, cancel: cancel,
 		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{},
 		inboxWake: make(chan struct{}), ghFeatureErrLogged: map[int64]string{},
@@ -105,7 +105,7 @@ func newHandler(
 	s.projectRoutes(mux)
 	s.profileRoutes(mux)
 	s.featureRoutes(mux)
-	s.channelRoutes(mux)
+	s.spaceRoutes(mux)
 	s.teamRoutes(mux)
 	s.providerRoutes(mux)
 	s.skillRoutes(mux)
@@ -122,7 +122,7 @@ func newHandler(
 }
 
 // notifyInbox tells the inbox streams after each request that may write: it can add, clear or
-// delete an item that no channel event reports, such as the rejection of an approval.
+// delete an item that no Space event reports, such as the rejection of an approval.
 func (s *server) notifyInbox(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)

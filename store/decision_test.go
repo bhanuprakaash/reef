@@ -79,7 +79,7 @@ func TestCreateProposalDedupesRetiredIDs(t *testing.T) {
 	s := proposalFixture(t)
 
 	p, err := s.CreateProposal(ctx, Proposal{
-		ChannelID: 1, Role: "architect", Brief: "v3", Retire: []int64{1, 2, 3, 3},
+		SpaceID: 1, Role: "architect", Brief: "v3", Retire: []int64{1, 2, 3, 3},
 		Items: []ProposedItem{
 			{Kind: "decision", Body: "use postgres", Replaces: []int64{1, 2}},
 			{Kind: "decision", Body: "use yaml", Replaces: []int64{2, 3}},

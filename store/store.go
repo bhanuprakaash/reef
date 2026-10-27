@@ -133,13 +133,13 @@ func (s *Store) requireFeature(ctx context.Context, id int64) error {
 	return nil
 }
 
-func (s *Store) requireChannel(ctx context.Context, id int64) error {
-	ok, err := s.exists(ctx, "channel", id)
+func (s *Store) requireSpace(ctx context.Context, id int64) error {
+	ok, err := s.exists(ctx, "space", id)
 	if err != nil {
-		return fmt.Errorf("check channel: %w", err)
+		return fmt.Errorf("check Space: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("channel %d: %w", id, ErrNotFound)
+		return fmt.Errorf("space %d: %w", id, ErrNotFound)
 	}
 	return nil
 }

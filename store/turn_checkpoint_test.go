@@ -16,10 +16,10 @@ func TestSetTurnCheckpoint(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "a"}); err != nil {
+	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "a"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "developer", Backend: "claude"}); err != nil {
+	if _, err := s.CreateTurn(ctx, Turn{SpaceID: 1, Role: "developer", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	if tr, err := s.Turn(ctx, 1); err != nil || tr.Checkpoint != nil {

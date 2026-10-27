@@ -9,13 +9,13 @@ import (
 	"time"
 )
 
-// DirectMessage is a private message between two roles in one channel. A request starts a
+// DirectMessage is a private message between two roles in one Space. A request starts a
 // chain; its one automatic response points back to it and shares its chain.
 // SourceMessageID is the public message whose wake the sender was answering when it sent
 // the request, nil for a chain that did not start from one; a response keeps it.
 type DirectMessage struct {
 	ID              int64     `json:"id"`
-	ChannelID       int64     `json:"channelId"`
+	SpaceID         int64     `json:"spaceId"`
 	ChainID         int64     `json:"chainId"`
 	ReplyToID       *int64    `json:"replyToId"`
 	SourceMessageID *int64    `json:"sourceMessageId"`
@@ -26,7 +26,7 @@ type DirectMessage struct {
 	CreatedAt       time.Time `json:"createdAt"`
 }
 
-const _directCols = "id, channel_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, created_at"
+const _directCols = "id, space_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, created_at"
 
 const (
 	DirectSent   = "sent"
@@ -61,11 +61,11 @@ func (s *Store) CreateDirectMessage(ctx context.Context, m DirectMessage) (Direc
 	}
 	defer func() { _ = tx.Rollback() }()
 	res, err := tx.ExecContext(ctx,
-		"INSERT INTO direct_message (channel_id, source_message_id, from_role, to_role, body, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		m.ChannelID, m.SourceMessageID, m.From, m.To, m.Body, DirectSent, now.Format(time.RFC3339Nano))
+		"INSERT INTO direct_message (space_id, source_message_id, from_role, to_role, body, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+		m.SpaceID, m.SourceMessageID, m.From, m.To, m.Body, DirectSent, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return DirectMessage{}, s.writeErr(ctx, "insert direct message", err, ErrInvalid,
-			parent{table: "channel", id: &m.ChannelID})
+			parent{table: "space", id: &m.SpaceID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -119,14 +119,14 @@ func (s *Store) createDirectResponse(
 		return DirectMessage{}, fmt.Errorf("%w: direct message body is required", ErrInvalid)
 	}
 	now := time.Now().UTC()
-	m := DirectMessage{ChannelID: request.ChannelID, ChainID: request.ChainID,
+	m := DirectMessage{SpaceID: request.SpaceID, ChainID: request.ChainID,
 		ReplyToID: &request.ID, SourceMessageID: request.SourceMessageID,
 		From: from, To: request.From, Body: body, Status: status, CreatedAt: now}
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO direct_message
-		(channel_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, created_at)
+		(space_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, created_at)
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ChannelID, m.ChainID, m.ReplyToID, m.SourceMessageID, m.From, m.To, m.Body, m.Status,
+		m.SpaceID, m.ChainID, m.ReplyToID, m.SourceMessageID, m.From, m.To, m.Body, m.Status,
 		now.Format(time.RFC3339Nano))
 	if err != nil {
 		if isUnique(err) {
@@ -152,13 +152,13 @@ func (s *Store) DirectMessage(ctx context.Context, id int64) (DirectMessage, err
 	return m, err
 }
 
-// DirectMessages lists all direct messages in a channel, oldest first.
-func (s *Store) DirectMessages(ctx context.Context, channelID, after int64) ([]DirectMessage, error) {
-	if err := s.requireChannel(ctx, channelID); err != nil {
+// DirectMessages lists all direct messages in a Space, oldest first.
+func (s *Store) DirectMessages(ctx context.Context, spaceID, after int64) ([]DirectMessage, error) {
+	if err := s.requireSpace(ctx, spaceID); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, "SELECT "+_directCols+
-		" FROM direct_message WHERE channel_id = ? AND id > ? ORDER BY id", channelID, after)
+		" FROM direct_message WHERE space_id = ? AND id > ? ORDER BY id", spaceID, after)
 	if err != nil {
 		return nil, fmt.Errorf("list direct messages: %w", err)
 	}
@@ -167,32 +167,32 @@ func (s *Store) DirectMessages(ctx context.Context, channelID, after int64) ([]D
 
 // DirectMessagesForRole lists only exchanges in which role participated.
 func (s *Store) DirectMessagesForRole(
-	ctx context.Context, channelID int64, role string, after int64,
+	ctx context.Context, spaceID int64, role string, after int64,
 ) ([]DirectMessage, error) {
-	if err := s.requireChannel(ctx, channelID); err != nil {
+	if err := s.requireSpace(ctx, spaceID); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, "SELECT "+_directCols+
-		" FROM direct_message WHERE channel_id = ? AND id > ? AND (from_role = ? OR to_role = ?) ORDER BY id",
-		channelID, after, role, role)
+		" FROM direct_message WHERE space_id = ? AND id > ? AND (from_role = ? OR to_role = ?) ORDER BY id",
+		spaceID, after, role, role)
 	if err != nil {
 		return nil, fmt.Errorf("list direct messages for %s: %w", role, err)
 	}
 	return scanAll(rows, scanDirect)
 }
 
-// LastDirectMessageID returns the newest direct message id in a channel, or zero.
-func (s *Store) LastDirectMessageID(ctx context.Context, channelID int64) (int64, error) {
+// LastDirectMessageID returns the newest direct message id in a Space, or zero.
+func (s *Store) LastDirectMessageID(ctx context.Context, spaceID int64) (int64, error) {
 	var id int64
 	err := s.db.QueryRowContext(ctx,
-		"SELECT COALESCE(MAX(id), 0) FROM direct_message WHERE channel_id = ?", channelID).Scan(&id)
+		"SELECT COALESCE(MAX(id), 0) FROM direct_message WHERE space_id = ?", spaceID).Scan(&id)
 	return id, err
 }
 
 func scanDirect(r interface{ Scan(...any) error }) (DirectMessage, error) {
 	var m DirectMessage
 	var created string
-	if err := r.Scan(&m.ID, &m.ChannelID, &m.ChainID, &m.ReplyToID, &m.SourceMessageID,
+	if err := r.Scan(&m.ID, &m.SpaceID, &m.ChainID, &m.ReplyToID, &m.SourceMessageID,
 		&m.From, &m.To, &m.Body, &m.Status, &created); err != nil {
 		return DirectMessage{}, err
 	}

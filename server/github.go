@@ -167,7 +167,7 @@ func (s *server) startGitHubPoll() {
 }
 
 // pollGitHub checks every feature with a worktree against its PR, and posts a reef note in
-// the feature's most recent channel when the PR's state changes or a check finishes. No gh
+// the feature's most recent Space when the PR's state changes or a check finishes. No gh
 // on PATH: nothing is posted, logged once.
 func (s *server) pollGitHub(ctx context.Context) {
 	ghPath, err := exec.LookPath("gh")
@@ -414,9 +414,9 @@ func (s *server) notePRState(ctx context.Context, f store.Feature, pr ghPR) erro
 // noteFinishedChecks posts a reef note for each check run that finished and was not yet
 // noted, once per run: the same check name run again, such as a rerun on a later push, is its
 // own run, noted on its own. A check run is recorded as noted only once its note was actually
-// posted, so a feature with no channel yet, or a failed CreateMessage, is retried on a later
+// posted, so a feature with no Space yet, or a failed CreateMessage, is retried on a later
 // poll instead of losing the note. Every failed run in the rollup wakes the developer in one
-// wake; noting and waking are independent, so a wake that could not run (the channel is busy
+// wake; noting and waking are independent, so a wake that could not run (the Space is busy
 // or paused) is retried on a later poll even though the run was already noted.
 func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghPR, ghPath, dir string) error {
 	var failed []ghCheck
@@ -451,12 +451,12 @@ func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghP
 	return s.wakeDeveloper(ctx, f, pr, failed, ghPath, dir)
 }
 
-// noteFeature posts a reef note in the feature's most recent channel, and tells an open
+// noteFeature posts a reef note in the feature's most recent Space, and tells an open
 // stream on it that a message arrived, so the window refreshes without a reload. It reports
-// posted = false, without error, when the feature has no channel yet, so the caller does not
+// posted = false, without error, when the feature has no Space yet, so the caller does not
 // record the note as sent.
 func (s *server) noteFeature(ctx context.Context, featureID int64, body string) (posted bool, err error) {
-	ch, err := s.st.FeatureLatestChannel(ctx, featureID)
+	ch, err := s.st.FeatureLatestSpace(ctx, featureID)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}
@@ -464,7 +464,7 @@ func (s *server) noteFeature(ctx context.Context, featureID int64, body string) 
 		return false, err
 	}
 	if _, err = s.st.CreateMessage(ctx, store.Message{
-		ChannelID: ch.ID, Author: store.ReefAuthor, Body: body,
+		SpaceID: ch.ID, Author: store.ReefAuthor, Body: body,
 	}); err != nil {
 		return false, err
 	}
@@ -472,13 +472,13 @@ func (s *server) noteFeature(ctx context.Context, featureID int64, body string) 
 	return true, nil
 }
 
-// wakeDeveloper wakes the developer role in the feature's most recent channel with one wake
+// wakeDeveloper wakes the developer role in the feature's most recent Space with one wake
 // naming every run in checks not already woken, each with its log tail, once per run, also
 // across restarts. Several failed runs in the same rollup are one wake, not one each. A
-// channel whose team has no developer gets the note only. The wake text is built, including
-// any log fetch, before the channel is claimed, so a user send during that fetch is not held
-// to a 409. A channel with a turn running, or paused, cannot take the wake now; that is logged
-// once and retried on a later poll, once the channel is idle. The wake runs as a new chain of
+// Space whose team has no developer gets the note only. The wake text is built, including
+// any log fetch, before the Space is claimed, so a user send during that fetch is not held
+// to a 409. A Space with a turn running, or paused, cannot take the wake now; that is logged
+// once and retried on a later poll, once the Space is idle. The wake runs as a new chain of
 // its own, the way a retried turn does (decision 39), attributed to store.ReefAuthor rather
 // than the user: no gate applies, since no role sent it, but it counts as a hop like any
 // agent-originated wake, so a loop of failing checks still pauses at the hop cap instead of
@@ -499,7 +499,7 @@ func (s *server) wakeDeveloper(
 	if len(unwoken) == 0 {
 		return nil
 	}
-	ch, err := s.st.FeatureLatestChannel(ctx, f.ID)
+	ch, err := s.st.FeatureLatestSpace(ctx, f.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
 	}

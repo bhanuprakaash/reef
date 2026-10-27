@@ -11,20 +11,20 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
 func TestApproval_HoldsAreNotApprovals(t *testing.T) {
 	env := newLiveEnv(t)
 	id, _ := env.pingPong(t)
-	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	approvals := fmt.Sprintf("%s/spaces/%d/approvals", env.url, id)
 
 	if status, body := do(t, http.MethodGet, approvals, ""); status != 200 || body != "[]" {
 		t.Errorf("approvals = %d %s, want none: a held wake is not an approval", status, body)
 	}
 	status, body := do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
-	if status != 404 || body != `{"error":"approval 1 of channel 2: not found"}` {
+	if status != 404 || body != `{"error":"approval 1 of Space 2: not found"}` {
 		t.Errorf("approve a hold = %d %s, want 404", status, body)
 	}
 	if got := len(env.ranTexts()); got != 7 {
@@ -35,7 +35,7 @@ func TestApproval_HoldsAreNotApprovals(t *testing.T) {
 func TestApproval_GateHoldsWake(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	roles := []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
 	}
@@ -50,9 +50,9 @@ func TestApproval_GateHoldsWake(t *testing.T) {
 		}
 	}
 	sub := subscribeTo(t, env.url, id)
-	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
-	const pending = `{"id":1,"channelId":2,"from":"lead","to":"architect","messageId":2,` +
-		`"text":"[channel 2, message 2]\nlead wrote: @architect plan it","status":`
+	approvals := fmt.Sprintf("%s/spaces/%d/approvals", env.url, id)
+	const pending = `{"id":1,"spaceId":2,"from":"lead","to":"architect","messageId":2,` +
+		`"text":"[Space 2, message 2]\nlead wrote: @architect plan it","status":`
 
 	env.sendTo(t, id, "go")
 	sub.want(t, _idleFrame,
@@ -65,7 +65,7 @@ func TestApproval_GateHoldsWake(t *testing.T) {
 	if status != 200 || !strings.HasPrefix(body, "["+pending+`"pending","createdAt":`) {
 		t.Errorf("approvals = %d %s, want the pending approval", status, body)
 	}
-	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 1]\ngo"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[Space 2, message 1]\ngo"}) {
 		t.Errorf("ran = %q, want only go: no architect turn before approval", got)
 	}
 
@@ -90,8 +90,8 @@ func TestApproval_GateHoldsWake(t *testing.T) {
 		t.Errorf("frames after approve = %q (approved %v), want the architect turn and the approved approval", turn, approved)
 	}
 	if got := env.ranTexts(); !slices.Equal(got, []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect plan it",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @architect plan it",
 	}) {
 		t.Errorf("ran = %q, want the architect to run the held wake", got)
 	}
@@ -121,7 +121,7 @@ func TestApproval_GateHoldsWake(t *testing.T) {
 func TestApproval_LeadWakeOfDeveloperIsHeld(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	roles := []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
 		{Name: "developer", Write: true, Backend: "claude"},
@@ -137,22 +137,22 @@ func TestApproval_LeadWakeOfDeveloperIsHeld(t *testing.T) {
 			post("lead", "@architect plan it", nil)
 		}
 	}
-	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	approvals := fmt.Sprintf("%s/spaces/%d/approvals", env.url, id)
 	sub := subscribeTo(t, env.url, id)
 
 	env.sendTo(t, id, "ask developer")
 	sub.want(t, _idleFrame,
 		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
-	if got := sub.next(t); !strings.HasPrefix(got, `approval {"id":1,"channelId":2,"from":"lead","to":"developer",`) {
+	if got := sub.next(t); !strings.HasPrefix(got, `approval {"id":1,"spaceId":2,"from":"lead","to":"developer",`) {
 		t.Errorf("frame = %s, want the pending approval", got)
 	}
 	sub.want(t, `turn {"role":"lead","status":"done"}`)
 	status, body := do(t, http.MethodGet, approvals, "")
-	if status != 200 || !strings.HasPrefix(body, `[{"id":1,"channelId":2,"from":"lead","to":"developer",`) ||
+	if status != 200 || !strings.HasPrefix(body, `[{"id":1,"spaceId":2,"from":"lead","to":"developer",`) ||
 		!strings.Contains(body, `"status":"pending"`) {
 		t.Errorf("approvals = %d %s, want lead to developer pending", status, body)
 	}
-	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 1]\nask developer"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[Space 2, message 1]\nask developer"}) {
 		t.Errorf("ran = %q, want only the lead: no developer turn before approval", got)
 	}
 
@@ -168,11 +168,11 @@ func TestApproval_LeadWakeOfDeveloperIsHeld(t *testing.T) {
 	}
 }
 
-// gatedChannel gates lead to architect and makes the lead hold a wake for the architect
-// when it runs "go". It returns the channel id, a stream of it and its approvals URL.
-func (e *liveEnv) gatedChannel(t *testing.T) (int, *stream, string) {
+// gatedSpace gates lead to architect and makes the lead hold a wake for the architect
+// when it runs "go". It returns the Space id, a stream of it and its approvals URL.
+func (e *liveEnv) gatedSpace(t *testing.T) (int, *stream, string) {
 	t.Helper()
-	id, post := e.teamChannel(t)
+	id, post := e.teamSpace(t)
 	roles := []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
 	}
@@ -192,12 +192,12 @@ func (e *liveEnv) gatedChannel(t *testing.T) (int, *stream, string) {
 		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
 	sub.next(t)
 	sub.want(t, `turn {"role":"lead","status":"done"}`)
-	return id, sub, fmt.Sprintf("%s/channels/%d/approvals", e.url, id)
+	return id, sub, fmt.Sprintf("%s/spaces/%d/approvals", e.url, id)
 }
 
 func TestApproval_TwoApprovesRunOneTurn(t *testing.T) {
 	env := newLiveEnv(t)
-	_, sub, approvals := env.gatedChannel(t)
+	_, sub, approvals := env.gatedSpace(t)
 
 	statuses := make(chan int, 2)
 	for range 2 {
@@ -220,8 +220,8 @@ func TestApproval_TwoApprovesRunOneTurn(t *testing.T) {
 		sub.next(t)
 	}
 	if got := env.ranTexts(); !slices.Equal(got, []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect plan it",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @architect plan it",
 	}) {
 		t.Errorf("ran = %q, want one architect turn", got)
 	}
@@ -233,14 +233,14 @@ func TestApproval_TwoApprovesRunOneTurn(t *testing.T) {
 
 func TestApproval_ApproveSurvivesClientAbort(t *testing.T) {
 	env := newLiveEnv(t)
-	id, sub, approvals := env.gatedChannel(t)
-	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	id, sub, approvals := env.gatedSpace(t)
+	do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/stop", env.url, id), "")
 	ctx, abort := context.WithCancel(context.Background())
 	env.open = func(context.Context) (session, error) {
 		abort()
 		return env.fake, nil
 	}
-	req := httptest.NewRequest(http.MethodPost, env.url+"/channels/2/approvals/1",
+	req := httptest.NewRequest(http.MethodPost, env.url+"/spaces/2/approvals/1",
 		strings.NewReader(`{"approve":true}`)).WithContext(ctx)
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -252,8 +252,8 @@ func TestApproval_ApproveSurvivesClientAbort(t *testing.T) {
 		sub.next(t)
 	}
 	if got := env.ranTexts(); !slices.Equal(got, []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect plan it",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @architect plan it",
 	}) {
 		t.Errorf("ran = %q, want the architect to run the held wake", got)
 	}
@@ -264,10 +264,10 @@ func TestApproval_ApproveSurvivesClientAbort(t *testing.T) {
 }
 
 // TestApproval_ApprovedHopsDoNotCountToTheCap: every wake is gated, so each of the 7 hops
-// is approved by the user; none pauses the channel.
+// is approved by the user; none pauses the Space.
 func TestApproval_ApprovedHopsDoNotCountToTheCap(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	roles := []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
 	}
@@ -284,7 +284,7 @@ func TestApproval_ApprovedHopsDoNotCountToTheCap(t *testing.T) {
 		}
 	}
 	sub := subscribeTo(t, env.url, id)
-	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	approvals := fmt.Sprintf("%s/spaces/%d/approvals", env.url, id)
 	env.sendTo(t, id, "go")
 	sub.want(t, _idleFrame)
 	for done := `turn {"role":"lead","status":"done"}`; sub.next(t) != done; {
@@ -304,8 +304,8 @@ func TestApproval_ApprovedHopsDoNotCountToTheCap(t *testing.T) {
 	if got := len(env.ranTexts()); got != 8 {
 		t.Errorf("turns run = %d, want 8: the user's turn and 7 approved hops", got)
 	}
-	if ch, err := env.st.Channel(context.Background(), int64(id)); err != nil || ch.Paused != "" {
-		t.Errorf("channel = %+v, %v, want not paused", ch, err)
+	if ch, err := env.st.Space(context.Background(), int64(id)); err != nil || ch.Paused != "" {
+		t.Errorf("space = %+v, %v, want not paused", ch, err)
 	}
 }
 
@@ -313,7 +313,7 @@ func TestApproval_ApprovedHopsDoNotCountToTheCap(t *testing.T) {
 // developer; approving the developer while the architect runs queues it behind that turn.
 func TestApproval_ApproveWhileBusyRunsAfter(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	roles := []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
 		{Name: "developer", Backend: "claude"},
@@ -330,7 +330,7 @@ func TestApproval_ApproveWhileBusyRunsAfter(t *testing.T) {
 		}
 	}
 	sub := subscribeTo(t, env.url, id)
-	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	approvals := fmt.Sprintf("%s/spaces/%d/approvals", env.url, id)
 
 	env.sendTo(t, id, "go")
 	<-env.fake.started
@@ -353,9 +353,9 @@ func TestApproval_ApproveWhileBusyRunsAfter(t *testing.T) {
 	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"architect","status":"done"}`)
 	sub.wantTurns(t, "developer")
 	want := []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 3]\nlead wrote: @architect block",
-		"[channel 2, message 2]\nlead wrote: @developer build it",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 3]\nlead wrote: @architect block",
+		"[Space 2, message 2]\nlead wrote: @developer build it",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
@@ -367,7 +367,7 @@ func TestApproval_ApproveWhileBusyRunsAfter(t *testing.T) {
 
 func TestApproval_StopReturnsQueuedWakes(t *testing.T) {
 	env := newLiveEnv(t)
-	id, sub, approvals := env.gatedChannel(t)
+	id, sub, approvals := env.gatedSpace(t)
 	env.sendTo(t, id, "block")
 	<-env.fake.started
 	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
@@ -378,7 +378,7 @@ func TestApproval_StopReturnsQueuedWakes(t *testing.T) {
 		t.Fatalf("send while busy = %d, want 202", status)
 	}
 
-	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/stop", env.url, id), "")
 
 	status, body := do(t, http.MethodGet, approvals, "")
 	if status != 200 || !strings.Contains(body, `"id":1,`) || !strings.Contains(body, `"status":"pending"`) {
@@ -388,7 +388,7 @@ func TestApproval_StopReturnsQueuedWakes(t *testing.T) {
 	l.mu.Lock()
 	held := slices.Clone(l.held)
 	l.mu.Unlock()
-	if len(held) != 1 || held[0].text != "[channel 2, message 4]\nagain" {
+	if len(held) != 1 || held[0].text != "[Space 2, message 4]\nagain" {
 		t.Errorf("held = %+v, want the wake of again", held)
 	}
 	if got := len(env.ranTexts()); got != 2 {
@@ -398,7 +398,7 @@ func TestApproval_StopReturnsQueuedWakes(t *testing.T) {
 
 func TestApproval_DefaultTeamHasNoGateToArchitect(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" {
 			post("lead", "@architect plan it", nil)
@@ -411,7 +411,7 @@ func TestApproval_DefaultTeamHasNoGateToArchitect(t *testing.T) {
 		`turn {"role":"lead","status":"done"}`,
 		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"architect","status":"done"}`)
-	if status, body := do(t, http.MethodGet, fmt.Sprintf("%s/channels/%d/approvals", env.url, id), ""); status != 200 || body != "[]" {
+	if status, body := do(t, http.MethodGet, fmt.Sprintf("%s/spaces/%d/approvals", env.url, id), ""); status != 200 || body != "[]" {
 		t.Errorf("approvals = %d %s, want none", status, body)
 	}
 }
@@ -419,7 +419,7 @@ func TestApproval_DefaultTeamHasNoGateToArchitect(t *testing.T) {
 func TestApproval_StoreFailurePausesAndContinueRetries(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	roles := []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
 	}
@@ -436,40 +436,40 @@ func TestApproval_StoreFailurePausesAndContinueRetries(t *testing.T) {
 	env.exec(t, "CREATE TRIGGER no_approval BEFORE INSERT ON approval "+
 		"BEGIN SELECT RAISE(ABORT, 'disk full'); END")
 	sub := subscribeTo(t, env.url, id)
-	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	approvals := fmt.Sprintf("%s/spaces/%d/approvals", env.url, id)
 
 	env.sendTo(t, id, "go")
 	const reason = "hold wake for architect: insert approval: constraint failed: disk full (1811)"
 	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
-	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != reason {
-		t.Errorf("channel = %+v, %v, want paused with %q", ch, err, reason)
+	if ch, err := env.st.Space(ctx, int64(id)); err != nil || ch.Paused != reason {
+		t.Errorf("space = %+v, %v, want paused with %q", ch, err, reason)
 	}
 	if status, body := do(t, http.MethodGet, approvals, ""); status != 200 || body != "[]" {
 		t.Errorf("approvals = %d %s, want none", status, body)
 	}
 
 	env.exec(t, "DROP TRIGGER no_approval")
-	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
-	if got := sub.next(t); !strings.HasPrefix(got, `approval {"id":1,"channelId":2,"from":"lead","to":"architect",`) {
+	if got := sub.next(t); !strings.HasPrefix(got, `approval {"id":1,"spaceId":2,"from":"lead","to":"architect",`) {
 		t.Errorf("frame = %s, want the pending approval", got)
 	}
 	sub.want(t, `pause {"reason":""}`)
 	status, body := do(t, http.MethodGet, approvals, "")
-	if status != 200 || !strings.Contains(body, `"text":"[channel 2, message 2]\nlead wrote: @architect plan it","status":"pending"`) {
+	if status != 200 || !strings.Contains(body, `"text":"[Space 2, message 2]\nlead wrote: @architect plan it","status":"pending"`) {
 		t.Errorf("approvals = %d %s, want the pending approval", status, body)
 	}
-	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 1]\ngo"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[Space 2, message 1]\ngo"}) {
 		t.Errorf("ran = %q, want only go: the wake waits for approval", got)
 	}
 }
 
 func TestApproval_ApproveWhileStartingRunsAfter(t *testing.T) {
 	env := newLiveEnv(t)
-	id, _, approvals := env.gatedChannel(t)
-	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	id, _, approvals := env.gatedSpace(t)
+	do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/stop", env.url, id), "")
 	ran := make(chan struct{})
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "architect" {
@@ -490,9 +490,9 @@ func TestApproval_ApproveWhileStartingRunsAfter(t *testing.T) {
 	}
 	<-ran
 	want := []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 3]\nagain",
-		"[channel 2, message 2]\nlead wrote: @architect plan it",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 3]\nagain",
+		"[Space 2, message 2]\nlead wrote: @architect plan it",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
@@ -501,8 +501,8 @@ func TestApproval_ApproveWhileStartingRunsAfter(t *testing.T) {
 
 func TestApproval_ApproveWhileStartingStaysPendingWhenStartFails(t *testing.T) {
 	env := newLiveEnv(t)
-	id, _, approvals := env.gatedChannel(t)
-	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	id, _, approvals := env.gatedSpace(t)
+	do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/stop", env.url, id), "")
 	var status int
 	env.open = func(context.Context) (session, error) {
 		status, _ = do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
@@ -522,7 +522,7 @@ func TestApproval_ApproveWhileStartingStaysPendingWhenStartFails(t *testing.T) {
 
 func TestApproval_ApproveWhileWrapRunsAfter(t *testing.T) {
 	env := newLiveEnv(t)
-	env.teamChannel(t)
+	env.teamSpace(t)
 	_, err := env.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
 	}, Gates: []store.Gate{{From: "lead", To: "architect", On: true}}})
@@ -530,8 +530,8 @@ func TestApproval_ApproveWhileWrapRunsAfter(t *testing.T) {
 		t.Fatal(err)
 	}
 	do(t, http.MethodPost, env.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"featureId":1,"name":"w","team":"core"}`)
-	approvals := env.url + "/channels/3/approvals"
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"featureId":1,"name":"w","team":"core"}`)
+	approvals := env.url + "/spaces/3/approvals"
 	ran := make(chan struct{})
 	var status int
 	env.fake.onRun = func(role, text string, _ *int64) {
@@ -540,10 +540,10 @@ func TestApproval_ApproveWhileWrapRunsAfter(t *testing.T) {
 			close(ran)
 		case strings.HasSuffix(text, "\ngo"):
 			if _, err := env.st.CreateMessage(context.Background(),
-				store.Message{ChannelID: 3, Author: "lead", Body: "@architect plan it"}); err != nil {
+				store.Message{SpaceID: 3, Author: "lead", Body: "@architect plan it"}); err != nil {
 				t.Error(err)
 			}
-		case text == channel.WrapCommand:
+		case text == space.WrapCommand:
 			status, _ = do(t, http.MethodPost, approvals+"/1", `{"approve":true}`)
 		}
 	}
@@ -558,7 +558,7 @@ func TestApproval_ApproveWhileWrapRunsAfter(t *testing.T) {
 	if status != 204 {
 		t.Fatalf("approve while wrapping = %d, want 204", status)
 	}
-	want := []string{"[channel 3, message 1]\ngo", "[channel 3, message 2]\nlead wrote: @architect plan it"}
+	want := []string{"[Space 3, message 1]\ngo", "[Space 3, message 2]\nlead wrote: @architect plan it"}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
 	}
@@ -566,7 +566,7 @@ func TestApproval_ApproveWhileWrapRunsAfter(t *testing.T) {
 
 func TestApproval_TwoGatedWakesBothRunWhenBothApproved(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	roles := []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
 		{Name: "developer", Backend: "claude"},
@@ -583,7 +583,7 @@ func TestApproval_TwoGatedWakesBothRunWhenBothApproved(t *testing.T) {
 		}
 	}
 	sub := subscribeTo(t, env.url, id)
-	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	approvals := fmt.Sprintf("%s/spaces/%d/approvals", env.url, id)
 	env.sendTo(t, id, "go")
 	sub.want(t, _idleFrame,
 		`turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`)
@@ -598,9 +598,9 @@ func TestApproval_TwoGatedWakesBothRunWhenBothApproved(t *testing.T) {
 	}
 	waitRan(t, env, 3)
 	want := []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect plan it",
-		"[channel 2, message 3]\nlead wrote: @developer build it",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @architect plan it",
+		"[Space 2, message 3]\nlead wrote: @developer build it",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
@@ -619,7 +619,7 @@ func waitRan(t *testing.T, env *liveEnv, n int) {
 
 func TestApproval_ThreadAndTopLevelMentionHoldOneWake(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	roles := []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "developer", Backend: "claude"},
 	}
@@ -633,7 +633,7 @@ func TestApproval_ThreadAndTopLevelMentionHoldOneWake(t *testing.T) {
 			post("lead", "@developer handed over", nil)
 		}
 	}
-	approvals := fmt.Sprintf("%s/channels/%d/approvals", env.url, id)
+	approvals := fmt.Sprintf("%s/spaces/%d/approvals", env.url, id)
 	env.sendTo(t, id, "go")
 	waitRan(t, env, 1)
 	waitIdle(t, env, id)
@@ -672,12 +672,12 @@ func waitIdle(t *testing.T, env *liveEnv, id int) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("channel did not go idle")
+	t.Fatal("space did not go idle")
 }
 
 func TestApproval_StopTellsSubscribersQueuedApprovalIsPendingAgain(t *testing.T) {
 	env := newLiveEnv(t)
-	id, sub, approvals := env.gatedChannel(t)
+	id, sub, approvals := env.gatedSpace(t)
 	env.sendTo(t, id, "block")
 	<-env.fake.started
 	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
@@ -686,7 +686,7 @@ func TestApproval_StopTellsSubscribersQueuedApprovalIsPendingAgain(t *testing.T)
 	}
 	sub.next(t)
 
-	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/stop", env.url, id), "")
 
 	for range 4 {
 		if got := sub.next(t); strings.HasPrefix(got, "approval ") && strings.Contains(got, `"status":"pending"`) {

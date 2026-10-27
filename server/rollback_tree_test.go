@@ -20,22 +20,22 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":2,"name":"quick","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"name":"quick","backend":"claude"}`)
 	const ref = "refs/reef/checkpoints/2"
 	if err := worktree.Checkpoint(ctx, p.Path, ref); err != nil {
 		t.Fatal(err)
 	}
-	turn, err := env.st.CreateTurn(ctx, store.Turn{ChannelID: 3, Role: "lead", Backend: "claude"})
+	turn, err := env.st.CreateTurn(ctx, store.Turn{SpaceID: 3, Role: "lead", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := env.st.SetTurnCheckpoint(ctx, turn.ID, ref); err != nil {
 		t.Fatal(err)
 	}
-	if _, body := do(t, http.MethodGet, env.url+"/turns?channel=3&rollbackable=1", ""); !strings.Contains(body, `"id":2,`) {
+	if _, body := do(t, http.MethodGet, env.url+"/turns?space=3&rollbackable=1", ""); !strings.Contains(body, `"id":2,`) {
 		t.Errorf("rollbackable turns of the quick session = %s, want turn 2", body)
 	}
-	if _, err := env.st.PromoteChannel(ctx, 3, store.Feature{Slug: "search", Name: "Search"}); err != nil {
+	if _, err := env.st.PromoteSpace(ctx, 3, store.Feature{Slug: "search", Name: "Search"}); err != nil {
 		t.Fatal(err)
 	}
 	other := worktree.Path(env.dir, 2, "search")
@@ -44,11 +44,11 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 	}
 	writeIn(t, other, "work.txt", "w")
 
-	if status, body := do(t, http.MethodGet, env.url+"/turns?channel=3&rollbackable=1", ""); status != 200 || body != "[]" {
+	if status, body := do(t, http.MethodGet, env.url+"/turns?space=3&rollbackable=1", ""); status != 200 || body != "[]" {
 		t.Errorf("rollbackable turns after promote = %d %s, want 200 []", status, body)
 	}
 	if status, body := do(t, http.MethodGet, env.url+"/turns?rollbackable=1", ""); status != 400 {
-		t.Errorf("rollbackable without a channel = %d %s, want 400", status, body)
+		t.Errorf("rollbackable without a Space = %d %s, want 400", status, body)
 	}
 	status, body := do(t, http.MethodPost, env.url+"/turns/2/rollback", "")
 	want := `{"error":"turn 2 was checkpointed in ` + p.Path + `, not ` + other + `: conflict"}`
@@ -81,7 +81,7 @@ func TestRollback_RefusedWhileTheTreeIsRead(t *testing.T) {
 	}
 }
 
-func TestRollback_RefusedWhileReefChatHasTheChannel(t *testing.T) {
+func TestRollback_RefusedWhileReefChatHasTheSpace(t *testing.T) {
 	env, tree := rollbackEnv(t)
 	writeIn(t, tree, "a.txt", "a by the turn")
 	lock, err := os.Create(filepath.Join(env.dir, "chat-2.lock"))
@@ -94,8 +94,8 @@ func TestRollback_RefusedWhileReefChatHasTheChannel(t *testing.T) {
 	}
 
 	status, body := do(t, http.MethodPost, env.url+"/turns/1/rollback", "")
-	if want := `{"error":"channel 2 is open elsewhere: conflict"}`; status != 409 || body != want {
-		t.Errorf("rollback while reef chat has the channel = %d %s, want 409 %s", status, body, want)
+	if want := `{"error":"space 2 is open elsewhere: conflict"}`; status != 409 || body != want {
+		t.Errorf("rollback while reef chat has the Space = %d %s, want 409 %s", status, body, want)
 	}
 	if b, err := os.ReadFile(filepath.Join(tree, "a.txt")); err != nil || string(b) != "a by the turn" {
 		t.Errorf("a.txt = %q, %v, want it untouched", b, err)

@@ -8,7 +8,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -16,7 +16,7 @@ const (
 	_userAuthor = "user"
 )
 
-var _wakeHeader = regexp.MustCompile(`^\[channel \d+, message (\d+)[,\]]`)
+var _wakeHeader = regexp.MustCompile(`^\[Space \d+, message (\d+)[,\]]`)
 
 // wakeSource returns the id of the public message a wake text starts with, from the header
 // route writes, or nil when text is not a public wake.
@@ -52,16 +52,16 @@ type wake struct {
 }
 
 func (s *server) directWakes(
-	ctx context.Context, channelID, after int64, author string,
+	ctx context.Context, spaceID, after int64, author string,
 ) ([]wake, int64, error) {
-	msgs, err := s.st.DirectMessages(ctx, channelID, after)
+	msgs, err := s.st.DirectMessages(ctx, spaceID, after)
 	if err != nil {
 		return nil, after, err
 	}
 	if len(msgs) > 0 {
 		after = msgs[len(msgs)-1].ID
 	}
-	ch, err := s.st.Channel(ctx, channelID)
+	ch, err := s.st.Space(ctx, spaceID)
 	if err != nil {
 		return nil, after, err
 	}
@@ -82,8 +82,8 @@ func (s *server) directWakes(
 		if m.ReplyToID != nil {
 			source = "direct response"
 		}
-		text := fmt.Sprintf("[channel %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
-			channelID, m.ID, m.ChainID, source, m.From, m.Body)
+		text := fmt.Sprintf("[Space %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
+			spaceID, m.ID, m.ChainID, source, m.From, m.Body)
 		gated := team.Gated(m.From, m.To)
 		ws = append(ws, wake{
 			from: m.From, messageID: m.ID, gated: gated,
@@ -93,7 +93,7 @@ func (s *server) directWakes(
 	return ws, after, nil
 }
 
-// wakes routes the messages of channel id stored after the message with id after. It also
+// wakes routes the messages of Space id stored after the message with id after. It also
 // returns the id of the last message read, or after when there is none. See route.
 func (s *server) wakes(ctx context.Context, id, after int64, author string) ([]wake, int64, error) {
 	msgs, err := s.st.Messages(ctx, id, after)
@@ -107,14 +107,14 @@ func (s *server) wakes(ctx context.Context, id, after int64, author string) ([]w
 	return ws, after, err
 }
 
-// route routes msgs of channel id, in order, into the turns they wake. Only the messages
+// route routes msgs of Space id, in order, into the turns they wake. Only the messages
 // written by author are routed. A user message runs as its own text; an agent message as
-// "<author> wrote: <body>". Each starts with a line naming the channel and the message, and
+// "<author> wrote: <body>". Each starts with a line naming the Space and the message, and
 // its thread root when it is a reply. That text is what the wake was routed with: the turn's
 // own text is built when it starts, from the messages the role has not been sent. A role woken
 // by several messages gets one wake, their texts in id order; it replies where the first one did.
 func (s *server) route(ctx context.Context, id int64, msgs []store.Message, author string) ([]wake, error) {
-	ch, err := s.st.Channel(ctx, id)
+	ch, err := s.st.Space(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +140,7 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 				return nil, err
 			}
 		}
-		woken := channel.Route(m, owner, roles, ch.Role)
+		woken := space.Route(m, owner, roles, ch.Role)
 		if len(woken) == 0 {
 			continue
 		}
@@ -148,11 +148,11 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 		if m.Author != _userAuthor {
 			text = m.Author + " wrote: " + m.Body
 		}
-		header := fmt.Sprintf("[channel %d, message %d]", id, m.ID)
+		header := fmt.Sprintf("[Space %d, message %d]", id, m.ID)
 		var thread int64
 		if m.ParentID != nil {
 			thread = *m.ParentID
-			header = fmt.Sprintf("[channel %d, message %d, thread %d]", id, m.ID, thread)
+			header = fmt.Sprintf("[Space %d, message %d, thread %d]", id, m.ID, thread)
 		}
 		var asked string
 		if len(woken) > 1 {
@@ -160,7 +160,7 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 			for i, role := range woken {
 				names[i] = "@" + role
 			}
-			asked = channel.AskedTogether + strings.Join(names, ", ")
+			asked = space.AskedTogether + strings.Join(names, ", ")
 			header += "\n" + asked
 		}
 		for _, role := range woken {

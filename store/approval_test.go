@@ -17,11 +17,11 @@ func TestHolds(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "chat"})
+	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	msg, err := s.CreateMessage(ctx, Message{ChannelID: ch.ID, Author: "lead", Body: "@architect plan"})
+	msg, err := s.CreateMessage(ctx, Message{SpaceID: ch.ID, Author: "lead", Body: "@architect plan"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -30,7 +30,7 @@ func TestHolds(t *testing.T) {
 		{Text: "gate"},
 		{Kind: ApprovalHold, Text: "second"},
 	} {
-		a.ChannelID, a.From, a.To, a.MessageID = ch.ID, "lead", "architect", msg.ID
+		a.SpaceID, a.From, a.To, a.MessageID = ch.ID, "lead", "architect", msg.ID
 		if _, err := s.CreateApproval(ctx, a); err != nil {
 			t.Fatal(err)
 		}
@@ -56,14 +56,14 @@ func TestHolds(t *testing.T) {
 		t.Errorf("second ClaimHolds = %+v, %v, want none", as, err)
 	}
 
-	if _, err := s.CreateApproval(ctx, Approval{ChannelID: ch.ID, From: "lead", To: "architect",
+	if _, err := s.CreateApproval(ctx, Approval{SpaceID: ch.ID, From: "lead", To: "architect",
 		MessageID: msg.ID, Text: "third", Kind: ApprovalHold}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.PauseChannel(ctx, ch.ID, "capped"); err != nil {
+	if err := s.PauseSpace(ctx, ch.ID, "capped"); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ContinueChannel(ctx, ch.ID, 1000000); err != nil {
+	if err := s.ContinueSpace(ctx, ch.ID, 1000000); err != nil {
 		t.Fatal(err)
 	}
 	if as, err := s.ClaimHolds(ctx, ch.ID); err != nil || len(as) != 0 {

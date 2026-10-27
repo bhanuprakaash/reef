@@ -16,7 +16,7 @@ import (
 
 // projectTrees extends rollbackEnv (project 2, feature 1 "login", worktree login, ref
 // checkpoints/1) with feature 2 "signup" and a clean worktree whose turn has ref
-// checkpoints/2, and a quick-session channel whose turn has ref checkpoints/3 taken in the
+// checkpoints/2, and a quick-session Space whose turn has ref checkpoints/3 taken in the
 // main checkout. It returns the main checkout's .git folder and signup's worktree.
 func projectTrees(t *testing.T, env *liveEnv, login string) (repo, signup string) {
 	t.Helper()
@@ -24,17 +24,17 @@ func projectTrees(t *testing.T, env *liveEnv, login string) (repo, signup string
 	repo = gitIn(t, login, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	main := filepath.Dir(repo)
 	do(t, http.MethodPost, env.url+"/features", `{"projectId":2,"slug":"signup","name":"Signup"}`)
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":2,"featureId":2,"name":"s","backend":"claude"}`)
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":2,"name":"quick","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"featureId":2,"name":"s","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"name":"quick","backend":"claude"}`)
 	signup = worktree.Path(env.dir, 2, "signup")
 	if err := worktree.Ensure(ctx, main, signup, worktree.Branch("signup"), ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
-		channel int64
-		dir     string
+		space int64
+		dir   string
 	}{{3, signup}, {4, main}} {
-		turn, err := env.st.CreateTurn(ctx, store.Turn{ChannelID: c.channel, Role: "lead", Backend: "claude"})
+		turn, err := env.st.CreateTurn(ctx, store.Turn{SpaceID: c.space, Role: "lead", Backend: "claude"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -142,7 +142,7 @@ func TestDeleteProject_RefusedWhileATreeIsLocked(t *testing.T) {
 	}
 }
 
-func TestDeleteProject_RefusedWhileReefChatHasAChannel(t *testing.T) {
+func TestDeleteProject_RefusedWhileReefChatHasASpace(t *testing.T) {
 	env, login := rollbackEnv(t)
 	projectTrees(t, env, login)
 	lock, err := os.Create(filepath.Join(env.dir, "chat-2.lock"))
@@ -155,8 +155,8 @@ func TestDeleteProject_RefusedWhileReefChatHasAChannel(t *testing.T) {
 	}
 
 	status, body := do(t, http.MethodDelete, env.url+"/projects/2", "")
-	if want := `{"error":"channel 2 is open elsewhere: conflict"}`; status != 409 || body != want {
-		t.Errorf("delete while reef chat has a channel = %d %s, want 409 %s", status, body, want)
+	if want := `{"error":"space 2 is open elsewhere: conflict"}`; status != 409 || body != want {
+		t.Errorf("delete while reef chat has a Space = %d %s, want 409 %s", status, body, want)
 	}
 	if status, _ := do(t, http.MethodGet, env.url+"/projects/2", ""); status != 200 {
 		t.Errorf("GET project after refused delete = %d, want 200", status)

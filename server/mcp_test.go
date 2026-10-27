@@ -24,8 +24,8 @@ import (
 var _timestamp = regexp.MustCompile(`"(createdAt|updatedAt|retiredAt)":"[^"]*"`)
 
 // mcpFixture has features 1 (auth) and 2 (billing). The returned token is the
-// architect in channel 1; channel 2 is a second channel of auth, channel 3 is
-// billing's and channel 4 is a quick session.
+// architect in Space 1; Space 2 is a second Space of auth, Space 3 is
+// billing's and Space 4 is a quick session.
 func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 	t.Helper()
 	ctx := context.Background()
@@ -48,20 +48,20 @@ func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 	must(err)
 	_, err = st.CreateFeature(ctx, store.Feature{ProjectID: 1, Slug: "billing", Name: "Billing"})
 	must(err)
-	for _, c := range []store.Channel{
+	for _, c := range []store.Space{
 		{ProjectID: 1, FeatureID: &one, Name: "architect"},
 		{ProjectID: 1, FeatureID: &one, Name: "developer"},
 		{ProjectID: 1, FeatureID: &two, Name: "architect"},
 		{ProjectID: 1, Name: "quick"},
 	} {
-		_, err = st.CreateChannel(ctx, c)
+		_, err = st.CreateSpace(ctx, c)
 		must(err)
 	}
 	for _, m := range []store.Message{
-		{ChannelID: 1, Author: "user", Body: "use sessions for auth"},
-		{ChannelID: 2, Author: "developer", Body: "100% sure, use_sessions"},
-		{ChannelID: 3, Author: "user", Body: "use sessions for billing"},
-		{ChannelID: 2, ParentID: &two, Author: "architect", Body: "agreed"},
+		{SpaceID: 1, Author: "user", Body: "use sessions for auth"},
+		{SpaceID: 2, Author: "developer", Body: "100% sure, use_sessions"},
+		{SpaceID: 3, Author: "user", Body: "use sessions for billing"},
+		{SpaceID: 2, ParentID: &two, Author: "architect", Body: "agreed"},
 	} {
 		_, err = st.CreateMessage(ctx, m)
 		must(err)
@@ -178,73 +178,73 @@ func TestMCPTools(t *testing.T) {
 			name: "search skips another feature",
 			tool: "search_sessions",
 			give: map[string]any{"query": "SESSIONS"},
-			want: `{"hits":[{"author":"developer","channelId":2,"kind":"public","messageId":2,` +
-				`"snippet":"100% sure, use_sessions"},{"author":"user","channelId":1,` +
-				`"kind":"public","messageId":1,"snippet":"use sessions for auth"}]}`,
+			want: `{"hits":[{"author":"developer","kind":"public","messageId":2,` +
+				`"snippet":"100% sure, use_sessions","spaceId":2},{"author":"user",` +
+				`"kind":"public","messageId":1,"snippet":"use sessions for auth","spaceId":1}]}`,
 		},
 		{
 			name: "search treats underscore as text",
 			tool: "search_sessions",
 			give: map[string]any{"query": "use_s"},
-			want: `{"hits":[{"author":"developer","channelId":2,"kind":"public","messageId":2,` +
-				`"snippet":"100% sure, use_sessions"}]}`,
+			want: `{"hits":[{"author":"developer","kind":"public","messageId":2,` +
+				`"snippet":"100% sure, use_sessions","spaceId":2}]}`,
 		},
 		{
 			name: "search limit",
 			tool: "search_sessions",
 			give: map[string]any{"query": "sessions", "limit": 1},
-			want: `{"hits":[{"author":"developer","channelId":2,"kind":"public","messageId":2,` +
-				`"snippet":"100% sure, use_sessions"}]}`,
+			want: `{"hits":[{"author":"developer","kind":"public","messageId":2,` +
+				`"snippet":"100% sure, use_sessions","spaceId":2}]}`,
 		},
 		{
 			name: "read thread after an id",
 			tool: "read_thread",
-			give: map[string]any{"channelId": 2, "after": 2},
-			want: `{"messages":[{"author":"architect","body":"agreed","channelId":2,` +
-				`"createdAt":"T","id":4,"parentId":2}]}`,
+			give: map[string]any{"spaceId": 2, "after": 2},
+			want: `{"messages":[{"author":"architect","body":"agreed",` +
+				`"createdAt":"T","id":4,"parentId":2,"spaceId":2}]}`,
 		},
 		{
 			name: "read thread of a root",
 			tool: "read_thread",
-			give: map[string]any{"channelId": 2, "root": 2},
+			give: map[string]any{"spaceId": 2, "root": 2},
 			want: `{"messages":[{"author":"developer","body":"100% sure, use_sessions",` +
-				`"channelId":2,"createdAt":"T","id":2,"parentId":null},` +
-				`{"author":"architect","body":"agreed","channelId":2,"createdAt":"T","id":4,` +
-				`"parentId":2}]}`,
+				`"createdAt":"T","id":2,"parentId":null,"spaceId":2},` +
+				`{"author":"architect","body":"agreed","createdAt":"T","id":4,` +
+				`"parentId":2,"spaceId":2}]}`,
 		},
 		{
 			name:    "read thread of a reply",
 			tool:    "read_thread",
-			give:    map[string]any{"channelId": 2, "root": 4},
+			give:    map[string]any{"spaceId": 2, "root": 4},
 			want:    "thread 4: not found",
 			wantErr: true,
 		},
 		{
-			name: "post to channel as the token's role",
-			tool: "post_to_channel",
+			name: "post to Space as the token's role",
+			tool: "post_to_space",
 			give: map[string]any{"body": "@developer take it"},
-			want: `{"author":"architect","body":"@developer take it","channelId":1,` +
-				`"createdAt":"T","id":5,"parentId":null}`,
+			want: `{"author":"architect","body":"@developer take it",` +
+				`"createdAt":"T","id":5,"parentId":null,"spaceId":1}`,
 		},
 		{
-			name: "post to channel in a thread",
-			tool: "post_to_channel",
+			name: "post to Space in a thread",
+			tool: "post_to_space",
 			give: map[string]any{"body": "done", "parent": 1},
-			want: `{"author":"architect","body":"done","channelId":1,"createdAt":"T","id":6,` +
-				`"parentId":1}`,
+			want: `{"author":"architect","body":"done","createdAt":"T","id":6,` +
+				`"parentId":1,"spaceId":1}`,
 		},
 		{
-			name:    "post to channel under a reply",
-			tool:    "post_to_channel",
+			name:    "post to Space under a reply",
+			tool:    "post_to_space",
 			give:    map[string]any{"body": "x", "parent": 6},
-			want:    "invalid: parent 6 is not a top-level message of channel 1",
+			want:    "invalid: parent 6 is not a top-level message of Space 1",
 			wantErr: true,
 		},
 		{
 			name:    "read another feature's thread",
 			tool:    "read_thread",
-			give:    map[string]any{"channelId": 3},
-			want:    "channel 3: not found",
+			give:    map[string]any{"spaceId": 3},
+			want:    "space 3: not found",
 			wantErr: true,
 		},
 		{
@@ -323,7 +323,7 @@ func TestMCPProposeWrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := store.Proposal{
-		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalWrap, Brief: "v2",
+		ID: 1, SpaceID: 1, Role: "architect", Kind: store.ProposalWrap, Brief: "v2",
 		Items: []store.ProposedItem{
 			{Kind: "decision", Body: "use sessions", Why: "simple", Scope: "work_item"},
 			{Kind: "lesson", Body: "reply short", Scope: "teammate"},
@@ -351,9 +351,9 @@ func TestMCPRemember(t *testing.T) {
 	dev := callTool(t, st, developer)
 	arch := callTool(t, st, architect)
 	item := func(id int, kind, scope, role, status string) string {
-		channel := map[string]string{"developer": "2", "architect": "1"}[role]
+		space := map[string]string{"developer": "2", "architect": "1"}[role]
 		return `{"item":{"author":"` + role + `","body":"item ` + strconv.Itoa(id) + `","createdAt":"T","id":` + strconv.Itoa(id) +
-			`,"kind":"` + kind + `","links":[{"rel":"source","to":"channel:` + channel + `"}],"replacedBy":null,"retiredAt":null,"role":"` + role +
+			`,"kind":"` + kind + `","links":[{"rel":"source","to":"space:` + space + `"}],"replacedBy":null,"retiredAt":null,"role":"` + role +
 			`","scope":"` + scope + `","status":"` + status + `","why":""}}`
 	}
 	tests := []struct {
@@ -422,7 +422,7 @@ func TestMCPRememberReportsLookalikesAndEmbedErrors(t *testing.T) {
 
 	got, isErr := call("remember", map[string]any{"kind": "decision", "body": "use sessions for login."})
 	want := `{"embedError":"provider down","item":{"author":"architect","body":"use sessions for login.",` +
-		`"createdAt":"T","id":2,"kind":"decision","links":[{"rel":"source","to":"channel:1"}],` +
+		`"createdAt":"T","id":2,"kind":"decision","links":[{"rel":"source","to":"space:1"}],` +
 		`"replacedBy":null,"retiredAt":null,"role":"architect","scope":"work_item:1","status":"accepted","why":""},` +
 		`"similar":[{"body":"use sessions for login","id":1}]}`
 	if got != want || isErr {
@@ -485,7 +485,7 @@ func TestMCPMemoryScopes(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "replace an item of another shelf of this channel",
+			name:    "replace an item of another shelf of this space",
 			tool:    "remember",
 			give:    map[string]any{"kind": "decision", "body": "x", "replaces": []int{3}},
 			want:    "replace 3: invalid: memory 3 is in scope project:1, not work_item:1",
@@ -502,7 +502,7 @@ func TestMCPMemoryScopes(t *testing.T) {
 	}
 	got, isErr := authCall("read_memory", map[string]any{"id": 3})
 	want := `{"author":"architect","body":"billing runs nightly","createdAt":"T","id":3,"kind":"fact",` +
-		`"links":[{"rel":"source","to":"channel:3"}],"replacedBy":null,"retiredAt":null,"role":"architect","scope":"project:1",` +
+		`"links":[{"rel":"source","to":"space:3"}],"replacedBy":null,"retiredAt":null,"role":"architect","scope":"project:1",` +
 		`"status":"accepted","why":""}`
 	if got != want || isErr {
 		t.Errorf("read_memory of a project item = %q (error %v), want %q", got, isErr, want)
@@ -516,7 +516,7 @@ func TestMCPSetStage(t *testing.T) {
 		t.Fatal(err)
 	}
 	three := int64(3)
-	ch, err := st.CreateChannel(ctx, store.Channel{ProjectID: 1, FeatureID: &three, Name: "architect"})
+	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, FeatureID: &three, Name: "architect"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -578,7 +578,7 @@ func TestMCPProposeBrief(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := store.Proposal{
-		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalBrief,
+		ID: 1, SpaceID: 1, Role: "architect", Kind: store.ProposalBrief,
 		Brief: "plan: ship login first", Items: []store.ProposedItem{},
 		Retire: []int64{}, Status: store.ProposalPending,
 	}
@@ -638,7 +638,7 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 			`invalid: scope "space" is not one of work_item, project, teammate`,
 		},
 		{
-			"team scope on a solo channel",
+			"team scope on a solo space",
 			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "scope": "team"}}},
 			`invalid: scope "team" is not one of work_item, project, teammate`,
 		},
@@ -667,7 +667,7 @@ func TestMCPProposeWrapTeamItemsOnlyFromTheLeadOfARealTeam(t *testing.T) {
 		t.Fatal(err)
 	}
 	one := int64(1)
-	ch, err := st.CreateChannel(ctx, store.Channel{
+	ch, err := st.CreateSpace(ctx, store.Space{
 		ProjectID: 1, FeatureID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
 	})
 	if err != nil {
@@ -703,7 +703,7 @@ func TestMCPProposeBriefRefusedWhileWrapPending(t *testing.T) {
 	}
 
 	got, isErr := call("propose_brief", map[string]any{"brief": "plan"})
-	if want := "invalid: channel 1 has a wrap-up waiting for approval"; got != want || !isErr {
+	if want := "invalid: Space 1 has a wrap-up waiting for approval"; got != want || !isErr {
 		t.Errorf("propose_brief = %q (error %v), want %q", got, isErr, want)
 	}
 	p, err := st.PendingProposal(context.Background(), 1)
@@ -724,7 +724,7 @@ func TestMCPDirectMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	one := int64(1)
-	ch, err := st.CreateChannel(ctx, store.Channel{
+	ch, err := st.CreateSpace(ctx, store.Space{
 		ProjectID: 1, FeatureID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
 	})
 	if err != nil {
@@ -740,8 +740,8 @@ func TestMCPDirectMessages(t *testing.T) {
 	}
 	callLead := callTool(t, st, lead)
 	got, isErr := callLead("send_to_role", map[string]any{"to": "developer", "body": "build it"})
-	if want := `{"body":"build it","chainId":1,"channelId":5,"createdAt":"T","from":"lead",` +
-		`"id":1,"replyToId":null,"sourceMessageId":null,"status":"sent","to":"developer"}`; got != want || isErr {
+	if want := `{"body":"build it","chainId":1,"createdAt":"T","from":"lead",` +
+		`"id":1,"replyToId":null,"sourceMessageId":null,"spaceId":5,"status":"sent","to":"developer"}`; got != want || isErr {
 		t.Fatalf("send_to_role = %q (error %v), want %q", got, isErr, want)
 	}
 	if msgs, err := st.Messages(ctx, ch.ID, 0); err != nil || len(msgs) != 0 {
@@ -750,8 +750,8 @@ func TestMCPDirectMessages(t *testing.T) {
 
 	callDeveloper := callTool(t, st, developer)
 	got, isErr = callDeveloper("read_direct_messages", nil)
-	if want := `{"messages":[{"body":"build it","chainId":1,"channelId":5,"createdAt":"T",` +
-		`"from":"lead","id":1,"replyToId":null,"sourceMessageId":null,"status":"sent","to":"developer"}]}`; got != want || isErr {
+	if want := `{"messages":[{"body":"build it","chainId":1,"createdAt":"T",` +
+		`"from":"lead","id":1,"replyToId":null,"sourceMessageId":null,"spaceId":5,"status":"sent","to":"developer"}]}`; got != want || isErr {
 		t.Errorf("developer read = %q (error %v), want %q", got, isErr, want)
 	}
 	tester, err := st.CreateToken(ctx, ch.ID, "tester")
@@ -953,7 +953,7 @@ func TestMCPQuickSession(t *testing.T) {
 		{"read_task", map[string]any{"id": 1}},
 		{"update_task", map[string]any{"id": 1, "status": "done"}},
 		{"search_sessions", map[string]any{"query": "q"}},
-		{"read_thread", map[string]any{"channelId": 1}},
+		{"read_thread", map[string]any{"spaceId": 1}},
 		{"propose_wrap", map[string]any{"brief": "b"}},
 		{"set_stage", map[string]any{"stage": "plan"}},
 		{"propose_brief", map[string]any{"brief": "b"}},
@@ -961,7 +961,7 @@ func TestMCPQuickSession(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.tool, func(t *testing.T) {
 			got, isErr := call(tt.tool, tt.give)
-			if got != "this channel has no feature" || !isErr {
+			if got != "this Space has no feature" || !isErr {
 				t.Errorf("%s = %q (error %v), want the no-feature error", tt.tool, got, isErr)
 			}
 		})
@@ -975,19 +975,19 @@ func TestMCPQuickSessionReadsItsOwnThread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := st.CreateMessage(ctx, store.Message{ChannelID: 4, Author: "user", Body: "plan it"})
+	root, err := st.CreateMessage(ctx, store.Message{SpaceID: 4, Author: "user", Body: "plan it"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = st.CreateMessage(ctx, store.Message{
-		ChannelID: 4, ParentID: &root.ID, Author: "architect", Body: "ok",
+		SpaceID: 4, ParentID: &root.ID, Author: "architect", Body: "ok",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	got, isErr := callTool(t, st, tok)("read_thread", map[string]any{"channelId": 4, "root": root.ID})
-	want := `{"messages":[{"author":"user","body":"plan it","channelId":4,"createdAt":"T","id":5,` +
-		`"parentId":null},{"author":"architect","body":"ok","channelId":4,"createdAt":"T","id":6,` +
-		`"parentId":5}]}`
+	got, isErr := callTool(t, st, tok)("read_thread", map[string]any{"spaceId": 4, "root": root.ID})
+	want := `{"messages":[{"author":"user","body":"plan it","createdAt":"T","id":5,` +
+		`"parentId":null,"spaceId":4},{"author":"architect","body":"ok","createdAt":"T","id":6,` +
+		`"parentId":5,"spaceId":4}]}`
 	if got != want || isErr {
 		t.Errorf("read_thread = %q (error %v), want %q", got, isErr, want)
 	}

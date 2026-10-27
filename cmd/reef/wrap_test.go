@@ -32,7 +32,7 @@ func TestCLI_Wrap(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := st.CreateChannel(ctx, store.Channel{ProjectID: p.ID, FeatureID: &f.ID, Name: "chat"}); err != nil {
+		if _, err := st.CreateSpace(ctx, store.Space{ProjectID: p.ID, FeatureID: &f.ID, Name: "chat"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -44,11 +44,11 @@ func TestCLI_Wrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, err := st.CreateChannel(ctx, store.Channel{ProjectID: other.ID, FeatureID: &f.ID, Name: "chat"})
+	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: other.ID, FeatureID: &f.ID, Name: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	brief, err := st.CreateChannel(ctx, store.Channel{ProjectID: other.ID, FeatureID: &f.ID, Name: "plan"})
+	brief, err := st.CreateSpace(ctx, store.Space{ProjectID: other.ID, FeatureID: &f.ID, Name: "plan"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,22 +56,22 @@ func TestCLI_Wrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sch, err := st.CreateChannel(ctx, store.Channel{ProjectID: p.ID, FeatureID: &search.ID, Name: "chat"})
+	sch, err := st.CreateSpace(ctx, store.Space{ProjectID: p.ID, FeatureID: &search.ID, Name: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	day := time.Now().UTC().Format(time.DateOnly)
 	for _, prop := range []store.Proposal{
-		{ChannelID: 1, Role: "architect", Brief: "sign in with sessions",
+		{SpaceID: 1, Role: "architect", Brief: "sign in with sessions",
 			Items: []store.ProposedItem{
 				{Kind: "decision", Body: "cookie sessions", Why: "simple", Scope: "work_item"},
 				{Kind: "lesson", Body: "24h expiry", Scope: "teammate"},
 			}},
-		{ChannelID: 2, Role: "reviewer", Brief: "bill monthly", Retire: []int64{7},
+		{SpaceID: 2, Role: "reviewer", Brief: "bill monthly", Retire: []int64{7},
 			Items: []store.ProposedItem{{Kind: "fact", Body: "bills on the 1st", Scope: "project", Replaces: []int64{8}}}},
-		{ChannelID: ch.ID, Role: "developer", Brief: "outside project"},
-		{ChannelID: brief.ID, Role: "lead", Kind: store.ProposalBrief, Brief: "outside plan"},
-		{ChannelID: sch.ID, Role: "lead", Kind: store.ProposalBrief, Brief: "search plan"},
+		{SpaceID: ch.ID, Role: "developer", Brief: "outside project"},
+		{SpaceID: brief.ID, Role: "lead", Kind: store.ProposalBrief, Brief: "outside plan"},
+		{SpaceID: sch.ID, Role: "lead", Kind: store.ProposalBrief, Brief: "search plan"},
 	} {
 		if _, err := st.CreateProposal(ctx, prop); err != nil {
 			t.Fatal(err)
@@ -142,11 +142,11 @@ func TestCLI_WrapApprovePrintsAWarningForEachLookalike(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateChannel(ctx, store.Channel{ProjectID: p.ID, FeatureID: &f.ID, Name: "chat"}); err != nil {
+	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: p.ID, FeatureID: &f.ID, Name: "chat"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateProposal(ctx, store.Proposal{
-		ChannelID: 1, Role: "architect", Brief: "sign in",
+		SpaceID: 1, Role: "architect", Brief: "sign in",
 		Items: []store.ProposedItem{{Kind: "decision", Body: "use sessions for login.", Scope: "work_item"}},
 	}); err != nil {
 		t.Fatal(err)

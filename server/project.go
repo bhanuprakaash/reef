@@ -154,8 +154,8 @@ func (s *server) putProjectMemory(w http.ResponseWriter, r *http.Request) {
 }
 
 // deleteProject deletes the project, the worktrees of its features and the checkpoint refs of
-// the turns of all its channels, quick sessions included. A worktree with uncommitted changes
-// is 409 and nothing is removed; so is a channel with a turn running elsewhere, or open in
+// the turns of all its Spaces, quick sessions included. A worktree with uncommitted changes
+// is 409 and nothing is removed; so is a Space with a turn running elsewhere, or open in
 // reef chat. Branches are kept. A running turn is stopped first, as for a feature delete. A
 // project folder that is gone is not git cleaned up: worktree folders, if any, are just
 // removed.
@@ -170,13 +170,13 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	lift, err := s.stopChannels(r.Context(), store.ChannelFilter{ProjectID: &id})
+	lift, err := s.stopSpaces(r.Context(), store.SpaceFilter{ProjectID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	defer lift()
-	if err := s.channelsInUse(r.Context(), store.ChannelFilter{ProjectID: &id}); err != nil {
+	if err := s.spacesInUse(r.Context(), store.SpaceFilter{ProjectID: &id}); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -185,7 +185,7 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	refs, err := s.checkpointRefs(r.Context(), store.ChannelFilter{ProjectID: &id})
+	refs, err := s.checkpointRefs(r.Context(), store.SpaceFilter{ProjectID: &id})
 	if err != nil {
 		writeError(w, err)
 		return

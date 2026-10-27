@@ -13,21 +13,21 @@ import (
 	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
-	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
 type fakeSession struct {
-	st        *store.Store
-	channelID int64
-	propose   bool
-	replaces  []int64
-	gate      chan struct{}
-	sent      chan struct{}
-	stored    []string
-	said      []string
-	wraps     int
+	st       *store.Store
+	spaceID  int64
+	propose  bool
+	replaces []int64
+	gate     chan struct{}
+	sent     chan struct{}
+	stored   []string
+	said     []string
+	wraps    int
 }
 
 func (f *fakeSession) Say(_ context.Context, body string, _ *int64) (store.Message, error) {
@@ -51,10 +51,10 @@ func (f *fakeSession) Wrap(ctx context.Context, onEvent func(agent.Event)) (stor
 	}
 	onEvent(agent.Event{Kind: agent.KindText, Text: "ok"})
 	if !f.propose {
-		return store.Proposal{}, channel.ErrNoProposal
+		return store.Proposal{}, space.ErrNoProposal
 	}
 	return f.st.CreateProposal(ctx, store.Proposal{
-		ChannelID: f.channelID, Role: "architect", Brief: "new brief",
+		SpaceID: f.spaceID, Role: "architect", Brief: "new brief",
 		Items: []store.ProposedItem{
 			{Kind: "decision", Body: "use sessions", Why: "simple", Scope: "work_item", Replaces: f.replaces},
 			{Kind: "lesson", Body: "reply short", Scope: "teammate"},
@@ -71,9 +71,9 @@ type chatRun struct {
 	cancel context.CancelFunc
 }
 
-func startChat(t *testing.T, st *store.Store, ch store.Channel, w *fakeSession) *chatRun {
+func startChat(t *testing.T, st *store.Store, ch store.Space, w *fakeSession) *chatRun {
 	t.Helper()
-	w.st, w.channelID = st, ch.ID
+	w.st, w.spaceID = st, ch.ID
 	pr, pw := io.Pipe()
 	t.Cleanup(func() { _ = pw.Close() })
 	ctx, cancel := context.WithCancel(context.Background())
@@ -135,7 +135,7 @@ func (c *chatRun) end(t *testing.T) string {
 	return c.out.String()
 }
 
-func chatFixture(t *testing.T) (*store.Store, store.Channel) {
+func chatFixture(t *testing.T) (*store.Store, store.Space) {
 	t.Helper()
 	ctx := context.Background()
 	st, err := store.Open(t.TempDir())
@@ -151,7 +151,7 @@ func chatFixture(t *testing.T) (*store.Store, store.Channel) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, err := st.CreateChannel(ctx, store.Channel{ProjectID: p.ID, FeatureID: &f.ID, Name: "chat"})
+	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: p.ID, FeatureID: &f.ID, Name: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -404,7 +404,7 @@ func TestRun_McpNeedsKnownToken(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			t.Setenv(channel.TokenEnv, tt.token)
+			t.Setenv(space.TokenEnv, tt.token)
 			err := run(context.Background(), []string{"mcp", "--data", t.TempDir()},
 				strings.NewReader(""), io.Discard, io.Discard)
 			if err == nil || err.Error() != tt.want {
@@ -426,7 +426,7 @@ func TestRun_ChatResumeRejectsNewSettings(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := reef(t, t.TempDir(), append([]string{"chat", "--channel", "1"}, tt.give...)...)
+			_, err := reef(t, t.TempDir(), append([]string{"chat", "--space", "1"}, tt.give...)...)
 			if err == nil || err.Error() != _chatUsage {
 				t.Errorf("chat error = %v, want the usage", err)
 			}
@@ -434,7 +434,7 @@ func TestRun_ChatResumeRejectsNewSettings(t *testing.T) {
 	}
 }
 
-func TestRun_ChatBackendTypoLeavesNoChannel(t *testing.T) {
+func TestRun_ChatBackendTypoLeavesNoSpace(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(t.TempDir())
 	mustReef(t, dir, "project", "add")
@@ -449,12 +449,12 @@ func TestRun_ChatBackendTypoLeavesNoChannel(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = st.Close() }()
-	if chs, err := st.Channels(context.Background(), store.ChannelFilter{}); err != nil || len(chs) != 0 {
-		t.Errorf("channels = %+v, %v, want none", chs, err)
+	if chs, err := st.Spaces(context.Background(), store.SpaceFilter{}); err != nil || len(chs) != 0 {
+		t.Errorf("spaces = %+v, %v, want none", chs, err)
 	}
 }
 
-func TestRun_ChatResumesPausedChannel(t *testing.T) {
+func TestRun_ChatResumesPausedSpace(t *testing.T) {
 	dir := t.TempDir()
 	projectPath := t.TempDir()
 	st, err := store.Open(dir)
@@ -465,13 +465,13 @@ func TestRun_ChatResumesPausedChannel(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, err := st.CreateChannel(context.Background(), store.Channel{
+	ch, err := st.CreateSpace(context.Background(), store.Space{
 		ProjectID: p.ID, Name: "chat", Role: "lead", Backend: "claude",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := st.PauseChannel(context.Background(), ch.ID, "token budget of 1000000 used: 1000312 tokens"); err != nil {
+	if err := st.PauseSpace(context.Background(), ch.ID, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.Close(); err != nil {
@@ -489,11 +489,11 @@ func TestRun_ChatResumesPausedChannel(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 	t.Setenv("FAKE_CLAUDE", "hang")
 
-	out, err := reef(t, dir, "chat", "--channel", "1")
+	out, err := reef(t, dir, "chat", "--space", "1")
 	if err != nil {
-		t.Fatalf("reef chat --channel 1 = %v, output %q", err, out)
+		t.Fatalf("reef chat --space 1 = %v, output %q", err, out)
 	}
-	want := "> \nchannel 1: resume with reef chat --channel 1\n"
+	want := "> \nspace 1: resume with reef chat --space 1\n"
 	if out != want {
 		t.Errorf("reef chat output = %q, want %q", out, want)
 	}
@@ -516,7 +516,7 @@ func TestChat_ResumeMultiRoleTeamUsesWindow(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := st.CreateChannel(ctx, store.Channel{
+	ch, err := st.CreateSpace(ctx, store.Space{
 		ProjectID: p.ID, Name: "chat", Team: "duo", Role: "lead", Backend: "claude",
 	})
 	if err != nil {
@@ -526,9 +526,9 @@ func TestChat_ResumeMultiRoleTeamUsesWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	out, err := reef(t, dir, "chat", "--channel", fmt.Sprint(ch.ID))
+	out, err := reef(t, dir, "chat", "--space", fmt.Sprint(ch.ID))
 	if err == nil || !strings.Contains(err.Error(), "use the Reef window") {
-		t.Fatalf("reef chat --channel %d error = %v, output %q", ch.ID, err, out)
+		t.Fatalf("reef chat --space %d error = %v, output %q", ch.ID, err, out)
 	}
 	if !strings.Contains(err.Error(), `team "duo"`) {
 		t.Fatalf("reef chat error = %v, want team name", err)
@@ -539,7 +539,7 @@ func TestChat_ResumeMultiRoleTeamUsesWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = st.Close() }()
-	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	turns, err := st.Turns(ctx, store.TurnFilter{SpaceID: &ch.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -548,10 +548,10 @@ func TestChat_ResumeMultiRoleTeamUsesWindow(t *testing.T) {
 	}
 }
 
-func useTokens(t *testing.T, st *store.Store, channelID, tokens int64) {
+func useTokens(t *testing.T, st *store.Store, spaceID, tokens int64) {
 	t.Helper()
 	ctx := context.Background()
-	turn, err := st.CreateTurn(ctx, store.Turn{ChannelID: channelID, Role: "developer", Backend: "claude"})
+	turn, err := st.CreateTurn(ctx, store.Turn{SpaceID: spaceID, Role: "developer", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,10 +561,10 @@ func useTokens(t *testing.T, st *store.Store, channelID, tokens int64) {
 	}
 }
 
-func TestConverse_PausedChannelRefusesMessageUntilContinue(t *testing.T) {
+func TestConverse_PausedSpaceRefusesMessageUntilContinue(t *testing.T) {
 	ctx := context.Background()
 	st, ch := chatFixture(t)
-	if err := st.PauseChannel(ctx, ch.ID, "token budget of 1000000 used: 1000312 tokens"); err != nil {
+	if err := st.PauseSpace(ctx, ch.ID, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
 	w := &fakeSession{}
@@ -578,7 +578,7 @@ func TestConverse_PausedChannelRefusesMessageUntilContinue(t *testing.T) {
 	c.waitFor(t, "ok")
 	out := c.end(t)
 
-	want := "> channel 1 is paused: token budget of 1000000 used: 1000312 tokens\n/continue to go on\n\n> " +
+	want := "> space 1 is paused: token budget of 1000000 used: 1000312 tokens\n/continue to go on\n\n> " +
 		"continued\n\n> ok\n\n> "
 	if out != want {
 		t.Errorf("output = %q, want %q", out, want)
@@ -586,8 +586,8 @@ func TestConverse_PausedChannelRefusesMessageUntilContinue(t *testing.T) {
 	if !slices.Equal(w.said, []string{"hello"}) || !slices.Equal(w.stored, []string{"hello"}) {
 		t.Errorf("said = %q, stored = %q, want only [hello]", w.said, w.stored)
 	}
-	if got, err := st.Channel(ctx, ch.ID); err != nil || got.Paused != "" || got.TokenBudget != store.TokenBudget {
-		t.Errorf("channel = paused %q budget %d, %v, want not paused, budget %d",
+	if got, err := st.Space(ctx, ch.ID); err != nil || got.Paused != "" || got.TokenBudget != store.TokenBudget {
+		t.Errorf("space = paused %q budget %d, %v, want not paused, budget %d",
 			got.Paused, got.TokenBudget, err, store.TokenBudget)
 	}
 }
@@ -609,14 +609,14 @@ func TestConverse_TokenBudgetReachedMidChatPausesNextMessage(t *testing.T) {
 	c.waitFor(t, "continued\n\n> ok\n\n> ")
 	out := c.end(t)
 
-	if want := "channel 1 is paused: token budget of 1000000 used: 1000000 tokens\n"; !strings.Contains(out, want) {
+	if want := "space 1 is paused: token budget of 1000000 used: 1000000 tokens\n"; !strings.Contains(out, want) {
 		t.Errorf("output = %q, want it to contain %q", out, want)
 	}
 	if !slices.Equal(w.said, []string{"one", "three"}) {
 		t.Errorf("said = %q, want [one three]", w.said)
 	}
-	if got, err := st.Channel(ctx, ch.ID); err != nil || got.Paused != "" || got.TokenBudget != 2*store.TokenBudget {
-		t.Errorf("channel = paused %q budget %d, %v, want not paused, budget %d",
+	if got, err := st.Space(ctx, ch.ID); err != nil || got.Paused != "" || got.TokenBudget != 2*store.TokenBudget {
+		t.Errorf("space = paused %q budget %d, %v, want not paused, budget %d",
 			got.Paused, got.TokenBudget, err, 2*store.TokenBudget)
 	}
 }
@@ -626,8 +626,8 @@ func TestConverse_ContinueWhenNotPaused(t *testing.T) {
 	c := startChat(t, st, ch, &fakeSession{})
 
 	c.say(t, "/continue")
-	c.waitFor(t, "the channel is not paused")
-	if out := c.end(t); out != "> the channel is not paused\n\n> " {
-		t.Errorf("output = %q, want the channel is not paused", out)
+	c.waitFor(t, "the Space is not paused")
+	if out := c.end(t); out != "> the Space is not paused\n\n> " {
+		t.Errorf("output = %q, want the Space is not paused", out)
 	}
 }

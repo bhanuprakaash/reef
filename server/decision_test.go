@@ -7,17 +7,17 @@ import (
 	"testing"
 )
 
-// decisionFixture has features 1 and 2, each with a channel holding one message.
+// decisionFixture has features 1 and 2, each with a Space holding one message.
 func decisionFixture(t *testing.T) *httptest.Server {
 	t.Helper()
 	ts := newTestServer(t)
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
 	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"auth","name":"Auth"}`)
 	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"billing","name":"Billing"}`)
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"auth","backend":"claude"}`)
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":2,"name":"billing","backend":"claude"}`)
-	do(t, http.MethodPost, ts.URL+"/messages", `{"channelId":1,"author":"user","body":"use sessions"}`)
-	do(t, http.MethodPost, ts.URL+"/messages", `{"channelId":2,"author":"user","body":"use stripe"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"featureId":1,"name":"auth","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"featureId":2,"name":"billing","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/messages", `{"spaceId":1,"author":"user","body":"use sessions"}`)
+	do(t, http.MethodPost, ts.URL+"/messages", `{"spaceId":2,"author":"user","body":"use stripe"}`)
 	return ts
 }
 
@@ -36,7 +36,7 @@ func TestDecisionStatus(t *testing.T) {
 			path:       "/decisions",
 			give:       `{"featureId":1,"messageId":2,"body":"d","author":"user"}`,
 			wantStatus: 400,
-			wantBody:   `{"error":"invalid: message 2 is not in a channel of feature 1"}`,
+			wantBody:   `{"error":"invalid: message 2 is not in a Space of feature 1"}`,
 		},
 		{
 			name:       "unknown message",
@@ -44,7 +44,7 @@ func TestDecisionStatus(t *testing.T) {
 			path:       "/decisions",
 			give:       `{"featureId":1,"messageId":9,"body":"d","author":"user"}`,
 			wantStatus: 400,
-			wantBody:   `{"error":"invalid: message 9 is not in a channel of feature 1"}`,
+			wantBody:   `{"error":"invalid: message 9 is not in a Space of feature 1"}`,
 		},
 		{
 			name:       "unknown feature",

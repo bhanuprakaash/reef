@@ -31,7 +31,7 @@ type Decision struct {
 }
 
 // CreateDecision adds d and retires the decisions in d.Replaces, in one transaction. A set
-// MessageID must be a message in a channel of d.FeatureID; each Replaces id must be a live
+// MessageID must be a message in a Space of d.FeatureID; each Replaces id must be a live
 // decision of d.FeatureID, or nothing is written.
 func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error) {
 	if d.Body == "" {
@@ -46,14 +46,14 @@ func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error
 	if d.MessageID != nil {
 		var ok bool
 		err := s.db.QueryRowContext(ctx,
-			`SELECT EXISTS (SELECT 1 FROM message m JOIN channel c ON c.id = m.channel_id
+			`SELECT EXISTS (SELECT 1 FROM message m JOIN space c ON c.id = m.space_id
 			 WHERE m.id = ? AND c.feature_id = ?)`,
 			*d.MessageID, d.FeatureID).Scan(&ok)
 		if err != nil {
 			return Decision{}, fmt.Errorf("check message: %w", err)
 		}
 		if !ok {
-			return Decision{}, fmt.Errorf("%w: message %d is not in a channel of feature %d",
+			return Decision{}, fmt.Errorf("%w: message %d is not in a Space of feature %d",
 				ErrInvalid, *d.MessageID, d.FeatureID)
 		}
 	}

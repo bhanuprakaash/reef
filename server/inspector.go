@@ -8,7 +8,7 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// inspectorRole is one role's turn and token sums across the channel.
+// inspectorRole is one role's turn and token sums across the Space.
 type inspectorRole struct {
 	Role    string      `json:"role"`
 	Turns   int         `json:"turns"`
@@ -49,11 +49,11 @@ func (s *server) getInspector(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if _, err := s.st.Channel(r.Context(), id); err != nil {
+	if _, err := s.st.Space(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}
-	turns, err := s.st.Turns(r.Context(), store.TurnFilter{ChannelID: &id})
+	turns, err := s.st.Turns(r.Context(), store.TurnFilter{SpaceID: &id})
 	if err != nil {
 		writeError(w, err)
 		return

@@ -12,7 +12,7 @@ import (
 	"github.com/bhanuprakaash/reef/skill"
 )
 
-// SoloTeam is the lead-only team a channel gets when none is named.
+// SoloTeam is the lead-only team a Space gets when none is named.
 const SoloTeam = "solo"
 
 // Team is a named set of roles, exactly one of them the lead, and the gates between them.

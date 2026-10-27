@@ -29,26 +29,26 @@ func (n *namer) propose(ctx context.Context, backend, message string) (string, e
 	return n.name + " " + backend + " " + message, n.err
 }
 
-// defaultNamed adds channel 2 with the name the new-channel form sends for an empty field.
+// defaultNamed adds Space 2 with the name the new-space form sends for an empty field.
 func (e *liveEnv) defaultNamed(t *testing.T, n *namer) {
 	t.Helper()
 	e.h.s.name = n.propose
-	if status, body := do(t, http.MethodPost, e.url+"/channels",
+	if status, body := do(t, http.MethodPost, e.url+"/spaces",
 		`{"projectId":1,"name":"claude 02:32 PM","backend":"claude"}`); status != 201 {
-		t.Fatalf("create channel = %d %s, want 201", status, body)
+		t.Fatalf("create Space = %d %s, want 201", status, body)
 	}
 }
 
-func (e *liveEnv) channelName(t *testing.T, id int64) string {
+func (e *liveEnv) spaceName(t *testing.T, id int64) string {
 	t.Helper()
-	c, err := e.st.Channel(context.Background(), id)
+	c, err := e.st.Space(context.Background(), id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	return c.Name
 }
 
-func TestSend_NamesDefaultNamedChannel(t *testing.T) {
+func TestSend_NamesDefaultNamedSpace(t *testing.T) {
 	env := newLiveEnv(t)
 	env.defaultNamed(t, &namer{name: "login"})
 	sub := subscribeTo(t, env.url, 2)
@@ -58,7 +58,7 @@ func TestSend_NamesDefaultNamedChannel(t *testing.T) {
 	}
 	for f := sub.next(t); f != `name {}`; f = sub.next(t) {
 	}
-	if got, want := env.channelName(t, 2), "login claude fix redirect"; got != want {
+	if got, want := env.spaceName(t, 2), "login claude fix redirect"; got != want {
 		t.Errorf("name = %q, want %q", got, want)
 	}
 }
@@ -74,7 +74,7 @@ func TestSend_NameAttemptedOnce(t *testing.T) {
 		}
 	}
 	env.h.Close()
-	if got := env.channelName(t, 2); got != "claude 02:32 PM" {
+	if got := env.spaceName(t, 2); got != "claude 02:32 PM" {
 		t.Errorf("name = %q, want the default name kept", got)
 	}
 	if got := n.calls.Load(); got != 1 {
@@ -82,7 +82,7 @@ func TestSend_NameAttemptedOnce(t *testing.T) {
 	}
 	ms, err := env.st.Messages(context.Background(), 2, 0)
 	if err != nil || len(ms) < 2 {
-		t.Errorf("messages = %d, %v, want the channel to keep working", len(ms), err)
+		t.Errorf("messages = %d, %v, want the Space to keep working", len(ms), err)
 	}
 }
 
@@ -95,12 +95,12 @@ func TestSend_RenameDuringProposalWins(t *testing.T) {
 		t.Fatalf("send = %d, want 202", status)
 	}
 	<-n.started
-	if status, body := do(t, http.MethodPut, env.url+"/channels/2", `{"name":"mine"}`); status != 200 {
+	if status, body := do(t, http.MethodPut, env.url+"/spaces/2", `{"name":"mine"}`); status != 200 {
 		t.Fatalf("rename = %d %s, want 200", status, body)
 	}
 	close(n.release)
 	env.h.Close()
-	if got := env.channelName(t, 2); got != "mine" {
+	if got := env.spaceName(t, 2); got != "mine" {
 		t.Errorf("name = %q, want mine", got)
 	}
 }
@@ -110,10 +110,10 @@ func TestSend_RenameBeforeFirstMessageWins(t *testing.T) {
 	n := &namer{name: "proposed"}
 	env.defaultNamed(t, n)
 
-	do(t, http.MethodPut, env.url+"/channels/2", `{"name":"mine"}`)
+	do(t, http.MethodPut, env.url+"/spaces/2", `{"name":"mine"}`)
 	env.sendTo(t, 2, "hello")
 	env.h.Close()
-	if got := env.channelName(t, 2); got != "mine" {
+	if got := env.spaceName(t, 2); got != "mine" {
 		t.Errorf("name = %q, want mine", got)
 	}
 	if got := n.calls.Load(); got != 0 {
@@ -126,10 +126,10 @@ func TestSend_PermissionChangeKeepsNamePending(t *testing.T) {
 	n := &namer{name: "proposed"}
 	env.defaultNamed(t, n)
 
-	do(t, http.MethodPut, env.url+"/channels/2", `{"name":"claude 02:32 PM","permissionMode":"acceptEdits"}`)
+	do(t, http.MethodPut, env.url+"/spaces/2", `{"name":"claude 02:32 PM","permissionMode":"acceptEdits"}`)
 	env.sendTo(t, 2, "hello")
 	env.h.Close()
-	if got, want := env.channelName(t, 2), "proposed claude hello"; got != want {
+	if got, want := env.spaceName(t, 2), "proposed claude hello"; got != want {
 		t.Errorf("name = %q, want %q", got, want)
 	}
 }
@@ -148,8 +148,8 @@ func TestSend_TypedNameIsNeverProposed(t *testing.T) {
 			env := newLiveEnv(t)
 			n := &namer{name: "proposed"}
 			env.h.s.name = n.propose
-			if status, body := do(t, http.MethodPost, env.url+"/channels", tt.give); status != 201 {
-				t.Fatalf("create channel = %d %s, want 201", status, body)
+			if status, body := do(t, http.MethodPost, env.url+"/spaces", tt.give); status != 201 {
+				t.Fatalf("create Space = %d %s, want 201", status, body)
 			}
 			env.sendTo(t, 2, "hello")
 			env.h.Close()

@@ -100,7 +100,7 @@ func (s *Store) UpdateProject(ctx context.Context, p Project) (Project, error) {
 	return s.Project(ctx, p.ID)
 }
 
-// DeleteProject removes the project and, by cascade, its features, channels
+// DeleteProject removes the project and, by cascade, its features, Spaces
 // and tasks.
 func (s *Store) DeleteProject(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, "DELETE FROM project WHERE id = ?", id)

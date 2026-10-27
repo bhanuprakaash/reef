@@ -185,7 +185,7 @@ func (s *Store) SetFeatureStage(ctx context.Context, id int64, stage string) (Fe
 	return f, nil
 }
 
-// CloseFeature sets closed_at on the feature and on each of its channels still open, in one
+// CloseFeature sets closed_at on the feature and on each of its Spaces still open, in one
 // transaction.
 func (s *Store) CloseFeature(ctx context.Context, id int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -206,13 +206,13 @@ func (s *Store) CloseFeature(ctx context.Context, id int64) error {
 		return fmt.Errorf("feature %d: %w", id, ErrNotFound)
 	}
 	if _, err := tx.ExecContext(ctx,
-		"UPDATE channel SET closed_at = ? WHERE feature_id = ? AND closed_at IS NULL", at, id); err != nil {
-		return fmt.Errorf("close channels: %w", err)
+		"UPDATE space SET closed_at = ? WHERE feature_id = ? AND closed_at IS NULL", at, id); err != nil {
+		return fmt.Errorf("close Spaces: %w", err)
 	}
 	return tx.Commit()
 }
 
-// ReopenFeature clears the feature's closed_at; its channels stay as they are.
+// ReopenFeature clears the feature's closed_at; its Spaces stay as they are.
 func (s *Store) ReopenFeature(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, "UPDATE feature SET closed_at = NULL WHERE id = ?", id)
 	if err != nil {
@@ -229,7 +229,7 @@ func (s *Store) ReopenFeature(ctx context.Context, id int64) error {
 }
 
 // DeleteFeature removes the feature and, by cascade, its briefs, notes,
-// decisions and channels.
+// decisions and Spaces.
 func (s *Store) DeleteFeature(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, "DELETE FROM feature WHERE id = ?", id)
 	if err != nil {

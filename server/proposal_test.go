@@ -12,9 +12,9 @@ import (
 
 func TestWrap_RunsWrapTurn(t *testing.T) {
 	env := newLiveEnv(t)
-	id := env.featureChannel(t)
+	id := env.featureSpace(t)
 	sub := subscribeTo(t, env.url, id)
-	status, body := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/wrap", env.url, id), "")
+	status, body := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/wrap", env.url, id), "")
 	if status != 202 || body != "" {
 		t.Fatalf("wrap = %d %q, want 202", status, body)
 	}
@@ -27,7 +27,7 @@ func TestWrap_RunsWrapTurn(t *testing.T) {
 }
 
 // gitProject makes the folder of project id a git repo with one commit, so a promote of one
-// of its channels can run.
+// of its Spaces can run.
 func gitProject(t *testing.T, env *liveEnv, id int64) {
 	t.Helper()
 	p, err := env.st.Project(context.Background(), id)
@@ -44,7 +44,7 @@ func TestPromote_NewFeature(t *testing.T) {
 	env := newLiveEnv(t)
 	gitProject(t, env, 1)
 	sub := subscribe(t, env.url)
-	status, body := do(t, http.MethodPost, env.url+"/channels/1/promote",
+	status, body := do(t, http.MethodPost, env.url+"/spaces/1/promote",
 		`{"slug":"login","name":"Login"}`)
 	if status != 202 || !strings.Contains(body, `"featureId":1`) {
 		t.Fatalf("promote = %d %s, want 202 with featureId 1", status, body)
@@ -59,9 +59,9 @@ func TestPromote_NewFeature(t *testing.T) {
 	if status != 200 || !strings.Contains(body, `"projectId":1,"slug":"login","name":"Login"`) {
 		t.Errorf("feature = %d %s, want slug login", status, body)
 	}
-	status, body = do(t, http.MethodGet, env.url+"/channels/1", "")
+	status, body = do(t, http.MethodGet, env.url+"/spaces/1", "")
 	if status != 200 || !strings.Contains(body, `"featureId":1`) {
-		t.Errorf("channel = %d %s, want featureId 1", status, body)
+		t.Errorf("space = %d %s, want featureId 1", status, body)
 	}
 }
 
@@ -71,7 +71,7 @@ func TestPromote_NotAGitRepo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, body := do(t, http.MethodPost, env.url+"/channels/1/promote", `{"slug":"login","name":"Login"}`)
+	status, body := do(t, http.MethodPost, env.url+"/spaces/1/promote", `{"slug":"login","name":"Login"}`)
 	want := `{"error":"invalid: project ` + p.Path + ` is not a git repo with a commit"}`
 	if status != 400 || body != want {
 		t.Errorf("promote = %d %s, want 400 %s", status, body, want)
@@ -85,7 +85,7 @@ func TestPromote_ExistingFeature(t *testing.T) {
 	env := newLiveEnv(t)
 	gitProject(t, env, 1)
 	do(t, http.MethodPost, env.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
-	status, body := do(t, http.MethodPost, env.url+"/channels/1/promote", `{"featureId":1}`)
+	status, body := do(t, http.MethodPost, env.url+"/spaces/1/promote", `{"featureId":1}`)
 	if status != 202 || !strings.Contains(body, `"featureId":1`) {
 		t.Errorf("promote = %d %s, want 202 with featureId 1", status, body)
 	}
@@ -103,24 +103,24 @@ func TestPromote_Errors(t *testing.T) {
 		wantStatus int
 		wantBody   string
 	}{
-		{"no body fields", "/channels/1/promote", `{}`, 400,
+		{"no body fields", "/spaces/1/promote", `{}`, 400,
 			`{"error":"invalid: give slug and name, or featureId"}`},
-		{"both forms", "/channels/1/promote", `{"slug":"a","name":"A","featureId":1}`, 400,
+		{"both forms", "/spaces/1/promote", `{"slug":"a","name":"A","featureId":1}`, 400,
 			`{"error":"invalid: give slug and name, or featureId"}`},
-		{"unknown field", "/channels/1/promote", `{"feature":1}`, 400,
+		{"unknown field", "/spaces/1/promote", `{"feature":1}`, 400,
 			`{"error":"invalid: bad JSON: json: unknown field \"feature\""}`},
-		{"slug without name", "/channels/1/promote", `{"slug":"a"}`, 400,
+		{"slug without name", "/spaces/1/promote", `{"slug":"a"}`, 400,
 			`{"error":"invalid: feature name is required"}`},
-		{"bad slug", "/channels/1/promote", `{"slug":"A b","name":"A"}`, 400,
+		{"bad slug", "/spaces/1/promote", `{"slug":"A b","name":"A"}`, 400,
 			`{"error":"invalid: feature slug \"A b\" must match ^[a-z0-9][a-z0-9-]*$"}`},
-		{"feature of another project", "/channels/1/promote", `{"featureId":1}`, 400,
+		{"feature of another project", "/spaces/1/promote", `{"featureId":1}`, 400,
 			`{"error":"invalid: feature 1 is not in project 1"}`},
-		{"unknown feature", "/channels/1/promote", `{"featureId":9}`, 400,
+		{"unknown feature", "/spaces/1/promote", `{"featureId":9}`, 400,
 			`{"error":"invalid: feature 9 is not in project 1"}`},
-		{"slug taken", "/channels/1/promote", `{"slug":"taken","name":"T"}`, 409,
+		{"slug taken", "/spaces/1/promote", `{"slug":"taken","name":"T"}`, 409,
 			`{"error":"feature slug \"taken\" is taken in its project: conflict"}`},
-		{"unknown channel", "/channels/9/promote", `{"slug":"a","name":"A"}`, 404,
-			`{"error":"channel 9: not found"}`},
+		{"unknown space", "/spaces/9/promote", `{"slug":"a","name":"A"}`, 404,
+			`{"error":"space 9: not found"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -130,21 +130,21 @@ func TestPromote_Errors(t *testing.T) {
 			}
 		})
 	}
-	_, body := do(t, http.MethodGet, env.url+"/channels/1", "")
+	_, body := do(t, http.MethodGet, env.url+"/spaces/1", "")
 	if !strings.Contains(body, `"featureId":null`) {
-		t.Errorf("channel after errors = %s, want featureId null", body)
+		t.Errorf("space after errors = %s, want featureId null", body)
 	}
 	if got := env.opened.Load(); got != 0 {
 		t.Errorf("sessions opened = %d, want 0: a refused promote does not open the agent", got)
 	}
 }
 
-func TestPromote_OnFeatureChannel(t *testing.T) {
+func TestPromote_OnFeatureSpace(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"featureId":1,"name":"c","backend":"claude"}`)
-	status, body := do(t, http.MethodPost, env.url+"/channels/2/promote", `{"slug":"other","name":"Other"}`)
-	if status != 400 || body != `{"error":"invalid: channel 2 already has feature 1"}` {
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"featureId":1,"name":"c","backend":"claude"}`)
+	status, body := do(t, http.MethodPost, env.url+"/spaces/2/promote", `{"slug":"other","name":"Other"}`)
+	if status != 400 || body != `{"error":"invalid: Space 2 already has feature 1"}` {
 		t.Errorf("promote = %d %s, want 400 already has feature", status, body)
 	}
 }
@@ -153,8 +153,8 @@ func TestPromote_WhileRunning(t *testing.T) {
 	env := newLiveEnv(t)
 	env.send(t, "block")
 	<-env.fake.started
-	status, body := do(t, http.MethodPost, env.url+"/channels/1/promote", `{"slug":"login","name":"Login"}`)
-	if status != 409 || body != `{"error":"channel 1 has a turn running: conflict"}` {
+	status, body := do(t, http.MethodPost, env.url+"/spaces/1/promote", `{"slug":"login","name":"Login"}`)
+	if status != 409 || body != `{"error":"space 1 has a turn running: conflict"}` {
 		t.Errorf("promote = %d %s, want 409 turn running", status, body)
 	}
 	if _, err := env.st.FeatureByRef(context.Background(), "login"); err == nil {
@@ -166,15 +166,15 @@ func TestPromote_WhileRunning(t *testing.T) {
 func TestProposalRoutes(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"featureId":1,"name":"c","backend":"claude"}`)
-	if status, body := do(t, http.MethodGet, env.url+"/channels/2/proposal", ""); status != 404 ||
-		body != `{"error":"pending proposal of channel 2: not found"}` {
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"featureId":1,"name":"c","backend":"claude"}`)
+	if status, body := do(t, http.MethodGet, env.url+"/spaces/2/proposal", ""); status != 404 ||
+		body != `{"error":"pending proposal of Space 2: not found"}` {
 		t.Errorf("proposal before = %d %s, want 404", status, body)
 	}
 	propose := func(brief string) {
 		t.Helper()
 		_, err := env.st.CreateProposal(context.Background(), store.Proposal{
-			ChannelID: 2, Role: "lead", Brief: brief,
+			SpaceID: 2, Role: "lead", Brief: brief,
 			Items: []store.ProposedItem{{Kind: "decision", Body: "use SQLite", Why: "simple", Scope: "work_item"}},
 		})
 		if err != nil {
@@ -183,8 +183,8 @@ func TestProposalRoutes(t *testing.T) {
 	}
 
 	propose("first brief")
-	status, body := do(t, http.MethodGet, env.url+"/channels/2/proposal", "")
-	if status != 200 || !strings.Contains(body, `"id":1,"channelId":2,"role":"lead","kind":"wrap","brief":"first brief"`) {
+	status, body := do(t, http.MethodGet, env.url+"/spaces/2/proposal", "")
+	if status != 200 || !strings.Contains(body, `"id":1,"spaceId":2,"role":"lead","kind":"wrap","brief":"first brief"`) {
 		t.Fatalf("proposal = %d %s, want proposal 1", status, body)
 	}
 	status, body = do(t, http.MethodPost, env.url+"/proposals/1/approve", "")

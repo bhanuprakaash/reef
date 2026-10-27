@@ -16,8 +16,8 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/server"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/web"
 )
@@ -40,7 +40,7 @@ commands:
   context <feature> --role R
   wrap list [<feature>] | show <id> | approve <id> | reject <id>
   token <feature> --role R
-  chat <feature> --role R --backend claude|codex | chat --channel ID
+  chat <feature> --role R --backend claude|codex | chat --space ID
   mcp`
 	_serveUsage        = "usage: reef serve [--addr 127.0.0.1:7700] [--data DIR]"
 	_defaultAddr       = "127.0.0.1:7700"
@@ -137,8 +137,8 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	}
 
 	logger := log.New(logOut, "", log.LstdFlags)
-	failed, err := st.FailRunningTurns(ctx, func(channelID int64) bool {
-		return channel.InUse(data, channelID)
+	failed, err := st.FailRunningTurns(ctx, func(spaceID int64) bool {
+		return space.InUse(data, spaceID)
 	})
 	if err != nil {
 		return fmt.Errorf("recover turns: %w", err)
@@ -146,8 +146,8 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	if len(failed) > 0 {
 		logger.Printf("marked %d running turns failed: server restarted", len(failed))
 	}
-	if err := st.ClearStaleActiveTurns(ctx, func(channelID int64) bool {
-		return channel.InUse(data, channelID)
+	if err := st.ClearStaleActiveTurns(ctx, func(spaceID int64) bool {
+		return space.InUse(data, spaceID)
 	}); err != nil {
 		return fmt.Errorf("clear active turns: %w", err)
 	}

@@ -42,6 +42,30 @@ func TestMigrateSkillsToList(t *testing.T) {
 			if _, err := s.db.Exec("PRAGMA user_version = 22"); err != nil {
 				t.Fatal(err)
 			}
+			for _, stmt := range []string{
+				"ALTER TABLE space RENAME TO channel",
+				"ALTER TABLE approval RENAME COLUMN space_id TO channel_id",
+				"ALTER TABLE message RENAME COLUMN space_id TO channel_id",
+				"ALTER TABLE proposal RENAME COLUMN space_id TO channel_id",
+				"ALTER TABLE token RENAME COLUMN space_id TO channel_id",
+				"ALTER TABLE turn RENAME COLUMN space_id TO channel_id",
+				"DROP INDEX space_project",
+				"DROP INDEX space_feature",
+				"DROP INDEX message_space",
+				"DROP INDEX proposal_space",
+				"DROP INDEX token_space",
+				"DROP INDEX turn_space",
+				"CREATE INDEX channel_project ON channel(project_id)",
+				"CREATE INDEX channel_feature ON channel(feature_id)",
+				"CREATE INDEX message_channel ON message(channel_id, id)",
+				"CREATE INDEX proposal_channel ON proposal(channel_id)",
+				"CREATE INDEX token_channel ON token(channel_id)",
+				"CREATE INDEX turn_channel ON turn(channel_id)",
+			} {
+				if _, err := s.db.Exec(stmt); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if _, err := s.db.Exec("ALTER TABLE project DROP COLUMN base_branch"); err != nil {
 				t.Fatal(err)
 			}

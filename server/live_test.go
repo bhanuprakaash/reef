@@ -17,7 +17,7 @@ import (
 	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
-	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -26,7 +26,7 @@ type fakeSession struct {
 	started    chan struct{}
 	release    chan struct{}
 	closed     atomic.Int32
-	channelID  atomic.Int64
+	spaceID    atomic.Int64
 	promoted   atomic.Int32
 	noProposal atomic.Bool
 
@@ -59,7 +59,7 @@ func (f *fakeSession) Say(ctx context.Context, body string, parent *int64) (stor
 		f.say()
 	}
 	return f.st.CreateMessage(ctx, store.Message{
-		ChannelID: f.channelID.Load(), ParentID: parent, Author: "user", Body: body,
+		SpaceID: f.spaceID.Load(), ParentID: parent, Author: "user", Body: body,
 	})
 }
 
@@ -148,11 +148,11 @@ func (f *fakeSession) RunDirectAs(
 
 func (f *fakeSession) Wrap(_ context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
 	if f.onRun != nil {
-		f.onRun("lead", channel.WrapCommand, nil)
+		f.onRun("lead", space.WrapCommand, nil)
 	}
 	onEvent(agent.Event{Kind: agent.KindText, Text: "wrapped"})
 	if f.noProposal.Load() {
-		return store.Proposal{}, channel.ErrNoProposal
+		return store.Proposal{}, space.ErrNoProposal
 	}
 	return store.Proposal{}, nil
 }
@@ -194,10 +194,10 @@ func (a *countingAgent) Send(context.Context, string) error {
 	return nil
 }
 
-// runnerSession stores its turns with a real channel.Runner; the rest is fakeSession.
+// runnerSession stores its turns with a real space.Runner; the rest is fakeSession.
 type runnerSession struct {
 	*fakeSession
-	run *channel.Runner
+	run *space.Runner
 }
 
 func (r runnerSession) RunAs(
@@ -221,7 +221,7 @@ func (r runnerSession) RunDirectAs(
 }
 
 func (r runnerSession) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
-	return store.Proposal{}, r.run.Run(ctx, channel.PromoteCommand, nil, onEvent)
+	return store.Proposal{}, r.run.Run(ctx, space.PromoteCommand, nil, onEvent)
 }
 
 // gateCtx calls hook on its first Done call, which the store makes as a query starts.
@@ -259,15 +259,15 @@ func newLiveEnv(t *testing.T) *liveEnv {
 	env.st, env.fake.st = st, st
 	env.serve(t)
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"reef","path":"`+t.TempDir()+`"}`)
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"name":"scratch","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"scratch","backend":"claude"}`)
 	return env
 }
 
 func (e *liveEnv) serve(t *testing.T) {
 	t.Helper()
-	e.h = newHandler(e.st, testMemory(t, e.st), e.dir, channel.NewTrees(e.dir), func(ctx context.Context, id int64) (session, error) {
+	e.h = newHandler(e.st, testMemory(t, e.st), e.dir, space.NewTrees(e.dir), func(ctx context.Context, id int64) (session, error) {
 		e.opened.Add(1)
-		e.fake.channelID.Store(id)
+		e.fake.spaceID.Store(id)
 		if e.open != nil {
 			return e.open(ctx)
 		}
@@ -321,12 +321,12 @@ func (e *liveEnv) waitIdle(t *testing.T, id int) {
 	}
 }
 
-// overBudget uses up the token budget of channel 1 and sends a message, which pauses the
-// channel. It returns the pause reason.
+// overBudget uses up the token budget of Space 1 and sends a message, which pauses the
+// Space. It returns the pause reason.
 func (e *liveEnv) overBudget(t *testing.T) string {
 	t.Helper()
 	ctx := context.Background()
-	turn, err := e.st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "lead", Backend: "claude"})
+	turn, err := e.st.CreateTurn(ctx, store.Turn{SpaceID: 1, Role: "lead", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -338,7 +338,7 @@ func (e *liveEnv) overBudget(t *testing.T) string {
 	if status, body := e.send(t, "hello"); status != 409 {
 		t.Fatalf("send over budget = %d %s, want 409", status, body)
 	}
-	ch, err := e.st.Channel(ctx, 1)
+	ch, err := e.st.Space(ctx, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -352,14 +352,14 @@ func (e *liveEnv) send(t *testing.T, text string) (int, string) {
 
 func (e *liveEnv) sendTo(t *testing.T, id int, text string) (int, string) {
 	t.Helper()
-	return do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/send", e.url, id), `{"text":"`+text+`"}`)
+	return do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/send", e.url, id), `{"text":"`+text+`"}`)
 }
 
-// featureChannel adds a feature and a channel on it, and returns the channel's id.
-func (e *liveEnv) featureChannel(t *testing.T) int {
+// featureSpace adds a feature and a Space on it, and returns the Space's id.
+func (e *liveEnv) featureSpace(t *testing.T) int {
 	t.Helper()
 	do(t, http.MethodPost, e.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
-	do(t, http.MethodPost, e.url+"/channels", `{"projectId":1,"featureId":1,"name":"c","backend":"claude"}`)
+	do(t, http.MethodPost, e.url+"/spaces", `{"projectId":1,"featureId":1,"name":"c","backend":"claude"}`)
 	return 2
 }
 
@@ -376,7 +376,7 @@ func subscribe(t *testing.T, url string) *stream {
 
 func subscribeTo(t *testing.T, url string, id int) *stream {
 	t.Helper()
-	return subscribePath(t, fmt.Sprintf("%s/channels/%d/events", url, id))
+	return subscribePath(t, fmt.Sprintf("%s/spaces/%d/events", url, id))
 }
 
 func subscribePath(t *testing.T, url string) *stream {
@@ -489,7 +489,7 @@ func TestSend_Parent(t *testing.T) {
 	sub := subscribe(t, env.url)
 	sub.want(t, _idleFrame)
 	send := func(body string) int {
-		status, _ := do(t, http.MethodPost, env.url+"/channels/1/send", body)
+		status, _ := do(t, http.MethodPost, env.url+"/spaces/1/send", body)
 		if status == 202 {
 			sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 				`turn {"role":"lead","status":"done"}`)
@@ -505,16 +505,16 @@ func TestSend_Parent(t *testing.T) {
 	if status := send(`{"text":"deeper","parent":2}`); status != 400 {
 		t.Errorf("send to a reply = %d, want 400", status)
 	}
-	_, body := do(t, http.MethodGet, env.url+"/messages?channel=1", "")
+	_, body := do(t, http.MethodGet, env.url+"/messages?space=1", "")
 	if !strings.Contains(body, `"parentId":null`) || !strings.Contains(body, `"parentId":1`) ||
 		strings.Contains(body, "deeper") {
 		t.Errorf("messages = %s, want root with null parentId and one reply with 1", body)
 	}
 }
 
-// teamChannel adds the team core, a lead and an architect, and a channel of it. It returns
-// the channel's id and a function that stores a message as author.
-func (e *liveEnv) teamChannel(t *testing.T) (int, func(author, body string, parent *int64)) {
+// teamSpace adds the team core, a lead and an architect, and a Space of it. It returns
+// the Space's id and a function that stores a message as author.
+func (e *liveEnv) teamSpace(t *testing.T) (int, func(author, body string, parent *int64)) {
 	t.Helper()
 	_, err := e.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
@@ -523,11 +523,11 @@ func (e *liveEnv) teamChannel(t *testing.T) (int, func(author, body string, pare
 	if err != nil {
 		t.Fatal(err)
 	}
-	do(t, http.MethodPost, e.url+"/channels", `{"projectId":1,"name":"t","team":"core"}`)
+	do(t, http.MethodPost, e.url+"/spaces", `{"projectId":1,"name":"t","team":"core"}`)
 	return 2, func(author, body string, parent *int64) {
 		t.Helper()
 		_, err := e.st.CreateMessage(context.Background(),
-			store.Message{ChannelID: 2, ParentID: parent, Author: author, Body: body})
+			store.Message{SpaceID: 2, ParentID: parent, Author: author, Body: body})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -542,7 +542,7 @@ func (e *liveEnv) ranTexts() []string {
 
 func TestSend_RoutesAndWakes(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, text string, parent *int64) {
 		switch {
 		case role == "lead":
@@ -564,7 +564,7 @@ func TestSend_RoutesAndWakes(t *testing.T) {
 		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"architect","status":"done"}`)
 
-	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/send", env.url, id),
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/send", env.url, id),
 		`{"text":"why?","parent":3}`); status != 202 {
 		t.Fatalf("reply in the thread = %d, want 202", status)
 	}
@@ -572,9 +572,9 @@ func TestSend_RoutesAndWakes(t *testing.T) {
 		`turn {"role":"architect","status":"done"}`)
 
 	want := []string{
-		"[channel 2, message 1]\nlogin please",
-		"[channel 2, message 2]\nlead wrote: @architect plan it",
-		"[channel 2, message 4, thread 3]\nwhy?",
+		"[Space 2, message 1]\nlogin please",
+		"[Space 2, message 2]\nlead wrote: @architect plan it",
+		"[Space 2, message 4, thread 3]\nwhy?",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
@@ -600,9 +600,9 @@ func TestSend_RoutesAndWakes(t *testing.T) {
 	}
 }
 
-func TestSend_ChannelRoleStandsInForLead(t *testing.T) {
+func TestSend_SpaceRoleStandsInForLead(t *testing.T) {
 	env := newLiveEnv(t)
-	_, err := env.st.CreateChannel(context.Background(), store.Channel{
+	_, err := env.st.CreateSpace(context.Background(), store.Space{
 		ProjectID: 1, Name: "dev", Role: "developer", Backend: "claude",
 	})
 	if err != nil {
@@ -616,14 +616,14 @@ func TestSend_ChannelRoleStandsInForLead(t *testing.T) {
 	sub.want(t, _idleFrame,
 		`turn {"role":"developer","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"developer","status":"done"}`)
-	if got, want := env.ranTexts(), []string{"[channel 2, message 1]\n@lead hi"}; !slices.Equal(got, want) {
+	if got, want := env.ranTexts(), []string{"[Space 2, message 1]\n@lead hi"}; !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
 	}
 }
 
 func TestSend_WakesByPost(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, _ string, parent *int64) {
 		if role == "lead" {
 			post("lead", "@architect look at this", parent)
@@ -638,8 +638,8 @@ func TestSend_WakesByPost(t *testing.T) {
 		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"architect","status":"done"}`)
 	want := []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect look at this",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @architect look at this",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: the post that mentions nobody wakes no one", got, want)
@@ -648,12 +648,12 @@ func TestSend_WakesByPost(t *testing.T) {
 
 func TestSend_DirectRequestGetsOnePrivateResponse(t *testing.T) {
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	var sent atomic.Bool
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" && sent.CompareAndSwap(false, true) {
 			if _, err := env.st.CreateDirectMessage(context.Background(), store.DirectMessage{
-				ChannelID: int64(id), From: "lead", To: "architect", Body: "design it",
+				SpaceID: int64(id), From: "lead", To: "architect", Body: "design it",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -679,15 +679,15 @@ func TestSend_DirectRequestGetsOnePrivateResponse(t *testing.T) {
 		t.Errorf("public messages = %+v, %v, want only the user's message", public, err)
 	}
 	status, body := do(t, http.MethodGet,
-		env.url+fmt.Sprintf("/channels/%d/direct-messages", id), "")
+		env.url+fmt.Sprintf("/spaces/%d/direct-messages", id), "")
 	if status != 200 || !strings.Contains(body, `"from":"lead","to":"architect","body":"design it"`) ||
 		!strings.Contains(body, `"from":"architect","to":"lead","body":"hi"`) {
 		t.Errorf("GET direct messages = %d %s, want both sides of the exchange", status, body)
 	}
 	want := []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, direct message 1, chain 1, source: direct request]\nlead wrote privately: design it",
-		"[channel 2, direct message 2, chain 1, source: direct response]\narchitect wrote privately: hi",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, direct message 1, chain 1, source: direct request]\nlead wrote privately: design it",
+		"[Space 2, direct message 2, chain 1, source: direct response]\narchitect wrote privately: hi",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
@@ -696,7 +696,7 @@ func TestSend_DirectRequestGetsOnePrivateResponse(t *testing.T) {
 
 func TestSend_OneWakePerRole(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, _ string, parent *int64) {
 		if role == "lead" {
 			post("lead", "@architect look at this", parent)
@@ -711,9 +711,9 @@ func TestSend_OneWakePerRole(t *testing.T) {
 		`turn {"role":"architect","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"architect","status":"done"}`)
 	want := []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect look at this\n\n" +
-			"[channel 2, message 3]\nlead wrote: @architect and this too",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @architect look at this\n\n" +
+			"[Space 2, message 3]\nlead wrote: @architect and this too",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: one architect turn for both posts", got, want)
@@ -722,7 +722,7 @@ func TestSend_OneWakePerRole(t *testing.T) {
 
 func TestSend_TopLevelWakeHasNoThread(t *testing.T) {
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	var parent atomic.Pointer[int64]
 	parent.Store(new(int64))
 	env.fake.onRun = func(_, _ string, p *int64) { parent.Store(p) }
@@ -730,7 +730,7 @@ func TestSend_TopLevelWakeHasNoThread(t *testing.T) {
 	env.sendTo(t, id, "@architect plan it")
 	sub.want(t, _idleFrame)
 	sub.wantTurns(t, "architect")
-	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 1]\n@architect plan it"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[Space 2, message 1]\n@architect plan it"}) {
 		t.Errorf("ran = %q, want a header with no thread", got)
 	}
 	if got := parent.Load(); got != nil {
@@ -740,20 +740,20 @@ func TestSend_TopLevelWakeHasNoThread(t *testing.T) {
 
 func TestSend_RoutesOnlyItsOwnMessage(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.say = func() { post("user", "@architect plan it", nil) }
 	sub := subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "go")
 	sub.want(t, _idleFrame)
 	sub.wantTurns(t, "lead")
-	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 2, message 2]\ngo"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[Space 2, message 2]\ngo"}) {
 		t.Errorf("ran = %q, want only the send: a message stored beside it is not routed", got)
 	}
 }
 
 func TestSend_OneWakePerRoleAcrossThreads(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" {
 			one := int64(1)
@@ -766,9 +766,9 @@ func TestSend_OneWakePerRoleAcrossThreads(t *testing.T) {
 	sub.want(t, _idleFrame)
 	sub.wantTurns(t, "lead", "architect")
 	want := []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect one\n\n" +
-			"[channel 2, message 3, thread 1]\nlead wrote: @architect two",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @architect one\n\n" +
+			"[Space 2, message 3, thread 1]\nlead wrote: @architect two",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: a top-level post and a thread reply wake the architect once", got, want)
@@ -777,7 +777,7 @@ func TestSend_OneWakePerRoleAcrossThreads(t *testing.T) {
 
 func TestSend_MentionsWakeEachRole(t *testing.T) {
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	sub := subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "@architect @lead hi")
 	sub.want(t, _idleFrame,
@@ -789,7 +789,7 @@ func TestSend_MentionsWakeEachRole(t *testing.T) {
 
 func TestSend_SeveralMentionsShareOneMessage(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, _ string, parent *int64) {
 		post(role, role+" says "+map[string]string{"architect": "SQLite", "lead": "Postgres"}[role], parent)
 	}
@@ -798,7 +798,7 @@ func TestSend_SeveralMentionsShareOneMessage(t *testing.T) {
 	sub.want(t, _idleFrame)
 	sub.wantTurns(t, "architect", "lead")
 	body := "@architect @lead @architect @ghost which database"
-	header := "[channel 2, message 1]\nAsked together: @architect, @lead\n"
+	header := "[Space 2, message 1]\nAsked together: @architect, @lead\n"
 	want := []string{header + body, header + body}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: one wake each, both naming the full set", got, want)
@@ -830,16 +830,16 @@ func TestSend_SeveralMentionsShareOneMessage(t *testing.T) {
 
 func TestSend_ThreadReplyKeepsOwnerOverMentions(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	post("architect", "the plan", nil)
 	sub := subscribeTo(t, env.url, id)
-	if status, body := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/send", env.url, id),
+	if status, body := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/send", env.url, id),
 		`{"text":"@lead @architect why?","parent":1}`); status != 202 {
 		t.Fatalf("send = %d %s, want 202", status, body)
 	}
 	sub.want(t, _idleFrame)
 	sub.wantTurns(t, "architect")
-	want := []string{"[channel 2, message 2, thread 1]\n@lead @architect why?"}
+	want := []string{"[Space 2, message 2, thread 1]\n@lead @architect why?"}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: only the thread owner wakes, no Asked together line", got, want)
 	}
@@ -855,12 +855,12 @@ func TestSend_SeveralMentionsInThreadKeepThread(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"name":"t","team":"trio"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"t","team":"trio"}`)
 	env.fake.onRun = func(role, _ string, parent *int64) {
 		if role == "lead" {
 			one := int64(1)
 			_, err := env.st.CreateMessage(context.Background(), store.Message{
-				ChannelID: 2, ParentID: &one, Author: "lead", Body: "@architect @tester @lead split it",
+				SpaceID: 2, ParentID: &one, Author: "lead", Body: "@architect @tester @lead split it",
 			})
 			if err != nil {
 				t.Error(err)
@@ -871,9 +871,9 @@ func TestSend_SeveralMentionsInThreadKeepThread(t *testing.T) {
 	env.sendTo(t, 2, "go")
 	sub.want(t, _idleFrame)
 	sub.wantTurns(t, "lead", "architect", "tester")
-	post := "[channel 2, message 2, thread 1]\nAsked together: @architect, @tester\n" +
+	post := "[Space 2, message 2, thread 1]\nAsked together: @architect, @tester\n" +
 		"lead wrote: @architect @tester @lead split it"
-	want := []string{"[channel 2, message 1]\ngo", post, post}
+	want := []string{"[Space 2, message 1]\ngo", post, post}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: both recipients are woken with the full set, not the sender", got, want)
 	}
@@ -881,7 +881,7 @@ func TestSend_SeveralMentionsInThreadKeepThread(t *testing.T) {
 
 func TestSend_SelfMentionDoesNotWakeSender(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, _ string, parent *int64) {
 		if role == "lead" {
 			post("lead", "@lead @architect over to you", parent)
@@ -892,8 +892,8 @@ func TestSend_SelfMentionDoesNotWakeSender(t *testing.T) {
 	sub.want(t, _idleFrame)
 	sub.wantTurns(t, "lead", "architect")
 	want := []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @lead @architect over to you",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @lead @architect over to you",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q: lead's own mention wakes nobody", got, want)
@@ -902,7 +902,7 @@ func TestSend_SelfMentionDoesNotWakeSender(t *testing.T) {
 
 func TestSend_WhileWakeChainRuns(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, text string, _ *int64) {
 		if role == "lead" && strings.HasSuffix(text, "\ngo") {
 			post("lead", "@architect block", nil)
@@ -923,16 +923,16 @@ func TestSend_WhileWakeChainRuns(t *testing.T) {
 	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"architect","status":"done"}`)
 	sub.wantTurns(t, "lead")
 	want := []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect block",
-		"[channel 2, message 3]\nagain",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @architect block",
+		"[Space 2, message 3]\nagain",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
 	}
 }
 
-// wantMessages checks the author and body of every message of channel id, in order.
+// wantMessages checks the author and body of every message of Space id, in order.
 func (e *liveEnv) wantMessages(t *testing.T, id int, want ...string) {
 	t.Helper()
 	msgs, err := e.st.Messages(context.Background(), int64(id), 0)
@@ -953,13 +953,13 @@ const _droppedNote = "reef: Wakes for architect did not run: the turn before the
 
 func TestSend_AfterStopNotesTheWakeStopDropped(t *testing.T) {
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	env.sendTo(t, id, "block")
 	<-env.fake.started
 	if status, _ := env.sendTo(t, id, "@architect design it"); status != 202 {
 		t.Fatalf("send while busy = %d, want 202", status)
 	}
-	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/stop", env.url, id), "")
 	if status, _ := env.sendTo(t, id, "again"); status != 202 {
 		t.Fatalf("send after stop = %d, want 202", status)
 	}
@@ -969,12 +969,12 @@ func TestSend_AfterStopNotesTheWakeStopDropped(t *testing.T) {
 
 func TestSend_AfterStopNamesARoleOnceForTwoWakes(t *testing.T) {
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	env.sendTo(t, id, "block")
 	<-env.fake.started
 	env.sendTo(t, id, "@architect design it")
 	env.sendTo(t, id, "@architect and test it")
-	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/stop", env.url, id), "")
 	env.sendTo(t, id, "again")
 	env.waitIdle(t, id)
 	env.wantMessages(t, id, "user: block", "user: @architect design it", "user: @architect and test it",
@@ -983,7 +983,7 @@ func TestSend_AfterStopNamesARoleOnceForTwoWakes(t *testing.T) {
 
 func TestSend_AfterFailedTurnNotesTheLeftoverWakes(t *testing.T) {
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	env.sendTo(t, id, "@lead @architect fail")
 	env.waitIdle(t, id)
 	if status, _ := env.sendTo(t, id, "again"); status != 202 {
@@ -998,7 +998,7 @@ func TestSend_AfterFailedTurnNotesTheLeftoverWakes(t *testing.T) {
 
 func TestSend_Wrap(t *testing.T) {
 	env := newLiveEnv(t)
-	id := env.featureChannel(t)
+	id := env.featureSpace(t)
 	sub := subscribeTo(t, env.url, id)
 	if status, _ := env.sendTo(t, id, "/wrap"); status != 202 {
 		t.Fatalf("send = %d, want 202", status)
@@ -1038,7 +1038,7 @@ func TestSend_WhileRunning(t *testing.T) {
 	if status != 202 || body != "" {
 		t.Fatalf("send = %d %q, want 202", status, body)
 	}
-	if _, body := do(t, http.MethodGet, env.url+"/messages?channel=1", ""); !strings.Contains(body, `"body":"again"`) {
+	if _, body := do(t, http.MethodGet, env.url+"/messages?space=1", ""); !strings.Contains(body, `"body":"again"`) {
 		t.Errorf("messages = %s, want again stored before the turn ends", body)
 	}
 	if got := env.ranTexts(); len(got) != 1 {
@@ -1047,7 +1047,7 @@ func TestSend_WhileRunning(t *testing.T) {
 	env.fake.release <- struct{}{}
 	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
 	sub.wantTurns(t, "lead")
-	want := []string{"[channel 1, message 1]\nblock", "[channel 1, message 2]\nagain"}
+	want := []string{"[Space 1, message 1]\nblock", "[Space 1, message 2]\nagain"}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
 	}
@@ -1103,7 +1103,7 @@ func TestSend_WhileStarting(t *testing.T) {
 		msgs[1].ID != 2 || msgs[1].Body != "again" {
 		t.Errorf("messages = %+v, %v, want 1 hello, 2 again", msgs, err)
 	}
-	want := []string{"[channel 1, message 1]\nhello", "[channel 1, message 2]\nagain"}
+	want := []string{"[Space 1, message 1]\nhello", "[Space 1, message 2]\nagain"}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
 	}
@@ -1120,14 +1120,14 @@ func TestSend_WhileStartFails(t *testing.T) {
 	}
 	sub.want(t, _idleFrame)
 	sub.wantTurns(t, "lead")
-	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 1, message 1]\nagain"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[Space 1, message 1]\nagain"}) {
 		t.Errorf("ran = %q, want only again", got)
 	}
 }
 
 func TestSend_WhileWrapStarts(t *testing.T) {
 	env := newLiveEnv(t)
-	id := env.featureChannel(t)
+	id := env.featureSpace(t)
 	var status int
 	var body string
 	env.open = func(context.Context) (session, error) {
@@ -1138,7 +1138,7 @@ func TestSend_WhileWrapStarts(t *testing.T) {
 	if s, _ := env.sendTo(t, id, "/wrap"); s != 202 {
 		t.Fatalf("wrap = %d, want 202", s)
 	}
-	if status != 409 || body != `{"error":"channel 2 has a turn running: conflict"}` {
+	if status != 409 || body != `{"error":"space 2 has a turn running: conflict"}` {
 		t.Errorf("send while the wrap starts = %d %s, want 409 turn running", status, body)
 	}
 	sub.want(t, _idleFrame,
@@ -1151,12 +1151,12 @@ func TestSend_WhileWrapStarts(t *testing.T) {
 
 func TestSend_WrapWakesNobody(t *testing.T) {
 	env := newLiveEnv(t)
-	env.teamChannel(t)
+	env.teamSpace(t)
 	do(t, http.MethodPost, env.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
-	do(t, http.MethodPost, env.url+"/channels", `{"projectId":1,"featureId":1,"name":"w","team":"core"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"featureId":1,"name":"w","team":"core"}`)
 	env.fake.onRun = func(string, string, *int64) {
 		_, err := env.st.CreateMessage(context.Background(),
-			store.Message{ChannelID: 3, Author: "lead", Body: "@architect look at this"})
+			store.Message{SpaceID: 3, Author: "lead", Body: "@architect look at this"})
 		if err != nil {
 			t.Error(err)
 		}
@@ -1171,7 +1171,7 @@ func TestSend_WrapWakesNobody(t *testing.T) {
 	env.sendTo(t, 3, "ping")
 	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"lead","status":"done"}`)
-	if got := env.ranTexts(); !slices.Equal(got, []string{"[channel 3, message 3]\nping"}) {
+	if got := env.ranTexts(); !slices.Equal(got, []string{"[Space 3, message 3]\nping"}) {
 		t.Errorf("ran = %q, want only ping: the wrap reply wakes no architect", got)
 	}
 }
@@ -1186,12 +1186,12 @@ func (s *stream) wantTurns(t *testing.T, roles ...string) {
 
 func TestSend_UserPostMidChainIsNotRouted(t *testing.T) {
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	var runs atomic.Int32
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if runs.Add(1) == 3 {
 			status, body := do(t, http.MethodPost, env.url+"/messages",
-				`{"channelId":2,"author":"user","body":"@architect hey"}`)
+				`{"spaceId":2,"author":"user","body":"@architect hey"}`)
 			if status != 201 {
 				t.Errorf("post = %d %s, want 201", status, body)
 			}
@@ -1212,10 +1212,10 @@ func TestSend_UserPostMidChainIsNotRouted(t *testing.T) {
 	}
 }
 
-func TestSend_TokenBudgetPausesChannel(t *testing.T) {
+func TestSend_TokenBudgetPausesSpace(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	turn, err := env.st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "lead", Backend: "claude"})
+	turn, err := env.st.CreateTurn(ctx, store.Turn{SpaceID: 1, Role: "lead", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1228,19 +1228,19 @@ func TestSend_TokenBudgetPausesChannel(t *testing.T) {
 
 	const reason = "token budget of 1000000 used: 1000312 tokens"
 	status, body := env.send(t, "hello")
-	if status != 409 || body != `{"error":"channel 1 is paused: `+reason+`: conflict"}` {
+	if status != 409 || body != `{"error":"space 1 is paused: `+reason+`: conflict"}` {
 		t.Fatalf("send over budget = %d %s, want 409 with the reason", status, body)
 	}
 	sub.want(t, _idleFrame, `pause {"reason":"`+reason+`"}`)
-	if ch, err := env.st.Channel(ctx, 1); err != nil || ch.Paused != reason {
-		t.Errorf("channel = %+v, %v, want paused with the reason", ch, err)
+	if ch, err := env.st.Space(ctx, 1); err != nil || ch.Paused != reason {
+		t.Errorf("space = %+v, %v, want paused with the reason", ch, err)
 	}
 
-	if status, _ := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 {
+	if status, _ := do(t, http.MethodPost, env.url+"/spaces/1/continue", ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
-	if ch, err := env.st.Channel(ctx, 1); err != nil || ch.Paused != "" || ch.TokenBudget != 2000312 {
-		t.Errorf("channel after continue = %+v, %v, want not paused with budget 2000312", ch, err)
+	if ch, err := env.st.Space(ctx, 1); err != nil || ch.Paused != "" || ch.TokenBudget != 2000312 {
+		t.Errorf("space after continue = %+v, %v, want not paused with budget 2000312", ch, err)
 	}
 	if status, _ := env.send(t, "hello"); status != 202 {
 		t.Errorf("send after continue = %d, want 202", status)
@@ -1269,7 +1269,7 @@ func TestSend_OpenErrors(t *testing.T) {
 		wantStatus int
 		wantBody   string
 	}{
-		{"unknown channel", store.ErrNotFound, 404, `{"error":"not found"}`},
+		{"unknown space", store.ErrNotFound, 404, `{"error":"not found"}`},
 		{"bad backend", store.ErrInvalid, 400, `{"error":"invalid"}`},
 		{"open elsewhere", store.ErrConflict, 409, `{"error":"conflict"}`},
 		{"other", errors.New("boom"), 500, `{"error":"internal error"}`},
@@ -1284,18 +1284,18 @@ func TestSend_OpenErrors(t *testing.T) {
 			if _, err := st.CreateProject(context.Background(), store.Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 				t.Fatal(err)
 			}
-			if _, err := st.CreateChannel(context.Background(), store.Channel{ProjectID: 1, Name: "chat"}); err != nil {
+			if _, err := st.CreateSpace(context.Background(), store.Space{ProjectID: 1, Name: "chat"}); err != nil {
 				t.Fatal(err)
 			}
-			h := newHandler(st, nil, "", channel.NewTrees(t.TempDir()), func(context.Context, int64) (session, error) { return nil, tt.giveErr })
+			h := newHandler(st, nil, "", space.NewTrees(t.TempDir()), func(context.Context, int64) (session, error) { return nil, tt.giveErr })
 			t.Cleanup(h.Close)
 			ts := httptest.NewServer(h)
 			t.Cleanup(ts.Close)
-			status, body := do(t, http.MethodPost, ts.URL+"/channels/1/send", `{"text":"hi"}`)
+			status, body := do(t, http.MethodPost, ts.URL+"/spaces/1/send", `{"text":"hi"}`)
 			if status != tt.wantStatus || body != tt.wantBody {
 				t.Errorf("send = %d %s, want %d %s", status, body, tt.wantStatus, tt.wantBody)
 			}
-			if status, _ = do(t, http.MethodPost, ts.URL+"/channels/1/stop", ""); status != 204 {
+			if status, _ = do(t, http.MethodPost, ts.URL+"/spaces/1/stop", ""); status != 204 {
 				t.Errorf("stop after failed open = %d, want 204", status)
 			}
 		})
@@ -1312,20 +1312,20 @@ func TestLiveRoutes_Errors(t *testing.T) {
 		wantStatus int
 		wantBody   string
 	}{
-		{"no text", http.MethodPost, "/channels/1/send", `{"text":""}`, 400, `{"error":"invalid: text is required"}`},
-		{"unknown field", http.MethodPost, "/channels/1/send", `{"body":"x"}`, 400,
+		{"no text", http.MethodPost, "/spaces/1/send", `{"text":""}`, 400, `{"error":"invalid: text is required"}`},
+		{"unknown field", http.MethodPost, "/spaces/1/send", `{"body":"x"}`, 400,
 			`{"error":"invalid: bad JSON: json: unknown field \"body\""}`},
-		{"events of unknown channel", http.MethodGet, "/channels/9/events", "", 404,
-			`{"error":"channel 9: not found"}`},
-		{"send by GET", http.MethodGet, "/channels/1/send", "", 405, `{"error":"method not allowed"}`},
-		{"events by POST", http.MethodPost, "/channels/1/events", "", 405, `{"error":"method not allowed"}`},
-		{"stop by GET", http.MethodGet, "/channels/1/stop", "", 405, `{"error":"method not allowed"}`},
-		{"unknown backend", http.MethodPost, "/channels", `{"projectId":1,"name":"c","backend":"gpt"}`, 400,
+		{"events of unknown space", http.MethodGet, "/spaces/9/events", "", 404,
+			`{"error":"space 9: not found"}`},
+		{"send by GET", http.MethodGet, "/spaces/1/send", "", 405, `{"error":"method not allowed"}`},
+		{"events by POST", http.MethodPost, "/spaces/1/events", "", 405, `{"error":"method not allowed"}`},
+		{"stop by GET", http.MethodGet, "/spaces/1/stop", "", 405, `{"error":"method not allowed"}`},
+		{"unknown backend", http.MethodPost, "/spaces", `{"projectId":1,"name":"c","backend":"gpt"}`, 400,
 			`{"error":"invalid: backend must be claude or codex"}`},
-		{"bad permission mode", http.MethodPost, "/channels",
+		{"bad permission mode", http.MethodPost, "/spaces",
 			`{"projectId":1,"name":"c","backend":"codex","permissionMode":"acceptEdits"}`, 400,
 			`{"error":"invalid: permissionMode for codex must be empty, read-only or workspace-write"}`},
-		{"claude permission mode", http.MethodPost, "/channels",
+		{"claude permission mode", http.MethodPost, "/spaces",
 			`{"projectId":1,"name":"c","backend":"claude","permissionMode":"workspace-write"}`, 400,
 			`{"error":"invalid: permissionMode for claude must be empty, default or acceptEdits"}`},
 	}
@@ -1340,9 +1340,9 @@ func TestLiveRoutes_Errors(t *testing.T) {
 	}
 }
 
-func TestCreateChannel_RoleDefaultsToLead(t *testing.T) {
+func TestCreateSpace_RoleDefaultsToLead(t *testing.T) {
 	env := newLiveEnv(t)
-	status, body := do(t, http.MethodPost, env.url+"/channels",
+	status, body := do(t, http.MethodPost, env.url+"/spaces",
 		`{"projectId":1,"name":"c","backend":"codex","permissionMode":"workspace-write"}`)
 	if status != 201 || !strings.Contains(body, `"role":"lead","backend":"codex","permissionMode":"workspace-write"`) {
 		t.Errorf("create = %d %s, want role lead", status, body)
@@ -1351,7 +1351,7 @@ func TestCreateChannel_RoleDefaultsToLead(t *testing.T) {
 
 func TestSend_PromoteTextIsAMessage(t *testing.T) {
 	env := newLiveEnv(t)
-	id := env.featureChannel(t)
+	id := env.featureSpace(t)
 	sub := subscribeTo(t, env.url, id)
 
 	if status, _ := env.sendTo(t, id, "/promote"); status != 202 {
@@ -1366,11 +1366,11 @@ func TestSend_PromoteTextIsAMessage(t *testing.T) {
 	env.fake.mu.Lock()
 	ran := env.fake.ran
 	env.fake.mu.Unlock()
-	if !slices.Equal(ran, []string{"[channel 2, message 1]\n/promote"}) || env.fake.promoted.Load() != 0 {
+	if !slices.Equal(ran, []string{"[Space 2, message 1]\n/promote"}) || env.fake.promoted.Load() != 0 {
 		t.Errorf("ran = %q, promotes = %d, want the text run as a message, no promote",
 			ran, env.fake.promoted.Load())
 	}
-	_, body := do(t, http.MethodGet, fmt.Sprintf("%s/messages?channel=%d", env.url, id), "")
+	_, body := do(t, http.MethodGet, fmt.Sprintf("%s/messages?space=%d", env.url, id), "")
 	if !strings.Contains(body, `"author":"user","body":"/promote"`) {
 		t.Errorf("messages = %s, want the user message /promote", body)
 	}
@@ -1381,7 +1381,7 @@ func TestSend_StoresUserMessageBefore202(t *testing.T) {
 	if status, _ := env.send(t, "block"); status != 202 {
 		t.Fatalf("send = %d, want 202", status)
 	}
-	_, body := do(t, http.MethodGet, env.url+"/messages?channel=1", "")
+	_, body := do(t, http.MethodGet, env.url+"/messages?space=1", "")
 	if !strings.Contains(body, `"author":"user","body":"block"`) {
 		t.Errorf("messages right after 202 = %s, want the user message block", body)
 	}
@@ -1397,7 +1397,7 @@ func TestSubscribe_StateOnConnect(t *testing.T) {
 	late := subscribe(t, env.url)
 	late.want(t, _idleFrame, `pause {"reason":"`+reason+`"}`)
 
-	do(t, http.MethodPost, env.url+"/channels/1/continue", "")
+	do(t, http.MethodPost, env.url+"/spaces/1/continue", "")
 	again := subscribe(t, env.url)
 	again.want(t, _idleFrame)
 	if status, _ := env.send(t, "hello"); status != 202 {
@@ -1408,8 +1408,8 @@ func TestSubscribe_StateOnConnect(t *testing.T) {
 
 func TestWrap_QuickSession(t *testing.T) {
 	env := newLiveEnv(t)
-	const want = `{"error":"invalid: channel 1 is a quick session, promote it before wrapping up"}`
-	if status, body := do(t, http.MethodPost, env.url+"/channels/1/wrap", ""); status != 400 || body != want {
+	const want = `{"error":"invalid: Space 1 is a quick session, promote it before wrapping up"}`
+	if status, body := do(t, http.MethodPost, env.url+"/spaces/1/wrap", ""); status != 400 || body != want {
 		t.Errorf("wrap = %d %s, want 400 %s", status, body, want)
 	}
 	if status, body := env.send(t, "/wrap"); status != 400 || body != want {
@@ -1423,7 +1423,7 @@ func TestWrap_QuickSession(t *testing.T) {
 func TestWrap_NoProposalNote(t *testing.T) {
 	env := newLiveEnv(t)
 	env.fake.noProposal.Store(true)
-	id := env.featureChannel(t)
+	id := env.featureSpace(t)
 	sub := subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "/wrap")
 	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"wrapped"}`,
@@ -1431,14 +1431,14 @@ func TestWrap_NoProposalNote(t *testing.T) {
 }
 
 // stopAfterOpen makes the agent open on a runner session over a counting agent. The returned
-// stopWhile, meant for a hook, stops the channel and waits until the turn's context is
+// stopWhile, meant for a hook, stops the Space and waits until the turn's context is
 // cancelled; stopped closes when the stop has finished, which is when the turn has ended.
 func stopAfterOpen(env *liveEnv) (stopWhile func(), stopped chan struct{}, ag *countingAgent) {
 	ag = &countingAgent{events: make(chan agent.Event, 8)}
 	opened := make(chan context.Context, 1)
 	env.open = func(ctx context.Context) (session, error) {
 		opened <- ctx
-		run := channel.NewRunner(env.st, ag, 1, "lead", "claude", "")
+		run := space.NewRunner(env.st, ag, 1, "lead", "claude", "")
 		return runnerSession{env.fake, run}, nil
 	}
 	stopped = make(chan struct{})
@@ -1458,12 +1458,12 @@ func stopAfterOpen(env *liveEnv) (stopWhile func(), stopped chan struct{}, ag *c
 
 func (e *liveEnv) wantInterruptedPromote(t *testing.T, ag *countingAgent) {
 	t.Helper()
-	ch, err := e.st.Channel(context.Background(), 1)
+	ch, err := e.st.Space(context.Background(), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ch.FeatureID == nil {
-		t.Error("channel has no feature, want the promote to stand")
+		t.Error("space has no feature, want the promote to stand")
 	}
 	turns, err := e.st.Turns(context.Background(), store.TurnFilter{})
 	if err != nil {
@@ -1475,7 +1475,7 @@ func (e *liveEnv) wantInterruptedPromote(t *testing.T, ag *countingAgent) {
 	if got := ag.sends.Load(); got != 0 {
 		t.Errorf("agent prompts = %d, want 0", got)
 	}
-	_, body := do(t, http.MethodGet, e.url+"/messages?channel=1", "")
+	_, body := do(t, http.MethodGet, e.url+"/messages?space=1", "")
 	if !strings.Contains(body, `"author":"user","body":"/promote"`) {
 		t.Errorf("messages = %s, want the user message /promote", body)
 	}
@@ -1490,19 +1490,19 @@ func TestPromote_StopDuringSayAnswers202(t *testing.T) {
 	stopWhile, stopped, ag := stopAfterOpen(env)
 	env.fake.say = stopWhile
 
-	status, body := do(t, http.MethodPost, env.url+"/channels/1/promote", `{"slug":"login","name":"Login"}`)
+	status, body := do(t, http.MethodPost, env.url+"/spaces/1/promote", `{"slug":"login","name":"Login"}`)
 	if status != 202 || !strings.Contains(body, `"featureId":1`) {
-		t.Fatalf("promote = %d %s, want 202 and the promoted channel", status, body)
+		t.Fatalf("promote = %d %s, want 202 and the promoted space", status, body)
 	}
 	<-stopped
 	env.wantInterruptedPromote(t, ag)
 }
 
-func TestSend_RefusedWhileChannelIsBeingDeleted(t *testing.T) {
+func TestSend_RefusedWhileSpaceIsBeingDeleted(t *testing.T) {
 	env := newLiveEnv(t)
 	lift := env.h.s.stopForDelete(1)
 
-	const want = `{"error":"channel 1 is being deleted: not found"}`
+	const want = `{"error":"space 1 is being deleted: not found"}`
 	if status, body := env.send(t, "hello"); status != 404 || body != want {
 		t.Errorf("send = %d %s, want 404 %s", status, body, want)
 	}
@@ -1529,16 +1529,16 @@ func TestLive_EntryOnlyForATurn(t *testing.T) {
 		defer env.h.s.mu.Unlock()
 		return len(env.h.s.lives)
 	}
-	if status, _ := do(t, http.MethodPost, env.url+"/channels/1/stop", ""); status != 204 {
+	if status, _ := do(t, http.MethodPost, env.url+"/spaces/1/stop", ""); status != 204 {
 		t.Fatalf("stop = %d, want 204", status)
 	}
-	if err := env.st.PauseChannel(context.Background(), 1, "capped"); err != nil {
+	if err := env.st.PauseSpace(context.Background(), 1, "capped"); err != nil {
 		t.Fatal(err)
 	}
 	if status, _ := env.send(t, "hello"); status != 409 {
-		t.Fatalf("send to a paused channel = %d, want 409", status)
+		t.Fatalf("send to a paused Space = %d, want 409", status)
 	}
-	if status, _ := do(t, http.MethodPost, env.url+"/channels/1/continue", ""); status != 204 {
+	if status, _ := do(t, http.MethodPost, env.url+"/spaces/1/continue", ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
 	if status, _ := env.send(t, "/wrap"); status != 400 {
@@ -1554,7 +1554,7 @@ func TestLive_EntryOnlyForATurn(t *testing.T) {
 	if got := entries(); got != 1 {
 		t.Errorf("entries = %d, want 1 after a turn", got)
 	}
-	if status, _ := do(t, http.MethodDelete, env.url+"/channels/1", ""); status != 204 {
+	if status, _ := do(t, http.MethodDelete, env.url+"/spaces/1", ""); status != 204 {
 		t.Fatalf("delete = %d, want 204", status)
 	}
 	if got := entries(); got != 0 {
@@ -1565,7 +1565,7 @@ func TestLive_EntryOnlyForATurn(t *testing.T) {
 func TestSend_RoutingFailurePausesAndContinueRoutes(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" {
 			post("lead", "@architect plan it", nil)
@@ -1578,19 +1578,19 @@ func TestSend_RoutingFailurePausesAndContinueRoutes(t *testing.T) {
 	const reason = "route messages: read gates of team core: SQL logic error: no such table: gate (1)"
 	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
-	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != reason {
-		t.Errorf("channel = %+v, %v, want paused with %q", ch, err, reason)
+	if ch, err := env.st.Space(ctx, int64(id)); err != nil || ch.Paused != reason {
+		t.Errorf("space = %+v, %v, want paused with %q", ch, err, reason)
 	}
 
 	env.exec(t, "ALTER TABLE gate_gone RENAME TO gate")
-	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
 	sub.want(t, `pause {"reason":""}`)
 	sub.wantTurns(t, "architect")
 	if got := env.ranTexts(); !slices.Equal(got, []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect plan it",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @architect plan it",
 	}) {
 		t.Errorf("ran = %q, want the architect to run the message the failed read left", got)
 	}
@@ -1599,7 +1599,7 @@ func TestSend_RoutingFailurePausesAndContinueRoutes(t *testing.T) {
 func TestSend_DirectReadFailurePausesAndContinueRunsPublicWake(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" {
 			post("lead", "@architect plan it", nil)
@@ -1612,19 +1612,19 @@ func TestSend_DirectReadFailurePausesAndContinueRunsPublicWake(t *testing.T) {
 	const reason = "route direct messages: list direct messages: SQL logic error: no such table: direct_message (1)"
 	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
-	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != reason {
-		t.Errorf("channel = %+v, %v, want paused with %q", ch, err, reason)
+	if ch, err := env.st.Space(ctx, int64(id)); err != nil || ch.Paused != reason {
+		t.Errorf("space = %+v, %v, want paused with %q", ch, err, reason)
 	}
 
 	env.exec(t, "ALTER TABLE direct_message_gone RENAME TO direct_message")
-	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
 	sub.want(t, `pause {"reason":""}`)
 	sub.wantTurns(t, "architect")
 	if got := env.ranTexts(); !slices.Equal(got, []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect plan it",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @architect plan it",
 	}) {
 		t.Errorf("ran = %q, want the architect to run the wake the failed direct read left", got)
 	}
@@ -1633,7 +1633,7 @@ func TestSend_DirectReadFailurePausesAndContinueRunsPublicWake(t *testing.T) {
 func TestSend_StoreErrorBeforeNextWakePausesAndContinueRunsHeldWakes(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" {
 			post("lead", "@architect plan it", nil)
@@ -1643,22 +1643,22 @@ func TestSend_StoreErrorBeforeNextWakePausesAndContinueRunsHeldWakes(t *testing.
 	sub := subscribeTo(t, env.url, id)
 
 	env.sendTo(t, id, "go")
-	const reason = "sum channel tokens: SQL logic error: no such table: turn (1)"
+	const reason = "sum Space tokens: SQL logic error: no such table: turn (1)"
 	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
-	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != reason {
-		t.Errorf("channel = %+v, %v, want paused with %q", ch, err, reason)
+	if ch, err := env.st.Space(ctx, int64(id)); err != nil || ch.Paused != reason {
+		t.Errorf("space = %+v, %v, want paused with %q", ch, err, reason)
 	}
 
 	env.exec(t, "ALTER TABLE turn_gone RENAME TO turn")
-	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
 	sub.want(t, `pause {"reason":""}`)
 	sub.wantTurns(t, "architect")
 	if got := env.ranTexts(); !slices.Equal(got, []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect plan it",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @architect plan it",
 	}) {
 		t.Errorf("ran = %q, want the architect to run the wake held by the store error", got)
 	}
@@ -1669,12 +1669,12 @@ func TestSend_StoreErrorBeforeNextWakePausesAndContinueRunsHeldWakes(t *testing.
 func TestSend_DirectReadFailureKeepsDirectRequestForContinue(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	var asked atomic.Bool
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" && asked.CompareAndSwap(false, true) {
 			_, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				ChannelID: int64(id), From: "lead", To: "architect", Body: "check the schema",
+				SpaceID: int64(id), From: "lead", To: "architect", Body: "check the schema",
 			})
 			if err != nil {
 				t.Error(err)
@@ -1690,7 +1690,7 @@ func TestSend_DirectReadFailureKeepsDirectRequestForContinue(t *testing.T) {
 		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
 
 	env.exec(t, "ALTER TABLE direct_message_gone RENAME TO direct_message")
-	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
 	sub.want(t, `pause {"reason":""}`,
@@ -1699,9 +1699,9 @@ func TestSend_DirectReadFailureKeepsDirectRequestForContinue(t *testing.T) {
 		`turn {"role":"lead","status":"running","direct":true}`, `agent {"kind":"text","text":"hi"}`,
 		`turn {"role":"lead","status":"done","direct":true}`)
 	want := []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, direct message 1, chain 1, source: direct request]\nlead wrote privately: check the schema",
-		"[channel 2, direct message 2, chain 1, source: direct response]\narchitect wrote privately: hi",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, direct message 1, chain 1, source: direct request]\nlead wrote privately: check the schema",
+		"[Space 2, direct message 2, chain 1, source: direct response]\narchitect wrote privately: hi",
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want the architect to run the direct request the failed read left", got)
@@ -1711,7 +1711,7 @@ func TestSend_DirectReadFailureKeepsDirectRequestForContinue(t *testing.T) {
 func TestRestart_RoutingFailureIsRedoneAndHeld(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" {
 			post("lead", "@architect plan it", nil)
@@ -1728,23 +1728,23 @@ func TestRestart_RoutingFailureIsRedoneAndHeld(t *testing.T) {
 	env.restart(t)
 	holds, err := env.st.PendingHolds(ctx, int64(id))
 	if err != nil || len(holds) != 1 || holds[0].To != "architect" ||
-		holds[0].Text != "[channel 2, message 2]\nlead wrote: @architect plan it" {
+		holds[0].Text != "[Space 2, message 2]\nlead wrote: @architect plan it" {
 		t.Fatalf("holds = %+v, %v, want the architect's wake for the lead's message", holds, err)
 	}
-	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.Paused != reason {
-		t.Errorf("channel = %+v, %v, want still paused with %q", ch, err, reason)
+	if ch, err := env.st.Space(ctx, int64(id)); err != nil || ch.Paused != reason {
+		t.Errorf("space = %+v, %v, want still paused with %q", ch, err, reason)
 	}
 
 	sub = subscribeTo(t, env.url, id)
 	sub.want(t, _idleFrame, `pause {"reason":"`+reason+`"}`)
-	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
 	sub.want(t, `pause {"reason":""}`)
 	sub.wantTurns(t, "architect")
 	if got := env.ranTexts(); !slices.Equal(got, []string{
-		"[channel 2, message 1]\ngo",
-		"[channel 2, message 2]\nlead wrote: @architect plan it",
+		"[Space 2, message 1]\ngo",
+		"[Space 2, message 2]\nlead wrote: @architect plan it",
 	}) {
 		t.Errorf("ran = %q, want the architect to run the message the failed read left", got)
 	}
@@ -1753,7 +1753,7 @@ func TestRestart_RoutingFailureIsRedoneAndHeld(t *testing.T) {
 func TestRestart_RoutingFailingAgainIsRecorded(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" {
 			post("lead", "@architect plan it", nil)

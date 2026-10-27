@@ -61,7 +61,7 @@ func (s *Store) GitHubCheckNoted(ctx context.Context, featureID int64, name, key
 
 // RecordGitHubCheck records that the check run identified by name and key was posted about.
 // Call it only once the note was actually posted, so a note that could not be posted (no
-// channel yet, or a failed write) is retried on a later poll instead of recorded as done.
+// Space yet, or a failed write) is retried on a later poll instead of recorded as done.
 func (s *Store) RecordGitHubCheck(ctx context.Context, featureID int64, name, key string) error {
 	_, err := s.db.ExecContext(ctx,
 		"INSERT INTO feature_github_check (feature_id, name, run_key) VALUES (?, ?, ?) "+

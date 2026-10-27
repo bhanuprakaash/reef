@@ -36,8 +36,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 39 {
-		t.Errorf("user_version = %d, want 39", version)
+	if version != 40 {
+		t.Errorf("user_version = %d, want 40", version)
 	}
 
 	at := func(h, m, sec, ns int) time.Time {
@@ -60,8 +60,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 		{"role notes", func() (any, error) { return s.RoleNotes(ctx, 1, "architect") },
 			RoleNotes{FeatureID: 1, Role: "architect", Body: "prefer cookies",
 				UpdatedAt: at(3, 7, 0, 0)}},
-		{"channel", func() (any, error) { return s.Channel(ctx, 1) },
-			Channel{ID: 1, ProjectID: 1, FeatureID: &one, Name: "architect chat",
+		{"space", func() (any, error) { return s.Space(ctx, 1) },
+			Space{ID: 1, ProjectID: 1, FeatureID: &one, Name: "architect chat",
 				Role: "architect", Backend: "claude", TokenBudget: 1000000, Team: "solo",
 				CreatedAt: at(3, 8, 0, 0)}},
 		{"solo team", func() (any, error) { return s.Team(ctx, "solo") },
@@ -69,10 +69,10 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 				Skills: []string{},
 				Tools:  []string{}, MCPServers: []agent.MCPServer{}}}}},
 		{"messages", func() (any, error) { return s.Messages(ctx, 1, 0) },
-			[]Message{{ID: 1, ChannelID: 1, Author: "user", Body: "how do we sign in?",
+			[]Message{{ID: 1, SpaceID: 1, Author: "user", Body: "how do we sign in?",
 				CreatedAt: at(3, 9, 0, 0)}}},
 		{"turn", func() (any, error) { return s.Turn(ctx, 1) },
-			Turn{ID: 1, ChannelID: 1, Role: "architect", Backend: "claude",
+			Turn{ID: 1, SpaceID: 1, Role: "architect", Backend: "claude",
 				SessionID: "sess-1", Status: "done", Sent: true,
 				Usage: agent.Usage{InputTokens: 11, OutputTokens: 22,
 					CacheReadTokens: 33, CacheWriteTokens: 44},
@@ -145,8 +145,8 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 39 {
-		t.Errorf("user_version = %d, want 39", version)
+	if version != 40 {
+		t.Errorf("user_version = %d, want 40", version)
 	}
 	as, err := s.PendingApprovals(ctx, 1)
 	if err != nil {
@@ -220,7 +220,7 @@ func TestOpen_ProposalItemsMigrationRejectsPendingWrapsOnly(t *testing.T) {
 	}
 }
 
-func TestOpen_UpgradeLeavesChannelNamesUserSet(t *testing.T) {
+func TestOpen_UpgradeLeavesSpaceNamesUserSet(t *testing.T) {
 	dir := t.TempDir()
 	fixture, err := os.ReadFile(filepath.Join("testdata", "v1.db"))
 	if err != nil {
@@ -236,13 +236,13 @@ func TestOpen_UpgradeLeavesChannelNamesUserSet(t *testing.T) {
 	defer func() { _ = s.Close() }()
 
 	var pending int
-	if err := s.db.QueryRow("SELECT COUNT(*) FROM channel WHERE name_auto <> 0").Scan(&pending); err != nil {
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM space WHERE name_auto <> 0").Scan(&pending); err != nil {
 		t.Fatal(err)
 	}
 	if pending != 0 {
-		t.Errorf("channels the provider may rename = %d, want 0", pending)
+		t.Errorf("spaces the provider may rename = %d, want 0", pending)
 	}
 	if ok, err := s.ClaimName(context.Background(), 1); err != nil || ok {
-		t.Errorf("ClaimName on an upgraded channel = %v, %v, want false", ok, err)
+		t.Errorf("ClaimName on an upgraded Space = %v, %v, want false", ok, err)
 	}
 }

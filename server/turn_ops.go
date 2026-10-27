@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -20,7 +20,7 @@ func (s *server) turnOpRoutes(mux *http.ServeMux) {
 
 // retryTurn runs the wake of a failed turn again, as a new turn of its role in a new chain,
 // and marks the failed turn retried. A turn the store reports not retryable is 409, and so is a
-// channel that has a turn running or is paused.
+// Space that has a turn running or is paused.
 func (s *server) retryTurn(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -40,7 +40,7 @@ func (s *server) retryTurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	c, ch, err := s.claim(ctx, t.ChannelID, _message)
+	c, ch, err := s.claim(ctx, t.SpaceID, _message)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -72,8 +72,8 @@ func (s *server) retryTurn(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusAccepted)
 }
 
-// rollbackTurn puts the channel's worktree back as it was before the turn ran, and posts a
-// note from reef in the channel. A turn with no checkpoint is 400; a channel that has a turn
+// rollbackTurn puts the Space's worktree back as it was before the turn ran, and posts a
+// note from reef in the Space. A turn with no checkpoint is 400; a Space that has a turn
 // running is 409. The agent's session is not rewound.
 func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
@@ -91,7 +91,7 @@ func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, fmt.Errorf("%w: turn %d has no checkpoint", store.ErrInvalid, id))
 		return
 	}
-	c, ch, err := s.claim(ctx, t.ChannelID, _noTurn)
+	c, ch, err := s.claim(ctx, t.SpaceID, _noTurn)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -107,20 +107,20 @@ func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// noteRollback posts the rollback note of turn id in every channel of ch's feature, since
-// feature channels share a worktree; a quick session's channel has no feature to share with.
-func (s *server) noteRollback(ctx context.Context, ch store.Channel, id int64) error {
-	chs := []store.Channel{ch}
+// noteRollback posts the rollback note of turn id in every Space of ch's feature, since
+// feature Spaces share a worktree; a quick session's Space has no feature to share with.
+func (s *server) noteRollback(ctx context.Context, ch store.Space, id int64) error {
+	chs := []store.Space{ch}
 	if ch.FeatureID != nil {
 		var err error
-		if chs, err = s.st.Channels(ctx, store.ChannelFilter{FeatureID: ch.FeatureID}); err != nil {
+		if chs, err = s.st.Spaces(ctx, store.SpaceFilter{FeatureID: ch.FeatureID}); err != nil {
 			return err
 		}
 	}
 	body := fmt.Sprintf("Rolled back to before turn %d.", id)
 	for _, c := range chs {
 		if _, err := s.st.CreateMessage(ctx, store.Message{
-			ChannelID: c.ID, Author: store.ReefAuthor, Body: body,
+			SpaceID: c.ID, Author: store.ReefAuthor, Body: body,
 		}); err != nil {
 			return err
 		}
@@ -128,10 +128,10 @@ func (s *server) noteRollback(ctx context.Context, ch store.Channel, id int64) e
 	return nil
 }
 
-// restoreTree puts the channel's tree back to the checkpoint of t. It is a conflict, not a
-// wait, when the channel's tree is not the one t was checkpointed in, when a `reef chat`
-// has the channel open, or when a turn of any channel runs on the tree.
-func (s *server) restoreTree(ctx context.Context, c *chain, ch store.Channel, t store.Turn) error {
+// restoreTree puts the Space's tree back to the checkpoint of t. It is a conflict, not a
+// wait, when the Space's tree is not the one t was checkpointed in, when a `reef chat`
+// has the Space open, or when a turn of any Space runs on the tree.
+func (s *server) restoreTree(ctx context.Context, c *chain, ch store.Space, t store.Turn) error {
 	from, dir, err := s.checkpointTrees(ctx, ch, t)
 	if err != nil {
 		return err
@@ -143,8 +143,8 @@ func (s *server) restoreTree(ctx context.Context, c *chain, ch store.Channel, t 
 	c.l.mu.Lock()
 	open := c.l.sess != nil
 	c.l.mu.Unlock()
-	if !open && channel.InUse(s.dataDir, t.ChannelID) {
-		return fmt.Errorf("channel %d is open elsewhere: %w", t.ChannelID, store.ErrConflict)
+	if !open && space.InUse(s.dataDir, t.SpaceID) {
+		return fmt.Errorf("space %d is open elsewhere: %w", t.SpaceID, store.ErrConflict)
 	}
 	unlock, ok := s.trees.TryLock(dir)
 	if !ok {
@@ -155,11 +155,11 @@ func (s *server) restoreTree(ctx context.Context, c *chain, ch store.Channel, t 
 }
 
 // checkpointTrees is the directory the checkpoint of t was taken in, and the directory its
-// channel ch runs in now. They differ for a quick session's turn after a promote.
+// Space ch runs in now. They differ for a quick session's turn after a promote.
 func (s *server) checkpointTrees(
-	ctx context.Context, ch store.Channel, t store.Turn,
+	ctx context.Context, ch store.Space, t store.Turn,
 ) (from, dir string, err error) {
-	dir, _, err = channel.WorkDir(ctx, s.st, s.dataDir, ch.ID)
+	dir, _, err = space.WorkDir(ctx, s.st, s.dataDir, ch.ID)
 	if err != nil {
 		return "", "", err
 	}

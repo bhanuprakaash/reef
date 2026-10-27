@@ -135,11 +135,11 @@ func TestApproveRouteReturnsTheWarnings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateChannel(ctx, store.Channel{ProjectID: 1, FeatureID: &f.ID, Name: "c"}); err != nil {
+	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, FeatureID: &f.ID, Name: "c"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateProposal(ctx, store.Proposal{
-		ChannelID: 1, Role: "lead", Brief: "v2",
+		SpaceID: 1, Role: "lead", Brief: "v2",
 		Items: []store.ProposedItem{{Kind: "decision", Body: "use sessions", Scope: "work_item"}},
 	}); err != nil {
 		t.Fatal(err)

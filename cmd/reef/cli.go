@@ -10,8 +10,8 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -290,7 +290,7 @@ func contextCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	out, err := channel.Context(ctx, st, ms, f.ID, *role)
+	out, err := space.Context(ctx, st, ms, f.ID, *role)
 	if err != nil {
 		return err
 	}

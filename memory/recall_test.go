@@ -162,11 +162,11 @@ func TestRecall_ExpansionSkipsHubs(t *testing.T) {
 func TestRecall_ExpansionSkipsSourceLinks(t *testing.T) {
 	s, _ := openTest(t)
 	shelf := Ref{Kind: ScopeProject, ID: "1"}
-	from := func(channel, body string) {
+	from := func(space, body string) {
 		t.Helper()
 		w := Writer{
 			Author: "ada", Role: "developer", Scope: shelf,
-			Links: []Link{{Rel: RelSource, ToKind: "channel", ToID: channel}},
+			Links: []Link{{Rel: RelSource, ToKind: "space", ToID: space}},
 		}
 		if _, err := s.Remember(context.Background(), w, Note{Kind: KindFinding, Body: body}); err != nil {
 			t.Fatal(err)

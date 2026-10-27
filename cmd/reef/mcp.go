@@ -11,8 +11,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/server"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -23,9 +23,9 @@ const (
 
 // mcpCmd must write nothing but MCP to stdout.
 func mcpCmd(ctx context.Context, args []string) error {
-	value := os.Getenv(channel.TokenEnv)
+	value := os.Getenv(space.TokenEnv)
 	if value == "" {
-		return errors.New(channel.TokenEnv + " is not set")
+		return errors.New(space.TokenEnv + " is not set")
 	}
 	c := newCommand("reef mcp", _mcpUsage, 0, 0)
 	st, _, err := c.open(args)
@@ -40,7 +40,7 @@ func mcpCmd(ctx context.Context, args []string) error {
 	}
 	tok, err := st.Token(ctx, value)
 	if errors.Is(err, store.ErrNotFound) {
-		return errors.New("unknown " + channel.TokenEnv)
+		return errors.New("unknown " + space.TokenEnv)
 	}
 	if err != nil {
 		return err
@@ -56,7 +56,7 @@ func mcpCmd(ctx context.Context, args []string) error {
 	return err
 }
 
-// tokenCmd makes a channel on the feature for role and a token for it, and
+// tokenCmd makes a Space on the feature for role and a token for it, and
 // prints the command that registers the MCP server with Claude Code.
 func tokenCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	c := newCommand("reef token", _tokenUsage, 1, 1)
@@ -74,7 +74,7 @@ func tokenCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	ch, err := st.CreateChannel(ctx, store.Channel{
+	ch, err := st.CreateSpace(ctx, store.Space{
 		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: *role + " (claude code)",
 		Role: "lead", Backend: "claude",
 	})
@@ -97,7 +97,7 @@ func tokenCmd(ctx context.Context, args []string, stdout io.Writer) error {
 		return fmt.Errorf("resolve data dir: %w", err)
 	}
 	_, err = fmt.Fprintf(stdout, "claude mcp add reef --env %s=%s -- %s mcp --data %s\n",
-		channel.TokenEnv, tok.Token, shellQuote(exe), shellQuote(dir))
+		space.TokenEnv, tok.Token, shellQuote(exe), shellQuote(dir))
 	return err
 }
 

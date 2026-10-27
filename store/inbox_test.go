@@ -25,27 +25,27 @@ func newInboxEnv(t *testing.T) *inboxEnv {
 	if _, err := s.CreateProject(e.ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(e.ctx, Channel{ProjectID: 1, Name: "one"}); err != nil {
+	if _, err := s.CreateSpace(e.ctx, Space{ProjectID: 1, Name: "one"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(e.ctx, Channel{ProjectID: 1, Name: "two"}); err != nil {
+	if _, err := s.CreateSpace(e.ctx, Space{ProjectID: 1, Name: "two"}); err != nil {
 		t.Fatal(err)
 	}
 	return e
 }
 
-func (e *inboxEnv) say(channel int64, author, body string) Message {
+func (e *inboxEnv) say(space int64, author, body string) Message {
 	e.t.Helper()
-	m, err := e.s.CreateMessage(e.ctx, Message{ChannelID: channel, Author: author, Body: body})
+	m, err := e.s.CreateMessage(e.ctx, Message{SpaceID: space, Author: author, Body: body})
 	if err != nil {
 		e.t.Fatal(err)
 	}
 	return m
 }
 
-func (e *inboxEnv) turn(channel int64, role, wake, status string) Turn {
+func (e *inboxEnv) turn(space int64, role, wake, status string) Turn {
 	e.t.Helper()
-	t, err := e.s.CreateTurn(e.ctx, Turn{ChannelID: channel, Role: role, Backend: "claude", WakeText: wake})
+	t, err := e.s.CreateTurn(e.ctx, Turn{SpaceID: space, Role: role, Backend: "claude", WakeText: wake})
 	if err != nil {
 		e.t.Fatal(err)
 	}
@@ -62,7 +62,7 @@ func (e *inboxEnv) turn(channel int64, role, wake, status string) Turn {
 	return t
 }
 
-// inbox returns the items as "kind channel text", newest first.
+// inbox returns the items as "kind Space text", newest first.
 func (e *inboxEnv) inbox() []string {
 	e.t.Helper()
 	items, err := e.s.Inbox(e.ctx)
@@ -71,7 +71,7 @@ func (e *inboxEnv) inbox() []string {
 	}
 	out := []string{}
 	for _, i := range items {
-		out = append(out, fmt.Sprintf("%s %d %s", i.Kind, i.ChannelID, i.Text))
+		out = append(out, fmt.Sprintf("%s %d %s", i.Kind, i.SpaceID, i.Text))
 	}
 	return out
 }
@@ -97,7 +97,7 @@ func TestInbox_Empty(t *testing.T) {
 func TestInbox_Approval(t *testing.T) {
 	e := newInboxEnv(t)
 	m := e.say(1, "lead", "@architect plan")
-	a := Approval{ChannelID: 1, From: "lead", To: "architect", MessageID: m.ID, Text: "plan"}
+	a := Approval{SpaceID: 1, From: "lead", To: "architect", MessageID: m.ID, Text: "plan"}
 	made, err := e.s.CreateApproval(e.ctx, a)
 	if err != nil {
 		t.Fatal(err)
@@ -121,12 +121,12 @@ func TestInbox_Approval(t *testing.T) {
 func TestInbox_Paused(t *testing.T) {
 	e := newInboxEnv(t)
 	e.say(1, "user", "go")
-	if err := e.s.PauseChannel(e.ctx, 1, "hop cap: 6 agent hops without a user message"); err != nil {
+	if err := e.s.PauseSpace(e.ctx, 1, "hop cap: 6 agent hops without a user message"); err != nil {
 		t.Fatal(err)
 	}
 	e.want("paused 1 hop cap: 6 agent hops without a user message")
 
-	if err := e.s.ContinueChannel(e.ctx, 1, TokenBudget); err != nil {
+	if err := e.s.ContinueSpace(e.ctx, 1, TokenBudget); err != nil {
 		t.Fatal(err)
 	}
 	e.want()
@@ -161,15 +161,15 @@ func TestInbox_Failed(t *testing.T) {
 	e.want()
 }
 
-func TestInbox_FailedTurnThatPausedItsChannelIsNotAlsoListedAsFailed(t *testing.T) {
+func TestInbox_FailedTurnThatPausedItsSpaceIsNotAlsoListedAsFailed(t *testing.T) {
 	e := newInboxEnv(t)
 	e.turn(1, "lead", "build it", "failed")
-	if err := e.s.PauseChannel(e.ctx, 1, "token budget of 1000000 used: 1000312 tokens"); err != nil {
+	if err := e.s.PauseSpace(e.ctx, 1, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
 	e.want("paused 1 token budget of 1000000 used: 1000312 tokens")
 
-	if err := e.s.ContinueChannel(e.ctx, 1, TokenBudget); err != nil {
+	if err := e.s.ContinueSpace(e.ctx, 1, TokenBudget); err != nil {
 		t.Fatal(err)
 	}
 	e.want("failed 1 lead failed: boom")
@@ -216,23 +216,23 @@ func TestInbox_Waiting(t *testing.T) {
 	}
 	e.want("waiting 1 shipped")
 
-	if err := e.s.PauseChannel(e.ctx, 1, "token budget of 1000000 used: 1000312 tokens"); err != nil {
+	if err := e.s.PauseSpace(e.ctx, 1, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
 	e.want("paused 1 token budget of 1000000 used: 1000312 tokens")
 }
 
-func TestInbox_ClosedChannelIsNotAnItem(t *testing.T) {
+func TestInbox_ClosedSpaceIsNotAnItem(t *testing.T) {
 	e := newInboxEnv(t)
 	e.say(1, "lead", "Wrap proposed.")
 	e.want("waiting 1 Wrap proposed.")
 
-	if _, err := e.s.db.ExecContext(e.ctx, "UPDATE channel SET closed_at = ? WHERE id = 1", "2026-01-01T00:00:00Z"); err != nil {
+	if _, err := e.s.db.ExecContext(e.ctx, "UPDATE space SET closed_at = ? WHERE id = 1", "2026-01-01T00:00:00Z"); err != nil {
 		t.Fatal(err)
 	}
 	e.want()
 
-	if err := e.s.ReopenChannel(e.ctx, 1); err != nil {
+	if err := e.s.ReopenSpace(e.ctx, 1); err != nil {
 		t.Fatal(err)
 	}
 	e.want("waiting 1 Wrap proposed.")
@@ -242,7 +242,7 @@ func TestInbox_NewestFirst(t *testing.T) {
 	e := newInboxEnv(t)
 	e.turn(2, "lead", "a", "failed")
 	e.say(1, "lead", "hello")
-	if err := e.s.PauseChannel(e.ctx, 2, "token budget of 1000000 used: 1000312 tokens"); err != nil {
+	if err := e.s.PauseSpace(e.ctx, 2, "token budget of 1000000 used: 1000312 tokens"); err != nil {
 		t.Fatal(err)
 	}
 	e.want("waiting 1 hello", "paused 2 token budget of 1000000 used: 1000312 tokens")
@@ -268,14 +268,14 @@ func TestInbox_DismissWaiting(t *testing.T) {
 	e.want("waiting 1 one more thing", "waiting 2 also done")
 
 	if err := e.s.DismissWaiting(e.ctx, 1, other.ID); !errors.Is(err, ErrNotFound) {
-		t.Errorf("DismissWaiting(message of another channel) = %v, want ErrNotFound", err)
+		t.Errorf("DismissWaiting(message of another Space) = %v, want ErrNotFound", err)
 	}
 }
 
 func TestInbox_DismissLeavesApprovalsAlone(t *testing.T) {
 	e := newInboxEnv(t)
 	m := e.say(1, "lead", "@architect plan")
-	a := Approval{ChannelID: 1, From: "lead", To: "architect", MessageID: m.ID, Text: "plan"}
+	a := Approval{SpaceID: 1, From: "lead", To: "architect", MessageID: m.ID, Text: "plan"}
 	if _, err := e.s.CreateApproval(e.ctx, a); err != nil {
 		t.Fatal(err)
 	}

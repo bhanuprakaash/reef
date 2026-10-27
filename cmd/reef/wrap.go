@@ -58,7 +58,7 @@ func wrapList(ctx context.Context, args []string, stdout io.Writer) error {
 		return err
 	}
 	for _, p := range ps {
-		ch, err := st.Channel(ctx, p.ChannelID)
+		ch, err := st.Space(ctx, p.SpaceID)
 		if err != nil {
 			return err
 		}
@@ -67,7 +67,7 @@ func wrapList(ctx context.Context, args []string, stdout io.Writer) error {
 			return err
 		}
 		if _, err := fmt.Fprintf(stdout, "%d  %s  %d  %s  %s  %s\n",
-			p.ID, f.Slug, p.ChannelID, p.Role, p.Kind, p.CreatedAt.Format(time.DateOnly)); err != nil {
+			p.ID, f.Slug, p.SpaceID, p.Role, p.Kind, p.CreatedAt.Format(time.DateOnly)); err != nil {
 			return err
 		}
 	}

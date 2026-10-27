@@ -49,13 +49,13 @@ func TestCLI_Token(t *testing.T) {
 			}
 			defer func() { _ = st.Close() }()
 			tok, err := st.Token(context.Background(), m[1])
-			if err != nil || tok.Role != "architect" || tok.ChannelID != 1 {
-				t.Errorf("token = %+v, %v, want role architect on channel 1", tok, err)
+			if err != nil || tok.Role != "architect" || tok.SpaceID != 1 {
+				t.Errorf("token = %+v, %v, want role architect on Space 1", tok, err)
 			}
-			ch, err := st.Channel(context.Background(), 1)
+			ch, err := st.Space(context.Background(), 1)
 			if err != nil || ch.Name != "architect (claude code)" || ch.Role != "lead" ||
 				ch.Backend != "claude" {
-				t.Errorf("channel = %+v, %v, want lead role and claude backend", ch, err)
+				t.Errorf("space = %+v, %v, want lead role and claude backend", ch, err)
 			}
 		})
 	}
