@@ -37,10 +37,10 @@ type Runner struct {
 	// Scopes, when set, are the scopes of the wake the next turn sends, each with its newest
 	// message, and are stored on the turn so a later turn of the session skips them.
 	Scopes store.Scopes
-	// Start, when set, builds the first prompt of a session that has been sent none. It runs
-	// once the turn's start is stamped, so what is written after that is in the prompt or in
-	// the next turn's delta, never in neither. Cleared when a prompt has been sent.
-	Start func(ctx context.Context) (string, error)
+	// FirstPrompt, when set, builds the first prompt of a session that has been sent none. It
+	// runs once the turn's start is stamped, so what is written after that is in the prompt or
+	// in the next turn's delta, never in neither. Cleared when a prompt has been sent.
+	FirstPrompt func(ctx context.Context) (string, error)
 	// OnNote, when set, is called after the watch posts a message, so a window shows it.
 	OnNote func()
 
@@ -74,7 +74,8 @@ const (
 )
 
 // NewRunner returns a Runner for ag, which must already be started or resumed.
-// A non-empty preamble is put before the first message sent.
+// A non-empty preamble is put before the first message sent. When FirstPrompt is set, it is
+// built for each turn until one is sent, and replaces the preamble.
 func NewRunner(
 	st *store.Store, ag agent.Agent, channelID int64, role, backend, preamble string,
 ) *Runner {
@@ -128,8 +129,8 @@ func (r *Runner) Run(
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
 	preamble, delta := r.preamble, ""
-	if r.Start != nil {
-		preamble, err = r.Start(wctx)
+	if r.FirstPrompt != nil {
+		preamble, err = r.FirstPrompt(wctx)
 	} else {
 		delta, err = r.delta(wctx)
 	}
@@ -153,7 +154,7 @@ func (r *Runner) Run(
 		r.sessionGone = sessionMissing(err.Error())
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
-	r.preamble, r.Start = "", nil
+	r.preamble, r.FirstPrompt = "", nil
 	if _, err := r.st.SetTurnSent(wctx, turn.ID, prompt); err != nil {
 		return r.abort(wctx, turn, err, err.Error(), "", parent)
 	}

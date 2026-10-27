@@ -175,8 +175,9 @@ func decisionLine(d store.Decision) string {
 
 // changedSince is what the feature gained after since that a role whose session was told of
 // everything before it has not seen: the decisions added, the decisions retired and the brief
-// in full when a version is newer. A decision added and retired since is in neither list: the
-// role never saw it and it is gone. It is empty when nothing changed. Tasks are left out.
+// in full when a version is newer. A decision added and retired since is named as retired
+// only, as the role may have seen it in its previous turn. It is empty when nothing changed.
+// Tasks are left out.
 func changedSince(
 	ctx context.Context, st *store.Store, featureID int64, since time.Time,
 ) (string, error) {
@@ -191,7 +192,7 @@ func changedSince(
 		}
 	}
 	for _, d := range decisions {
-		if d.RetiredAt == nil || !d.RetiredAt.After(since) || d.CreatedAt.After(since) {
+		if d.RetiredAt == nil || !d.RetiredAt.After(since) {
 			continue
 		}
 		line := fmt.Sprintf("decision %d is retired", d.ID)

@@ -198,7 +198,7 @@ settings_file=$(ls ~/.claude/projects/*/"$settings_session".jsonl 2>/dev/null | 
 settings_reply=$("$H" sql "select body from message where channel_id = 3 and author = 'tester'" | tail -n +2)
 refusal=$(python3 -I -c '
 import json, re, sys
-said = re.compile(r"\b(edit|write)\b.{0,80}\b(unavailable|not available|isn.t available|disabled|not allowed|disallowed|denied|blocked|refused|not permitted)", re.I | re.S)
+said = re.compile(r"\b(edit|write)\b.{0,80}\b(unavailable|not available|isn.t available|disabled|not allowed|disallowed|denied|blocked|refused|not permitted)|\bno\s+(edit|write)\b.{0,20}\btools?\b", re.I | re.S)
 texts, err = [sys.argv[2]], False
 try:
     lines = open(sys.argv[1]).readlines() if sys.argv[1] else []
