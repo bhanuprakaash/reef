@@ -270,6 +270,10 @@ func (r *Runner) Watch() {
 					r.idleSession = ev
 				case ev.Kind == agent.KindCompacted:
 					r.snapshotSent = false
+					err := r.st.SetTurnCompacted(context.Background(), r.channelID, r.role, r.sessionID)
+					if err != nil {
+						log.Printf("keep compaction of %s in channel %d: %v", r.role, r.channelID, err)
+					}
 				case ev.Kind == agent.KindError:
 					r.idleErr = ev.Text
 				case ev.Kind == agent.KindUsage && ev.Usage != nil:

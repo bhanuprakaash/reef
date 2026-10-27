@@ -199,6 +199,21 @@ func (s *Store) SessionCompacted(
 	return compacted, nil
 }
 
+// SetTurnCompacted marks the newest turn of role in the session of channelID that sent its
+// prompt as having seen the backend compact the session. Nothing changes when no turn sent one.
+func (s *Store) SetTurnCompacted(
+	ctx context.Context, channelID int64, role, sessionID string,
+) error {
+	_, err := s.db.ExecContext(ctx,
+		"UPDATE turn SET compacted = 1 WHERE id = (SELECT id FROM turn WHERE channel_id = ? "+
+			"AND role = ? AND session_id = ? AND sent = 1 ORDER BY id DESC LIMIT 1)",
+		channelID, role, sessionID)
+	if err != nil {
+		return fmt.Errorf("set turn compacted: %w", err)
+	}
+	return nil
+}
+
 // SessionCostBefore is the running cost of the session with the id when its turns before turn
 // beforeID ended: the total the latest of them reported. A session with only turns stored before
 // totals were kept has the largest cost, a running total, plus the costs stored after it, which

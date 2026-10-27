@@ -352,3 +352,31 @@ func TestWakeAs_CompactedSessionGetsTheFirstPromptAgain(t *testing.T) {
 		})
 	}
 }
+
+func TestWakeAs_CompactionSeenBetweenTurnsIsKeptForARebuiltMember(t *testing.T) {
+	ctx := context.Background()
+	e := newWakeEnv(t)
+	e.wake("lead", "one", nil, store.Scope{Read: e.say("user", "one", nil)})
+
+	e.agents[0].events <- agent.Event{Kind: agent.KindCompacted}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		compacted, err := e.st.SessionCompacted(ctx, e.ch.ID, "lead", "s1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if compacted {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the compaction the watch saw was not stored on the lead's newest turn")
+		}
+	}
+	if err := e.s.closeMembers(); err != nil {
+		t.Fatal(err)
+	}
+	e.wake("lead", "two", nil, store.Scope{Read: e.say("user", "two", nil)})
+
+	if got := lastPrompt(e); !strings.HasPrefix(got, "## You\n") {
+		t.Errorf("prompt of the rebuilt member = %q, want the first prompt", got)
+	}
+}
