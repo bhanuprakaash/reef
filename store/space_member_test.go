@@ -99,6 +99,56 @@ func TestSpaceTeam_KeepsRulesCopiedWhenTheSpaceWasMade(t *testing.T) {
 	}
 }
 
+func TestAddSpaceMemberTool_ChangesOnlyThatSpacesMember(t *testing.T) {
+	ctx := context.Background()
+	s := spaceMemberStore(t)
+	one, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "one", Team: "core"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	two, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "two", Team: "core"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	team, err := s.Team(ctx, "core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev := team.Roles[1]
+
+	for range 2 {
+		if _, err := s.AddSpaceMemberTool(ctx, one.ID, dev.TeammateID, "WebFetch"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	for _, c := range []struct {
+		name  string
+		tools []string
+		got   func() []string
+	}{
+		{"Space one", []string{"Read", "WebFetch"}, func() []string {
+			got, _ := s.SpaceTeam(ctx, one.ID)
+			return got.Roles[1].Tools
+		}},
+		{"Space two", []string{"Read"}, func() []string {
+			got, _ := s.SpaceTeam(ctx, two.ID)
+			return got.Roles[1].Tools
+		}},
+		{"the Team", []string{"Read"}, func() []string {
+			got, _ := s.Team(ctx, "core")
+			return got.Roles[1].Tools
+		}},
+	} {
+		if got := c.got(); !reflect.DeepEqual(got, c.tools) {
+			t.Errorf("dev tools in %s = %v, want %v", c.name, got, c.tools)
+		}
+	}
+	if _, err := s.AddSpaceMemberTool(ctx, one.ID, 999, "WebFetch"); !errors.Is(err, ErrNotFound) {
+		t.Errorf("unknown teammate = %v, want ErrNotFound", err)
+	}
+}
+
 func TestTeammateConversations_NewestActivityFirstAndOnlyOwnConversations(t *testing.T) {
 	ctx := context.Background()
 	s := spaceMemberStore(t)

@@ -575,6 +575,7 @@ tool calls.
 | `POST /spaces/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no work item); 404, 409 and 503 as send |
 | `POST /spaces/{id}/attach` | `workItemId` (required) | 200 the Space | 400 no `workItemId`, Space already has a work item or is a conversation, work item of another project, project not a git repo with a commit; 404; 409 a turn running, or the work item already has an active Space |
 | `GET /spaces/{id}/members` | | 200 the Space's members, lead first: the role fields of a [team](#team) role | 404 |
+| `POST /spaces/{id}/members/{teammate}/tools` | `tool` (required) | 204 the tool is allowed for that Teammate in this Space only, so the next wake gets it. The Team and the Teammate keep their rules | 400 empty tool, or `Bash` without write; 404 |
 | `POST /spaces/{id}/members` | `teammateId` (required) | 201 the member, a copy of the Teammate's default access rules. On a conversation: 202, the same as the user writing `@name` at the start of a line (see [Spaces live](#spaces-live)) | 400 unknown Teammate, or the conversation's own; 404; 409 already a member or its name is taken, or a turn is running |
 | `GET /spaces/{id}/proposal` | | 200 the Space's pending proposal | 404 none pending |
 | `POST /proposals/{id}/approve` | no body needed | 200 the proposal, `itemsAdded` and `warnings` (a line for each saved item that looks like a stored one or has no vector; left out when none); a wrap closes the proposal's Space and stops its agent, a brief proposal does neither | 400 already decided, 404 |

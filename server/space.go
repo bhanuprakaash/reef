@@ -28,6 +28,8 @@ func (s *server) spaceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /spaces/{id}/members", s.listSpaceMembers)
 	mux.HandleFunc("POST /spaces/{id}/members", s.addSpaceMember)
 	mux.HandleFunc("/spaces/{id}/members", methodNotAllowed)
+	mux.HandleFunc("POST /spaces/{id}/members/{teammate}/tools", s.addSpaceMemberTool)
+	mux.HandleFunc("/spaces/{id}/members/{teammate}/tools", methodNotAllowed)
 	mux.HandleFunc("POST /spaces/{id}/reopen", s.reopenSpace)
 	mux.HandleFunc("/spaces/{id}/reopen", methodNotAllowed)
 	mux.HandleFunc("GET /spaces/{id}/inspector", s.getInspector)
@@ -404,6 +406,31 @@ func (s *server) addSpaceMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, role)
+}
+
+func (s *server) addSpaceMemberTool(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	teammateID, err := strconv.ParseInt(r.PathValue("teammate"), 10, 64)
+	if err != nil {
+		writeError(w, fmt.Errorf("%w: teammate %q is not a number", store.ErrInvalid, r.PathValue("teammate")))
+		return
+	}
+	var in struct {
+		Tool string `json:"tool"`
+	}
+	if err := readJSON(r, &in); err != nil {
+		writeError(w, err)
+		return
+	}
+	if _, err := s.st.AddSpaceMemberTool(r.Context(), id, teammateID, in.Tool); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) reopenSpace(w http.ResponseWriter, r *http.Request) {
