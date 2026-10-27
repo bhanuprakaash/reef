@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type DragEvent } from 're
 import { useSendMessage } from '@/modules/spaces/api/send-message';
 import { useStopSpace } from '@/modules/spaces/api/stop-space';
 import { useMessages } from '@/lib/api/get-messages';
+import { useMediaQuery } from '@/lib/use-media-query';
 import { useDraft } from '@/modules/spaces/hooks/use-draft';
 import { stepHistory } from '@/modules/spaces/utils/history-step';
 import { splitMentions } from '@/utils/split-mentions';
@@ -141,6 +142,7 @@ export function Composer({
     picked.current = next.caret;
   }
 
+  const narrow = useMediaQuery('(max-width: 767px)');
   const state = (name: string): CreatureState =>
     !running ? 'idle' : name === working ? 'working' : 'asleep';
   const placeholder = paused
@@ -152,7 +154,9 @@ export function Composer({
       : parent !== undefined
         ? 'Reply in thread'
         : roles
-          ? 'Message the team, @ to mention'
+          ? narrow
+            ? 'Message, @ to mention'
+            : 'Message the team, @ to mention'
           : 'Message';
 
   return (

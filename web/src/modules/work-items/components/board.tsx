@@ -51,7 +51,7 @@ export function Board({ items, teams }: Props) {
           )}
           <span className="min-w-0 flex-1">
             <span className="block text-[14.5px] break-words">{item.title}</span>
-            <span className="block text-xs text-muted">
+            <span className="block text-xs break-words text-muted">
               {item.type}
               {team && ` · ${team}`}
             </span>
@@ -97,7 +97,7 @@ export function Board({ items, teams }: Props) {
               aria-label={label}
               onDragOver={(e) => e.preventDefault()}
               onDrop={() => drop(status)}
-              className={`flex flex-col gap-2 rounded-card bg-sidebar p-3 md:w-[248px] md:shrink-0 ${target ? 'ring-1 ring-working/50' : ''}`}
+              className={`flex flex-col gap-2 rounded-card bg-column p-2.5 md:w-0 md:min-w-[112px] md:flex-1 ${target ? 'ring-1 ring-working/50' : ''}`}
             >
               <h2 className="px-1 text-[13px] text-soft">
                 {label} <span className="text-muted">{column.length}</span>

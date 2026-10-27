@@ -18,7 +18,7 @@ import { useProjects } from '@/modules/projects/api/get-projects';
 type ViewProps = ComponentProps<typeof SpaceView>;
 
 function WorkItemSpaceView({ workItemId, ...props }: ViewProps & { workItemId: number }) {
-  const diff = useDiff(workItemId, 'current');
+  const diff = useDiff(workItemId);
   const briefs = useBriefVersions(workItemId);
   return (
     <SpaceView

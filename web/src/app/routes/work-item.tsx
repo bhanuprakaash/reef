@@ -66,7 +66,7 @@ export function WorkItemPage() {
   return (
     <div className="space-y-7">
       <header className="flex flex-wrap items-end gap-4">
-        <div className="flex-1 md:min-w-[360px]">
+        <div className="min-w-full flex-1 md:min-w-[360px]">
           <div className="-ml-2 mb-2 flex items-center gap-1 text-xs text-muted">
             <BackButton fallback="/" />
             <span className="min-w-0">
@@ -76,19 +76,19 @@ export function WorkItemPage() {
           </div>
           <h1 className="text-[40px] leading-[1.05] font-normal tracking-[-0.02em]">{f.title}</h1>
           {f.description && <p className="mt-2 max-w-xl text-sm text-muted">{f.description}</p>}
-          <div className="mt-3 flex flex-wrap items-center text-xs text-muted">
+          <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
             <Chip>{f.type}</Chip>
-            <Chip className="ml-2">{statusLabel(f.status)}</Chip>
-            {team && <Chip className="ml-2">{team.name}</Chip>}
-            <span className="ml-2 font-mono whitespace-nowrap">work-item/{f.id}</span>
+            <Chip>{statusLabel(f.status)}</Chip>
+            {team && <Chip>{team.name}</Chip>}
+            <span className="font-mono whitespace-nowrap">work-item/{f.id}</span>
             {diff.isError ? (
-              <span className="ml-2 whitespace-nowrap text-danger">· {diff.error.message}</span>
+              <span className="whitespace-nowrap text-danger">· {diff.error.message}</span>
             ) : (
               diff.data &&
               (diff.data.length ? (
                 <Link
                   to={`/work-items/${id}/review`}
-                  className="ml-2 inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap hover:text-fg md:min-h-0"
+                  className="inline-flex min-h-11 items-center gap-1.5 whitespace-nowrap hover:text-fg md:min-h-0"
                 >
                   <span aria-hidden="true">·</span>
                   {diff.data.length} file{diff.data.length === 1 ? '' : 's'}
@@ -96,7 +96,7 @@ export function WorkItemPage() {
                   <span className="text-failed">−{diffCounts(diff.data).removed}</span>
                 </Link>
               ) : (
-                <span className="ml-2 whitespace-nowrap">· No changes yet</span>
+                <span className="whitespace-nowrap">· No changes yet</span>
               ))
             )}
           </div>
