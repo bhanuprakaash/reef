@@ -4,11 +4,11 @@ import { describe, expect, it, vi } from 'vitest';
 import type { SpacePreview, WorkItem, Project } from '@/types/api';
 import { SidebarSpaces } from './sidebar-spaces';
 
-const { useQuery, useWorkItems, useTeams, useNeedsYou, useRunningTurns } = vi.hoisted(() => ({
+const { useQuery, useWorkItems, useTeams, useInbox, useRunningTurns } = vi.hoisted(() => ({
   useQuery: vi.fn(),
   useWorkItems: vi.fn(),
   useTeams: vi.fn(),
-  useNeedsYou: vi.fn(),
+  useInbox: vi.fn(),
   useRunningTurns: vi.fn(),
 }));
 
@@ -21,7 +21,7 @@ vi.mock('@/modules/work-items/api/get-work-items', () => ({
   useWorkItems,
 }));
 vi.mock('@/lib/api/get-teams', () => ({ useTeams }));
-vi.mock('@/modules/inbox/api/get-inbox', () => ({ useNeedsYou }));
+vi.mock('@/modules/inbox/api/get-inbox', () => ({ useInbox }));
 vi.mock('@/modules/spaces/api/get-turns', () => ({ useRunningTurns }));
 
 const project: Project = { id: 1, name: 'reef', path: '/reef', baseBranch: 'main', createdAt: '' };
@@ -67,7 +67,7 @@ function render(item: WorkItem = workItem) {
   }));
   useWorkItems.mockReturnValue({ data: [item] });
   useTeams.mockReturnValue({ data: [] });
-  useNeedsYou.mockReturnValue({ data: [] });
+  useInbox.mockReturnValue({ data: [] });
   return renderToStaticMarkup(
     <MemoryRouter>
       <SidebarSpaces project={project} query="" />

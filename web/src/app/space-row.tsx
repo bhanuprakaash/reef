@@ -8,7 +8,7 @@ import { useTeammates } from '@/lib/api/get-teammates';
 import { useTeams } from '@/lib/api/get-teams';
 import { useRunningTurns } from '@/modules/spaces/api/get-turns';
 import { useWorkItems } from '@/modules/work-items/api/get-work-items';
-import { useNeedsYou } from '@/modules/inbox/api/get-inbox';
+import { useInbox } from '@/modules/inbox/api/get-inbox';
 import type { SpacePreview } from '@/types/api';
 import { roleFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
@@ -21,7 +21,7 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
   const workItems = useWorkItems();
   const teams = useTeams();
   const teammates = useTeammates();
-  const inbox = useNeedsYou();
+  const inbox = useInbox();
   const running = useRunningTurns();
 
   const waiting = inbox.data ?? [];
@@ -54,7 +54,7 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
           avatar={
             <span className="relative flex-none">
               <GroupAvatar roles={roles.length > 0 ? roles : [c.role]} faces={faces} size={30} />
-              {waiting.some((i) => i.spaceId === c.id) && (
+              {waiting.some((i) => i.spaceId === c.id && i.group === 'needs_you') && (
                 <span
                   role="img"
                   aria-label="needs you"

@@ -630,8 +630,10 @@ async function phone() {
   const row = main.getByRole('link', { name: /#phone room/ });
   check(await row.isVisible(), 'the Spaces tab lists the Space', await main.innerText().then((t) => t.replace(/\s+/g, ' ').slice(0, 120)));
   await visit('needs-you', /^Needs you/, main.getByRole('link', { name: 'Open', exact: true }).first());
-  const badge = await tabs.getByLabel(/waiting$/).textContent();
-  check(badge === '1', 'the Needs you tab shows a count badge of 1', badge);
+  const needsYou = (await getJson('/inbox')).filter((i) => i.group === 'needs_you').length;
+  const badges = tabs.getByLabel(/waiting$/);
+  const badge = needsYou > 0 ? await badges.textContent() : String(await badges.count());
+  check(badge === String(needsYou), 'the Needs you tab badge counts only needs-you items, as REST does', `badge ${badge}, REST ${needsYou}`);
   await visit('board', /^Board/, main.getByRole('link', { name: /phone check/ }));
   await tabs.getByRole('button', { name: 'Menu' }).click();
   await aside.getByRole('link', { name: 'Teams', exact: true }).click();
