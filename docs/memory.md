@@ -88,7 +88,7 @@ Rules for every command:
 | `reef team apply FILE.json` | Creates a team from a file, or replaces the roles of the team with that name (see Teams) | `applied team duo: lead*(claude) architect(claude)` |
 | `reef team list` | Lists the teams by name, each with its roles | `duo  lead*(claude) architect(claude)`: the lead has a `*` |
 | `reef context <work-item> --role R` | Prints the context prompt for role `R` (see below) | the prompt |
-| `reef token <work-item> --role R` | Makes a Space and a token for role `R` (see Tokens) | a `claude mcp add` command |
+| `reef token <work-item> --role R` | Makes a token for role `R` in the work item's active Space, or in a new Space when it has none (see Tokens). A sub-item is refused: use its parent | a `claude mcp add` command |
 | `reef wrap list [<work-item>]` | Lists pending wrap-up proposals (see Wrap-up): of the work item, or of the current folder's project | `1  1  3  architect  wrap  2026-10-13`: id, work item id, Space id, role, kind (`wrap` or `brief`), created date |
 | `reef wrap show <id>` | Prints a proposal and its status | `proposal 1 from architect` (`brief update 2 from lead` for a brief proposal), status, then brief, items (kind and scope each) and retire ids |
 | `reef wrap approve <id>` | Approves a pending proposal | `approved: brief and 2 items saved`, or `approved: brief saved` for a brief proposal |
@@ -173,7 +173,9 @@ is named by the role.
 
 - A token is 64 hex characters (32 random bytes). It is stored in the `token` table (see
   [server.md](server.md#token)).
-- `reef token` makes one, in a new Space named `<role> (claude code)`. Every start of
+- `reef token` makes one, in the work item's active Space, or in a new Space named
+  `<role> (claude code)` when it has none, so a second `reef token` for another role joins the
+  same Space. Every start of
   `reef chat`, new or resumed, makes one for its Space, and deletes it when the chat
   ends. The tokens of `reef token` stay.
 - `reef serve` makes one for each teammate session, when that teammate's agent starts, and
@@ -289,12 +291,14 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
      to read them from and does not print them. A role that wakes with a persona or skills that
      differ from what its session last got, whether it is starting or resuming, gets them again
      before the wake text, marked `Your persona or skills changed:`, without the header.
-   - One line: role, work item title and id, project name. A quick session says instead:
-     role, project name and folder, and that the session has no work item yet, so there is no brief or
-     work item items.
+   - One line: role, work item title and id, project name. A free Space says instead:
+     role, project name and folder, and that it is a free Space with no work item, so there is no brief or
+     work item items. A direct conversation says it is a direct conversation with the user.
    - When a profile exists, `You work with Ada, a developer. They like: short answers, ask before
      big changes.` (occupation and style only when set, lower-cased; `Other` is left out).
-   - The description (if set), as `Description: ...`. A quick session has none.
+   - The description (if set), as `Description: ...`, then `Acceptance lines:` with one line
+     `1. [x] text` for each acceptance line of the work item (`[ ]` when not ticked). A free Space
+     or conversation has none.
    - When the project has a base branch, `Base branch: dev. A pull request you open targets it.`
 2. `## How to work`
    - When the team has two or more roles: `Your team: @lead, @architect.` It says that
@@ -314,10 +318,10 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
      specialist's post back to the user, because they see it. `reef context` has no team and
      prints none of this.
    - On a work item, one line that names the tools for details (`recall`, `read_memory`, `read_thread`,
-     `search_sessions`), `remember` and `propose_brief`. A quick session gets a
-     shorter one: details are on demand through `recall` and `read_memory`, and `remember` saves
-     what holds across the project or for the role, with scope `project` or `teammate`. So a
-     quick session always has a `## How to work`.
+     `search_sessions`), `remember` and `propose_brief`. A free Space or conversation gets a
+     shorter one: details are on demand through `recall` and `read_memory`, `remember` saves to
+     this Space (this conversation) by default, and scope `project` or `teammate` is for what holds
+     across the project or for the role. So a free Space or conversation always has a `## How to work`.
 3. `## What we know`, each part under a `###` label and only when it has content:
    - `### Brief`: the latest brief, in full. Work items only.
    - `### In progress`: one line `sub-item N: title (type)` for each sub-item of the work item
@@ -330,7 +334,9 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
    - `### Project`: the 10 newest accepted items in the project's scope.
    - `### Team`: the 5 newest accepted items in the team's scope, only when the Space's team
      is a real team: the `solo` team is no team and has none. `reef context` prints none.
-   - `### Your items`: the 5 newest accepted items in the role's `teammate` scope.
+   - `### Your items`: the 5 newest accepted items in the role's `teammate` scope, named by the
+     id of its Teammate. `reef context` finds the Teammate in the work item's team, else by the
+     role name; with none, the scope is named by the role.
    - `### On demand`: one line that counts what the role can look up:
      `4 open sub-items (list_sub_items). 3 earlier Spaces (search_sessions).` Open sub-items
      are the work item's sub-items that are not `done` or `dropped`, the ones in progress
@@ -389,13 +395,14 @@ lesson 3: Ask before adding a dependency. (developer, 2026-10-12)
 ## reef chat
 
 ```
-reef chat <work-item> --role R --backend claude|codex [--name N] [--permission-mode M] [--debug]
+reef chat <work-item> --backend claude|codex [--role lead] [--name N] [--permission-mode M] [--debug]
 reef chat --space ID [--debug]
 ```
 
 `reef chat` runs one role in one Space, in the terminal. It uses the agent adapters
-from [agents.md](agents.md). A new Space is in the `solo` team, and `--role` is the name of
-its lead, so only the lead takes part: `reef chat` routes nothing, and an `@mention` in a
+from [agents.md](agents.md). A new Space is in the `solo` team and the role is its lead, `lead`:
+`--role` may name it, and any other name is refused. A sub-item is refused: use its parent. Only
+the lead takes part: `reef chat` routes nothing, and an `@mention` in a
 reply wakes no one. A resumed Space with multiple roles is refused; use the Reef window
 (`reef serve`) for those teams. The code that opens a Space is in
 package `space` (`space.Open`) and has no terminal code. `reef serve` is a second runner
