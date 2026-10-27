@@ -56,7 +56,7 @@ var _scenarios = []scenario{
 	{"append-commit", "", pat(`Append a line with the word two to a\.txt`)},
 	{"branch-switch", "", pat(`git checkout -q -b side`)},
 	{"settings-edit-refused", "", pat(`replace the word one with nope`)},
-	{"gate-mention", "", pat(`an at sign immediately followed by the word`)},
+	{"handoff-mention", "", pat(`an at sign immediately followed by the word`)},
 	{"google-ask", "", pat(`Add Google login to this app`)},
 	{"recall-secret-word", "", pat(`What was the secret word`)},
 	{"story-pineapple", "", pat(`secret word pineapple`)},

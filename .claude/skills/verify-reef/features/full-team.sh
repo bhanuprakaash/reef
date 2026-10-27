@@ -74,8 +74,7 @@ cat >"$E/relay.json" <<'EOF'
      "persona": "You are the lead. Whatever you are told, reply with exactly one line: @tester check this"},
     {"name": "tester", "backend": "claude",
      "persona": "You are the tester. Answer in one short sentence. Never @mention anyone."}
-  ],
-  "gates": [{"from": "lead", "to": "tester", "on": true}]
+  ]
 }
 EOF
 
@@ -433,7 +432,7 @@ check retry-twice "$twice_ok" "re-retry of $F and retry of done turn 1 are both 
 
 ### Inbox (spaces 7 to 9 are quick sessions, so they make no worktree)
 
-api_call POST /spaces '{"projectId":1,"name":"gate","team":"relay"}'
+api_call POST /spaces '{"projectId":1,"name":"relay","team":"relay"}'
 api_call POST /spaces '{"projectId":1,"name":"budget","team":"crew"}'
 api_call POST /spaces '{"projectId":1,"name":"crashed","team":"crew"}'
 api_call POST /spaces/9/send '{"text":"Write the numbers from 1 to 600 separated by spaces."}'
@@ -456,9 +455,7 @@ C=$("$H" sql "select max(id) from turn where space_id = 9" | tail -1)
 curl -sN --max-time 400 "http://$A/inbox/events" >"$E/inbox-events.txt" &
 inbox_stream_pid=$!
 
-api_call POST /spaces/7/send '{"text":"go"}'
 api_call POST /spaces/8/send '{"text":"Reply with one word."}'
-wait_done 7 1
 wait_done 8 1
 "$H" sql --write "update Space set token_budget = 1 where id = 8" >/dev/null
 api_call POST /spaces/8/send '{"text":"Reply with one word."}'
@@ -471,65 +468,54 @@ echo "$budget_body" | grep -q 'space 8 is paused: token budget of 1 used: [0-9]*
 echo "$BODY" | grep -q "\"kind\":\"failed\",\"spaceId\":9" || inbox_kinds_ok=0
 echo "$BODY" | grep -q '"text":"lead failed: server restarted"' || inbox_kinds_ok=0
 echo "$BODY" | grep -qF "\"turnId\":$C" || inbox_kinds_ok=0
-echo "$BODY" | grep -q '"kind":"approval","spaceId":7' || inbox_kinds_ok=0
-echo "$BODY" | grep -q '"text":"lead wants to wake tester"' || inbox_kinds_ok=0
-echo "$BODY" | grep -q '"approvalId":1' || inbox_kinds_ok=0
 echo "$BODY" | grep -q '"kind":"paused","spaceId":8' || inbox_kinds_ok=0
 echo "$BODY" | grep -q '"text":"token budget of 1 used: [0-9]* tokens"' || inbox_kinds_ok=0
 echo "$BODY" | grep -q '"kind":"waiting","spaceId":4' || inbox_kinds_ok=0
-check inbox-kinds "$inbox_kinds_ok" "inbox has failed(9), approval(7), paused(8) and waiting(4) items"
+check inbox-kinds "$inbox_kinds_ok" "inbox has failed(9), paused(8) and waiting(4) items"
 
-api_call POST /spaces/7/approvals/1 '{"approve":true}'
-s1=$STATUS
 api_call POST /spaces/8/continue
-s2=$STATUS
+s1=$STATUS
 api_call POST "/turns/$C/retry"
-s3=$STATUS
+s2=$STATUS
 api_call POST /spaces/4/send '{"text":"Reply with one other word."}'
-s4=$STATUS
+s3=$STATUS
 clear_ok=1
-[ "$s1" = 204 ] && [ "$s2" = 204 ] && [ "$s3" = 202 ] && [ "$s4" = 202 ] || clear_ok=0
+[ "$s1" = 204 ] && [ "$s2" = 202 ] && [ "$s3" = 202 ] || clear_ok=0
 api_call GET /inbox
-# 4, 7 and 9 each started a new turn, so they have no item at all while it runs; 8's
+# 4 and 9 each started a new turn, so they have no item at all while it runs; 8's
 # continue starts none, so its cleared paused item is at once a waiting item instead.
-for ch in 4 7 9; do
+for ch in 4 9; do
 	echo "$BODY" | grep -q "\"spaceId\":$ch" && clear_ok=0
 done
 echo "$BODY" | grep -q '"kind":"paused","spaceId":8' && clear_ok=0
 
-wait_done 7 2
 wait_done 9 1
 wait_done 4 2
 api_call POST /spaces/8/send '{"text":"Reply with one word."}'
 [ "$STATUS" = 202 ] || clear_ok=0
 wait_done 8 2
 
-[ "$("$H" sql "select role, status from turn where space_id = 7 order by id desc limit 1" | tail -1)" = "tester|done" ] || clear_ok=0
 [ "$("$H" sql "select role, status from turn where space_id = 9 order by id desc limit 1" | tail -1)" = "lead|done" ] || clear_ok=0
 [ "$("$H" sql "select retried from turn where id = $C" | tail -1)" = 1 ] || clear_ok=0
 [ "$("$H" sql "select role, status from turn where space_id = 4 order by id desc limit 1" | tail -1)" = "lead|done" ] || clear_ok=0
 [ "$("$H" sql "select role, status from turn where space_id = 8 order by id desc limit 1" | tail -1)" = "lead|done" ] || clear_ok=0
 
 api_call GET /inbox
-for ch in 4 7 8 9; do
+for ch in 4 8 9; do
 	echo "$BODY" | grep -q "\"kind\":\"waiting\",\"spaceId\":$ch" || clear_ok=0
 done
-check inbox-clear "$clear_ok" "approve/continue/retry/send cleared their items (204,204,202,202); each Space ran on and now lists a new waiting item"
+check inbox-clear "$clear_ok" "continue/retry/send cleared their items (204,202,202); each Space ran on and now lists a new waiting item"
 
 kill "$inbox_stream_pid" 2>/dev/null
 wait "$inbox_stream_pid" 2>/dev/null
-frames=$(grep '^data:' "$E/inbox-events.txt" | while IFS= read -r l; do echo "$l" | grep -o '"kind":"[a-z]*","spaceId":[4789]' | tr '\n' ' '; echo; done)
+frames=$(grep '^data:' "$E/inbox-events.txt" | while IFS= read -r l; do echo "$l" | grep -o '"kind":"[a-z]*","spaceId":[489]' | tr '\n' ' '; echo; done)
 stream_ok=1
 [ -n "$frames" ] || stream_ok=0
 echo "$frames" | head -1 | grep -q '"kind":"failed","spaceId":9' || stream_ok=0
-echo "$frames" | grep -q '"kind":"approval","spaceId":7' || stream_ok=0
 echo "$frames" | grep -q '"kind":"paused","spaceId":8' || stream_ok=0
-echo "$frames" | grep -q '"kind":"waiting","spaceId":7' || stream_ok=0
 echo "$frames" | grep -q '"kind":"waiting","spaceId":9' || stream_ok=0
 check inbox-stream "$stream_ok" "frames across the stream: $(echo "$frames" | tr '\n' '|')"
 
-api_call POST /spaces/7/send '{"text":"go"}'
-wait_for /inbox '"kind":"approval"'
 "$H" sql --write "update Space set token_budget = 1 where id = 8" >/dev/null
 api_call POST /spaces/8/send '{"text":"Reply with one word."}'
 restart_budget_status=$STATUS
@@ -544,7 +530,6 @@ restart_ok=1
 [ "$restart_budget_status" = 409 ] || restart_ok=0
 diff "$E/inbox-before.txt" "$E/inbox-after.txt" >/dev/null || restart_ok=0
 kinds_after=$(grep -o '"kind":"[a-z]*","spaceId":[0-9]*' "$E/inbox-after.txt")
-echo "$kinds_after" | grep -q '"kind":"approval","spaceId":7' || restart_ok=0
 echo "$kinds_after" | grep -q '"kind":"paused","spaceId":8' || restart_ok=0
 echo "$kinds_after" | grep -q '"kind":"failed","spaceId":5' || restart_ok=0
 echo "$kinds_after" | grep -q '"kind":"waiting"' || restart_ok=0
@@ -577,36 +562,6 @@ second_sandbox=$(echo "$sandbox_seq" | sed -n 2p)
 [ "$first_sandbox" = '"sandbox":"read-only"' ] || codex_ok=0
 [ "$second_sandbox" = '"sandbox":"workspace-write"' ] || codex_ok=0
 check write-codex-readonly "$codex_ok" "turns: $(echo "$rows_cx" | tr '\n' ' '); sandbox sequence: $first_sandbox then $second_sandbox"
-}
-
-section_inbox() {
-### Window (`$H ui`)
-
-cat >"$E/gated.json" <<'EOF'
-{
-  "name": "gated",
-  "gates": [{"from": "lead", "to": "architect", "on": true}],
-  "roles": [
-    {
-      "name": "lead",
-      "lead": true,
-      "backend": "claude",
-      "persona": "You are the lead. Answer in one short sentence. If the user's message contains the word DESIGN, reply instead with exactly one line: @architect followed by the user's request. If asked to wrap up the Space, call propose_wrap, then reply with exactly: Proposed. @architect FYI"
-    },
-    {
-      "name": "architect",
-      "backend": "claude",
-      "persona": "You are the architect. Answer in one short sentence, and end it with the word PLANNED. Use no tools unless asked to. Never @mention anyone.",
-      "skills": ["short-plans"],
-      "tools": ["Read"]
-    }
-  ]
-}
-EOF
-
-"$H" reef --data-name inbox -- team apply "$E/gated.json" >/dev/null
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name inbox
-run_ui window-inbox inbox
 }
 
 section_ui2() {
@@ -714,17 +669,12 @@ google_ok=1 google_bad=
 api_call POST /spaces/1/send '{"text":"Add Google login to this app: a Sign in with Google link on the login page that goes to /auth/google, which redirects to the Google OAuth URL with the client id from the GOOGLE_CLIENT_ID env var. Keep it small and covered by a test."}'
 idle
 
-rows_g=$("$H" sql "select role, status, checkpoint from turn where space_id = 1 order by id")
-echo "$rows_g" | sed -n '2p' | grep -qF 'lead|done|' || { google_ok=0; google_bad+=" $LINENO"; }
-echo "$rows_g" | sed -n '3p' | grep -qF 'architect|done|' || { google_ok=0; google_bad+=" $LINENO"; }
-appr=$("$H" sql "select id, from_role, to_role, kind, status from approval")
-echo "$appr" | grep -qF '1|architect|developer|gate|pending' || { google_ok=0; google_bad+=" $LINENO"; }
-api_call GET /inbox
-echo "$BODY" | grep -q '"kind":"approval".*"spaceId":1' || { google_ok=0; google_bad+=" $LINENO"; }
-echo "$BODY" | grep -q 'architect wants to wake developer' || { google_ok=0; google_bad+=" $LINENO"; }
-
-api_call POST /spaces/1/approvals/1 '{"approve":true}'
-idle
+wait_done 1 5
+rows_g=$("$H" sql "select id, role, status from turn where space_id = 1 order by id")
+for row in '1|lead|done' '2|architect|done' '3|developer|done' '4|tester|done' '5|lead|done'; do
+	echo "$rows_g" | grep -qF "$row" || { google_ok=0; google_bad+=" $LINENO"; }
+done
+[ "$("$H" sql "select count(*) from approval" | tail -1)" = 0 ] || { google_ok=0; google_bad+=" $LINENO"; }
 
 dev_turn_g=$("$H" sql "select id from turn where space_id = 1 and role = 'developer' order by id desc limit 1" | tail -1)
 [ "$(turn_col "$dev_turn_g" status)" = done ] || { google_ok=0; google_bad+=" $LINENO"; }
@@ -733,14 +683,6 @@ dev_turn_g=$("$H" sql "select id from turn where space_id = 1 and role = 'develo
 git -C "$S/google-app" worktree list | grep -q "^$S/google/worktrees/1/1 .*\[work-item/1\]" || { google_ok=0; google_bad+=" $LINENO"; }
 [ -z "$(git -C "$S/google-app" status --porcelain)" ] || { google_ok=0; google_bad+=" $LINENO"; }
 [ "$(git -C "$S/google-app" log --oneline main | wc -l | tr -d ' ')" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
-appr2=$("$H" sql "select id, from_role, to_role, kind, status from approval where id = 2")
-echo "$appr2" | grep -qF '2|developer|tester|gate|pending' || { google_ok=0; google_bad+=" $LINENO"; }
-api_call GET /inbox
-[ "$(echo "$BODY" | grep -o '"kind"' | wc -l | tr -d ' ')" = 1 ] || { google_ok=0; google_bad+=" $LINENO"; }
-echo "$BODY" | grep -q '"kind":"approval".*"spaceId":1' || { google_ok=0; google_bad+=" $LINENO"; }
-
-api_call POST /spaces/1/approvals/2 '{"approve":true}'
-idle
 
 tester_turn_g=$("$H" sql "select id from turn where space_id = 1 and role = 'tester' order by id desc limit 1" | tail -1)
 [ "$(turn_col "$tester_turn_g" status)" = done ] || { google_ok=0; google_bad+=" $LINENO"; }
@@ -760,22 +702,16 @@ kill "$google_inbox_pid" 2>/dev/null
 wait "$google_inbox_pid" 2>/dev/null
 kill "$google_events_pid" 2>/dev/null
 wait "$google_events_pid" 2>/dev/null
-grep -A1 '^event: approval' "$E/google-events.txt" | grep -q pending || { google_ok=0; google_bad+=" $LINENO"; }
-grep -A1 '^event: approval' "$E/google-events.txt" | grep -q approved || { google_ok=0; google_bad+=" $LINENO"; }
+[ "$(grep -c '^event: approval' "$E/google-events.txt")" = 0 ] || { google_ok=0; google_bad+=" $LINENO"; }
 
-check google-login "$google_ok" "${google_bad:+failed at full-team.sh lines$google_bad; }lead, architect, gate, developer, gate, tester, lead ran end to end; checkpoints, worktree, clean main checkout, inbox and event streams all match"
+check google-login "$google_ok" "${google_bad:+failed at full-team.sh lines$google_bad; }turns: $(echo "$rows_g" | tr '\n' ' '); lead, architect, developer, tester and lead ran without approval; checkpoints, worktree and clean main checkout match"
 }
 
 section_fu() {
-### Gates, notes, retry and rollback rules, folder fu
+### Handoffs, notes, retry and rollback rules, folder fu
 
 prompt() { grep -h '"type":"user"' "$HOME"/.claude/projects/*/"$1".jsonl 2>/dev/null | grep -o '"content":"\[Space[^"]*' | tail -1; }
 
-python3 -I -c 'import json,sys
-t=json.load(open(sys.argv[1]))
-t["name"]="open"
-t["gates"]=[{"from":"lead","to":"developer","on":False}]
-json.dump(t, open(sys.argv[2],"w"))' "$PWD/teams/full.json" "$E/open.json"
 cat >"$E/pair.json" <<'EOF'
 {
   "name": "pair",
@@ -792,60 +728,29 @@ cat >"$E/pair.json" <<'EOF'
 }
 EOF
 "$H" reef --data-name fu -- team apply "$PWD/teams/full.json" >/dev/null
-"$H" reef -- team apply "$E/open.json" >/dev/null
 "$H" reef -- team apply "$E/pair.json" >/dev/null
 ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu
 A=$(cat "$S/serve.addr")
-api_call GET /teams/open
-echo "$BODY" | grep -qF '"gates":[{"from":"lead","to":"developer","on":false}]' || echo "note: /teams/open missing expected gates" >&2
 
 api_call POST /projects '{"name":"main","path":"'"$S"'/cwd"}'
 api_call POST /work-items '{"projectId":1,"title":"FA"}'
 api_call POST /work-items '{"projectId":1,"title":"FB"}'
-api_call POST /work-items '{"projectId":1,"title":"FC"}'
 api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"fa1","team":"pair"}'
 api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"fa2","team":"pair"}'
 api_call POST /spaces '{"projectId":1,"workItemId":2,"name":"fb1","team":"full"}'
-api_call POST /spaces '{"projectId":1,"workItemId":3,"name":"fc1","team":"open"}'
 WA="$S/fu/worktrees/1/1"
 P='Reply with exactly one line and nothing else: an at sign immediately followed by the word developer, then a space, then the words: reply with one word, use no tools.'
 
-api_call POST /spaces/3/send "{\"text\":\"$P\"}"
-wait_for /spaces/3/approvals pending
-gate1_ok=1
-api_call GET '/messages?space=3'
-echo "$BODY" | grep -qF '@developer reply with one word, use no tools.' || gate1_ok=0
-apr=$("$H" sql "select space_id, from_role, to_role, kind, status from approval")
-echo "$apr" | grep -qF '3|lead|developer|gate|pending' || gate1_ok=0
-[ "$(echo "$("$H" sql "select role from turn where space_id = 3")" | tail -n +2 | tr -d '[:space:]')" = lead ] || gate1_ok=0
-check gate-lead-developer "$gate1_ok" "space 3 held lead|developer|gate|pending; only a lead turn ran"
-
-api_call POST /spaces/4/send "{\"text\":\"$P\"}"
-wait_done 4 2
-gate_off_ok=1
-rows4f=$("$H" sql "select role, status from turn where space_id = 4 order by id")
-echo "$rows4f" | grep -qF 'lead|done' || gate_off_ok=0
-echo "$rows4f" | grep -qF 'developer|done' || gate_off_ok=0
-[ "$("$H" sql "select count(*) from approval where space_id = 4" | tail -1)" = 0 ] || gate_off_ok=0
-check gate-off "$gate_off_ok" "space 4 (gate off): lead and developer both done, no approval rows"
-
 api_call POST /spaces/1/send '{"text":"@developer Use the Write tool to create the file f.txt containing the word one."}'
 wait_done 1 1
-D=$("$H" sql "select id from turn where space_id = 1 order by id desc limit 1" | tail -1)
 api_call POST /spaces/1/send "{\"text\":\"$P\"}"
-wait_for /spaces/1/approvals pending
-api_call POST "/turns/$D/rollback"
-note_approved_ok=1
-[ "$STATUS" = 204 ] || note_approved_ok=0
-[ ! -e "$WA/f.txt" ] || note_approved_ok=0
-appr_id1=$("$H" sql "select id from approval where space_id = 1" | tail -1)
-api_call POST "/spaces/1/approvals/$appr_id1" '{"approve":true}'
-[ "$STATUS" = 204 ] || note_approved_ok=0
 wait_done 1 3
-new_dev_sess=$("$H" sql "select session_id from turn where space_id = 1 order by id desc limit 1" | tail -1)
-new_dev_file=$(session_file "$new_dev_sess")
-grep -q "reef wrote: Rolled back to before turn $D\\." "$new_dev_file" 2>/dev/null || note_approved_ok=0
-check note-approved "$note_approved_ok" "a wake held at a gate, a rollback, then approve: the approved wake's prompt starts with the rollback note"
+handoff_ok=1
+rows_handoff=$("$H" sql "select role, status from turn where space_id = 1 order by id")
+echo "$rows_handoff" | grep -qF 'lead|done' || handoff_ok=0
+[ "$(echo "$rows_handoff" | grep -c 'developer|done')" = 2 ] || handoff_ok=0
+[ "$("$H" sql "select count(*) from approval where space_id = 1" | tail -1)" = 0 ] || handoff_ok=0
+check handoff-no-approval "$handoff_ok" "lead woke developer automatically with no approval row: $(echo "$rows_handoff" | tr '\n' ' ')"
 
 api_call POST /spaces/1/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}'
 sleep 4
@@ -992,7 +897,7 @@ check checkpoint-unborn "$unborn_ok" "a quick session's lead turn on an unborn g
 
 rm -rf "$S/fu/worktrees/1/2"
 api_call POST /spaces/3/send '{"text":"@developer Reply with one word. Use no tools."}'
-wait_done 3 2
+wait_done 3 1
 recreate_ok=1
 newest3=$("$H" sql "select id from turn where space_id = 3 order by id desc limit 1" | tail -1)
 [ "$(turn_col "$newest3" role)" = developer ] || recreate_ok=0
@@ -1086,7 +991,7 @@ section() (
 ui=.claude/skills/verify-reef/scripts/ui
 [ -d "$ui/node_modules" ] || (cd "$ui" && npm ci >&2)
 
-for sec in full cx inbox ui2 google fu; do
+for sec in full cx ui2 google fu; do
 	section "$sec" &
 done
 wait

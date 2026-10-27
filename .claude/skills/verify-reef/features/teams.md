@@ -4,15 +4,14 @@ A user defines a team of roles in a JSON file with `reef team apply`, opens a Sp
 team, and talks to its lead. The lead hands work to a specialist by an `@mention`. The server
 wakes the specialist in its own agent session, which stops when its turn ends, and the reply
 lands in a thread. The user replies in that thread and the thread's owner answers. Agents that
-keep waking each other hit the hop cap and the Space pauses. A wake across a gate waits for
-the user's Approve or Reject. Contract: `docs/server.md` (team, role, gate, approval, Spaces
-live, Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
+keep waking each other hit the hop cap and the Space pauses. Contract: `docs/server.md`
+(team, role, Spaces live, Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 
 ## Sub-features
 
 - `team-apply` `reef team apply FILE.json` creates a team; `reef team list` shows each team with its roles and backends, the lead starred. The same name again replaces its roles: a changed persona updates the one team.
-- `team-errors` a file with no lead or two leads, a role named `user` or with a space, a bad backend, an unknown field, a gate that names a missing role, a missing file, and no subcommand each fail with `reef: ...`, exit 1, and change nothing.
-- `team-rest` `GET /teams` lists teams by name (`solo` always exists); `GET /teams/{name}` returns one with its roles and gates, 404 for an unknown name; the routes take no write; a role has no `mcpServers` key.
+- `team-errors` a file with no lead or two leads, a role named `user` or with a space, a bad backend, an unknown field, a missing file, and no subcommand each fail with `reef: ...`, exit 1, and change nothing.
+- `team-rest` `GET /teams` lists teams by name (`solo` always exists); `GET /teams/{name}` returns one with its roles, 404 for an unknown name; the routes take no write; a role has no `mcpServers` key.
 - `team-space` `POST /spaces` with `team` stores it and fills `role` (the lead's name), `backend` and `permissionMode` from the lead role; with no team the Space is in `solo`; an unknown team and a `role` other than `lead` are 400.
 - `team-reapply-live` a team applied again with a new role while the lead is live: `@tester` runs a tester turn.
 - `thread-send` `POST /spaces/{id}/send` with `parent` stores the reply under that top-level message; a parent that is not a top-level message of the Space is 400; `role` is no longer a field (400).
@@ -30,19 +29,18 @@ live, Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 - `wake-delta` a role's wake in a resumed session on a feature has, right after its header line, what changed since its session's previous sent turn, read from `turn.prompt` (`$H sql "select prompt from turn where id = N"`): one `kind N: first line (author, date)` line for each memory item accepted since in the role's scopes (`work_item`, `project`, the Space's `team` unless it is `solo`, and the role's own `teammate`), whoever its author (an item by the role's own name too), `decision N is retired, replaced by decision M.` (`decision N is retired.` with no replacement) for each retired one, and `### New brief` with the brief when a version is newer. An item added and retired since is named as retired only, another role's `teammate` item never shows, it comes before any `reef wrote:` lines, a repeat wake with no change has no such part, and the brief comes once. Add the changes with `REEF_TOKEN=<lead token> $H mcp-call remember ...`, `$H api POST /memory`, `$H api POST /memory/ID/retire` and `$H api PUT /work-items/ID/brief`; the fake `claude` matches on the message after the last blank line, so the part does not change which scenario runs.
 - `token-role` a teammate's tool calls carry its own role: `remember` by the lead token has author and role `lead`, by the architect's session `architect`.
 - `hop-cap` two teammates that keep mentioning each other run 6 hops, the 7th does not run, the Space is paused with `hop cap: 6 agent hops without a user message`; `continue` runs the held wake and counts from 0 again; a user send clears the pause, drops the held wake and counts from 0.
-- `gate-default` the default team has no gate on lead to architect: the wake runs and `GET /spaces/{id}/approvals` is `[]`.
-- `gate-approve-reject` with the lead to architect gate on, the mention stores a pending approval and no architect turn; Approve runs the wake, Reject drops it, a decided approval is 409, and Approve during a message chain is 204 and runs after the current turn; a send during one is 202 and runs after it. The event stream carries `approval` frames.
+- `handoff-runs` a lead mention wakes the architect automatically with no approval API or event.
 - `wrap-wakes-nobody` a `/wrap` turn whose reply says `@architect` starts no architect turn.
-- `restart-held` after a restart a pending approval is still pending and can be approved; a hop-cap pause stays, and `continue` runs the held wake.
+- `restart-held` after a restart a hop-cap pause stays, and `continue` runs the held wake.
 - `codex-teammate` a role on `codex` is woken and its reply is stored (driven with the codex test fixture, not a real codex).
 - `provider-rest` `GET /providers` lists the detected `claude` and `codex` with `path` and `version`; `POST /providers` adds a second claude from another folder and it appears with its folder and version; a bad kind, a relative or missing folder, a folder with no executable of the kind, a bad name, a duplicate name and the name `claude` are rejected with an error; `DELETE` removes an added one and refuses `claude` and `codex`.
 - `provider-role` a role with `"provider":"NAME"` runs that install's binary: with two wrapper folders that each log a marker and `exec` the fake `claude`, only the named install's marker appears and a role with no provider logs none. A team that names an unknown provider, or one of the other kind, is `invalid`; a removed provider, or a Space `backend` that differs from the install's kind, gives a `failed` turn with the reason, not a run of the `PATH` binary.
-- `window-teams` the window picks a team, names the running teammate, opens a Thread pane from a root's Reply button, shows `N replies in thread` on the root in the main list, and shows Approve and Reject, and the switch of a default gate on `/teams` turns it off and on (`$H ui teams`, see Window below).
+- `window-teams` the window picks a team, names the running teammate, opens a Thread pane from a root's Reply button, and shows `N replies in thread` on the root in the main list (`$H ui teams`, see Window below).
 
 ## How to get to it (user POV)
 
 - Write a team file (see `docs/memory.md`), `reef team apply team.json`, then in the window choose the team in the New Space form, or `POST /spaces` with `"team":"<name>"`.
-- Talk to the lead with `POST /spaces/{id}/send`. Reply in a thread with `"parent": <root id>`. Watch `GET /spaces/{id}/events`. Approve a held wake with `POST /spaces/{id}/approvals/{aid}` and `{"approve":true}`.
+- Talk to the lead with `POST /spaces/{id}/send`. Reply in a thread with `"parent": <root id>`. Watch `GET /spaces/{id}/events`.
 
 ## Driving it with verify-reef
 
@@ -92,7 +90,6 @@ cat > $E/pingpong.json <<'EOF'
 }
 EOF
 sed 's/short-plans/very-short-plans/' $E/duo.json > $E/duo2.json
-sed 's/"name": "duo",/"name": "gated", "gates": [{"from": "lead", "to": "architect", "on": true}],/' $E/duo.json > $E/gated.json
 sed -e 's/"name": "duo"/"name": "mixed"/' -e '/"name": "architect"/{n;s/"claude"/"codex", "permissionMode": "read-only"/}' $E/duo.json > $E/mixed.json
 printf '{"name":"bad","roles":[{"name":"a","backend":"claude"}]}' > $E/nolead.json
 printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude"},{"name":"b","lead":true,"backend":"codex"}]}' > $E/twolead.json
@@ -102,7 +99,6 @@ printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude"},{"nam
 printf '{"name":"keys","roles":[{"name":"lead","lead":true,"backend":"claude","mcpServers":[{"command":"true","env":{"API_KEY":"sk-verify-5521"}}]}]}' > $E/keys.json
 printf '{"name":"duo","roles":[{"name":"lead","lead":true,"backend":"claude","persona":"You are the lead. Answer in one short sentence."},{"name":"architect","backend":"claude"},{"name":"tester","backend":"claude","persona":"You are the tester. Answer in one short sentence, and end it with the word TESTED. Never @mention anyone."}]}' > $E/duo3.json
 printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude","color":"red"}]}' > $E/unknownfield.json
-printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude"}],"gates":[{"from":"a","to":"ghost","on":true}]}' > $E/badgate.json
 ```
 
 Teams, no server needed (data folder `teams`):
@@ -116,16 +112,15 @@ Teams, no server needed (data folder `teams`):
   - `userrole.json`: `reef: invalid: role name "user" must be letters, digits, _ or -, and not user or reef`
   - `spacerole.json`: `reef: invalid: role name "two words" must be letters, digits, _ or -, and not user or reef`
   - `unknownfield.json`: `reef: parse <path>: json: unknown field "color"`
-  - `badgate.json`: `reef: invalid: gate a to ghost names a role team bad does not have`
   - `$H reef -- team apply /nonexistent.json`: `reef: read team file: open /nonexistent.json: no such file or directory`
   - `$H reef -- team`: `reef: usage: reef team apply FILE.json | list [--data DIR]`
-- **Three more teams.** `$H reef -- team apply $E/pingpong.json`, `$H reef -- team apply $E/gated.json` and `$H reef -- team apply $E/keys.json` print `applied team ...`. `$H sql "select count(*) from team_member where mcp_servers like '%sk-verify-5521%'"` is `1`: the env is stored for the agent.
+- **Two more teams.** `$H reef -- team apply $E/pingpong.json` and `$H reef -- team apply $E/keys.json` print `applied team ...`. `$H sql "select count(*) from team_member where mcp_servers like '%sk-verify-5521%'"` is `1`: the env is stored for the agent.
 
 Server (the same folder): `ANTHROPIC_MODEL=sonnet $H serve-start --data-name teams`, then `A=$(cat $S/serve.addr)`.
 
-- **REST.** `$H api GET /teams` is 200 with `duo`, `gated`, `keys`, `pingpong`, `solo` in that order; each role has `name`, `lead`, `write`, `backend`, `permissionMode`, `persona`, `skills`, and `tools`, and only `gated` has `"gates":[{"from":"lead","to":"architect","on":true}]`. `$H api GET /teams/gated` is 200 with that team. `$H api GET /teams/keys` is 200 and has no `mcpServers` key; neither it nor `$H api GET /teams` contains `mcpServers`, `sk-verify-5521` or `API_KEY`. `$H api GET /teams/nope` is 404 `team nope: not found`. `$H api POST /teams '{}'` is 405.
+- **REST.** `$H api GET /teams` is 200 with `duo`, `keys`, `pingpong`, `solo` in that order; each role has `name`, `lead`, `write`, `backend`, `permissionMode`, `persona`, `skills`, and `tools`, with no `gates` key. `$H api GET /teams/keys` is 200 and has no `mcpServers` key; neither it nor `$H api GET /teams` contains `mcpServers`, `sk-verify-5521` or `API_KEY`. `$H api GET /teams/nope` is 404 `team nope: not found`. `$H api POST /teams '{}'` is 405.
 - **Setup.** `$H api POST /projects '{"name":"teams","path":"'$S'/cwd"}'`, `$H api POST /work-items '{"projectId":1,"title":"Login"}'`.
-- **Space on a team.** `$H api POST /spaces '{"projectId":1,"workItemId":1,"name":"plain","backend":"claude"}'` is 201 id 1 with `"team":"solo"`. `$H api POST /spaces '{"projectId":1,"workItemId":1,"name":"duo room","team":"duo"}'` is id 2 with `"team":"duo","role":"lead","backend":"claude"`: the backend came from the lead role, the request named none. Then three more, ids 3 to 5: `{"projectId":1,"workItemId":1,"name":"lazy","team":"duo"}`, `{"projectId":1,"workItemId":1,"name":"ping room","team":"pingpong"}`, `{"projectId":1,"workItemId":1,"name":"gate room","team":"gated"}`. `... "team":"nope"` is 400 `invalid: unknown team nope`. `... "team":"duo","role":"architect"` is 400 `invalid: role must be lead`. `$H sql "select space.id, space.name, team.name from space join team on team.id = team_id"` shows `1|plain|solo`, `2|duo room|duo`, `3|lazy|duo`, `4|ping room|pingpong`, `5|gate room|gated`.
+- **Space on a team.** `$H api POST /spaces '{"projectId":1,"workItemId":1,"name":"plain","backend":"claude"}'` is 201 id 1 with `"team":"solo"`. `$H api POST /spaces '{"projectId":1,"workItemId":1,"name":"duo room","team":"duo"}'` is id 2 with `"team":"duo","role":"lead","backend":"claude"`: the backend came from the lead role, the request named none. Then create `lazy` on `duo` and `ping room` on `pingpong`. An unknown team is 400, as is a role other than lead.
 
 Lazy lead, Space 3. `claude` processes of the server are `pgrep -P $(cat $S/serve.pid) -x claude`:
 
@@ -134,7 +129,7 @@ Lazy lead, Space 3. `claude` processes of the server are `pgrep -P $(cat $S/serv
 Space 2, lead and architect:
 
 - **Lead process stays, specialist process goes.** `$H api POST /spaces/2/send '{"text":"Hello. Reply with one word."}'`, `wait_done 2 1`. The `claude` count is `1`, `$H sql "select role from token"` is `lead`. Then `$H api POST /spaces/2/send '{"text":"DESIGN a login form. Remember the codeword kiwi-77."}'`, `wait_done 2 3`. The `claude` count is `1` and the token is still `lead` only: the architect's process and token are gone. `$H sql "select id, role, status from turn where space_id = 2 order by id"` is `lead`, `lead`, `architect`, all `done`, and the last row is the architect: the lead got no turn after the architect posted.
-- **Routing from the lead.** `$H api GET '/messages?space=2'` has, in order, user `Hello...`, lead (one word), user `DESIGN a login form...`, lead `@architect DESIGN a login form...`, and architect with `"parentId":null` and a body ending `PLANNED` (its persona). `$H api GET /spaces/2/approvals` is `[]` (`gate-default`).
+- **Routing from the lead.** `$H api GET '/messages?space=2'` has, in order, user `Hello...`, lead (one word), user `DESIGN a login form...`, lead `@architect DESIGN a login form...`, and architect with `"parentId":null` and a body ending `PLANNED` (its persona). The architect ran automatically and no approval event was sent (`handoff-runs`).
 - **Persona, skills and team line.** Take the architect's session id: `$H sql "select session_id from turn where role = 'architect' and space_id = 2"`. With `K=$(printf %s "$S/teams/worktrees/1/login" | sed 's/[^A-Za-z0-9]/-/g')`, `grep -c "You are the architect" ~/.claude/projects/$K/<session id>.jsonl`, `grep -c "Your skills:" ...` and `grep -c "Your team: @lead, @architect" ...` are each at least 1. For the lead's session id the file has `Do not summarize or repeat a specialist's post back to the user`. Grep before `cleanup`, which removes that folder.
 - **Token role.** `T=$($H sql "select token from token where role = 'lead'" | tail -1)`, then `REEF_TOKEN=$T $H mcp-call remember '{"kind":"decision","body":"Lead check"}'` gives `"author":"lead"`, `"role":"lead"`, `"scope":"work_item:1"`.
 - **Thread send and its errors.** The architect's message id is `ROOT=$($H sql "select id from message where space_id = 2 and author = 'architect'" | tail -1)`. `$H api POST /spaces/2/send '{"text":"x","parent":9999}'` is 400 `invalid: parent 9999 is not a top-level message of space 2`. A parent from another Space is 400 the same way: `$H api POST /spaces/2/send '{"text":"x","parent":1}'` (message 1 is in Space 3). `$H api POST /spaces/2/send '{"text":"x","role":"architect"}'` is 400 `unknown field "role"`. `$H sql "select count(*) from message where space_id = 2"` is still `5`.
@@ -152,22 +147,13 @@ Hop cap, Space 4 (`pingpong`: the lead always says `@architect ping`, the archit
 - **A user message clears the pause.** The Space is paused again with thirteen turns. `$H api POST /spaces/4/send '{"text":"again"}'` is 202, and `wait_done 4 20`: seven more turns ran, `lead`, `architect`, `lead`, `architect`, `lead`, `architect`, `lead` (`$H sql "select role from turn where space_id = 4 order by id desc limit 7"`). The first answers `again`, so the held wake of the earlier pause was dropped, and the count started at 0: the 7th turn is the 6th hop. `$H api GET /spaces/4` has the hop cap reason again.
 - `continue` while a chain runs is 409; the recipe cannot time that, so `TestContinue_WhileRunning` in `server/live_test.go` covers it.
 
-Gate, Space 5 (`gated`: lead to architect is on). Start the stream first: `curl -sN --max-time 300 http://$A/spaces/5/events > $E/gate-events.txt &`. Approval ids are global to the data folder: the three holds of Space 4 are ids 1 to 3, so the gate approvals are 4 to 7.
-
-- **Held, not run.** `$H api POST /spaces/5/send '{"text":"DESIGN a signup form."}'`, `wait_for /spaces/5/approvals '"status":"pending"'`, `wait_done 5 1`. `$H api GET /spaces/5/approvals` is one row: `"id":4`, `"from":"lead"`, `"to":"architect"`, `"text":"[Space 5, message N]\nlead wrote: @architect design a signup form."` (the wake's prompt; the model's wording may differ), `"status":"pending"`. `$H sql "select role from turn where space_id = 5"` is only `lead`.
-- **Approve runs it.** `$H api POST /spaces/5/approvals/4 '{}'` is 400 `approve is required`. `$H api POST /spaces/2/approvals/4 '{"approve":true}'` is 404 (not this Space's). `$H api POST /spaces/5/approvals/4 '{"approve":true}'` is 204. `wait_done 5 2`: the second turn is `architect`. `$H sql "select id, from_role, to_role, status from approval where kind = 'gate'"` is `4|lead|architect|approved`. `$H api POST /spaces/5/approvals/4 '{"approve":false}'` is 409 `approval 4 is approved: conflict`.
-- **Reject drops it.** `$H api POST /spaces/5/send '{"text":"DESIGN a password reset."}'`, `wait_for /spaces/5/approvals '"id":5'`, `wait_done 5 3`. `$H api POST /spaces/5/approvals/5 '{"approve":false}'` is 204. `$H api GET /spaces/5/approvals` is `[]`; the approval row is `rejected`; the Space still has three turns (`lead`, `architect`, `lead`) and no new architect turn.
-- **Approve while busy.** `$H api POST /spaces/5/send '{"text":"DESIGN a profile page."}'`, `wait_for /spaces/5/approvals '"id":6'`, `wait_done 5 4`. Then `$H api POST /spaces/5/send '{"text":"Write the numbers from 1 to 600 separated by spaces."}'` is 202, and at once `$H api POST /spaces/5/approvals/6 '{"approve":true}'` is 204 with no body. `$H sql "select count(*) from turn where space_id = 5"` is still `5` (the lead's numbers turn is the only one running). `wait_done 5 6`: the sixth turn is `architect`, the approved wake, run after the lead's. `$H api GET /spaces/5/approvals` is `[]` and `$H sql "select id, status from approval where kind = 'gate' and id = 6"` is `6|approved`.
-- **Send while busy.** `$H api POST /spaces/5/send '{"text":"Write the numbers from 1 to 300 separated by spaces."}'` is 202, and at once `$H api POST /spaces/5/send '{"text":"Reply with one word."}'` is 202 (it was 409 before decision 71). `$H api GET '/messages?space=5'` already ends with the user message `Reply with one word.`, and `$H sql "select count(*) from turn where space_id = 5"` is `7` (the first numbers turn runs; the queued turn has not started). `wait_done 5 8`: `$H sql "select role, status from turn where space_id = 5 order by id desc limit 2"` is two `lead|done` rows, the second turn ran after the first in the same chain, not at once. Then `$H api POST /spaces/5/send '{"text":"DESIGN a settings page."}'`, `wait_for /spaces/5/approvals '"id":7'`, `wait_done 5 9`, to leave approval 7 pending for the restart.
-- **Frames.** `grep -v -e '^$' -e '"kind"' -e 'event: agent' $E/gate-events.txt` shows `event: approval` with `"status":"pending"` while the lead's turn is still running (before its `turn` done), `event: approval` with `"status":"approved"` after the approve (and `rejected` after the reject), and `turn` frames with a `role`.
-
 Re-apply while the lead is live, Space 6:
 
 - **New role mid-space.** `$H api POST /spaces '{"projectId":1,"workItemId":1,"name":"reapply","team":"duo"}'` is id 6. `$H api POST /spaces/6/send '{"text":"Hello. Reply with one word."}'`, `wait_done 6 1`: the lead's `claude` is live. `$H reef -- team apply $E/duo3.json` prints `applied team duo: lead*(claude) architect(claude) tester(claude)`. `$H api POST /spaces/6/send '{"text":"@tester run the checks"}'`, `wait_done 6 2`. `$H sql "select role, status from turn where space_id = 6 order by id"` is `lead|done`, `tester|done`, and the newest message is by `tester` and ends `TESTED`.
 
-Restart (still gate room, pending approval 7, and the paused Space 4):
+Restart with paused Space 4:
 
-- **Held state.** `$H serve-stop`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name teams`, then set `A` again. `$H api GET /spaces/5/approvals` still has approval 7 `pending`. `$H sql "select paused from space where id = 4"` is still the hop cap reason. `$H sql "select kind, status from approval where space_id = 4 and kind = 'hold' and status = 'pending'"` has one row, the wake held by the hop cap. `$H api POST /spaces/4/continue` is 204, and `wait_done 4 26`: the held wake and 5 more hops ran (the count started from 0 again) and `$H sql "select paused from space where id = 4"` is the hop cap reason again. `$H api POST /spaces/5/approvals/7 '{"approve":true}'` is 204; `wait_done 5 10` and the new turn is `architect`.
+- **Held state.** `$H serve-stop`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name teams`, then set `A` again. `$H sql "select paused from space where id = 4"` is still the hop cap reason. `$H sql "select kind, status from approval where space_id = 4 and kind = 'hold' and status = 'pending'"` has one row, the wake held by the hop cap. `$H api POST /spaces/4/continue` is 204; the held wake and 5 more hops run before the Space reaches the hop cap again.
 
 Codex teammate on the test fixture (`mixed`: the architect is on `codex`). The fixture `agent/codex/testdata/codex` plays a codex that answers `hi`. This does not prove real codex; with a logged-in `codex`, leave the `PATH` and `FAKE_CODEX` part out and the architect answers for real.
 
@@ -184,12 +170,10 @@ Space role as lead, a new folder `role` (`route-space-role`). `reef chat` makes 
 - **Setup.** `$H serve-stop`. `$H reef --data-name role -- project add`, `$H reef -- feature add roles Roles`. `ANTHROPIC_MODEL=sonnet $H reef -- chat roles --role developer --backend claude` prints `space 1: resume with reef chat --space 1`, `exit: 0` (stdin is empty, so no turn runs). `$H sql "select space.id, space.role, team.name from space join team on team.id = team_id"` is `1|developer|solo`. `ANTHROPIC_MODEL=sonnet $H serve-start --data-name role`, set `A`.
 - **`@lead` wakes the Space role.** `$H api POST /spaces/1/send '{"text":"@lead hi"}'` is 202, `wait_done 1 1`. `$H sql "select id, role, status from turn"` is one row, `1|developer|done`. `$H sql "select role from token"` is `developer` only: no `lead` token. `pgrep -P $(cat $S/serve.pid) -x claude | wc -l` is `1`, the developer's process, which stays like a lead's. The developer's reply may name `@lead` too; it wakes no one.
 
-Window (`$H ui teams` drives New Space, Thread and Gate; the hop cap is by hand). Setup: the scenario needs `duo`, `gated` and `full` applied to the server's data folder, so write `duo.json` and `gated.json` as above and, before the server starts: `$H reef --data-name ui -- team apply $E/duo.json`, `$H reef -- team apply $E/gated.json`, `$H reef -- team apply $PWD/teams/full.json`, then `ANTHROPIC_MODEL=sonnet $H serve-start --data-name ui` (`reef team apply` may also run while the server is up). Without the teams it prints `FAIL teams: scenario aborted | apply the teams first`. Then `$H ui teams`, with `REEF_VERIFY_CHROME` on Linux (see `window.md`). The steps, in the scenario or by hand in a browser:
+Window (`$H ui teams` drives New Space and Thread; the hop cap is by hand). Apply `duo` and `full` to the server's data folder, start the server, then run `$H ui teams` with `REEF_VERIFY_CHROME` on Linux (see `window.md`).
 
-- **New space.** The New Space form has a team picker listing `duo`, `gated`, `solo` (and any other applied team). Pick `duo`, create the Space: the sidebar shows it, `GET /spaces/<id>` has `"team":"duo"`.
+- **New space.** The New Space form has a team picker listing `duo`, `solo` and any other applied team. Pick `duo`, create the Space: the sidebar shows it, `GET /spaces/<id>` has `"team":"duo"`.
 - **Thread.** Send `DESIGN a short plan for a login form.`. While each teammate runs, the live turn names it: `Lead is working...`, then `Architect is working...`. When it ends, the architect's message has a Reply button; a Thread pane opens on click; reply there. The architect (not the lead) answers in the pane, and the main list shows the root with an `N replies in thread` button; the replies appear only in the Thread pane.
-- **Gate.** In a `gated` Space, after the lead mentions the architect, a row `lead → architect: <body of the waking message>` shows Approve and Reject. Approve runs the architect and the row goes; Reject removes the row.
-- **Gate switch.** `/teams`, team `full` (it lists no gates): the default `Gate lead to developer` shows as a switch, on, with no Remove. Switch it off and Save team: `gate.enabled` is `0`, and in a new `full` Space the lead's `@developer reply with one word, use no tools.` (the `$P` of `full-team.md`) runs the developer with no row in `approval`. Switch it on and Save team: `enabled` is `1`, and the next Space holds the wake as a pending `lead → developer` approval with no developer turn.
 - **Hop cap.** In a `pingpong` Space, after seven turns the cap banner shows `Paused: hop cap: 6 agent hops without a user message` and the composer stays enabled (other pauses disable it); sending a message clears the banner; Continue runs the held wake.
 
 When done: `$H cleanup`.
@@ -216,12 +200,12 @@ printf '{"name":"plainteam","roles":[{"name":"lead","lead":true,"backend":"claud
 
 ## Gotchas
 
-- The model decides the words, so check structure, not text: who ran (`turn.role`), who posted (`message.author`), `parentId`, rows in `approval`. The personas steer the model; if a run takes another path (the lead answers instead of mentioning, a lead that does not call `propose_wrap`), start the step again on a fresh Space.
+- The model decides the words, so check structure, not text: who ran (`turn.role`), who posted (`message.author`), `parentId` and cap-held wakes. The personas steer the model; if a run takes another path (the lead answers instead of mentioning, a lead that does not call `propose_wrap`), start the step again on a fresh Space.
 - `wait_done` counts a Space's done turns. The row turns `done` a moment before the server routes its messages, so wait for the last turn of the chain (the `N` in each step), not for "no running turn".
-- Message and approval ids are global to the data folder; the steps name them by query (`ROOT=...`), not by number, when other Spaces wrote before.
+- Message and hold ids are global to the data folder; the steps name them by query (`ROOT=...`), not by number, when other Spaces wrote before.
 - A raw `insert into space` must set `team_id` (`1` is `solo`): a Space with no team makes `GET /spaces/{id}` fail. Rows made by the API or by the migration always have one.
 - `ps` check: a claude agent is a direct child of `reef serve`, so `pgrep -P $(cat $S/serve.pid) -x claude` counts them. `reef mcp` children belong to the claude process.
 - `curl -sN --max-time N` on the event stream exits 28 when the time is up; that is expected.
 - The hop cap counts turns woken by an agent, not the turn that answers the user, so a pause happens after `1 + 6` turns.
-- The hop count lives in the server's memory; the pause, the approvals and the wakes a pause holds (`approval` rows of kind `hold`) are stored.
+- The hop count lives in the server's memory; the pause and the wakes it holds are stored.
 - `reef chat` is always the lead of a `solo` Space and routes nothing; its recipes are in `chat.md`.

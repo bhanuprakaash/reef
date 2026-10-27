@@ -4,7 +4,7 @@ A user applies `teams/full.json` (lead, architect, developer, tester) and asks t
 work item. Only a role with `write` changes files. Each work item works in its own git worktree on
 `work-item/<id>`, and one write turn at a time runs on a tree. Before each write turn the
 server takes a checkpoint, and the user can roll the tree back to it. A failed turn can be
-retried. Everything that waits on the user (an approval, a pause, a failed turn, an agent's
+retried. Everything that waits on the user (a pause, a failed turn, an agent's
 last word) shows in one inbox, live, in the server and in the window. Contract:
 `docs/server.md` (role, turn, Spaces live, Inbox) and `docs/memory.md` (Teams).
 
@@ -36,17 +36,14 @@ One line per acceptance line of the full-team slice and its sub-issues.
 - `rollback-note` `reef` posts `Rolled back to before turn N.`, and the prompt of the developer's next wake starts with `reef wrote: Rolled back to before turn N.`; a turn with no checkpoint is 400, an unknown one 404.
 - `retry-restart` a developer turn failed by a server crash (`server restarted`) is retried: a new developer turn ends `done` and the failed one is `retried`.
 - `retry-twice` retrying it again, or retrying a `done` turn, is 409.
-- `inbox-kinds` `GET /inbox` lists an `approval`, a `paused`, a `failed` and a `waiting` item.
-- `inbox-clear` approve, continue, retry and send each clear their item, and the Space runs on.
-- `inbox-stream` `GET /inbox/events` sends a frame when an item appears and when it clears, across four Spaces.
+- `inbox-kinds` `GET /inbox` lists a `paused`, a `failed` and a `waiting` item.
+- `inbox-clear` continue, retry and send each clear their item, and the Space runs on.
+- `inbox-stream` `GET /inbox/events` sends a frame when an item appears and when it clears, across three Spaces.
 - `inbox-restart` after a restart `GET /inbox` lists the same items, byte for byte.
 - `window-retry` Retry on a failed turn row runs the turn again (`$H ui retry`).
 - `window-rollback` Rollback with confirm restores the tree (`$H ui rollback`).
-- `window-inbox` a new approval in a Space that is not open shows in the inbox and fires one notification; Approve from the inbox runs the wake and the item goes; clicking the item or the notification opens its Space (`$H ui inbox`).
-- `google-login` the spec's flow on a throwaway Go app with `teams/full.json`: lead, then architect, architect to developer held, approve, developer commits in the worktree, developer to tester held, approve, tester runs `go test` and reports; the main checkout is untouched and the inbox lists each approval.
-- `gate-lead-developer` in team `full` a lead reply that mentions `@developer` holds a `lead|developer|gate|pending` approval and runs no developer turn; lead to architect runs with no approval (`google-login`).
-- `gate-off` a team file with `{"from":"lead","to":"developer","on":false}` runs the developer at once.
-- `note-approved` a wake held at a gate, a rollback, then approve: the approved wake's prompt starts with the rollback note.
+- `google-login` the spec's flow on a throwaway Go app with `teams/full.json`: lead, architect, developer, tester and lead run automatically; the developer commits in the worktree, the tester runs `go test`, and the main checkout is untouched.
+- `handoff-no-approval` a lead reply that mentions `@developer` runs the developer automatically and stores no approval row.
 - `note-retry` a developer turn failed by a crash is an inbox item; rollback, then retry: the retried prompt has the restart and rollback notes; the wake after it has none.
 - `retry-superseded` a failed turn followed by a `done` turn of the same role: retry 409, not in `?retryable=1` nor the inbox.
 - `retry-wrap` a failed wrap-up turn keeps no wake: retry 409, not in `?retryable=1` nor the inbox.
@@ -63,7 +60,7 @@ One line per acceptance line of the full-team slice and its sub-issues.
 ## How to get to it (user POV)
 
 - `reef team apply teams/full.json`, then in the window pick the team `full` in the New Space form of a work item. The project must be a git repo with a commit.
-- Approve or Reject a held wake in the Space, or from the Inbox link. Retry and Rollback are buttons on the failed turn row and under Checkpoints.
+- Retry and Rollback are buttons on the failed turn row and under Checkpoints.
 - REST: `POST /turns/{id}/retry`, `POST /turns/{id}/rollback`, `GET /inbox`, `GET /inbox/events`.
 
 ## Driving it with verify-reef
@@ -81,7 +78,7 @@ Preconditions:
 git -C $S/cwd init -q -b main && echo one > $S/cwd/a.txt && git -C $S/cwd add a.txt && git -C $S/cwd -c user.name=v -c user.email=v@example.com commit -qm init
 ```
 
-- Team files in `$E`. `crew` has a developer with `write` and a tester without it whose `tools` list `Edit` and `Write` and whose mode is `acceptEdits` (both must be dropped); `cx` puts both on codex; `relay` gates lead to tester:
+- Team files in `$E`. `crew` has a developer with `write` and a tester without it whose `tools` list `Edit` and `Write` and whose mode is `acceptEdits` (both must be dropped); `cx` puts both on codex; `relay` hands lead work to tester:
 
 ```sh
 cat > $E/crew.json <<'EOF'
@@ -117,8 +114,7 @@ cat > $E/relay.json <<'EOF'
      "persona": "You are the lead. Whatever you are told, reply with exactly one line: @tester check this"},
     {"name": "tester", "backend": "claude",
      "persona": "You are the tester. Answer in one short sentence. Never @mention anyone."}
-  ],
-  "gates": [{"from": "lead", "to": "tester", "on": true}]
+  ]
 }
 EOF
 ```
@@ -166,39 +162,34 @@ Retry after a crash, Space 3:
 
 Inbox (Spaces 7 to 9 are quick sessions, so they make no worktree):
 
-- **Stopped is not an item.** `$H api POST /spaces '{"projectId":1,"name":"gate","team":"relay"}'` (7), `... "name":"budget","team":"crew"` (8), `... "name":"crashed","team":"crew"` (9). `$H api POST /spaces/9/send '{"text":"Write the numbers from 1 to 600 separated by spaces."}'`, `sleep 3`, `$H api POST /spaces/9/stop` (204). Its turn is `failed`, `interrupted`, and `$H api GET /inbox` has no item of Space 9: a turn the user stopped is not one.
+- **Stopped is not an item.** `$H api POST /spaces '{"projectId":1,"name":"relay","team":"relay"}'` (7), `... "name":"budget","team":"crew"` (8), `... "name":"crashed","team":"crew"` (9). `$H api POST /spaces/9/send '{"text":"Write the numbers from 1 to 600 separated by spaces."}'`, `sleep 3`, `$H api POST /spaces/9/stop` (204). Its turn is `failed`, `interrupted`, and `$H api GET /inbox` has no item of Space 9: a turn the user stopped is not one.
 - **Failed by a crash.** The same send to 9 again, `sleep 3`, `$H serve-stop --kill`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name full`, set `A`. `C=$($H sql "select max(id) from turn where space_id = 9" | tail -1)`.
 - **Stream.** Start it now: `curl -sN --max-time 400 http://$A/inbox/events > $E/inbox-events.txt &`.
-- **Four kinds.** `$H api POST /spaces/7/send '{"text":"go"}'`, `$H api POST /spaces/8/send '{"text":"Reply with one word."}'`, `wait_done 7 1; wait_done 8 1`. `$H sql --write "update space set token_budget = 1 where id = 8"`, then `$H api POST /spaces/8/send '{"text":"Reply with one word."}'` is 409 `space 8 is paused: token budget of 1 used: N tokens: conflict`. `$H api GET /inbox` has `{"kind":"failed","spaceId":9,...,"text":"lead failed: server restarted",...,"turnId":<C>}`, `{"kind":"approval","spaceId":7,...,"text":"lead wants to wake tester",...,"approvalId":1}`, `{"kind":"paused","spaceId":8,...,"text":"token budget of 1 used: N tokens"}` and `waiting` items of the Spaces that ended on an agent's message, such as 4 (`inbox-kinds`).
-- **Clear.** `$H api POST /spaces/7/approvals/1 '{"approve":true}'`, `$H api POST /spaces/8/continue`, `$H api POST /turns/$C/retry` and `$H api POST /spaces/4/send '{"text":"Reply with one other word."}'` (4 is `waiting`) are 204, 204, 202 and 202. At once `$H api GET /inbox` lists none of those four items. `wait_done 7 2; wait_done 9 1; wait_done 4 2`, then `$H api POST /spaces/8/send '{"text":"Reply with one word."}'` is 202 and `wait_done 8 2`. Space 7 has a `tester` turn `done`, 9 a new `lead` turn `done` (the failed one `retried` 1), 4 and 8 a new `lead` turn `done`: each Space ran on. Each of the four now lists a new `waiting` item (`inbox-clear`).
-- **Frames.** After the stream ends, `grep '^data:' $E/inbox-events.txt | while read -r l; do echo "$l" | grep -o '"kind":"[a-z]*","spaceId":[4789],' | tr '\n' ' '; echo; done` prints one line per frame: the `failed` of 9 is in the first frame, and the `approval` of 7 and the `paused` of 8 each appear in a new frame; later frames drop them one by one (8 turns `waiting` after `continue`), 4's `waiting` goes while its turn runs and comes back, and 7 and 9 come back as `waiting` (`inbox-stream`).
-- **Restart.** Make the four kinds again: `$H api POST /spaces/7/send '{"text":"go"}'` and `wait_for /inbox '"kind":"approval"'`; `$H sql --write "update space set token_budget = 1 where id = 8"` and the send to 8 (409, paused); Space 5's `failed` turn is still listed. `$H api GET /inbox > $E/inbox-before.txt`, `$H serve-stop`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name full`, `$H api GET /inbox > $E/inbox-after.txt`. `diff $E/inbox-before.txt $E/inbox-after.txt` prints nothing, and `grep -o '"kind":"[a-z]*","spaceId":[0-9]*' $E/inbox-after.txt` has `approval` 7, `paused` 8, `failed` 5 and `waiting` lines (`inbox-restart`).
+- **Three kinds.** Send to Space 8, wait for it, set its token budget to 1, then send again. `$H api GET /inbox` has the crash-failed item for Space 9, the budget pause for Space 8, and `waiting` items such as Space 4 (`inbox-kinds`).
+- **Clear.** Continue Space 8, retry Space 9's failed turn and send to waiting Space 4. Each item clears while its turn runs, then each Space ends with a new `waiting` item (`inbox-clear`).
+- **Frames.** The inbox event stream shows failed Space 9, paused Space 8 and the waiting items disappear and return as work runs (`inbox-stream`).
+- **Restart.** Re-create the budget pause, save `GET /inbox`, restart, and compare the response byte for byte. Paused, failed and waiting items survive (`inbox-restart`).
 
 Codex on the test fixture (`write-codex-readonly`), folder `cx`. A shim logs what the server sends to the fixture `agent/codex/testdata/codex`:
 
 - **Setup.** `$H serve-stop`. `mkdir -p $S/spy && printf '#!/bin/sh\ntee -a %s/codex-in.log | %s/agent/codex/testdata/codex "$@"\n' "$E" "$PWD" > $S/spy/codex && chmod +x $S/spy/codex`. `$H reef --data-name cx -- team apply $E/cx.json`. `FAKE_CODEX=replay PATH=$S/spy:$PATH ANTHROPIC_MODEL=sonnet $H serve-start --data-name cx`, set `A`. `$H api POST /projects '{"name":"cx","path":"'$S'/cwd"}'`, `$H api POST /spaces '{"projectId":1,"name":"cx room","team":"cx"}'`.
 - **Sandbox.** `$H api POST /spaces/1/send '{"text":"@tester hi"}'`, `wait_done 1 1`, `$H api POST /spaces/1/send '{"text":"@developer hi"}'`, `wait_done 1 2`. `$H sql "select id, role, backend, status from turn"` is `1|tester|codex|done`, `2|developer|codex|done`. `grep thread/start $E/codex-in.log | grep -o '"sandbox":"[a-z-]*"'` prints `"sandbox":"read-only"` (the tester, whose file says `workspace-write`), then `"sandbox":"workspace-write"` (the developer).
 
-Window (`$H ui`, with `REEF_VERIFY_CHROME` on Linux, see `window.md`). Apply `gated` (from `teams.md`) to each folder first:
+Window (`$H ui`, with `REEF_VERIFY_CHROME` on Linux, see `window.md`):
 
-- `$H serve-stop`, `$H reef --data-name inbox -- team apply $E/gated.json`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name inbox`, `$H ui inbox`: every line `PASS` (`window-inbox`). It reads the badge as `1`, so it needs a folder with no other items.
-- `$H serve-stop`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name ui2`, `$H ui rollback`, then `$H ui retry` on the same server: every line `PASS` (`window-rollback`, `window-retry`). Open the screenshots `rollback-checkpoints`, `rollback-rolled-back`, `retry-failed-row`, `retry-retried`, `inbox-approval-row`, `inbox-approved`.
+- `$H serve-stop`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name ui2`, `$H ui rollback`, then `$H ui retry` on the same server: every line `PASS` (`window-rollback`, `window-retry`). Open the screenshots `rollback-checkpoints`, `rollback-rolled-back`, `retry-failed-row`, `retry-retried`.
 
 Google login end to end (`google-login`), folder `google`, real claude on sonnet. A throwaway Go app with an email login page and one test is the project:
 
 - **App.** In `$S/google-app`: `go.mod` (`module example.com/shop`, `go 1.22`), `main.go` with `routes()` serving `GET /login` (a form with email, password and `Sign in`) and `POST /login`, and `main_test.go` with `TestLoginPage`. `(cd $S/google-app && go test ./...)` passes. `git -C $S/google-app init -q -b main && git -C $S/google-app add -A && git -C $S/google-app -c user.name=v -c user.email=v@example.com commit -qm "shop with email login"`.
-- **Setup.** `$H serve-stop`, `$H reef --data-name google -- team apply $PWD/teams/full.json`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name google`, set `A`. `$H api POST /projects '{"name":"shop","path":"'$S'/google-app"}'`, `$H api POST /work items '{"projectId":1,"title":"Google login"}'`, `$H api POST /spaces '{"projectId":1,"workItemId":1,"name":"google","team":"full"}'`. Record both streams: `curl -sN --max-time 1800 http://$A/inbox/events > $E/google-inbox.txt &` and `curl -sN --max-time 1800 http://$A/spaces/1/events > $E/google-events.txt &`. `idle() { for i in $(seq 120); do [ "$(curl -s "http://$A/turns?space=1&status=running")" = "[]" ] && { sleep 4; [ "$(curl -s "http://$A/turns?space=1&status=running")" = "[]" ] && return; }; sleep 5; done; echo "timeout"; }`.
-- **Ask.** `$H api POST /spaces/1/send '{"text":"Add Google login to this app: a Sign in with Google link on the login page that goes to /auth/google, which redirects to the Google OAuth URL with the client id from the GOOGLE_CLIENT_ID env var. Keep it small and covered by a test."}'`, `idle`. Turns: `lead`, `architect`, both `done`, no checkpoint. `$H sql "select id, from_role, to_role, kind, status from approval"` is `1|architect|developer|gate|pending`, and `$H api GET /inbox` is that one `approval` item, `architect wants to wake developer`.
-- **Approve the developer.** `$H api POST /spaces/1/approvals/1 '{"approve":true}'`, `idle`. A `developer` turn `done` with `checkpoint` `refs/reef/checkpoints/<D>/3`; `git -C $S/google-app log --oneline main..work-item/1` has one commit by the developer; `git -C $S/google-app worktree list` has `$S/google/worktrees/1/1 [work-item/1]`; `git -C $S/google-app status --porcelain` is empty and `main` is still the first commit. Approval 2 is `developer|tester|gate|pending` and the inbox lists it alone.
-- **Approve the tester.** `$H api POST /spaces/1/approvals/2 '{"approve":true}'`, `idle`. A `tester` turn `done` with checkpoint `refs/reef/checkpoints/<D>/<that turn>` (its `Bash(go test:*)` can change files, so it is a writer and takes the tree lock) whose message reports `go test` results to `@lead`, then a `lead` turn `done` that reports to the user and mentions no one. `$H sql "select paused from space"` is empty. `$H api GET /inbox` is one `waiting` item, the lead's report.
-- **Proof.** `$H api GET '/messages?space=1'`, `$H api GET '/turns?space=1'`, `git -C $S/google-app log --stat main..work-item/1`. `grep '^data:' $E/google-inbox.txt | cut -c1-120` shows `[]`, the first approval, `[]`, the second approval, `[]`, the `waiting` item. `grep -A1 '^event: approval' $E/google-events.txt` has each approval `pending`, then `approved`.
+- **Setup.** `$H serve-stop`, `$H reef --data-name google -- team apply $PWD/teams/full.json`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name google`, set `A`. `$H api POST /projects '{"name":"shop","path":"'$S'/google-app"}'`, `$H api POST /work-items '{"projectId":1,"title":"Google login"}'`, `$H api POST /spaces '{"projectId":1,"workItemId":1,"name":"google","team":"full"}'`. Record both streams: `curl -sN --max-time 1800 http://$A/inbox/events > $E/google-inbox.txt &` and `curl -sN --max-time 1800 http://$A/spaces/1/events > $E/google-events.txt &`. `idle() { for i in $(seq 120); do [ "$(curl -s "http://$A/turns?space=1&status=running")" = "[]" ] && { sleep 4; [ "$(curl -s "http://$A/turns?space=1&status=running")" = "[]" ] && return; }; sleep 5; done; echo "timeout"; }`.
+- **Ask.** Send the Google login request, then `wait_done 1 5`. `$H sql "select id, role, status from turn where space_id=1 order by id"` is lead, architect, developer, tester, lead, all done. The approval table has no rows.
+- **Proof.** The developer turn has a checkpoint and one commit on `work-item/1`; the tester turn is done; the main checkout is clean and unchanged. The inbox ends with one `waiting` item, and the Space event stream has no approval event.
 
-Gates, notes, retry and rollback rules, folder `fu`, on the same scratch cwd (new work items, since `work-item/1`, `work-item/2` and `work-item/4` are checked out in the `full` folder's worktrees):
+Handoffs, notes, retry and rollback rules, folder `fu`, on the same scratch cwd:
 
-- **Setup.** `$H serve-stop`. `python3 -c 'import json,sys; t=json.load(open(sys.argv[1])); t["name"]="open"; t["gates"]=[{"from":"lead","to":"developer","on":False}]; json.dump(t,open(sys.argv[2],"w"))' $PWD/teams/full.json $E/open.json`, and `pair.json`: `crew` with `"name": "pair"` and a lead persona `You are the lead. Do exactly what the user asks. Never @mention anyone unless the user tells you to.` `$H reef --data-name fu -- team apply` each of `$PWD/teams/full.json`, `$E/open.json`, `$E/pair.json`. `ANTHROPIC_MODEL=sonnet $H serve-start --data-name fu`, set `A`. `$H api GET /teams/open` has `"gates":[{"from":"lead","to":"developer","on":false}]`. Project `{"name":"main","path":"'$S'/cwd"}` (1); work items `fa` (1), `fb` (2), `fc` (3); Spaces `{"projectId":1,"workItemId":1,"name":"fa1","team":"pair"}` (1), `... "workItemId":1,"name":"fa2","team":"pair"` (2), `... "workItemId":2,"name":"fb1","team":"full"` (3), `... "workItemId":3,"name":"fc1","team":"open"` (4). `WA=$S/fu/worktrees/1/1`. A user's `@developer` wakes the developer itself, past any gate, so the lead is asked to spell the mention: `P='Reply with exactly one line and nothing else: an at sign immediately followed by the word developer, then a space, then the words: reply with one word, use no tools.'`. `prompt() { grep -h '"type":"user"' ~/.claude/projects/*/$1.jsonl | grep -o '"content":"\[Space[^"]*' | tail -1; }` prints the last prompt of a session.
-- **Gate on lead to developer.** `$H api POST /spaces/3/send "{\"text\":\"$P\"}"`, `wait_for /spaces/3/approvals pending`. Space 3's last message is the lead's `@developer reply with one word, use no tools.`, `$H sql "select space_id, from_role, to_role, kind, status from approval"` is `3|lead|developer|gate|pending`, and Space 3's only turn is `lead` (`gate-lead-developer`).
-- **Gate off.** The same send to Space 4, `wait_done 4 2`: turns `lead`, `developer`, both `done`, and `$H sql "select count(*) from approval where space_id = 4"` is `0` (`gate-off`).
-- **Note on an approved wake.** `$H api POST /spaces/1/send '{"text":"@developer Use the Write tool to create the file f.txt containing the word one."}'`, `wait_done 1 1`, `D=<that turn>`. Send `$P` to Space 1, `wait_for /spaces/1/approvals pending`. `$H api POST /turns/$D/rollback` is 204 and `ls $WA/f.txt` fails. Approve that approval (`$H sql "select id from approval where space_id = 1"`), 204, `wait_done 1 3`. `prompt <the new developer turn's session>` is `[Space 1, message M]\nreef wrote: Rolled back to before turn <D>.\n\nlead wrote: @developer reply with one word, use no tools.` (`note-approved`).
+- **Setup.** Apply `full` and `pair`, where the pair lead follows an instruction to write a handoff mention. Create work items and Spaces `fa1`, `fa2` and `fb1`. `P` asks the lead to output `@developer reply with one word, use no tools.`
+- **Automatic handoff.** Run one developer turn in Space 1, then send `$P`. `wait_done 1 3`; the turns are developer, lead, developer, all done, and the approval table has no rows (`handoff-no-approval`).
 - **Note on a retry, once.** `$H api POST /spaces/1/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}'`, `sleep 4`, `$H serve-stop --kill`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name fu`, set `A`, `F=<newest turn of space 1>`. `$H api GET /inbox` has `"kind":"failed","spaceId":1,...,"text":"developer failed: server restarted",...,"turnId":<F>`. `$H api POST /turns/$F/rollback` 204, `$H api POST /turns/$F/retry` 202, `wait_done 1 4`. `prompt <session>` has `reef wrote: Turn <F> by developer failed: server restarted. The worktree may be dirty; retry or roll back.\nreef wrote: Rolled back to before turn <F>.` before the text. Then `$H api POST /spaces/1/send '{"text":"@developer Reply with one word. Use no tools."}'`, `wait_done 1 5`: its `prompt` has no `reef wrote:` (`note-retry`).
 - **Superseded.** The 600 send to Space 1 again, `sleep 4`, `$H serve-stop --kill`, restart, set `A`, `G=<newest turn of space 1>`. Send `@developer Reply with one word. Use no tools.`, `wait_done 1 6`. `$H api POST /turns/$G/retry` is 409 `turn <G> cannot be retried: conflict`, `$H api GET '/turns?space=1&retryable=1'` is `[]` and `$H api GET /inbox` has no `failed` item of Space 1 (`retry-superseded`).
 - **Failed wrap-up.** `$H api POST /spaces/1/wrap` 202, `sleep 4`, `$H serve-stop --kill`, restart, set `A`. `$H sql "select role, status, error, wake_text is null from turn where id = <newest of space 1>"` is `lead|failed|server restarted|1`. Its retry is 409 `turn <id> cannot be retried: conflict`; `?retryable=1` is `[]` and the inbox has no item of Space 1 (`retry-wrap`).
@@ -216,11 +207,11 @@ When done: `$H cleanup`, then remove claude's state for the worktrees and for `g
 
 ## Gotchas
 
-- The model decides the words, so check structure: `turn.role`, `turn.checkpoint`, `approval` rows, git state, files. The `crew` personas keep turns short and tool-free unless asked.
-- Only an `@name` at the start of a message or of a line wakes that teammate (decision 80); "I'll hand it to @developer" in a sentence wakes nobody. A gate holds only its own edge: a lead that starts a line with `@developer` holds a `lead|developer|gate|pending` approval (lead to developer is gated by default), so it can not skip the architect. `teams/full.json` tells each role to start a line with `@` only for the teammate it hands work to; if a run still takes another path, start again on a fresh repo and folder.
-- The Google flow uses 4 agent hops (architect, developer, tester, lead) of the 6 the cap allows, and each approved gate resets the count (decision 81). One extra handoff (an architect asking `@lead` to confirm) fits; a long back and forth with no approval still reaches the hop cap and the Space pauses with the holds in `approval` (kind `hold`).
+- The model decides the words, so check structure: `turn.role`, `turn.checkpoint`, git state and files. The `crew` personas keep turns short and tool-free unless asked.
+- Only an `@name` at the start of a message or of a line wakes that teammate (decision 80); "I'll hand it to @developer" in a sentence wakes nobody. `teams/full.json` tells each role to start a line with `@` only for the teammate it hands work to; if a run still takes another path, start again on a fresh repo and folder.
+- The Google flow uses 4 agent hops (architect, developer, tester, lead) of the 6 the cap allows. A longer back and forth reaches the hop cap and pauses the Space with hold rows.
 - The single-writer lock and the checkpoints are per process. `pgrep -P $(cat $S/serve.pid) -x claude` lists only this server's agents.
 - `serve-stop --kill` is a real crash: the running claude is a child in its own process group and is ended by `cleanup` if it outlives the server.
 - A plain `Bash` in a role's `tools` lets a role change files through the shell (`echo x > f` works), so `reef team apply` rejects it for a claude role without `write`. The `crew` tester lists only `Bash(ls:*)`.
 - A background `curl` inside a command whose output is piped keeps the pipe open until `--max-time`; run the stream in its own call or redirect its stderr too.
-- Turn, message and approval ids are global to a data folder; the steps name them by query when other Spaces wrote before.
+- Turn and message ids are global to a data folder; the steps name them by query when other Spaces wrote before.

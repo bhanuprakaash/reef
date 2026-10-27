@@ -427,7 +427,7 @@ async function contrast(screen) {
 }
 
 async function theme() {
-  if ((await fetch(`${base}/teams/gated`)).status !== 200) throw new Error('apply the team gated first (see features/teams.md)');
+  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teams.md)');
   const bodyBg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const cdp = await page.context().newCDPSession(page);
   const system = (value) => cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value }] });
@@ -437,18 +437,19 @@ async function theme() {
   const fid = sql('select id from work_item order by id desc limit 1');
   const pid = sql(`select project_id from work_item where id=${fid}`);
   await fetch(`${base}/memory`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'decision', body: 'Sessions, not JWT', why: 'one server', scope: `work_item:${fid}` }) });
-  await newTeamSpace('gated', 'theme room');
+  await newTeamSpace('duo', 'theme room');
   await send('DESIGN a short plan for a login form.');
-  await main.getByRole('button', { name: 'Approve' }).waitFor({ timeout: 240000 });
+  await rootRow('architect').first().waitFor({ timeout: 240000 });
+  await idle();
   const spaceUrl = page.url();
 
   const screens = async (mode) => {
     await page.goto(spaceUrl);
-    await main.getByRole('button', { name: 'Approve' }).waitFor();
+    await rootRow('architect').first().waitFor();
     await shot(`space-${mode}`);
     await contrast('space');
     await page.goto(base + '/inbox');
-    await main.getByRole('button', { name: 'Approve' }).waitFor();
+    await main.getByRole('link', { name: 'Open', exact: true }).first().waitFor();
     await shot(`inbox-${mode}`);
     await contrast('inbox');
     await page.goto(`${base}/features/${fid}`);
@@ -496,11 +497,11 @@ async function theme() {
 }
 
 async function phone() {
-  if ((await fetch(`${base}/teams/gated`)).status !== 200) throw new Error('apply the team gated first (see features/teams.md)');
+  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teams.md)');
   const section = await addProject();
   const itemId = await addFeature(section, 'Login');
   const featureId = page.url().split('/').pop();
-  const { id: cid } = await newTeamSpace('gated', 'phone room');
+  const { id: cid } = await newTeamSpace('duo', 'phone room');
   await send('DESIGN a short plan for a login form.');
   const end = Date.now() + 120000;
   while ((await getJson('/inbox')).length === 0 && Date.now() < end) await page.waitForTimeout(1000);
@@ -543,7 +544,7 @@ async function phone() {
   await visit('spaces', /^Spaces/, page.getByRole('heading', { name: 'Spaces', level: 1 }));
   const row = main.getByRole('link', { name: /#phone room/ });
   check(await row.isVisible(), 'the Spaces tab lists the Space under its feature', await main.innerText().then((t) => t.replace(/\s+/g, ' ').slice(0, 120)));
-  await visit('needs-you', /^Needs you/, main.getByRole('button', { name: 'Approve' }));
+  await visit('needs-you', /^Needs you/, main.getByRole('link', { name: 'Open', exact: true }).first());
   const badge = await tabs.getByLabel(/waiting$/).textContent();
   check(badge === '1', 'the Needs you tab shows a count badge of 1', badge);
   await visit('tasks', /^Tasks/, main.getByText('todo: phone check'));
@@ -568,7 +569,7 @@ async function phone() {
   await tabs.getByRole('link', { name: /^Spaces/ }).click();
   await main.getByRole('link', { name: /#phone room/ }).click();
   await page.getByRole('heading', { name: 'phone room', level: 1 }).waitFor();
-  await main.getByRole('button', { name: 'Approve' }).waitFor();
+  await rootRow('architect').first().waitFor();
   check(!(await tabs.isVisible()), 'the tab bar is hidden in a Space');
   const back = main.getByRole('link', { name: 'Back' });
   const backBox = await box(back);
@@ -578,15 +579,7 @@ async function phone() {
   const tiny = await small();
   check(tiny.length === 0, 'space has 44 px tap targets', tiny.join(', '));
 
-  await main.getByRole('button', { name: 'Approve' }).click();
-  const woke = Date.now() + 120000;
-  const architectTurns = () => Number(sql(`select count(*) from turn where space_id=${cid} and role='architect' and status='done'`));
-  while (architectTurns() === 0 && Date.now() < woke) await page.waitForTimeout(1000);
-  check(architectTurns() === 1, 'Approve at phone width runs the architect wake', sql(`select role, status from turn where space_id=${cid} order by id`));
-  await main.getByRole('button', { name: 'Approve' }).waitFor({ state: 'hidden' });
-  check((await getJson('/inbox')).every((i) => i.kind !== 'approval'), 'the approval left the inbox');
   await idle();
-  await shot('approved');
 
   await main.getByRole('button', { name: /reply in thread|replies in thread|^Reply$/ }).first().click();
   const thread = page.getByRole('complementary', { name: 'Thread' });
@@ -1222,7 +1215,7 @@ async function review() {
 }
 
 async function inbox() {
-  if ((await fetch(`${base}/teams/gated`)).status !== 200) throw new Error('apply the team gated first (see features/teams.md)');
+  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teams.md)');
   const context = page.context();
   await context.grantPermissions(['notifications']);
   await page.addInitScript(() => {
@@ -1258,7 +1251,7 @@ async function inbox() {
     fetch(`${base}/spaces/${cid}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
   const section = await addProject();
   await addFeature(section, 'Login');
-  const { id: cid } = await newTeamSpace('gated', 'inbox room');
+  const { id: cid } = await newTeamSpace('duo', 'inbox room');
   const permission = await page.evaluate(() => Notification.permission);
   check(permission === 'granted', 'the window may show notifications', permission);
 
@@ -1267,53 +1260,32 @@ async function inbox() {
   await aside.getByRole('link', { name: /^Needs you/ }).click();
   await page.getByRole('heading', { name: 'Needs you', level: 1 }).waitFor();
   check(page.url().endsWith('/inbox'), 'the Needs you link opens /inbox', page.url());
-  const row = main.getByRole('listitem').filter({ hasText: 'lead wants to wake architect' });
-  await row.waitFor({ timeout: 240000 });
-  await shot('approval-row');
-  const rowText = (await row.textContent()) ?? '';
+  const waiting = main.getByRole('listitem').filter({ hasText: /Waiting.*inbox room/ });
+  await waiting.waitFor({ timeout: 240000 });
+  await shot('waiting-row');
+  const rowText = (await waiting.textContent()) ?? '';
   check(
-    /Approval/.test(rowText) && /#inbox room/.test(rowText) && (await row.getByRole('button', { name: 'Approve' }).count()) === 1 && (await row.getByRole('button', { name: 'Reject' }).count()) === 1 && (await row.getByRole('button', { name: 'Dismiss' }).count()) === 0,
-    'a new approval of a Space that is not open shows in the inbox with Approve and Reject, and no Dismiss',
+    /#inbox room/.test(rowText) && (await waiting.getByRole('link', { name: 'Open' }).count()) === 1 && (await waiting.getByRole('button', { name: 'Dismiss' }).count()) === 1 && (await main.getByRole('button', { name: 'Approve' }).count()) === 0,
+    'the lead handed off to the architect with no approval; the answer shows as a waiting item with Open and Dismiss',
     rowText,
+  );
+  check(
+    sql(`select count(*) from approval where space_id=${cid}`) === '0' && sql(`select group_concat(role||' '||status) from (select role,status from turn where space_id=${cid} order by id)`) === 'lead done,architect done',
+    'the turns are lead done, architect done and no approval row exists',
+    sql(`select group_concat(role||' '||status) from (select role,status from turn where space_id=${cid} order by id)`),
   );
   const badge = await aside.getByLabel(/waiting$/).textContent();
   check(badge === '1', 'the Inbox link shows a count badge of 1', badge);
   await page.waitForTimeout(3000);
   const fired = await notes();
-  check(fired.length === 1 && /^Approval: inbox room$/.test(fired[0].title) && fired[0].body === 'lead wants to wake architect', 'one notification fired for the approval', JSON.stringify(fired));
-  check(sql(`select count(*) from turn where space_id=${cid} and role='architect'`) === '0', 'no architect turn ran before Approve');
+  check(fired.length === 1 && /^Waiting: inbox room$/.test(fired[0].title), 'one notification fired for the item', JSON.stringify(fired));
 
-  const aid = sql(`select id from approval where space_id=${cid}`);
   await page.evaluate(() => window.__notes[0].note.onclick());
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
-  let landed = await landedOn(`approval-${aid}`);
-  check(page.url().endsWith(`/spaces/${cid}#approval-${aid}`) && landed.inView && landed.ringed, 'clicking the notification opens the Space at the approval row, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
+  let landed = await landedOn('latest-message');
+  check(page.url().endsWith(`/spaces/${cid}#latest-message`) && landed.inView && landed.ringed, 'clicking the notification opens the Space at the newest message, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
   await aside.getByRole('link', { name: /^Needs you/ }).click();
-  await row.getByRole('link', { name: 'Open Space' }).click();
-  await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
-  landed = await landedOn(`approval-${aid}`);
-  check(page.url().endsWith(`/spaces/${cid}#approval-${aid}`) && landed.inView && landed.ringed, 'clicking an inbox item opens its Space at the approval row, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
-  await shot('item-opened-space');
-
-  await aside.getByRole('link', { name: /^Needs you/ }).click();
-  await row.getByRole('button', { name: 'Approve' }).click();
-  await row.waitFor({ state: 'hidden', timeout: 30000 });
-  await shot('approved');
-  check(true, 'Approve from the inbox removes the approval item');
-  const end = Date.now() + 240000;
-  while (Date.now() < end && sql(`select count(*) from turn where space_id=${cid} and role='architect' and status='done'`) === '0') await page.waitForTimeout(1000);
-  check(
-    sql(`select from_role||'>'||to_role||' '||status from approval where space_id=${cid}`) === 'lead>architect approved' &&
-      sql(`select count(*) from turn where space_id=${cid} and role='architect' and status='done'`) === '1',
-    'Approve ran the wake: the approval is approved and the architect turn is done',
-    `approvals: ${sql(`select id,status from approval where space_id=${cid}`)}; turns: ${sql(`select group_concat(role||' '||status) from (select role,status from turn where space_id=${cid} order by id)`)}`,
-  );
-  const waiting = main.getByRole('listitem').filter({ hasText: /Waiting.*inbox room/ });
-  await waiting.waitFor({ timeout: 30000 });
-  await shot('after-wake');
-  check((await waiting.getByRole('link', { name: 'Open' }).count()) === 1, 'the architect answer then shows as a waiting item with Open', await waiting.textContent());
-  const all = await notes();
-  check(all.length === 2 && /^Waiting: inbox room$/.test(all[1].title), 'the new item fired its own notification, none for the old ones', JSON.stringify(all.map((n) => n.title)));
+  await waiting.waitFor();
   const before = (await getJson('/inbox')).find((i) => i.kind === 'waiting').at;
   await waiting.getByRole('link', { name: 'Open' }).click();
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
@@ -1325,14 +1297,14 @@ async function inbox() {
   const visible = await waitWaiting(cid, before);
   await page.waitForTimeout(3000);
   const whileOpen = await notes();
-  check(whileOpen.length === 2, 'a new item of the open, visible Space fires no notification', JSON.stringify({ item: visible.text, notes: whileOpen.map((n) => n.title) }));
+  check(whileOpen.length === 1, 'a new item of the open, visible Space fires no notification', JSON.stringify({ item: visible.text, notes: whileOpen.map((n) => n.title) }));
 
   await page.evaluate(() => Object.defineProperty(document, 'visibilityState', { configurable: true, get: () => 'hidden' }));
   await sendApi(cid, 'Say fine in one word. Use no tools.');
   await waitWaiting(cid, visible.at);
   await page.waitForTimeout(3000);
   const whileHidden = await notes();
-  check(whileHidden.length === 3 && /^Waiting: inbox room$/.test(whileHidden[2].title), 'the same Space hidden from view fires one notification', JSON.stringify(whileHidden.map((n) => n.title)));
+  check(whileHidden.length === 2 && /^Waiting: inbox room$/.test(whileHidden[1].title), 'the same Space hidden from view fires one notification', JSON.stringify(whileHidden.map((n) => n.title)));
 
   await page.goto(base + '/inbox');
   await waiting.waitFor();
@@ -1439,15 +1411,13 @@ async function wrap() {
 
 async function teams() {
   const missing = [];
-  for (const name of ['duo', 'gated', 'full']) if ((await fetch(`${base}/teams/${name}`)).status !== 200) missing.push(name);
+  for (const name of ['duo', 'full']) if ((await fetch(`${base}/teams/${name}`)).status !== 200) missing.push(name);
   if (missing.length) throw new Error(`apply the teams first: missing ${missing.join(', ')} (see features/teams.md)`);
   const section = await addProject();
   await addFeature(section, 'Login');
-  const featureUrl = page.url();
-  const projectId = sql('select max(id) from project');
 
   const { id: cid, options } = await newTeamSpace('duo', 'duo room', 'team-picked');
-  check(options.includes('duo') && options.includes('gated') && options.includes('solo'), 'the New Space form lists the teams', options.join(', '));
+  check(options.includes('duo') && options.includes('full') && options.includes('solo'), 'the New Space form lists the teams', options.join(', '));
   const space = await getJson(`/spaces/${cid}`);
   check(space.team === 'duo' && space.role === 'lead', 'the Space is created on team duo', JSON.stringify(space));
 
@@ -1489,80 +1459,20 @@ async function teams() {
 
   await section.getByRole('link', { name: 'Login', exact: true }).click();
   await page.getByRole('heading', { name: 'Login', level: 1 }).waitFor();
-  const { id: gid } = await newTeamSpace('gated', 'gate room');
-  await send('DESIGN a password reset form.');
-  const approve = main.getByRole('button', { name: 'Approve' });
-  await approve.waitFor({ timeout: 240000 });
-  await idle();
-  const row = (await approve.locator('xpath=ancestor::li[1]').textContent()) ?? '';
-  check(
-    /lead → architect/.test(row) && (await main.getByRole('button', { name: 'Reject' }).count()) === 1,
-    'the gated Space shows a lead → architect row with Approve and Reject',
-    row,
-  );
-  check(sql(`select count(*) from turn where space_id=${gid} and role='architect'`) === '0', 'no architect turn ran before Approve');
-  await shot('gate-approval');
-  await approve.click();
-  const approvedSeen = await workingAs('architect', 120000);
-  await shot('gate-approved');
-  check(approvedSeen, 'Approve runs the architect');
-  await rootRow('architect').first().waitFor({ timeout: 240000 });
-  await idle();
-  check((await main.getByRole('button', { name: 'Approve' }).count()) === 0, 'the approval row is gone');
-  await shot('gate-architect-posted');
-  check(
-    sql(`select from_role||'>'||to_role||' '||status from approval where space_id=${gid}`) === 'lead>architect approved',
-    'the approval is stored as approved',
-    `approvals: ${sql(`select id,from_role,to_role,status from approval where space_id=${gid}`)}; turns: ${sql(`select group_concat(role) from (select role from turn where space_id=${gid} order by id)`)}`,
-  );
-
-  // The switch of a default gate on /teams: team full lists no gates, so lead to developer is
-  // on by default. Off lets the lead's wake of the developer run, on holds it again.
-  const flipGate = async (on, step) => {
-    await page.evaluate((id) => localStorage.setItem('reef.sidebar.projectId', id), projectId);
-    await page.goto(`${base}/teams`);
-    await main.getByRole('button', { name: 'full', exact: true }).click();
-    const gateSwitch = main.getByRole('switch', { name: 'Gate lead to developer' });
-    await gateSwitch.waitFor();
-    check(
-      (await gateSwitch.getAttribute('aria-checked')) === String(!on) &&
-        (await main.getByRole('button', { name: 'Remove gate lead to developer' }).count()) === 0,
-      `the default lead to developer gate has a switch, ${on ? 'off' : 'on'}, and no Remove`,
-    );
-    await gateSwitch.click();
-    await main.getByRole('button', { name: 'Save team' }).click();
-    await page.getByText('Saved').waitFor();
-    await shot(step);
-    const enabled = sql(`select enabled from gate where team_id = (select id from team where name = 'full') and from_role = 'lead' and to_role = 'developer'`);
-    check(enabled === (on ? '1' : '0'), `saving the switch ${on ? 'on' : 'off'} stores the gate ${on ? 'on' : 'off'}`, `enabled ${enabled}`);
-    await page.goto(featureUrl);
-    await page.getByRole('heading', { name: 'Login', level: 1 }).waitFor();
-  };
   const handoff =
     'Reply with exactly one line and nothing else: an at sign immediately followed by the word developer, then a space, then the words: reply with one word, use no tools.';
   const roles = (id) => sql(`select group_concat(role) from (select role from turn where space_id=${id} order by id)`);
-  await flipGate(false, 'gate-switched-off');
   const { id: oid } = await newTeamSpace('full', 'open room');
   await send(handoff);
-  check(await workingAs('developer'), 'with the gate off the developer runs');
+  check(await workingAs('developer'), 'the lead hands off to the developer and the developer runs');
   await idle();
   check(
     sql(`select count(*) from approval where space_id=${oid}`) === '0' && roles(oid) === 'lead,developer',
-    'with the gate off no approval is stored and the turns are lead, developer',
+    'no approval is stored and the turns are lead, developer',
     `approvals: ${sql(`select count(*) from approval where space_id=${oid}`)}; turns: ${roles(oid)}`,
   );
-  await shot('gate-off-ran');
-  await flipGate(true, 'gate-switched-on');
-  const { id: hid } = await newTeamSpace('full', 'held room');
-  await send(handoff);
-  await main.getByRole('button', { name: 'Approve' }).waitFor({ timeout: 240000 });
-  await idle();
-  check(
-    sql(`select from_role||'>'||to_role||' '||status from approval where space_id=${hid}`) === 'lead>developer pending' && roles(hid) === 'lead',
-    'with the gate on again the wake is held and the developer has not run',
-    `approvals: ${sql(`select from_role,to_role,status from approval where space_id=${hid}`)}; turns: ${roles(hid)}`,
-  );
-  await shot('gate-on-held');
+  check((await main.getByRole('button', { name: 'Approve' }).count()) === 0, 'the Space shows no Approve button');
+  await shot('handoff-ran');
 }
 
 // Dispatches a native HTML5 drag sequence (dragstart on `card`, dragover and drop on
@@ -1796,13 +1706,13 @@ async function pr() {
 }
 
 // Teammates' direct messages show as one compact item in the Space, never as bubbles. The
-// gated team holds the lead's direct request for approval, and the fake architect answers slowly.
+// lead's direct request runs the architect at once, and the fake architect answers slowly.
 async function coordination() {
-  if ((await fetch(`${base}/teams/gated`)).status !== 200) throw new Error('apply the team gated first (see features/teams.md)');
+  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teams.md)');
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
   await addFeature(section, 'Login');
-  const { id: cid } = await newTeamSpace('gated', 'coordination room');
+  const { id: cid } = await newTeamSpace('duo', 'coordination room');
   const panel = page.getByRole('complementary', { name: 'Coordination' });
   const items = page.getByRole('button', { name: /^lead and architect (are coordinating|coordinated) · \d+ messages?/i });
   const direct = () => getJson(`/spaces/${cid}/direct-messages`);
@@ -1818,44 +1728,20 @@ async function coordination() {
   const phoneWide = () => page.viewportSize().width < 768;
   let chains = 0;
 
-  // One exchange: the item waits for approval, the panel shows it, Approve runs the architect.
-  async function exchange(label, text) {
+  // One exchange: the item appears in `first` while the architect runs.
+  async function exchange(label, text, first = 'working') {
     await send(text);
     chains += 1;
     const item = items.nth(chains - 1);
-    check(await until(item, 'waiting approval'), `${label}: one item says waiting approval`, (await items.allInnerTexts()).join(' | '));
-    await shot(`${label}-waiting`);
-    check((await page.getByRole('button', { name: 'Approve' }).count()) === 0, `${label}: the Space shows no Approve row for the private request`);
-    await item.click();
-    await panel.waitFor();
-    await shot(`${label}-panel`);
+    check(await until(item, first), `${label}: one item says ${first}`, (await items.allInnerTexts()).join(' | '));
+    check((await page.getByRole('button', { name: 'Approve' }).count()) === 0, `${label}: nothing waits for approval`);
     return item;
   }
 
   // Desktop: first exchange completes.
   const item1 = await exchange('desktop-1', 'COORDINATE the login review with the architect.');
-  const rows = (await panel.getByRole('listitem').allInnerTexts()).map((t) => t.toLowerCase());
-  check(
-    rows.length === 1 && rows[0].includes('lead → architect') && rows[0].includes('sent') && rows[0].includes('please review the login plan and tell me if it holds.'),
-    'the panel lists the request with sender, recipient, time and delivery status',
-    rows.join(' | '),
-  );
-  check(
-    (await panel.getByRole('button', { name: 'Approve' }).count()) === 1 && (await panel.getByRole('button', { name: 'Reject' }).count()) === 1,
-    'the panel offers Approve and Reject while waiting approval',
-  );
-  const userMessage = (await getJson(`/messages?space=${cid}`)).find((m) => m.author === 'user');
-  const stored = (await direct())[0];
-  check(stored.sourceMessageId === userMessage.id, 'the direct request stores the public message it was sent from', `sourceMessageId ${stored.sourceMessageId}, message ${userMessage.id}`);
-  await panel.getByRole('button', { name: 'Open the message that started it' }).click();
-  await page.getByRole('complementary', { name: 'Thread' }).getByText('COORDINATE the login review').waitFor();
-  await shot('desktop-1-source');
-  check(true, 'the source link opens the thread of the public message');
-  await page.getByRole('button', { name: 'Close thread' }).click();
   await item1.click();
-  await panel.getByRole('button', { name: 'Approve' }).click();
-  check(await until(item1, 'working', 30000), 'Approve runs the architect and the same item says working');
-  await shot('desktop-1-working');
+  await panel.waitFor();
   // The open panel shows the running architect turn growing, one fake chunk a second.
   const liveText = async () => ((await panel.innerText()).match(/Reviewing the plan[^]*/) ?? [''])[0].replace(/\s+/g, ' ').trim();
   const grown = [];
@@ -1892,6 +1778,12 @@ async function coordination() {
   check(await until(item1, 'completed'), 'the answer completes the exchange');
   const stored1 = (await panel.innerText()).match(/Plan holds/g) ?? [];
   check(stored1.length === 1 && (await panel.getByRole('listitem').count()) === 2, 'after the turn the panel shows the stored response once, with no live copy', (await panel.innerText()).replace(/\s+/g, ' '));
+  const rows = (await panel.getByRole('listitem').allInnerTexts()).map((t) => t.toLowerCase());
+  check(
+    rows[0].includes('lead → architect') && rows[0].includes('sent') && rows[0].includes('please review the login plan and tell me if it holds.'),
+    'the panel lists the request with sender, recipient, time and delivery status',
+    rows.join(' | '),
+  );
   const done = await direct();
   const itemText = (await item1.innerText()).replace(/\s+/g, ' ').toLowerCase();
   check(
@@ -1900,6 +1792,15 @@ async function coordination() {
     itemText,
   );
   await shot('desktop-1-completed');
+  const userMessage = (await getJson(`/messages?space=${cid}`)).find((m) => m.author === 'user');
+  const stored = done[0];
+  check(stored.sourceMessageId === userMessage.id, 'the direct request stores the public message it was sent from', `sourceMessageId ${stored.sourceMessageId}, message ${userMessage.id}`);
+  await panel.getByRole('button', { name: 'Open the message that started it' }).click();
+  await page.getByRole('complementary', { name: 'Thread' }).getByText('COORDINATE the login review').waitFor();
+  await shot('desktop-1-source');
+  check(true, 'the source link opens the thread of the public message');
+  await page.getByRole('button', { name: 'Close thread' }).click();
+  await item1.click();
   await panel.getByRole('button', { name: 'Close coordination' }).click();
   check(
     (await page.getByText('Please review the login plan').count()) === 0 && (await page.getByText('Plan holds').count()) === 0,
@@ -1908,10 +1809,10 @@ async function coordination() {
 
   // Desktop: the second exchange is stopped and retried.
   const item2 = await exchange('desktop-2', 'COORDINATE the login review once more.');
-  await panel.getByRole('button', { name: 'Approve' }).click();
-  check(await until(item2, 'working', 30000), 'the second exchange runs');
   await page.getByRole('button', { name: 'Stop' }).click();
   check(await until(item2, 'stopped', 30000), 'Stop turns the item to stopped');
+  await item2.click();
+  await panel.waitFor();
   await shot('desktop-2-stopped');
   check((await panel.getByRole('button', { name: 'Retry' }).count()) === 1, 'the panel offers Retry for the stopped exchange');
   await panel.getByRole('button', { name: 'Retry' }).click();
@@ -1923,9 +1824,9 @@ async function coordination() {
   await panel.getByRole('button', { name: 'Close coordination' }).click();
 
   // Desktop: a recipient whose agent fails.
-  const item3 = await exchange('desktop-3', 'COORDINATE the failing review with the architect.');
-  await panel.getByRole('button', { name: 'Approve' }).click();
-  check(await until(item3, 'failed'), 'a recipient whose agent fails turns the item to failed');
+  const item3 = await exchange('desktop-3', 'COORDINATE the failing review with the architect.', 'failed');
+  await item3.click();
+  await panel.waitFor();
   await shot('desktop-3-failed');
   check((await panel.getByRole('button', { name: 'Retry' }).count()) === 1, 'the panel offers Retry for the failed exchange');
   await panel.getByRole('button', { name: 'Close coordination' }).click();
@@ -1935,17 +1836,14 @@ async function coordination() {
   check((await items.count()) === 3, 'the phone width shows the same three items', (await items.allInnerTexts()).join(' | '));
   await shot('phone-items');
   const item4 = await exchange('phone', 'COORDINATE the login review on the phone.');
-  const wide = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
-  check(wide <= 0 && phoneWide(), 'the panel has no horizontal scroll at 390 px', `page overflow ${wide}`);
-  await panel.getByRole('button', { name: 'Approve' }).click();
-  await panel.getByRole('button', { name: 'Close coordination' }).click();
-  check(await until(item4, 'working', 30000), 'the phone item says working');
   await shot('phone-working');
   await page.getByRole('button', { name: 'Stop' }).click();
   check(await until(item4, 'stopped', 30000), 'the phone item says stopped');
   await item4.click();
   await panel.getByRole('button', { name: 'Retry' }).waitFor();
   await shot('phone-stopped');
+  const wide = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  check(wide <= 0 && phoneWide(), 'the panel has no horizontal scroll at 390 px', `page overflow ${wide}`);
   await panel.getByRole('button', { name: 'Close coordination' }).click();
   check(
     sql(`select count(*) from turn where space_id = ${cid} and status = 'failed' and error = 'interrupted'`) === '2',
@@ -1953,10 +1851,7 @@ async function coordination() {
   );
 
   // The architect runs again, so the stopped turn can no longer be retried; it still reads stopped.
-  const item5 = await exchange('phone-2', 'COORDINATE the failing review once more.');
-  await panel.getByRole('button', { name: 'Approve' }).click();
-  await panel.getByRole('button', { name: 'Close coordination' }).click();
-  check(await until(item5, 'failed'), 'the phone item of a failing recipient says failed');
+  await exchange('phone-2', 'COORDINATE the failing review once more.', 'failed');
   const kept = await stateOf(item4);
   check(kept === 'stopped', 'an earlier stopped item stays stopped after a later turn of its role', kept);
   await item4.click();
@@ -1964,15 +1859,6 @@ async function coordination() {
   check((await panel.getByRole('button', { name: 'Retry' }).count()) === 0, 'it no longer offers Retry');
   await shot('phone-stopped-later');
   await panel.getByRole('button', { name: 'Close coordination' }).click();
-
-  // Reject stores a failed response the item reads as rejected, with no Retry.
-  const item6 = await exchange('phone-3', 'COORDINATE the login review and expect a refusal.');
-  await panel.getByRole('button', { name: 'Reject' }).click();
-  check(await until(item6, 'rejected', 30000), 'Reject turns the item to rejected');
-  const last = (await direct()).at(-1);
-  check(last.status === 'failed' && last.body === 'rejected' && last.from === 'architect', 'the rejection is stored as a failed architect response', JSON.stringify(last));
-  check((await panel.getByRole('button', { name: 'Retry' }).count()) === 0, 'a rejected exchange offers no Retry');
-  await shot('phone-rejected');
 }
 
 async function team() {
@@ -2322,7 +2208,7 @@ async function hovercard() {
     const lines = files.flatMap((f) => f.hunks.flatMap((h) => h.lines));
     const running = (await getJson('/turns?status=running')).filter((t) => String(t.spaceId) === cid).map((t) => t.role);
     const kinds = (await getJson('/inbox')).filter((i) => String(i.spaceId) === cid).map((i) => i.kind);
-    state = kinds.includes('approval') ? 'waiting for your approval' : kinds.includes('failed') ? 'a turn failed' : running.length ? 'working' : kinds.includes('waiting') ? 'waiting for you' : 'idle';
+    state = kinds.includes('failed') ? 'a turn failed' : running.length ? 'working' : kinds.includes('waiting') ? 'waiting for you' : 'idle';
     const n = files.length;
     const changes = n ? `${n} file${n === 1 ? '' : 's'} +${lines.filter((l) => l.kind === 'add').length} −${lines.filter((l) => l.kind === 'del').length}` : 'no changes yet';
     return `#hover chat ${state} branch work-item/${featureId} changes ${changes} ${roles.map((r) => `${r} ${running.includes(r) ? 'working' : 'idle'}`).join(' ')}`;
@@ -2470,13 +2356,6 @@ async function mention() {
   const away = () => page.mouse.move(640, 760);
   const flat = async () => (await tip.innerText()).replace(/\s+/g, ' ').trim();
   const team = await getJson('/teams/full');
-  const defaults = [['lead', 'developer'], ['architect', 'developer'], ['developer', 'tester'], ['tester', 'developer']];
-  const gatesOf = (name) => {
-    const names = team.roles.map((r) => r.name);
-    const edges = new Map(defaults.filter(([f, t]) => names.includes(f) && names.includes(t)).map(([f, t]) => [`${f}>${t}`, true]));
-    for (const g of team.gates ?? []) edges.set(`${g.from}>${g.to}`, g.on);
-    return [...edges].filter(([k, on]) => on && k.split('>').includes(name)).length;
-  };
   const expected = async (name) => {
     const role = team.roles.find((r) => r.name === name);
     const running = (await getJson('/turns?status=running')).filter((t) => String(t.spaceId) === cid).map((t) => t.role);
@@ -2484,7 +2363,7 @@ async function mention() {
     const backend = role.backend === 'claude' ? 'Claude Code' : 'Codex';
     const model = role.model ? ((role.backend === 'claude' && models[role.model]) || role.model) : 'default model';
     const tools = role.backend === 'claude' ? ` Tools ${role.tools.length}` : '';
-    return `${name} ${backend} · ${model} Edit ${role.persona.split('\n')[0]} State ${running.includes(name) ? 'Working' : 'Idle'} Access ${role.write ? 'Can write' : 'Read-only'}${tools} Gates ${gatesOf(name)}`;
+    return `${name} ${backend} · ${model} Edit ${role.persona.split('\n')[0]} State ${running.includes(name) ? 'Working' : 'Idle'} Access ${role.write ? 'Can write' : 'Read-only'}${tools}`;
   };
   const sameCard = (shown, want) => shown.toLowerCase() === want.toLowerCase();
   const lead = at('@lead');
@@ -2500,8 +2379,8 @@ async function mention() {
   await tip.waitFor({ timeout: 3000 });
   await shot('working-dark');
   const shownLead = await flat();
-  check(sameCard(shownLead, await expected('lead')) && shownLead.includes('State Working'), '@lead while the lead turn runs: role, backend and model, persona, Working, access, tools and gates match /teams/full and /turns?status=running', shownLead);
-  check(/Tools 3 Gates 1$/.test(shownLead) && /Read-only/.test(shownLead), 'the lead has 3 tools, is read-only and has the default lead to developer gate', shownLead);
+  check(sameCard(shownLead, await expected('lead')) && shownLead.includes('State Working'), '@lead while the lead turn runs: role, backend and model, persona, Working, access and tools match /teams/full and /turns?status=running', shownLead);
+  check(/Tools 3$/.test(shownLead) && /Read-only/.test(shownLead), 'the lead has 3 tools and is read-only', shownLead);
   const leadFace = await tip.locator('svg').first().innerHTML();
   const [m, t] = [await lead.boundingBox(), await tip.boundingBox()];
   check(t.x >= m.x + m.width, 'the card sits beside the mention, not over it', `mention right ${m.x + m.width}, card left ${t.x}`);
@@ -2517,7 +2396,7 @@ async function mention() {
   await developer.hover();
   await tip.waitFor({ timeout: 3000 });
   const shownDev = await flat();
-  check(sameCard(shownDev, await expected('developer')) && shownDev.includes('State Idle') && shownDev.includes('Can write') && /Tools 6 Gates 4$/.test(shownDev), '@developer while only the lead runs: Idle, can write, 6 tools, 4 gates, matching /teams/full', shownDev);
+  check(sameCard(shownDev, await expected('developer')) && shownDev.includes('State Idle') && shownDev.includes('Can write') && /Tools 6$/.test(shownDev), '@developer while only the lead runs: Idle, can write, 6 tools, matching /teams/full', shownDev);
   await shot('idle-developer');
   await page.keyboard.press('Escape');
   await tip.waitFor({ state: 'hidden', timeout: 1000 });
