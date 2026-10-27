@@ -144,6 +144,20 @@ func workItemArg(ctx context.Context, st *store.Store, ref string) (store.WorkIt
 	return st.WorkItem(ctx, id)
 }
 
+// spaceItemArg is the work item whose id is ref, for a command that opens a Space on it: a
+// sub-item is worked in the Space of its parent.
+func spaceItemArg(ctx context.Context, st *store.Store, ref string) (store.WorkItem, error) {
+	f, err := workItemArg(ctx, st, ref)
+	if err != nil {
+		return store.WorkItem{}, err
+	}
+	if f.ParentID != nil {
+		return store.WorkItem{}, fmt.Errorf("%w: work item %d is a sub-item of work item %d: open its parent",
+			store.ErrInvalid, f.ID, *f.ParentID)
+	}
+	return f, nil
+}
+
 func briefCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	c := newCommand("reef brief", _briefUsage, 1, 1)
 	st, pos, err := c.open(args)

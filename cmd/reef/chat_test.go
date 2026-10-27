@@ -440,7 +440,7 @@ func TestRun_ChatBackendTypoLeavesNoSpace(t *testing.T) {
 	mustReef(t, dir, "project", "add")
 	mustReef(t, dir, "work-item", "add", "Login")
 
-	_, err := reef(t, dir, "chat", "1", "--role", "developer", "--backend", "nope")
+	_, err := reef(t, dir, "chat", "1", "--backend", "nope")
 	if err == nil || err.Error() != `invalid: unknown backend "nope"` {
 		t.Errorf("chat error = %v, want unknown backend", err)
 	}
@@ -450,6 +450,45 @@ func TestRun_ChatBackendTypoLeavesNoSpace(t *testing.T) {
 	}
 	defer func() { _ = st.Close() }()
 	if chs, err := st.Spaces(context.Background(), store.SpaceFilter{}); err != nil || len(chs) != 0 {
+		t.Errorf("spaces = %+v, %v, want none", chs, err)
+	}
+}
+
+func TestRun_ChatRefusesWhatCannotLeadItsSpace(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	t.Chdir(t.TempDir())
+	mustReef(t, dir, "project", "add")
+	mustReef(t, dir, "work-item", "add", "Login")
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	parent := int64(1)
+	if _, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: 1, ParentID: &parent, Title: "Form"}); err != nil {
+		t.Fatal(err)
+	}
+
+	tests := []struct {
+		name string
+		give []string
+		want string
+	}{
+		{"another role", []string{"chat", "1", "--role", "developer", "--backend", "claude"},
+			"invalid: reef chat runs the lead of team solo, lead: --role developer is not it"},
+		{"sub-item", []string{"chat", "2", "--backend", "claude"},
+			"invalid: work item 2 is a sub-item of work item 1: open its parent"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := reef(t, dir, tt.give...)
+			if err == nil || err.Error() != tt.want {
+				t.Errorf("chat error = %v, want %q", err, tt.want)
+			}
+		})
+	}
+	if chs, err := st.Spaces(ctx, store.SpaceFilter{}); err != nil || len(chs) != 0 {
 		t.Errorf("spaces = %+v, %v, want none", chs, err)
 	}
 }

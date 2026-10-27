@@ -38,7 +38,7 @@ commands:
   context <work-item> --role R
   wrap list [<work-item>] | show <id> | approve <id> | reject <id>
   token <work-item> --role R
-  chat <work-item> --role R --backend claude|codex | chat --space ID
+  chat <work-item> --backend claude|codex | chat --space ID
   mcp`
 	_serveUsage        = "usage: reef serve [--addr 127.0.0.1:7700] [--data DIR]"
 	_defaultAddr       = "127.0.0.1:7700"

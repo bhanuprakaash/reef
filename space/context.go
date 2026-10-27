@@ -73,7 +73,7 @@ func Scopes(
 	ctx context.Context, st *store.Store, ch store.Space, role string,
 ) ([]memory.Ref, error) {
 	teammate := role
-	switch id, err := st.SpaceMemberTeammateID(ctx, ch.ID, role); {
+	switch id, err := teammateID(ctx, st, ch, role); {
 	case err == nil:
 		teammate = strconv.FormatInt(id, 10)
 	case !errors.Is(err, store.ErrNotFound):
@@ -96,6 +96,42 @@ func Scopes(
 		scopes = append(scopes, memory.Ref{Kind: memory.ScopeTeam, ID: ch.Team})
 	}
 	return append(scopes, memory.Ref{Kind: memory.ScopeTeammate, ID: teammate}), nil
+}
+
+// teammateID is the id of the Teammate that holds role in ch. With no Space (ch.ID is 0, as for
+// reef context) it is the one that holds role in the Team of the work item, or else the
+// Teammate named role.
+func teammateID(ctx context.Context, st *store.Store, ch store.Space, role string) (int64, error) {
+	if ch.ID != 0 {
+		return st.SpaceMemberTeammateID(ctx, ch.ID, role)
+	}
+	if ch.WorkItemID != nil {
+		w, err := st.WorkItem(ctx, *ch.WorkItemID)
+		if err != nil {
+			return 0, err
+		}
+		if w.TeamID != nil {
+			t, err := st.TeamByID(ctx, *w.TeamID)
+			if err != nil {
+				return 0, err
+			}
+			for _, r := range t.Roles {
+				if r.Name == role {
+					return r.TeammateID, nil
+				}
+			}
+		}
+	}
+	all, err := st.Teammates(ctx)
+	if err != nil {
+		return 0, err
+	}
+	for _, t := range all {
+		if t.Name == role {
+			return t.ID, nil
+		}
+	}
+	return 0, fmt.Errorf("teammate %s: %w", role, store.ErrNotFound)
 }
 
 // ReadScopes are Scopes and the conversation shelves of every direct conversation the role's

@@ -26,7 +26,7 @@ func TestFirstPrompt_Size(t *testing.T) {
 	}
 	for _, scope := range []memory.Ref{
 		workScope(f), projectScope(f),
-		{Kind: memory.ScopeTeam, ID: "core"}, teammateScope("lead"),
+		{Kind: memory.ScopeTeam, ID: "core"}, teammateScope("1"),
 	} {
 		for i := 1; i <= 30; i++ {
 			body := fmt.Sprintf("%s item %d\nsecond line", scope.Kind, i)

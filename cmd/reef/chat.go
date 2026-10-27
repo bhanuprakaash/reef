@@ -22,7 +22,7 @@ import (
 
 const _continueCommand = "/continue"
 
-const _chatUsage = `usage: reef chat <work-item> --role R --backend claude|codex [--name N]
+const _chatUsage = `usage: reef chat <work-item> --backend claude|codex [--role lead] [--name N]
   [--permission-mode M] [--debug] [--data DIR]
        reef chat --space ID [--debug] [--data DIR]`
 
@@ -48,7 +48,7 @@ func chatCmd(
 	resuming := *spaceID != 0
 	if resuming == (len(pos) == 1) ||
 		(resuming && (*role != "" || *backend != "" || *name != "" || *permissionMode != "")) ||
-		(!resuming && (*role == "" || *backend == "")) {
+		(!resuming && *backend == "") {
 		return errors.New(_chatUsage)
 	}
 	dir, err := dataDir(*c.data)
@@ -68,9 +68,19 @@ func chatCmd(
 	}
 
 	if !resuming {
-		f, err := workItemArg(ctx, st, pos[0])
+		f, err := spaceItemArg(ctx, st, pos[0])
 		if err != nil {
 			return err
+		}
+		solo, err := st.Team(ctx, store.SoloTeam)
+		if err != nil {
+			return err
+		}
+		if lead := solo.Roles[0].Name; *role == "" {
+			*role = lead
+		} else if *role != lead {
+			return fmt.Errorf("%w: reef chat runs the lead of team %s, %s: --role %s is not it",
+				store.ErrInvalid, store.SoloTeam, lead, *role)
 		}
 		if *name == "" {
 			*name = *role + " chat"

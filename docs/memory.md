@@ -528,7 +528,7 @@ submit, and the user decides the proposal as for any wrap-up. The user can also 
    that is complete. The turn runs in a copy of the lead's session (claude `--fork-session`), so what
    it read of other pairs' messages is not in the lead's own session when the Space goes on; the
    copy's turn is not the session a later turn of the lead resumes. Codex has no copy: its wrap-up
-   runs in the lead's thread.
+   runs in a fresh thread with the first prompt, and the lead's own thread never holds it.
 2. `propose_wrap` stores a `pending` proposal (see [server.md](server.md#proposal)).
 3. After the turn, `reef chat` looks for a pending wrap proposal of this Space that is newer
    than the one pending before `/wrap`. With none, it prints `no proposal made`: an agent that

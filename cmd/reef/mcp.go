@@ -56,8 +56,8 @@ func mcpCmd(ctx context.Context, args []string) error {
 	return err
 }
 
-// tokenCmd makes a Space on the work item for role and a token for it, and
-// prints the command that registers the MCP server with Claude Code.
+// tokenCmd makes a token for role in the work item's active Space, making a Space when it has
+// none, and prints the command that registers the MCP server with Claude Code.
 func tokenCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	c := newCommand("reef token", _tokenUsage, 1, 1)
 	role := c.fs.String("role", "", "")
@@ -70,14 +70,17 @@ func tokenCmd(ctx context.Context, args []string, stdout io.Writer) error {
 		return errors.New(_tokenUsage)
 	}
 
-	f, err := workItemArg(ctx, st, pos[0])
+	f, err := spaceItemArg(ctx, st, pos[0])
 	if err != nil {
 		return err
 	}
-	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: *role + " (claude code)",
-		Role: "lead", Backend: "claude",
-	})
+	ch, err := st.WorkItemActiveSpace(ctx, f.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		ch, err = st.CreateSpace(ctx, store.Space{
+			ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: *role + " (claude code)",
+			Role: "lead", Backend: "claude",
+		})
+	}
 	if err != nil {
 		return err
 	}

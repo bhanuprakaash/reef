@@ -248,7 +248,7 @@ Details are on demand through the reef MCP tools recall and read_memory. remembe
 
 	day := remember(t, ms, projectScope(f), memory.KindFact, "user", "Use Go, not Python.").
 		CreatedAt.Format(_dateLayout)
-	remember(t, ms, teammateScope("lead"), memory.KindLesson, "lead", "Ask before renaming.")
+	remember(t, ms, teammateScope("1"), memory.KindLesson, "lead", "Ask before renaming.")
 	if _, err := st.PutProfile(ctx, store.Profile{Name: "Ada"}); err != nil {
 		t.Fatal(err)
 	}

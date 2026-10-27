@@ -145,7 +145,7 @@ func TestFirstPrompt_QuickSessionHasNoFeatureParts(t *testing.T) {
 	ms := testMemory(t, st)
 	remember(t, ms, workScope(f), memory.KindDecision, "user", "a feature decision")
 	remember(t, ms, projectScope(f), memory.KindFact, "user", "a project fact")
-	remember(t, ms, teammateScope("lead"), memory.KindLesson, "lead", "a lead lesson")
+	remember(t, ms, teammateScope("1"), memory.KindLesson, "lead", "a lead lesson")
 
 	got, err := firstPrompt(ctx, st, ms, f.ProjectID, nil, 0, store.Team{}, store.Role{Name: "lead"})
 	if err != nil {
@@ -257,6 +257,37 @@ func TestOpen_FirstPromptIsWhatReefContextPrints(t *testing.T) {
 	}
 }
 
+func TestContext_YourItemsAreTheRolesTeammate(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core",
+		Roles: []store.Role{{Name: "developer", Lead: true, Backend: "claude"}}}); err != nil {
+		t.Fatal(err)
+	}
+	teamID := int64(2)
+	g, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: f.ProjectID, Title: "Logout", TeamID: &teamID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ms := testMemory(t, st)
+	remember(t, ms, memory.Ref{Kind: memory.ScopeTeammate, ID: "2"}, memory.KindLesson, "developer", "keep it small")
+	remember(t, ms, teammateScope("developer"), memory.KindLesson, "developer", "kept under the role name")
+
+	for name, id := range map[string]int64{"a work item with a Team": g.ID, "one without": f.ID} {
+		got, err := Context(ctx, st, ms, id, "developer")
+		if err != nil {
+			t.Fatal(err)
+		}
+		want := "### Your items\nlesson 1: keep it small ("
+		if name == "one without" {
+			want = "### Your items\nlesson 2: kept under the role name ("
+		}
+		if !strings.Contains(got, want) {
+			t.Errorf("Context of %s =\n%s\nwant it to contain %q", name, got, want)
+		}
+	}
+}
+
 func TestScopes(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
@@ -337,7 +368,7 @@ func TestScopes(t *testing.T) {
 				return store.Space{ProjectID: 3}, ""
 			},
 			want: []memory.Ref{
-				{Kind: "space", ID: "S"}, {Kind: "project", ID: "3"}, {Kind: "teammate", ID: "lead"},
+				{Kind: "space", ID: "S"}, {Kind: "project", ID: "3"}, {Kind: "teammate", ID: "1"},
 			},
 		},
 	}
