@@ -286,7 +286,10 @@ func (m *mcpServer) remember(
 	if err != nil {
 		return nil, rememberOut{}, err
 	}
-	scopes := space.Scopes(c, m.tok.Role)
+	scopes, err := space.Scopes(ctx, m.st, c, m.tok.Role)
+	if err != nil {
+		return nil, rememberOut{}, err
+	}
 	i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == in.Scope })
 	if i < 0 {
 		return nil, rememberOut{}, errors.New("this Space has no work item")
@@ -333,7 +336,10 @@ func (m *mcpServer) recall(
 	if err != nil {
 		return nil, recallOut{}, err
 	}
-	scopes := space.Scopes(c, m.tok.Role)
+	scopes, err := space.Scopes(ctx, m.st, c, m.tok.Role)
+	if err != nil {
+		return nil, recallOut{}, err
+	}
 	q := memory.Query{Scopes: scopes, Text: in.Query, Limit: in.Limit}
 	if in.Scope != "" {
 		i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == in.Scope })
@@ -362,7 +368,10 @@ func (m *mcpServer) readMemory(
 	if err != nil {
 		return nil, itemOut{}, err
 	}
-	scopes := space.Scopes(c, m.tok.Role)
+	scopes, err := space.Scopes(ctx, m.st, c, m.tok.Role)
+	if err != nil {
+		return nil, itemOut{}, err
+	}
 	it, err := m.readable(ctx, scopes, in.ID)
 	if err != nil {
 		return nil, itemOut{}, err
@@ -521,7 +530,10 @@ func (m *mcpServer) proposeWrap(
 	if err != nil {
 		return nil, wrapOut{}, err
 	}
-	scopes := space.Scopes(c, m.tok.Role)
+	scopes, err := space.Scopes(ctx, m.st, c, m.tok.Role)
+	if err != nil {
+		return nil, wrapOut{}, err
+	}
 	for i := range in.Items {
 		it := &in.Items[i]
 		if it.Scope == "" {

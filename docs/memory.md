@@ -165,9 +165,12 @@ the single-writer lock and a checkpoint. Apply it with `reef team apply teams/fu
 
 A token says who a `reef mcp` process works for: one role in one Space. The Space
 gives the work item and the project. The role is the author and role of the items the
-agent saves with `remember`, the owner of the `teammate` scope it reads, the author of what
+agent saves with `remember`, the author of what
 `post_to_space` posts, and the role on a wrap-up proposal. A role of a Space in `reef serve` comes from its
 team. For `reef token` and `reef chat` it is free text.
+The `teammate` scope the agent reads is named by the id of the Teammate that holds the role in the
+Space's team, so renaming the Teammate keeps its items. A free-text role has no Teammate: its scope
+is named by the role.
 
 - A token is 64 hex characters (32 random bytes). It is stored in the `token` table (see
   [server.md](server.md#token)).

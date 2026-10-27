@@ -59,7 +59,7 @@ func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 	d1 := decide(t, e, "architect", "Use SQLite, not Postgres\nit is one file")
 	remember(t, e.s.ms, projectScope(store.WorkItem{ProjectID: e.ch.ProjectID}),
 		memory.KindFact, "lead", "Builds need cgo off")
-	remember(t, e.s.ms, teammateScope("developer"), memory.KindFinding, "developer", "Name the table turn")
+	remember(t, e.s.ms, teammateScope("3"), memory.KindFinding, "developer", "Name the table turn")
 	remember(t, e.s.ms, teammateScope("tester"), memory.KindFact, "tester", "Tester only")
 	if _, err := e.s.ms.Remember(ctx,
 		memory.Writer{Author: "lead", Role: "lead", Scope: wakeWork(e)},

@@ -164,7 +164,11 @@ func ApproveProposal(
 		if err != nil {
 			return Approval{}, err
 		}
-		if a.Added, a.Warnings, err = saveItems(ctx, ms, space.Scopes(c, p.Role), p); err != nil {
+		scopes, err := space.Scopes(ctx, st, c, p.Role)
+		if err != nil {
+			return Approval{}, err
+		}
+		if a.Added, a.Warnings, err = saveItems(ctx, ms, scopes, p); err != nil {
 			return Approval{}, err
 		}
 		for _, rid := range p.Retire {

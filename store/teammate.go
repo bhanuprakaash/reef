@@ -295,6 +295,22 @@ func checkLead(ctx context.Context, tx *sql.Tx, teamID, teammateID int64, lead b
 	return fmt.Errorf("%w: the team already has a lead, %s", ErrInvalid, name)
 }
 
+// MemberTeammateID returns the id of the Teammate that holds the role in the team, or
+// ErrNotFound.
+func (s *Store) MemberTeammateID(ctx context.Context, team, role string) (int64, error) {
+	var id int64
+	err := s.db.QueryRowContext(ctx,
+		"SELECT member.teammate_id FROM team_member member JOIN team ON team.id = member.team_id "+
+			"WHERE team.name = ? AND member.name = ?", team, role).Scan(&id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, fmt.Errorf("role %s in team %s: %w", role, team, ErrNotFound)
+	}
+	if err != nil {
+		return 0, fmt.Errorf("read teammate of role %s: %w", role, err)
+	}
+	return id, nil
+}
+
 func (s *Store) member(ctx context.Context, team string, teammateID int64) (Role, error) {
 	t, err := s.Team(ctx, team)
 	if err != nil {

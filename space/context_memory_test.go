@@ -194,6 +194,11 @@ func TestOpen_FirstPromptIsWhatReefContextPrints(t *testing.T) {
 }
 
 func TestScopes(t *testing.T) {
+	st, _ := openStore(t)
+	if _, err := st.ApplyTeam(context.Background(), store.Team{Name: "core",
+		Roles: []store.Role{{Name: "lead", Lead: true, Backend: "claude"}}}); err != nil {
+		t.Fatal(err)
+	}
 	feature := int64(7)
 	tests := []struct {
 		name string
@@ -205,21 +210,21 @@ func TestScopes(t *testing.T) {
 			give: store.Space{ProjectID: 3, WorkItemID: &feature, Team: "core"},
 			want: []memory.Ref{
 				{Kind: "work_item", ID: "7"}, {Kind: "project", ID: "3"},
-				{Kind: "team", ID: "core"}, {Kind: "teammate", ID: "lead"},
+				{Kind: "team", ID: "core"}, {Kind: "teammate", ID: "2"},
 			},
 		},
 		{
 			name: "feature Space of the solo team",
 			give: store.Space{ProjectID: 3, WorkItemID: &feature, Team: store.SoloTeam},
 			want: []memory.Ref{
-				{Kind: "work_item", ID: "7"}, {Kind: "project", ID: "3"}, {Kind: "teammate", ID: "lead"},
+				{Kind: "work_item", ID: "7"}, {Kind: "project", ID: "3"}, {Kind: "teammate", ID: "1"},
 			},
 		},
 		{
 			name: "quick session of a real team",
 			give: store.Space{ProjectID: 3, Team: "core"},
 			want: []memory.Ref{
-				{Kind: "project", ID: "3"}, {Kind: "team", ID: "core"}, {Kind: "teammate", ID: "lead"},
+				{Kind: "project", ID: "3"}, {Kind: "team", ID: "core"}, {Kind: "teammate", ID: "2"},
 			},
 		},
 		{
@@ -230,7 +235,11 @@ func TestScopes(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := Scopes(tt.give, "lead"); !reflect.DeepEqual(got, tt.want) {
+			got, err := Scopes(context.Background(), st, tt.give, "lead")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("Scopes = %v, want %v", got, tt.want)
 			}
 		})

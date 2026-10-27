@@ -61,8 +61,19 @@ func Context(
 }
 
 // Scopes are the shelves of memory a role reads and writes in ch: the work item's when it has
-// one, the project's, the team's unless it is the solo team, and the role's own.
-func Scopes(ch store.Space, role string) []memory.Ref {
+// one, the project's, the team's unless it is the solo team, and the Teammate's own, named by
+// its id. A role the team does not have, such as an agent attached by hand with reef token, has
+// no Teammate: its shelf is named by the role.
+func Scopes(
+	ctx context.Context, st *store.Store, ch store.Space, role string,
+) ([]memory.Ref, error) {
+	teammate := role
+	switch id, err := st.MemberTeammateID(ctx, ch.Team, role); {
+	case err == nil:
+		teammate = strconv.FormatInt(id, 10)
+	case !errors.Is(err, store.ErrNotFound):
+		return nil, err
+	}
 	var scopes []memory.Ref
 	if ch.WorkItemID != nil {
 		scopes = append(scopes,
@@ -73,7 +84,7 @@ func Scopes(ch store.Space, role string) []memory.Ref {
 	if ch.Team != "" && ch.Team != store.SoloTeam {
 		scopes = append(scopes, memory.Ref{Kind: memory.ScopeTeam, ID: ch.Team})
 	}
-	return append(scopes, memory.Ref{Kind: memory.ScopeTeammate, ID: role})
+	return append(scopes, memory.Ref{Kind: memory.ScopeTeammate, ID: teammate}), nil
 }
 
 // firstPrompt is the first prompt of a role in three sections: You, How to work and What we
@@ -104,7 +115,7 @@ func firstPrompt(
 			r.Name, p.Name, p.Path)
 		how += _quickToolsLine + "\n"
 		b.WriteString(who)
-		if know, err = itemParts(ctx, ms, nil, ch, r.Name); err != nil {
+		if know, err = itemParts(ctx, st, ms, nil, ch, r.Name); err != nil {
 			return "", err
 		}
 	} else {
@@ -170,7 +181,7 @@ func workItemKnow(
 	}
 
 	parts := appendPart(nil, "Brief", brief.Body)
-	if parts, err = itemParts(ctx, ms, parts, ch, role); err != nil {
+	if parts, err = itemParts(ctx, st, ms, parts, ch, role); err != nil {
 		return nil, err
 	}
 	return appendPart(parts, "On demand", strings.Join(counts, " ")), nil
@@ -179,9 +190,14 @@ func workItemKnow(
 // itemParts adds a part for each shelf of Scopes: its newest accepted items, and for a part
 // with a limit, how many of how many it shows.
 func itemParts(
-	ctx context.Context, ms *memory.Store, parts []string, ch store.Space, role string,
+	ctx context.Context, st *store.Store, ms *memory.Store, parts []string, ch store.Space,
+	role string,
 ) ([]string, error) {
-	for _, scope := range Scopes(ch, role) {
+	scopes, err := Scopes(ctx, st, ch, role)
+	if err != nil {
+		return nil, err
+	}
+	for _, scope := range scopes {
 		for _, sp := range _shelfParts[scope.Kind] {
 			items, total, err := ms.Newest(ctx, scope, sp.kinds, sp.limit)
 			if err != nil {
@@ -213,7 +229,11 @@ func changedSince(
 	ctx context.Context, st *store.Store, ms *memory.Store, ch store.Space, role string,
 	since time.Time,
 ) (string, error) {
-	added, retired, err := ms.Changed(ctx, Scopes(ch, role), since)
+	scopes, err := Scopes(ctx, st, ch, role)
+	if err != nil {
+		return "", err
+	}
+	added, retired, err := ms.Changed(ctx, scopes, since)
 	if err != nil {
 		return "", err
 	}

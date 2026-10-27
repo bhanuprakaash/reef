@@ -367,7 +367,7 @@ adds `teammate` and `team_member`; nothing is migrated except the seed: one defa
 
 | Field | JSON | Notes |
 | --- | --- | --- |
-| `id` | integer | the memory `teammate` scope id will be this |
+| `id` | integer | the id of its memory `teammate` scope, so a rename keeps its items |
 | `name` | string | required; unique; same rule as a role name |
 | `persona`, `skills`, `backend`, `model`, `provider`, `face` | | as a [role](#role) |
 | `tools`, `mcpServers`, `write`, `permissionMode` | | default access rules. Joining a team copies them into a `team_member` row; editing them later does not change any membership. REST shows `mcp` (name and label) instead of `mcpServers` |
