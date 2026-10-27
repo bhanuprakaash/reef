@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -2438,6 +2438,82 @@ async function conversation() {
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check(overflow <= 0, 'the phone list has no horizontal scroll', String(overflow));
   await shot('phone');
+}
+
+async function conversationMove() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const section = await addProject();
+  const call = (method, route, body) =>
+    fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  await call('POST', '/teammates', { name: 'sam', backend: 'claude' });
+  await call('POST', '/teammates', { name: 'kit', backend: 'claude' });
+  const start = async () => {
+    const was = page.url();
+    await section.getByRole('button', { name: 'New conversation' }).click();
+    await page.getByRole('button', { name: 'sam', exact: true }).click();
+    await page.waitForURL((u) => u.href !== was && /\/spaces\/\d+$/.test(u.pathname));
+    return page.url().split('/').pop();
+  };
+  const movedTo = async (id) => (await getJson(`/spaces/${id}`)).movedTo;
+  const moved = async (id) => {
+    for (let i = 0; i < 150 && (await movedTo(id)) === null; i++) await page.waitForTimeout(200);
+    return movedTo(id);
+  };
+  const members = async (id) => (await getJson(`/spaces/${id}/members`)).map((m) => `${m.name}${m.lead ? '*' : ''}`).join();
+  const kitAnswered = async (id) => {
+    for (let i = 0; i < 150 && sql(`select count(*) from message where space_id=${id} and author='kit'`) === '0'; i++) await page.waitForTimeout(200);
+    return sql(`select count(*) from message where space_id=${id} and author='kit'`) !== '0';
+  };
+  const login = 'Ada wants a login page with an email field and a Google button.';
+
+  const typed = await start();
+  await exchange(login);
+  await send('@kit take over the login page. Use no tools and reply with one short sentence.');
+  const typedTo = await moved(typed);
+  check(typedTo !== null, 'a line starting @kit marks the conversation moved', `movedTo ${typedTo}`);
+  await main.getByText('This conversation moved to a new Space').waitFor();
+  const link = main.getByRole('link', { name: 'Open the Space' });
+  check((await link.getAttribute('href')) === `/spaces/${typedTo}`, 'the conversation links to the new Space', await link.getAttribute('href'));
+  check((await page.getByLabel('Message').count()) === 0, 'the moved conversation has no message box', String(await page.getByLabel('Message').count()));
+  check((await main.getByRole('button', { name: 'Add Teammate' }).count()) === 0, 'the moved conversation has no Add Teammate button');
+  check((await members(typedTo)) === 'sam*,kit', 'the new Space has sam leading and kit', await members(typedTo));
+  const shape = sql(`select kind, team_id is null from Space where id=${typedTo}`);
+  check(shape === 'free|1', 'the new Space is free and has no Team', shape);
+  const kitPrompt = sql(`select prompt from turn where space_id=${typedTo} and role='kit' order by id limit 1`);
+  const lines = sql(`select body from message where space_id=${typed} and id<(select max(id) from message where space_id=${typed})`).split('\n').filter(Boolean);
+  check(kitPrompt.includes('sam wrote: @kit ') && !lines.some((l) => kitPrompt.includes(l)), "kit's first prompt has the summary and no message of the conversation", `${lines.length} conversation lines checked`);
+  check(await kitAnswered(typedTo), 'kit answers in the new Space');
+  await shot('desktop-moved');
+  await link.click();
+  await page.waitForURL(`**/spaces/${typedTo}`);
+  await page.getByLabel('Message').waitFor();
+  await shot('desktop-space');
+
+  const clicked = await start();
+  await exchange(login);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await main.getByRole('button', { name: 'Add Teammate' }).waitFor();
+  const header = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  check(header <= 0, 'the conversation with the Add Teammate button has no horizontal scroll at 390 px', String(header));
+  await shot('phone-add-teammate');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await main.getByRole('button', { name: 'Add Teammate' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Add a Teammate' });
+  await dialog.getByRole('button', { name: 'kit', exact: true }).waitFor();
+  check((await dialog.getByRole('button', { name: 'sam', exact: true }).count()) === 0, "the dialog does not offer the conversation's own Teammate");
+  await shot('desktop-add-teammate');
+  await dialog.getByRole('button', { name: 'kit', exact: true }).click();
+  const clickedTo = await moved(clicked);
+  check(clickedTo !== null, 'Add Teammate marks the conversation moved', `movedTo ${clickedTo}`);
+  check((await members(clickedTo)) === 'sam*,kit', 'the new Space has sam leading and kit', await members(clickedTo));
+  await main.getByText('This conversation moved to a new Space').waitFor();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${base}/spaces/${typed}`);
+  await main.getByText('This conversation moved to a new Space').waitFor();
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  check(overflow <= 0, 'the moved conversation has no horizontal scroll at 390 px', String(overflow));
+  await shot('phone-moved');
 }
 
 async function hovercard() {
