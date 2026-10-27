@@ -21,8 +21,8 @@ type Props = {
   diffOpen?: boolean;
   wrapDisabled: boolean;
   onWrap: () => void;
-  promoteDisabled: boolean;
-  onPromote: () => void;
+  attachDisabled: boolean;
+  onAttach: () => void;
   onInspector: () => void;
   onTeam: () => void;
 };
@@ -43,8 +43,8 @@ export function SpaceHeader({
   diffOpen,
   wrapDisabled,
   onWrap,
-  promoteDisabled,
-  onPromote,
+  attachDisabled,
+  onAttach,
   onInspector,
   onTeam,
 }: Props) {
@@ -172,23 +172,23 @@ export function SpaceHeader({
           </svg>
           <span className="max-md:hidden">Team</span>
         </Button>
-        {space.workItemId !== null ? (
-          space.closedAt === null && (
-            <Button
-              variant="primary"
-              type="button"
-              className="ml-1.5 max-md:hidden"
-              disabled={wrapDisabled}
-              onClick={onWrap}
-            >
-              Wrap up
-            </Button>
-          )
-        ) : (
-          <Button type="button" className="ml-1.5" disabled={promoteDisabled} onClick={onPromote}>
-            Promote to feature
-          </Button>
-        )}
+        {space.workItemId !== null
+          ? space.closedAt === null && (
+              <Button
+                variant="primary"
+                type="button"
+                className="ml-1.5 max-md:hidden"
+                disabled={wrapDisabled}
+                onClick={onWrap}
+              >
+                Wrap up
+              </Button>
+            )
+          : space.kind === 'free' && (
+              <Button type="button" className="ml-1.5" disabled={attachDisabled} onClick={onAttach}>
+                Attach to work item
+              </Button>
+            )}
       </div>
     </header>
   );

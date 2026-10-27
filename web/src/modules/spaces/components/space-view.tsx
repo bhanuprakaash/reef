@@ -9,6 +9,7 @@ import { useTeams } from '@/lib/api/get-teams';
 import { useReopenSpace } from '@/modules/spaces/api/reopen-space';
 import { useProposal } from '@/modules/spaces/api/get-proposal';
 import { useWrapSpace } from '@/modules/spaces/api/wrap-space';
+import { AttachForm } from '@/modules/spaces/components/attach-form';
 import { SpaceHeader } from '@/modules/spaces/components/space-header';
 import { CheckpointRows } from '@/modules/spaces/components/checkpoint-rows';
 import { Composer } from '@/modules/spaces/components/composer';
@@ -20,7 +21,6 @@ import { LiveTurn } from '@/modules/spaces/components/live-turn';
 import { MessageList } from '@/modules/spaces/components/message-list';
 import { PausedBanner } from '@/modules/spaces/components/paused-banner';
 import { PrPanel } from '@/modules/spaces/components/pr-panel';
-import { PromoteForm } from '@/modules/spaces/components/promote-form';
 import { ProposalPanel } from '@/modules/spaces/components/proposal-panel';
 import { TeamPanel } from '@/modules/spaces/components/team-panel';
 import { ThreadPane } from '@/modules/spaces/components/thread-pane';
@@ -78,7 +78,7 @@ export function SpaceView({
   const running = turn.status === 'running';
   const [side, setSide] = useState<Side>(null);
   const [teamOpen, setTeamOpen] = useState(false);
-  const [promoting, setPromoting] = useState(false);
+  const [attaching, setAttaching] = useState(false);
   const { width, startResize } = useResizableWidth({
     key: 'reef.sidePanel.width',
     initial: 400,
@@ -155,8 +155,8 @@ export function SpaceView({
         diffOpen={wide}
         wrapDisabled={wrapDisabled}
         onWrap={() => wrap.mutate()}
-        promoteDisabled={running}
-        onPromote={() => setPromoting(true)}
+        attachDisabled={running}
+        onAttach={() => setAttaching(true)}
         onInspector={() => openSide(side?.kind === 'inspector' ? null : { kind: 'inspector' })}
         onTeam={() => {
           setTeamOpen(!teamOpen);
@@ -164,9 +164,9 @@ export function SpaceView({
         }}
       />
       {space.workItemId === null && (
-        <Dialog open={promoting} onClose={() => setPromoting(false)} title="Promote to a feature">
-          {promoting && (
-            <PromoteForm space={space} features={features} onClose={() => setPromoting(false)} />
+        <Dialog open={attaching} onClose={() => setAttaching(false)} title="Attach to a work item">
+          {attaching && (
+            <AttachForm space={space} workItems={features} onClose={() => setAttaching(false)} />
           )}
         </Dialog>
       )}

@@ -69,6 +69,7 @@ export type Brief = {
 
 export type Space = {
   id: number;
+  kind: 'work_item' | 'free' | 'conversation';
   projectId: number;
   workItemId: number | null;
   name: string;

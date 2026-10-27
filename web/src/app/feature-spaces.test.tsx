@@ -43,6 +43,7 @@ const feature: WorkItem = {
 
 const space: SpacePreview = {
   id: 4,
+  kind: 'work_item',
   projectId: 1,
   workItemId: 2,
   name: 'build',
