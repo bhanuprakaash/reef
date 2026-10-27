@@ -12,8 +12,8 @@ Five user surfaces exist so far:
 - `reef serve` (`cmd/reef`) keeps Reef's data in one SQLite file and serves it as a JSON
   REST API. It also runs a Space's team: it routes messages between teammates, holds
   gated wakes and caps hops. Contract: `docs/server.md`.
-- The memory loop (`cmd/reef`): the CLI (`reef project`, `feature`, `brief`, `decide`,
-  `task`, `team`, `context`, `token`), `reef mcp` (stdio MCP tools for one teammate) and `reef
+- The memory loop (`cmd/reef`): the CLI (`reef project`, `work-item`, `brief`, `decide`,
+  `team`, `context`, `token`), `reef mcp` (stdio MCP tools for one teammate) and `reef
   chat` (one role in one space, in the terminal). Contract: `docs/memory.md`.
 - The window: the React app `reef serve` serves (`web/`). Contract: `docs/server.md` (Web UI).
 - The desktop app (`desktop/`): Electron around its own `reef serve` and the window, with a
@@ -238,7 +238,7 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/
 
 - `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A | --sigint-at-prompt]]
   [--timeout S] -- ARGS` runs the `reef` binary in the scratch cwd with `--data <folder>`
-  right after the command words (`task add --data <folder> 1 -- "--why not"`), so a `--` in
+  right after the command words (`decide --data <folder> 1 -- "--why not"`), so a `--` in
   ARGS still ends the flags.
   `--data-name` picks `<scratch>/NAME`. It refuses
   while this run's server uses another folder. Without it, the call uses the last folder that
@@ -259,8 +259,8 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/
   `~/.reef-verify/<id>/mcp-<tool>-<ns>.png` and shows as `image/png N bytes saved to PATH`. It
   exits 0 when a tool result came back.
 - The project folder is the scratch cwd, so `reef chat` runs its agent there and `cleanup`
-  removes claude's session state for it. A Space on a feature runs in the feature's worktree,
-  `<data folder>/worktrees/<project id>/<slug>`, so the scratch cwd must be a git repo with a
+  removes claude's session state for it. A Space on a work item runs in the work item's worktree,
+  `<data folder>/worktrees/<project id>/<work item id>`, so the scratch cwd must be a git repo with a
   commit first (`features/full-team.md`, Preconditions). `cleanup` does not remove claude's
   state for those folders (the command to remove it is in `features/full-team.md`, Gotchas).
 
@@ -307,7 +307,7 @@ REEF_VERIFY_RUN=<id> $H ui live      # claude Space on a feature, tool rows mid-
 REEF_VERIFY_RUN=<id> $H ui brief     # new Space on a feature with a brief, ask the goal
 REEF_VERIFY_RUN=<id> $H ui promote   # quick session, two exchanges, promote, approve, brief version 1
 REEF_VERIFY_RUN=<id> $H ui cap       # token_budget=1, banner with reason, Continue, next message runs
-REEF_VERIFY_RUN=<id> $H ui pages     # bad project path error, stage survives reload, task marked done and filtered
+REEF_VERIFY_RUN=<id> $H ui pages     # bad project path error, a work item added from the sidebar
 REEF_VERIFY_RUN=<id> $H ui stop      # Stop mid-turn shows Failed: interrupted, next message resumes
 REEF_VERIFY_RUN=<id> $H ui wrap      # Wrap up, Reject, /wrap, Approve, brief version 1, Wrapped + Reopen, Close feature
 REEF_VERIFY_RUN=<id> $H ui teams     # team picker, lead then architect, Thread pane reply, gate Approve
@@ -318,10 +318,8 @@ REEF_VERIFY_RUN=<id> $H ui diff      # a turn writes a file, the review page lis
 REEF_VERIFY_RUN=<id> $H ui memory    # project page lists, adds and retires the project's memory items, stored in the database and surviving a reload; New feature and New quick session work from the page
 REEF_VERIFY_RUN=<id> $H ui inspector # full team: lead then developer turns, Inspector panel role blocks match the API, a developer turn expands to its prompt and a tool call
 REEF_VERIFY_RUN=<id> $H ui review    # review page: A/M/D list, struck-through deletion, No text changes, drafts sent as one message to the developer's latest thread
-REEF_VERIFY_RUN=<id> $H ui board      # tasks page board view, drag a card between columns, project and feature filters apply
-REEF_VERIFY_RUN=<id> $H ui fixes     # Fixes feature: no stage bar, two tasks, one done shows "1 of 2 done" on the page and the Today card, "1/2" in the sidebar and the Space header; no Edit button on the tasks list, board or task page, a title edits in place (Enter saves, Escape discards) and the task page's details save on blur
 REEF_VERIFY_RUN=<id> $H ui workshop  # /teams page edits a role's persona, keeps its mcpServers, shows reef team apply's errors, copies a team, next developer wake uses the new persona
-REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, types, Enter shows Captured and clears the box, a task row is stored; a failing request shows its error
+REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, types, Enter shows Captured and clears the box, a task work item is stored; a failing request shows its error
 REEF_VERIFY_RUN=<id> $H ui coordination # direct messages show as one item (waiting approval, working, completed, stopped, rejected, Retry) with a Coordination panel and a source-message link, at 1280x800 and 390x844 (needs `gated`)
 REEF_VERIFY_RUN=<id> $H ui team      # full team: header avatars ring the working role; Team opens a popover without changing Space width; Escape, outside click and X close it (needs `full`)
 REEF_VERIFY_RUN=<id> $H ui denials # a refused tool call shows a card with Add to role: the role row gets the pattern, its next start has it in --allowedTools; write-needing and codex roles get no Add (fake claude only)
@@ -341,8 +339,8 @@ on a folder of its own (`--data-name inbox`, with `gated` applied). `inspector`,
 need the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"`.
 
 Each scenario adds a project on the scratch cwd and makes it a git repo with one commit when it
-is not one, because a Space on a feature runs in a git worktree. Its feature slug gets a
-suffix, since one branch cannot be checked out in two worktrees.
+is not one, because a Space on a work item runs in a git worktree. Each scenario adds its own work item,
+so its branch `work-item/<id>` is never checked out in two worktrees.
 
 `ui` runs `node scripts/ui/drive.mjs SCENARIO http://<serve.addr>` with the run's data folder, the
 scratch cwd as the project folder and `~/.reef-verify/<id>/ui` for screenshots. Each scenario adds
@@ -524,7 +522,7 @@ claude, above).
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |

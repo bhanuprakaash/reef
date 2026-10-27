@@ -34,7 +34,7 @@ in logs. Contract: `docs/server.md` (GitHub poll) and `docs/product.md` (decisio
   its worktree, open a Space on team `full`. Once the PR exists on GitHub, its status and a
   failed check show up as `reef` notes; a failed check also starts the developer, as if the
   user had pasted in the failure and asked it to look.
-- REST: nothing new. The poll uses `GET /features`, `GET /projects/{id}` and posts through
+- REST: nothing new. The poll uses `GET /work-items`, `GET /projects/{id}` and posts through
   the existing message and turn paths.
 
 ## Driving it with verify-reef

@@ -1,6 +1,6 @@
 # Memory
 
-The memory loop gives every session on a feature the same starting point, and saves what
+The memory loop gives every session on a work item the same starting point, and saves what
 the session learned when it ends. It has four parts: the `reef` CLI
 ([`cmd/reef/cli.go`](../cmd/reef/cli.go)), the MCP server `reef mcp`
 ([`server/mcp.go`](../server/mcp.go)), the context prompt
@@ -10,18 +10,17 @@ The code is the source of truth. This doc says what it does and why.
 
 ## Why
 
-Without Reef, a big feature is split over many sessions. The agent writes a handoff file
+Without Reef, a big work item is split over many sessions. The agent writes a handoff file
 so that the next session can continue, and the history of why things were done gets lost.
 Reef has no handoff file. A new session starts with three things:
 
-- The feature's brief: goal, status, key decisions, open questions.
-- Memory items: every live decision of the feature and the newest findings, project, team and
+- The work item's brief: goal, status, key decisions, open questions.
+- Memory items: every live decision of the work item and the newest findings, project, team and
   teammate items, each part with a count of how many exist.
-- An index: one line per task in progress, and a count of the other open tasks and of the earlier
-  Spaces.
+- An index: a count of the earlier Spaces.
 
 It never gets old message bodies. When it needs details, it fetches them on demand with
-the MCP tools (`recall`, `read_memory`, `read_thread`, `list_tasks`, `search_sessions`). So the first prompt
+the MCP tools (`recall`, `read_memory`, `read_thread`, `search_sessions`). So the first prompt
 stays small after many sessions. At the end of a session, the agent proposes a new brief
 and the memory items it did not save yet. The user approves, and the next
 session starts from that.
@@ -61,10 +60,8 @@ Rules for every command:
 - `--data DIR` is the data folder, the same as for `reef serve`. Flags can come before or
   after the other arguments.
 - `--` ends the flags: every argument after it is positional, even if it starts with `-`.
-- `<feature>` is a feature id (all digits) or a slug. A slug cannot be all digits, so a
-  ref is never both. If two projects have a feature with that slug, the command fails with
-  `invalid: feature slug "login" is in projects 1, 3; use the feature id`.
-- Commands that need a project and get no feature use the project of the current folder:
+- `<work-item>` is a Work item id (all digits), else `work item "login" is not an id`.
+- Commands that need a project and get no work item use the project of the current folder:
   the project whose path is the current folder or its nearest parent. If there is none:
   `no reef project for /tmp; run reef project add`.
 - Output is plain text, one row per line, id first, fields split by two spaces.
@@ -76,11 +73,9 @@ Rules for every command:
 | --- | --- | --- |
 | `reef serve [--addr 127.0.0.1:7700]` | Runs the REST server. See [server.md](server.md) | log lines on stderr |
 | `reef project add [--name N]` | Makes the current folder a project. The name is the folder name if you give none. Fails if the folder is already a project: `/tmp/shop is already project 1` | `1  shop  /tmp/shop` |
-| `reef feature add <slug> <name> [--goal G]` | Adds a feature to the current folder's project. Slug rules are in [server.md](server.md#feature) | `1  login  Email login` |
-| `reef brief <feature>` | Prints the latest brief. With none: `feature login has no brief yet` | the brief body |
-| `reef decide <feature> "<body>" [--why W]` | Writes a `decision` item in the feature's `work_item` scope as author and role `user`, so it is `accepted`. After the item, the lookalike and vector lines of `reef memory add` | `1  Use sessions, not JWT`: id, body; then `3  similar  <body>` |
-| `reef task add [<feature>] "<title>"` | Adds a `todo` task. With a feature, the task is in the feature's project and tagged with it. Without one, it is in the current folder's project, with no feature | `1  todo  Build the login form` |
-| `reef task list [<feature>] [--status S]` | Lists the feature's tasks, or all tasks of the current folder's project. `S` is `todo`, `doing` or `done` | one task per line, as for `task add` |
+| `reef work-item add "<title>" [--type T] [--description D]` | Adds a Work item to the current folder's project. `T` is one of the types in [server.md](server.md#work_item); the default is `work item` | `1  work item  Email login`: id, type, title |
+| `reef brief <work-item>` | Prints the latest brief. With none: `work item 1 has no brief yet` | the brief body |
+| `reef decide <work-item> "<body>" [--why W]` | Writes a `decision` item in the work item's `work_item` scope as author and role `user`, so it is `accepted`. After the item, the lookalike and vector lines of `reef memory add` | `1  Use sessions, not JWT`: id, body; then `3  similar  <body>` |
 | `reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval]` | Writes a memory item as author `user`, so it is `accepted`; `--needs-approval` makes it a `candidate` that waits in `pending`. `S` and each `X` are `kind:id`, such as `project:1` or `work_item:12`; `--about` and `--replaces` repeat. Each `--replaces` item must be accepted (a candidate is approved or rejected first) and in the same scope as the new one; it is retired and points at the new one, or, with `--needs-approval`, when the new one is approved. `--as` sets the role the item carries. After the item, one line per stored item that looks like it. When an embedding provider is set and the vector could not be stored, stderr gets `vector not stored: <reason>; run reef memory embed <provider> to retry` and the exit code stays 0; the reason names the status and the vendor's error code, never the key | `12  accepted  decision  project:1  Use sessions, not JWT`: id, status, kind, scope, body; then `3  similar  <body>` |
 | `reef memory recall "<q>" [--scope S] [--limit N]` | Searches the items of every scope, retired ones included, plus the items one link away from the best hits. `--scope` narrows to one shelf; `--limit` defaults to 10 | one hit per line: `12  accepted  decision  project:1  direct  Use sessions, not JWT`: id, status, kind, scope, `via`, body. `via` is `direct` or the link it was reached through, such as `replaces memory:4` |
 | `reef memory show <id>` | Prints one item with its details | the item row as for `add`, then these lines when they apply: `why  <why>`, `author  user  <role>` (the role is left out when empty), one `link  <rel>  <kind>:<id>` per link, `replaced_by  <id>`, `retired_at  <RFC 3339 time>` |
@@ -92,9 +87,9 @@ Rules for every command:
 | `reef memory embed <provider> [--key K]` | Sets the embedding provider and stores its key in `reef.db`; the key is never printed. Storing a key makes `reef.db` and its `-wal` and `-shm` files readable only by the owner (mode 0600). `openai`, `voyage` and `gemini` need `--key` unless the stored provider is the same one, else `invalid: embedding provider voyage needs --key`; `none` clears the key. Changing the provider clears every stored vector. Each `openai`, `voyage` or `gemini` call then embeds every item that has no vector; a failure there exits 1 after the setting is saved, and running the command again retries | `embedding provider openai; embedded 12 items` (`embedded 0 items` when none was missing), or `embedding provider none` |
 | `reef team apply FILE.json` | Creates a team from a file, or replaces the roles and gates of the team with that name (see Teams) | `applied team duo: lead*(claude) architect(claude)` |
 | `reef team list` | Lists the teams by name, each with its roles | `duo  lead*(claude) architect(claude)`: the lead has a `*` |
-| `reef context <feature> --role R` | Prints the context prompt for role `R` (see below) | the prompt |
-| `reef token <feature> --role R` | Makes a Space and a token for role `R` (see Tokens) | a `claude mcp add` command |
-| `reef wrap list [<feature>]` | Lists pending wrap-up proposals (see Wrap-up): of the feature, or of the current folder's project | `1  login  3  architect  wrap  2026-10-13`: id, feature slug, Space id, role, kind (`wrap` or `brief`), created date |
+| `reef context <work-item> --role R` | Prints the context prompt for role `R` (see below) | the prompt |
+| `reef token <work-item> --role R` | Makes a Space and a token for role `R` (see Tokens) | a `claude mcp add` command |
+| `reef wrap list [<work-item>]` | Lists pending wrap-up proposals (see Wrap-up): of the work item, or of the current folder's project | `1  1  3  architect  wrap  2026-10-13`: id, work item id, Space id, role, kind (`wrap` or `brief`), created date |
 | `reef wrap show <id>` | Prints a proposal and its status | `proposal 1 from architect` (`brief update 2 from lead` for a brief proposal), status, then brief, items (kind and scope each) and retire ids |
 | `reef wrap approve <id>` | Approves a pending proposal | `approved: brief and 2 items saved`, or `approved: brief saved` for a brief proposal |
 | `reef wrap reject <id>` | Rejects a pending proposal | `rejected: nothing changed` |
@@ -169,7 +164,7 @@ the single-writer lock and a checkpoint. Apply it with `reef team apply teams/fu
 ## Tokens
 
 A token says who a `reef mcp` process works for: one role in one Space. The Space
-gives the feature and the project. The role is the author and role of the items the
+gives the work item and the project. The role is the author and role of the items the
 agent saves with `remember`, the owner of the `teammate` scope it reads, the author of what
 `post_to_space` posts, and the role on a wrap-up proposal. A role of a Space in `reef serve` comes from its
 team. For `reef token` and `reef chat` it is free text.
@@ -201,8 +196,8 @@ It serves Reef's MCP tools over stdio, with the official Go SDK
 with exit code 1, when `REEF_TOKEN` is empty (`REEF_TOKEN is not set`) or matches no
 token (`unknown REEF_TOKEN`). It stops when stdin closes.
 
-Every tool except `post_to_space`, `send_to_role`, `read_direct_messages`, `recall` and `read_memory` works on the token's feature, and so does `remember` unless its scope is `project` or `teammate`. On a quick-session Space
-(no feature) those tools fail with `this space has no feature`, except `read_thread` of the
+Every tool except `post_to_space`, `send_to_role`, `read_direct_messages`, `recall` and `read_memory` works on the token's work item, and so does `remember` unless its scope is `project` or `teammate`. On a quick-session Space
+(no work item) those tools fail with `this space has no work item`, except `read_thread` of the
 token's own Space. A result is one JSON object as text. A
 tool error comes back as a result with `isError: true` and the message as text, so the
 agent can read it. Arguments that do not match the tool's schema are a tool error too
@@ -212,20 +207,15 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | Tool | Input | Output | Errors |
 | --- | --- | --- | --- |
 | `get_brief` | none | `{"brief": "..."}`: the latest brief, `""` when there is none yet. The role's own items are in scope `teammate`: read them with `recall` | |
-| `remember` | `kind` (`decision`, `convention`, `finding`, `fact` or `lesson`) and `body` (required), `about` (strings `kind:id`), `replaces` (ids of accepted items it amends or replaces), `why`, `scope` (`work_item`, the default, `project` or `teammate`), `needsApproval` | `{"item": {...}, "similar": [{"id", "body"}], "embedError": "..."}`: the stored item with `id`, `kind`, `body`, `why`, `scope` (`work_item:1`), `author` and `role` (both the token's role), `status`, `retiredAt`, `replacedBy`, `createdAt` and `links` (`{"rel", "to"}`: the item's `source` is `space:<id>`); `similar` appears only when stored items look like it, and `embedError` only when no vector could be stored for it. `work_item` is the token's feature, `project` its project, `teammate` the token's role on every feature. The item is `accepted`, or a `candidate` that waits for the user when `needsApproval` is set or the kind is `convention` from a role other than `architect` or `lead`. Each `replaces` item must be an accepted item of the same scope as the new one; it is retired and points at the new one, or when the new one is a candidate, after the user approves it. `team` is never written from here: team items come only from the lead's wrap-up | `invalid: scope "team" is not work_item, project or teammate`, `this space has no feature` (`work_item` on a quick session), `invalid: unknown kind "x"`, `invalid: body is required`, `memory 9: not found` (a `replaces` id that is not readable here), `invalid: memory 3 is in scope project:1, not work_item:1` (a `replaces` id on another shelf) (nothing is written) |
-| `recall` | `query` (required), `limit` (default 10), `scope` (`work_item`, `project`, `team` or `teammate`: only that one) | `{"hits": [{"id", "kind", "body", "scope", "status", "via"}]}`: matches in every scope the token can read, retired items included and marked, plus items one link away; `via` is `direct` or the link it came through. A feature's `work_item` items are read only on that feature; `team` only on a Space with a team. `hits` is `[]` when nothing matches | `query is required`, `invalid: you have no "team" scope here` |
+| `remember` | `kind` (`decision`, `convention`, `finding`, `fact` or `lesson`) and `body` (required), `about` (strings `kind:id`), `replaces` (ids of accepted items it amends or replaces), `why`, `scope` (`work_item`, the default, `project` or `teammate`), `needsApproval` | `{"item": {...}, "similar": [{"id", "body"}], "embedError": "..."}`: the stored item with `id`, `kind`, `body`, `why`, `scope` (`work_item:1`), `author` and `role` (both the token's role), `status`, `retiredAt`, `replacedBy`, `createdAt` and `links` (`{"rel", "to"}`: the item's `source` is `space:<id>`); `similar` appears only when stored items look like it, and `embedError` only when no vector could be stored for it. `work_item` is the token's work item, `project` its project, `teammate` the token's role on every work item. The item is `accepted`, or a `candidate` that waits for the user when `needsApproval` is set or the kind is `convention` from a role other than `architect` or `lead`. Each `replaces` item must be an accepted item of the same scope as the new one; it is retired and points at the new one, or when the new one is a candidate, after the user approves it. `team` is never written from here: team items come only from the lead's wrap-up | `invalid: scope "team" is not work_item, project or teammate`, `this space has no work item` (`work_item` on a quick session), `invalid: unknown kind "x"`, `invalid: body is required`, `memory 9: not found` (a `replaces` id that is not readable here), `invalid: memory 3 is in scope project:1, not work_item:1` (a `replaces` id on another shelf) (nothing is written) |
+| `recall` | `query` (required), `limit` (default 10), `scope` (`work_item`, `project`, `team` or `teammate`: only that one) | `{"hits": [{"id", "kind", "body", "scope", "status", "via"}]}`: matches in every scope the token can read, retired items included and marked, plus items one link away; `via` is `direct` or the link it came through. A work item's `work_item` items are read only on that work item; `team` only on a Space with a team. `hits` is `[]` when nothing matches | `query is required`, `invalid: you have no "team" scope here` |
 | `read_memory` | `id` (required) | the item as `remember` returns it, with its `links` | `memory 99: not found`, also for an item in a scope the token cannot read |
-| `add_task` | `title` (required), `body` | the new task: `todo`, in the feature's project, tagged with the feature | `invalid: task title is required` |
-| `list_tasks` | `status` (`todo`, `doing` or `done`; leave it out for all) | `{"tasks": [...]}`: the feature's tasks by id, as in [server.md](server.md#task). `tasks` is `[]` when there are none | `invalid: unknown status "later"` |
-| `read_task` | `id` (required) | the task, with its full body | `task 99: not found`, also for a task of another feature or of no feature |
-| `update_task` | `id` (required), `title`, `body`, `status` (`todo`, `doing` or `done`) | the updated task. Only the fields given change; `{"id": 3, "status": "done"}` marks task 3 done. There is no tool to delete a task | `task 99: not found` as for `read_task`, `invalid: task title is required`, `invalid: unknown status "later"` |
-| `search_sessions` | `query` (required), `limit` (default 20) | `{"hits": [{"spaceId", "messageId", "kind", "author", "snippet"}]}`: messages in all of the feature's Spaces that contain `query`, newest first. `kind` is `public` or `direct`. A direct hit appears only when the token's role is its sender or recipient, in any Space of the feature, and also has `from`, `to` and `chainId`; its `messageId` is the direct message id, which `read_thread` does not take. Case is ignored for ASCII. The snippet is about 120 characters around the match. `hits` is `null` when nothing matches | `query is required` |
-| `read_thread` | `spaceId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the Space's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `space 9: not found`, also for a Space of another feature or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the Space |
+| `search_sessions` | `query` (required), `limit` (default 20) | `{"hits": [{"spaceId", "messageId", "kind", "author", "snippet"}]}`: messages in all of the work item's Spaces that contain `query`, newest first. `kind` is `public` or `direct`. A direct hit appears only when the token's role is its sender or recipient, in any Space of the work item, and also has `from`, `to` and `chainId`; its `messageId` is the direct message id, which `read_thread` does not take. Case is ignored for ASCII. The snippet is about 120 characters around the match. `hits` is `null` when nothing matches | `query is required` |
+| `read_thread` | `spaceId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the Space's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `space 9: not found`, also for a Space of another work item or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the Space |
 | `post_to_space` | `body` (required), `parent` (the id of a top-level message: reply in its thread; leave it out to post at the top level) | the stored message, with the token's role as `author`. It works on a quick session too | `invalid: message body is required`, `invalid: parent 9 is not a top-level message of space 1` |
 | `send_to_role` | `to` (exactly one teammate role), `body` (required) | the stored direct request, with `spaceId`, `chainId`, `from`, `to`, `replyToId: null` and `status: sent` | empty body, self, unknown or out-of-team role, a recipient list, a sender with no running turn, a closed Space, a starting Space, or a wrapping or promoting Space are errors; nothing is stored |
 | `read_direct_messages` | `after` (only newer direct-message ids) | `{"messages": [...]}` containing only exchanges in this Space where the token's role is sender or recipient | |
-| `set_stage` | `stage` (required): `ideation`, `grill`, `plan`, `tickets`, `implement`, `testing`, `live-testing` or `post-release` | the updated feature, as in [server.md](server.md#feature). It also stores a `reef` message in the token's Space: `<role> moved the stage to <stage>`, unless the feature is already in that stage. No approval: the stage is a label | `invalid: unknown stage "x"`, `invalid: feature login is a list of fixes and has no stage` |
-| `propose_wrap` | `brief` (required); `items` (memory items not saved with `remember` yet), `retire` (ids of live memory items that are stale or duplicate). Each item is `{"kind", "body", "why", "scope", "replaces"}`: `kind` and `body` required, `scope` is `work_item` (the default), `project`, `teammate`, or `team` when the token's role leads the Space's team, `replaces` lists live item ids it replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: item body is required`, `invalid: unknown item kind "x"`, `invalid: scope "x" is not one of work_item, project, teammate` (a solo Space has no `team` scope; a Space of a real team adds `team`), `invalid: only the lead of team "core" can propose team items`, `invalid: memory 9 is not a live item in work_item:1, project:1, teammate:architect` (a `retire` id that is not an accepted item of the feature, project, team or role here; a `replaces` id must be an accepted item of the new item's own scope) (nothing is stored) |
+| `propose_wrap` | `brief` (required); `items` (memory items not saved with `remember` yet), `retire` (ids of live memory items that are stale or duplicate). Each item is `{"kind", "body", "why", "scope", "replaces"}`: `kind` and `body` required, `scope` is `work_item` (the default), `project`, `teammate`, or `team` when the token's role leads the Space's team, `replaces` lists live item ids it replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: item body is required`, `invalid: unknown item kind "x"`, `invalid: scope "x" is not one of work_item, project, teammate` (a solo Space has no `team` scope; a Space of a real team adds `team`), `invalid: only the lead of team "core" can propose team items`, `invalid: memory 9 is not a live item in work_item:1, project:1, teammate:architect` (a `retire` id that is not an accepted item of the work item, project, team or role here; a `replaces` id must be an accepted item of the new item's own scope) (nothing is stored) |
 | `propose_brief` | `brief` (required) | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: space 1 has a wrap-up waiting for approval` |
 | `browser_navigate` | `url` (required) | `{"text": "navigated to <url>"}` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser`, `refused: the browser pane cannot open Reef itself` (or another `refused: ...` for a non-http(s) URL), the page's own error (e.g. `net::ERR_CONNECTION_REFUSED`) when it fails to load |
 | `browser_screenshot` | none | a PNG image of the browser pane's current page | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
@@ -275,13 +265,13 @@ the lead posts `@developer add the export button`. The developer and the tester 
 them. When the chain is done, the developer posts one public message, `Export button done;
 tester confirmed it on the sqlite fixture`. Raw logs and routine acknowledgements stay
 private. A chain that ends without a public post stores no Space message; wrap-up (below)
-carries a private decision into the feature's memory.
+carries a private decision into the work item's memory.
 
 ## The context prompt
 
-`reef context <feature> --role R` prints it, and `reef chat` and `reef serve` put it before the
+`reef context <work-item> --role R` prints it, and `reef chat` and `reef serve` put it before the
 first message of a new session. One assembler (`space/context.go`) builds it for a Space on
-a feature and for a quick session. It has three sections in this order, each with its own
+a work item and for a quick session. It has three sections in this order, each with its own
 `##` header. It never holds a message body. A part with nothing to say is left out: there is
 no `No brief yet.` and no `none`. A section with no part left is left out.
 
@@ -291,14 +281,12 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
      to read them from and does not print them. A role that wakes with a persona or skills that
      differ from what its session last got, whether it is starting or resuming, gets them again
      before the wake text, marked `Your persona or skills changed:`, without the header.
-   - One line: role, feature name and slug, project name. A quick session says instead:
-     role, project name and folder, and that the session has no feature yet, so there is no brief or
-     feature items.
+   - One line: role, work item title and id, project name. A quick session says instead:
+     role, project name and folder, and that the session has no work item yet, so there is no brief or
+     work item items.
    - When a profile exists, `You work with Ada, a developer. They like: short answers, ask before
      big changes.` (occupation and style only when set, lower-cased; `Other` is left out).
-   - The goal (if set) and the stage, then one line that lists the stages in order and asks the
-     agent to call `set_stage` when the work moves to the next. A `fixes` feature says it is a
-     list of fixes tracked as tasks instead, with no stage lines. A quick session has none of these.
+   - The description (if set), as `Description: ...`. A quick session has none.
    - When the project has a base branch, `Base branch: dev. A pull request you open targets it.`
 2. `## How to work`
    - When the team has two or more roles: `Your team: @lead, @architect.` It says that
@@ -317,27 +305,25 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
      the memory that carries over. The lead gets one more line: do not summarize or repeat a
      specialist's post back to the user, because they see it. `reef context` has no team and
      prints none of this.
-   - On a feature, one line that names the tools for details (`recall`, `read_memory`, `read_thread`,
-     `list_tasks`, `search_sessions`), `remember` and `propose_brief`. A quick session gets a
+   - On a work item, one line that names the tools for details (`recall`, `read_memory`, `read_thread`,
+     `search_sessions`), `remember` and `propose_brief`. A quick session gets a
      shorter one: details are on demand through `recall` and `read_memory`, and `remember` saves
      what holds across the project or for the role, with scope `project` or `teammate`. So a
      quick session always has a `## How to work`.
 3. `## What we know`, each part under a `###` label and only when it has content:
-   - `### Brief`: the latest brief, in full. Features only.
-   - `### Decisions`: every live decision item in the feature's `work_item` scope, newest first,
-     with no limit. Features only.
+   - `### Brief`: the latest brief, in full. Work items only.
+   - `### Decisions`: every live decision item in the work item's `work_item` scope, newest first,
+     with no limit. Work items only.
    - `### Findings`: the 5 newest accepted findings, facts, conventions and lessons in the
-     feature's `work_item` scope. Features only.
+     work item's `work_item` scope. Work items only.
    - `### Project`: the 10 newest accepted items in the project's scope.
    - `### Team`: the 5 newest accepted items in the team's scope, only when the Space's team
      is a real team: the `solo` team is no team and has none. `reef context` prints none.
    - `### Your items`: the 5 newest accepted items in the role's `teammate` scope.
-   - `### Doing`: one line `task N: title` for each task in status `doing`.
    - `### On demand`: one line that counts what the role can look up:
-     `23 open tasks (list_tasks). 3 earlier spaces (search_sessions).` Open tasks are those not
-     `done`; earlier Spaces are the feature's Spaces that have messages, not counting the
-     Space the prompt is for. A count of one reads `1 open task` and `1 earlier space`. A zero
-     count is left out of the line, and the part is left out when both are zero.
+     `3 earlier Spaces (search_sessions).` Earlier Spaces are the work item's Spaces that have
+     messages, not counting the Space the prompt is for. A count of one reads `1 earlier Space`.
+     A zero count is left out, and the part is left out with it.
 
    Only accepted items are read: a candidate, a rejected item and a retired item never appear.
    Newest means accepted last: a candidate the user approves is newer than an item accepted
@@ -348,18 +334,16 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
    that scope, so the agent knows to recall the rest. A quick session has only Project, Team
    and Your items. The old decision, notes and project memory tables are not read.
 
-Example, for a feature with one approved wrap-up, asked by the developer of a team of two:
+Example, for a work item with one approved wrap-up, asked by the developer of a team of two:
 
 ```
 ## You
-You are the developer on feature "Email login" (login) in project "shop".
-Goal: Users sign in with email and password
-Stage: ideation
-Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
+You are the developer on work item "Email login" (1) in project "shop".
+Description: Users sign in with email and password
 
 ## How to work
 Your team: @lead, @developer. Use post_to_space and @mentions for work the whole team needs: ...
-Details are on demand through the reef MCP tools recall, read_memory, read_thread, list_tasks and search_sessions. Record decisions with remember. When the user and the team agree on the goal, scope or plan, call propose_brief.
+Details are on demand through the reef MCP tools recall, read_memory, read_thread and search_sessions. Record decisions with remember. When the user and the team agree on the goal, scope or plan, call propose_brief.
 
 ## What we know
 ### Brief
@@ -383,17 +367,14 @@ convention 2: Sessions are stored server-side, not JWT. (architect, 2026-10-12)
 lesson 3: Ask before adding a dependency. (developer, 2026-10-12)
 1 of 1; recall(..., scope=teammate)
 
-### Doing
-task 2: Build the login form
-
 ### On demand
-3 open tasks (list_tasks). 1 earlier Space (search_sessions).
+1 earlier Space (search_sessions).
 ```
 
 ## reef chat
 
 ```
-reef chat <feature> --role R --backend claude|codex [--name N] [--permission-mode M] [--debug]
+reef chat <work-item> --role R --backend claude|codex [--name N] [--permission-mode M] [--debug]
 reef chat --space ID [--debug]
 ```
 
@@ -411,12 +392,12 @@ A Space stores its role, its backend and its permission mode (see
 running (error `chat exited`). That turn belonged to a `reef chat` that died, because this
 one now holds the chat lock. The turn keeps the prompt and the tokens stored while it ran,
 so the next turn of that role does not send its intro again. It starts no agent: a teammate's agent starts when that role has
-its first turn, in the project's folder (a Space on a feature: the feature's worktree, see
+its first turn, in the project's folder (a Space on a work item: the work item's worktree, see
 [server.md](server.md#spaces-live)), with one MCP server named `reef` (this `reef`
 binary, `mcp --data <data folder>`, with that teammate's own new token in `REEF_TOKEN`), plus
 the role's own `mcpServers`. Claude runs the reef tools without approval; the role's own
 servers need their tools in `tools` (see [agents.md](agents.md#gotchas)).
-So a `reef chat` on a feature needs the project to be a git repo with a commit. Like `reef
+So a `reef chat` on a work item needs the project to be a git repo with a commit. Like `reef
 serve`, it takes a checkpoint before each turn of a role with `write` (the `solo` lead has
 it). The one-writer lock of a tree is a file lock in the data folder, so a `reef chat` and
 `reef serve` on the same tree wait for each other.
@@ -441,12 +422,12 @@ its first turn: a first message that goes to a specialist starts no lead.
   nothing replaced it) for each one retired since. An item added and retired since is named as
   retired only: the role may have seen it in its previous turn. A candidate, a rejected item
   and the `teammate` items of another role never appear. Under `### New brief`: the latest brief,
-  in full, when a version is newer (a feature's Space only); the next turn does not repeat it. A wake with no change has
-  neither part, tasks are never in it, and a change alone starts no turn. Nothing is stored for
+  in full, when a version is newer (a work item's Space only); the next turn does not repeat it. A wake with no change has
+  neither part, and a change alone starts no turn. Nothing is stored for
   it: the turn's `prompt` holds the text. It is built after the turn's start is stamped, so what
   is written while the turn waits for its tree is in it or in the next one, never in neither.
 - Without one, the agent starts a new session and the context prompt goes before the
-  first message, in the same prompt: the three sections above, for a Space on a feature
+  first message, in the same prompt: the three sections above, for a Space on a work item
   and for a quick session alike. It is built after the turn's start is stamped, from the team
   and the role as they are then, so a retry of a failed first send has any edit made since.
 - When the backend compacts the role's session (a `compacted` event, see
@@ -458,8 +439,8 @@ its first turn: a first message that goes to a specialist starts no lead.
   it get the changes again. A role whose agent starts again after a stop or a restart reads the
   mark from its newest sent turn, so it gets the full first prompt too.
 
-New Space (`<feature> --role R --backend B`): it makes a Space named `N` (default
-`<role> chat`) on the feature, with the role, backend and `--permission-mode`, then opens
+New Space (`<work-item> --role R --backend B`): it makes a Space named `N` (default
+`<role> chat`) on the work item, with the role, backend and `--permission-mode`, then opens
 it. A backend typo, or an agent that
 does not start, deletes the Space again.
 
@@ -514,7 +495,7 @@ A Space ends explicitly, never on a timer. The user types `/wrap` in `reef chat`
 1. `reef chat` sends the agent a fixed prompt instead of `/wrap`. The stored user message
    is still `/wrap`. The prompt asks the agent to call `get_brief` first, then `propose_wrap`
    once, with the full brief written as the latest brief plus what this Space achieved
-   (keep what still holds, status is where the feature is now and not a history, drop what
+   (keep what still holds, status is where the work item is now and not a history, drop what
    is done or no longer true, stay short), and as `items` what the Space made that the
    agent has not saved with `remember` yet: decisions, findings, facts, lessons and
    conventions, each with a scope (`work_item` by default, `project`, `teammate`). Items it
@@ -546,7 +527,7 @@ the network, and that must not hold the database write lock. It runs in three st
 same code serves `reef chat`, `reef wrap approve` and the server:
 
 1. Each item is saved with `remember`, the role as author and role, in the scope it names
-   (`work_item` is the Space's feature, `project` its project, `teammate` the role, `team`
+   (`work_item` is the Space's work item, `project` its project, `teammate` the role, `team`
    the Space's team). The usual write rules apply, so a `team` item, and a convention from a
    role other than `architect` or `lead`, is a `candidate` that waits in `reef memory pending`.
    An item whose exact body is already an accepted or candidate item of that scope is
@@ -589,9 +570,9 @@ folder:
 ```
 $ reef project add
 1  shop  /Users/me/code/shop
-$ reef feature add login "Email login"
-1  login  Email login
-$ reef token login --role developer
+$ reef work-item add "Email login"
+1  work item  Email login
+$ reef token 1 --role developer
 claude mcp add reef --env REEF_TOKEN=572b4e83...abda4 -- /usr/local/bin/reef mcp --data '/Users/me/Library/Application Support/Reef'
 ```
 
@@ -600,10 +581,10 @@ token and gets the tools above as `mcp__reef__<tool>`. Start the session with th
 prompt:
 
 ```
-claude "$(reef context login --role developer)"
+claude "$(reef context 1 --role developer)"
 ```
 
-Claude Code's own messages are not stored in Reef. Only what the tools write is: memory items,
-tasks and proposals. The Space that `reef token` made stays empty, so `search_sessions`
+Claude Code's own messages are not stored in Reef. Only what the tools write is: memory items
+and proposals. The Space that `reef token` made stays empty, so `search_sessions`
 and `read_thread` see only `reef chat` Spaces. Each `reef token` call makes a new
 Space and token.

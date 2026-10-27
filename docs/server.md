@@ -58,17 +58,17 @@ embeds `web/dist` as it was at build time. A Space's agent is the `claude` or `c
 logged in and on `PATH`.
 
 - Sidebar: a top row with the brand and a New Space button, search, the project switcher,
-  then Today, Needs you and a Features section: its header has a button to add a feature, and
-  each feature is a group with its stage chip (a fixes feature shows `done/total` of its tasks instead), collapsible, over one row per Space
+  then Today, Needs you and a Work items section: its header has a button to add a work item, and
+  each top-level work item is a group, collapsible, over one row per Space
   (teammate creatures, name, a preview of the newest message from `lastMessage`, its time);
-  quick sessions are listed after the features. A feature's closed Spaces are folded under "Wrapped (N)" below its open ones, and closed features under "Closed (N)" at the bottom. The list scrolls; the foot is fixed and shows your name beside the Tasks, Teams and
+  quick sessions are listed after the work items. A work item's closed Spaces are folded under "Wrapped (N)" below its open ones, and closed work items under "Closed (N)" at the bottom. The list scrolls; the foot is fixed and shows your name beside the Teams and
   Settings links. Below 768 px the sidebar is a
-  bottom tab bar (Today, Spaces, Needs you, Tasks, Teams) and a Space opens full screen.
-- Today (`/`): what waits on you, the project's features and recent done tasks, and capture.
+  bottom tab bar (Today, Spaces, Needs you, Teams) and a Space opens full screen.
+- Today (`/`): what waits on you, the project's work items, and capture.
 - Space: bubbles with each author's creature, replies folded under their thread root with a
   count, and a side panel for the team, a thread, the inspector, the pull request or the diff (its expand button opens
   the review page). The header's `PR #N` chip opens the pull request panel: title, state, base and head, review, checks and
-  Open on GitHub; Merge asks to confirm, then does `POST /features/{id}/pr/merge`. The running turn names its
+  Open on GitHub; Merge asks to confirm, then does `POST /work-items/{id}/pr/merge`. The running turn names its
   teammate. Teammates' direct messages (`GET /spaces/{id}/direct-messages`) are never bubbles: each conversation
   between two roles (from one public source message, or from none) is one compact item at the time of its
   first message, saying working, waiting approval, paused, failed, stopped, rejected or completed (the state of
@@ -89,8 +89,8 @@ logged in and on `PATH`.
   listed. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
   reply is the stored message, so the live block does not repeat it.
 - A closed Space shows "Wrapped" and Reopen where the Wrap up button and composer were.
-- Feature page (`/features/{id}`), with Close feature (asks to confirm) or Reopen, and its diff review page (`/features/{id}/review`); project
-  page (`/projects/{id}`) with its features. The feature page lists the feature's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
+- Work item page (`/work-items/{id}`), with Close work item (asks to confirm) or Reopen, and its diff review page (`/work-items/{id}/review`); project
+  page (`/projects/{id}`) with its work items. The work item page lists the work item's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
 - Needs you (`/inbox`): what waits on you from [`/inbox/events`](#inbox), with a count and
   the action of each item (Approve or Reject, Continue, Retry, Open). The window asks once,
   on a click, to show desktop notifications and then shows one for each item that is new
@@ -114,7 +114,7 @@ logged in and on `PATH`.
   project. A name with no project starts at the project step; a project with no name asks only
   for the name.
 
-Client routes such as `/features/3`, `/tasks` and `/inbox` have the same paths as the REST API. In the Go server, `GET /` and `HEAD /` always get the app's `index.html`; other `GET` or `HEAD` requests get it when the `Accept` header includes `text/html`. Every other request goes to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`) are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
+Client routes such as `/features/3` and `/inbox` have the same paths as the REST API. In the Go server, `GET /` and `HEAD /` always get the app's `index.html`; other `GET` or `HEAD` requests get it when the `Accept` header includes `text/html`. Every other request goes to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`) are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
 
 Dev mode: run `reef serve --addr 127.0.0.1:7701 --data ~/Library/Application\ Support/Reef\ Dev`,
 then `cd web && npm run dev` and open `http://localhost:5173`. Vite proxies the API paths to
@@ -122,7 +122,7 @@ then `cd web && npm run dev` and open `http://localhost:5173`. Vite proxies the 
 
 ## Errors
 
-Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its project: conflict"}`.
+Every error has a JSON body: `{"error": "work item 9: not found"}`.
 
 | Status | When |
 | --- | --- |
@@ -130,7 +130,7 @@ Every error has a JSON body: `{"error": "feature slug \"login\" is taken in its 
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
-| 409 | A unique rule broke: a feature slug is taken in its project. A send to a Space with a wrap or promote turn running, to a Space paused by a cap other than the hop cap or to a Space open in a `reef chat`; `continue` on a Space that is not paused or has a turn running; `retry` of a turn that is not [retryable](#spaces-live), or on a Space with a turn running or paused; `rollback` on a Space with a turn running or open in a `reef chat`, on a tree other than the checkpoint's, or on a tree a turn runs on; an approval that is not pending, or one approved while the Space is paused |
+| 409 | A unique rule broke. A send to a Space with a wrap or promote turn running, to a Space paused by a cap other than the hop cap or to a Space open in a `reef chat`; `continue` on a Space that is not paused or has a turn running; `retry` of a turn that is not [retryable](#spaces-live), or on a Space with a turn running or paused; `rollback` on a Space with a turn running or open in a `reef chat`, on a tree other than the checkpoint's, or on a tree a turn runs on; an approval that is not pending, or one approved while the Space is paused |
 | 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
 | 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
@@ -199,49 +199,59 @@ since decision 91: the context prompt and the project page read the project's me
 | `projectId` | number | from the path |
 | `body` | string | default `""` |
 
-### feature
+### work_item
+
+One row per Work item. A Work item has a `type` that is only a label; it never changes how it behaves. One level of nesting: a sub-item has a `parentId` and cannot have sub-items.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
-| `projectId` | number | required on create; never changes. Deleting the project deletes the feature |
-| `slug` | string | required; lowercase letters, digits and `-`, not starting with `-` (`^[a-z0-9][a-z0-9-]*$`) and not only digits (`invalid: feature slug "2024" must contain a letter or -`), because it becomes a branch and folder name and a digit-only `<feature>` ref means an id; unique within the project (409 if taken); fixed after create, a slug in a `PUT` body is ignored |
-| `name` | string | required |
-| `goal` | string | default `""` |
-| `stage` | string | default `ideation`; not checked against a list |
-| `kind` | string | `journey` (default) or `fixes`, else `invalid`. A `fixes` feature is a list of small fixes whose state is its tasks: the feature page and the sidebar show the tasks done, `N of M done`, in place of the stage bar, and its agents are told it is a list of fixes instead of the stage. A `PUT` without `kind` keeps the old one |
+| `projectId` | number | required on create; never changes. Deleting the project deletes the item |
+| `parentId` | number? | `null` for a top-level item. Must be a top-level item of the same project, else `invalid: work item 2 is a sub-item and cannot have sub-items`; never changes. Deleting the parent deletes its sub-items |
+| `type` | string | `work item` (default), `bug`, `incident`, `investigation`, `task` or `improvement`, else `invalid`. A `PUT` without `type` keeps the old one |
+| `title` | string | required |
+| `description` | string | default `""` |
+| `status` | string | `backlog` (default), `queued`, `in_progress`, `needs_you`, `review`, `done` or `dropped`, else `invalid`. The store only keeps it; the rules for who may move it where are not enforced yet. A `PUT` without `status` keeps the old one |
+| `teamId` | number? | the Team that works on it |
+| `proposedBy` | string | default `""`; set on create only |
+| `suggestedTeamId` | number? | |
+| `queuePosition` | number? | `null` when not queued |
+| `tokenBudget` | number | default 1,000,000; a `PUT` with 0 keeps the old one |
 | `createdAt` | string | |
-| `closedAt` | string? | `null` while the feature is open. Set by `POST /features/{id}/close`, cleared by `/reopen`; never set by a client. Stage stays a label: a closed feature is not gated |
+| `closedAt` | string? | `null` while the item is open. Set by `POST /work-items/{id}/close`, cleared by `/reopen`; never set by a client |
+| `acceptanceLines` | array | `{position, text, checked, note}` in order, `position` counting from 1. On create and `PUT`, the array replaces all lines (`position` is the index in it); a `PUT` without `acceptanceLines` keeps them. A line with no `text` is `invalid` |
 
-### feature_github
+A `PUT` replaces every editable field: `title`, `description`, `type`, `status`, `teamId`, `suggestedTeamId`, `queuePosition`, `tokenBudget`, `acceptanceLines`. A field left out clears `teamId`, `suggestedTeamId` and `queuePosition`, so send the whole item back.
 
-The last GitHub PR state the [GitHub poll](#github-poll) posted about a feature, kept across
-a restart so it does not repeat a note. No REST route; tables `feature_github` (one row per
-feature: `pr_number`, `pr_state`, `pr_url`) and `feature_github_check` (one row per
-`(feature, check name, run key)` of the feature's PR: `run_key`, `woken`; a row's existence
-means it was noted), migration 16
-[`016_feature_github.sql`](../store/migrations/016_feature_github.sql).
+### work_item_github
+
+The last GitHub PR state the [GitHub poll](#github-poll) posted about a Work item, kept across
+a restart so it does not repeat a note. No REST route; tables `work_item_github` (one row per
+item: `pr_number`, `pr_state`, `pr_url`) and `work_item_github_check` (one row per
+`(work item, check name, run key)` of the item's PR: `run_key`, `woken`; a row's existence
+means it was noted), migration 42
+[`042_work_item.sql`](../store/migrations/042_work_item.sql).
 
 ### brief
 
-One row per version. A feature's brief is its latest version.
+One row per version. A work item's brief is its latest version.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | version order |
-| `featureId` | number | from the path |
+| `workItemId` | number | from the path |
 | `body` | string | required |
 | `author` | string | required |
 | `createdAt` | string | |
 
 ### role_notes
 
-One row per feature and role. Nothing reads them since decision 91: a role's own items are in
+One row per work item and role. Nothing reads them since decision 91: a role's own items are in
 scope `teammate`. Their routes still read and write them.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
-| `featureId` | number | from the path |
+| `workItemId` | number | from the path |
 | `role` | string | from the path |
 | `body` | string | may be empty |
 | `updatedAt` | string | |
@@ -252,7 +262,7 @@ scope `teammate`. Their routes still read and write them.
 | --- | --- | --- |
 | `id` | number | |
 | `projectId` | number | required on create; never changes |
-| `featureId` | number? | set on create. It changes only from `null`, once, when a promote gives a quick session its feature. `null` is a quick session. Must be a feature of the same project. Deleting the feature deletes the Space |
+| `workItemId` | number? | set on create. It changes only from `null`, once, when a promote gives a quick session its work item. `null` is a quick session. Must be a work item of the same project. Deleting the work item deletes the Space |
 | `name` | string | required |
 | `role` | string | the name of the lead role of the Space's team. Empty when not set. For a Space from before this field existed, the role of its newest turn |
 | `backend` | string | `claude` or `codex`, the agent that runs the Space. Empty when not set. For an older Space, the backend of its newest turn |
@@ -261,7 +271,7 @@ scope `teammate`. Their routes still read and write them.
 | `tokenBudget` | number | tokens the Space may use before it pauses. Starts at 1,000,000. Set by the server only |
 | `team` | string | the name of the Space's [team](#team). `solo` when none is given, and for every Space from before teams. Set on create, never changes |
 | `createdAt` | string | |
-| `closedAt` | string? | `null` while the Space is open. Set when its wrap-up is approved and when its feature is closed, cleared by `POST /spaces/{id}/reopen`. A closed Space takes no turn (409) |
+| `closedAt` | string? | `null` while the Space is open. Set when its wrap-up is approved and when its work item is closed, cleared by `POST /spaces/{id}/reopen`. A closed Space takes no turn (409) |
 
 ### message
 
@@ -325,30 +335,15 @@ memory item of kind `decision` (`remember`, `reef decide`, `POST /memory`). Its 
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
-| `featureId` | number | required |
-| `messageId` | number? | optional. Must be a message in a Space of the same feature. `null` if that message is later deleted |
+| `workItemId` | number | required |
+| `messageId` | number? | optional. Must be a message in a Space of the same work item. `null` if that message is later deleted |
 | `body` | string | required |
 | `why` | string | default `""` |
 | `author` | string | required |
 | `createdAt` | string | |
 | `retiredAt` | string? | `null` while the decision is live. Set when it is retired: stale, duplicate or replaced. A retired decision is never edited or deleted, and still reads |
 | `replacedBy` | number? | the decision that replaced it, if one did; `null` for a plain retire |
-| `replaces` | array? | input to create, echoed in its response and never in a read: ids of live decisions of the same feature that the new decision retires, with their `replacedBy` set to it. Any other id is `invalid: decision 9 is not a live decision of feature 1` and nothing is written |
-
-### task
-
-The list is global. A task belongs to a project and may name a feature.
-
-| Field | JSON | Notes |
-| --- | --- | --- |
-| `id` | number | |
-| `projectId` | number | required on create; never changes |
-| `featureId` | number? | must be a feature of the same project. `null` if that feature is later deleted |
-| `title` | string | required |
-| `body` | string | default `""` |
-| `status` | string | `todo` (default), `doing` or `done` |
-| `createdAt` | string | |
-| `updatedAt` | string | set on every update |
+| `replaces` | array? | input to create, echoed in its response and never in a read: ids of live decisions of the same work item that the new decision retires, with their `replacedBy` set to it. Any other id is `invalid: decision 9 is not a live decision of work item 1` and nothing is written |
 
 ### team
 
@@ -487,7 +482,7 @@ promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
-| `spaceId` | number | required; must be a Space of a feature. Deleting the Space deletes the proposal |
+| `spaceId` | number | required; must be a Space of a work item. Deleting the Space deletes the proposal |
 | `role` | string | required; author of the brief and items it applies |
 | `kind` | string | `wrap` (default) or `brief`; any other is `invalid: unknown proposal kind "x"` |
 | `brief` | string | required, not empty; the full new brief |
@@ -502,7 +497,7 @@ promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 `{id}` is a number. Lists come back as `[]` when empty, ordered by id (oldest first).
 Create returns 201 and the row. Update returns 200 and the row. Delete returns 204 and no
 body. Deleting a row deletes what hangs off it by foreign key: a project takes its
-features, Spaces and tasks; a feature takes its briefs, notes, decisions and Spaces;
+work items, Spaces; a work item takes its briefs, notes, decisions and Spaces;
 a Space takes its messages, turns, tokens, proposals and approvals; a turn takes its
 tool calls.
 
@@ -513,30 +508,30 @@ tool calls.
 | `GET /projects` | | 200 | |
 | `POST /projects` | `name`, `path` | 201 | 400 missing field, or a `path` that is not an absolute path to an existing folder |
 | `GET /projects/{id}` | | 200 | 404 |
-| `PUT /projects/{id}` | `name`, `path`, `baseBranch` (optional; the branch a new feature starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
-| `DELETE /projects/{id}` | | 204; the worktrees of its features and the checkpoint refs of the turns of all its Spaces are removed, its branches are kept | 404, 409 a feature's worktree has uncommitted changes (nothing is removed) |
+| `PUT /projects/{id}` | `name`, `path`, `baseBranch` (optional; the branch a new work item starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
+| `DELETE /projects/{id}` | | 204; the worktrees of its work items and the checkpoint refs of the turns of all its Spaces are removed, its branches are kept | 404, 409 a work item's worktree has uncommitted changes (nothing is removed) |
 | `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set. Unused since decision 91 | 404 |
 | `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200. Unused since decision 91 | 404 |
 | `GET /profile` | | 200 | 404 no name set yet |
 | `PUT /profile` | `name`, `occupation`, `style`; replaces the old profile | 200 | 400 empty name or a line break in a field |
-| `GET /features` | `?project=ID` | 200 | 400 bad id |
-| `POST /features` | `projectId`, `slug`, `name`, `goal`, `stage`, `kind` | 201 | 400 unknown project, 409 slug taken |
-| `GET /features/{id}` | | 200 | 404 |
-| `PUT /features/{id}` | `name`, `goal`, `stage`, `kind` | 200 | 400, 404 |
-| `POST /features/{id}/close` | no body needed | 204; sets `closedAt` on the feature and on each of its Spaces, and stops their agents | 404, 409 a Space has a turn running (nothing is closed) |
-| `POST /features/{id}/reopen` | no body needed | 204; clears the feature's `closedAt` only, its Spaces stay closed | 404 |
-| `DELETE /features/{id}` | | 204; the feature's worktree and the checkpoint refs of its turns are removed, its branch is kept | 404, 409 the worktree has uncommitted changes (nothing is removed) |
-| `GET /features/{id}/brief` | | 200 latest version | 404 no feature, or no brief yet |
-| `PUT /features/{id}/brief` | `body`, `author` | 201 new version | 400, 404 |
-| `GET /features/{id}/brief/versions` | | 200 oldest first | 404 |
-| `GET /features/{id}/notes/{role}` | | 200. Unused since decision 91 | 404 no feature, or no notes for the role |
-| `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200. Unused since decision 91 | 404 no feature |
-| `DELETE /features/{id}/notes/{role}` | | 204. Unused since decision 91 | 404 no feature, or no notes for the role |
-| `GET /features/{id}/worktree` | | 200 `{"path": "..."}`; the path of the feature's worktree, or `""` when it has none yet. Never makes one | 404 |
-| `POST /features/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the feature's worktree the same way the first wake of one of its Spaces would, reusing it when it already exists | 404 |
-| `GET /features/{id}/diff` | query `scope=current` for the changes against the worktree's HEAD only | 200 the worktree's changes against the commit its branch and the project's base branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
-| `GET /features/{id}/pr` | | 200 `{"pr": {"number", "title", "state": "OPEN"\|"MERGED"\|"CLOSED", "url", "isDraft", "reviewDecision", "base", "head", "canMerge", "checks": [{"name", "state": "pass"\|"fail"\|"pending"}], "body", "additions", "deletions", "files": [{"path", "additions", "deletions"}]}}`, from `gh pr view feature/<slug>` run in the project's folder; `canMerge` is true only when `state` is `OPEN` and gh calls it `MERGEABLE`; `{"pr": null}` when the branch has no PR | 404, 502 gh is not on `PATH` or failed, with its text |
-| `POST /features/{id}/pr/merge` | no body needed | 200 the same body as `GET /features/{id}/pr`, after `gh pr merge <number> --merge` (a merge commit) | 404 no feature or no PR, 409 gh refused, with its text, 502 |
+| `GET /work-items` | `?project=ID`, `?parent=ID`, `?status=S`, `?type=T` | 200, with each item's `acceptanceLines` | 400 bad id, status or type |
+| `POST /work-items` | `projectId`, `parentId`, `type`, `title`, `description`, `status`, `acceptanceLines` and the other fields above | 201 | 400 unknown project, unknown parent, a parent that is a sub-item, bad type or status |
+| `GET /work-items/{id}` | | 200 | 404 |
+| `PUT /work-items/{id}` | the editable fields above | 200 | 400, 404 |
+| `POST /work-items/{id}/close` | no body needed | 204; sets `closedAt` on the work item and on each of its Spaces, and stops their agents | 404, 409 a Space has a turn running (nothing is closed) |
+| `POST /work-items/{id}/reopen` | no body needed | 204; clears the work item's `closedAt` only, its Spaces stay closed | 404 |
+| `DELETE /work-items/{id}` | | 204; the work item's worktree and the checkpoint refs of its turns are removed, its branch is kept | 404, 409 the worktree has uncommitted changes (nothing is removed) |
+| `GET /work-items/{id}/brief` | | 200 latest version | 404 no work item, or no brief yet |
+| `PUT /work-items/{id}/brief` | `body`, `author` | 201 new version | 400, 404 |
+| `GET /work-items/{id}/brief/versions` | | 200 oldest first | 404 |
+| `GET /work-items/{id}/notes/{role}` | | 200. Unused since decision 91 | 404 no work item, or no notes for the role |
+| `PUT /work-items/{id}/notes/{role}` | `body`; replaces the old notes | 200. Unused since decision 91 | 404 no work item |
+| `DELETE /work-items/{id}/notes/{role}` | | 204. Unused since decision 91 | 404 no work item, or no notes for the role |
+| `GET /work-items/{id}/worktree` | | 200 `{"path": "..."}`; the path of the work item's worktree, or `""` when it has none yet. Never makes one | 404 |
+| `POST /work-items/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the work item's worktree the same way the first wake of one of its Spaces would, reusing it when it already exists | 404 |
+| `GET /work-items/{id}/diff` | query `scope=current` for the changes against the worktree's HEAD only | 200 the worktree's changes against the commit its branch and the project's base branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the work item has no worktree yet | 404 |
+| `GET /work-items/{id}/pr` | | 200 `{"pr": {"number", "title", "state": "OPEN"\|"MERGED"\|"CLOSED", "url", "isDraft", "reviewDecision", "base", "head", "canMerge", "checks": [{"name", "state": "pass"\|"fail"\|"pending"}], "body", "additions", "deletions", "files": [{"path", "additions", "deletions"}]}}`, from `gh pr view work-item/<id>` run in the project's folder; `canMerge` is true only when `state` is `OPEN` and gh calls it `MERGEABLE`; `{"pr": null}` when the branch has no PR | 404, 502 gh is not on `PATH` or failed, with its text |
+| `POST /work-items/{id}/pr/merge` | no body needed | 200 the same body as `GET /work-items/{id}/pr`, after `gh pr merge <number> --merge` (a merge commit) | 404 no work item or no PR, 409 gh refused, with its text, 502 |
 | `GET /skills?project={id}` | `project` is required | 200 `{"claude":[...],"codex":[...]}`, each a list of `{name, description}` read from disk, never stored. claude: `~/.claude/skills`, the project's `.claude/skills` and the skills of the plugins in `~/.claude/plugins/installed_plugins.json` installed for the user or for the project path, named `plugin:skill`. codex: `~/.agents/skills` and the project's `.agents/skills`. A name found twice is listed once; each list is ordered by name. A skill whose name is not letters, digits, `:`, `_` or `-`, or whose file cannot be read, is left out, and a malformed `installed_plugins.json` gives no plugin skills; each is logged and the rest are listed | 400 `project` missing or not a number, 404 |
 | `GET /providers` | | 200 the detected `claude` and `codex` (those found on `PATH`), then the added ones oldest first, each `{name, kind, detected, folder, path, version, createdAt}`. `detected` is `true` for the ones on `PATH`, which have no `folder` or `createdAt`. `path` is the binary that would run (left out when an added install's binary is gone). `version` is the trimmed output of `path --version`, run for all of them at once with a 3 s limit, and left out when it fails or is late. Models and login state are not listed | |
 | `POST /providers` | `name`, `kind`, `folder` | 201 the added provider, in the shape `GET` gives | 400 bad name, `kind` not `claude` or `codex`, `folder` not an absolute path to a folder, or no executable of that kind in it; 409 `name` is taken, or is `claude` or `codex` |
@@ -552,33 +547,28 @@ tool calls.
 | `POST /teams/{name}/members` | `teammateId`, `lead` | 201 the role as `GET /teams/{name}` shows it, with the teammate's default access copied | 400 unknown teammate, a second lead, or `solo`; 404 team; 409 already a member |
 | `PUT /teams/{name}/members/{id}` | `lead`, `tools`, `mcpServers` (left out keeps the stored ones), `write`, `permissionMode` | 200 the role | 400 as `PUT /teams`, a second lead; 404 |
 | `DELETE /teams/{name}/members/{id}` | | 204 | 400 `solo`; 404 |
-| `GET /spaces` | `?project=ID`, `?feature=ID` | 200 each Space also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
-| `POST /spaces` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the Space's `role` becomes the name of the team's lead role). A `name` is required; one that is the new-space form's default, `<backend or team> <hh:mm>` (`claude 14:32`, `claude 02:32 PM`), marks the Space as waiting for a provider name, see [Space names](#space-names) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
+| `GET /spaces` | `?project=ID`, `?workItem=ID` | 200 each Space also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
+| `POST /spaces` | `projectId`, `workItemId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the Space's `role` becomes the name of the team's lead role). A `name` is required; one that is the new-space form's default, `<backend or team> <hh:mm>` (`claude 14:32`, `claude 02:32 PM`), marks the Space as waiting for a provider name, see [Space names](#space-names) | 201 | 400 unknown project, work item or team, work item of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /spaces/{id}` | | 200 | 404 |
-| `PUT /spaces/{id}` | `name` (required), `permissionMode`; project, feature, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the Space's backend and applies the next time its agent starts. A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or permission mode, 404 |
+| `PUT /spaces/{id}` | `name` (required), `permissionMode`; project, work item, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the Space's backend and applies the next time its agent starts. A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or permission mode, 404 |
 | `DELETE /spaces/{id}` | stops the Space first if it is live; a send during the delete is 404 | 204 | 404 |
 | `POST /spaces/{id}/send` | `text`, `parent` (optional: the id of a top-level message of this Space; the message is stored as a reply in its thread) | 202, no body; while a message chain starts or runs the message is stored and its wakes [queue](#routing) behind the current turn | 400 empty text, an unknown field (`role` is not a field), a `parent` that is not a top-level message of this Space, or `/wrap` on a quick session, 404 (also while the Space is being deleted), 409 wrap or promote turn running, Space closed, Space paused (a hop cap pause does not count), open elsewhere or stopped before its turn began, 503 |
 | `GET /spaces/{id}/events` | | 200 `text/event-stream` | 404 |
 | `GET /spaces/{id}/inspector` | | 200 per role: `role`, `turns`, `usage` (summed), `costUsd` (summed, `null` when no turn of the role has a cost); per turn: `id`, `role`, `startedAt`, `status`, `model`, `usage`, `costUsd`, `prompt`, `reply`, `toolCalls` (`name`, `input`, `result`, and `children` when it is an `Agent` call: its subagent's calls, same shape, not repeated at top level) | 404 |
 | `GET /spaces/{id}/direct-messages` | `?after=ID` (only newer ids) | 200 all direct requests and response attempts in the Space, oldest first; each has `id`, `spaceId`, `chainId`, `replyToId`, `sourceMessageId?`, `from`, `to`, `body`, `status` (`sent`, `done` or `failed`), `createdAt` | 400 bad id, 404 |
-| `GET /search` | `?feature=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the feature's public messages and all its direct messages, newest first, `[]` when none. Each hit has `spaceId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `feature`, missing `q` |
+| `GET /search` | `?workItem=ID&q=TEXT` (both required), `limit=N` (default 20) | 200 hits across the work item's public messages and all its direct messages, newest first, `[]` when none. Each hit has `spaceId`, `messageId`, `kind` (`public` or `direct`), `author` and `snippet` (about 120 characters around the match, case ignored for ASCII); a direct hit also has `from`, `to` and `chainId`, and its `messageId` is the direct message id | 400 missing or bad `work item`, missing `q` |
 | `POST /spaces/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
 | `POST /spaces/{id}/stop` | no body needed | 204, also when the Space is not live or does not exist | |
 | `POST /spaces/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
 | `GET /spaces/{id}/approvals` | | 200 the Space's pending gate approvals, oldest first; `[]` when none | 404 |
 | `POST /spaces/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body; approve while a chain starts or runs queues the wake behind the current turn | 400 no `approve`, 404 no such approval in this Space, 409 not pending, or approve while the Space is paused (it stays pending), 503 |
-| `POST /spaces/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
-| `POST /spaces/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the Space | 400 bad body, Space already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
+| `POST /spaces/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no work item); 404, 409 and 503 as send |
+| `POST /spaces/{id}/promote` | `title` for a new work item, or `workItemId` for an existing one; exactly one form | 202 the Space | 400 bad body, Space already has a work item, work item of another project; 404; 409 as send; 503 |
 | `GET /spaces/{id}/proposal` | | 200 the Space's pending proposal | 404 none pending |
 | `POST /proposals/{id}/approve` | no body needed | 200 the proposal, `itemsAdded` and `warnings` (a line for each saved item that looks like a stored one or has no vector; left out when none); a wrap closes the proposal's Space and stops its agent, a brief proposal does neither | 400 already decided, 404 |
 | `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
 | `GET /messages` | `?space=ID` (required), `?after=ID` (only newer ids) | 200, each with `parentId` | 400 no Space, 404 unknown Space |
 | `POST /messages` | `spaceId`, `parentId`, `author`, `body` | 201 | 400 unknown Space, missing field, or a `parentId` that is not a top-level message of that Space |
-| `GET /tasks` | `?project=ID`, `?feature=ID`, `?status=todo\|doing\|done` | 200 | 400 bad id or status |
-| `POST /tasks` | `projectId`, `featureId`, `title`, `body`, `status` | 201 | 400 |
-| `GET /tasks/{id}` | | 200 | 404 |
-| `PUT /tasks/{id}` | `title`, `body`, `status`, `featureId` | 200 | 400, 404 |
-| `DELETE /tasks/{id}` | | 204 | 404 |
 | `GET /turns` | `?space=ID`, `?status=running\|done\|failed`, `?retryable=1` (only the turns `retry` accepts), `?rollbackable=1` (needs `space`; only the turns with a `checkpoint` taken in the tree the Space runs in now, so `rollback` is not a 409 for the tree) | 200 | 400 bad id or status, or `rollbackable` without a Space, 404 `rollbackable` on an unknown Space |
 | `POST /turns` | `spaceId`, `role`, `backend`, `sessionId`, `wakeText`, `wakeParent`, `directMessageId` | 201 | 400 bad backend or unknown Space, public message or direct message |
 | `GET /turns/{id}` | | 200 | 404 |
@@ -588,8 +578,8 @@ tool calls.
 | `GET /inbox/events` | | 200 `text/event-stream` | |
 | `POST /spaces/{id}/dismiss` | `messageId` | 204, no body; the Space's `waiting` item for that message is hidden, see [Inbox](#inbox) | 400 bad body, 404 unknown Space or a message that is not the Space's |
 | `POST /turns/{id}/rollback` | no body needed | 204, no body; the Space's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the Space has a turn running, a `reef chat` has it open, its tree is not the one the checkpoint was taken in, or a turn of any role runs on the tree, 503 |
-| `GET /decisions` | `?feature=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy`. Unused since decision 91 | 400 no feature, 404 unknown feature |
-| `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author`, `replaces` | 201. Unused since decision 91 | 400 missing field, unknown feature, a message of another feature, or a `replaces` id that is not a live decision of the feature |
+| `GET /decisions` | `?workItem=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy`. Unused since decision 91 | 400 no work item, 404 unknown work item |
+| `POST /decisions` | `workItemId`, `messageId`, `body`, `why`, `author`, `replaces` | 201. Unused since decision 91 | 400 missing field, unknown work item, a message of another work item, or a `replaces` id that is not a live decision of the work item |
 | `GET /decisions/{id}` | | 200. Unused since decision 91 | 404 |
 | `GET /memory` | `?scope=KIND:ID` (required, such as `work_item:3` or `project:1`) | 200 the accepted items of that scope, the most recently accepted first, as objects (`id`, `kind`, `body`, `why`, `scope`, `author`, `role`, `status`, `retiredAt`, `replacedBy`, `createdAt`; no `links`); `[]` when none | 400 no scope or one that is not `kind:id` |
 | `POST /memory` | `kind`, `body`, `why`, `scope` (`KIND:ID`) | 201 the item as for `GET /memory`, written with author and role `user`, so always accepted, plus `similar` (`[{id, body}]`, stored items that look like it) and `embedError` (why no vector was stored), each left out when empty | 400 unknown kind or scope kind, empty body, bad scope |
@@ -631,22 +621,22 @@ a message wakes them.
   text the wake was routed with, not the messages it would have sent. The server logs every failed turn. When the backend says the session is
   missing (claude `No conversation found`, codex `no rollout found for thread id`), that turn
   fails and the role's next wake starts a new session, with its intro, not the dead one.
-- An agent of a Space under a feature runs in the feature's worktree,
-  `<data folder>/worktrees/<project id>/<slug>`, on branch `feature/<slug>`. It is made at
-  the first start of any agent of the feature, from the project's base branch (fetched from
+- An agent of a Space under a work item runs in the work item's worktree,
+  `<data folder>/worktrees/<project id>/<work item id>`, on branch `work-item/<work item id>`. It is made at
+  the first start of any agent of the work item, from the project's base branch (fetched from
   `origin` first, a failed fetch is only logged; `origin/<branch>` if it exists, else the local
-  branch) or the repo's default branch when none is set, with `git worktree add`; a worktree or branch that exists is reused, so every Space of the feature shares
+  branch) or the repo's default branch when none is set, with `git worktree add`; a worktree or branch that exists is reused, so every Space of the work item shares
   one tree. A branch that is checked out elsewhere (in the main checkout, or in the worktree
   of another project on the same repo) cannot be added: the start fails with `branch
-  feature/<slug> is checked out at <path>; switch that checkout to another branch`. A
-  quick session runs in the project path. The feature is read at each agent
+  work-item/<id> is checked out at <path>; switch that checkout to another branch`. A
+  quick session runs in the project path. The work item is read at each agent
   start, so a promoted Space moves to the worktree at its next wake. A project that is not
   a git repo, or a repo with no commit, has no worktree: the start fails as a `failed` turn
-  whose error is `features need the project folder to be a git repo with a commit: <path>:`
+  whose error is `work items need the project folder to be a git repo with a commit: <path>:`
   and git's error, and the server goes on. A worktree whose folder was deleted is pruned and
   made again at the next wake: an agent running in the missing folder is closed, and the
   next one resumes the session in the new worktree.
-- Before each turn of a role with `write` in a git checkout (a feature's worktree, or the
+- Before each turn of a role with `write` in a git checkout (a work item's worktree, or the
   project path of a quick session that is a git repo), the server stores a checkpoint: a commit
   of HEAD plus the whole working tree, untracked files included and ignored ones left out, at
   `refs/reef/checkpoints/<data folder>/<turn id>`, where `<data folder>` is the first 12 hex
@@ -661,7 +651,7 @@ a message wakes them.
   Its message records the directory and the branch it was taken in (`dir:` and `branch:`
   lines; no branch when HEAD was detached).
 - One write turn at a time runs on a tree, across all Spaces and processes on the data
-  folder: the feature's worktree, or the project path for quick sessions. A wake of a role with `write` waits for
+  folder: the work item's worktree, or the project path for quick sessions. A wake of a role with `write` waits for
   the write turn that runs on its tree, then runs. Its turn row is created when it starts, so
   `startedAt` is after the other turn's `endedAt`. A stop ends the wait, and the turn is
   stored `failed` as `interrupted`. A claude role without `write` whose tools allow a shell
@@ -674,12 +664,12 @@ a message wakes them.
   so it does not make the role a writer. A role without `write` and with only reading commands is not held: it runs beside a
   write turn, and counts as a reader of the tree for its turn, which only a rollback
   respects. The first start
-  of a feature's worktree takes a lock of its own, so two Spaces waking at once add it once.
+  of a work item's worktree takes a lock of its own, so two Spaces waking at once add it once.
   The locks are `flock` files in `<data folder>/locks/`, named from a hash of the tree path
   (`.lock` for the writer, `.read` for readers), so `reef serve` and `reef chat` share them.
   A waiting write turn polls its lock every 20 ms. A rollback takes the writer lock without
   waiting and checks the reader file, so a read-only turn of any process refuses it.
-- `POST /turns/{id}/rollback` puts the Space's tree (the feature's worktree, or the project
+- `POST /turns/{id}/rollback` puts the Space's tree (the work item's worktree, or the project
   path of a quick session) back as the turn's checkpoint saw it: the branch the checkpoint was
   taken on is checked out at the HEAD it had, so commits made since, and a branch the turn
   switched to, are left behind (a detached checkpoint resets whatever is checked out); tracked
@@ -696,28 +686,28 @@ a message wakes them.
   learns of the rollback (and of a restart failure note) even when its wake was held at a gate
   or is a retry; a role that never ran gets none. The wake kept as `wakeText` and shown in an
   approval does not have them.
-- `DELETE /features/{id}` cleans what Reef made for the feature. It stops the agents of the
-  feature's Spaces first (a running turn is stopped, as when a Space is deleted). A
-  worktree with uncommitted changes (untracked files count) is 409 with `feature <slug> has
+- `DELETE /work-items/{id}` cleans what Reef made for the work item. It stops the agents of the
+  work item's Spaces first (a running turn is stopped, as when a Space is deleted). A
+  worktree with uncommitted changes (untracked files count) is 409 with `work item <id> has
   uncommitted changes in <path>; commit or discard them first`, and nothing is removed.
-  Otherwise the worktree is removed with `git worktree remove`, the feature rows are
+  Otherwise the worktree is removed with `git worktree remove`, the work item rows are
   deleted, and last the `refs/reef/checkpoints/<data folder>/<turn id>` refs of every turn of its Spaces
   are deleted. The worktree goes first because it is the step that can refuse or fail, and a
-  later wake of a feature makes it again; the refs go after the rows that name them, so a
+  later wake of a work item makes it again; the refs go after the rows that name them, so a
   failure there leaves refs that no turn points to, and the delete is 500. The branch
-  `feature/<slug>` is kept: it is the user's work. A feature with no worktree folder (no agent
+  `work-item/<id>` is kept: it is the user's work. A work item with no worktree folder (no agent
   ever started) only has its rows deleted. Deleting a Space keeps worktrees and refs.
-  Right after the rows go, the memory items of the feature's `work_item:<id>` scope are
+  Right after the rows go, the memory items of the work item's `work_item:<id>` scope are
   closed: pending candidates are rejected and accepted items retired, so nothing of it is left
   in `reef memory pending`. Retired and rejected items are kept and still read.
-- `DELETE /projects/{id}` does the same for every feature of the project, and deletes the
+- `DELETE /projects/{id}` does the same for every work item of the project, and deletes the
   checkpoint refs of the turns of every Space of the project, quick sessions included (their
   refs are taken in the project folder). It checks every worktree first: one with uncommitted
-  changes is 409 for that feature, and nothing is removed. Then it removes all worktrees,
+  changes is 409 for that work item, and nothing is removed. Then it removes all worktrees,
   deletes the project rows, and last deletes the refs, in the same order and with the same
-  failure rule as a feature delete. Branches are kept. Its memory items are closed the same
+  failure rule as a work item delete. Branches are kept. Its memory items are closed the same
   way, in the project's `project:<id>` scope and in the `work_item:<id>` scope of each of its
-  features.
+  work items.
 - The lead stays alive between turns, until `POST /spaces/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session. A background task a specialist started ends with its agent, and its
@@ -737,7 +727,7 @@ a message wakes them.
   `interrupted` and the agent gets no prompt. A turn that fails for another reason also stops
   every agent of the Space; the next turn opens them again, each by its own session id.
 - `DELETE /spaces/{id}` does the same as `stop` before it deletes the Space.
-  `DELETE /features/{id}` and `DELETE /projects/{id}` do it for each of their Spaces.
+  `DELETE /work-items/{id}` and `DELETE /projects/{id}` do it for each of their Spaces.
   From the start of that stop until the delete is done, a send to the Space is 404
   `space 1 is being deleted`, so no agent starts for a Space that is going away.
 - Server shutdown does the same for every Space before it stops listening.
@@ -941,7 +931,7 @@ data: {"role":"lead","status":"done"}
 
 `GET /inbox` lists what waits on the user in every Space. It is read from the rows of
 approvals, Spaces, turns and messages, so it has no table and a restart keeps it. Each
-item has `kind`, `spaceId`, `featureId` (null for a quick session), `text` and `at`, and the
+item has `kind`, `spaceId`, `workItemId` (null for a quick session), `text` and `at`, and the
 id to act with:
 
 | `kind` | Listed while | `text` | Also has | Cleared by |
@@ -967,7 +957,7 @@ When the server stops, a stream sends the last list and ends.
 
 ```
 event: inbox
-data: [{"kind":"approval","spaceId":5,"featureId":2,"text":"lead wants to wake architect","at":"2026-10-14T09:00:10.123456Z","approvalId":1}]
+data: [{"kind":"approval","spaceId":5,"workItemId":2,"text":"lead wants to wake architect","at":"2026-10-14T09:00:10.123456Z","approvalId":1}]
 ```
 
 ## Wrap-up and promotion
@@ -981,26 +971,26 @@ saves the proposal's items, retires its `retire` ids, closes the Space (`closedA
 pending wrap blocks another wrap (409 `space 2 has a wrap-up waiting for approval`). A proposal that is already decided is
 400, like `invalid: proposal 1 is already approved` in the CLI.
 
-`POST /spaces/{id}/promote` turns a quick session into a feature. It takes `{"slug":
-"login","name":"Login"}` to create the feature in the space's project, or `{"featureId":
-3}` for a feature that exists in that project. Only a Space with no feature can be
-promoted. The server first checks that the Space has no feature, that a `featureId` is
-a feature of the Space's project and that a new slug is free, so a refused promote
+`POST /spaces/{id}/promote` turns a quick session into a work item. It takes `{"title":
+"Login"}` to create the work item in the space's project, or `{"workItemId":
+3}` for a work item that exists in that project. Only a Space with no work item can be
+promoted. The server first checks that the Space has no work item and that a `workItemId` is
+a work item of the Space's project, so a refused promote
 changes nothing and never opens the agent. It then checks that no turn runs and the caps,
-as for send, and once the agent is open, in one transaction creates the feature and sets
-the Space's `featureId`. It answers 202 with the
+as for send, and once the agent is open, in one transaction creates the work item and sets
+the Space's `workItemId`. It answers 202 with the
 Space and starts a turn: the stored user message is `/promote`, and the agent gets a
-prompt that names the feature and asks it to call `propose_wrap` once with the first brief,
+prompt that names the work item and asks it to call `propose_wrap` once with the first brief,
 written from the session, and the memory items made so far, each with its scope. The user approves that
 proposal like a wrap-up, and approval makes brief version 1. The promote turn runs in the
 agent the quick session already has. When it ends, every agent of the Space is stopped, so
-the next wake of each role resumes its session in the feature's worktree. The promote first
-posts a message from `reef`: `This feature works in <worktree path> on feature/<slug>.`, and
+the next wake of each role resumes its session in the work item's worktree. The promote first
+posts a message from `reef`: `This work item works in <worktree path> on work-item/<id>.`, and
 ` Uncommitted changes stay on the main checkout.` after it when the main checkout has
-uncommitted changes. When the feature already has
+uncommitted changes. When the work item already has
 a brief, the prompt tells the agent to call `get_brief` and propose that brief merged with
 the session, and approval makes the next version. A promote that fails (a taken
-slug, a feature of another project) changes nothing, and so does one that is stopped
+a work item of another project) changes nothing, and so does one that is stopped
 before its change. A stop after the change does not undo it: the promote answers 202 and
 its turn is stored `failed`, `interrupted`.
 
@@ -1051,35 +1041,35 @@ exist in `reef chat`: it wakes nobody.
 
 ## GitHub poll
 
-`reef serve` polls GitHub for each feature that has a worktree, every `REEF_GH_INTERVAL`
+`reef serve` polls GitHub for each work item that has a worktree, every `REEF_GH_INTERVAL`
 (default 60s), once right away and then on that interval until the server closes: `gh pr
-view feature/<slug> --json number,title,url,state,isDraft,mergeable,reviewDecision,headRefName,baseRefName,statusCheckRollup,body,additions,deletions,files`, run in the project's
+view work-item/<id> --json number,title,url,state,isDraft,mergeable,reviewDecision,headRefName,baseRefName,statusCheckRollup,body,additions,deletions,files`, run in the project's
 folder. `statusCheckRollup` items are either a `CheckRun` (`name`, `status`, `conclusion`,
 `detailsUrl`, `completedAt`) or a `StatusContext` (`context`, `state`, `targetUrl`,
 `startedAt`); both are read.
 
 When the PR first appears, changes state (`open`, `merged`, `closed`) or a check run
 finishes (a `CheckRun` whose `status` is `COMPLETED`, or a `StatusContext` whose `state` is
-not `PENDING`/`EXPECTED`), the feature's most recent Space (the one with the newest
-message across the feature, or, when it has none, its most recently created Space) gets
+not `PENDING`/`EXPECTED`), the work item's most recent Space (the one with the newest
+message across the work item, or, when it has none, its most recently created Space) gets
 one message from author `reef`: `PR #12 open: <url>` or `<check name> succeeded`/`failed`.
 A check run is identified by its name plus its `detailsUrl`/`targetUrl` (falling back to
 `completedAt`/`startedAt`) as its run key; a rerun of the same check name, such as CI run
 again on a later push, is a different run key and is noted again, and two runs of the same
 name in one rollup (a matrix job, two workflows) are two rows, both noted. The state posted
-is stored one row per `(feature, name, run key)` (migration 16
-[`016_feature_github.sql`](../store/migrations/016_feature_github.sql), tables
-`feature_github` and `feature_github_check`), so a restart does not repeat it and a second
+is stored one row per `(work item, name, run key)` (migration 16
+[`016_work_item_github.sql`](../store/migrations/016_work_item_github.sql), tables
+`work_item_github` and `work_item_github_check`), so a restart does not repeat it and a second
 poll with the same answer posts nothing. No `gh` on `PATH`: nothing is posted, logged once.
 `gh` erroring (not logged in, no PR for the branch): nothing is posted, logged once per
-feature for that cause; logged again once the cause changes. A feature with a worktree but no
+work item for that cause; logged again once the cause changes. A work item with a worktree but no
 Space yet has nowhere to post: the note is recorded as sent only once it is actually posted,
 so it is not lost and posts once the first Space exists.
 
 Every failed run in a rollup (a `CheckRun` whose `conclusion` is `FAILURE`, `ERROR`,
 `TIMED_OUT` or `STARTUP_FAILURE`, or a `StatusContext` whose `state` is anything but
 `SUCCESS`/`PENDING`/`EXPECTED`) also wakes the `developer` role in that Space, once per run,
-also across restarts (`feature_github_check.woken`): several failed runs in the same rollup,
+also across restarts (`work_item_github_check.woken`): several failed runs in the same rollup,
 not yet woken, are one wake, not one each, its text naming every one of them plus the last 50
 lines of `gh run view <run id> --log-failed` for each run whose id can be read from the
 `CheckRun`'s `detailsUrl` (`/actions/runs/<id>/`); no run id, no log for that run. A Space
@@ -1100,11 +1090,11 @@ The API has no way to change or remove these rows.
 
 - Messages and decisions: create and read only. `PUT`, `PATCH` and `DELETE` on
   `/messages/{id}` and `/decisions/{id}` return 405. The only way a message or decision
-  goes away is a cascade from its Space or feature. Deleting a Space does not delete
+  goes away is a cascade from its Space or work item. Deleting a Space does not delete
   its decisions; they only lose `messageId`. A decision's body is never edited, but it can
   be retired (`retiredAt`, `replacedBy`) by a new decision that replaces it or by an
   approved proposal; see decision 76.
-- Briefs: `PUT /features/{id}/brief` adds a version and never edits one. Old versions
+- Briefs: `PUT /work-items/{id}/brief` adds a version and never edits one. Old versions
   stay in `/brief/versions`. Role notes are not versioned; `PUT` replaces them.
 - Turns: created `running`, may get a `sessionId` while running, ended once with `PATCH`
   to `done` or `failed`. After that every `PATCH` returns 400. A turn has no delete route
@@ -1160,26 +1150,23 @@ reef serve --data /tmp/reef-demo
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/projects -d '{"name":"shop","path":"/tmp"}'
 {"id":1,"name":"shop","path":"/tmp","baseBranch":"","createdAt":"2026-10-13T09:00:00.123456Z"}
 
-$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Login"}'
-{"id":1,"projectId":1,"slug":"login","name":"Login","goal":"","stage":"ideation","kind":"journey","createdAt":"2026-10-13T09:00:01.123456Z","closedAt":null}
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/work-items -d '{"projectId":1,"type":"bug","title":"Login fails","acceptanceLines":[{"text":"no 500"}]}'
+{"id":1,"projectId":1,"parentId":null,"type":"bug","title":"Login fails","description":"","status":"backlog","teamId":null,"proposedBy":"","suggestedTeamId":null,"queuePosition":null,"tokenBudget":1000000,"createdAt":"2026-10-13T09:00:01.123456Z","closedAt":null,"acceptanceLines":[{"position":1,"text":"no 500","checked":false,"note":""}]}
 
-$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/features -d '{"projectId":1,"slug":"login","name":"Again"}'
-{"error":"feature slug \"login\" is taken in its project: conflict"}
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/work-items -d '{"projectId":1,"parentId":1,"type":"task","title":"Reproduce"}'
+{"id":2,"projectId":1,"parentId":1,"type":"task","title":"Reproduce","description":"","status":"backlog","teamId":null,"proposedBy":"","suggestedTeamId":null,"queuePosition":null,"tokenBudget":1000000,"createdAt":"2026-10-13T09:00:01.223456Z","closedAt":null,"acceptanceLines":[]}
 
-$ curl -s -X PUT -H 'Content-Type: application/json' localhost:7700/features/1/brief -d '{"body":"Email and password login","author":"user"}'
-{"id":1,"featureId":1,"body":"Email and password login","author":"user","createdAt":"2026-10-13T09:00:02.123456Z"}
+$ curl -s -X PUT -H 'Content-Type: application/json' localhost:7700/work-items/1/brief -d '{"body":"Email and password login","author":"user"}'
+{"id":1,"workItemId":1,"body":"Email and password login","author":"user","createdAt":"2026-10-13T09:00:02.123456Z"}
 
-$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/spaces -d '{"projectId":1,"featureId":1,"name":"build","backend":"claude"}'
-{"id":1,"projectId":1,"featureId":1,"name":"build","role":"lead","backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"team":"solo","createdAt":"2026-10-13T09:00:03.123456Z","closedAt":null}
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/spaces -d '{"projectId":1,"workItemId":1,"name":"build","backend":"claude"}'
+{"id":1,"projectId":1,"workItemId":1,"name":"build","role":"lead","backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"team":"solo","createdAt":"2026-10-13T09:00:03.123456Z","closedAt":null}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/messages -d '{"spaceId":1,"author":"user","body":"Start with the form"}'
 {"id":1,"spaceId":1,"parentId":null,"author":"user","body":"Start with the form","createdAt":"2026-10-13T09:00:04.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/memory -d '{"kind":"decision","body":"Use sessions, not JWT","why":"One server, no token refresh","scope":"work_item:1"}'
 {"id":1,"kind":"decision","body":"Use sessions, not JWT","why":"One server, no token refresh","scope":"work_item:1","author":"user","role":"user","status":"accepted","retiredAt":null,"replacedBy":null,"createdAt":"2026-10-13T09:00:05.123456Z"}
-
-$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/tasks -d '{"projectId":1,"featureId":1,"title":"Build the login form"}'
-{"id":1,"projectId":1,"featureId":1,"title":"Build the login form","body":"","status":"todo","createdAt":"2026-10-13T09:00:06.123456Z","updatedAt":"2026-10-13T09:00:06.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/turns -d '{"spaceId":1,"role":"developer","backend":"claude"}'
 {"id":1,"spaceId":1,"role":"developer","backend":"claude","sessionId":"","status":"running","error":"","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"startedAt":"2026-10-13T09:00:07.123456Z","endedAt":null,"wakeText":"","wakeParent":null,"retried":false,"checkpoint":null}

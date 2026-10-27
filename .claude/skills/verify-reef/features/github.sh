@@ -53,12 +53,12 @@ REEF_GH_INTERVAL=1s PATH="$GH/bin:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start
 A=$(cat "$S/serve.addr")
 
 api_call POST /projects '{"name":"app","path":"'"$S"'/cwd"}'
-api_call POST /features '{"projectId":1,"slug":"demo","name":"Demo"}'
-api_call POST /features/1/worktree ""
-api_call POST /spaces '{"projectId":1,"featureId":1,"name":"main","team":"full"}'
-api_call POST /features '{"projectId":1,"slug":"solo-demo","name":"Solo Demo"}'
-api_call POST /features/2/worktree ""
-api_call POST /spaces '{"projectId":1,"featureId":2,"name":"only"}'
+api_call POST /work-items '{"projectId":1,"title":"Demo"}'
+api_call POST /work-items/1/worktree ""
+api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"main","team":"full"}'
+api_call POST /work-items '{"projectId":1,"title":"Solo Demo"}'
+api_call POST /work-items/2/worktree ""
+api_call POST /spaces '{"projectId":1,"workItemId":2,"name":"only"}'
 
 ### PR note, and a repeat poll with the same answer
 
@@ -144,9 +144,9 @@ check solo-note-only "$([ "$solo_wait" = 0 ] && [ "$turns_solo" = 0 ] && echo 1 
 
 ### Two check runs under the same name: both are noted, not merged into one row
 
-api_call POST /features '{"projectId":1,"slug":"two-runs-demo","name":"Two Runs Demo"}'
-api_call POST /features/3/worktree ""
-api_call POST /spaces '{"projectId":1,"featureId":3,"name":"both","team":"full"}'
+api_call POST /work-items '{"projectId":1,"title":"Two Runs Demo"}'
+api_call POST /work-items/3/worktree ""
+api_call POST /spaces '{"projectId":1,"workItemId":3,"name":"both","team":"full"}'
 
 echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","statusCheckRollup":[' \
 	'{"__typename":"CheckRun","name":"test","status":"COMPLETED","conclusion":"SUCCESS",' \
@@ -162,9 +162,9 @@ check two-runs-same-name-both-noted "$([ "$two_runs_wait" = 0 ] && [ "$test_note
 ### A failed check whose wake cannot run (the space is paused): the note still posts, the
 ### busy cause is logged once, and the wake is retried once the space is clear.
 
-api_call POST /features '{"projectId":1,"slug":"busy-demo","name":"Busy Demo"}'
-api_call POST /features/4/worktree ""
-api_call POST /spaces '{"projectId":1,"featureId":4,"name":"busy","team":"full"}'
+api_call POST /work-items '{"projectId":1,"title":"Busy Demo"}'
+api_call POST /work-items/4/worktree ""
+api_call POST /spaces '{"projectId":1,"workItemId":4,"name":"busy","team":"full"}'
 "$H" sql --write "update Space set paused = 'verify busy' where id = 4" >/dev/null
 
 printf 'FAIL TestBaz\nwant 5 got 6\n' >"$GH/log.txt"
@@ -205,9 +205,9 @@ check wake-retries-after-busy "$busy_ok" \
 ### wakes the developer up to store.HopCap times; the next one is still noted, but pauses the
 ### space at the cap instead of waking the developer again.
 
-api_call POST /features '{"projectId":1,"slug":"hopcap-demo","name":"Hopcap Demo"}'
-api_call POST /features/5/worktree ""
-api_call POST /spaces '{"projectId":1,"featureId":5,"name":"hops","team":"full"}'
+api_call POST /work-items '{"projectId":1,"title":"Hopcap Demo"}'
+api_call POST /work-items/5/worktree ""
+api_call POST /spaces '{"projectId":1,"workItemId":5,"name":"hops","team":"full"}'
 
 hop_ok=1
 for n in $(seq 1 6); do
@@ -245,17 +245,17 @@ case "$paused5" in "hop cap:"*) ;; *) hop_ok=0 ;; esac
 check hop-cap "$hop_ok" \
 	"developer turns=$dev_turns_hop after 6 failed checks, still $dev_turns_after_cap after a 7th, Space 5 paused=$paused5"
 
-### A PR that opens before the feature has a space: the note must not be lost. It is not
+### A PR that opens before the work item has a space: the note must not be lost. It is not
 ### recorded as posted until a space exists to post it in, then posts once, not twice.
 
-api_call POST /features '{"projectId":1,"slug":"lost-note-demo","name":"Lost Note Demo"}'
-api_call POST /features/6/worktree ""
+api_call POST /work-items '{"projectId":1,"title":"Lost Note Demo"}'
+api_call POST /work-items/6/worktree ""
 
 echo '{"number":77,"url":"https://github.com/x/y/pull/77","state":"OPEN","statusCheckRollup":[]}' >"$GH/resp.json"
 sleep 3
-stored_before=$("$H" sql "select count(*) from feature_github where feature_id = 6" | tail -1)
+stored_before=$("$H" sql "select count(*) from work_item_github where work_item_id = 6" | tail -1)
 
-api_call POST /spaces '{"projectId":1,"featureId":6,"name":"main"}'
+api_call POST /spaces '{"projectId":1,"workItemId":6,"name":"main"}'
 wait_for '/messages?space=6' 'PR #77 open' && lost_wait=0 || lost_wait=1
 sleep 3
 lost_count=$(msg_count 6)
@@ -264,13 +264,13 @@ lost_ok=1
 [ "$lost_wait" = 0 ] || lost_ok=0
 [ "$lost_count" = 1 ] || lost_ok=0
 check lost-note-no-space "$lost_ok" \
-	"feature_github rows before a Space existed=$stored_before, PR note posted=$lost_wait, messages on Space 6=$lost_count"
+	"work_item_github rows before a Space existed=$stored_before, PR note posted=$lost_wait, messages on Space 6=$lost_count"
 
 ### Two failed checks in one rollup: one developer wake naming both, not one wake each.
 
-api_call POST /features '{"projectId":1,"slug":"two-fail-demo","name":"Two Fail Demo"}'
-api_call POST /features/7/worktree ""
-api_call POST /spaces '{"projectId":1,"featureId":7,"name":"main","team":"full"}'
+api_call POST /work-items '{"projectId":1,"title":"Two Fail Demo"}'
+api_call POST /work-items/7/worktree ""
+api_call POST /spaces '{"projectId":1,"workItemId":7,"name":"main","team":"full"}'
 
 printf 'line one\n' >"$GH/log.txt"
 echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","statusCheckRollup":[' \

@@ -25,8 +25,8 @@ var _scenarios = []scenario{
 	{"direct-review", "architect", pat(`wrote privately: Please review the login plan`)},
 	{"direct-fail", "architect", pat(`wrote privately: Please review the failing plan`)},
 	{"direct-noted", "lead", pat(`(?s)architect wrote privately: .*REVIEWED`)},
-	{"promote-propose-merge", "", pat(`now part of feature .* already has a brief`)},
-	{"promote-propose", "", pat(`This quick session is now feature`)},
+	{"promote-propose-merge", "", pat(`now part of work item .* already has a brief`)},
+	{"promote-propose", "", pat(`This quick session is now work item`)},
 	{"wrap-propose", "", pat(`Wrap up this Space\.`)},
 	{"lockout-note", "", pat(`note: we decided to lock an account after 5 failed logins`)},
 	{"propose-brief", "", pat(`Call the propose_brief tool once`)},
@@ -88,9 +88,9 @@ func matchScenario(role, text string) string {
 	return ""
 }
 
-// _roleRe reads the role out of a Space's first prompt: "You are the <role> on feature"
+// _roleRe reads the role out of a Space's first prompt: "You are the <role> on work item"
 // or "You are the <role> in project" (space/context.go).
-var _roleRe = regexp.MustCompile(`You are the (\S+) (?:on feature|in project)`)
+var _roleRe = regexp.MustCompile(`You are the (\S+) (?:on work item|in project)`)
 
 // _headerRe is a wake block's header line (space/wake.go), "[Space N, message M]" or
 // "[Space N, message M, thread T]", or a direct message's (server/wake.go).

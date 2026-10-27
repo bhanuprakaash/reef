@@ -123,14 +123,14 @@ git -C "$S/cwd" rev-parse -q --verify HEAD >/dev/null 2>&1 || {
 		git -C "$S/cwd" -c user.name=v -c user.email=v@example.com commit -q --allow-empty -m init
 }
 "$H" reef --data-name "$rel" -- project add >/dev/null 2>&1
-"$H" reef -- feature add term Terminal >/dev/null 2>&1
-"$H" reef -- feature add bare Bare >/dev/null 2>&1
-tok=$("$H" reef -- token term --role developer 2>/dev/null | sed -n 's/.*REEF_TOKEN=\([0-9a-f]*\).*/\1/p')
-row=$("$H" sql "select id || ' ' || project_id from feature where slug = 'term'" | tail -n 1)
+"$H" reef -- work-item add Terminal >/dev/null 2>&1
+"$H" reef -- work-item add Bare >/dev/null 2>&1
+row=$("$H" sql "select id || ' ' || project_id from work_item where title = 'Terminal'" | tail -n 1)
 fid=${row% *} proj=${row#* }
-bare=$("$H" sql "select id from feature where slug = 'bare'" | tail -n 1)
+tok=$("$H" reef -- token "$fid" --role developer 2>/dev/null | sed -n 's/.*REEF_TOKEN=\([0-9a-f]*\).*/\1/p')
+bare=$("$H" sql "select id from work_item where title = 'Bare'" | tail -n 1)
 [ -n "$tok" ] && [ -n "$fid" ] || { echo "FAIL desktop-setup: no feature or token; see $E/reef.log"; exit 1; }
-WT="$DATA/worktrees/$proj/term"
+WT="$DATA/worktrees/$proj/$fid"
 
 # The app reads PATH from the login shell; with HOME scratch, these rc files are the user's.
 if [ "${REEF_VERIFY_CLAUDE:-fake}" != real ]; then
@@ -338,16 +338,16 @@ cdp "window.reef.writeTerminal($js_wt, 'pwd; git branch --show-current\r')" >/de
 text='""'
 for _ in $(seq 50); do
 	text=$(cdp "$rows" 2>/dev/null)
-	case $text in *"feature/term"*) break ;; esac
+	case $text in *"work-item/$fid"*) break ;; esac
 	sleep 0.2
 done
 python3 -I -c 'import json, sys; print(json.loads(sys.argv[1]))' "$text" >"$D/terminal.txt"
 cwd=$([ -n "$shell" ] && proc_cwd "$shell")
 sd=$(shot terminal)
 # A long path wraps across rows, so match on the rows joined without line breaks.
-check terminal-feature "$([ -n "$shell" ] && [ "$cwd" = "$WT" ] && ! grep -q 'feature/term' <<<"$before" &&
-	tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}feature/term" && echo 1)" \
-	"shell pid ${shell:-none} (child of the app) cwd ${cwd:-none}; after pwd; git branch --show-current the pane shows $(tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}feature/term" || echo 'no ')$WT then feature/term ($D/terminal.txt, $D/terminal.png std dev $sd)"
+check terminal-feature "$([ -n "$shell" ] && [ "$cwd" = "$WT" ] && ! grep -q "work-item/$fid" <<<"$before" &&
+	tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}work-item/$fid" && echo 1)" \
+	"shell pid ${shell:-none} (child of the app) cwd ${cwd:-none}; after pwd; git branch --show-current the pane shows $(tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}work-item/$fid" || echo 'no ')$WT then feature/term ($D/terminal.txt, $D/terminal.png std dev $sd)"
 
 # --- terminal app: Settings > Terminal sends the toggle to `open -a <app> <worktree>` ---
 # The real open binary is never run: main's execFile is swapped for one that records its call.
@@ -418,7 +418,7 @@ click_toggle
 sleep 1.5
 bare_text=$(cdp "document.querySelector('section[aria-label=Terminal]')?.textContent ?? ''")
 check terminal-app-no-worktree "$([ "$(opened_count)" = 2 ] && [ ! -e "$DATA/worktrees/$proj/bare" ] && case $bare_text in *'No worktree yet'*) echo 1 ;; esac)" \
-	"on a feature with no worktree the toggle shows $bare_text, runs no open ($(opened_count) in all) and makes no $DATA/worktrees/$proj/bare"
+	"on a feature with no worktree the toggle shows $bare_text, runs no open ($(opened_count) in all) and makes no $DATA/worktrees/$proj/$bare"
 
 stub_open "(cb) => setTimeout(() => cb(null, '', ''), 1000)"
 spa "/features/$fid"
@@ -508,17 +508,17 @@ document.querySelector('[aria-label=\"Capture project\"]').dispatchEvent(new Eve
 xdo type -- 'login fails'
 xdo key Return
 closed=$(wait_capture_closed && echo 1 || echo 0)
-row=$("$H" sql "select title, feature_id from task where title = 'bug: login fails'" | tail -n 1)
-check capture-enter "$([ "$closed" = 1 ] && [ "$row" = "bug: login fails|" ] && echo 1)" \
+row=$("$H" sql "select title, type from work_item where title = 'login fails'" | tail -n 1)
+check capture-enter "$([ "$closed" = 1 ] && [ "$row" = "login fails|bug" ] && echo 1)" \
 	"typed 'login fails' and Return via xdotool; window closed=$closed; task row: ${row:-none} ($E/sql.log)"
 
 # Escape closes the window without a task
 cdp "(() => { const a = [...document.querySelectorAll('a')].find((a) => a.textContent.trim() === 'Capture'); a && a.click(); })()" >/dev/null
 wait_capture >/dev/null
-before=$("$H" sql "select count(*) from task" | tail -n 1)
+before=$("$H" sql "select count(*) from work_item" | tail -n 1)
 xdo key Escape
 closed=$(wait_capture_closed && echo 1 || echo 0)
-after=$("$H" sql "select count(*) from task" | tail -n 1)
+after=$("$H" sql "select count(*) from work_item" | tail -n 1)
 check capture-escape "$([ "$closed" = 1 ] && [ "$before" = "$after" ] && echo 1)" \
 	"Escape via xdotool closed the window=$closed; task count $before before, $after after"
 

@@ -14,12 +14,12 @@ Later slices add the Mac shell; add a file here for each feature they bring.
   from HEAD, pre-run pids saved.
 - Every `--backend claude` drive sets `ANTHROPIC_MODEL=sonnet`.
 - Never drive a `reef-agent`, `reef serve` or `reef chat` that this run did not start.
-- A Space on a feature runs in a git worktree of its project. Before any recipe
-  that wakes an agent on a feature, make the scratch cwd a git repo with one commit:
+- A Space on a work item runs in a git worktree of its project. Before any recipe
+  that wakes an agent on a work item, make the scratch cwd a git repo with one commit:
   `git -C <scratch>/cwd init -q -b main && git -C <scratch>/cwd -c user.name=v -c user.email=v@example.com commit -q --allow-empty -m init`.
-  A feature's branch `feature/<slug>` can be checked out in one worktree only, so two data
-  folders of one run cannot both wake a feature with the same slug on the scratch cwd: the
-  second fails with `branch feature/<slug> is checked out at <first data folder>/worktrees/<project id>/<slug>; switch that checkout to another branch`.
+  A work item's branch `work-item/<id>` can be checked out in one worktree only, so two data
+  folders of one run cannot both wake a work item with the same id on the scratch cwd: the
+  second fails with `branch work-item/<id> is checked out at <first data folder>/worktrees/<project id>/<id>; switch that checkout to another branch`.
 - Server features also need `$H serve-start`: one server per run, on a fresh data folder
   (`$H serve-stop`, then `$H serve-start --data-name NAME`). Each server feature file names
   its folder and assumes ids start at 1. Drive it with `$H api`, `$H sql` and `$H serve-*`.
@@ -69,14 +69,13 @@ commands, required state and observable proof.
 Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data folder.
 
 - [Server](./server.md): start and stop, data folder and lock, localhost only, request guard, JSON errors, newer database, odd folder names.
-- [Projects and features](./projects-features.md): project CRUD, features and slugs, brief versions, the role notes routes (nothing reads them since memory items).
-- [Spaces and messages](./spaces-messages.md): quick-session and feature Spaces, filters, append-only messages, cascade.
-- [Tasks](./tasks.md): global list, filters, status, `updatedAt`, feature delete keeps the task.
+- [Projects and work items](./projects-features.md): project CRUD, work items with acceptance lines and sub-items, brief versions, the role notes routes (nothing reads them since memory items).
+- [Spaces and messages](./spaces-messages.md): quick-session and work item Spaces, filters, append-only messages, cascade.
 - [Turns and restart recovery](./turns-recovery.md): running, done, failed; end once; recovery after a crash or stop; an open chat's turn is skipped.
 - [Decisions](./decisions.md): the old decision routes (nothing reads them since memory items): append-only, author and message rules, cascade.
 - [Live Spaces](./live-spaces.md): send, the event stream, stop and resume, `/wrap` and `/promote` text, wrap-up, promote, approve and reject, caps and continue, delete a live Space. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [Teams](./teams.md): `reef team apply` and `list`, a Space on a team, threads, one agent session per teammate, routing by thread, `@mention` and `post_to_space`, the hop cap, approval gates, wrap wakes nobody, restart, a codex teammate on the test fixture. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
-- [Full team](./full-team.md): `write` per role on claude and codex, `teams/full.json`, one worktree per feature, one writer per tree, checkpoints, rollback, retry, the inbox and its stream, the window's Retry, Rollback and Inbox, and the Google login run end to end with gates. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
+- [Full team](./full-team.md): `write` per role on claude and codex, `teams/full.json`, one worktree per work item, one writer per tree, checkpoints, rollback, retry, the inbox and its stream, the window's Retry, Rollback and Inbox, and the Google login run end to end with gates. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
 - [GitHub poll](./github.md): a fake `gh` on `PATH`, a PR note and its dedupe, a finished check's note, a failed check's note and developer wake keyed by run, a restart, a solo-team Space (note only) and no `gh` on `PATH`. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
 
 ### Memory loop
@@ -84,7 +83,7 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 Drive these with `$H reef`, `$H mcp-call` and `$H sql`; no server needed. Each names its
 data folder with `$H reef --data-name NAME` and assumes ids start at 1.
 
-- [CLI](./cli.md): project, feature, decide, task, brief, context; a write with no server and while `reef serve` runs; `--` args; a slug in two projects; subfolders and `--name`.
+- [CLI](./cli.md): project, work-item, decide, brief, context; a write with no server and while `reef serve` runs; `--` args; subfolders and `--name`.
 - [reef mcp](./reef-mcp.md): tokens, the eight tools through a scripted MCP client, scope and token errors, plain Claude Code.
 - [reef chat](./chat.md): a piped turn stored as messages and turns, `/wrap` approve, reject and left pending, `reef wrap` list/show/approve/reject, resume, Ctrl-C, on claude and codex; Ctrl-C at the prompt, a decision proposed twice, errors, the chat lock.
 
