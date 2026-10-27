@@ -212,7 +212,7 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | Tool | Input | Output | Errors |
 | --- | --- | --- | --- |
 | `get_brief` | none | `{"brief": "..."}`: the latest brief, `""` when there is none yet. Notes are items: read them with `recall` and scope `teammate` | |
-| `remember` | `kind` (`decision`, `convention`, `finding`, `fact` or `lesson`) and `body` (required), `about` (strings `kind:id`), `replaces` (ids of accepted items it amends or replaces), `why`, `scope` (`work_item`, the default, `project` or `teammate`), `needsApproval` | `{"item": {...}, "similar": [{"id", "body"}]}`: the stored item with `id`, `kind`, `body`, `why`, `scope` (`work_item:1`), `author` and `role` (both the token's role), `status`, `retiredAt`, `replacedBy`, `createdAt` and `links` (`{"rel", "to"}`); `similar` appears only when stored items look like it. `work_item` is the token's feature, `project` its project, `teammate` the token's role on every feature. The item is `accepted`, or a `candidate` that waits for the user when `needsApproval` is set or the kind is `convention` from a role other than `architect` or `lead`. Each `replaces` item is retired and points at the new one, or when the new one is a candidate, after the user approves it. `team` is never written from here: team items come only from the lead's wrap-up | `invalid: scope "team" is not work_item, project or teammate`, `this channel has no feature` (`work_item` on a quick session), `invalid: unknown kind "x"`, `invalid: body is required`, `memory 9: not found` (a `replaces` id that is not readable here) (nothing is written) |
+| `remember` | `kind` (`decision`, `convention`, `finding`, `fact` or `lesson`) and `body` (required), `about` (strings `kind:id`), `replaces` (ids of accepted items it amends or replaces), `why`, `scope` (`work_item`, the default, `project` or `teammate`), `needsApproval` | `{"item": {...}, "similar": [{"id", "body"}], "embedError": "..."}`: the stored item with `id`, `kind`, `body`, `why`, `scope` (`work_item:1`), `author` and `role` (both the token's role), `status`, `retiredAt`, `replacedBy`, `createdAt` and `links` (`{"rel", "to"}`: the item's `source` is `channel:<id>`); `similar` appears only when stored items look like it, and `embedError` only when no vector could be stored for it. `work_item` is the token's feature, `project` its project, `teammate` the token's role on every feature. The item is `accepted`, or a `candidate` that waits for the user when `needsApproval` is set or the kind is `convention` from a role other than `architect` or `lead`. Each `replaces` item must be an accepted item of the same scope as the new one; it is retired and points at the new one, or when the new one is a candidate, after the user approves it. `team` is never written from here: team items come only from the lead's wrap-up | `invalid: scope "team" is not work_item, project or teammate`, `this channel has no feature` (`work_item` on a quick session), `invalid: unknown kind "x"`, `invalid: body is required`, `memory 9: not found` (a `replaces` id that is not readable here), `invalid: memory 3 is in scope project:1, not work_item:1` (a `replaces` id on another shelf) (nothing is written) |
 | `recall` | `query` (required), `limit` (default 10), `scope` (`work_item`, `project`, `team` or `teammate`: only that one) | `{"hits": [{"id", "kind", "body", "scope", "status", "via"}]}`: matches in every scope the token can read, retired items included and marked, plus items one link away; `via` is `direct` or the link it came through. A feature's `work_item` items are read only on that feature; `team` only on a channel with a team. `hits` is `[]` when nothing matches | `query is required`, `invalid: you have no "team" scope here` |
 | `read_memory` | `id` (required) | the item as `remember` returns it, with its `links` | `memory 99: not found`, also for an item in a scope the token cannot read |
 | `add_task` | `title` (required), `body` | the new task: `todo`, in the feature's project, tagged with the feature | `invalid: task title is required` |
@@ -225,7 +225,7 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `send_to_role` | `to` (exactly one teammate role), `body` (required) | the stored direct request, with `channelId`, `chainId`, `from`, `to`, `replyToId: null` and `status: sent` | empty body, self, unknown or out-of-team role, a recipient list, a closed channel, a starting channel, or a wrapping or promoting channel are errors; nothing is stored |
 | `read_direct_messages` | `after` (only newer direct-message ids) | `{"messages": [...]}` containing only exchanges in this channel where the token's role is sender or recipient | |
 | `set_stage` | `stage` (required): `ideation`, `grill`, `plan`, `tickets`, `implement`, `testing`, `live-testing` or `post-release` | the updated feature, as in [server.md](server.md#feature). It also stores a `reef` message in the token's channel: `<role> moved the stage to <stage>`, unless the feature is already in that stage. No approval: the stage is a label | `invalid: unknown stage "x"`, `invalid: feature login is a list of fixes and has no stage` |
-| `propose_wrap` | `brief` (required); `items` (memory items not saved with `remember` yet), `retire` (ids of live memory items that are stale or duplicate). Each item is `{"kind", "body", "why", "scope", "replaces"}`: `kind` and `body` required, `scope` is `work_item` (the default), `project`, `teammate`, or `team` when the token's role leads the channel's team, `replaces` lists live item ids it replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: item body is required`, `invalid: unknown item kind "x"`, `invalid: scope "x" is not work_item, project, teammate or team`, `invalid: only the lead of team "core" can propose team items`, `invalid: memory 9 is not a live item in this channel's scopes` (a `retire` or `replaces` id that is not an accepted item of the project, feature, team or role here) (nothing is stored) |
+| `propose_wrap` | `brief` (required); `items` (memory items not saved with `remember` yet), `retire` (ids of live memory items that are stale or duplicate). Each item is `{"kind", "body", "why", "scope", "replaces"}`: `kind` and `body` required, `scope` is `work_item` (the default), `project`, `teammate`, or `team` when the token's role leads the channel's team, `replaces` lists live item ids it replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: item body is required`, `invalid: unknown item kind "x"`, `invalid: scope "x" is not one of work_item, project, teammate` (a solo channel has no `team` scope; a channel of a real team adds `team`), `invalid: only the lead of team "core" can propose team items`, `invalid: memory 9 is not a live item in work_item:1, project:1, teammate:architect` (a `retire` id that is not an accepted item of the feature, project, team or role here; a `replaces` id must be an accepted item of the new item's own scope) (nothing is stored) |
 | `propose_brief` | `brief` (required) | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: channel 1 has a wrap-up waiting for approval` |
 | `browser_navigate` | `url` (required) | `{"text": "navigated to <url>"}` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser`, `refused: the browser pane cannot open Reef itself` (or another `refused: ...` for a non-http(s) URL), the page's own error (e.g. `net::ERR_CONNECTION_REFUSED`) when it fails to load |
 | `browser_screenshot` | none | a PNG image of the browser pane's current page | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
@@ -237,8 +237,9 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 
 `propose_wrap` saves a pending proposal and changes nothing else. See Wrap-up. A channel has one
 pending proposal: a new wrap rejects the older pending proposals of the channel, whatever their
-kind, and `propose_wrap` refuses a `retire` or `replaces` id that is not an accepted item in a scope
-the role can read, so the agent sees the error and nothing is saved.
+kind, and `propose_wrap` refuses a `retire` id that is not an accepted item in a scope the role can
+read, and a `replaces` id that is not an accepted item of the new item's own scope, so the agent
+sees the error and nothing is saved.
 `propose_brief` saves a pending proposal of kind `brief`: the agent calls it when the user and
 the team agree on the goal, scope or plan, and the channel goes on. Approving it adds one
 brief version and nothing else: the role's notes stay, no decisions are recorded and the channel
@@ -291,7 +292,8 @@ no `No brief yet.`, no `No notes yet.` and no `none`. A section with no part lef
      differ from what its session last got, whether it is starting or resuming, gets them again
      before the wake text, marked `Your persona or skills changed:`, without the header.
    - One line: role, feature name and slug, project name. A quick session says instead:
-     role, project name and folder, and that the session has no feature yet.
+     role, project name and folder, and that the session has no feature yet, so there is no brief or
+     feature items.
    - When a profile exists, `You work with Ada, a developer. They like: short answers, ask before
      big changes.` (occupation and style only when set, lower-cased; `Other` is left out).
    - The goal (if set) and the stage, then one line that lists the stages in order and asks the
@@ -325,8 +327,8 @@ no `No brief yet.`, no `No notes yet.` and no `none`. A section with no part lef
    - `### Findings`: the 5 newest accepted findings, facts, conventions and lessons in the
      feature's `work_item` scope. Features only.
    - `### Project`: the 10 newest accepted items in the project's scope.
-   - `### Team`: the 5 newest accepted items in the team's scope, only when the channel has a
-     team. `reef context` has no team and prints none.
+   - `### Team`: the 5 newest accepted items in the team's scope, only when the channel's team
+     is a real team: the `solo` team is no team and has none. `reef context` prints none.
    - `### Your items`: the 5 newest accepted items in the role's `teammate` scope.
    - `### Doing`: one line `task N: title` for each task in status `doing`.
    - `### On demand`: one line that counts what the role can look up:
@@ -336,6 +338,8 @@ no `No brief yet.`, no `No notes yet.` and no `none`. A section with no part lef
      count is left out of the line, and the part is left out when both are zero.
 
    Only accepted items are read: a candidate, a rejected item and a retired item never appear.
+   Newest means accepted last: a candidate the user approves is newer than an item accepted
+   before it.
    Each line reads `kind id: first line of the body (author, date)`,
    the line cut at 100 characters with `…`. Findings, Project, Team and Your items end with
    `N of M; recall(..., scope=<kind>)`, where N is the lines shown and M the accepted items in
@@ -428,8 +432,8 @@ its first turn: a first message that goes to a specialist starts no lead.
   `reef wrote:` lines, or at the top when the turn has no header (wrap-up, promote). It has two
   parts.
   Under `### Changed since your last turn`: one index line, as in the first prompt
-  (`decision 3: Use WAL (lead, 2026-10-27)`), for each accepted memory item added since in the
-  scopes the role reads (`work_item`, `project`, the channel's `team` and the role's own
+  (`decision 3: Use WAL (lead, 2026-10-27)`), for each memory item accepted since (a candidate counts from the moment the user approves it) in the
+  scopes the role reads (`work_item`, `project`, the channel's `team` unless it is `solo`, and the role's own
   `teammate`), whatever its author (the author is only a role name, which every channel's lead
   shares), and `decision N is retired, replaced by decision M.` (`decision N is retired.` when
   nothing replaced it) for each one retired since. An item added and retired since is named as
@@ -509,9 +513,9 @@ A channel ends explicitly, never on a timer. The user types `/wrap` in `reef cha
    `replaces` on a new item lists older ones it amends. When the channel has direct messages, the
    prompt starts with all of them as plain text, one line each, `[direct 1] developer ->
    tester: use the sqlite fixture`, with ` (failed)` after the recipient for a failed attempt (a body is cut at 1000 characters; only the newest 100 are
-   listed; none are listed when there are none), and asks the agent to propose the decisions
-   made in them that are not recorded yet and a brief that reflects the direct work that is
-   complete. A promote turn gets the same list.
+   listed; none are listed when there are none), and asks the agent to propose as items
+   what they decided or found that is not saved yet and a brief that reflects the direct work
+   that is complete. A promote turn gets the same list.
 2. `propose_wrap` stores a `pending` proposal (see [server.md](server.md#proposal)).
 3. After the turn, `reef chat` looks for a pending wrap proposal of this channel that is newer
    than the one pending before `/wrap`. With none, it prints `no proposal made`: an agent that
