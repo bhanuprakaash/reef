@@ -212,7 +212,7 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `read_thread` | `spaceId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the Space's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `space 9: not found`, also for a Space of another work item or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the Space |
 | `post_to_space` | `body` (required), `parent` (the id of a top-level message: reply in its thread; leave it out to post at the top level) | the stored message, with the token's role as `author`. It works on a quick session too | `invalid: message body is required`, `invalid: parent 9 is not a top-level message of space 1` |
 | `send_to_role` | `to` (exactly one teammate role), `body` (required) | the stored direct request, with `spaceId`, `chainId`, `from`, `to`, `replyToId: null` and `status: sent` | empty body, self, unknown or out-of-team role, a recipient list, a sender with no running turn, a closed Space, a starting Space, or a wrapping or promoting Space are errors; nothing is stored |
-| `read_direct_messages` | `after` (only newer direct-message ids) | `{"messages": [...]}` containing only exchanges in this Space where the token's role is sender or recipient | |
+| `read_direct_messages` | `after` (only newer direct-message ids) | `{"messages": [...]}` containing only exchanges in this Space where the token's role is sender or recipient; the lead's wrap-up turn gets every exchange of the Space | |
 | `propose_wrap` | `brief` (required); `items` (memory items not saved with `remember` yet), `retire` (ids of live memory items that are stale or duplicate). Each item is `{"kind", "body", "why", "scope", "replaces"}`: `kind` and `body` required, `scope` is `work_item` (the default), `project`, `teammate`, or `team` when the token's role leads the Space's team, `replaces` lists live item ids it replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: item body is required`, `invalid: unknown item kind "x"`, `invalid: scope "x" is not one of work_item, project, teammate` (a solo Space has no `team` scope; a Space of a real team adds `team`), `invalid: only the lead of team "core" can propose team items`, `invalid: memory 9 is not a live item in work_item:1, project:1, teammate:architect` (a `retire` id that is not an accepted item of the work item, project, team or role here; a `replaces` id must be an accepted item of the new item's own scope) (nothing is stored) |
 | `propose_brief` | `brief` (required) | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: space 1 has a wrap-up waiting for approval` |
 | `create_sub_item` | `title` (required), `description`, `type` (a label: `feature`, `bug`, `incident`, `investigation`, `task` or `improvement`; default `task`) | the new sub-item as the work item REST returns it, in status `backlog`, under the token's work item, which it shares the worktree with. Any teammate of the Space may add one | `invalid: work item title is required`, `invalid: unknown type "epic"`, `this Space has no work item` |
@@ -518,9 +518,13 @@ submit, and the user decides the proposal as for any wrap-up. The user can also 
    `replaces` on a new item lists older ones it amends. When the Space has direct messages, the
    prompt starts with all of them as plain text, one line each, `[direct 1] developer ->
    tester: use the sqlite fixture`, with ` (failed)` after the recipient for a failed attempt (a body is cut at 1000 characters; only the newest 100 are
-   listed; none are listed when there are none), and asks the agent to propose as items
+   listed, after a line `N older exchanges left out (read_direct_messages)` when there are more; none are
+   listed when there are none), and asks the agent to propose as items
    what they decided or found that is not saved yet and a brief that reflects the direct work
-   that is complete.
+   that is complete. The turn runs in a copy of the lead's session (claude `--fork-session`), so what
+   it read of other pairs' messages is not in the lead's own session when the Space goes on; the
+   copy's turn is not the session a later turn of the lead resumes. Codex has no copy: its wrap-up
+   runs in the lead's thread.
 2. `propose_wrap` stores a `pending` proposal (see [server.md](server.md#proposal)).
 3. After the turn, `reef chat` looks for a pending wrap proposal of this Space that is newer
    than the one pending before `/wrap`. With none, it prints `no proposal made`: an agent that

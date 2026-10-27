@@ -896,7 +896,7 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Seven kin
   when it ends. A chain of wakes sends one pair for each turn, with no `idle` between them. A
   wrap turn in which the agent made no proposal ends `{"role":"lead","status":"done","note":"no
   proposal made"}`. `{"status":"idle"}` has no role. It is sent only when a subscriber
-  connects and no turn runs. A turn woken by a direct message carries `"direct":true` in each of its frames; the Space shows such a turn
+  connects and no turn runs. A turn woken by a direct message carries `"directMessageId":N`, the id of that direct message, in each of its frames; the Space shows such a turn
   as working only, without its text or tool calls; the open Coordination panel of its exchange shows its text and tool rows live while it runs, and only the stored direct messages once it ends.
 - `agent`: one [agent event](agents.md) as JSON, as it comes, from the turn that is running.
 - `pause`: `{"reason":"..."}` when a cap pauses the Space: when a send finds the
