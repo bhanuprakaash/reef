@@ -13,114 +13,151 @@ import (
 const (
 	_dateLayout    = "2006-01-02"
 	_maxIndexRunes = 100
-	_closing       = "Details are on demand through the reef MCP tools read_decision, " +
-		"read_thread and search_sessions. Record decisions with record_decision. When the " +
+	_youHeader     = "## You\n"
+	_toolsLine     = "Details are on demand through the reef MCP tools read_decision, " +
+		"read_thread, list_tasks and search_sessions. Record decisions with record_decision. When the " +
 		"user and the team agree on the goal, scope or plan, call propose_brief."
 )
 
-// Context is the first prompt of a role on a feature: the brief, the role's own
-// notes and an index of decisions, channels and open tasks. It never holds a
-// message body.
+// Context is the first prompt of a role on a feature without a team: what `reef context`
+// prints. It never holds a message body.
 func Context(ctx context.Context, st *store.Store, featureID int64, role string) (string, error) {
 	f, err := st.Feature(ctx, featureID)
 	if err != nil {
 		return "", err
 	}
-	p, err := st.Project(ctx, f.ProjectID)
+	return firstPrompt(ctx, st, f.ProjectID, &f.ID, store.Team{}, store.Role{Name: role})
+}
+
+// firstPrompt is the first prompt of a role in three sections: You, How to work and What we
+// know. A part with nothing to say is left out, and so is a section with no part left. A quick
+// session has no featureID.
+func firstPrompt(
+	ctx context.Context, st *store.Store, projectID int64, featureID *int64, team store.Team,
+	r store.Role,
+) (string, error) {
+	p, err := st.Project(ctx, projectID)
 	if err != nil {
 		return "", err
 	}
-
 	who, err := profileLine(ctx, st)
+	if err != nil {
+		return "", err
+	}
+	mem, err := st.ProjectMemory(ctx, projectID)
 	if err != nil {
 		return "", err
 	}
 
 	var b strings.Builder
-	fmt.Fprintf(&b, "You are the %s on feature %q (%s) in project %q.\n",
-		role, f.Name, f.Slug, p.Name)
-	b.WriteString(who)
-	if f.Goal != "" {
-		fmt.Fprintf(&b, "Goal: %s\n", f.Goal)
-	}
-	if f.Kind == "fixes" {
-		b.WriteString("This feature is a list of fixes tracked as tasks, not one piece of work with stages.\n")
+	b.WriteString(_youHeader + roleIntro(r))
+	var know []string
+	if featureID == nil {
+		fmt.Fprintf(&b, "You are the %s in project %q (%s).\n"+
+			"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n",
+			r.Name, p.Name, p.Path)
+		b.WriteString(who)
+		know = appendPart(know, "Project memory", mem.Body)
 	} else {
-		fmt.Fprintf(&b, "Stage: %s\n", f.Stage)
-		fmt.Fprintf(&b, "Stages in order: %s. Call set_stage when the work moves to the next one.\n",
-			strings.Join(store.Stages(), ", "))
+		f, err := st.Feature(ctx, *featureID)
+		if err != nil {
+			return "", err
+		}
+		fmt.Fprintf(&b, "You are the %s on feature %q (%s) in project %q.\n",
+			r.Name, f.Name, f.Slug, p.Name)
+		b.WriteString(who)
+		if f.Goal != "" {
+			fmt.Fprintf(&b, "Goal: %s\n", f.Goal)
+		}
+		if f.Kind == "fixes" {
+			b.WriteString("This feature is a list of fixes tracked as tasks, not one piece of work with stages.\n")
+		} else {
+			fmt.Fprintf(&b, "Stage: %s\n", f.Stage)
+			fmt.Fprintf(&b, "Stages in order: %s. Call set_stage when the work moves to the next one.\n",
+				strings.Join(store.Stages(), ", "))
+		}
+		if know, err = featureKnow(ctx, st, f, r.Name, mem.Body); err != nil {
+			return "", err
+		}
 	}
-
 	if p.BaseBranch != "" {
 		fmt.Fprintf(&b, "Base branch: %s. A pull request you open targets it.\n", p.BaseBranch)
 	}
 
-	mem, err := st.ProjectMemory(ctx, f.ProjectID)
-	if err != nil {
-		return "", err
+	b.WriteString("\n## How to work\n" + teamIntro(team, r) + _toolsLine + "\n")
+	if len(know) > 0 {
+		b.WriteString("\n## What we know\n" + strings.Join(know, "\n"))
 	}
-	if mem.Body != "" {
-		section(&b, "Project memory", mem.Body, "")
-	}
+	return b.String(), nil
+}
 
+// featureKnow is the parts of What we know for a role on f. Open tasks and channels with
+// messages are only counted: the role looks them up with tools.
+func featureKnow(
+	ctx context.Context, st *store.Store, f store.Feature, role, memory string,
+) ([]string, error) {
 	brief, err := st.Brief(ctx, f.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return "", err
+		return nil, err
 	}
-	section(&b, "Brief", brief.Body, "No brief yet.")
-
 	notes, err := st.RoleNotes(ctx, f.ID, role)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return "", err
+		return nil, err
 	}
-	section(&b, "Your notes", notes.Body, "No notes yet.")
-
 	decisions, err := st.Decisions(ctx, f.ID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	channels, err := st.Channels(ctx, store.ChannelFilter{FeatureID: &f.ID})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	tasks, err := st.Tasks(ctx, store.TaskFilter{FeatureID: &f.ID})
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	b.WriteString("\n## Index\n")
-	var lines []string
+	var live, doing, counts []string
 	for _, d := range decisions {
-		if d.RetiredAt != nil {
+		if d.RetiredAt == nil {
+			live = append(live, fmt.Sprintf("decision %d: %s (%s, %s)",
+				d.ID, firstLine(d.Body), d.Author, d.CreatedAt.Format(_dateLayout)))
+		}
+	}
+	open := 0
+	for _, t := range tasks {
+		if t.Status == "done" {
 			continue
 		}
-		lines = append(lines, fmt.Sprintf("decision %d: %s (%s, %s)",
-			d.ID, firstLine(d.Body), d.Author, d.CreatedAt.Format(_dateLayout)))
+		open++
+		if t.Status == "doing" {
+			doing = append(doing, fmt.Sprintf("task %d: %s", t.ID, t.Title))
+		}
 	}
-	group(&b, "Decisions", lines)
-	lines = nil
+	if open > 0 {
+		counts = append(counts, fmt.Sprintf("%d open tasks (list_tasks).", open))
+	}
+	earlier := 0
 	for _, c := range channels {
 		n, err := st.CountMessages(ctx, c.ID)
 		if err != nil {
-			return "", err
+			return nil, err
 		}
-		if n == 0 {
-			continue
-		}
-		lines = append(lines, fmt.Sprintf("channel %d: %s, %s, %d messages",
-			c.ID, c.Name, c.CreatedAt.Format(_dateLayout), n))
-	}
-	group(&b, "Channels", lines)
-	lines = nil
-	for _, t := range tasks {
-		if t.Status != "done" {
-			lines = append(lines, fmt.Sprintf("task %d [%s]: %s", t.ID, t.Status, t.Title))
+		if n > 0 {
+			earlier++
 		}
 	}
-	group(&b, "Open tasks", lines)
+	if earlier > 0 {
+		counts = append(counts, fmt.Sprintf("%d earlier channels (search_sessions).", earlier))
+	}
 
-	b.WriteString("\n" + _closing + "\n")
-	return b.String(), nil
+	var parts []string
+	parts = appendPart(parts, "Brief", brief.Body)
+	parts = appendPart(parts, "Project memory", memory)
+	parts = appendPart(parts, "Your notes", notes.Body)
+	parts = appendPart(parts, "Decisions", strings.Join(live, "\n"))
+	parts = appendPart(parts, "Doing", strings.Join(doing, "\n"))
+	return appendPart(parts, "On demand", strings.Join(counts, " ")), nil
 }
 
 // roleIntro is the role's persona and skills, when it has any, to put before its context.
@@ -155,7 +192,7 @@ func teamIntro(team store.Team, r store.Role) string {
 	for i, t := range team.Roles {
 		names[i] = "@" + t.Name
 	}
-	s := fmt.Sprintf("\n## Team\nYour team: %s. Use post_to_channel and @mentions for work "+
+	s := fmt.Sprintf("Your team: %s. Use post_to_channel and @mentions for work "+
 		"the whole team needs: decisions, blockers, questions for the user and outcomes belong in the "+
 		"channel. Only a line that starts with @name wakes that teammate; an @name inside a sentence "+
 		"wakes nobody. Use send_to_role for detailed coordination with exactly one teammate; "+
@@ -196,19 +233,6 @@ func profileLine(ctx context.Context, st *store.Store) (string, error) {
 	return s + "\n", nil
 }
 
-func projectContext(p store.Project, role, memory, who string) string {
-	s := fmt.Sprintf("You are the %s in project %q (%s).\n"+
-		"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n",
-		role, p.Name, p.Path) + who
-	if memory != "" {
-		var b strings.Builder
-		b.WriteString(s)
-		section(&b, "Project memory", memory, "")
-		return b.String()
-	}
-	return s
-}
-
 // firstLine is the first line of body, cut to _maxIndexRunes characters.
 func firstLine(body string) string {
 	line := strings.TrimSpace(body)
@@ -221,16 +245,9 @@ func firstLine(body string) string {
 	return line
 }
 
-func section(b *strings.Builder, title, body, empty string) {
-	if body == "" {
-		body = empty
+func appendPart(parts []string, label, body string) []string {
+	if body = strings.TrimSpace(body); body == "" {
+		return parts
 	}
-	fmt.Fprintf(b, "\n## %s\n%s\n", title, strings.TrimSpace(body))
-}
-
-func group(b *strings.Builder, title string, lines []string) {
-	if len(lines) == 0 {
-		lines = []string{"none"}
-	}
-	fmt.Fprintf(b, "\n### %s\n%s\n", title, strings.Join(lines, "\n"))
+	return append(parts, "### "+label+"\n"+body+"\n")
 }

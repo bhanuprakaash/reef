@@ -163,7 +163,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(ag.prompts) != 1 ||
-		!strings.HasPrefix(ag.prompts[0], `You are the architect on feature "Login" (login) in project "shop".`) ||
+		!strings.HasPrefix(ag.prompts[0], "## You\nYou are the architect on feature \"Login\" (login) in project \"shop\".") ||
 		!strings.HasSuffix(ag.prompts[0], "\n\nhi") {
 		t.Errorf("prompts = %q, want the context before hi", ag.prompts)
 	}
@@ -201,9 +201,9 @@ func TestOpen_QuickSession(t *testing.T) {
 	if ag.cfg.Cwd != p.Path {
 		t.Errorf("Cwd = %q, want the project path %q", ag.cfg.Cwd, p.Path)
 	}
-	want := "You are the architect in project \"shop\" (" + p.Path + ").\n" +
+	want := "## You\nYou are the architect in project \"shop\" (" + p.Path + ").\n" +
 		"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n" +
-		"\n\nhi"
+		"\n## How to work\n" + _toolsLine + "\n\n\nhi"
 	if len(ag.prompts) != 1 || ag.prompts[0] != want {
 		t.Errorf("prompts = %q, want [%q]", ag.prompts, want)
 	}
@@ -228,7 +228,7 @@ func TestOpen_QuickSession_ProjectMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], "\n## Project memory\nUse Go, not Python.\n") {
+	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], "\n## What we know\n### Project memory\nUse Go, not Python.\n") {
 		t.Errorf("prompts = %q, want it to contain the project memory section", ag.prompts)
 	}
 }
@@ -335,7 +335,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if err := s.RunAs(ctx, "architect", "plan it", &root.ID, whoAmI); err != nil {
 		t.Fatal(err)
 	}
-	want := "You design.\n\nYour skills:\nsketch\n\nYou are the architect on feature"
+	want := "## You\nYou design.\n\nYour skills:\nsketch\n\nYou are the architect on feature"
 	if len(ags) != 1 || !strings.HasPrefix(ags[0].prompts[0], want) {
 		t.Errorf("prompts = %q, want one starting with %q", ags[0].prompts, want)
 	}
@@ -414,7 +414,7 @@ func TestSession_RunAsRoleAppliedAfterOpen(t *testing.T) {
 	if err := s.RunAs(ctx, "tester", "check it", nil, discard); err != nil {
 		t.Fatalf("RunAs tester error = %v, want nil", err)
 	}
-	if len(ags) != 2 || !strings.HasPrefix(ags[1].prompts[0], "You test.") {
+	if len(ags) != 2 || !strings.HasPrefix(ags[1].prompts[0], "## You\nYou test.") {
 		t.Errorf("agents = %d, tester prompts = %q, want a tester turn with its persona", len(ags), ags[1].prompts)
 	}
 }
@@ -547,7 +547,7 @@ func TestSession_MissingSessionStartsNewOne(t *testing.T) {
 				t.Fatalf("agents = %d, second resumed %q, third started = %v, resumed %q; want 3, s1, true, empty",
 					len(ags), ags[1].resumed, ags[2].started, ags[2].resumed)
 			}
-			if len(ags[2].prompts) != 1 || !strings.HasPrefix(ags[2].prompts[0], intro) ||
+			if len(ags[2].prompts) != 1 || !strings.HasPrefix(ags[2].prompts[0], "## You\n"+intro) ||
 				!strings.HasSuffix(ags[2].prompts[0], "\n\nonce more") {
 				t.Errorf("new session prompts = %q, want the role intro before once more", ags[2].prompts)
 			}
@@ -996,7 +996,7 @@ func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	if len(ags) != 2 || backends[1] != "codex" || !ags[1].started || ags[1].resumed != "" ||
-		!strings.HasPrefix(ags[1].prompts[0], "You design.") {
+		!strings.HasPrefix(ags[1].prompts[0], "## You\nYou design.") {
 		t.Errorf("second architect: backend %q, started = %v, resumed = %q, prompts = %q, "+
 			"want codex, started fresh with the start prompt", backends[1], ags[1].started,
 			ags[1].resumed, ags[1].prompts)

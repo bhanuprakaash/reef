@@ -510,7 +510,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		}
 		err = ag.Resume(ctx, cfg, last.SessionID)
 	default:
-		if preamble, err = startPrompt(wctx, s.st, s.ch.ID, s.project, team, r); err != nil {
+		if preamble, err = startPrompt(wctx, s.st, s.ch.ID, team, r); err != nil {
 			return nil, err
 		}
 		err = ag.Start(ctx, cfg)
@@ -757,26 +757,13 @@ func InUse(dataDir string, channelID int64) bool {
 }
 
 func startPrompt(
-	ctx context.Context, st *store.Store, channelID int64, p store.Project, team store.Team,
-	r store.Role,
+	ctx context.Context, st *store.Store, channelID int64, team store.Team, r store.Role,
 ) (string, error) {
 	ch, err := st.Channel(ctx, channelID)
 	if err != nil {
 		return "", err
 	}
-	if ch.FeatureID == nil {
-		mem, err := st.ProjectMemory(ctx, p.ID)
-		if err != nil {
-			return "", err
-		}
-		who, err := profileLine(ctx, st)
-		if err != nil {
-			return "", err
-		}
-		return roleIntro(r) + projectContext(p, r.Name, mem.Body, who) + teamIntro(team, r), nil
-	}
-	body, err := Context(ctx, st, *ch.FeatureID, r.Name)
-	return roleIntro(r) + body + teamIntro(team, r), err
+	return firstPrompt(ctx, st, ch.ProjectID, ch.FeatureID, team, r)
 }
 
 func failStaleTurns(ctx context.Context, st *store.Store, channelID int64) error {
@@ -821,9 +808,10 @@ func sessionMissing(msg string) bool {
 }
 
 // introSent is the role intro its session (same session id) in the channel was last given:
-// the session's first turn always carries one, from startPrompt, and a later turn carries one
-// when the role's persona or skills changed since, from updatedRoleIntro. Empty when neither
-// applies, so a prefix check against it never matches a non-empty roleIntro.
+// the session's first turn always carries one, from startPrompt, after its "## You" header,
+// and a later turn carries one when the role's persona or skills changed since, from
+// updatedRoleIntro. Empty when neither applies, so a prefix check against it never matches a
+// non-empty roleIntro.
 func introSent(
 	ctx context.Context, st *store.Store, channelID int64, role, backend, sessionID string,
 ) (string, error) {
@@ -838,7 +826,7 @@ func introSent(
 			continue
 		}
 		if first {
-			sent, first = t.Prompt, false
+			sent, first = strings.TrimPrefix(t.Prompt, _youHeader), false
 			continue
 		}
 		if after, ok := strings.CutPrefix(t.Prompt, _introChangedPrefix); ok {
