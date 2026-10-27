@@ -2,7 +2,10 @@
 
 A user records a decision on a feature: what was decided, why, who decided, and
 optionally the message it came from. Decisions are append-only: they are added and read,
-never edited or removed one by one.
+never edited or removed one by one. Since memory items (`docs/product.md` decision 91) no agent,
+CLI command or window page reads or writes this table: a decision is a memory item of kind
+`decision` (`remember`, `reef decide`, `POST /memory`, see `reef-mcp.md` and `cli.md`). The routes
+below still work.
 
 ## Sub-features
 

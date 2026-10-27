@@ -17,7 +17,7 @@ func TestApproveProposal_ClosesChannelAndStopsItsAgent(t *testing.T) {
 	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
 		`agent {"kind":"text","text":"hi"}`, `turn {"role":"lead","status":"done"}`)
 	_, err := env.st.CreateProposal(context.Background(), store.Proposal{
-		ChannelID: int64(id), Role: "lead", Brief: "brief", Notes: "n",
+		ChannelID: int64(id), Role: "lead", Brief: "brief",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -131,7 +131,7 @@ func TestWrap_RefusedWhileProposalPending(t *testing.T) {
 	env := newLiveEnv(t)
 	id := env.featureChannel(t)
 	_, err := env.st.CreateProposal(context.Background(), store.Proposal{
-		ChannelID: int64(id), Role: "lead", Brief: "brief", Notes: "n",
+		ChannelID: int64(id), Role: "lead", Brief: "brief",
 	})
 	if err != nil {
 		t.Fatal(err)

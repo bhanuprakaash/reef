@@ -10,21 +10,42 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
+func testMemory(t *testing.T, st *store.Store) *memory.Store {
+	t.Helper()
+	ms, err := memory.Open(st.DB(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ms
+}
+
 func newTestServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	ts, _ := newEmbedServer(t, nil)
+	return ts
+}
+
+// newEmbedServer is newTestServer with the embedder e, and the store it serves.
+func newEmbedServer(t *testing.T, e memory.Embedder) (*httptest.Server, *store.Store) {
 	t.Helper()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	h := New(st, t.TempDir(), "/bin/reef")
+	ms, err := memory.Open(st.DB(), e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, ms, t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
-	return ts
+	return ts, st
 }
 
 func do(t *testing.T, method, url, body string) (int, string) {

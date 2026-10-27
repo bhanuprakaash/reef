@@ -45,7 +45,11 @@ func mcpCmd(ctx context.Context, args []string) error {
 	if err != nil {
 		return err
 	}
-	err = server.NewMCP(st, tok, dir).Run(ctx, &mcp.StdioTransport{})
+	ms, err := openMemory(ctx, st)
+	if err != nil {
+		return err
+	}
+	err = server.NewMCP(st, ms, tok, dir).Run(ctx, &mcp.StdioTransport{})
 	if errors.Is(err, context.Canceled) {
 		return nil
 	}

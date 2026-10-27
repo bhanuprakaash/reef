@@ -82,7 +82,7 @@ func (r *treeRig) session(t *testing.T, name string, f store.Feature) *Session {
 			recordingAgent: newRecordingAgent(), channel: name, gates: r.gates, started: r.started,
 		}, nil
 	}
-	s, err := Open(context.Background(), r.st, r.dir, "/bin/reef", ch.ID, r.trees, mk)
+	s, err := Open(context.Background(), r.st, testMemory(t, r.st), r.dir, "/bin/reef", ch.ID, r.trees, mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -345,7 +345,7 @@ func TestSession_ShellThatChangesFilesRunsAsAWriteTurn(t *testing.T) {
 			mk := func(string) (agent.Agent, error) {
 				return &lockProbeAgent{recordingAgent: newRecordingAgent(), trees: trees, canLock: canLock}, nil
 			}
-			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, trees, mk)
+			s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, trees, mk)
 			if err != nil {
 				t.Fatal(err)
 			}

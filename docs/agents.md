@@ -49,6 +49,7 @@ An `Event` is one JSON line (the `reef-agent` wire format). Empty fields are lef
 {"kind":"turn_end"}
 {"kind":"turn_end","costUsd":1.1,"sessionUsage":{"inputTokens":1184,"outputTokens":534,"cacheReadTokens":91382,"cacheWriteTokens":31940}}
 {"kind":"background","text":"The background command finished with exit code 0."}
+{"kind":"compacted"}
 {"kind":"error","text":"No conversation found with session ID: ..."}
 ```
 
@@ -56,7 +57,10 @@ An `Event` is one JSON line (the `reef-agent` wire format). Empty fields are lef
 `tool_call`. `parentToolId` is the `toolId` of the `Agent` call whose subagent made a tool
 call or result (Claude only). Inside `usage`, no field is left out. `costUsd` and `sessionUsage`
 on a `turn_end` or `error` are Claude's totals for the whole session so far, not for the turn
-(see the table below); the caller takes off what the session's earlier turns had.
+(see the table below); the caller takes off what the session's earlier turns had. A
+`compacted` event says the backend shortened the session's history, by itself when the context
+filled or on request. It can come inside any turn, or between turns. The agent no longer holds
+what it was sent, so a caller that sent it a snapshot once sends it again.
 
 `reef-agent --backend claude|codex [--cwd DIR] [--resume ID] [--permission-mode MODE]
 [--mcp FILE] "prompt"` runs one backend and prints these lines. `FILE` is a JSON object of
@@ -141,6 +145,30 @@ no `Send` and ends no turn, so it waits in `Events` until a reader takes it. Ree
 reads it during a turn, and for the lead, whose agent stays alive, between turns too. A
 specialist's agent is closed after its turn, so a background answer after that is never read.
 
+Compaction (claude 2.1.306, sonnet): a `system` line with subtype `compact_boundary`, one per
+compaction, after the new history is built. The adapter sends it as one `compacted` event.
+`compact_metadata.trigger` is `manual` for `/compact` sent as a user message, and `auto` when
+claude compacts on its own as the context fills; both give the same line. Seen with `/compact`
+as the second message of a stream-json session:
+
+```json
+{"type":"system","subtype":"compact_boundary","session_id":"b0004807-ecfb-4279-9d24-2d141f82fc92","uuid":"5518e24e-8d4f-4e59-bd03-30a924e62198","compact_metadata":{"trigger":"manual","pre_tokens":22971,"post_tokens":6703,"cumulative_dropped_tokens":16268,"duration_ms":7548},"logical_parent_uuid":"0655e870-b13a-46dc-853b-065844e62b21"}
+```
+
+and on its own, with `CLAUDE_CODE_AUTO_COMPACT_WINDOW=20000 CLAUDE_AUTOCOMPACT_PCT_OVERRIDE=1`
+and four one-word prompts (its attempts at the start of turns one and two gave
+`"compact_result":"failed"`, `"compact_error":"too_few_groups"` and no boundary line), at the
+start of the third turn:
+
+```json
+{"type":"system","subtype":"compact_boundary","uuid":"7f7ff5cd-74bf-4177-bdea-f55126062131","compact_metadata":{"trigger":"auto","pre_tokens":24769,"post_tokens":6674,"cumulative_dropped_tokens":18095,"duration_ms":5567,"preserved_segment":{...},"preserved_messages":{...}},"logical_parent_uuid":"c1179e84-5cf2-4be8-ac06-7f265bd6501b","session_id":"f786535e-1912-4e46-8d91-c63cc416a8af"}
+```
+
+The `system`/`status` lines around it (`"status":"compacting"`, then `"compact_result":"success"`
+or `"failed"`) are ignored: only the boundary line means the history was shortened. A manual
+`/compact` is a turn of its own: an `init` line (a `session` event), the boundary, and a `result`
+with `num_turns` 0.
+
 Noise, ignored: `system` with subtype `hook_started`, `hook_response`, `commands_changed`,
 `status`, `task_notification`, `task_started`, `task_updated`, `background_tasks_changed`;
 `rate_limit_event`.
@@ -205,6 +233,17 @@ A JSON-RPC `error` response after the handshake (for example to `turn/start`) be
 {"method":"turn/completed","params":{"turn":{"status":"failed","error":{"message":"{\"type\":\"error\",\"status\":400,...}"}}}}
 ```
 
+Compaction (codex 0.164.0, gpt-6-luna): an `item/started` and an `item/completed` notification
+for an item of type `contextCompaction`. The adapter sends the completed one as a `compacted`
+event. Seen both with the `thread/compact/start` request (its own turn) and on its own with
+`-c model_auto_compact_token_limit=8000` on `codex app-server`, at the start of the second of
+three one-word turns (11.5k tokens a call), before that turn's model call:
+
+```json
+{"method":"item/started","params":{"item":{"type":"contextCompaction","id":"01a17ba0-d600-7bb3-85b9-5db76671462f"},"threadId":"01a17ba0-d166-7ca0-a7a3-dd40ea0a5976","turnId":"01a17ba0-d5fb-7343-bada-36989ab157a1","startedAtMs":1793075500544},"emittedAtMs":1793075500544}
+{"method":"item/completed","params":{"item":{"type":"contextCompaction","id":"01a17ba0-d600-7bb3-85b9-5db76671462f"},"threadId":"01a17ba0-d166-7ca0-a7a3-dd40ea0a5976","turnId":"01a17ba0-d5fb-7343-bada-36989ab157a1","completedAtMs":1793075503195},"emittedAtMs":1793075503196}
+```
+
 Noise, ignored: `thread/started`, `thread/status/changed`, `mcpServer/startupStatus/updated`,
 `turn/diff/updated`, the `error` notification, and `item/*` for `userMessage`, `reasoning`
 and `agentMessage`.
@@ -220,6 +259,7 @@ and `agentMessage`.
 | `usage` | `message_delta` `stream_event` `usage`, one per model message, so a turn stopped midway keeps what it spent: `input_tokens`, `output_tokens`, `cache_read_input_tokens`, `cache_creation_input_tokens` (`cacheWriteTokens`). These events are the turn's live count only: the `result` line sends no `usage` of its own. The messages' usage leaves out the subagents' model calls (their messages have no `message_delta`) and claude's own side calls (a small-model call for the session title, about 1.2k input tokens, once per session). The `turn_end` or `error` carries `sessionUsage`, the sum of the result's `modelUsage`, which counts all of it for the whole session so far, also after a `--resume` (checked: cache read 38,208 = 22,860 earlier + 15,348 this turn). The adapter sends it as it is, and the channel `Runner` stores the turn's usage as that total minus what the session's earlier turns had, replacing the sum of the events. A turn that has no `modelUsage` keeps the sum of its events. A background turn that starts before the result of the turn it runs inside has sent its usage already; the later total holds it. | `thread/tokenUsage/updated` `last`, one `usage` per model call as it arrives, so a turn that is interrupted keeps what it used; the turn's usage is their sum. Codex sends a call's usage only after the call's tool finishes, so `Interrupt` sends `turn/interrupt` first; codex then reports the call the turn was in, unless it was still streaming text (that call is lost). Per call: `inputTokens` minus `cachedInputTokens` minus `cacheWriteInputTokens`, `outputTokens`, `cachedInputTokens`, `cacheWriteInputTokens`. This assumes `inputTokens` includes both cache fields; `cacheWriteInputTokens` was 0 in every live run, so unconfirmed. None for a turn that made no model call. |
 | `turn_end` | `result` line with `is_error` false and no `origin` of `task-notification`, carries a cost and `sessionUsage`. `total_cost_usd` is the running cost of the whole session, not the turn, and a `--resume` process continues the earlier total instead of starting from zero. The adapter sends it as it is, so it does not depend on where a process starts; the channel `Runner` stores the turn's own cost, that total minus the total the session's previous turn reported (kept on the turn as `session_cost_usd`; for a session stored before that, its largest cost plus the costs stored after it: a resumed process held a running total, a long-lived one stored its first total and then each turn's own share). A background `task-notification` result sends no cost: the next turn's total holds it. | `turn/completed` with any status but `failed`; carries no cost |
 | `background` | The text of a turn claude ran by itself for a finished background task (no echoed prompt), sent at its `result` with `origin` `task-notification`. None when the turn wrote no text. | Never. |
+| `compacted` | `system` line with subtype `compact_boundary`, see Compaction above. | `item/completed` of an item of type `contextCompaction`. |
 | `error` | `result` with `is_error` true (`result` and `errors[]` joined), carries a cost and `sessionUsage` the same way as `turn_end`. Also a non-zero exit when the last event was not already an `error`: `claude exited: ...: <stderr>`. | `turn/completed` with status `failed` (`turn.error.message`), or a JSON-RPC error response. Also a non-zero exit on its own: `codex exited: <err>: <stderr>`. |
 
 `parentToolId`: Claude sets it from `parent_tool_use_id` (null on top-level lines) on

@@ -267,6 +267,33 @@ func TestRemember_ReplacesRetiredFailsAndWritesNothing(t *testing.T) {
 	}
 }
 
+func TestRemember_ReplacesOnlyItemsOfItsOwnScope(t *testing.T) {
+	s, db := openTest(t)
+	ctx := context.Background()
+	other := writer()
+	other.Scope = Ref{Kind: ScopeProject, ID: "1"}
+	elsewhere, err := s.Remember(ctx, other, Note{Kind: KindFact, Body: "on the project shelf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := count(t, db, `SELECT count(*) FROM memory`)
+
+	_, err = s.Remember(ctx, writer(), Note{
+		Kind: KindFact, Body: "on the feature shelf", Replaces: []int64{elsewhere.Item.ID},
+	})
+	if want := "invalid: memory 1 is in scope project:1, not work_item:7"; err == nil ||
+		!errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), want) {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+	if n := count(t, db, `SELECT count(*) FROM memory`); n != items {
+		t.Errorf("items = %d, want %d", n, items)
+	}
+	got, err := s.Read(ctx, elsewhere.Item.ID)
+	if err != nil || got.Status != StatusAccepted {
+		t.Errorf("item on the other shelf = %+v, %v, want still accepted", got, err)
+	}
+}
+
 func TestRetire_NothingReplacing(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()
@@ -551,14 +578,21 @@ func TestOpen_UpgradesTheFirstMemorySchema(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(ids(hits), []int64{1}) {
 		t.Fatalf("search = %v, %v; want [1]", ids(hits), err)
 	}
+	if got.AcceptedAt != nil {
+		t.Errorf("candidate 2 AcceptedAt = %v, want nil", got.AcceptedAt)
+	}
+	if first, err := s.Read(ctx, 1); err != nil || first.AcceptedAt == nil ||
+		!first.AcceptedAt.Equal(first.CreatedAt) {
+		t.Errorf("accepted 1 AcceptedAt = %v, %v, want its created_at %v", first.AcceptedAt, err, first.CreatedAt)
+	}
 	if err := s.Reject(ctx, 2); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := Open(db, nil); err != nil {
 		t.Fatalf("second Open: %v", err)
 	}
-	if n := count(t, db, `SELECT version FROM memory_version`); n != 2 {
-		t.Fatalf("version = %d, want 2", n)
+	if n := count(t, db, `SELECT version FROM memory_version`); n != 3 {
+		t.Fatalf("version = %d, want 3", n)
 	}
 	if n := count(t, db, `SELECT count(*) FROM memory_version`); n != 1 {
 		t.Fatalf("version rows = %d, want 1", n)
@@ -607,7 +641,7 @@ func TestOpen_RefusesNewerMemorySchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Open(db, nil)
-	want := "memory tables are newer than this reef (version 99, this reef knows 2)"
+	want := "memory tables are newer than this reef (version 99, this reef knows 3)"
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("Open err = %v, want it to contain %q", err, want)
 	}

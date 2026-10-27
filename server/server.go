@@ -16,12 +16,14 @@ import (
 	"sync"
 
 	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
 type server struct {
 	st      *store.Store
+	ms      *memory.Store
 	dataDir string
 	trees   *channel.Trees
 	open    func(ctx context.Context, channelID int64) (session, error)
@@ -59,10 +61,10 @@ type Handler struct {
 }
 
 // New returns the API over st.
-func New(st *store.Store, dataDir, exe string) *Handler {
+func New(st *store.Store, ms *memory.Store, dataDir, exe string) *Handler {
 	trees := channel.NewTrees(dataDir)
-	return newHandler(st, dataDir, trees, func(ctx context.Context, channelID int64) (session, error) {
-		sess, err := channel.Open(ctx, st, dataDir, exe, channelID, trees, channel.NewAgent)
+	return newHandler(st, ms, dataDir, trees, func(ctx context.Context, channelID int64) (session, error) {
+		sess, err := channel.Open(ctx, st, ms, dataDir, exe, channelID, trees, channel.NewAgent)
 		if err != nil {
 			return nil, err
 		}
@@ -76,12 +78,12 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.h.ServeH
 func (h *Handler) Close() { h.s.close() }
 
 func newHandler(
-	st *store.Store, dataDir string, trees *channel.Trees,
+	st *store.Store, ms *memory.Store, dataDir string, trees *channel.Trees,
 	open func(ctx context.Context, channelID int64) (session, error),
 ) *Handler {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
-		st: st, dataDir: dataDir, trees: trees, open: open, name: channel.ProposeName,
+		st: st, ms: ms, dataDir: dataDir, trees: trees, open: open, name: channel.ProposeName,
 		ctx: ctx, cancel: cancel,
 		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{},
 		inboxWake: make(chan struct{}), ghFeatureErrLogged: map[int64]string{},
@@ -110,6 +112,7 @@ func newHandler(
 	s.proposalRoutes(mux)
 	s.taskRoutes(mux)
 	s.decisionRoutes(mux)
+	s.memoryRoutes(mux)
 	s.turnRoutes(mux)
 	s.inboxRoutes(mux)
 	s.startGitHubPoll()
@@ -193,9 +196,9 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errStopping):
 		status, msg = http.StatusServiceUnavailable, err.Error()
-	case errors.Is(err, store.ErrInvalid):
+	case errors.Is(err, store.ErrInvalid), errors.Is(err, memory.ErrInvalid):
 		status, msg = http.StatusBadRequest, err.Error()
-	case errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, memory.ErrNotFound):
 		status, msg = http.StatusNotFound, err.Error()
 	case errors.Is(err, store.ErrConflict), errors.Is(err, worktree.ErrNoRepo):
 		status, msg = http.StatusConflict, err.Error()

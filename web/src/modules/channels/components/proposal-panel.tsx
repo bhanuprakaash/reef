@@ -31,9 +31,7 @@ export function ProposalPanel({
       if (decide.data.kind === 'brief')
         return <p className="text-sm text-done">approved: brief saved</p>;
       return (
-        <p className="text-sm text-done">
-          approved: {decide.data.decisionsAdded ?? 0} decisions added
-        </p>
+        <p className="text-sm text-done">approved: {decide.data.itemsAdded ?? 0} items saved</p>
       );
     }
     if (decide.data?.status === 'rejected') return <p className="text-sm text-muted">rejected</p>;
@@ -42,9 +40,7 @@ export function ProposalPanel({
 
   const summary = [
     'brief',
-    p.notes && 'role notes',
-    p.decisions.length > 0 &&
-      `${p.decisions.length} ${p.decisions.length === 1 ? 'decision' : 'decisions'}`,
+    p.items.length > 0 && `${p.items.length} ${p.items.length === 1 ? 'item' : 'items'}`,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -64,28 +60,24 @@ export function ProposalPanel({
         <h3 className="text-xs text-muted uppercase">Brief</h3>
         <Markdown>{p.brief}</Markdown>
       </div>
-      {p.notes && (
+      {(p.items.length > 0 || p.retire.length > 0) && (
         <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
-          <h3 className="text-xs text-muted uppercase">Notes</h3>
-          <Markdown>{p.notes}</Markdown>
-        </div>
-      )}
-      {(p.decisions.length > 0 || p.retire.length > 0) && (
-        <div className="rounded-xl bg-field px-3 py-2.5 text-[13.5px] text-soft">
-          <h3 className="text-xs text-muted uppercase">Decisions</h3>
+          <h3 className="text-xs text-muted uppercase">Memory items</h3>
           <ul className="space-y-2">
-            {p.decisions.map((d, i) => (
+            {p.items.map((it, i) => (
               <li key={i}>
-                <p>{d.body}</p>
-                {d.why && <p className="text-sm text-muted">Why: {d.why}</p>}
-                {d.replaces && d.replaces.length > 0 && (
-                  <p className="text-sm text-muted">Replaces: {d.replaces.join(', ')}</p>
+                <p>
+                  {it.kind} ({it.scope}): {it.body}
+                </p>
+                {it.why && <p className="text-sm text-muted">Why: {it.why}</p>}
+                {it.replaces && it.replaces.length > 0 && (
+                  <p className="text-sm text-muted">Replaces: {it.replaces.join(', ')}</p>
                 )}
               </li>
             ))}
           </ul>
           {p.retire.length > 0 && (
-            <p className="text-sm text-muted">Retires: {p.retire.join(', ')}</p>
+            <p className="text-sm text-muted">retire memory items: {p.retire.join(', ')}</p>
           )}
         </div>
       )}

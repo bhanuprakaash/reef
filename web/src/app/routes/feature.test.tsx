@@ -13,7 +13,7 @@ const hooks = vi.hoisted(() => ({
 vi.mock('@/modules/features/api/get-feature', () => ({ useFeature: hooks.useFeature }));
 vi.mock('@/modules/features/api/get-diff', () => ({ useDiff: hooks.useDiff }));
 vi.mock('@/modules/features/api/get-brief-versions', () => ({ useBriefVersions: hooks.none }));
-vi.mock('@/modules/features/api/get-decisions', () => ({ useDecisions: hooks.none }));
+vi.mock('@/lib/api/get-memory', () => ({ useMemory: hooks.none }));
 vi.mock('@/modules/features/api/set-feature-closed', () => ({
   useSetFeatureClosed: () => ({ isError: false, mutate: vi.fn() }),
 }));

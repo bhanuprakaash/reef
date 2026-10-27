@@ -24,6 +24,7 @@ func TestRunner_NotesReachTheNextTurnOnce(t *testing.T) {
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
 	r := NewRunner(st, ag, ch.ID, "developer", "claude", "")
+	r.Memory = testMemory(t, st)
 
 	if err := r.Run(ctx, "[channel 1, message 1]\nlead wrote: @developer go", nil, discard); err != nil {
 		t.Fatal(err)
@@ -62,6 +63,7 @@ func TestRunner_NotesReachARetry(t *testing.T) {
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
 	r := NewRunner(st, ag, ch.ID, "developer", "claude", "")
+	r.Memory = testMemory(t, st)
 
 	if err := r.Run(ctx, "[channel 1, message 1]\nlead wrote: @developer go", nil, discard); err != nil {
 		t.Fatal(err)
@@ -127,6 +129,7 @@ func TestRunner_NotesSkipARoleWithNoTurnAndFitPlainText(t *testing.T) {
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
 	r := NewRunner(st, ag, ch.ID, "developer", "claude", "")
+	r.Memory = testMemory(t, st)
 
 	reefNote(t, st, ch.ID, "early")
 	if err := r.Run(ctx, "[channel 1, message 2]\nfirst", nil, discard); err != nil {

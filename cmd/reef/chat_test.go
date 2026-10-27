@@ -14,6 +14,7 @@ import (
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -21,6 +22,7 @@ type fakeSession struct {
 	st        *store.Store
 	channelID int64
 	propose   bool
+	replaces  []int64
 	gate      chan struct{}
 	sent      chan struct{}
 	stored    []string
@@ -52,8 +54,11 @@ func (f *fakeSession) Wrap(ctx context.Context, onEvent func(agent.Event)) (stor
 		return store.Proposal{}, channel.ErrNoProposal
 	}
 	return f.st.CreateProposal(ctx, store.Proposal{
-		ChannelID: f.channelID, Role: "architect", Brief: "new brief", Notes: "my notes",
-		Decisions: []store.ProposedDecision{{Body: "use sessions", Why: "simple"}},
+		ChannelID: f.channelID, Role: "architect", Brief: "new brief",
+		Items: []store.ProposedItem{
+			{Kind: "decision", Body: "use sessions", Why: "simple", Scope: "work_item", Replaces: f.replaces},
+			{Kind: "lesson", Body: "reply short", Scope: "teammate"},
+		},
 	})
 }
 
@@ -77,7 +82,11 @@ func startChat(t *testing.T, st *store.Store, ch store.Channel, w *fakeSession) 
 	c := &chatRun{
 		in: pw, lines: lines, out: &syncBuffer{}, done: make(chan error, 1), cancel: cancel,
 	}
-	go func() { c.done <- converse(ctx, st, ch.ID, w, lines, c.out) }()
+	ms, err := memory.Open(st.DB(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	go func() { c.done <- converse(ctx, st, ms, ch.ID, w, lines, c.out) }()
 	return c
 }
 
@@ -158,14 +167,16 @@ func TestConverse_Wrap(t *testing.T) {
 		wantExactOut string
 		wantBrief    string
 		wantPending  bool
+		wantRows     int
 	}{
 		{name: "approve", propose: true, answer: "y",
-			wantOut: "approved: brief, notes and 1 decisions saved", wantBrief: "new brief"},
+			wantOut: "approved: brief and 2 items saved", wantBrief: "new brief", wantRows: 2},
 		{name: "reject", propose: true, answer: "no", wantOut: "rejected: nothing changed"},
 		{name: "end of input", propose: true,
 			wantOut: "proposal 1 left pending",
-			wantExactOut: "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nnotes:\nmy notes\n\n" +
-				"decisions:\n- use sessions (simple)\n\napprove? [y/N] \nproposal 1 left pending\n\n",
+			wantExactOut: "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nitems:\n" +
+				"- decision (work_item): use sessions (simple)\n- lesson (teammate): reply short\n\n" +
+				"approve? [y/N] \nproposal 1 left pending\n\n",
 			wantPending: true},
 		{name: "no proposal", wantOut: "no proposal made"},
 	}
@@ -204,7 +215,45 @@ func TestConverse_Wrap(t *testing.T) {
 			if tt.wantPending != (err == nil) {
 				t.Errorf("PendingProposal error = %v, want pending %v", err, tt.wantPending)
 			}
+			if _, err := memory.Open(st.DB(), nil); err != nil {
+				t.Fatal(err)
+			}
+			var rows int
+			if err := st.DB().QueryRow("SELECT COUNT(*) FROM memory").Scan(&rows); err != nil || rows != tt.wantRows {
+				t.Errorf("memory rows = %d, %v, want %d", rows, err, tt.wantRows)
+			}
 		})
+	}
+}
+
+func TestConverse_WrapApproveRefusedByMemoryIsReportedAndLeftPending(t *testing.T) {
+	ctx := context.Background()
+	st, ch := chatFixture(t)
+	ms, err := memory.Open(st.DB(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ms.Remember(ctx,
+		memory.Writer{Author: "user", Role: "user", Scope: memory.Ref{Kind: memory.ScopeProject, ID: "1"}},
+		memory.Note{Kind: memory.KindFact, Body: "on the project shelf"}); err != nil {
+		t.Fatal(err)
+	}
+	w := &fakeSession{propose: true, replaces: []int64{1}}
+	c := startChat(t, st, ch, w)
+
+	c.say(t, "/wrap")
+	c.waitFor(t, "approve? [y/N] ")
+	c.say(t, "y")
+	c.waitFor(t, "reef: ")
+	out := c.end(t)
+
+	want := "approve? [y/N] reef: save item \"use sessions\": replace 1: " +
+		"invalid: memory 1 is in scope project:1, not work_item:1\n\n> "
+	if !strings.HasSuffix(out, want) {
+		t.Errorf("output = %q, want it to end with %q", out, want)
+	}
+	if p, err := st.PendingProposal(ctx, ch.ID); err != nil || p.ID != 1 {
+		t.Errorf("PendingProposal = %+v, %v, want proposal 1 still pending", p, err)
 	}
 }
 
@@ -218,8 +267,9 @@ func TestConverse_WrapCancelledAtPromptLeavesProposalPending(t *testing.T) {
 	c.cancel()
 	out := c.end(t)
 
-	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nnotes:\nmy notes\n\n" +
-		"decisions:\n- use sessions (simple)\n\napprove? [y/N] \nproposal 1 left pending\n\n"
+	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nitems:\n" +
+		"- decision (work_item): use sessions (simple)\n- lesson (teammate): reply short\n\n" +
+		"approve? [y/N] \nproposal 1 left pending\n\n"
 	if out != want {
 		t.Errorf("output = %q, want %q", out, want)
 	}
@@ -244,8 +294,9 @@ func TestConverse_WrapIgnoresTypedAheadLines(t *testing.T) {
 	c.waitFor(t, "approve? [y/N] ")
 	out := c.end(t)
 
-	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nnotes:\nmy notes\n\n" +
-		"decisions:\n- use sessions (simple)\n\napprove? [y/N] \n" +
+	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nitems:\n" +
+		"- decision (work_item): use sessions (simple)\n- lesson (teammate): reply short\n\n" +
+		"approve? [y/N] \n" +
 		"ignored while wrapping: a\nignored while wrapping: y\napprove? [y/N] \n" +
 		"proposal 1 left pending\n\n"
 	if out != want {
@@ -307,7 +358,7 @@ func TestConverse_WrapDecisionElsewhereContinues(t *testing.T) {
 		{
 			name: "approved", answer: "y", status: store.ProposalApproved,
 			decide: func(st *store.Store) error {
-				_, _, err := st.ApproveProposal(context.Background(), 1)
+				_, err := st.ApproveProposal(context.Background(), 1)
 				return err
 			},
 		},

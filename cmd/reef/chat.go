@@ -15,6 +15,8 @@ import (
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/server"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -60,6 +62,10 @@ func chatCmd(
 	if err != nil {
 		return fmt.Errorf("find reef path: %w", err)
 	}
+	ms, err := openMemory(ctx, st)
+	if err != nil {
+		return err
+	}
 
 	if !resuming {
 		f, err := st.FeatureByRef(ctx, pos[0])
@@ -91,7 +97,7 @@ func chatCmd(
 				ch.ID, team.Name)
 		}
 	}
-	sess, err := channel.Open(ctx, st, dir, exe, *channelID, channel.NewTrees(dir), channel.NewAgent)
+	sess, err := channel.Open(ctx, st, ms, dir, exe, *channelID, channel.NewTrees(dir), channel.NewAgent)
 	if err == nil {
 		if err = sess.Start(ctx); err != nil {
 			_ = sess.Close()
@@ -110,7 +116,7 @@ func chatCmd(
 			_, _ = fmt.Fprintf(stderr, "--- prompt ---\n%s\n---\n", prompt)
 		})
 	}
-	if err := converse(ctx, st, *channelID, sess, readLines(stdin), stdout); err != nil {
+	if err := converse(ctx, st, ms, *channelID, sess, readLines(stdin), stdout); err != nil {
 		return err
 	}
 	_, err = fmt.Fprintf(stdout, "\nchannel %d: resume with reef chat --channel %d\n",
@@ -127,7 +133,7 @@ type chatSession interface {
 var _ chatSession = (*channel.Session)(nil)
 
 func converse(
-	ctx context.Context, st *store.Store, channelID int64, sess chatSession,
+	ctx context.Context, st *store.Store, ms *memory.Store, channelID int64, sess chatSession,
 	in *lineReader, stdout io.Writer,
 ) error {
 	show := func(ev agent.Event) {
@@ -193,7 +199,7 @@ func converse(
 			return err
 		}
 		if wrap {
-			stop, err := decideWrap(ctx, st, p, noProposal, in, stdout)
+			stop, err := decideWrap(ctx, st, ms, p, noProposal, in, stdout)
 			if err != nil {
 				return err
 			}
@@ -208,7 +214,7 @@ func converse(
 }
 
 func decideWrap(
-	ctx context.Context, st *store.Store, p store.Proposal, noProposal bool,
+	ctx context.Context, st *store.Store, ms *memory.Store, p store.Proposal, noProposal bool,
 	in *lineReader, stdout io.Writer,
 ) (stop bool, err error) {
 	if noProposal {
@@ -243,15 +249,15 @@ func decideWrap(
 		return true, err
 	}
 	if a := strings.ToLower(answer); a == "y" || a == "yes" {
-		p, added, err := st.ApproveProposal(ctx, p.ID)
+		a, err := server.ApproveProposal(ctx, st, ms, p.ID)
 		if err != nil {
-			if errors.Is(err, store.ErrInvalid) {
+			if errors.Is(err, store.ErrInvalid) || errors.Is(err, memory.ErrInvalid) {
 				_, err = fmt.Fprintf(stdout, "reef: %s\n\n", strings.TrimPrefix(err.Error(), "invalid: "))
 				return false, err
 			}
 			return false, err
 		}
-		_, err = fmt.Fprintf(stdout, "%s\n\n", approvedText(p, added))
+		_, err = fmt.Fprintf(stdout, "%s\n\n", approvedText(a))
 		return false, err
 	}
 	if _, err := st.RejectProposal(ctx, p.ID); err != nil {
@@ -276,11 +282,15 @@ func proposalTitle(p store.Proposal) string {
 	return fmt.Sprintf("proposal %d from %s", p.ID, p.Role)
 }
 
-func approvedText(p store.Proposal, added int) string {
-	if p.Kind == store.ProposalBrief {
-		return "approved: brief saved"
+func approvedText(a server.Approval) string {
+	text := "approved: brief saved"
+	if a.Proposal.Kind != store.ProposalBrief {
+		text = fmt.Sprintf("approved: brief and %d items saved", a.Added)
 	}
-	return fmt.Sprintf("approved: brief, notes and %d decisions saved", added)
+	for _, w := range a.Warnings {
+		text += "\nwarning: " + w
+	}
+	return text
 }
 
 func proposalBodyText(p store.Proposal) string {
@@ -288,19 +298,19 @@ func proposalBodyText(p store.Proposal) string {
 		return fmt.Sprintf("brief:\n%s\n", p.Brief)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "brief:\n%s\n\nnotes:\n%s\n\ndecisions:\n", p.Brief, p.Notes)
-	for _, d := range p.Decisions {
-		fmt.Fprintf(&b, "- %s", d.Body)
-		if d.Why != "" {
-			fmt.Fprintf(&b, " (%s)", d.Why)
+	fmt.Fprintf(&b, "brief:\n%s\n\nitems:\n", p.Brief)
+	for _, it := range p.Items {
+		fmt.Fprintf(&b, "- %s (%s): %s", it.Kind, it.Scope, it.Body)
+		if it.Why != "" {
+			fmt.Fprintf(&b, " (%s)", it.Why)
 		}
-		if len(d.Replaces) > 0 {
-			fmt.Fprintf(&b, " [replaces %v]", d.Replaces)
+		if len(it.Replaces) > 0 {
+			fmt.Fprintf(&b, " [replaces %v]", it.Replaces)
 		}
 		b.WriteString("\n")
 	}
 	if len(p.Retire) > 0 {
-		fmt.Fprintf(&b, "\nretire decisions: %v\n", p.Retire)
+		fmt.Fprintf(&b, "\nretire memory items: %v\n", p.Retire)
 	}
 	return b.String()
 }

@@ -7,6 +7,8 @@ import (
 	"io"
 	"strconv"
 	"time"
+
+	"github.com/bhanuprakaash/reef/server"
 )
 
 const (
@@ -94,11 +96,15 @@ func wrapDecide(ctx context.Context, verb string, args []string, stdout io.Write
 			proposalTitle(p), p.Status, proposalBodyText(p))
 		return err
 	case "approve":
-		p, added, err := st.ApproveProposal(ctx, id)
+		ms, err := openMemory(ctx, st)
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintln(stdout, approvedText(p, added))
+		a, err := server.ApproveProposal(ctx, st, ms, id)
+		if err != nil {
+			return err
+		}
+		_, err = fmt.Fprintln(stdout, approvedText(a))
 		return err
 	}
 	if _, err := st.RejectProposal(ctx, id); err != nil {

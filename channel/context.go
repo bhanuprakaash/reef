@@ -5,9 +5,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -15,19 +17,61 @@ const (
 	_dateLayout    = "2006-01-02"
 	_maxIndexRunes = 100
 	_youHeader     = "## You\n"
-	_toolsLine     = "Details are on demand through the reef MCP tools read_decision, " +
-		"read_thread, list_tasks and search_sessions. Record decisions with record_decision. When the " +
+	_findingsLimit = 5
+	_projectLimit  = 10
+	_teamLimit     = 5
+	_yourLimit     = 5
+	_toolsLine     = "Details are on demand through the reef MCP tools recall, read_memory, " +
+		"read_thread, list_tasks and search_sessions. Record decisions with remember. When the " +
 		"user and the team agree on the goal, scope or plan, call propose_brief."
 )
 
+var _findingKinds = []string{
+	memory.KindFinding, memory.KindFact, memory.KindConvention, memory.KindLesson,
+}
+
+type shelfPart struct {
+	label string
+	kinds []string
+	limit int
+}
+
+var _shelfParts = map[string][]shelfPart{
+	memory.ScopeWorkItem: {
+		{label: "Decisions", kinds: []string{memory.KindDecision}},
+		{label: "Findings", kinds: _findingKinds, limit: _findingsLimit},
+	},
+	memory.ScopeProject:  {{label: "Project", limit: _projectLimit}},
+	memory.ScopeTeam:     {{label: "Team", limit: _teamLimit}},
+	memory.ScopeTeammate: {{label: "Your items", limit: _yourLimit}},
+}
+
 // Context is the first prompt of a role on a feature without a team: what `reef context`
 // prints. It never holds a message body.
-func Context(ctx context.Context, st *store.Store, featureID int64, role string) (string, error) {
+func Context(
+	ctx context.Context, st *store.Store, ms *memory.Store, featureID int64, role string,
+) (string, error) {
 	f, err := st.Feature(ctx, featureID)
 	if err != nil {
 		return "", err
 	}
-	return firstPrompt(ctx, st, f.ProjectID, &f.ID, 0, store.Team{}, store.Role{Name: role})
+	return firstPrompt(ctx, st, ms, f.ProjectID, &f.ID, 0, store.Team{}, store.Role{Name: role})
+}
+
+// Scopes are the shelves of memory a role reads and writes in ch: the feature's when it has
+// one, the project's, the team's unless it is the solo team, and the role's own.
+func Scopes(ch store.Channel, role string) []memory.Ref {
+	var scopes []memory.Ref
+	if ch.FeatureID != nil {
+		scopes = append(scopes,
+			memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*ch.FeatureID, 10)})
+	}
+	scopes = append(scopes,
+		memory.Ref{Kind: memory.ScopeProject, ID: strconv.FormatInt(ch.ProjectID, 10)})
+	if ch.Team != "" && ch.Team != store.SoloTeam {
+		scopes = append(scopes, memory.Ref{Kind: memory.ScopeTeam, ID: ch.Team})
+	}
+	return append(scopes, memory.Ref{Kind: memory.ScopeTeammate, ID: role})
 }
 
 // firstPrompt is the first prompt of a role in three sections: You, How to work and What we
@@ -35,8 +79,8 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 // session has no featureID. channelID is the channel the prompt is for, or 0 for none; it is not
 // counted as an earlier channel.
 func firstPrompt(
-	ctx context.Context, st *store.Store, projectID int64, featureID *int64, channelID int64,
-	team store.Team, r store.Role,
+	ctx context.Context, st *store.Store, ms *memory.Store, projectID int64, featureID *int64,
+	channelID int64, team store.Team, r store.Role,
 ) (string, error) {
 	p, err := st.Project(ctx, projectID)
 	if err != nil {
@@ -46,21 +90,20 @@ func firstPrompt(
 	if err != nil {
 		return "", err
 	}
-	mem, err := st.ProjectMemory(ctx, projectID)
-	if err != nil {
-		return "", err
-	}
 
+	ch := store.Channel{ID: channelID, ProjectID: projectID, FeatureID: featureID, Team: team.Name}
 	var b strings.Builder
 	b.WriteString(_youHeader + roleIntro(r))
 	var know []string
 	how := teamIntro(team, r)
 	if featureID == nil {
 		fmt.Fprintf(&b, "You are the %s in project %q (%s).\n"+
-			"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n",
+			"This is a quick session: it has no feature yet, so there is no brief or feature items.\n",
 			r.Name, p.Name, p.Path)
 		b.WriteString(who)
-		know = appendPart(know, "Project memory", mem.Body)
+		if know, err = itemParts(ctx, ms, nil, ch, r.Name); err != nil {
+			return "", err
+		}
 	} else {
 		f, err := st.Feature(ctx, *featureID)
 		if err != nil {
@@ -80,7 +123,7 @@ func firstPrompt(
 			fmt.Fprintf(&b, "Stages in order: %s. Call set_stage when the work moves to the next one.\n",
 				strings.Join(store.Stages(), ", "))
 		}
-		if know, err = featureKnow(ctx, st, f, channelID, r.Name, mem.Body); err != nil {
+		if know, err = featureKnow(ctx, st, ms, f, ch, r.Name); err != nil {
 			return "", err
 		}
 	}
@@ -98,20 +141,13 @@ func firstPrompt(
 }
 
 // featureKnow is the parts of What we know for a role on f. Open tasks and channels with
-// messages, other than channelID, are only counted: the role looks them up with tools.
+// messages, other than ch, are only counted: the role looks them up with tools.
 func featureKnow(
-	ctx context.Context, st *store.Store, f store.Feature, channelID int64, role, memory string,
+	ctx context.Context, st *store.Store, ms *memory.Store, f store.Feature, ch store.Channel,
+	role string,
 ) ([]string, error) {
 	brief, err := st.Brief(ctx, f.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return nil, err
-	}
-	notes, err := st.RoleNotes(ctx, f.ID, role)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return nil, err
-	}
-	decisions, err := st.Decisions(ctx, f.ID)
-	if err != nil {
 		return nil, err
 	}
 	channels, err := st.Channels(ctx, store.ChannelFilter{FeatureID: &f.ID})
@@ -123,12 +159,7 @@ func featureKnow(
 		return nil, err
 	}
 
-	var live, doing, counts []string
-	for _, d := range decisions {
-		if d.RetiredAt == nil {
-			live = append(live, decisionLine(d))
-		}
-	}
+	var doing, counts []string
 	open := 0
 	for _, t := range tasks {
 		if t.Status == "done" {
@@ -144,7 +175,7 @@ func featureKnow(
 	}
 	earlier := 0
 	for _, c := range channels {
-		if c.ID == channelID {
+		if c.ID == ch.ID {
 			continue
 		}
 		n, err := st.CountMessages(ctx, c.ID)
@@ -159,49 +190,71 @@ func featureKnow(
 		counts = append(counts, fmt.Sprintf("%d earlier %s (search_sessions).", earlier, plural(earlier, "channel")))
 	}
 
-	var parts []string
-	parts = appendPart(parts, "Brief", brief.Body)
-	parts = appendPart(parts, "Project memory", memory)
-	parts = appendPart(parts, "Your notes", notes.Body)
-	parts = appendPart(parts, "Decisions", strings.Join(live, "\n"))
+	parts := appendPart(nil, "Brief", brief.Body)
+	if parts, err = itemParts(ctx, ms, parts, ch, role); err != nil {
+		return nil, err
+	}
 	parts = appendPart(parts, "Doing", strings.Join(doing, "\n"))
 	return appendPart(parts, "On demand", strings.Join(counts, " ")), nil
 }
 
-func decisionLine(d store.Decision) string {
-	return fmt.Sprintf("decision %d: %s (%s, %s)",
-		d.ID, firstLine(d.Body), d.Author, d.CreatedAt.Format(_dateLayout))
+// itemParts adds a part for each shelf of Scopes: its newest accepted items, and for a part
+// with a limit, how many of how many it shows.
+func itemParts(
+	ctx context.Context, ms *memory.Store, parts []string, ch store.Channel, role string,
+) ([]string, error) {
+	for _, scope := range Scopes(ch, role) {
+		for _, sp := range _shelfParts[scope.Kind] {
+			items, total, err := ms.Newest(ctx, scope, sp.kinds, sp.limit)
+			if err != nil {
+				return nil, err
+			}
+			lines := make([]string, len(items), len(items)+1)
+			for i, it := range items {
+				lines[i] = itemLine(it)
+			}
+			if len(items) > 0 && sp.limit > 0 {
+				lines = append(lines,
+					fmt.Sprintf("%d of %d; recall(..., scope=%s)", len(items), total, scope.Kind))
+			}
+			parts = appendPart(parts, sp.label, strings.Join(lines, "\n"))
+		}
+	}
+	return parts, nil
 }
 
-// changedSince is what the feature gained after since that a role whose session was told of
-// everything before it has not seen: the decisions added, the decisions retired and the brief
-// in full when a version is newer. A decision added and retired since is named as retired
-// only, as the role may have seen it in its previous turn. It is empty when nothing changed.
-// Tasks are left out.
+func itemLine(it memory.Item) string {
+	return fmt.Sprintf("%s %d: %s (%s, %s)",
+		it.Kind, it.ID, firstLine(it.Body), it.Author, it.CreatedAt.Format(_dateLayout))
+}
+
+// changedSince is what changed in the role's Scopes after since: items accepted, items retired
+// and a newer brief in full. An item added and retired since is named as retired only, as the
+// role may have seen it in its previous turn.
 func changedSince(
-	ctx context.Context, st *store.Store, featureID int64, since time.Time,
+	ctx context.Context, st *store.Store, ms *memory.Store, ch store.Channel, role string,
+	since time.Time,
 ) (string, error) {
-	decisions, err := st.Decisions(ctx, featureID)
+	added, retired, err := ms.Changed(ctx, Scopes(ch, role), since)
 	if err != nil {
 		return "", err
 	}
 	var lines []string
-	for _, d := range decisions {
-		if d.CreatedAt.After(since) && d.RetiredAt == nil {
-			lines = append(lines, decisionLine(d))
-		}
+	for _, it := range added {
+		lines = append(lines, itemLine(it))
 	}
-	for _, d := range decisions {
-		if d.RetiredAt == nil || !d.RetiredAt.After(since) {
-			continue
-		}
-		line := fmt.Sprintf("decision %d is retired", d.ID)
-		if d.ReplacedBy != nil {
-			line += fmt.Sprintf(", replaced by decision %d", *d.ReplacedBy)
+	for _, it := range retired {
+		line := fmt.Sprintf("%s %d is retired", it.Kind, it.ID)
+		if it.ReplacedBy != nil {
+			by, err := ms.Read(ctx, *it.ReplacedBy)
+			if err != nil {
+				return "", err
+			}
+			line += fmt.Sprintf(", replaced by %s %d", by.Kind, by.ID)
 		}
 		lines = append(lines, line+".")
 	}
-	brief, err := st.Brief(ctx, featureID)
+	brief, err := st.Brief(ctx, *ch.FeatureID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return "", err
 	}

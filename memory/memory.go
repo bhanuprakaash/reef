@@ -46,7 +46,7 @@ const (
 )
 
 const _selectItem = `SELECT id, kind, body, why, scope_kind, scope_id, author, role, status,
-	retired_at, replaced_by, created_at FROM memory`
+	retired_at, replaced_by, created_at, accepted_at FROM memory`
 
 var (
 	// ErrNotFound is wrapped when the id matches no item.
@@ -105,6 +105,7 @@ type Item struct {
 	RetiredAt       *time.Time
 	ReplacedBy      *int64
 	CreatedAt       time.Time
+	AcceptedAt      *time.Time
 	Links           []Link
 }
 
@@ -140,7 +141,7 @@ func Open(db *sql.DB, e Embedder) (*Store, error) {
 }
 
 // Remember writes one item with its links, all or nothing. Each id in n.Replaces must be a
-// live item. When the new item is accepted they are retired and point at it; when it is a
+// live item in the same scope as the new one. When the new item is accepted they are retired and point at it; when it is a
 // candidate they stay live until Accept. Lookalikes are reported in Result.Similar but
 // never block the write.
 func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) {
@@ -176,10 +177,15 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	status := statusFor(w, n)
+	var acceptedAt *string
+	if status == StatusAccepted {
+		acceptedAt = &now
+	}
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO memory (kind, body, why, scope_kind, scope_id, author, role, status, created_at, vector)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.Kind, n.Body, n.Why, w.Scope.Kind, w.Scope.ID, w.Author, w.Role, status, now, blob)
+		`INSERT INTO memory (kind, body, why, scope_kind, scope_id, author, role, status, created_at,
+		 accepted_at, vector) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.Kind, n.Body, n.Why, w.Scope.Kind, w.Scope.ID, w.Author, w.Role, status, now, acceptedAt,
+		blob)
 	if err != nil {
 		return Result{}, fmt.Errorf("insert item: %w", err)
 	}
@@ -195,9 +201,11 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 		}
 	}
 	for _, old := range n.Replaces {
-		if status == StatusCandidate {
+		switch err = checkShelf(ctx, tx, old, w.Scope); {
+		case err != nil:
+		case status == StatusCandidate:
 			err = checkLive(ctx, tx, old)
-		} else {
+		default:
 			err = retire(ctx, tx, old, &id, now)
 		}
 		if err != nil {
@@ -244,9 +252,10 @@ func (s *Store) Accept(ctx context.Context, id int64) error {
 	}
 	defer func() { _ = tx.Rollback() }()
 
+	now := time.Now().UTC().Format(time.RFC3339Nano)
 	res, err := tx.ExecContext(ctx,
-		`UPDATE memory SET status = ? WHERE id = ? AND status = ?`,
-		StatusAccepted, id, StatusCandidate)
+		`UPDATE memory SET status = ?, accepted_at = ? WHERE id = ? AND status = ?`,
+		StatusAccepted, now, id, StatusCandidate)
 	if err != nil {
 		return fmt.Errorf("accept %d: %w", id, err)
 	}
@@ -257,7 +266,6 @@ func (s *Store) Accept(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	now := time.Now().UTC().Format(time.RFC3339Nano)
 	for _, o := range old {
 		if err := retire(ctx, tx, o, &id, now); err != nil && !errors.Is(err, ErrInvalid) {
 			return fmt.Errorf("replace %d: %w", o, err)
@@ -318,6 +326,92 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
+// Newest returns the most recently accepted items in scope, of any of kinds (any kind when
+// empty), latest first, and how many accepted items match in all. A limit of 0 or less returns every
+// match. The items carry no links.
+func (s *Store) Newest(
+	ctx context.Context, scope Ref, kinds []string, limit int,
+) ([]Item, int, error) {
+	where := ` WHERE status = ? AND scope_kind = ? AND scope_id = ?`
+	args := []any{StatusAccepted, scope.Kind, scope.ID}
+	if len(kinds) > 0 {
+		where += ` AND kind IN (?` + strings.Repeat(", ?", len(kinds)-1) + `)`
+		for _, k := range kinds {
+			args = append(args, k)
+		}
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM memory`+where, args...).
+		Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count newest: %w", err)
+	}
+	if limit <= 0 {
+		limit = -1
+	}
+	rows, err := s.db.QueryContext(ctx,
+		_selectItem+where+` ORDER BY accepted_at DESC, id DESC LIMIT ?`, append(args, limit)...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query newest: %w", err)
+	}
+	defer rows.Close()
+	var items []Item
+	for rows.Next() {
+		it, err := scanItem(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("scan newest: %w", err)
+	}
+	return items, total, nil
+}
+
+// Changed returns what happened in scopes after since, each ordered by id: the items accepted
+// after it, and the items retired after it. An item accepted and retired since is only in
+// retired. Candidates and rejected items are in neither. The items carry no links.
+func (s *Store) Changed(
+	ctx context.Context, scopes []Ref, since time.Time,
+) (added, retired []Item, err error) {
+	if len(scopes) == 0 {
+		return nil, nil, nil
+	}
+	// Stored times have a varying number of fraction digits, so SQL only drops what is a whole
+	// second too old; the exact comparison is in Go.
+	sec := since.UTC().Format("2006-01-02T15:04:05")
+	where := make([]string, len(scopes))
+	args := []any{StatusAccepted, sec, StatusRetired, sec}
+	for i, sc := range scopes {
+		where[i] = "(scope_kind = ? AND scope_id = ?)"
+		args = append(args, sc.Kind, sc.ID)
+	}
+	rows, err := s.db.QueryContext(ctx,
+		_selectItem+` WHERE ((status = ? AND substr(accepted_at, 1, 19) >= ?)
+		 OR (status = ? AND substr(retired_at, 1, 19) >= ?))
+		 AND (`+strings.Join(where, " OR ")+`) ORDER BY id`, args...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("query changed: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		it, err := scanItem(rows)
+		if err != nil {
+			return nil, nil, err
+		}
+		switch {
+		case it.Status == StatusAccepted && it.AcceptedAt.After(since):
+			added = append(added, it)
+		case it.Status == StatusRetired && it.RetiredAt.After(since):
+			retired = append(retired, it)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("scan changed: %w", err)
+	}
+	return added, retired, nil
+}
+
 func statusFor(w Writer, n Note) string {
 	if n.NeedsApproval {
 		return StatusCandidate
@@ -373,6 +467,24 @@ func retire(ctx context.Context, q querier, id int64, replacedBy *int64, now str
 		return nil
 	}
 	return checkLive(ctx, q, id)
+}
+
+// checkShelf fails unless id is an item in scope.
+func checkShelf(ctx context.Context, q querier, id int64, scope Ref) error {
+	var got Ref
+	err := q.QueryRowContext(ctx, `SELECT scope_kind, scope_id FROM memory WHERE id = ?`, id).
+		Scan(&got.Kind, &got.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("memory %d: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("check %d: %w", id, err)
+	}
+	if got != scope {
+		return fmt.Errorf("%w: memory %d is in scope %s:%s, not %s:%s",
+			ErrInvalid, id, got.Kind, got.ID, scope.Kind, scope.ID)
+	}
+	return nil
 }
 
 // checkLive fails unless id is an accepted item.
@@ -483,9 +595,10 @@ func scanItem(rows *sql.Rows) (Item, error) {
 		retiredAt  sql.NullString
 		replacedBy sql.NullInt64
 		createdAt  string
+		acceptedAt sql.NullString
 	)
 	if err := rows.Scan(&it.ID, &it.Kind, &it.Body, &it.Why, &it.Scope.Kind, &it.Scope.ID,
-		&it.Author, &it.Role, &it.Status, &retiredAt, &replacedBy, &createdAt); err != nil {
+		&it.Author, &it.Role, &it.Status, &retiredAt, &replacedBy, &createdAt, &acceptedAt); err != nil {
 		return Item{}, fmt.Errorf("scan item: %w", err)
 	}
 	var err error
@@ -498,6 +611,13 @@ func scanItem(rows *sql.Rows) (Item, error) {
 			return Item{}, fmt.Errorf("parse retired_at: %w", err)
 		}
 		it.RetiredAt = &t
+	}
+	if acceptedAt.Valid {
+		t, err := time.Parse(time.RFC3339Nano, acceptedAt.String)
+		if err != nil {
+			return Item{}, fmt.Errorf("parse accepted_at: %w", err)
+		}
+		it.AcceptedAt = &t
 	}
 	if replacedBy.Valid {
 		it.ReplacedBy = &replacedBy.Int64

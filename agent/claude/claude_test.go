@@ -38,6 +38,20 @@ func TestParse(t *testing.T) {
 			give: `{"type":"rate_limit_event","rate_limit_info":{"status":"allowed"},"session_id":"3c1296cc-1e28-4167-a8a8-dfb0facf9381"}`,
 		},
 		{
+			name: "compaction by the user",
+			give: `{"type":"system","subtype":"compact_boundary","session_id":"b0004807-ecfb-4279-9d24-2d141f82fc92","uuid":"5518e24e-8d4f-4e59-bd03-30a924e62198","compact_metadata":{"trigger":"manual","pre_tokens":22971,"post_tokens":6703,"cumulative_dropped_tokens":16268,"duration_ms":7548},"logical_parent_uuid":"0655e870-b13a-46dc-853b-065844e62b21"}`,
+			want: []agent.Event{{Kind: agent.KindCompacted}},
+		},
+		{
+			name: "compaction by claude",
+			give: `{"type":"system","subtype":"compact_boundary","uuid":"7f7ff5cd-74bf-4177-bdea-f55126062131","compact_metadata":{"trigger":"auto","pre_tokens":24769,"post_tokens":6674,"cumulative_dropped_tokens":18095,"duration_ms":5567,"preserved_segment":{"head_uuid":"e81d7123-806d-433a-8843-4a28a716a89c","anchor_uuid":"d1522a74-1e54-4ae9-8954-d461be982834","tail_uuid":"c1179e84-5cf2-4be8-ac06-7f265bd6501b"},"preserved_messages":{"anchor_uuid":"d1522a74-1e54-4ae9-8954-d461be982834","uuids":["e81d7123-806d-433a-8843-4a28a716a89c","c1179e84-5cf2-4be8-ac06-7f265bd6501b"],"all_uuids":["e81d7123-806d-433a-8843-4a28a716a89c","c1179e84-5cf2-4be8-ac06-7f265bd6501b"]}},"logical_parent_uuid":"c1179e84-5cf2-4be8-ac06-7f265bd6501b","session_id":"f786535e-1912-4e46-8d91-c63cc416a8af"}`,
+			want: []agent.Event{{Kind: agent.KindCompacted}},
+		},
+		{
+			name: "compaction status is skipped",
+			give: `{"type":"system","subtype":"status","status":null,"compact_result":"success","session_id":"b0004807-ecfb-4279-9d24-2d141f82fc92","uuid":"e6253dab-d358-4847-b426-3d795057a539"}`,
+		},
+		{
 			name: "text delta",
 			give: `{"type":"stream_event","event":{"type":"content_block_delta","index":1,"delta":{"type":"text_delta","text":"` + "`ls" + `"}},"session_id":"9fc87746-5f3e-4a0d-8a30-540ee65a50c9","parent_tool_use_id":null}`,
 			want: []agent.Event{{Kind: agent.KindText, Text: "`ls"}},

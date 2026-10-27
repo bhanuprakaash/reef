@@ -6,15 +6,18 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net"
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"strconv"
 	"testing"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -74,6 +77,15 @@ func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 	return st, tok
 }
 
+func openMemory(t *testing.T, st *store.Store) *memory.Store {
+	t.Helper()
+	ms, err := memory.Open(st.DB(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ms
+}
+
 func callTool(t *testing.T, st *store.Store, tok store.Token) func(string, map[string]any) (string, bool) {
 	t.Helper()
 	return callToolResult(t, st, tok, t.TempDir())
@@ -85,9 +97,16 @@ func callToolResult(
 	t *testing.T, st *store.Store, tok store.Token, dataDir string,
 ) func(string, map[string]any) (string, bool) {
 	t.Helper()
+	return callToolMemory(t, st, openMemory(t, st), tok, dataDir)
+}
+
+func callToolMemory(
+	t *testing.T, st *store.Store, ms *memory.Store, tok store.Token, dataDir string,
+) func(string, map[string]any) (string, bool) {
+	t.Helper()
 	ctx := context.Background()
 	ct, st2 := mcp.NewInMemoryTransports()
-	ss, err := NewMCP(st, tok, dataDir).Connect(ctx, st2, nil)
+	ss, err := NewMCP(st, ms, tok, dataDir).Connect(ctx, st2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -144,16 +163,9 @@ func TestMCPTools(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "get brief and notes",
+			name: "get brief only",
 			tool: "get_brief",
-			want: `{"brief":"Build login","notes":"keep it small"}`,
-		},
-		{
-			name: "record decision as the token's role",
-			tool: "record_decision",
-			give: map[string]any{"body": "use sessions", "why": "simple", "messageId": 1},
-			want: `{"author":"architect","body":"use sessions","createdAt":"T","featureId":1,` +
-				`"id":2,"messageId":1,"replacedBy":null,"retiredAt":null,"why":"simple"}`,
+			want: `{"brief":"Build login"}`,
 		},
 		{
 			name: "add task to the feature",
@@ -183,20 +195,6 @@ func TestMCPTools(t *testing.T) {
 			give: map[string]any{"query": "sessions", "limit": 1},
 			want: `{"hits":[{"author":"developer","channelId":2,"kind":"public","messageId":2,` +
 				`"snippet":"100% sure, use_sessions"}]}`,
-		},
-		{
-			name: "read own decision",
-			tool: "read_decision",
-			give: map[string]any{"id": 2},
-			want: `{"author":"architect","body":"use sessions","createdAt":"T","featureId":1,` +
-				`"id":2,"messageId":1,"replacedBy":null,"retiredAt":null,"why":"simple"}`,
-		},
-		{
-			name:    "read another feature's decision",
-			tool:    "read_decision",
-			give:    map[string]any{"id": 1},
-			want:    "decision 1: not found",
-			wantErr: true,
 		},
 		{
 			name: "read thread after an id",
@@ -311,8 +309,11 @@ func TestMCPProposeWrap(t *testing.T) {
 	call := callTool(t, st, tok)
 
 	got, isErr := call("propose_wrap", map[string]any{
-		"brief": "v2", "notes": "mine",
-		"decisions": []any{map[string]any{"body": "use sessions", "why": "simple"}},
+		"brief": "v2",
+		"items": []any{
+			map[string]any{"kind": "decision", "body": "use sessions", "why": "simple"},
+			map[string]any{"kind": "lesson", "body": "reply short", "why": "", "scope": "teammate"},
+		},
 	})
 	if want := `{"id":1,"message":"proposal saved; the user will approve it"}`; got != want || isErr {
 		t.Errorf("propose_wrap = %q (error %v), want %q", got, isErr, want)
@@ -322,43 +323,189 @@ func TestMCPProposeWrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := store.Proposal{
-		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalWrap, Brief: "v2", Notes: "mine",
-		Decisions: []store.ProposedDecision{{Body: "use sessions", Why: "simple"}},
-		Retire:    []int64{},
-		Status:    store.ProposalPending,
+		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalWrap, Brief: "v2",
+		Items: []store.ProposedItem{
+			{Kind: "decision", Body: "use sessions", Why: "simple", Scope: "work_item"},
+			{Kind: "lesson", Body: "reply short", Scope: "teammate"},
+		},
+		Retire: []int64{},
+		Status: store.ProposalPending,
 	}
 	p.CreatedAt = time.Time{}
 	if !reflect.DeepEqual(p, want) {
 		t.Errorf("proposal = %+v, want %+v", p, want)
 	}
 
-	got, isErr = call("propose_wrap", map[string]any{"brief": "", "notes": "n", "decisions": []any{}})
+	got, isErr = call("propose_wrap", map[string]any{"brief": ""})
 	if want := "invalid: proposal brief is required"; got != want || !isErr {
 		t.Errorf("propose_wrap with empty brief = %q (error %v), want %q", got, isErr, want)
 	}
 }
 
-func TestMCPRecordDecisionReplaces(t *testing.T) {
-	st, tok := mcpFixture(t)
-	call := callTool(t, st, tok)
-	call("record_decision", map[string]any{"body": "use sessions", "why": "simple"})
+func TestMCPRemember(t *testing.T) {
+	st, architect := mcpFixture(t)
+	developer, err := st.CreateToken(context.Background(), 2, "developer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	dev := callTool(t, st, developer)
+	arch := callTool(t, st, architect)
+	item := func(id int, kind, scope, role, status string) string {
+		channel := map[string]string{"developer": "2", "architect": "1"}[role]
+		return `{"item":{"author":"` + role + `","body":"item ` + strconv.Itoa(id) + `","createdAt":"T","id":` + strconv.Itoa(id) +
+			`,"kind":"` + kind + `","links":[{"rel":"source","to":"channel:` + channel + `"}],"replacedBy":null,"retiredAt":null,"role":"` + role +
+			`","scope":"` + scope + `","status":"` + status + `","why":""}}`
+	}
+	tests := []struct {
+		name    string
+		call    func(string, map[string]any) (string, bool)
+		give    map[string]any
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "a decision is accepted on the feature",
+			call: dev,
+			give: map[string]any{"kind": "decision", "body": "item 1"},
+			want: item(1, "decision", "work_item:1", "developer", "accepted"),
+		},
+		{
+			name: "scope teammate is the role",
+			call: dev,
+			give: map[string]any{"kind": "lesson", "body": "item 2", "scope": "teammate"},
+			want: item(2, "lesson", "teammate:developer", "developer", "accepted"),
+		},
+		{
+			name: "a developer's convention is a candidate",
+			call: dev,
+			give: map[string]any{"kind": "convention", "body": "item 3", "scope": "project"},
+			want: item(3, "convention", "project:1", "developer", "candidate"),
+		},
+		{
+			name: "an architect's convention is accepted",
+			call: arch,
+			give: map[string]any{"kind": "convention", "body": "item 4"},
+			want: item(4, "convention", "work_item:1", "architect", "accepted"),
+		},
+		{
+			name:    "scope team is refused",
+			call:    dev,
+			give:    map[string]any{"kind": "lesson", "body": "item 6", "scope": "team"},
+			want:    `invalid: scope "team" is not work_item, project or teammate`,
+			wantErr: true,
+		},
+		{
+			name: "nothing was stored for the refused scope",
+			call: dev,
+			give: map[string]any{"kind": "fact", "body": "item 5"},
+			want: item(5, "fact", "work_item:1", "developer", "accepted"),
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, isErr := tt.call("remember", tt.give)
+			if got != tt.want || isErr != tt.wantErr {
+				t.Errorf("remember = %q (error %v), want %q (error %v)", got, isErr, tt.want, tt.wantErr)
+			}
+		})
+	}
+}
 
-	got, isErr := call("record_decision", map[string]any{"body": "use tokens", "replaces": []int{2}})
-	want := `{"author":"architect","body":"use tokens","createdAt":"T","featureId":1,` +
-		`"id":3,"messageId":null,"replacedBy":null,"replaces":[2],"retiredAt":null,"why":""}`
-	if got != want || isErr {
-		t.Errorf("record_decision with replaces = %q (error %v), want %q", got, isErr, want)
+func TestMCPRememberReportsLookalikesAndEmbedErrors(t *testing.T) {
+	st, tok := mcpFixture(t)
+	ms, err := memory.Open(st.DB(), failEmbedder{})
+	if err != nil {
+		t.Fatal(err)
 	}
-	got, isErr = call("read_decision", map[string]any{"id": 2})
-	want = `{"author":"architect","body":"use sessions","createdAt":"T","featureId":1,` +
-		`"id":2,"messageId":null,"replacedBy":3,"retiredAt":"T","why":"simple"}`
+	call := callToolMemory(t, st, ms, tok, t.TempDir())
+	call("remember", map[string]any{"kind": "decision", "body": "use sessions for login"})
+
+	got, isErr := call("remember", map[string]any{"kind": "decision", "body": "use sessions for login."})
+	want := `{"embedError":"provider down","item":{"author":"architect","body":"use sessions for login.",` +
+		`"createdAt":"T","id":2,"kind":"decision","links":[{"rel":"source","to":"channel:1"}],` +
+		`"replacedBy":null,"retiredAt":null,"role":"architect","scope":"work_item:1","status":"accepted","why":""},` +
+		`"similar":[{"body":"use sessions for login","id":1}]}`
 	if got != want || isErr {
-		t.Errorf("read_decision of the replaced = %q (error %v), want %q", got, isErr, want)
+		t.Errorf("remember = %q (error %v), want %q", got, isErr, want)
 	}
-	got, isErr = call("record_decision", map[string]any{"body": "use jwt", "replaces": []int{1}})
-	want = "invalid: decision 1 is not a live decision of feature 1"
-	if got != want || !isErr {
-		t.Errorf("record_decision replacing another feature's = %q (error %v), want %q", got, isErr, want)
+}
+
+func TestMCPMemoryScopes(t *testing.T) {
+	st, auth := mcpFixture(t)
+	billing, err := st.CreateToken(context.Background(), 3, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	authCall := callTool(t, st, auth)
+	billingCall := callTool(t, st, billing)
+	authCall("remember", map[string]any{"kind": "decision", "body": "use sqlite for auth"})
+	billingCall("remember", map[string]any{"kind": "decision", "body": "use sqlite for billing"})
+	billingCall("remember", map[string]any{"kind": "fact", "body": "billing runs nightly", "scope": "project"})
+
+	tests := []struct {
+		name    string
+		tool    string
+		give    map[string]any
+		want    string
+		wantErr bool
+	}{
+		{
+			name: "recall finds its own feature and the project, never another feature",
+			tool: "recall",
+			give: map[string]any{"query": "sqlite"},
+			want: `{"hits":[{"body":"use sqlite for auth","id":1,"kind":"decision","scope":"work_item:1",` +
+				`"status":"accepted","via":"direct"}]}`,
+		},
+		{
+			name: "recall in the project scope",
+			tool: "recall",
+			give: map[string]any{"query": "billing", "scope": "project"},
+			want: `{"hits":[{"body":"billing runs nightly","id":3,"kind":"fact","scope":"project:1",` +
+				`"status":"accepted","via":"direct"}]}`,
+		},
+		{
+			name:    "read another feature's item",
+			tool:    "read_memory",
+			give:    map[string]any{"id": 2},
+			want:    "memory 2: not found",
+			wantErr: true,
+		},
+		{
+			name:    "read an unknown id",
+			tool:    "read_memory",
+			give:    map[string]any{"id": 99},
+			want:    "memory 99: not found",
+			wantErr: true,
+		},
+		{
+			name:    "replace another feature's item",
+			tool:    "remember",
+			give:    map[string]any{"kind": "decision", "body": "x", "replaces": []int{2}},
+			want:    "memory 2: not found",
+			wantErr: true,
+		},
+		{
+			name:    "replace an item of another shelf of this channel",
+			tool:    "remember",
+			give:    map[string]any{"kind": "decision", "body": "x", "replaces": []int{3}},
+			want:    "replace 3: invalid: memory 3 is in scope project:1, not work_item:1",
+			wantErr: true,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, isErr := authCall(tt.tool, tt.give)
+			if got != tt.want || isErr != tt.wantErr {
+				t.Errorf("%s = %q (error %v), want %q (error %v)", tt.tool, got, isErr, tt.want, tt.wantErr)
+			}
+		})
+	}
+	got, isErr := authCall("read_memory", map[string]any{"id": 3})
+	want := `{"author":"architect","body":"billing runs nightly","createdAt":"T","id":3,"kind":"fact",` +
+		`"links":[{"rel":"source","to":"channel:3"}],"replacedBy":null,"retiredAt":null,"role":"architect","scope":"project:1",` +
+		`"status":"accepted","why":""}`
+	if got != want || isErr {
+		t.Errorf("read_memory of a project item = %q (error %v), want %q", got, isErr, want)
 	}
 }
 
@@ -432,7 +579,7 @@ func TestMCPProposeBrief(t *testing.T) {
 	}
 	want := store.Proposal{
 		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalBrief,
-		Brief: "plan: ship login first", Decisions: []store.ProposedDecision{},
+		Brief: "plan: ship login first", Items: []store.ProposedItem{},
 		Retire: []int64{}, Status: store.ProposalPending,
 	}
 	p.CreatedAt = time.Time{}
@@ -446,25 +593,112 @@ func TestMCPProposeBrief(t *testing.T) {
 	}
 }
 
-func TestMCPProposeWrapRejectsBadRetireID(t *testing.T) {
+func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 	st, tok := mcpFixture(t)
+	billing, err := st.CreateToken(context.Background(), 3, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	callTool(t, st, billing)("remember", map[string]any{"kind": "fact", "body": "billing item"})
 	call := callTool(t, st, tok)
+	call("remember", map[string]any{"kind": "fact", "body": "live item"})
+	call("remember", map[string]any{"kind": "fact", "body": "stale item", "replaces": []any{2}})
+	call("remember", map[string]any{"kind": "fact", "body": "project item", "scope": "project"})
 
-	got, isErr := call("propose_wrap", map[string]any{
-		"brief": "v2", "notes": "n", "decisions": []any{}, "retire": []any{9},
-	})
-	if want := "invalid: decision 9 is not a live decision of feature 1"; got != want || !isErr {
-		t.Errorf("propose_wrap = %q (error %v), want %q", got, isErr, want)
+	const (
+		notLive       = "invalid: memory %d is not a live item in work_item:1, project:1, teammate:architect"
+		notOnTheShelf = "invalid: memory %d is not a live item in work_item:1"
+	)
+	tests := []struct {
+		name string
+		give map[string]any
+		want string
+	}{
+		{"retire unknown id", map[string]any{"retire": []any{9}}, fmt.Sprintf(notLive, 9)},
+		{"retire another feature's item", map[string]any{"retire": []any{1}}, fmt.Sprintf(notLive, 1)},
+		{"retire a retired item", map[string]any{"retire": []any{2}}, fmt.Sprintf(notLive, 2)},
+		{
+			"replace unknown id",
+			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "replaces": []any{9}}}},
+			fmt.Sprintf(notOnTheShelf, 9),
+		},
+		{
+			"replace an item of the project shelf from a feature item",
+			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "replaces": []any{4}}}},
+			fmt.Sprintf(notOnTheShelf, 4),
+		},
+		{
+			"unknown kind",
+			map[string]any{"items": []any{map[string]any{"kind": "idea", "body": "x"}}},
+			`invalid: unknown item kind "idea"`,
+		},
+		{
+			"unknown scope",
+			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "scope": "space"}}},
+			`invalid: scope "space" is not one of work_item, project, teammate`,
+		},
+		{
+			"team scope on a solo channel",
+			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "scope": "team"}}},
+			`invalid: scope "team" is not one of work_item, project, teammate`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.give["brief"] = "v2"
+			got, isErr := call("propose_wrap", tt.give)
+			if got != tt.want || !isErr {
+				t.Errorf("propose_wrap = %q (error %v), want %q", got, isErr, tt.want)
+			}
+		})
 	}
 	if _, err := st.PendingProposal(context.Background(), 1); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("PendingProposal = %v, want ErrNotFound: nothing saved", err)
 	}
 }
 
+func TestMCPProposeWrapTeamItemsOnlyFromTheLeadOfARealTeam(t *testing.T) {
+	ctx := context.Background()
+	st, _ := mcpFixture(t)
+	if _, err := st.CreateTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Backend: "claude"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	one := int64(1)
+	ch, err := st.CreateChannel(ctx, store.Channel{
+		ProjectID: 1, FeatureID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lead, err := st.CreateToken(ctx, ch.ID, "lead")
+	if err != nil {
+		t.Fatal(err)
+	}
+	developer, err := st.CreateToken(ctx, ch.ID, "developer")
+	if err != nil {
+		t.Fatal(err)
+	}
+	give := map[string]any{"brief": "v2", "items": []any{
+		map[string]any{"kind": "lesson", "body": "review before merge", "scope": "team"},
+	}}
+
+	got, isErr := callTool(t, st, developer)("propose_wrap", give)
+	if want := `invalid: only the lead of team "core" can propose team items`; got != want || !isErr {
+		t.Errorf("developer propose_wrap = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = callTool(t, st, lead)("propose_wrap", give)
+	if want := `{"id":1,"message":"proposal saved; the user will approve it"}`; got != want || isErr {
+		t.Errorf("lead propose_wrap = %q (error %v), want %q", got, isErr, want)
+	}
+}
+
 func TestMCPProposeBriefRefusedWhileWrapPending(t *testing.T) {
 	st, tok := mcpFixture(t)
 	call := callTool(t, st, tok)
-	if got, isErr := call("propose_wrap", map[string]any{"brief": "final", "notes": "n", "decisions": []any{}}); isErr {
+	if got, isErr := call("propose_wrap", map[string]any{"brief": "final"}); isErr {
 		t.Fatalf("propose_wrap = %q", got)
 	}
 
@@ -713,15 +947,14 @@ func TestMCPQuickSession(t *testing.T) {
 		give map[string]any
 	}{
 		{"get_brief", nil},
-		{"record_decision", map[string]any{"body": "d"}},
+		{"remember", map[string]any{"kind": "decision", "body": "d"}},
 		{"add_task", map[string]any{"title": "t"}},
 		{"list_tasks", nil},
 		{"read_task", map[string]any{"id": 1}},
 		{"update_task", map[string]any{"id": 1, "status": "done"}},
 		{"search_sessions", map[string]any{"query": "q"}},
-		{"read_decision", map[string]any{"id": 1}},
 		{"read_thread", map[string]any{"channelId": 1}},
-		{"propose_wrap", map[string]any{"brief": "b", "notes": "n", "decisions": []any{}}},
+		{"propose_wrap", map[string]any{"brief": "b"}},
 		{"set_stage", map[string]any{"stage": "plan"}},
 		{"propose_brief", map[string]any{"brief": "b"}},
 	}
@@ -791,7 +1024,7 @@ func TestMCPBrowserScreenshot(t *testing.T) {
 
 	ctx := context.Background()
 	ct, st2 := mcp.NewInMemoryTransports()
-	ss, err := NewMCP(st, tok, dataDir).Connect(ctx, st2, nil)
+	ss, err := NewMCP(st, openMemory(t, st), tok, dataDir).Connect(ctx, st2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}

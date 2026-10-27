@@ -83,7 +83,7 @@ func TestMigrateSkillsToList(t *testing.T) {
 			}
 			for _, col := range []string{
 				"session_cost_usd", "session_input_tokens", "session_output_tokens",
-				"session_cache_read_tokens", "session_cache_write_tokens", "scopes",
+				"session_cache_read_tokens", "session_cache_write_tokens", "scopes", "compacted",
 			} {
 				if _, err := s.db.Exec("ALTER TABLE turn DROP COLUMN " + col); err != nil {
 					t.Fatal(err)
@@ -94,6 +94,15 @@ func TestMigrateSkillsToList(t *testing.T) {
 			}
 			if _, err := s.db.Exec("ALTER TABLE role DROP COLUMN provider"); err != nil {
 				t.Fatal(err)
+			}
+			for _, stmt := range []string{
+				"ALTER TABLE proposal DROP COLUMN items",
+				"ALTER TABLE proposal ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
+				"ALTER TABLE proposal ADD COLUMN decisions TEXT NOT NULL DEFAULT '[]'",
+			} {
+				if _, err := s.db.Exec(stmt); err != nil {
+					t.Fatal(err)
+				}
 			}
 			if _, err := s.db.Exec("UPDATE role SET persona = ?, skills = ?", tt.persona, tt.skills); err != nil {
 				t.Fatal(err)

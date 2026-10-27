@@ -31,6 +31,7 @@ import (
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -98,8 +99,12 @@ func (e *evalEnv) store() *store.Store {
 func (e *evalEnv) serve() {
 	st := e.store()
 	trees := channel.NewTrees(e.dir)
-	e.h = newHandler(st, e.dir, trees, func(ctx context.Context, id int64) (session, error) {
-		return channel.Open(ctx, st, e.dir, "reef", id, trees,
+	ms, err := memory.Open(st.DB(), nil)
+	if err != nil {
+		e.t.Fatal(err)
+	}
+	e.h = newHandler(st, nil, e.dir, trees, func(ctx context.Context, id int64) (session, error) {
+		return channel.Open(ctx, st, ms, e.dir, "reef", id, trees,
 			func(string) (agent.Agent, error) {
 				size := 8
 				if e.rec != nil {
@@ -194,8 +199,12 @@ func (a *evalAgent) open(ctx context.Context, cfg agent.Config, sessionID string
 	if a.env.rec == nil {
 		return nil
 	}
+	ms, err := memory.Open(a.env.store().DB(), nil)
+	if err != nil {
+		return err
+	}
 	client, server := mcp.NewInMemoryTransports()
-	if _, err := NewMCP(a.env.store(), tok, a.env.dir).Connect(ctx, server, nil); err != nil {
+	if _, err := NewMCP(a.env.store(), ms, tok, a.env.dir).Connect(ctx, server, nil); err != nil {
 		return err
 	}
 	a.mcp, err = mcp.NewClient(&mcp.Implementation{Name: "eval", Version: "v0"}, nil).
@@ -391,7 +400,13 @@ func TestChannelEval_WakeCountsItsDelta(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.say(evalBody("", 0, "0", ""), nil)
-	_, err = e.store().CreateDecision(ctx, store.Decision{FeatureID: 1, Body: "Register on load", Author: "user"})
+	ms, err := memory.Open(e.store().DB(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ms.Remember(ctx, memory.Writer{
+		Author: "user", Role: "user", Scope: memory.Ref{Kind: memory.ScopeWorkItem, ID: "1"},
+	}, memory.Note{Kind: memory.KindDecision, Body: "Register on load"})
 	if err != nil {
 		t.Fatal(err)
 	}

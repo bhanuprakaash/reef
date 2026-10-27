@@ -13,9 +13,14 @@ export type Profile = {
   updatedAt: string;
 };
 
-export type ProjectMemory = {
-  projectId: number;
+export type MemoryItem = {
+  id: number;
+  kind: string;
   body: string;
+  why: string;
+  scope: string;
+  author: string;
+  createdAt: string;
 };
 
 export type FeatureKind = 'journey' | 'fixes';
@@ -40,18 +45,6 @@ export type Brief = {
   createdAt: string;
 };
 
-export type Decision = {
-  id: number;
-  featureId: number;
-  messageId: number | null;
-  body: string;
-  why: string;
-  author: string;
-  createdAt: string;
-  retiredAt: string | null;
-  replacedBy: number | null;
-};
-
 export type Channel = {
   id: number;
   projectId: number;
@@ -70,9 +63,11 @@ export type ChannelPreview = Channel & {
   lastMessage: { author: string; body: string; createdAt: string } | null;
 };
 
-export type ProposedDecision = {
+export type ProposedItem = {
+  kind: string;
   body: string;
-  why: string;
+  why?: string;
+  scope: string;
   replaces?: number[];
 };
 
@@ -82,8 +77,7 @@ export type Proposal = {
   role: string;
   kind: 'wrap' | 'brief';
   brief: string;
-  notes: string;
-  decisions: ProposedDecision[];
+  items: ProposedItem[];
   retire: number[];
   status: string;
   createdAt: string;

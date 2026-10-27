@@ -85,7 +85,7 @@ func TestSearchDirectVisibility(t *testing.T) {
 		t.Errorf("public messages after the chain finished = %d, %v, want only the one posted", n, err)
 	}
 
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)

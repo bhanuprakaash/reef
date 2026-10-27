@@ -5,9 +5,15 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"slices"
+	"strconv"
+	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -15,6 +21,7 @@ const _defaultSearchLimit = 20
 
 type mcpServer struct {
 	st      *store.Store
+	ms      *memory.Store
 	tok     store.Token
 	dataDir string
 }
@@ -22,13 +29,61 @@ type mcpServer struct {
 type (
 	briefOut struct {
 		Brief string `json:"brief" jsonschema:"the feature brief, empty if none yet"`
-		Notes string `json:"notes" jsonschema:"your role's notes on this feature, empty if none"`
 	}
-	decideIn struct {
-		Body      string  `json:"body" jsonschema:"the decision"`
-		Why       string  `json:"why,omitempty" jsonschema:"the reason for it"`
-		MessageID *int64  `json:"messageId,omitempty" jsonschema:"id of the message it came from"`
-		Replaces  []int64 `json:"replaces,omitempty" jsonschema:"ids of live decisions this one amends or replaces; they are retired"`
+	rememberIn struct {
+		Kind          string   `json:"kind" jsonschema:"decision, convention, finding, fact or lesson"`
+		Body          string   `json:"body" jsonschema:"what to remember"`
+		About         []string `json:"about,omitempty" jsonschema:"what it is about, each as kind:id, such as work_item:3"`
+		Replaces      []int64  `json:"replaces,omitempty" jsonschema:"ids of accepted items this one amends or replaces; they are retired"`
+		Why           string   `json:"why,omitempty" jsonschema:"the reason for it"`
+		Scope         string   `json:"scope,omitempty" jsonschema:"where it is kept: work_item (this feature, the default), project or teammate (you, on every feature)"`
+		NeedsApproval bool     `json:"needsApproval,omitempty" jsonschema:"ask the user to approve it before it counts"`
+	}
+	recallIn struct {
+		Query string `json:"query" jsonschema:"text to find"`
+		Limit int    `json:"limit,omitempty" jsonschema:"most hits to return, default 10"`
+		Scope string `json:"scope,omitempty" jsonschema:"only this scope: work_item, project, team or teammate; omit for all you can read"`
+	}
+	readMemoryIn struct {
+		ID int64 `json:"id" jsonschema:"memory id"`
+	}
+	linkOut struct {
+		Rel string `json:"rel"`
+		To  string `json:"to"`
+	}
+	itemOut struct {
+		ID         int64      `json:"id"`
+		Kind       string     `json:"kind"`
+		Body       string     `json:"body"`
+		Why        string     `json:"why"`
+		Scope      string     `json:"scope"`
+		Author     string     `json:"author"`
+		Role       string     `json:"role"`
+		Status     string     `json:"status"`
+		RetiredAt  *time.Time `json:"retiredAt"`
+		ReplacedBy *int64     `json:"replacedBy"`
+		CreatedAt  time.Time  `json:"createdAt"`
+		Links      []linkOut  `json:"links,omitempty"`
+	}
+	similarOut struct {
+		ID   int64  `json:"id"`
+		Body string `json:"body"`
+	}
+	rememberOut struct {
+		Item       itemOut      `json:"item"`
+		Similar    []similarOut `json:"similar,omitempty"`
+		EmbedError string       `json:"embedError,omitempty"`
+	}
+	hitOut struct {
+		ID     int64  `json:"id"`
+		Kind   string `json:"kind"`
+		Body   string `json:"body"`
+		Scope  string `json:"scope"`
+		Status string `json:"status"`
+		Via    string `json:"via"`
+	}
+	recallOut struct {
+		Hits []hitOut `json:"hits"`
 	}
 	taskIn struct {
 		Title string `json:"title" jsonschema:"short task title"`
@@ -56,9 +111,6 @@ type (
 	searchOut struct {
 		Hits []store.MessageHit `json:"hits"`
 	}
-	decisionIn struct {
-		ID int64 `json:"id" jsonschema:"decision id"`
-	}
 	threadIn struct {
 		ChannelID int64 `json:"channelId" jsonschema:"channel id, from search_sessions"`
 		After     int64 `json:"after,omitempty" jsonschema:"only messages with a larger id"`
@@ -85,10 +137,9 @@ type (
 		Messages []store.DirectMessage `json:"messages"`
 	}
 	wrapIn struct {
-		Brief     string                   `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
-		Notes     string                   `json:"notes" jsonschema:"your own notes on this feature"`
-		Decisions []store.ProposedDecision `json:"decisions" jsonschema:"decisions made in this channel that are not recorded yet; replaces on one lists the earlier decisions it amends or replaces"`
-		Retire    []int64                  `json:"retire,omitempty" jsonschema:"ids of live decisions that are stale or duplicate"`
+		Brief  string               `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
+		Items  []store.ProposedItem `json:"items,omitempty" jsonschema:"memory items made in this channel that are not saved with remember yet: kind (decision, finding, fact, lesson or convention), body, why, scope (work_item by default, project, teammate, or team for a team lead), replaces (ids of live items it replaces)"`
+		Retire []int64              `json:"retire,omitempty" jsonschema:"ids of live memory items that are stale or duplicate"`
 	}
 	briefIn struct {
 		Brief string `json:"brief" jsonschema:"the full brief: goal, status, key decisions, open questions"`
@@ -115,21 +166,31 @@ type (
 // NewMCP returns the MCP server for one teammate: tok names the channel it
 // works in, the role it speaks as and, through the channel, the feature.
 // dataDir is the Reef data folder, where the Reef app's browser socket is.
-func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
-	m := &mcpServer{st: st, tok: tok, dataDir: dataDir}
+func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) *mcp.Server {
+	m := &mcpServer{st: st, ms: ms, tok: tok, dataDir: dataDir}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "reef", Version: "v0.1.0"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{
-		Name: "get_brief",
-		Description: "Get this feature's brief and your role's notes on it. " +
-			"Call it first when you start work.",
+		Name:        "get_brief",
+		Description: "Get this feature's brief. Call it first when you start work.",
 	}, m.getBrief)
 	mcp.AddTool(srv, &mcp.Tool{
-		Name: "record_decision",
-		Description: "Record a decision made on this feature, with why and the message it " +
-			"came from. A decision is a choice about how the feature works, not progress, " +
-			"proof or a won't-fix list. Pass replaces when it amends or replaces earlier " +
-			"decisions: they are retired.",
-	}, m.recordDecision)
+		Name: "remember",
+		Description: "Remember something for later, with why. A decision is a choice about how " +
+			"the work goes, not progress, proof or a won't-fix list. Scope work_item (the " +
+			"default) keeps it on this feature, project on every feature of the project, " +
+			"teammate on you across features. Pass replaces when it amends or replaces " +
+			"earlier items: they are retired. A convention from a role other than architect " +
+			"or lead waits for the user's approval.",
+	}, m.remember)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "recall",
+		Description: "Search what the team remembers that you can read, retired items " +
+			"included and marked. Returns ids; read one in full with read_memory.",
+	}, m.recall)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "read_memory",
+		Description: "Read one remembered item in full, with its links.",
+	}, m.readMemory)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "add_task",
 		Description: "Add a task to this feature's project.",
@@ -152,11 +213,6 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 		Description: "Search messages in all of this feature's channels, newest first. " +
 			"Returns channel and message ids; read more with read_thread.",
 	}, m.searchSessions)
-	mcp.AddTool(srv, &mcp.Tool{
-		Name: "read_decision",
-		Description: "Read one decision of this feature in full, with retiredAt and " +
-			"replacedBy when it is retired.",
-	}, m.readDecision)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "read_thread",
 		Description: "Read the messages of one of this feature's channels, oldest first. " +
@@ -185,10 +241,11 @@ func NewMCP(st *store.Store, tok store.Token, dataDir string) *mcp.Server {
 		Name: "propose_wrap",
 		Description: "Propose how to wrap up this channel; the user approves it before " +
 			"anything is saved. brief is the full rewritten brief (goal, status, key " +
-			"decisions, open questions), notes are your own notes for this feature, " +
-			"decisions are ones made in this channel that are not recorded yet, each with " +
-			"replaces for earlier decisions it amends or replaces. retire lists ids of " +
-			"decisions that are stale or duplicate.",
+			"decisions, open questions). items are memory items made in this channel that " +
+			"are not saved with remember yet, each with a kind, body, why, a scope " +
+			"(work_item by default; project, teammate, or team when you are the team lead: " +
+			"team items wait for the user) and replaces for earlier items it replaces. " +
+			"retire lists ids of live memory items that are stale or duplicate.",
 	}, m.proposeWrap)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_brief",
@@ -255,25 +312,117 @@ func (m *mcpServer) getBrief(
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, briefOut{}, err
 	}
-	n, err := m.st.RoleNotes(ctx, f.ID, m.tok.Role)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return nil, briefOut{}, err
-	}
-	return nil, briefOut{Brief: b.Body, Notes: n.Body}, nil
+	return nil, briefOut{Brief: b.Body}, nil
 }
 
-func (m *mcpServer) recordDecision(
-	ctx context.Context, _ *mcp.CallToolRequest, in decideIn,
-) (*mcp.CallToolResult, store.Decision, error) {
-	f, err := m.feature(ctx)
-	if err != nil {
-		return nil, store.Decision{}, err
+func (m *mcpServer) remember(
+	ctx context.Context, _ *mcp.CallToolRequest, in rememberIn,
+) (*mcp.CallToolResult, rememberOut, error) {
+	switch in.Scope {
+	case "":
+		in.Scope = memory.ScopeWorkItem
+	case memory.ScopeWorkItem, memory.ScopeProject, memory.ScopeTeammate:
+	default:
+		return nil, rememberOut{}, fmt.Errorf("%w: scope %q is not work_item, project or teammate",
+			store.ErrInvalid, in.Scope)
 	}
-	d, err := m.st.CreateDecision(ctx, store.Decision{
-		FeatureID: f.ID, MessageID: in.MessageID, Body: in.Body, Why: in.Why,
-		Author: m.tok.Role, Replaces: in.Replaces,
-	})
-	return nil, d, err
+	c, err := m.st.Channel(ctx, m.tok.ChannelID)
+	if err != nil {
+		return nil, rememberOut{}, err
+	}
+	scopes := channel.Scopes(c, m.tok.Role)
+	i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == in.Scope })
+	if i < 0 {
+		return nil, rememberOut{}, errors.New("this channel has no feature")
+	}
+	about := make([]memory.Ref, 0, len(in.About))
+	for _, a := range in.About {
+		kind, id, ok := strings.Cut(a, ":")
+		if !ok || kind == "" || id == "" {
+			return nil, rememberOut{}, fmt.Errorf("%w: about %q is not kind:id", store.ErrInvalid, a)
+		}
+		about = append(about, memory.Ref{Kind: kind, ID: id})
+	}
+	for _, id := range in.Replaces {
+		if _, err := m.readable(ctx, scopes, id); err != nil {
+			return nil, rememberOut{}, err
+		}
+	}
+	res, err := m.ms.Remember(ctx,
+		memory.Writer{
+			Author: m.tok.Role, Role: m.tok.Role, Scope: scopes[i],
+			Links: []memory.Link{{
+				Rel: memory.RelSource, ToKind: "channel", ToID: strconv.FormatInt(m.tok.ChannelID, 10),
+			}},
+		},
+		memory.Note{
+			Kind: in.Kind, Body: in.Body, Why: in.Why, About: about, Replaces: in.Replaces,
+			NeedsApproval: in.NeedsApproval,
+		})
+	if err != nil {
+		return nil, rememberOut{}, err
+	}
+	return nil, rememberOut{
+		Item: toItemOut(res.Item), Similar: toSimilarOut(res.Similar), EmbedError: embedMessage(res.EmbedErr),
+	}, nil
+}
+
+func (m *mcpServer) recall(
+	ctx context.Context, _ *mcp.CallToolRequest, in recallIn,
+) (*mcp.CallToolResult, recallOut, error) {
+	if in.Query == "" {
+		return nil, recallOut{}, errors.New("query is required")
+	}
+	c, err := m.st.Channel(ctx, m.tok.ChannelID)
+	if err != nil {
+		return nil, recallOut{}, err
+	}
+	scopes := channel.Scopes(c, m.tok.Role)
+	q := memory.Query{Scopes: scopes, Text: in.Query, Limit: in.Limit}
+	if in.Scope != "" {
+		i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == in.Scope })
+		if i < 0 {
+			return nil, recallOut{}, fmt.Errorf("%w: you have no %q scope here", store.ErrInvalid, in.Scope)
+		}
+		q.Scope = &scopes[i]
+	}
+	hits, err := m.ms.Recall(ctx, q)
+	if err != nil {
+		return nil, recallOut{}, err
+	}
+	out := recallOut{Hits: make([]hitOut, 0, len(hits))}
+	for _, h := range hits {
+		out.Hits = append(out.Hits, hitOut{
+			ID: h.ID, Kind: h.Kind, Body: h.Body, Scope: refString(h.Scope), Status: h.Status, Via: h.Via,
+		})
+	}
+	return nil, out, nil
+}
+
+func (m *mcpServer) readMemory(
+	ctx context.Context, _ *mcp.CallToolRequest, in readMemoryIn,
+) (*mcp.CallToolResult, itemOut, error) {
+	c, err := m.st.Channel(ctx, m.tok.ChannelID)
+	if err != nil {
+		return nil, itemOut{}, err
+	}
+	scopes := channel.Scopes(c, m.tok.Role)
+	it, err := m.readable(ctx, scopes, in.ID)
+	if err != nil {
+		return nil, itemOut{}, err
+	}
+	return nil, toItemOut(it), nil
+}
+
+func (m *mcpServer) readable(ctx context.Context, scopes []memory.Ref, id int64) (memory.Item, error) {
+	it, err := m.ms.Read(ctx, id)
+	if err != nil {
+		return memory.Item{}, err
+	}
+	if !slices.Contains(scopes, it.Scope) {
+		return memory.Item{}, fmt.Errorf("memory %d: %w", id, memory.ErrNotFound)
+	}
+	return it, nil
 }
 
 func (m *mcpServer) addTask(
@@ -363,23 +512,6 @@ func (m *mcpServer) searchSessions(
 	}
 	hits, err := m.st.SearchHistory(ctx, f.ID, in.Query, in.Limit, m.tok.Role)
 	return nil, searchOut{Hits: hits}, err
-}
-
-func (m *mcpServer) readDecision(
-	ctx context.Context, _ *mcp.CallToolRequest, in decisionIn,
-) (*mcp.CallToolResult, store.Decision, error) {
-	f, err := m.feature(ctx)
-	if err != nil {
-		return nil, store.Decision{}, err
-	}
-	d, err := m.st.Decision(ctx, in.ID)
-	if err != nil {
-		return nil, store.Decision{}, err
-	}
-	if d.FeatureID != f.ID {
-		return nil, store.Decision{}, fmt.Errorf("decision %d: %w", in.ID, store.ErrNotFound)
-	}
-	return nil, d, nil
 }
 
 func (m *mcpServer) readThread(
@@ -515,14 +647,58 @@ func (m *mcpServer) proposeWrap(
 	if _, err := m.feature(ctx); err != nil {
 		return nil, wrapOut{}, err
 	}
+	c, err := m.st.Channel(ctx, m.tok.ChannelID)
+	if err != nil {
+		return nil, wrapOut{}, err
+	}
+	scopes := channel.Scopes(c, m.tok.Role)
+	for i := range in.Items {
+		it := &in.Items[i]
+		if it.Scope == "" {
+			it.Scope = memory.ScopeWorkItem
+		}
+		if !memory.ValidKind(it.Kind) {
+			return nil, wrapOut{}, fmt.Errorf("%w: unknown item kind %q", store.ErrInvalid, it.Kind)
+		}
+		at := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == it.Scope })
+		if at < 0 {
+			kinds := make([]string, len(scopes))
+			for j, r := range scopes {
+				kinds[j] = r.Kind
+			}
+			return nil, wrapOut{}, fmt.Errorf("%w: scope %q is not one of %s",
+				store.ErrInvalid, it.Scope, strings.Join(kinds, ", "))
+		}
+		if it.Scope == memory.ScopeTeam {
+			if err := m.requireLead(ctx, c.Team); err != nil {
+				return nil, wrapOut{}, err
+			}
+		}
+		if err := requireLive(ctx, m.ms, scopes[at:at+1], it.Replaces); err != nil {
+			return nil, wrapOut{}, err
+		}
+	}
+	if err := requireLive(ctx, m.ms, scopes, in.Retire); err != nil {
+		return nil, wrapOut{}, err
+	}
 	p, err := m.st.CreateProposal(ctx, store.Proposal{
-		ChannelID: m.tok.ChannelID, Role: m.tok.Role, Brief: in.Brief, Notes: in.Notes,
-		Decisions: in.Decisions, Retire: in.Retire,
+		ChannelID: m.tok.ChannelID, Role: m.tok.Role, Brief: in.Brief, Items: in.Items, Retire: in.Retire,
 	})
 	if err != nil {
 		return nil, wrapOut{}, err
 	}
 	return nil, wrapOut{ID: p.ID, Message: "proposal saved; the user will approve it"}, nil
+}
+
+func (m *mcpServer) requireLead(ctx context.Context, team string) error {
+	t, err := m.st.Team(ctx, team)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(t.Roles, func(r store.Role) bool { return r.Lead && r.Name == m.tok.Role }) {
+		return fmt.Errorf("%w: only the lead of team %q can propose team items", store.ErrInvalid, team)
+	}
+	return nil
 }
 
 func (m *mcpServer) proposeBrief(
@@ -602,4 +778,51 @@ func (m *mcpServer) browserNetwork(
 	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
 ) (*mcp.CallToolResult, browserTextOut, error) {
 	return m.browserText(ctx, "network", nil)
+}
+
+func toItemOut(it memory.Item) itemOut {
+	links := make([]linkOut, 0, len(it.Links))
+	for _, l := range it.Links {
+		links = append(links, linkOut{Rel: l.Rel, To: l.ToKind + ":" + l.ToID})
+	}
+	return itemOut{
+		ID: it.ID, Kind: it.Kind, Body: it.Body, Why: it.Why, Scope: refString(it.Scope),
+		Author: it.Author, Role: it.Role, Status: it.Status, RetiredAt: it.RetiredAt,
+		ReplacedBy: it.ReplacedBy, CreatedAt: it.CreatedAt, Links: links,
+	}
+}
+
+func toSimilarOut(similar []memory.Similar) []similarOut {
+	var out []similarOut
+	for _, s := range similar {
+		out = append(out, similarOut{ID: s.ID, Body: s.Body})
+	}
+	return out
+}
+
+func embedMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func refString(r memory.Ref) string { return r.Kind + ":" + r.ID }
+
+func requireLive(ctx context.Context, ms *memory.Store, scopes []memory.Ref, ids []int64) error {
+	for _, id := range ids {
+		it, err := ms.Read(ctx, id)
+		if err != nil && !errors.Is(err, memory.ErrNotFound) {
+			return err
+		}
+		if err != nil || it.Status != memory.StatusAccepted || !slices.Contains(scopes, it.Scope) {
+			names := make([]string, len(scopes))
+			for i, r := range scopes {
+				names[i] = refString(r)
+			}
+			return fmt.Errorf("%w: memory %d is not a live item in %s",
+				store.ErrInvalid, id, strings.Join(names, ", "))
+		}
+	}
+	return nil
 }

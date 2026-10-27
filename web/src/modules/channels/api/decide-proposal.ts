@@ -1,10 +1,10 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import { briefsKey, decisionsKey } from '@/lib/query-keys';
+import { briefsKey, memoryKey } from '@/lib/query-keys';
 import type { Proposal } from '@/types/api';
 
 type Decision = { proposal: Proposal; action: 'approve' | 'reject' };
-type Decided = Proposal & { decisionsAdded?: number };
+type Decided = Proposal & { itemsAdded?: number };
 
 export function useDecideProposal(channelId: number, featureId: number | null) {
   const queryClient = useQueryClient();
@@ -19,7 +19,7 @@ export function useDecideProposal(channelId: number, featureId: number | null) {
       void queryClient.invalidateQueries({ queryKey: ['channels'] });
       if (featureId === null) return;
       void queryClient.invalidateQueries({ queryKey: briefsKey(featureId) });
-      void queryClient.invalidateQueries({ queryKey: decisionsKey(featureId) });
+      void queryClient.invalidateQueries({ queryKey: memoryKey(`work_item:${featureId}`) });
     },
   });
 }

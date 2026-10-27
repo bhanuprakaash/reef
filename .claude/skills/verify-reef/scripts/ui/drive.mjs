@@ -5,6 +5,7 @@
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
 // REEF_FAKE_GH (pr only: the folder the server's fake gh keeps its PR in, see fake-gh/gh).
 // REEF_FAKE_LOG (denials and naming only: the fake claude's log, one line per turn with its args).
+// REEF_UI_REEF (memory only: the reef binary, to run reef memory add).
 // REEF_UI_FAKE (providers only: the folder holding the fake claude, used as a second install).
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
@@ -267,7 +268,7 @@ async function promote() {
     `channel row: ${sql(`select id,feature_id from channel where id=${cid}`)}`,
   );
   await panel.getByRole('button', { name: 'Approve' }).click();
-  await page.getByText(/approved: \d+ decisions added/).waitFor();
+  await page.getByText(/approved: \d+ items saved/).waitFor();
   await shot('approved');
   await section.getByRole('link', { name: 'Search', exact: true }).click();
   await page.getByText('Version 1 by').waitFor();
@@ -597,7 +598,7 @@ async function theme() {
   const fid = sql('select id from feature order by id desc limit 1');
   const pid = sql(`select project_id from feature where id=${fid}`);
   await fetch(`${base}/tasks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: Number(pid), featureId: Number(fid), title: 'Wire the login form' }) });
-  await fetch(`${base}/decisions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ featureId: Number(fid), body: 'Sessions, not JWT', why: 'one server', author: 'user' }) });
+  await fetch(`${base}/memory`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'decision', body: 'Sessions, not JWT', why: 'one server', scope: `work_item:${fid}` }) });
   await newTeamChannel('gated', 'theme room');
   await send('DESIGN a short plan for a login form.');
   await main.getByRole('button', { name: 'Approve' }).waitFor({ timeout: 240000 });
@@ -1094,28 +1095,30 @@ async function memory() {
   await aside.getByRole('button', { name: 'Switch project' }).click();
   await page.getByRole('menuitem', { name: 'Open project' }).click();
   await page.waitForURL(`**/projects/${pid}`);
-  const editor = main.getByRole('textbox', { name: 'Project memory' });
-  await editor.waitFor();
+  const memoryCard = main.getByRole('region', { name: 'Project memory' });
+  const newItem = memoryCard.getByRole('textbox', { name: 'New project memory' });
+  await newItem.waitFor();
   await shot('empty');
-  check((await editor.inputValue()) === '', 'a new project has no memory yet');
-  await editor.fill('Use Go, not Python.');
-  await main.getByRole('button', { name: 'Preview' }).click();
-  check(
-    (await main.getByText('Use Go, not Python.').count()) === 1 && (await editor.count()) === 0,
-    'Preview shows the text instead of the editor',
-  );
-  await main.getByRole('button', { name: 'Write' }).click();
-  await main.getByRole('region', { name: 'Project memory' }).getByRole('button', { name: 'Save' }).click();
-  await page.getByText('Saved').waitFor();
+  check((await memoryCard.getByRole('listitem').count()) === 0, 'a new project has no memory items yet');
+  const itemRow = () => sql(`select status||'|'||kind||'|'||author||'|'||role||'|'||scope_kind||':'||scope_id||'|'||body from memory where scope_kind='project' and scope_id='${pid}'`);
+  await pick('Kind', 'decision', memoryCard);
+  await newItem.fill('Use Go, not Python.');
+  await memoryCard.getByRole('button', { name: 'Add', exact: true }).click();
+  await memoryCard.getByText('Use Go, not Python.').waitFor();
   await shot('saved');
   check(
-    sql(`select memory from project where id=${pid}`) === 'Use Go, not Python.',
-    'saving the editor stores the memory',
-    sql(`select id,memory from project where id=${pid}`),
+    itemRow() === `accepted|decision|user|user|project:${pid}|Use Go, not Python.`,
+    'Add stores an accepted project item with author user',
+    itemRow(),
   );
+  check((await newItem.inputValue()) === '', 'the add box clears after Add');
   await page.reload();
-  const value = await editor.inputValue();
-  check(value === 'Use Go, not Python.', 'the saved memory survives a reload', value);
+  await memoryCard.getByText('Use Go, not Python.').waitFor();
+  check(true, 'the saved item survives a reload');
+  await memoryCard.getByRole('button', { name: /^Retire decision/ }).click();
+  await memoryCard.getByText('Use Go, not Python.').waitFor({ state: 'hidden' });
+  const retired = sql(`select status||'|'||(retired_at is not null) from memory where scope_kind='project' and scope_id='${pid}'`);
+  check(retired === 'retired|1', 'Retire sets retired_at and the item leaves the list', retired);
 
   const baseField = main.getByRole('textbox', { name: 'Base branch' });
   const baseCard = main.getByRole('region', { name: 'Base branch' });
@@ -1171,6 +1174,21 @@ async function memory() {
   await page.goto(`${base}/projects/${pid}`);
   await main.getByRole('link', { name: session }).waitFor();
   await shot('quick-session-listed');
+
+  const fid = sql(`select id from feature where project_id=${pid} and name='Pp ${id}'`);
+  const reefBin = process.env.REEF_UI_REEF;
+  const reefOut = execFileSync(reefBin, ['memory', '--data', data, 'add', 'fact', 'Tokens live in Keychain.', '--scope', `work_item:${fid}`, '--as', 'developer'], { encoding: 'utf8' });
+  console.log(reefOut.trim());
+  await page.goto(`${base}/features/${fid}`);
+  const featureMemory = main.getByRole('region', { name: 'Memory' });
+  await featureMemory.getByText('Tokens live in Keychain.').waitFor();
+  await page.waitForTimeout(500);
+  await shot('feature-memory');
+  check(true, 'an item saved with reef memory add shows on the feature page', await featureMemory.innerText());
+  await featureMemory.getByRole('button', { name: /^Retire fact/ }).click();
+  await featureMemory.getByText('Nothing remembered yet').waitFor();
+  const featureRetired = sql(`select status||'|'||(retired_at is not null) from memory where scope_kind='work_item' and scope_id='${fid}'`);
+  check(featureRetired === 'retired|1', 'Retire on the feature page sets retired_at and the item leaves the list', featureRetired);
 }
 
 async function inspector() {
@@ -1544,7 +1562,7 @@ async function wrap() {
   await working();
   await panel.waitFor({ timeout: 240000 });
   await panel.getByRole('button', { name: 'Approve' }).click();
-  await page.getByText(/approved: \d+ decisions added/).waitFor();
+  await page.getByText(/approved: \d+ items saved/).waitFor();
   await shot('approved');
   await section.getByRole('link', { name: 'Login', exact: true }).click();
   await page.getByText('Version 1 by').waitFor();

@@ -69,11 +69,11 @@ commands, required state and observable proof.
 Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data folder.
 
 - [Server](./server.md): start and stop, data folder and lock, localhost only, request guard, JSON errors, newer database, odd folder names.
-- [Projects and features](./projects-features.md): project CRUD, features and slugs, brief versions, role notes.
+- [Projects and features](./projects-features.md): project CRUD, features and slugs, brief versions, the role notes routes (nothing reads them since memory items).
 - [Channels and messages](./channels-messages.md): quick-session and feature channels, filters, append-only messages, cascade.
 - [Tasks](./tasks.md): global list, filters, status, `updatedAt`, feature delete keeps the task.
 - [Turns and restart recovery](./turns-recovery.md): running, done, failed; end once; recovery after a crash or stop; an open chat's turn is skipped.
-- [Decisions](./decisions.md): append-only, author and message rules, cascade.
+- [Decisions](./decisions.md): the old decision routes (nothing reads them since memory items): append-only, author and message rules, cascade.
 - [Live channels](./live-channels.md): send, the event stream, stop and resume, `/wrap` and `/promote` text, wrap-up, promote, approve and reject, caps and continue, delete a live channel. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [Teams](./teams.md): `reef team apply` and `list`, a channel on a team, threads, one agent session per teammate, routing by thread, `@mention` and `post_to_channel`, the hop cap, approval gates, wrap wakes nobody, restart, a codex teammate on the test fixture. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [Full team](./full-team.md): `write` per role on claude and codex, `teams/full.json`, one worktree per feature, one writer per tree, checkpoints, rollback, retry, the inbox and its stream, the window's Retry, Rollback and Inbox, and the Google login run end to end with gates. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.

@@ -3,11 +3,13 @@ package channel
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -16,15 +18,19 @@ func lastPrompt(e *wakeEnv) string {
 	return a.prompts[len(a.prompts)-1]
 }
 
-func decide(t *testing.T, e *wakeEnv, author, body string, replaces ...int64) store.Decision {
+func wakeWork(e *wakeEnv) memory.Ref {
+	return memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*e.ch.FeatureID, 10)}
+}
+
+func decide(t *testing.T, e *wakeEnv, author, body string, replaces ...int64) memory.Item {
 	t.Helper()
-	d, err := e.st.CreateDecision(context.Background(), store.Decision{
-		FeatureID: *e.ch.FeatureID, Body: body, Author: author, Replaces: replaces,
-	})
+	r, err := e.s.ms.Remember(context.Background(),
+		memory.Writer{Author: author, Role: author, Scope: wakeWork(e)},
+		memory.Note{Kind: memory.KindDecision, Body: body, Replaces: replaces})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return d
+	return r.Item
 }
 
 func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
@@ -50,14 +56,23 @@ func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 		t.Fatalf("first prompt = %q, want the first prompt, with no delta", got)
 	}
 
-	d1 := decide(t, e, "lead", "Use SQLite, not Postgres\nit is one file")
-	decide(t, e, "developer", "Name the table turn")
+	d1 := decide(t, e, "architect", "Use SQLite, not Postgres\nit is one file")
+	remember(t, e.s.ms, projectScope(store.Feature{ProjectID: e.ch.ProjectID}),
+		memory.KindFact, "lead", "Builds need cgo off")
+	remember(t, e.s.ms, teammateScope("developer"), memory.KindFinding, "developer", "Name the table turn")
+	remember(t, e.s.ms, teammateScope("tester"), memory.KindFact, "tester", "Tester only")
+	if _, err := e.s.ms.Remember(ctx,
+		memory.Writer{Author: "lead", Role: "lead", Scope: wakeWork(e)},
+		memory.Note{Kind: memory.KindDecision, Body: "Maybe use Redis", NeedsApproval: true}); err != nil {
+		t.Fatal(err)
+	}
 	e.wake("developer", "two", nil, say("two"))
-	check("a decision of another role, and one of the developer's own name",
+	check("items of every author in the role's scopes, no tester item, no candidate",
 		"[channel 1, message 3]\n"+
 			"### Changed since your last turn\n"+
-			"decision 1: Use SQLite, not Postgres (lead, "+day+")\n"+
-			"decision 2: Name the table turn (developer, "+day+")\n\n"+
+			"decision 1: Use SQLite, not Postgres (architect, "+day+")\n"+
+			"fact 2: Builds need cgo off (lead, "+day+")\n"+
+			"finding 3: Name the table turn (developer, "+day+")\n\n"+
 			"two")
 
 	e.wake("developer", "three", nil, say("three"))
@@ -71,8 +86,8 @@ func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 	check("a retirement and a new brief",
 		"[channel 1, message 7]\n"+
 			"### Changed since your last turn\n"+
-			"decision 3: Use WAL (lead, "+day+")\n"+
-			"decision 1 is retired, replaced by decision 3.\n\n"+
+			"decision 6: Use WAL (lead, "+day+")\n"+
+			"decision 1 is retired, replaced by decision 6.\n\n"+
 			"### New brief\nShip the store.\n\n"+
 			"four")
 
@@ -94,11 +109,11 @@ func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 	check("a turn that failed before it sent did not tell the agent",
 		"[channel 1, message 12]\n"+
 			"### Changed since your last turn\n"+
-			"decision 4: Use JSON (lead, "+day+")\n\n"+
+			"decision 7: Use JSON (lead, "+day+")\n\n"+
 			"New in the channel:\nuser: six\n\nseven")
 }
 
-func TestWakeAs_DecisionAddedAndRetiredSinceShowsOnlyAsRetired(t *testing.T) {
+func TestWakeAs_ItemAddedAndRetiredSinceShowsOnlyAsRetired(t *testing.T) {
 	e := newWakeEnv(t)
 	e.wake("developer", "one", nil, store.Scope{Read: e.say("user", "one", nil)})
 	d1 := decide(t, e, "lead", "Use CSV")
@@ -120,9 +135,59 @@ func TestWakeAs_DecisionAddedAndRetiredSinceShowsOnlyAsRetired(t *testing.T) {
 	}
 }
 
-func TestWakeAs_DecisionRecordedDuringTheTurnThenReplacedIsNamedAsRetired(t *testing.T) {
+func TestWakeAs_CandidateAcceptedAfterTheTurnIsInTheNextDeltaWithWhatItReplaced(t *testing.T) {
+	ctx := context.Background()
 	e := newWakeEnv(t)
-	var d1 store.Decision
+	d1 := decide(t, e, "lead", "Use CSV")
+	cand, err := e.s.ms.Remember(ctx,
+		memory.Writer{Author: "developer", Role: "developer", Scope: wakeWork(e)},
+		memory.Note{Kind: memory.KindConvention, Body: "Use JSON", Replaces: []int64{d1.ID}})
+	if err != nil || cand.Item.Status != memory.StatusCandidate {
+		t.Fatalf("convention from a developer = %+v, %v, want a candidate", cand.Item, err)
+	}
+	e.wake("developer", "one", nil, store.Scope{Read: e.say("user", "one", nil)})
+	if err := e.s.ms.Accept(ctx, cand.Item.ID); err != nil {
+		t.Fatal(err)
+	}
+	day := time.Now().UTC().Format(_dateLayout)
+
+	e.wake("developer", "two", nil, store.Scope{Read: e.say("user", "two", nil)})
+
+	want := "[channel 1, message 3]\n" +
+		"### Changed since your last turn\n" +
+		"convention 2: Use JSON (developer, " + day + ")\n" +
+		"decision 1 is retired, replaced by convention 2.\n\n" +
+		"two"
+	if time.Now().UTC().Format(_dateLayout) != day {
+		t.Skip("test ran across midnight UTC")
+	}
+	if got := lastPrompt(e); got != want {
+		t.Errorf("prompt =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestWakeAs_ItemRetiredWithNothingReplacingItIsNamedAlone(t *testing.T) {
+	e := newWakeEnv(t)
+	d1 := decide(t, e, "lead", "Use CSV")
+	e.wake("developer", "one", nil, store.Scope{Read: e.say("user", "one", nil)})
+	if err := e.s.ms.Retire(context.Background(), d1.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	e.wake("developer", "two", nil, store.Scope{Read: e.say("user", "two", nil)})
+
+	want := "[channel 1, message 3]\n" +
+		"### Changed since your last turn\n" +
+		"decision 1 is retired.\n\n" +
+		"two"
+	if got := lastPrompt(e); got != want {
+		t.Errorf("prompt =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestWakeAs_ItemRecordedDuringTheTurnThenReplacedIsNamedAsRetired(t *testing.T) {
+	e := newWakeEnv(t)
+	var d1 memory.Item
 	e.onSend = func() { d1 = decide(t, e, "developer", "Use CSV") }
 	e.wake("developer", "one", nil, store.Scope{Read: e.say("user", "one", nil)})
 	e.onSend = nil
@@ -173,7 +238,8 @@ func TestWakeAs_DecisionWrittenWhileAWriterHoldsTheTreeIsInTheFirstPrompt(t *tes
 	case err := <-done:
 		t.Fatalf("wake ended before its agent started: %v", err)
 	}
-	decide(t, e, "lead", "Use WAL")
+	remember(t, e.s.ms, memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*e.ch.FeatureID, 10)},
+		memory.KindDecision, "lead", "Use WAL")
 	day := time.Now().UTC().Format(_dateLayout)
 	unlock()
 	if err := <-done; err != nil {
@@ -245,5 +311,72 @@ func TestRunner_FailedPromptBuildOfDirectTurnLeavesFailedResponse(t *testing.T) 
 	if err != nil || len(turns) != 1 || turns[0].Status != "failed" || turns[0].Error != "build broke" ||
 		len(ag.prompts) != 0 {
 		t.Errorf("turns = %+v, %v, prompts = %q, want one failed turn and nothing sent", turns, err, ag.prompts)
+	}
+}
+
+// The lead keeps its agent between turns; a specialist's is closed after each turn and resumed.
+func TestWakeAs_CompactedSessionGetsTheFirstPromptAgain(t *testing.T) {
+	for _, role := range []string{"lead", "developer"} {
+		t.Run(role, func(t *testing.T) {
+			ctx := context.Background()
+			e := newWakeEnv(t)
+			say := func(body string) store.Scope {
+				return store.Scope{Read: e.say("user", body, nil)}
+			}
+			work := memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*e.ch.FeatureID, 10)}
+			remember(t, e.s.ms, work, memory.KindDecision, "lead", "Use SQLite")
+			compact := true
+			e.onSend = func() {
+				if compact {
+					e.agents[0].events <- agent.Event{Kind: agent.KindCompacted}
+				}
+			}
+			e.wake(role, "one", nil, say("one"))
+			compact = false
+			e.wake(role, "two", nil, say("two"))
+			e.wake(role, "three", nil, say("three"))
+
+			turns, err := e.st.Turns(ctx, store.TurnFilter{ChannelID: &e.ch.ID})
+			if err != nil || len(turns) != 3 {
+				t.Fatalf("turns = %d, %v, want 3", len(turns), err)
+			}
+			for _, section := range []string{"## You\n", "## How to work\n", "## What we know\n"} {
+				if !strings.Contains(turns[1].Prompt, section) {
+					t.Errorf("turn 2 prompt = %q, want %q: the session compacted in turn 1", turns[1].Prompt, section)
+				}
+			}
+			if got := turns[2].Prompt; !strings.HasPrefix(got, "[channel 1, message 5]\n") ||
+				strings.Contains(got, "## You\n") || strings.Contains(got, "## What we know\n") {
+				t.Errorf("turn 3 prompt = %q, want a wake and at most a delta", got)
+			}
+		})
+	}
+}
+
+func TestWakeAs_CompactionSeenBetweenTurnsIsKeptForARebuiltMember(t *testing.T) {
+	ctx := context.Background()
+	e := newWakeEnv(t)
+	e.wake("lead", "one", nil, store.Scope{Read: e.say("user", "one", nil)})
+
+	e.agents[0].events <- agent.Event{Kind: agent.KindCompacted}
+	for deadline := time.Now().Add(5 * time.Second); ; time.Sleep(5 * time.Millisecond) {
+		compacted, err := e.st.SessionCompacted(ctx, e.ch.ID, "lead", "s1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if compacted {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the compaction the watch saw was not stored on the lead's newest turn")
+		}
+	}
+	if err := e.s.closeMembers(); err != nil {
+		t.Fatal(err)
+	}
+	e.wake("lead", "two", nil, store.Scope{Read: e.say("user", "two", nil)})
+
+	if got := lastPrompt(e); !strings.HasPrefix(got, "## You\n") {
+		t.Errorf("prompt of the rebuilt member = %q, want the first prompt", got)
 	}
 }

@@ -14,7 +14,7 @@ func TestContext_BaseBranch(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := Context(ctx, st, f.ID, "architect")
+	got, err := Context(ctx, st, testMemory(t, st), f.ID, "architect")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -26,7 +26,7 @@ func TestContext_BaseBranch(t *testing.T) {
 	if _, err := st.UpdateProject(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	got, err = Context(ctx, st, f.ID, "architect")
+	got, err = Context(ctx, st, testMemory(t, st), f.ID, "architect")
 	if err != nil {
 		t.Fatal(err)
 	}

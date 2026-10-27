@@ -1,10 +1,15 @@
 package server
 
 import (
+	"context"
 	"fmt"
 	"net/http"
+	"slices"
+	"strconv"
+	"sync"
 
 	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -111,20 +116,126 @@ func (s *server) approveProposal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	p, added, err := s.st.ApproveProposal(r.Context(), id)
+	a, err := ApproveProposal(r.Context(), s.st, s.ms, id)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if p.Kind == store.ProposalWrap {
-		if l := s.lookup(p.ChannelID); l != nil {
+	if a.Proposal.Kind == store.ProposalWrap {
+		if l := s.lookup(a.Proposal.ChannelID); l != nil {
 			s.stopLive(l)
 		}
 	}
 	writeJSON(w, http.StatusOK, struct {
 		store.Proposal
-		DecisionsAdded int `json:"decisionsAdded"`
-	}{p, added})
+		ItemsAdded int      `json:"itemsAdded"`
+		Warnings   []string `json:"warnings,omitempty"`
+	}{a.Proposal, a.Added, a.Warnings})
+}
+
+var _approveMu sync.Mutex
+
+// Approval is what approving a proposal did: how many memory items it saved, and a line for
+// each saved item that looks like a stored one or whose vector was not stored.
+type Approval struct {
+	Proposal store.Proposal
+	Added    int
+	Warnings []string
+}
+
+// ApproveProposal approves a pending proposal. A wrap first saves each item with its role as
+// author, skipping one whose exact body is already accepted or candidate in its scope, then
+// retires its retire ids, skipping any already retired; only then does the store save the
+// brief, close the channel and mark the proposal approved, in one transaction. It is not one
+// transaction as a whole: a failure leaves the proposal pending and the channel open, and
+// approving again saves each item once.
+func ApproveProposal(
+	ctx context.Context, st *store.Store, ms *memory.Store, id int64,
+) (Approval, error) {
+	_approveMu.Lock()
+	defer _approveMu.Unlock()
+	p, err := st.Proposal(ctx, id)
+	if err != nil {
+		return Approval{}, err
+	}
+	if p.Status != store.ProposalPending {
+		return Approval{}, fmt.Errorf("%w: proposal %d is already %s",
+			store.ErrInvalid, id, p.Status)
+	}
+	var a Approval
+	if p.Kind == store.ProposalWrap {
+		c, err := st.Channel(ctx, p.ChannelID)
+		if err != nil {
+			return Approval{}, err
+		}
+		if a.Added, a.Warnings, err = saveItems(ctx, ms, channel.Scopes(c, p.Role), p); err != nil {
+			return Approval{}, err
+		}
+		for _, rid := range p.Retire {
+			it, err := ms.Read(ctx, rid)
+			if err != nil {
+				return Approval{}, fmt.Errorf("retire memory %d: %w", rid, err)
+			}
+			if it.Status == memory.StatusRetired {
+				continue
+			}
+			if err := ms.Retire(ctx, rid); err != nil {
+				return Approval{}, err
+			}
+		}
+	}
+	a.Proposal, err = st.ApproveProposal(ctx, id)
+	return a, err
+}
+
+func saveItems(
+	ctx context.Context, ms *memory.Store, scopes []memory.Ref, p store.Proposal,
+) (int, []string, error) {
+	added := 0
+	var warnings []string
+	for _, it := range p.Items {
+		i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == it.Scope })
+		if i < 0 {
+			return added, warnings, fmt.Errorf("%w: scope %q is not one of the channel's", store.ErrInvalid, it.Scope)
+		}
+		saved, err := ms.Saved(ctx, scopes[i], it.Body)
+		if err != nil {
+			return added, warnings, err
+		}
+		if saved {
+			continue
+		}
+		replaces := make([]int64, 0, len(it.Replaces))
+		for _, rid := range it.Replaces {
+			old, err := ms.Read(ctx, rid)
+			if err != nil {
+				return added, warnings, fmt.Errorf("replace memory %d: %w", rid, err)
+			}
+			if old.Status == memory.StatusAccepted {
+				replaces = append(replaces, rid)
+			}
+		}
+		res, err := ms.Remember(ctx,
+			memory.Writer{
+				Author: p.Role, Role: p.Role, Scope: scopes[i],
+				Links: []memory.Link{{
+					Rel: memory.RelSource, ToKind: "proposal", ToID: strconv.FormatInt(p.ID, 10),
+				}},
+			},
+			memory.Note{Kind: it.Kind, Body: it.Body, Why: it.Why, Replaces: replaces})
+		if err != nil {
+			return added, warnings, fmt.Errorf("save item %q: %w", it.Body, err)
+		}
+		added++
+		for _, s := range res.Similar {
+			warnings = append(warnings, fmt.Sprintf("memory %d looks like memory %d", res.Item.ID, s.ID))
+		}
+		if res.EmbedErr != nil {
+			warnings = append(warnings,
+				fmt.Sprintf("memory %d: vector not stored: %v", res.Item.ID, res.EmbedErr))
+		}
+	}
+	return added, warnings, nil
 }
 
 func (s *server) rejectProposal(w http.ResponseWriter, r *http.Request) {

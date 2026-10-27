@@ -8,8 +8,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -158,7 +160,7 @@ func briefCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
-func decideCmd(ctx context.Context, args []string, stdout io.Writer) error {
+func decideCmd(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	c := newCommand("reef decide", _decideUsage, 2, 2)
 	why := c.fs.String("why", "", "")
 	st, pos, err := c.open(args)
@@ -171,14 +173,23 @@ func decideCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	d, err := st.CreateDecision(ctx, store.Decision{
-		FeatureID: f.ID, Body: pos[1], Why: *why, Author: _cliAuthor,
-	})
+	ms, err := openMemory(ctx, st)
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(stdout, "%d  %s\n", d.ID, d.Body)
-	return err
+	res, err := ms.Remember(ctx,
+		memory.Writer{
+			Author: _cliAuthor, Role: _cliAuthor,
+			Scope: memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(f.ID, 10)},
+		},
+		memory.Note{Kind: memory.KindDecision, Body: pos[1], Why: *why})
+	if err != nil {
+		return err
+	}
+	if _, err := fmt.Fprintf(stdout, "%d  %s\n", res.Item.ID, res.Item.Body); err != nil {
+		return err
+	}
+	return reportRemembered(ctx, st, res, stdout, stderr)
 }
 
 func taskCmd(ctx context.Context, args []string, stdout io.Writer) error {
@@ -275,7 +286,11 @@ func contextCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	out, err := channel.Context(ctx, st, f.ID, *role)
+	ms, err := openMemory(ctx, st)
+	if err != nil {
+		return err
+	}
+	out, err := channel.Context(ctx, st, ms, f.ID, *role)
 	if err != nil {
 		return err
 	}

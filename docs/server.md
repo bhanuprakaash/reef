@@ -90,7 +90,7 @@ logged in and on `PATH`.
   reply is the stored message, so the live block does not repeat it.
 - A closed channel shows "Wrapped" and Reopen where the Wrap up button and composer were.
 - Feature page (`/features/{id}`), with Close feature (asks to confirm) or Reopen, and its diff review page (`/features/{id}/review`); project
-  page (`/projects/{id}`) with project memory and its features.
+  page (`/projects/{id}`) with its features. The feature page lists the feature's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
 - Needs you (`/inbox`): what waits on you from [`/inbox/events`](#inbox), with a count and
   the action of each item (Approve or Reject, Continue, Retry, Open). The window asks once,
   on a click, to show desktop notifications and then shows one for each item that is new
@@ -159,7 +159,9 @@ migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`
 migration 32 [`032_provider.sql`](../store/migrations/032_provider.sql) (`provider`, `role.provider`) and
 migration 33 [`033_channel_name_auto.sql`](../store/migrations/033_channel_name_auto.sql) (`channel.name_auto`) and
 migration 36 [`036_turn_scopes.sql`](../store/migrations/036_turn_scopes.sql) (`turn.scopes`, `approval.scopes`) and
-migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql) (`turn.session_cost_usd`, `turn.session_input_tokens` and the other three token counts).
+migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql) (`turn.session_cost_usd`, `turn.session_input_tokens` and the other three token counts) and
+migration 38 [`038_proposal_items.sql`](../store/migrations/038_proposal_items.sql) (`proposal.items`; drops `proposal.notes` and `proposal.decisions`, clears `proposal.retire` and rejects the wrap proposals still pending) and
+migration 39 [`039_turn_compacted.sql`](../store/migrations/039_turn_compacted.sql) (`turn.compacted`).
 Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 
 ### project
@@ -188,8 +190,9 @@ The server stores `occupation` and `style` as given, but a line break in `name`,
 ### project_memory
 
 One body per project, kept as a column on `project` (migration 14
-[`014_project_memory.sql`](../store/migrations/014_project_memory.sql)). The user writes it; it
-is loaded into every fresh session's context prompt (see [memory.md](memory.md#the-context-prompt)).
+[`014_project_memory.sql`](../store/migrations/014_project_memory.sql)). Nothing loads or shows it
+since decision 91: the context prompt and the project page read the project's memory items instead
+(see [memory.md](memory.md#the-context-prompt)). Its routes still read and write it.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -233,7 +236,8 @@ One row per version. A feature's brief is its latest version.
 
 ### role_notes
 
-One row per feature and role.
+One row per feature and role. Nothing reads them since decision 91: a role's own items are in
+scope `teammate`. Their routes still read and write them.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -314,6 +318,9 @@ delete; deleting the turn deletes its tool calls.
 | `parentId` | number? | the `Agent` call a claude subagent's call nests under, set from the event's `parentToolId`; absent for a top-level call, and for a call whose parent was not seen (shown flat) |
 
 ### decision
+
+No agent, CLI command or window page reads or writes this table since decision 91: a decision is a
+memory item of kind `decision` (`remember`, `reef decide`, `POST /memory`). Its routes still work.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -448,9 +455,9 @@ them, and the one that made a token deletes it when its session ends. See
 
 ### proposal
 
-A wrap-up proposal: the new brief, the role's notes and the decisions to record.
+A wrap-up proposal: the new brief and the memory items to save.
 `propose_wrap` makes one. `propose_brief` makes a brief proposal: only the brief, made
-mid-channel. Approving it adds a brief version and leaves the notes, the decisions and the
+mid-channel. Approving it adds a brief version and leaves the memory items and the
 channel as they are; the channel's agent is not stopped. A channel has one pending proposal at most: a new wrap rejects the older pending ones of any kind, a new brief rejects the older pending briefs and is refused with `invalid: channel 1 has a wrap-up waiting for approval` while a wrap is pending, and approving a brief on a closed channel is `invalid: channel 1 is closed`. `reef chat` prompts for approval,
 and `reef wrap approve` or `reef wrap reject` decides it; the server offers the same over REST (see [Wrap-up and
 promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
@@ -459,12 +466,11 @@ promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
 | --- | --- | --- |
 | `id` | number | |
 | `channelId` | number | required; must be a channel of a feature. Deleting the channel deletes the proposal |
-| `role` | string | required; author of the brief, notes and decisions it applies |
+| `role` | string | required; author of the brief and items it applies |
 | `kind` | string | `wrap` (default) or `brief`; any other is `invalid: unknown proposal kind "x"` |
 | `brief` | string | required, not empty; the full new brief |
-| `notes` | string | may be empty; replaces the role's notes |
-| `decisions` | array | `{"body", "why", "replaces"}` each, `body` required; `replaces` is optional, ids of live decisions it retires. Approving applies it only for a decision it adds: one skipped because a live decision of the feature has its body retires nothing. The SQL column holds them as JSON text |
-| `retire` | array | ids of live decisions that are stale or duplicate; approving sets their `retiredAt`. `[]` by default. The SQL column holds them as JSON text. A wrap whose `retire` or `replaces` has an id that is not a live decision of the channel's feature is `invalid: decision 9 is not a live decision of feature 1` and is not saved. An id claimed twice (in `retire` and a `replaces`, or two `replaces`) is kept for its first claim, replaces before `retire`. At approve an id that is already retired is skipped; an id that is not a decision of the feature fails the whole approve with 400 |
+| `items` | array | `{"kind", "body", "why", "scope", "replaces"}` each; `body` required. `scope` is `work_item` (the default `propose_wrap` fills in), `project`, `teammate` or `team`, and `team` only when the proposing role leads the channel's team. `replaces` is optional, ids of live memory items it replaces. `[]` by default. The SQL column holds them as JSON text. Approving saves each with `remember`: see [memory.md](memory.md#wrap-up) |
+| `retire` | array | ids of live memory items that are stale or duplicate; approving retires them. `[]` by default. The SQL column holds them as JSON text. `propose_wrap` checks that each `retire` and `replaces` id is an accepted item in a scope the role can read (`invalid: memory 9 is not a live item in this channel's scopes`) and stores nothing otherwise; `CreateProposal` itself does not read memory. An id claimed twice (in `retire` and a `replaces`, or two `replaces`) is kept for its first claim, replaces before `retire`. At approve an id that is already retired is skipped |
 | `status` | string | `pending` (default), `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 | `decidedAt` | string? | `null` while pending |
@@ -534,7 +540,7 @@ tool calls.
 | `POST /channels/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no feature); 404, 409 and 503 as send |
 | `POST /channels/{id}/promote` | `slug` and `name` for a new feature, or `featureId` for an existing one; exactly one form | 202 the channel | 400 bad body, channel already has a feature, feature of another project; 404; 409 slug taken, or as send; 503 |
 | `GET /channels/{id}/proposal` | | 200 the channel's pending proposal | 404 none pending |
-| `POST /proposals/{id}/approve` | no body needed | 200 the proposal and `decisionsAdded`; a wrap closes the proposal's channel and stops its agent, a brief proposal does neither | 400 already decided, 404 |
+| `POST /proposals/{id}/approve` | no body needed | 200 the proposal, `itemsAdded` and `warnings` (a line for each saved item that looks like a stored one or has no vector; left out when none); a wrap closes the proposal's channel and stops its agent, a brief proposal does neither | 400 already decided, 404 |
 | `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
 | `GET /messages` | `?channel=ID` (required), `?after=ID` (only newer ids) | 200, each with `parentId` | 400 no channel, 404 unknown channel |
 | `POST /messages` | `channelId`, `parentId`, `author`, `body` | 201 | 400 unknown channel, missing field, or a `parentId` that is not a top-level message of that channel |
@@ -555,6 +561,9 @@ tool calls.
 | `GET /decisions` | `?feature=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy` | 400 no feature, 404 unknown feature |
 | `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author`, `replaces` | 201 | 400 missing field, unknown feature, a message of another feature, or a `replaces` id that is not a live decision of the feature |
 | `GET /decisions/{id}` | | 200 | 404 |
+| `GET /memory` | `?scope=KIND:ID` (required, such as `work_item:3` or `project:1`) | 200 the accepted items of that scope, the most recently accepted first, as objects (`id`, `kind`, `body`, `why`, `scope`, `author`, `role`, `status`, `retiredAt`, `replacedBy`, `createdAt`; no `links`); `[]` when none | 400 no scope or one that is not `kind:id` |
+| `POST /memory` | `kind`, `body`, `why`, `scope` (`KIND:ID`) | 201 the item as for `GET /memory`, written with author and role `user`, so always accepted, plus `similar` (`[{id, body}]`, stored items that look like it) and `embedError` (why no vector was stored), each left out when empty | 400 unknown kind or scope kind, empty body, bad scope |
+| `POST /memory/{id}/retire` | no body needed | 204, no body; sets `retiredAt` | 400 not an accepted item (already retired, a candidate), 404 |
 
 A `POST` with no body (`stop`, `continue`, `wrap`, `approve`, `reject`) still needs
 `Content-Type: application/json`, or the guard answers 415. These routes ignore the body,
@@ -930,7 +939,7 @@ turn of [`Session.Wrap`](../channel/session.go) (see [memory.md](memory.md#wrap-
 agent calls `propose_wrap`; when the turn is done, `GET /channels/{id}/proposal` returns the
 pending proposal, or 404 when the agent made none. `POST /proposals/{id}/approve` and
 `/reject` decide it with the same effect as `reef wrap approve` and `reject`. Approve
-also returns `decisionsAdded`, the decisions it saved, closes the channel (`closedAt`) and stops its agent; a closed channel refuses sends, wraps and wakes with 409 until `POST /channels/{id}/reopen`. A brief proposal (`propose_brief`, `kind` `brief`) does not close the channel or block its turns or a wrap; only a
+saves the proposal's items, retires its `retire` ids, closes the channel (`closedAt`) and stops its agent, and returns `itemsAdded`, the items it saved (one already saved in its scope with the same body is skipped; each carries a `source` link to the proposal), and `warnings`. Two approvals of one proposal at the same moment run one after the other: the second is `400 already approved`. Saving the items comes first and is not part of the transaction that saves the brief and closes the channel: when it fails, the proposal stays pending and the channel open, and approving again finishes without saving an item twice; a closed channel refuses sends, wraps and wakes with 409 until `POST /channels/{id}/reopen`. A brief proposal (`propose_brief`, `kind` `brief`) does not close the channel or block its turns or a wrap; only a
 pending wrap blocks another wrap (409 `channel 2 has a wrap-up waiting for approval`). A proposal that is already decided is
 400, like `invalid: proposal 1 is already approved` in the CLI.
 
@@ -944,7 +953,7 @@ as for send, and once the agent is open, in one transaction creates the feature 
 the channel's `featureId`. It answers 202 with the
 channel and starts a turn: the stored user message is `/promote`, and the agent gets a
 prompt that names the feature and asks it to call `propose_wrap` once with the first brief,
-written from the session, its notes and the decisions so far. The user approves that
+written from the session, and the memory items made so far, each with its scope. The user approves that
 proposal like a wrap-up, and approval makes brief version 1. The promote turn runs in the
 agent the quick session already has. When it ends, every agent of the channel is stopped, so
 the next wake of each role resumes its session in the feature's worktree. The promote first
@@ -1128,8 +1137,8 @@ $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/channels -d
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/messages -d '{"channelId":1,"author":"user","body":"Start with the form"}'
 {"id":1,"channelId":1,"parentId":null,"author":"user","body":"Start with the form","createdAt":"2026-10-13T09:00:04.123456Z"}
 
-$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/decisions -d '{"featureId":1,"messageId":1,"body":"Use sessions, not JWT","why":"One server, no token refresh","author":"user"}'
-{"id":1,"featureId":1,"messageId":1,"body":"Use sessions, not JWT","why":"One server, no token refresh","author":"user","createdAt":"2026-10-13T09:00:05.123456Z"}
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/memory -d '{"kind":"decision","body":"Use sessions, not JWT","why":"One server, no token refresh","scope":"work_item:1"}'
+{"id":1,"kind":"decision","body":"Use sessions, not JWT","why":"One server, no token refresh","scope":"work_item:1","author":"user","role":"user","status":"accepted","retiredAt":null,"replacedBy":null,"createdAt":"2026-10-13T09:00:05.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/tasks -d '{"projectId":1,"featureId":1,"title":"Build the login form"}'
 {"id":1,"projectId":1,"featureId":1,"title":"Build the login form","body":"","status":"todo","createdAt":"2026-10-13T09:00:06.123456Z","updatedAt":"2026-10-13T09:00:06.123456Z"}

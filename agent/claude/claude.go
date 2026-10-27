@@ -429,6 +429,9 @@ func parseLine(line []byte, st *state) []agent.Event {
 			st.unprompted = true
 			return []agent.Event{{Kind: agent.KindSession, SessionID: l.SessionID, Model: l.Model}}
 		}
+		if l.Subtype == "compact_boundary" {
+			return []agent.Event{{Kind: agent.KindCompacted}}
+		}
 	case "stream_event":
 		if l.Event.Type == "message_start" {
 			st.breakNext = st.wrote

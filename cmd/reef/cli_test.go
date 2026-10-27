@@ -71,10 +71,6 @@ func TestCLI_Flow(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = st.Close() }()
-	ds, err := st.Decisions(context.Background(), 1)
-	if err != nil || len(ds) != 1 || ds[0].Author != "user" || ds[0].Why != "simple" {
-		t.Errorf("decisions = %+v, %v, want one by user with why %q", ds, err, "simple")
-	}
 
 	if _, err := reef(t, dir, "brief", "login"); err == nil ||
 		err.Error() != "feature login has no brief yet" {
@@ -86,6 +82,55 @@ func TestCLI_Flow(t *testing.T) {
 	}
 	if got := mustReef(t, dir, "brief", "login"); got != "sign in with sessions\n" {
 		t.Errorf("brief = %q, want %q", got, "sign in with sessions\n")
+	}
+}
+
+func TestCLI_Context_ReadsMemoryItems(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(t.TempDir())
+	mustReef(t, dir, "project", "add", "--name", "shop")
+	mustReef(t, dir, "feature", "add", "login", "Login")
+	mustReef(t, dir, "decide", "login", "use sessions")
+	mustReef(t, dir, "memory", "add", "fact", "Go 1.24", "--scope", "project:1")
+	mustReef(t, dir, "memory", "add", "lesson", "keep it small", "--scope", "teammate:developer")
+	mustReef(t, dir, "memory", "add", "lesson", "tester only", "--scope", "teammate:tester")
+
+	got := mustReef(t, dir, "context", "login", "--role", "developer")
+	for _, want := range []string{
+		"### Decisions\ndecision 1: use sessions (user, ",
+		"### Project\nfact 2: Go 1.24 (user, ",
+		"1 of 1; recall(..., scope=project)\n",
+		"### Your items\nlesson 3: keep it small (user, ",
+		"1 of 1; recall(..., scope=teammate)\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("reef context =\n%s\nwant it to contain %q", got, want)
+		}
+	}
+	for _, gone := range []string{"tester only", "### Findings", "### Team"} {
+		if strings.Contains(got, gone) {
+			t.Errorf("reef context contains %q:\n%s", gone, got)
+		}
+	}
+}
+
+func TestCLI_DecideWritesAnAcceptedWorkItemDecisionByTheUser(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(t.TempDir())
+	mustReef(t, dir, "project", "add", "--name", "shop")
+	mustReef(t, dir, "feature", "add", "login", "Login")
+
+	if got, want := mustReef(t, dir, "decide", "login", "use sessions", "--why", "simple"),
+		"1  use sessions\n"; got != want {
+		t.Errorf("decide = %q, want %q", got, want)
+	}
+	if got, want := mustReef(t, dir, "memory", "show", "1"),
+		"1  accepted  decision  work_item:1  use sessions\nwhy  simple\nauthor  user  user\n"; got != want {
+		t.Errorf("memory show 1 = %q, want %q", got, want)
+	}
+	if got, want := mustReef(t, dir, "decide", "login", "use sessions."),
+		"2  use sessions.\n1  similar  use sessions\n"; got != want {
+		t.Errorf("decide of a lookalike = %q, want %q", got, want)
 	}
 }
 

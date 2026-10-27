@@ -4,15 +4,16 @@ import { FeatureTerminal } from '@/app/feature-terminal';
 import { useTerminal } from '@/app/use-terminal';
 import { ChannelList } from '@/modules/channels/components/channel-list';
 import { useChannels } from '@/lib/api/get-channels';
+import { useMemory } from '@/lib/api/get-memory';
+import { useRetireMemory } from '@/lib/api/retire-memory';
 import { useTeams } from '@/lib/api/get-teams';
 import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
 import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
-import { useDecisions } from '@/modules/features/api/get-decisions';
 import { useDiff } from '@/modules/features/api/get-diff';
 import { useFeature } from '@/modules/features/api/get-feature';
 import { useSetFeatureClosed } from '@/modules/features/api/set-feature-closed';
 import { BriefPanel } from '@/modules/features/components/brief-panel';
-import { DecisionList } from '@/modules/features/components/decision-list';
+import { MemoryList } from '@/modules/features/components/memory-list';
 import { FeatureForm } from '@/modules/features/components/feature-form';
 import { JourneyBar } from '@/modules/features/components/journey-bar';
 import { StagePicker } from '@/modules/features/components/stage-picker';
@@ -32,7 +33,9 @@ export function FeaturePage() {
   const feature = useFeature(id);
   const projects = useProjects();
   const briefs = useBriefVersions(id);
-  const decisions = useDecisions(id);
+  const scope = `work_item:${id}`;
+  const memory = useMemory(scope);
+  const retire = useRetireMemory(scope);
   const diff = useDiff(id);
   const tasks = useTasks({ feature: id });
   const channels = useChannels();
@@ -114,14 +117,17 @@ export function FeaturePage() {
           ) : (
             <BriefPanel versions={briefs.data ?? []} />
           )}
-          {decisions.isError ? (
-            <p className="text-sm text-danger">{decisions.error.message}</p>
+          {memory.isError ? (
+            <p className="text-sm text-danger">{memory.error.message}</p>
           ) : (
-            <DecisionList
-              decisions={decisions.data ?? []}
+            <MemoryList
+              items={memory.data ?? []}
               faces={roleFaces(teams.data, latestChannel?.team)}
+              onRetire={retire.mutate}
+              retiring={retire.isPending}
             />
           )}
+          {retire.isError && <p className="text-sm text-danger">{retire.error.message}</p>}
         </div>
         <div className="flex min-w-[300px] flex-1 flex-col gap-5">
           <Card title="Channels">
