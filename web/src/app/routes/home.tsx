@@ -8,7 +8,7 @@ import { useTeams } from '@/lib/api/get-teams';
 import { useCurrentProject } from '@/lib/current-project';
 import { useCreateWorkItem } from '@/modules/work-items/api/create-work-item';
 import { useWorkItems } from '@/modules/work-items/api/get-work-items';
-import { useInbox } from '@/modules/inbox/api/get-inbox';
+import { useNeedsYou } from '@/modules/inbox/api/get-inbox';
 import { InboxRow } from '@/modules/inbox/components/inbox-row';
 import { itemKey } from '@/modules/inbox/utils/new-items';
 import { useProjects } from '@/modules/projects/api/get-projects';
@@ -91,7 +91,7 @@ function QuickCapture() {
 function WorkItemCard({ workItem }: { workItem: WorkItem }) {
   const spaces = useSpaces();
   const teams = useTeams();
-  const inbox = useInbox();
+  const inbox = useNeedsYou();
   const mine = spaces.data?.filter((c) => c.workItemId === workItem.id) ?? [];
   const latest = mine[mine.length - 1];
   const team = teams.data?.find((t) => t.name === latest?.team);
@@ -125,7 +125,7 @@ function WorkItemCard({ workItem }: { workItem: WorkItem }) {
 export function HomePage() {
   const projects = useProjects();
   const workItems = useWorkItems();
-  const inbox = useInbox();
+  const inbox = useNeedsYou();
   const spaces = useSpaces();
   const [project] = useCurrentProject(projects.data);
   const now = new Date();

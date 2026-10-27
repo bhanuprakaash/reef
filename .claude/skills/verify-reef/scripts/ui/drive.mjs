@@ -3521,6 +3521,7 @@ async function board() {
   }
 
   await pick('Type', 'bug');
+  await card('draft idea').waitFor({ state: 'hidden' });
   await region('Backlog').getByRole('link', { name: 'login bug' }).waitFor();
   await eventually(async () => (await main.getByRole('link').count()) === 1);
   const shown = await main.getByRole('link').allInnerTexts();
@@ -3570,6 +3571,19 @@ async function board() {
     check(after === before && /through its own actions/.test(await alert.innerText()), `dragging "${title}" into ${target} is refused in the window`, `status ${before} -> ${after}; ${await alert.innerText()}`);
     if (target === 'Review' || target === 'Done') await shot(`refused-${target.toLowerCase()}`);
   }
+
+  await make('no team item');
+  await page.goto(base + '/board');
+  await card('no team item').waitFor();
+  await region('Backlog').evaluate((el) => {
+    const board = el.parentElement;
+    board.scrollLeft += el.getBoundingClientRect().left - board.getBoundingClientRect().left;
+  });
+  await card('no team item').dragTo(region('Queued'));
+  const reason = main.getByRole('alert');
+  await reason.waitFor();
+  check((await byTitle('no team item')).status === 'backlog' && (await reason.innerText()) === 'Set a Team on this item before queuing it.', 'dragging an item with no Team into Queued is refused with the reason', `${(await byTitle('no team item')).status}; ${await reason.innerText()}`);
+  await shot('refused-no-team');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto(base + '/board');
@@ -3655,6 +3669,49 @@ async function teamPage() {
   check(queueless.length === 0 && /^Idle/.test(idleText), 'a Team with an empty queue shows as idle (REST: no queued or running item)', idleText);
   check((await main.getByRole('region', { name: 'Queued', exact: true }).innerText()).includes('Nothing is queued.'), 'its queue says nothing is queued');
   await shot('idle');
+
+  // An item made in the window is queued only after its Team is set there; its start leaves an
+  // FYI in the inbox, which is not "needs you".
+  const fresh = await makeTeam('fresh', 'Takes new work');
+  const suggestion = await call('POST', '/work-items', { projectId: pid, title: 'suggested one', proposedBy: 'lead', suggestedTeamId: fresh.id });
+  await page.goto(`${base}/work-items/${suggestion.id}`);
+  await main.getByRole('heading', { name: 'suggested one', level: 1 }).waitFor();
+  const proposal = await main.getByText(/^proposed by/).innerText();
+  check(proposal === `proposed by lead · suggested Team ${fresh.name}`, 'the page shows who proposed the item and the suggested Team', proposal);
+  await main.getByRole('button', { name: 'Edit', exact: true }).click();
+  const suggestedEdit = page.getByRole('dialog', { name: 'Edit Work item' });
+  const prefilled = await suggestedEdit.getByRole('combobox', { name: 'Team', exact: true }).innerText();
+  check(prefilled.includes(fresh.name), 'the edit form prefills its Team from the suggestion', prefilled);
+  await suggestedEdit.getByRole('button', { name: 'Cancel' }).click();
+
+  const madeId = Number(await addFeature('window item'));
+  await main.getByRole('button', { name: 'Edit', exact: true }).click();
+  const edit = page.getByRole('dialog', { name: 'Edit Work item' });
+  await pick('Team', fresh.name, edit);
+  await edit.getByRole('button', { name: 'Save' }).click();
+  await edit.waitFor({ state: 'hidden' });
+  check(await eventually(async () => (await getJson(`/work-items/${madeId}`)).teamId === fresh.id), 'the Team set in the edit form is saved (REST)', JSON.stringify((await getJson(`/work-items/${madeId}`)).teamId));
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.goto(`${base}/board`);
+  const madeCard = main.getByRole('link', { name: 'window item' });
+  await madeCard.waitFor();
+  await main.getByRole('region', { name: 'Backlog', exact: true }).evaluate((el) => {
+    const board = el.parentElement;
+    board.scrollLeft += el.getBoundingClientRect().left - board.getBoundingClientRect().left;
+  });
+  await madeCard.dragTo(main.getByRole('region', { name: 'Queued', exact: true }));
+  check(await eventually(async () => (await getJson(`/work-items/${madeId}`)).status === 'in_progress'), 'dragging the item with its Team set to Queued starts it', (await getJson(`/work-items/${madeId}`)).status);
+
+  const inbox = await getJson('/inbox');
+  const needsYou = inbox.filter((i) => i.group === 'needs_you').length;
+  check(inbox.some((i) => i.kind === 'started' && i.group === 'fyi' && i.workItemId === madeId), 'the start left a started item in the inbox, group fyi (REST)', JSON.stringify(inbox.map((i) => [i.kind, i.group])));
+  await page.goto(`${base}/`);
+  await main.getByRole('heading', { name: 'Needs you', level: 2 }).waitFor();
+  await page.waitForTimeout(500);
+  const heading = (await main.getByRole('heading', { name: 'Needs you', level: 2 }).innerText()).replace(/\s+/g, ' ');
+  check(heading === (needsYou > 0 ? `Needs you · ${needsYou}` : 'Needs you'), 'Home counts only the needs-you items, not the started FYI', `${heading} (REST needs_you ${needsYou} of ${inbox.length})`);
+  const badge = await aside.getByLabel(/\d+ waiting/).count();
+  check(badge === (needsYou > 0 ? 1 : 0), 'the sidebar Inbox badge counts only the needs-you items', `${badge} badge, needs_you ${needsYou}`);
 
   await page.goto(`${base}/teams?team=${crew.name}`);
   await page.getByRole('link', { name: 'Queue', exact: true }).click();
@@ -3770,6 +3827,24 @@ async function workItem() {
   );
   const linesText = (await lines.innerText()).replace(/\s+/g, ' ');
   check(linesText.includes('verified by the test'), 'a ticked acceptance line shows its note', linesText);
+
+  sql(`update acceptance_line set note='ticked while open' where work_item_id=${id} and position=1`, true);
+  for (const title of ['Work item page edited', 'Work item page']) {
+    await main.getByRole('button', { name: 'Edit', exact: true }).click();
+    const editDialog = page.getByRole('dialog', { name: 'Edit Work item' });
+    await editDialog.getByLabel('Title').fill(title);
+    await editDialog.getByRole('button', { name: 'Save' }).click();
+    await editDialog.waitFor({ state: 'hidden' });
+  }
+  await lines.getByLabel('New acceptance line').fill('Session lasts a day');
+  await lines.getByRole('button', { name: 'Add', exact: true }).click();
+  await lines.getByText('Session lasts a day', { exact: true }).waitFor();
+  const kept = await item();
+  check(
+    kept.title === 'Work item page' && kept.acceptanceLines.length === 2 && kept.acceptanceLines[0].checked === true && kept.acceptanceLines[0].note === 'ticked while open' && kept.acceptanceLines[1].checked === false,
+    'editing the title and adding a line in the window keeps the lead tick and its note (REST)',
+    JSON.stringify(kept.acceptanceLines),
+  );
   await shot('work-item-1280x800');
 
   await subs.getByRole('link', { name: /Login form/ }).click();
@@ -3783,6 +3858,15 @@ async function workItem() {
     'a sub-item page links to its parent and keeps its acceptance lines',
     `sub-item ${subId}, parent link ${await parentLink.getAttribute('href')}`,
   );
+  const subHeader = (await main.getByRole('heading', { name: 'Login form', level: 1 }).locator('xpath=..').innerText()).replace(/\s+/g, ' ');
+  const subSpaces = (await main.getByRole('region', { name: 'Spaces' }).innerText()).replace(/\s+/g, ' ');
+  check(
+    (await main.getByRole('button', { name: 'New Space' }).count()) === 0 && subHeader.includes(`work-item/${id}`) && !subHeader.includes(`work-item/${subId}`) && subSpaces.includes('proof space'),
+    "a sub-item page has no New Space, shows its parent's branch and its parent's Spaces",
+    `${subHeader} | ${subSpaces}`,
+  );
+  const subSpace = await fetch(`${base}/spaces`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: Number(pid), workItemId: Number(subId), name: 'sub space' }) });
+  check(subSpace.status === 400, 'POST /spaces with a sub-item id is 400 (REST)', `${subSpace.status} ${await subSpace.text()}`);
   await shot('sub-item-1280x800');
   await parentLink.click();
   await main.getByRole('heading', { name: 'Work item page', level: 1 }).waitFor();

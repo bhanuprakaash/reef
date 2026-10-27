@@ -10,18 +10,25 @@ import { TextField } from '@/components/text-field';
 
 const labelClass = 'mb-1.5 block text-[12.5px] text-muted';
 
-type Props = { projectId: number; workItemId: number | null; onClose: () => void };
+type Props = {
+  projectId: number;
+  workItemId: number | null;
+  itemTeam?: string;
+  onClose: () => void;
+};
 
-export function NewSpaceForm({ projectId, workItemId, onClose }: Props) {
+export function NewSpaceForm({ projectId, workItemId, itemTeam, onClose }: Props) {
   const [backend, setBackend] = useState('');
   const [permissionMode, setPermissionMode] = useState('');
-  const [team, setTeam] = useState('solo');
+  const [team, setTeam] = useState(itemTeam ?? 'solo');
   const [name, setName] = useState('');
   const create = useCreateSpace();
   const teams = useTeams();
   const navigate = useNavigate();
   const nameId = useId();
-  const teamList = teams.data ?? [{ name: 'solo', roles: [{ name: 'lead', face: 'jellyfish' }] }];
+  const teamList = (
+    teams.data ?? [{ name: 'solo', roles: [{ name: 'lead', face: 'jellyfish' }] }]
+  ).filter((t) => itemTeam === undefined || t.name === itemTeam);
 
   return (
     <form

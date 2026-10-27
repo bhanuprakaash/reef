@@ -58,9 +58,15 @@ export function WorkItemPage() {
 
   const f = workItem.data;
   const project = projects.data?.find((p) => p.id === f.projectId);
-  const workItemSpaces = spaces.data?.filter((c) => c.workItemId === id) ?? [];
+  const treeId = f.parentId ?? id;
+  const workItemSpaces = spaces.data?.filter((c) => c.workItemId === treeId) ?? [];
   const latestSpace = workItemSpaces[workItemSpaces.length - 1];
   const team = teams.data?.find((t) => t.id === f.teamId);
+  const suggested = teams.data?.find((t) => t.id === f.suggestedTeamId);
+  const proposal = [
+    f.proposedBy && `proposed by ${f.proposedBy}`,
+    suggested && `suggested Team ${suggested.name}`,
+  ].filter(Boolean);
   const reviewing = f.parentId === null && f.status === 'review';
 
   return (
@@ -76,11 +82,12 @@ export function WorkItemPage() {
           </div>
           <h1 className="text-[40px] leading-[1.05] font-normal tracking-[-0.02em]">{f.title}</h1>
           {f.description && <p className="mt-2 max-w-xl text-sm text-muted">{f.description}</p>}
+          {proposal.length > 0 && <p className="mt-2 text-xs text-muted">{proposal.join(' · ')}</p>}
           <div className="mt-3 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted">
             <Chip>{f.type}</Chip>
             <Chip>{statusLabel(f.status)}</Chip>
             {team && <Chip>{team.name}</Chip>}
-            <span className="font-mono whitespace-nowrap">work-item/{f.id}</span>
+            <span className="font-mono whitespace-nowrap">work-item/{treeId}</span>
             {diff.isError ? (
               <span className="whitespace-nowrap text-danger">· {diff.error.message}</span>
             ) : (
@@ -149,9 +156,11 @@ export function WorkItemPage() {
             ) : (
               <SpaceList spaces={workItemSpaces} />
             )}
-            <Button type="button" className="mt-3" onClick={() => setDialog('space')}>
-              New Space
-            </Button>
+            {f.parentId === null && (
+              <Button type="button" className="mt-3" onClick={() => setDialog('space')}>
+                New Space
+              </Button>
+            )}
           </Card>
         </div>
       </div>
@@ -160,7 +169,12 @@ export function WorkItemPage() {
       </Dialog>
       <Dialog open={dialog === 'space'} onClose={() => setDialog(null)} title="New Space">
         {dialog === 'space' && (
-          <NewSpaceForm projectId={f.projectId} workItemId={id} onClose={() => setDialog(null)} />
+          <NewSpaceForm
+            projectId={f.projectId}
+            workItemId={id}
+            itemTeam={team?.name}
+            onClose={() => setDialog(null)}
+          />
         )}
       </Dialog>
       <Dialog open={dialog === 'drop'} onClose={() => setDialog(null)} title="Drop Work item">

@@ -10,7 +10,7 @@ import { Row } from '@/components/row';
 import { useProfile } from '@/lib/api/get-profile';
 import { useCurrentProject } from '@/lib/current-project';
 import { useWorkItems } from '@/modules/work-items/api/get-work-items';
-import { useInbox } from '@/modules/inbox/api/get-inbox';
+import { useNeedsYou } from '@/modules/inbox/api/get-inbox';
 import { useInboxEvents } from '@/modules/inbox/hooks/use-inbox-events';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { itemPath } from '@/utils/anchors';
@@ -80,7 +80,7 @@ export function Sidebar() {
   const projects = useProjects();
   const profileName = useProfile().data?.name ?? '';
   const workItems = useWorkItems();
-  const inbox = useInbox();
+  const inbox = useNeedsYou();
   useInboxEvents(useCallback((item) => void navigate(itemPath(item)), [navigate]));
   const [query, setQuery] = useState('');
 
