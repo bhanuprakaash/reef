@@ -162,6 +162,7 @@ export type Skills = { claude: SkillInfo[]; codex: SkillInfo[] };
 export type Teammate = Omit<Role, 'lead' | 'teammateId' | 'mcpRemove'> & { id: number };
 
 export type Team = {
+  id?: number;
   name: string;
   responsibility: string;
   roles: Role[];

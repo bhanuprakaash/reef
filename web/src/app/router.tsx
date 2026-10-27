@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router';
 import { Layout } from '@/app/layout';
 import { CapturePage } from '@/app/routes/capture';
+import { BoardPage } from '@/app/routes/board';
 import { SpacePage } from '@/app/routes/space';
 import { SpacesPage } from '@/app/routes/spaces';
 import { FeaturePage } from '@/app/routes/feature';
@@ -18,6 +19,7 @@ export const router = createBrowserRouter([
     element: <Layout />,
     children: [
       { path: '/', element: <HomePage /> },
+      { path: '/board', element: <BoardPage /> },
       { path: '/features/:id', element: <FeaturePage /> },
       { path: '/features/:id/review', element: <ReviewPage /> },
       { path: '/spaces', element: <SpacesPage /> },

@@ -91,6 +91,10 @@ export function Sidebar() {
   const error = projects.error ?? features.error ?? spaces.error;
   const waiting = inbox.data ?? [];
   const projectFeatures = features.data?.filter((f) => f.projectId === current?.id).length ?? 0;
+  const openItems =
+    features.data?.filter(
+      (f) => f.projectId === current?.id && f.status !== 'done' && f.status !== 'dropped',
+    ).length ?? 0;
 
   return (
     <nav aria-label="Spaces" className="flex h-full flex-col px-3 pt-4 pb-3 text-sm">
@@ -159,6 +163,19 @@ export function Sidebar() {
           }
           title="Today"
           preview={`${projectFeatures} ${projectFeatures === 1 ? 'feature' : 'features'}`}
+        />
+        <Row
+          to="/board"
+          active={pathname === '/board'}
+          avatar={
+            <IconCircle>
+              <rect x="3" y="4" width="5" height="16" rx="1.5" />
+              <rect x="10" y="4" width="5" height="10" rx="1.5" />
+              <rect x="17" y="4" width="4" height="13" rx="1.5" />
+            </IconCircle>
+          }
+          title="Board"
+          preview={`${openItems} open`}
         />
         <Row
           to="/inbox"

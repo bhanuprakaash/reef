@@ -14,7 +14,7 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, diff, memory, inspector, review, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, teammates, 'first-run': firstRun };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, teammates, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
   console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|first-run BASE_URL');
   process.exit(2);
@@ -595,12 +595,7 @@ async function phone() {
   await visit('needs-you', /^Needs you/, main.getByRole('link', { name: 'Open', exact: true }).first());
   const badge = await tabs.getByLabel(/waiting$/).textContent();
   check(badge === '1', 'the Needs you tab shows a count badge of 1', badge);
-  await visit('tasks', /^Tasks/, main.getByText('todo: phone check'));
-  await main.getByRole('button', { name: 'Board' }).click();
-  await main.getByRole('group', { name: 'Todo' }).waitFor();
-  await shot('tasks-board');
-  const ob = await overflow();
-  check(ob.page <= 0 && ob.main <= 0, 'the task board has no horizontal scroll at 390 px', `page ${ob.page}, main ${ob.main}`);
+  await visit('board', /^Board/, main.getByRole('link', { name: /phone check/ }));
   await visit('teams', /^Teams/, page.getByRole('heading', { name: 'Teams', level: 1 }));
 
   const noScroll = async (step) => {
@@ -2828,6 +2823,126 @@ async function teammates() {
     check(await noOverflow(), `${route} has no horizontal scroll at 390x844`, `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
     await shot(`phone-${route.replace(/\W+/g, '-').replace(/^-|-$/g, '')}`);
   }
+}
+
+async function board() {
+  const section = await addProject();
+  const name = (await section.getAttribute('aria-label')) ?? '';
+  const pid = Number(sql(`select id from project where name='${name}'`));
+  const call = async (method, route, body) => {
+    const res = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`${method} ${route}: ${res.status} ${await res.text()}`);
+    return res.json();
+  };
+  const suffix = Date.now().toString(36);
+  const teamName = `crew-${suffix}`;
+  const mate = await call('POST', '/teammates', { name: `lead-${suffix}`, backend: 'claude' });
+  const crew = (await call('POST', '/teams', { name: teamName, roles: [{ teammateId: mate.id, name: 'lead', lead: true, backend: 'claude' }] })).id;
+  const make = (title, extra) => call('POST', '/work-items', { projectId: pid, title, ...extra });
+  const items = async () => (await getJson('/work-items')).filter((i) => i.projectId === pid);
+  const byTitle = async (title) => (await items()).find((i) => i.title === title);
+  const eventually = async (ok) => {
+    const end = Date.now() + 10000;
+    while (!(await ok()) && Date.now() < end) await page.waitForTimeout(200);
+    return ok();
+  };
+
+  // The Team is busy (an item needs the user), so queued items stay queued. Items with no Team
+  // are not started by the queue, so nothing runs a turn.
+  await make('busy item', { teamId: crew, status: 'needs_you' });
+  await make('draft idea', { teamId: crew });
+  await make('login bug', { type: 'bug', teamId: crew });
+  for (const t of ['queue one', 'queue two', 'queue three']) {
+    const w = await make(t, { teamId: crew });
+    await call('PATCH', `/work-items/${w.id}`, { status: 'queued' });
+  }
+  await make('running job', { type: 'task', status: 'in_progress' });
+  await make('review me', { status: 'review' });
+  await make('finished job', { status: 'done' });
+  await make('dropped idea', { status: 'dropped' });
+
+  const region = (label) => main.getByRole('region', { name: label, exact: true });
+  const card = (title) => main.getByRole('link', { name: title });
+  const titles = (label) => region(label).getByRole('link').allInnerTexts().then((ts) => ts.map((t) => t.split('\n').filter((l) => !/^\d+$/.test(l))[0]));
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(base + '/board');
+  await card('busy item').waitFor();
+  await shot('1280x800');
+
+  const columns = {
+    Backlog: ['draft idea', 'login bug'],
+    Queued: ['queue one', 'queue two', 'queue three'],
+    'In progress': ['running job'],
+    'Needs you': ['busy item'],
+    Review: ['review me'],
+    Done: ['finished job'],
+    Dropped: ['dropped idea'],
+  };
+  for (const [label, want] of Object.entries(columns)) {
+    const got = await titles(label);
+    check(JSON.stringify(got) === JSON.stringify(want), `${label} lists its items`, got.join(', '));
+  }
+
+  await pick('Type', 'bug');
+  await region('Backlog').getByRole('link', { name: 'login bug' }).waitFor();
+  const shown = await main.getByRole('link').allInnerTexts();
+  check(shown.length === 1 && shown[0].startsWith('login bug'), 'the type filter hides the other types', shown.join(' | '));
+  check(page.url().includes('type=bug'), 'the filter is in the URL', page.url());
+  await shot('filter-bug');
+  await pick('Type', 'All types');
+  await pick('Team', teamName);
+  await region('Backlog').getByRole('link', { name: 'draft idea' }).waitFor();
+  check((await card('running job').count()) === 0 && (await card('busy item').count()) === 1, 'the Team filter hides items of other Teams', (await main.getByRole('link').allInnerTexts()).length + ' cards');
+  await pick('Team', 'All Teams');
+  await region('In progress').getByRole('link', { name: 'running job' }).waitFor();
+
+  await card('draft idea').dragTo(region('Queued'));
+  const drafted = () => byTitle('draft idea');
+  check(await eventually(async () => (await drafted()).status === 'queued'), 'dragging a Backlog item into Queued queues it', JSON.stringify(await drafted().then((w) => [w.status, w.queuePosition])));
+  check((await drafted()).queuePosition === 4, 'it joins the end of its Team queue', `position ${(await drafted()).queuePosition}`);
+  await region('Queued').getByRole('link', { name: 'draft idea' }).waitFor();
+  await card('draft idea').dragTo(region('Backlog'));
+  check(await eventually(async () => (await drafted()).status === 'backlog'), 'dragging it back to Backlog takes it out of the queue', (await drafted()).status);
+  await region('Backlog').getByRole('link', { name: 'draft idea' }).waitFor();
+
+  const positions = async () => Object.fromEntries((await items()).filter((i) => i.status === 'queued').map((i) => [i.title, i.queuePosition]));
+  await card('queue three').dragTo(card('queue one'));
+  const ordered = async () => Object.entries(await positions()).sort((a, b) => a[1] - b[1]).map(([t, p]) => `${p}:${t}`).join(', ');
+  check(await eventually(async () => (await ordered()) === '1:queue three, 2:queue one, 3:queue two'), 'dropping a queued item on another changes its queue position (REST)', await ordered());
+  await page.waitForFunction(() => [...document.querySelectorAll('section[aria-label="Queued"] li a')].map((a) => a.textContent).join('|').startsWith('1queue three'));
+  const queued = await titles('Queued');
+  check(JSON.stringify(queued) === JSON.stringify(['queue three', 'queue one', 'queue two']), 'the Queued column shows the new order', queued.join(', '));
+  await shot('reordered');
+
+  // Chrome drops a drag that a scroll interrupts, so a wide window and the board scrolled to the
+  // source column keep the source and the target in view together.
+  await page.setViewportSize({ width: 1600, height: 900 });
+  for (const [title, scroll, target] of [['running job', 'In progress', 'Review'], ['busy item', 'In progress', 'Done'], ['login bug', 'Backlog', 'In progress'], ['queue two', 'Queued', 'In progress'], ['review me', 'Queued', 'Queued']]) {
+    await page.goto(base + '/board');
+    await card(title).waitFor();
+    await region(scroll).evaluate((el) => {
+      const board = el.parentElement;
+      board.scrollLeft += el.getBoundingClientRect().left - board.getBoundingClientRect().left;
+    });
+    const before = (await byTitle(title)).status;
+    await card(title).dragTo(region(target));
+    const alert = main.getByRole('alert');
+    await alert.waitFor();
+    const after = (await byTitle(title)).status;
+    check(after === before && /through its own actions/.test(await alert.innerText()), `dragging "${title}" into ${target} is refused in the window`, `status ${before} -> ${after}; ${await alert.innerText()}`);
+    if (target === 'Review' || target === 'Done') await shot(`refused-${target.toLowerCase()}`);
+  }
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(base + '/board');
+  await card('busy item').waitFor();
+  await shot('390x844');
+  const o = await page.evaluate(() => {
+    const m = document.querySelector('main');
+    return { page: document.documentElement.scrollWidth - innerWidth, main: m.scrollWidth - m.clientWidth };
+  });
+  check(o.page <= 0 && o.main <= 0, 'the board has no horizontal scroll at 390 px', `page ${o.page}, main ${o.main}`);
+  check(await page.getByRole('navigation', { name: 'Tabs' }).getByRole('link', { name: 'Board' }).isVisible(), 'the phone tab bar has a Board tab');
 }
 
 try {

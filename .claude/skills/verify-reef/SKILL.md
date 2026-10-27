@@ -334,7 +334,8 @@ REEF_VERIFY_RUN=<id> $H ui hovercard # sidebar Space hovercard: delay, branch, c
 REEF_VERIFY_RUN=<id> $H ui mention # hovercard on an @mention of a teammate in a Space: role, backend and model, persona, state, access and tools against REST, Edit opens the team page with the role selected, unknown @word has no card, dismiss on leave, Escape, click, back, keyboard focus, flip at the right edge, light and dark, none at 390 px (needs the team `full`)
 REEF_VERIFY_RUN=<id> $H ui providers # Settings Providers lists the detected installs with path and version, adds the fake claude folder as a second install (bad folder, wrong kind, taken name show the server error inline), a role picks it in the role panel and the team round-trips, Remove, at 1280x800 and 390x844 in dark and light
 REEF_VERIFY_RUN=<id> $H ui teammates # create a Teammate on the Teammates page, add it to a Team from the team editor, change its write access in that Team only (REST: Teammate default unchanged), no horizontal scroll at 390x844
-REEF_VERIFY_RUN=<id> $H ui pr        # the header PR chip opens the PR panel: checks, Merge disabled while not mergeable, confirm dialog, merged state (fake gh, see features/window.md)
+REEF_VERIFY_RUN=<id> $H ui board     # /board: each status in its column, the type and Team filters, drag Backlog <-> Queued, reorder Queued (REST positions), a drop into Review or Done is refused, no horizontal scroll at 390x844
+REEF_VERIFY_RUN=<id> $H ui pr        # the header PR chip opens the PR panel: checks, Merge disabled while not mergeable, confirm dialog, merged state (fake gh, see features/window.md) opens the PR panel: checks, Merge disabled while not mergeable, confirm dialog, merged state (fake gh, see features/window.md)
 ```
 
 `teams` needs the teams `duo` and `full` (and `inbox`, `theme`, `phone`, `coordination` need `duo`) applied to the `ui` folder first: run
@@ -531,7 +532,7 @@ claude, above).
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|attach\|cap\|pages\|stop\|wrap\|teams\|team-management\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|attach\|cap\|pages\|stop\|wrap\|teams\|team-management\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |

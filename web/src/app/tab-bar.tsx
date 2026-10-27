@@ -54,11 +54,16 @@ export function TabBar() {
   return (
     <nav
       aria-label="Tabs"
-      className="grid shrink-0 grid-cols-5 border-t border-hairline bg-sidebar px-1.5 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden"
+      className="grid shrink-0 grid-cols-6 border-t border-hairline bg-sidebar px-1.5 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] md:hidden"
     >
       <Tab to="/" label="Today">
         <circle cx="12" cy="12" r="4" />
         <path d="M12 2v2M12 20v2M2 12h2M20 12h2" />
+      </Tab>
+      <Tab to="/board" label="Board">
+        <rect x="3" y="4" width="5" height="16" rx="1.5" />
+        <rect x="10" y="4" width="5" height="10" rx="1.5" />
+        <rect x="17" y="4" width="4" height="13" rx="1.5" />
       </Tab>
       <Tab to="/spaces" label="Spaces">
         <path d="M4 5h16v11H9l-5 4z" />
