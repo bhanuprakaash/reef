@@ -524,11 +524,8 @@ func (s *server) runOne(
 func (s *server) checkSpace(
 	ctx context.Context, l *live, kind turnKind, ch store.Space,
 ) (string, error) {
-	if ch.ClosedAt != nil {
-		return "", fmt.Errorf("space %d is closed: %w", ch.ID, store.ErrConflict)
-	}
-	if ch.MovedTo != nil {
-		return "", fmt.Errorf("conversation %d moved to Space %d: %w", ch.ID, *ch.MovedTo, store.ErrConflict)
+	if err := ch.Writable(); err != nil {
+		return "", err
 	}
 	if kind == _wrap && ch.WorkItemID == nil {
 		return "", fmt.Errorf("%w: Space %d has no work item, attach it to one before wrapping up",

@@ -499,6 +499,45 @@ func TestRun_ChatResumesPausedSpace(t *testing.T) {
 	}
 }
 
+func TestRun_ChatRefusesMovedSpace(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.CreateProject(ctx, store.Project{Name: "shop", Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, name := range []string{"talk", "moved"} {
+		if _, err := st.CreateSpace(ctx, store.Space{
+			ProjectID: p.ID, Name: name, Role: "lead", Backend: "claude",
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := st.DB().Exec("UPDATE space SET moved_to = 2 WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := reef(t, dir, "chat", "--space", "1")
+	if err == nil || err.Error() != "conversation 1 moved to Space 2: conflict" {
+		t.Errorf("reef chat --space 1 = %v, output %q, want the moved error", err, out)
+	}
+	st, err = store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	if msgs, err := st.Messages(ctx, 1, 0); err != nil || len(msgs) != 0 {
+		t.Errorf("messages = %+v, %v, want none", msgs, err)
+	}
+}
+
 func TestChat_ResumeMultiRoleTeamUsesWindow(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()

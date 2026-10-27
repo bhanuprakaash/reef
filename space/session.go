@@ -129,6 +129,9 @@ func Open(
 
 // Start starts or resumes the lead now instead of at its first turn.
 func (s *Session) Start(ctx context.Context) error {
+	if err := s.ch.Writable(); err != nil {
+		return err
+	}
 	_, err := s.member(ctx, s.ch.Role, runInput{})
 	return err
 }
@@ -150,6 +153,13 @@ func (s *Session) SetOnPrompt(f func(prompt string)) {
 // Say stores body as the user message, a reply in the thread of parent when it is set, and
 // returns it.
 func (s *Session) Say(ctx context.Context, body string, parent *int64) (store.Message, error) {
+	ch, err := s.st.Space(ctx, s.ch.ID)
+	if err != nil {
+		return store.Message{}, err
+	}
+	if err := ch.Writable(); err != nil {
+		return store.Message{}, err
+	}
 	return s.st.CreateMessage(ctx, store.Message{
 		SpaceID: s.ch.ID, ParentID: parent, Author: _userAuthor, Body: body,
 	})

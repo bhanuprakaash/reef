@@ -75,6 +75,19 @@ type Space struct {
 	ActiveTurn string `json:"-"`
 }
 
+// Writable is nil when the Space takes new messages and turns. A closed Space and a moved
+// conversation refuse them with an error wrapping ErrConflict; the moved one names the
+// Space it became.
+func (c Space) Writable() error {
+	if c.ClosedAt != nil {
+		return fmt.Errorf("space %d is closed: %w", c.ID, ErrConflict)
+	}
+	if c.MovedTo != nil {
+		return fmt.Errorf("conversation %d moved to Space %d: %w", c.ID, *c.MovedTo, ErrConflict)
+	}
+	return nil
+}
+
 // SpacePreview is a Space with its newest message, nil when it has none.
 type SpacePreview struct {
 	Space

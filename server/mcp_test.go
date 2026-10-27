@@ -1039,6 +1039,34 @@ func TestMCPQuickSession(t *testing.T) {
 	}
 }
 
+func TestMCPPostRefusedOnClosedAndMovedSpaces(t *testing.T) {
+	st, _ := mcpFixture(t)
+	ctx := context.Background()
+	tok, err := st.CreateToken(ctx, 4, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := callTool(t, st, tok)
+
+	closeSpace(t, st, 4)
+	got, isErr := call("post_to_space", map[string]any{"body": "late"})
+	if got != "space 4 is closed: conflict" || !isErr {
+		t.Errorf("post to a closed Space = %q (error %v), want the closed error", got, isErr)
+	}
+
+	if _, err := st.DB().Exec("UPDATE space SET closed_at = NULL, moved_to = 3 WHERE id = 4"); err != nil {
+		t.Fatal(err)
+	}
+	got, isErr = call("post_to_space", map[string]any{"body": "late"})
+	if got != "conversation 4 moved to Space 3: conflict" || !isErr {
+		t.Errorf("post to a moved Space = %q (error %v), want the moved error", got, isErr)
+	}
+	msgs, err := st.Messages(ctx, 4, 0)
+	if err != nil || len(msgs) != 0 {
+		t.Errorf("messages of Space 4 = %+v, %v, want none", msgs, err)
+	}
+}
+
 func TestMCPQuickSessionReadsItsOwnThread(t *testing.T) {
 	st, _ := mcpFixture(t)
 	ctx := context.Background()

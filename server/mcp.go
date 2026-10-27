@@ -509,6 +509,13 @@ func (m *mcpServer) readThread(
 func (m *mcpServer) postToSpace(
 	ctx context.Context, _ *mcp.CallToolRequest, in postIn,
 ) (*mcp.CallToolResult, store.Message, error) {
+	ch, err := m.st.Space(ctx, m.tok.SpaceID)
+	if err != nil {
+		return nil, store.Message{}, err
+	}
+	if err := ch.Writable(); err != nil {
+		return nil, store.Message{}, err
+	}
 	msg, err := m.st.CreateMessage(ctx, store.Message{
 		SpaceID: m.tok.SpaceID, ParentID: in.Parent, Author: m.tok.Role, Body: in.Body,
 	})
@@ -525,8 +532,8 @@ func (m *mcpServer) sendToRole(
 	if err != nil {
 		return nil, store.DirectMessage{}, err
 	}
-	if ch.ClosedAt != nil {
-		return nil, store.DirectMessage{}, fmt.Errorf("space %d is closed: %w", ch.ID, store.ErrConflict)
+	if err := ch.Writable(); err != nil {
+		return nil, store.DirectMessage{}, err
 	}
 	if ch.ActiveTurn == store.ActiveTurnStarting {
 		return nil, store.DirectMessage{}, fmt.Errorf("space %d is starting: %w", ch.ID, store.ErrConflict)
