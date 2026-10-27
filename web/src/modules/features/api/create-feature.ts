@@ -3,7 +3,7 @@ import { api } from '@/lib/api-client';
 import type { WorkItem } from '@/types/api';
 
 type NewFeature = Pick<WorkItem, 'projectId' | 'title'> &
-  Partial<Pick<WorkItem, 'description' | 'type'>>;
+  Partial<Pick<WorkItem, 'description' | 'type' | 'parentId'>>;
 
 export function useCreateFeature() {
   const queryClient = useQueryClient();

@@ -12,10 +12,14 @@ import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDiff } from '@/modules/features/api/get-diff';
 import { useFeature } from '@/modules/features/api/get-feature';
 import { useSetFeatureClosed } from '@/modules/features/api/set-feature-closed';
+import { AcceptanceLines } from '@/modules/features/components/acceptance-lines';
 import { BriefPanel } from '@/modules/features/components/brief-panel';
 import { MemoryList } from '@/modules/features/components/memory-list';
 import { FeatureForm } from '@/modules/features/components/feature-form';
+import { ProofPanel } from '@/modules/features/components/proof-panel';
+import { SubItems } from '@/modules/features/components/sub-items';
 import { diffCounts } from '@/modules/features/utils/diff-counts';
+import { statusLabel } from '@/modules/features/utils/status-label';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { roleFaces } from '@/utils/role-faces';
 import { BackButton } from '@/components/back-button';
@@ -23,6 +27,15 @@ import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { Chip } from '@/components/chip';
 import { Dialog } from '@/components/dialog';
+
+function ParentLink({ id }: { id: number }) {
+  const parent = useFeature(id);
+  return (
+    <Link to={`/features/${id}`} className="border-b border-line text-soft">
+      {parent.data?.title ?? `work item ${id}`}
+    </Link>
+  );
+}
 
 export function FeaturePage() {
   const id = Number(useParams().id);
@@ -46,6 +59,7 @@ export function FeaturePage() {
   const project = projects.data?.find((p) => p.id === f.projectId);
   const featureSpaces = spaces.data?.filter((c) => c.workItemId === id) ?? [];
   const latestSpace = featureSpaces[featureSpaces.length - 1];
+  const team = teams.data?.find((t) => t.id === f.teamId);
 
   return (
     <div className="space-y-7">
@@ -53,13 +67,17 @@ export function FeaturePage() {
         <div className="flex-1 md:min-w-[360px]">
           <div className="-ml-2 mb-2 flex items-center gap-1 text-xs text-muted">
             <BackButton fallback="/" />
-            {project?.name} · feature
+            <span className="min-w-0">
+              {project?.name} · {f.parentId === null ? 'work item' : 'sub-item of '}
+              {f.parentId !== null && <ParentLink id={f.parentId} />}
+            </span>
           </div>
           <h1 className="text-[40px] leading-[1.05] font-normal tracking-[-0.02em]">{f.title}</h1>
           {f.description && <p className="mt-2 max-w-xl text-sm text-muted">{f.description}</p>}
           <div className="mt-3 flex flex-wrap items-center text-xs text-muted">
             <Chip>{f.type}</Chip>
-            <Chip className="ml-2">{f.status}</Chip>
+            <Chip className="ml-2">{statusLabel(f.status)}</Chip>
+            {team && <Chip className="ml-2">{team.name}</Chip>}
             <span className="ml-2 font-mono whitespace-nowrap">work-item/{f.id}</span>
             {diff.isError ? (
               <span className="ml-2 whitespace-nowrap text-danger">· {diff.error.message}</span>
@@ -99,11 +117,15 @@ export function FeaturePage() {
       </header>
       <div className="flex flex-wrap items-start gap-5">
         <div className="flex min-w-0 flex-[999_1_460px] flex-col gap-5 md:min-w-[460px]">
-          {briefs.isError ? (
-            <p className="text-sm text-danger">{briefs.error.message}</p>
-          ) : (
-            <BriefPanel versions={briefs.data ?? []} />
-          )}
+          <AcceptanceLines item={f} />
+          {f.parentId === null && <SubItems parent={f} />}
+          {f.parentId === null &&
+            (briefs.isError ? (
+              <p className="text-sm text-danger">{briefs.error.message}</p>
+            ) : (
+              <BriefPanel versions={briefs.data ?? []} />
+            ))}
+          {f.parentId === null && <ProofPanel workItemId={id} />}
           {memory.isError ? (
             <p className="text-sm text-danger">{memory.error.message}</p>
           ) : (

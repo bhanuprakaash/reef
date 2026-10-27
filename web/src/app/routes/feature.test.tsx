@@ -43,6 +43,9 @@ describe('FeaturePage header', () => {
       data: {
         id: 1,
         projectId: 1,
+        parentId: null,
+        teamId: null,
+        acceptanceLines: [],
         type: 'feature',
         title: 'Auth',
         description: '',
@@ -62,5 +65,31 @@ describe('FeaturePage header', () => {
     hooks.useDiff.mockReturnValue({ isPending: false, isError: false, data: [] });
 
     expect(render()).toMatch(/work-item\/1<\/span><span[^>]*>· No changes yet<\/span>/);
+  });
+
+  it('shows the brief, sub-items and proof only on a top-level item', () => {
+    hooks.useDiff.mockReturnValue({ isPending: true, isError: false, data: undefined });
+
+    const html = render();
+
+    expect(html).toContain('>Brief<');
+    expect(html).toContain('>Sub-items<');
+    expect(html).toContain('>Proof<');
+  });
+
+  it('links a sub-item to its parent and leaves out the brief, sub-items and proof', () => {
+    hooks.useDiff.mockReturnValue({ isPending: true, isError: false, data: undefined });
+    hooks.useFeature.mockReturnValue({
+      isPending: false,
+      isError: false,
+      data: { ...hooks.useFeature().data, id: 2, parentId: 1, title: 'Step', type: 'task' },
+    });
+
+    const html = render();
+
+    expect(html).toMatch(/sub-item of <a [^>]*href="\/features\/1"/);
+    expect(html).not.toContain('>Brief<');
+    expect(html).not.toContain('>Sub-items<');
+    expect(html).not.toContain('>Proof<');
   });
 });

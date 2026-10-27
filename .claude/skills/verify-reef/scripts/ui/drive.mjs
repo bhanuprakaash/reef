@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|first-run BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, teammates, 'first-run': firstRun };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, teammates, 'work-item': workItem, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -1038,7 +1038,7 @@ async function memory() {
   await main.getByRole('link', { name: session }).waitFor();
   await shot('quick-session-listed');
 
-  const fid = sql(`select id from work_item where project_id=${pid} and name='Pp ${id}'`);
+  const fid = sql(`select id from work_item where project_id=${pid} and title='Pp ${id}'`);
   const reefBin = process.env.REEF_UI_REEF;
   const reefOut = execFileSync(reefBin, ['memory', '--data', data, 'add', 'fact', 'Tokens live in Keychain.', '--scope', `work_item:${fid}`, '--as', 'developer'], { encoding: 'utf8' });
   console.log(reefOut.trim());
@@ -2943,6 +2943,117 @@ async function board() {
   });
   check(o.page <= 0 && o.main <= 0, 'the board has no horizontal scroll at 390 px', `page ${o.page}, main ${o.main}`);
   check(await page.getByRole('navigation', { name: 'Tabs' }).getByRole('link', { name: 'Board' }).isVisible(), 'the phone tab bar has a Board tab');
+}
+
+async function workItem() {
+  const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const section = await addProject();
+  const id = await addFeature(section, 'Work item page');
+  const pid = sql(`select project_id from work_item where id=${id}`);
+  const item = () => getJson(`/work-items/${id}`);
+  const headerText = async () =>
+    (await main.getByRole('heading', { name: 'Work item page', level: 1 }).locator('xpath=..').innerText()).replace(/\s+/g, ' ');
+  const chips = await headerText();
+  check(/feature/.test(chips) && /backlog/.test(chips), 'the page header shows the type and status', chips);
+
+  const lines = main.getByRole('region', { name: 'Acceptance lines' });
+  for (const text of ['Users can sign in', 'Wrong password shows an error']) {
+    await lines.getByLabel('New acceptance line').fill(text);
+    await lines.getByRole('button', { name: 'Add', exact: true }).click();
+    await lines.getByText(text, { exact: true }).waitFor();
+  }
+  let got = (await item()).acceptanceLines;
+  check(
+    got.length === 2 && got[0].text === 'Users can sign in' && got[1].position === 2 && got[1].checked === false,
+    'two acceptance lines added from the page match REST',
+    JSON.stringify(got),
+  );
+  await lines.getByRole('button', { name: 'Remove line 1' }).click();
+  await lines.getByText('Users can sign in', { exact: true }).waitFor({ state: 'hidden' });
+  got = (await item()).acceptanceLines;
+  check(got.length === 1 && got[0].position === 1 && got[0].text === 'Wrong password shows an error', 'Remove drops the line in REST and renumbers', JSON.stringify(got));
+
+  const subs = main.getByRole('region', { name: 'Sub-items' });
+  await subs.getByLabel('New sub-item').fill('Login form');
+  await subs.getByRole('button', { name: 'Add', exact: true }).click();
+  await subs.getByRole('link', { name: /Login form/ }).waitFor();
+  const kids = await getJson(`/work-items?parent=${id}`);
+  check(
+    kids.length === 1 && kids[0].title === 'Login form' && kids[0].parentId === Number(id) && kids[0].status === 'backlog' && kids[0].projectId === Number(pid),
+    'a sub-item added from the page matches REST',
+    JSON.stringify(kids.map((k) => ({ id: k.id, title: k.title, parentId: k.parentId, status: k.status }))),
+  );
+  const subsText = (await subs.innerText()).replace(/\s+/g, ' ');
+  check(subsText.includes('backlog'), 'the sub-item row shows its status', subsText);
+
+  const solo = (await getJson('/teams')).find((t) => t.name === 'solo');
+  const put = await fetch(`${base}/work-items/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...(await item()), teamId: solo.id }),
+  });
+  await fetch(`${base}/work-items/${id}/brief`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body: 'Goal: email login for the shop.', author: 'user' }),
+  });
+  await page.reload();
+  const header = await headerText();
+  check(put.status === 200 && header.includes('solo'), 'the header shows the Team of the item', header);
+  await main.getByText('Version 1 by').waitFor();
+  check((await main.getByRole('region', { name: 'Brief' }).count()) === 1, 'a top-level item shows its brief');
+
+  const proofCard = main.getByRole('region', { name: 'Proof' });
+  await proofCard.getByText('Not submitted yet').waitFor();
+  check(true, 'the proof section says Not submitted yet before a submit');
+  const space = await (
+    await fetch(`${base}/spaces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ projectId: Number(pid), workItemId: Number(id), name: 'proof space' }),
+    })
+  ).json();
+  const commands = JSON.stringify([{ command: 'make test', output: 'ok: 12 passed' }]);
+  sql(`insert into proof (work_item_id, space_id, commands, screenshots, submitted_at) values (${id}, ${space.id}, '${commands}', '["/data/shot-login.png"]', '2026-10-27T10:00:00Z')`, true);
+  sql(`update acceptance_line set checked=1, note='verified by the test' where work_item_id=${id} and position=1`, true);
+  await page.reload();
+  await proofCard.getByText('make test').waitFor();
+  const proofText = (await proofCard.innerText()).replace(/\s+/g, ' ');
+  const proof = await getJson(`/work-items/${id}/proof`);
+  check(
+    proofText.includes('$ make test') && proofText.includes('ok: 12 passed') && proofText.includes('/data/shot-login.png') && proofText.includes(`Space ${space.id}`) && proof.commands[0].command === 'make test',
+    'the proof section shows the submitted commands, output and screenshots read-only',
+    proofText,
+  );
+  const linesText = (await lines.innerText()).replace(/\s+/g, ' ');
+  check(linesText.includes('verified by the test'), 'a ticked acceptance line shows its note', linesText);
+  await shot('work-item-1280x800');
+
+  await subs.getByRole('link', { name: /Login form/ }).click();
+  await main.getByRole('heading', { name: 'Login form', level: 1 }).waitFor();
+  const subId = page.url().split('/').pop();
+  const none = await Promise.all(['Brief', 'Sub-items', 'Proof'].map((n) => main.getByRole('region', { name: n }).count()));
+  const parentLink = main.getByRole('link', { name: 'Work item page', exact: true });
+  check(none.every((n) => n === 0), 'a sub-item page has no brief, sub-items or proof', JSON.stringify(none));
+  check(
+    (await parentLink.count()) === 1 && (await parentLink.getAttribute('href')) === `/features/${id}` && (await main.getByRole('region', { name: 'Acceptance lines' }).count()) === 1,
+    'a sub-item page links to its parent and keeps its acceptance lines',
+    `sub-item ${subId}, parent link ${await parentLink.getAttribute('href')}`,
+  );
+  await shot('sub-item-1280x800');
+  await parentLink.click();
+  await main.getByRole('heading', { name: 'Work item page', level: 1 }).waitFor();
+  check(page.url().endsWith(`/features/${id}`), 'the parent link opens the parent page', page.url());
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  for (const [name, route] of [['parent', `/features/${id}`], ['sub-item', `/features/${subId}`]]) {
+    await page.goto(base + route);
+    await main.getByRole('heading', { level: 1 }).waitFor();
+    await page.waitForTimeout(500);
+    check(await noOverflow(), `the ${name} page has no horizontal scroll at 390x844`, `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
+    await shot(`${name}-390x844`);
+  }
 }
 
 try {
