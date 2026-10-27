@@ -2,14 +2,15 @@ import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { PullRequestIcon } from '@/modules/spaces/components/pull-request-icon';
 import type { PullRequest } from '@/modules/spaces/utils/pull-request';
-import type { Space } from '@/types/api';
-import { Button } from '@/components/button';
+import type { SpaceDetail } from '@/types/api';
+import { Button, buttonClass } from '@/components/button';
 import { Chip } from '@/components/chip';
 import { GroupAvatar, type Faces } from '@/components/creature';
 
 type Props = {
-  space: Space;
+  space: SpaceDetail;
   scope: ReactNode;
+  status?: string;
   roles: string[];
   faces: Faces;
   working: string | null;
@@ -33,6 +34,7 @@ const phoneIcon = 'max-md:size-11 max-md:px-0';
 export function SpaceHeader({
   space,
   scope,
+  status,
   roles,
   faces,
   working,
@@ -93,6 +95,15 @@ export function SpaceHeader({
           >
             {scope}
           </Link>
+        )}
+        {space.kind === 'work_item' && status && (
+          <span className="flex items-center gap-2 max-md:mt-1">
+            <Chip>{status}</Chip>
+            <Chip>
+              Budget {space.tokensUsed.toLocaleString('en-US')} /{' '}
+              {space.tokenBudget.toLocaleString('en-US')}
+            </Chip>
+          </span>
         )}
       </div>
       {pullRequest && (
@@ -174,6 +185,11 @@ export function SpaceHeader({
           </svg>
           <span className="max-md:hidden">Team</span>
         </Button>
+        {space.workItemId !== null && (
+          <Link to={`/features/${space.workItemId}`} className={`${buttonClass()} ml-1.5`}>
+            Open Work item
+          </Link>
+        )}
         {space.workItemId !== null
           ? space.closedAt === null && (
               <Button
@@ -188,10 +204,10 @@ export function SpaceHeader({
             )
           : space.kind === 'free' && (
               <Button type="button" className="ml-1.5" disabled={attachDisabled} onClick={onAttach}>
-                Attach to work item
+                Attach to Work item
               </Button>
             )}
-        {space.kind === 'conversation' && space.movedTo === null && (
+        {(space.kind === 'free' || (space.kind === 'conversation' && space.movedTo === null)) && (
           <Button
             variant="ghost"
             type="button"

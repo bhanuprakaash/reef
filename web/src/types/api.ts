@@ -93,6 +93,8 @@ export type Space = {
   movedTo: number | null;
 };
 
+export type SpaceDetail = Space & { tokenBudget: number; tokensUsed: number };
+
 export type SpacePreview = Space & {
   lastMessage: { author: string; body: string; createdAt: string } | null;
 };

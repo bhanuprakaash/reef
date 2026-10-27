@@ -9,6 +9,10 @@ export function useAddTeammate(spaceId: number) {
         method: 'POST',
         body: JSON.stringify({ teammateId }),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['messages', spaceId] }),
+    onSuccess: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: ['spaces', spaceId] }),
+        queryClient.invalidateQueries({ queryKey: ['messages', spaceId] }),
+      ]),
   });
 }

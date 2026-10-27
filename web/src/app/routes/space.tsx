@@ -12,6 +12,7 @@ import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDiff } from '@/modules/features/api/get-diff';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { diffCounts } from '@/modules/features/utils/diff-counts';
+import { statusLabel } from '@/modules/features/utils/status-label';
 import { useProjects } from '@/modules/projects/api/get-projects';
 
 type ViewProps = ComponentProps<typeof SpaceView>;
@@ -51,12 +52,13 @@ export function SpacePage() {
   const props: ViewProps = {
     space: space.data,
     features: features.data ?? [],
+    status: feature && statusLabel(feature.status),
     scope: feature ? (
       <span className="truncate">{feature.title}</span>
     ) : space.data.kind === 'conversation' ? (
       'conversation'
     ) : (
-      'quick session'
+      'free Space'
     ),
     browserOpen: hasBrowser && browserOpen,
     onBrowserDriver: setBrowserDriver,

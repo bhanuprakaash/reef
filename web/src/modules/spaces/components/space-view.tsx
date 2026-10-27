@@ -7,7 +7,7 @@ import { useResizableWidth } from '@/lib/use-resizable-width';
 import { useDirectMessages } from '@/modules/spaces/api/get-direct-messages';
 import { useFailedTurns } from '@/modules/spaces/api/get-failed-turns';
 import { useMessages } from '@/lib/api/get-messages';
-import { useTeams } from '@/lib/api/get-teams';
+import { useSpaceMembers } from '@/modules/spaces/api/get-space-members';
 import { useReopenSpace } from '@/modules/spaces/api/reopen-space';
 import { useProposal } from '@/modules/spaces/api/get-proposal';
 import { useWrapSpace } from '@/modules/spaces/api/wrap-space';
@@ -36,12 +36,13 @@ import { browserAction } from '@/modules/spaces/utils/browser-action';
 import { groupChains } from '@/modules/spaces/utils/direct-chains';
 import { groupThreads } from '@/modules/spaces/utils/group-threads';
 import { latestPullRequest } from '@/modules/spaces/utils/pull-request';
-import type { Space, WorkItem } from '@/types/api';
+import type { SpaceDetail, WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
 
 type Props = {
-  space: Space;
+  space: SpaceDetail;
   scope: ReactNode;
+  status?: string;
   features: WorkItem[];
   diff?: { added: number; removed: number };
   diffPanel?: (onClose: () => void) => ReactNode;
@@ -62,6 +63,7 @@ type Side =
 export function SpaceView({
   space,
   scope,
+  status,
   features,
   diff,
   diffPanel,
@@ -91,8 +93,8 @@ export function SpaceView({
   const threads = groupThreads(messages.data ?? []);
   const thread =
     side?.kind === 'thread' ? threads.find((t) => t.root.id === side.rootId) : undefined;
-  const teams = useTeams();
-  const roles = teams.data?.find((t) => t.name === space.team)?.roles ?? [];
+  const members = useSpaceMembers(space.id);
+  const roles = members.data ?? [];
   const faces = Object.fromEntries(roles.map((r) => [r.name, r]));
   const working = turn.role || space.role || 'agent';
   const look = faces[working];
@@ -143,6 +145,7 @@ export function SpaceView({
       <SpaceHeader
         space={space}
         scope={scope}
+        status={status}
         roles={roles.length > 0 ? roles.map((r) => r.name) : [space.role]}
         faces={faces}
         working={running ? working : null}
@@ -170,7 +173,7 @@ export function SpaceView({
           )}
         </Dialog>
       )}
-      {space.kind === 'conversation' && (
+      {space.kind !== 'work_item' && (
         <Dialog open={adding} onClose={() => setAdding(false)} title="Add a Teammate">
           {adding && <AddTeammateForm space={space} onClose={() => setAdding(false)} />}
         </Dialog>

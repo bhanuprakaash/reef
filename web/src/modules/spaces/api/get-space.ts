@@ -1,7 +1,10 @@
 import { useQuery } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import type { Space } from '@/types/api';
+import type { SpaceDetail } from '@/types/api';
 
 export function useSpace(id: number) {
-  return useQuery({ queryKey: ['spaces', id], queryFn: () => api<Space>(`/spaces/${id}`) });
+  return useQuery({
+    queryKey: ['spaces', id],
+    queryFn: () => api<SpaceDetail>(`/spaces/${id}`),
+  });
 }

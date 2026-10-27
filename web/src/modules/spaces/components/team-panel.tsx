@@ -1,7 +1,7 @@
-import { Link } from 'react-router';
 import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { formatTokens } from '@/modules/spaces/utils/format-tokens';
 import type { Role } from '@/types/api';
+import { Chip } from '@/components/chip';
 import { Markdown } from '@/components/markdown';
 import { Creature, type CreatureState } from '@/components/creature';
 
@@ -69,9 +69,10 @@ export function TeamPanel({ spaceId, featureId, roles, working, brief, onClose }
                 <Creature look={role} state={state} size={30} animate />
                 <span className="min-w-0 flex-1">
                   <span
-                    className={`block text-[14.5px] capitalize ${state === 'asleep' ? 'text-muted' : ''}`}
+                    className={`flex items-center gap-2 text-[14.5px] ${state === 'asleep' ? 'text-muted' : ''}`}
                   >
-                    {role.name}
+                    <span className="truncate capitalize">{role.name}</span>
+                    {role.lead && <Chip className="h-5 px-2 text-[11px]">lead</Chip>}
                   </span>
                   <span className="block text-[12.5px] text-muted">
                     {[backendLabel[role.backend] ?? role.backend, stateLabel[state]]
@@ -95,12 +96,6 @@ export function TeamPanel({ spaceId, featureId, roles, working, brief, onClose }
           <div className="text-[13.5px] text-soft">
             <Markdown>{brief || 'No brief yet.'}</Markdown>
           </div>
-          <Link
-            to={`/features/${featureId}`}
-            className="mt-2 inline-block border-b border-line text-[13px]"
-          >
-            Open feature
-          </Link>
         </div>
       )}
     </aside>

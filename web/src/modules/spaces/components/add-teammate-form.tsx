@@ -1,17 +1,22 @@
 import { useTeammates } from '@/lib/api/get-teammates';
 import { useAddTeammate } from '@/modules/spaces/api/add-teammate';
+import { useSpaceMembers } from '@/modules/spaces/api/get-space-members';
 import { GroupAvatar } from '@/components/creature';
 import type { Space } from '@/types/api';
 
 export function AddTeammateForm({ space, onClose }: { space: Space; onClose: () => void }) {
   const teammates = useTeammates();
+  const members = useSpaceMembers(space.id);
   const add = useAddTeammate(space.id);
-  const choices = teammates.data?.filter((t) => t.name !== space.role) ?? [];
+  const choices =
+    teammates.data?.filter((t) => !members.data?.some((m) => m.teammateId === t.id)) ?? [];
 
   return (
     <div className="space-y-3.5">
       <p className="-mt-2.5 text-[13px] text-muted">
-        {space.role} writes a summary, and #{space.name} becomes a Space with both of them.
+        {space.kind === 'conversation'
+          ? `${space.role} writes a summary, and #${space.name} becomes a Space with both of them.`
+          : `The Teammate joins #${space.name}.`}
       </p>
       {choices.length === 0 && <p className="text-sm text-muted">No other Teammates yet</p>}
       <div className="grid grid-cols-2 gap-2">
