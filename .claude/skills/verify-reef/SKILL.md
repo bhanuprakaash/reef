@@ -305,7 +305,7 @@ Drive: one scenario per call. The first call runs `npm ci` in `scripts/ui`.
 ```sh
 REEF_VERIFY_RUN=<id> $H ui live      # claude Space on a feature, tool rows mid-turn, stored reply
 REEF_VERIFY_RUN=<id> $H ui brief     # new Space on a feature with a brief, ask the goal
-REEF_VERIFY_RUN=<id> $H ui promote   # quick session, two exchanges, promote, approve, brief version 1
+REEF_VERIFY_RUN=<id> $H ui attach    # free Space, two exchanges, attach to a work item
 REEF_VERIFY_RUN=<id> $H ui cap       # token_budget=1, banner with reason, Continue, next message runs
 REEF_VERIFY_RUN=<id> $H ui pages     # bad project path error, a work item added from the sidebar
 REEF_VERIFY_RUN=<id> $H ui stop      # Stop mid-turn shows Failed: interrupted, next message resumes
@@ -522,7 +522,7 @@ claude, above).
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|promote\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|attach\|cap\|pages\|stop\|wrap\|teams\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |

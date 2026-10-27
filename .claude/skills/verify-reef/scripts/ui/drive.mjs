@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|hovercard|mention|providers|first-run BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|hovercard|mention|providers|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, promote, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, hovercard, mention, providers, 'first-run': firstRun };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, hovercard, mention, providers, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|promote|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|hovercard|mention|providers|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|hovercard|mention|providers|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -220,7 +220,7 @@ async function brief() {
   check(/magic/i.test(answer), 'a new Space answers from the brief', 'answer mentions magic links');
 }
 
-async function promote() {
+async function attach() {
   ensureRepo();
   const section = await addProject();
   const cid = await newSpace(aside, 'New Space', 'idea chat');
@@ -231,28 +231,30 @@ async function promote() {
   await checkpoints.getByText('2 checkpoints').waitFor({ timeout: 15000 });
   check(
     quick.length === 2,
-    'a quick session in a git repo lists its two checkpoints before the promote',
+    'a free Space in a git repo lists its two checkpoints before the attach',
     `turns with a checkpoint: ${quick.join(',')}; row: ${await checkpoints.innerText()}`,
   );
-  await shot('before-promote');
-  await page.getByRole('button', { name: 'Promote to feature' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Promote to a feature' });
-  await dialog.getByLabel('Slug').fill('search');
-  await dialog.getByLabel('Name').fill('Search');
-  await shot('promote-form');
-  await dialog.getByRole('button', { name: 'Promote', exact: true }).click();
-  await working();
-  const panel = page.getByRole('region', { name: 'Proposal' });
-  await panel.waitFor({ timeout: 240000 });
-  await shot('proposal');
-  console.log(`proposal:\n${await panel.innerText()}`);
-  check(true, 'promote turn ends with a proposal panel');
+  await addFeature(section, 'Search');
+  await section.getByRole('link', { name: 'idea chat' }).click();
+  await page.getByRole('heading', { name: 'idea chat', level: 1 }).waitFor();
+  await shot('before-attach');
+  await page.getByRole('button', { name: 'Attach to work item' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Attach to a work item' });
+  await pick('Work item', 'Search', dialog);
+  await shot('attach-form');
+  await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
+  await page.getByText(/This Space is now attached to work item "Search"/).first().waitFor({ timeout: 15000 });
+  await shot('attached');
+  check(
+    (await page.getByRole('button', { name: 'Attach to work item' }).count()) === 0,
+    'the Attach to work item button is gone once the Space has a work item',
+    `space row (work_item_id|kind): ${sql(`select work_item_id,kind from space where id=${cid}`)}`,
+  );
   await page.waitForTimeout(1000);
-  await shot('checkpoints-after-promote');
   const left = await checkpoints.allInnerTexts();
   check(
     !left.some((t) => t.includes('2 checkpoints') || quick.some((id) => t.includes(`before turn ${id} `))),
-    'the quick-session checkpoints, taken in another tree, have no Roll back button after the promote',
+    'the free-Space checkpoints, taken in another tree, have no Roll back button after the attach',
     `row: ${JSON.stringify(left)}; GET rollbackable: ${JSON.stringify((await getJson(`/turns?space=${cid}&rollbackable=1`)).map((t) => t.id))}`,
   );
   const under = section
@@ -261,22 +263,12 @@ async function promote() {
   await under.waitFor();
   check(
     (await section.getByRole('heading', { name: 'Quick sessions' }).count()) === 0,
-    'sidebar moves the Space under the new feature',
+    'sidebar moves the Space under the work item',
     `space row: ${sql(`select id,work_item_id from space where id=${cid}`)}`,
   );
-  await panel.getByRole('button', { name: 'Approve' }).click();
-  await page.getByText(/approved: \d+ items saved/).waitFor();
-  await shot('approved');
-  await section.getByRole('link', { name: 'Search', exact: true }).click();
-  await page.getByText('Version 1 by').waitFor();
-  await shot('feature-page');
-  const where = `work_item_id=(select work_item_id from Space where id=${cid})`;
-  const count = sql(`select count(*) from brief where ${where}`);
-  check(
-    count === '1',
-    'brief version 1 on the feature page and in the database',
-    `brief rows: ${count}, author: ${sql(`select author from brief where ${where}`)}`,
-  );
+  await exchange('Go on.');
+  const lead = sql(`select count(*) from message where space_id=${cid} and author='lead'`);
+  check(lead === '3', 'the Space still answers after the attach', `lead messages: ${lead}`);
 }
 
 async function cap() {

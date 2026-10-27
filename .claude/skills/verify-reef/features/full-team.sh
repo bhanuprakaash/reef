@@ -121,7 +121,7 @@ api_call POST /work-items '{"projectId":1,"title":"A"}'
 api_call POST /work-items '{"projectId":1,"title":"B"}'
 api_call POST /work-items '{"projectId":2,"title":"No git"}'
 api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"a1","team":"crew"}'
-api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"a2","team":"crew"}'
+api_call POST /spaces '{"projectId":1,"name":"a2","team":"crew"}'
 api_call POST /spaces '{"projectId":1,"workItemId":2,"name":"b1","team":"crew"}'
 api_call POST /spaces '{"projectId":1,"name":"quick","team":"crew"}'
 api_call POST /spaces '{"projectId":2,"workItemId":3,"name":"nogit"}'
@@ -163,21 +163,7 @@ check writer-parallel "$par_ok" "turn 1 $s1..$e1, turn 2 $s2..$e2: each started 
 
 echo mark >"$T/marker.txt"
 api_call POST /spaces/1/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}'
-api_call POST /spaces/2/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}'
 wait_done 1 2
-wait_done 2 1
-
-c1_turn=$("$H" sql "select id from turn where space_id = 1 order by id desc limit 1" | tail -1)
-c2_turn=$("$H" sql "select id from turn where space_id = 2 order by id desc limit 1" | tail -1)
-s_c1=$(turn_col "$c1_turn" started_at) e_c1=$(turn_col "$c1_turn" ended_at)
-s_c2=$(turn_col "$c2_turn" started_at) e_c2=$(turn_col "$c2_turn" ended_at)
-serial_ok=1
-if [[ "$s_c1" < "$s_c2" ]]; then
-	[[ "$e_c1" < "$s_c2" || "$e_c1" = "$s_c2" ]] || serial_ok=0
-else
-	[[ "$e_c2" < "$s_c1" || "$e_c2" = "$s_c1" ]] || serial_ok=0
-fi
-check writer-serial "$serial_ok" "space 1 turn $c1_turn ($s_c1..$e_c1), Space 2 turn $c2_turn ($s_c2..$e_c2): serialized on the shared tree"
 
 wt_list2=$(git -C "$S/cwd" worktree list)
 reuse_ok=1
@@ -187,30 +173,27 @@ check tree-reuse "$reuse_ok" "worktree list unchanged, marker.txt still mark"
 
 git -C "$T" status --porcelain >"$E/a-status-before.txt"
 api_call POST /spaces/1/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}'
-sleep 1
-api_call POST /spaces/2/send '{"text":"@tester Use the Write tool to create the file t.txt containing the word nope. If that is refused, try once with Bash. Say what happened."}'
-sleep 4
+sleep 3
 
 dev_line="" tester_line=""
-for p in $(pgrep -P "$(cat "$S/serve.pid")" -x claude); do
-	line=$(ps -ww -o args= -p "$p")
-	case $line in
-	*--disallowedTools*) tester_line=$line ;;
-	*) dev_line=$line ;;
-	esac
-done
-
+claude_lines() {
+	local p line
+	for p in $(pgrep -P "$(cat "$S/serve.pid")" -x claude); do
+		line=$(ps -ww -o args= -p "$p")
+		case $line in
+		*--disallowedTools*) tester_line=$line ;;
+		*) dev_line=$line ;;
+		esac
+	done
+}
+claude_lines
 wait_done 1 3
-wait_done 2 2
+api_call POST /spaces/1/send '{"text":"@tester Use the Write tool to create the file t.txt containing the word nope. If that is refused, try once with Bash. Say what happened."}'
+sleep 4
+claude_lines
+wait_done 1 4
 
-d_turn=$("$H" sql "select id from turn where space_id = 1 order by id desc limit 1" | tail -1)
-t_turn=$("$H" sql "select id from turn where space_id = 2 order by id desc limit 1" | tail -1)
-s_d=$(turn_col "$d_turn" started_at) e_d=$(turn_col "$d_turn" ended_at)
-s_t=$(turn_col "$t_turn" started_at) e_t=$(turn_col "$t_turn" ended_at)
-reader_ok=1
-[[ "$s_t" < "$e_d" ]] || reader_ok=0
-[[ "$e_t" < "$e_d" ]] || reader_ok=0
-check writer-reader "$reader_ok" "tester turn $t_turn ($s_t..$e_t) ran inside developer turn $d_turn ($s_d..$e_d)"
+t_turn=$("$H" sql "select id from turn where space_id = 1 and role = 'tester' order by id desc limit 1" | tail -1)
 
 refused_ok=1
 case $dev_line in *"--permission-mode acceptEdits"*) ;; *) refused_ok=0 ;; esac
@@ -241,7 +224,7 @@ echo staged >"$T/st.txt" && git -C "$T" add st.txt
 	git -C "$T" ls-files --stage
 } >"$E/a-before.txt"
 api_call POST /spaces/1/send '{"text":"@developer Reply with one word. Use no tools."}'
-wait_done 1 4
+wait_done 1 5
 N=$("$H" sql "select max(id) from turn where space_id = 1" | tail -1)
 api_call GET "/turns/$N"
 cp_ok=1
@@ -260,7 +243,7 @@ untracked_ok=1
 check checkpoint-untracked "$untracked_ok" "checkpoint $N holds pre.txt (untracked) and ^2 holds st.txt (staged)"
 
 api_call POST /spaces/1/send '{"text":"@developer Use the Write tool to create the file d.txt containing the word yes."}'
-wait_done 1 5
+wait_done 1 6
 write_ok=1
 [ "$(cat "$T/d.txt" 2>/dev/null)" = yes ] || write_ok=0
 check write-claude-allowed "$write_ok" "d.txt=$(cat "$T/d.txt" 2>/dev/null)"
@@ -281,7 +264,7 @@ snap() {
 
 snap >"$E/rb-before.txt"
 api_call POST /spaces/1/send '{"text":"@developer Append a line with the word two to a.txt, create the file c.txt containing the word sea, then run the shell command: git add -A && git commit -qm dev-change"}'
-wait_done 1 6
+wait_done 1 7
 N=$("$H" sql "select max(id) from turn where space_id = 1" | tail -1)
 api_call POST "/turns/$N/rollback"
 rb_status=$STATUS
@@ -309,22 +292,17 @@ api_call POST /spaces/1/send '{"text":"@developer Write the numbers from 1 to 60
 sleep 2
 api_call POST "/turns/$N/rollback"
 busy1_status=$STATUS busy1_body=$BODY
-dev_turn_ch2=$("$H" sql "select id from turn where space_id = 2 and role = 'developer' limit 1" | tail -1)
-api_call POST "/turns/$dev_turn_ch2/rollback"
-busy2_status=$STATUS busy2_body=$BODY
-wait_done 1 7
+wait_done 1 8
 git -C "$T" rev-parse HEAD >"$E/busy-after.txt"
 git -C "$T" status --porcelain >>"$E/busy-after.txt"
 
 busy_ok=1
 [ "$busy1_status" = 409 ] || busy_ok=0
 echo "$busy1_body" | grep -qF "space 1 has a turn running: conflict" || busy_ok=0
-[ "$busy2_status" = 409 ] || busy_ok=0
-echo "$busy2_body" | grep -qF "worktrees/1/1 has a turn running: conflict" || busy_ok=0
 diff "$E/busy-before.txt" "$E/busy-after.txt" >/dev/null || busy_ok=0
 msgcount=$("$H" sql "select count(*) from message where space_id = 1 and author = 'reef'" | tail -1)
 [ "$msgcount" = 1 ] || busy_ok=0
-check rollback-busy "$busy_ok" "busy1=$busy1_status busy2=$busy2_status; tree unchanged across the busy window; $msgcount reef message(s) on Space 1"
+check rollback-busy "$busy_ok" "busy=$busy1_status; tree unchanged across the busy window; $msgcount reef message(s) on Space 1"
 
 last_turn=$("$H" sql "select id from turn where space_id = 1 order by id desc limit 1" | tail -1)
 last_wake=$("$H" sql "select wake_text from turn where id = $last_turn" | tail -n +2)
@@ -366,36 +344,37 @@ api_call GET /health
 [ "$STATUS" = 200 ] || notgit_ok=0
 check tree-not-git "$notgit_ok" "space 5 lead turn failed with the not-a-git-repo error; /health still 200"
 
-### Promote with a dirty main checkout (space 6, solo)
+### Attach to a work item with a dirty main checkout (space 6, solo)
 
 api_call POST /spaces '{"projectId":1,"name":"promo"}'
 echo dirty >"$S/cwd/dirty.txt"
 api_call POST /spaces/6/send '{"text":"Reply with one word."}'
 wait_done 6 1
-api_call POST /spaces/6/promote '{"title":"C"}'
-promote_status=$STATUS
-wait_done 6 2
+api_call POST /work-items '{"projectId":1,"title":"C"}'
+api_call POST /spaces/6/attach '{"workItemId":4}'
+attach_status=$STATUS
 api_call GET '/messages?space=6'
-promote_msg_ok=1
-echo "$BODY" | grep -qF "\"author\":\"reef\",\"body\":\"This work item works in $S/full/worktrees/1/4 on work-item/4. Uncommitted changes stay on the main checkout.\"" || promote_msg_ok=0
+attach_msg_ok=1
+attach_note='This Space is now attached to work item \"C\" (4). It works in '"$S"'/full/worktrees/1/4 on work-item/4. Uncommitted changes stay on the main checkout.'
+echo "$BODY" | grep -qF "\"author\":\"reef\",\"body\":\"$attach_note\"" || attach_msg_ok=0
 api_call POST /spaces/6/send '{"text":"Reply with one word."}'
-wait_done 6 3
+wait_done 6 2
 
 turns6=$("$H" sql "select id, role, status, session_id from turn where space_id = 6")
 sess6=$(echo "$turns6" | tail -n +2 | awk -F'|' '{print $4}' | sort -u)
-promote_ok=1
-[ "$promote_status" = 202 ] || promote_ok=0
-[ "$promote_msg_ok" = 1 ] || promote_ok=0
-[ "$(echo "$turns6" | tail -n +2 | wc -l | tr -d ' ')" = 3 ] || promote_ok=0
-[ "$(echo "$sess6" | wc -l | tr -d ' ')" = 1 ] || promote_ok=0
+attach_ok=1
+[ "$attach_status" = 200 ] || attach_ok=0
+[ "$attach_msg_ok" = 1 ] || attach_ok=0
+[ "$(echo "$turns6" | tail -n +2 | wc -l | tr -d ' ')" = 2 ] || attach_ok=0
+[ "$(echo "$sess6" | wc -l | tr -d ' ')" = 1 ] || attach_ok=0
 sess6_id=$(echo "$sess6" | head -1)
 sess6_file=$(session_file "$sess6_id")
-grep -q "\"cwd\":\"$S/cwd\"" "$sess6_file" 2>/dev/null || promote_ok=0
-grep -q "\"cwd\":\"$S/full/worktrees/1/4\"" "$sess6_file" 2>/dev/null || promote_ok=0
+grep -q "\"cwd\":\"$S/cwd\"" "$sess6_file" 2>/dev/null || attach_ok=0
+grep -q "\"cwd\":\"$S/full/worktrees/1/4\"" "$sess6_file" 2>/dev/null || attach_ok=0
 wt_list3=$(git -C "$S/cwd" worktree list)
-echo "$wt_list3" | grep -q "^$S/full/worktrees/1/4 .*\[work-item/4\]" || promote_ok=0
-[ "$(git -C "$S/cwd" status --porcelain)" = "?? dirty.txt" ] || promote_ok=0
-check tree-promote-dirty "$promote_ok" "promote 202 with the move note, 3 lead turns share session $sess6_id (resumed in the worktree), main checkout only ?? dirty.txt"
+echo "$wt_list3" | grep -q "^$S/full/worktrees/1/4 .*\[work-item/4\]" || attach_ok=0
+[ "$(git -C "$S/cwd" status --porcelain)" = "?? dirty.txt" ] || attach_ok=0
+check tree-attach-dirty "$attach_ok" "attach 200 with the move note, 2 lead turns share session $sess6_id (resumed in the worktree), main checkout only ?? dirty.txt"
 
 ### Retry after a crash, space 3
 
@@ -737,7 +716,7 @@ api_call POST /work-items '{"projectId":1,"title":"FA"}'
 api_call POST /work-items '{"projectId":1,"title":"FB"}'
 api_call POST /work-items '{"projectId":1,"title":"FC"}'
 api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"fa1","team":"pair"}'
-api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"fa2","team":"pair"}'
+api_call POST /spaces '{"projectId":1,"name":"fa2","team":"pair"}'
 api_call POST /spaces '{"projectId":1,"workItemId":2,"name":"fb1","team":"full"}'
 api_call POST /spaces '{"projectId":1,"workItemId":3,"name":"fc1","team":"full"}'
 WA="$S/fu/worktrees/1/1"
@@ -825,10 +804,10 @@ api_call POST "/spaces/$q_chan/send" '{"text":"Reply with one word."}'
 wait_done "$q_chan" 1
 Q=$("$H" sql "select id from turn where space_id = $q_chan order by id desc limit 1" | tail -1)
 [[ "$(turn_col "$Q" checkpoint)" =~ ^refs/reef/checkpoints/[0-9a-f]{12}/$Q$ ]] || echo "note: quick session turn $Q has no expected checkpoint" >&2
-api_call POST "/spaces/$q_chan/promote" '{"title":"FQ"}'
-wait_done "$q_chan" 2
+api_call POST /work-items '{"projectId":1,"title":"FQ"}'
+api_call POST "/spaces/$q_chan/attach" '{"workItemId":4}'
 api_call POST "/spaces/$q_chan/send" '{"text":"Reply with one word."}'
-wait_done "$q_chan" 3
+wait_done "$q_chan" 2
 {
 	git -C "$S/fu/worktrees/1/4" rev-parse HEAD
 	git -C "$S/fu/worktrees/1/4" status --porcelain
@@ -846,15 +825,6 @@ echo "$BODY" | grep -qF "turn $Q was checkpointed in $S/cwd, not $S/fu/worktrees
 diff "$E/fq-before.txt" "$E/fq-after.txt" >/dev/null || moved_ok=0
 check rollback-moved "$moved_ok" "rollback of the moved checkpoint $Q is 409; the fq tree is unchanged"
 
-api_call POST /spaces/2/send '{"text":"@tester Write the numbers from 1 to 600 separated by spaces. Use no tools."}'
-sleep 2
-newest_dev1=$("$H" sql "select id from turn where space_id = 1 and role = 'developer' order by id desc limit 1" | tail -1)
-api_call POST "/turns/$newest_dev1/rollback"
-reader_hold_ok=1
-[ "$STATUS" = 409 ] || reader_hold_ok=0
-echo "$BODY" | grep -qF "$S/fu/worktrees/1/1 has a turn running: conflict" || reader_hold_ok=0
-wait_done 2 1
-check rollback-reader "$reader_hold_ok" "rollback while Space 2's tester runs on the same tree is 409"
 
 H0=$(git -C "$WA" rev-parse HEAD)
 api_call POST /spaces/1/send '{"text":"@developer Run this one shell command and nothing else: git checkout -q -b side && echo s > s.txt && git add s.txt && git commit -qm side"}'
@@ -869,7 +839,9 @@ api_call POST "/turns/$D2/rollback"
 [ "$(git -C "$WA" rev-parse work-item/1)" = "$H0" ] || branch_ok=0
 check rollback-branch "$branch_ok" "after the developer switched to side, rollback of turn $D2 returns to work-item/1 at $H0"
 
-api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"solo fa"}'
+api_call POST /work-items '{"projectId":1,"title":"FD"}'
+fd_item=$("$H" sql "select max(id) from work_item" | tail -1)
+api_call POST /spaces '{"projectId":1,"workItemId":'"$fd_item"',"name":"solo fa"}'
 solofa_chan=$("$H" sql "select id from Space where name = 'solo fa'" | tail -1)
 api_call POST "/spaces/$solofa_chan/send" '{"text":"Reply with one word."}'
 wait_done "$solofa_chan" 1
@@ -941,12 +913,13 @@ api_call POST "/spaces/$cleanq_chan/send" '{"text":"Reply with one word."}'
 wait_done "$cleanq_chan" 1
 clean_ok=1
 [ -z "$(git -C "$S/p157c" status --porcelain)" ] || clean_ok=0
-api_call POST "/spaces/$cleanq_chan/promote" '{"title":"PC"}'
-wait_done "$cleanq_chan" 2
+api_call POST /work-items '{"projectId":'"$p157c_id"',"title":"PC"}'
 pc_id=$("$H" sql "select id from work_item where title = 'PC'" | tail -1)
+api_call POST "/spaces/$cleanq_chan/attach" '{"workItemId":'"$pc_id"'}'
 api_call GET "/messages?space=$cleanq_chan"
-echo "$BODY" | grep -qF "\"author\":\"reef\",\"body\":\"This work item works in $S/fu/worktrees/$p157c_id/$pc_id on work-item/$pc_id.\"" || clean_ok=0
-check promote-clean "$clean_ok" "promote on a clean main checkout: the reef note names only the worktree path and branch"
+clean_note='This Space is now attached to work item \"PC\" ('"$pc_id"'). It works in '"$S"'/fu/worktrees/'"$p157c_id/$pc_id"' on work-item/'"$pc_id"'.'
+echo "$BODY" | grep -qF "\"author\":\"reef\",\"body\":\"$clean_note\"" || clean_ok=0
+check attach-clean "$clean_ok" "attach on a clean main checkout: the reef note names only the worktree path and branch"
 
 mkdir -p "$S/p153/.claude"
 git -C "$S/p153" init -q -b main
@@ -967,6 +940,45 @@ settings_sess=$("$H" sql "select session_id from turn where space_id = $settings
 settings_file=$(session_file "$settings_sess")
 if [ -n "$settings_file" ]; then grep -q '"is_error":true' "$settings_file" || settings_ok=0; else settings_ok=0; fi
 check write-settings "$settings_ok" "a project .claude/settings.json allowing Edit still refuses the tester"
+
+### Space kinds and members
+
+api_call POST /work-items '{"projectId":1,"title":"K"}'
+k_item=$("$H" sql "select max(id) from work_item" | tail -1)
+api_call POST /spaces '{"projectId":1,"workItemId":'"$k_item"',"name":"k1","team":"pair"}'
+api_call POST /spaces '{"projectId":1,"workItemId":'"$k_item"',"name":"k2"}'
+active_ok=1
+[ "$STATUS" = 409 ] || active_ok=0
+echo "$BODY" | grep -qF "{\"error\":\"conflict: work item $k_item already has an active Space\"}" || active_ok=0
+[ "$("$H" sql "select count(*) from space where work_item_id = $k_item" | tail -1)" = 1 ] || active_ok=0
+check space-active-one "$active_ok" "a second Space for work item $k_item is $STATUS $BODY"
+
+api_call POST /spaces '{"projectId":1,"name":"free k"}'
+free_k=$("$H" sql "select id from space where name = 'free k'" | tail -1)
+api_call POST /work-items '{"projectId":1,"title":"K2"}'
+k2_item=$("$H" sql "select max(id) from work_item" | tail -1)
+api_call POST "/spaces/$free_k/attach" '{"workItemId":'"$k2_item"'}'
+attach_list_ok=1
+[ "$STATUS" = 200 ] || attach_list_ok=0
+api_call GET "/spaces?workItem=$k2_item"
+echo "$BODY" | grep -q "\"id\":$free_k,\"kind\":\"work_item\"" || attach_list_ok=0
+check space-attach-list "$attach_list_ok" "free Space $free_k attached to work item $k2_item shows in GET /spaces?workItem=: $BODY"
+
+api_call PUT /teams/frozen '{"name":"frozen","roles":[{"name":"lead","lead":true,"backend":"claude"},{"name":"dev","backend":"claude","write":true,"tools":["Read","Edit"]}]}'
+api_call POST /spaces '{"projectId":1,"name":"frozen room","team":"frozen"}'
+frozen_chan=$("$H" sql "select id from space where name = 'frozen room'" | tail -1)
+api_call PUT /teams/frozen '{"name":"frozen","roles":[{"name":"lead","lead":true,"backend":"claude"},{"name":"dev","backend":"claude","tools":["Read"]}]}'
+api_call POST /spaces '{"projectId":1,"name":"later room","team":"frozen"}'
+later_chan=$("$H" sql "select id from space where name = 'later room'" | tail -1)
+frozen_ok=1
+api_call GET "/spaces/$frozen_chan/members"
+echo "$BODY" | grep -qF '"name":"dev","lead":false,"write":true' || frozen_ok=0
+echo "$BODY" | grep -qF '"tools":["Read","Edit"]' || frozen_ok=0
+kept=$BODY
+api_call GET "/spaces/$later_chan/members"
+echo "$BODY" | grep -qF '"name":"dev","lead":false,"write":false' || frozen_ok=0
+echo "$BODY" | grep -qF '"tools":["Read"]' || frozen_ok=0
+check space-members-frozen "$frozen_ok" "after the team's dev lost write and Edit, the running Space keeps them: $kept; a new Space has the edit: $BODY"
 }
 
 # section NAME: run section_NAME under the run id $REEF_VERIFY_RUN/NAME, so it has its own

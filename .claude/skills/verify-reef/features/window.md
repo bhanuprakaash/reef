@@ -2,15 +2,15 @@
 
 A user opens the Reef window in a browser at the address `reef serve` prints. They start a
 space on a feature, chat and watch the agent's tool calls and text arrive live. A new
-space of the same feature starts from the brief. A quick session can be promoted to a
+space of the same feature starts from the brief. A free Space can be attached to a
 feature, and a Space that hits a cap pauses and says why. A Space on a team names the running teammate, opens replies in a Thread pane. Contract: `docs/server.md`
-(Web UI, Spaces live, Wrap-up and promotion, Caps).
+(Web UI, Spaces live, Wrap-up and attach, Caps).
 
 ## Sub-features
 
 - `window-live` a claude Space on a feature: a tool-using prompt shows tool rows while the turn runs; when it ends the reply is one stored `lead` message and the live view is gone.
 - `window-brief` a new Space on a feature whose brief exists answers the goal from that brief.
-- `window-promote` a quick session promoted with a slug and name ends the turn with a proposal panel; the sidebar moves the Space under the new feature; the quick-session turns' checkpoints, taken in the project folder, no longer show a Roll back button; Approve makes brief version 1.
+- `window-attach` a free Space attached to a work item from the header button and dialog: the sidebar moves the Space under the work item; the free-Space turns' checkpoints, taken in the project folder, no longer show a Roll back button; the Attach button is gone.
 - `window-cap` a Space whose token budget is used shows a banner with the reason and a disabled composer, keeps it after a reload, and the next message runs after Continue.
 - `window-pages` a bad project path shows the server's error; a work item can be added from the sidebar.
 - `window-stop` Stop mid-turn shows `Failed: interrupted` and the partial reply once; the next message resumes the session.
@@ -39,7 +39,7 @@ feature, and a Space that hits a cap pauses and says why. A Space on a team name
 
 Acceptance lines of the slice: "start a Space, chat, see streamed tool calls and text live" is
 `window-live`; "a new Space of the same feature starts from the brief" is `window-brief`;
-"promote a quick session" is `window-promote`; "hitting a cap pauses the Space and shows why" is
+"attach a free Space to a work item" is `window-attach`; "hitting a cap pauses the Space and shows why" is
 `window-cap`. Not driven here: codex Spaces in the window and reload mid-turn (drive them by hand
 in the browser).
 
@@ -75,7 +75,7 @@ Each scenario adds its own project through the form (`ui-<scenario>-<suffix>`, f
 ```sh
 REEF_VERIFY_RUN=<id> $H ui live
 REEF_VERIFY_RUN=<id> $H ui brief
-REEF_VERIFY_RUN=<id> $H ui promote
+REEF_VERIFY_RUN=<id> $H ui attach
 REEF_VERIFY_RUN=<id> $H ui cap
 REEF_VERIFY_RUN=<id> $H ui pages
 REEF_VERIFY_RUN=<id> $H ui stop
@@ -106,7 +106,7 @@ REEF_VERIFY_RUN=<id> $H ui providers
 
 - **live.** Prints a `PASS live:` line for the tool rows seen mid-turn (the first row's tool name and input), the one stored `lead` message (with the message rows) and the cleared live view. Screenshots `live-midturn.png` (tool rows under `Lead is working...`; the label is the running role, capitalised, `Architect is working...` in a team) and `live-final.png`.
 - **brief.** PUTs a brief (`Goal: build the login page with magic links.`), starts a Space, asks the goal, prints the answer and `PASS brief:` when it mentions magic links. Screenshot `brief-answer.png`.
-- **promote.** Makes the run's folder a git repo with one commit when it is not one. Two exchanges in a quick session (two rows under Checkpoints), Promote to feature (the header button, then the dialog) with slug `search` and name `Search`, waits for the proposal panel and prints its text, checks the sidebar (Space under Search, no Quick sessions heading in that project) and that the two quick-session turns have no row under Checkpoints, and that `GET /turns?space=N&rollbackable=1` omits them, clicks Approve, then reads `Version 1 by` on the feature page and one `brief` row for the feature. Screenshots `promote-before-promote`, `promote-form`, `promote-proposal`, `promote-checkpoints-after-promote`, `promote-approved`, `promote-feature-page`.
+- **attach.** Makes the run's folder a git repo with one commit when it is not one. Two exchanges in a free Space (two rows under Checkpoints), then a work item `Search` is added, and Attach to work item (the header button, then the dialog) picks it. Waits for the `reef` note, checks the sidebar (Space under Search, no Quick sessions heading in that project), that the two free-Space turns have no row under Checkpoints, that `GET /turns?space=N&rollbackable=1` omits them, and that the Space still answers. Screenshots `attach-before-attach`, `attach-attach-form`, `attach-attached`.
 - **cap.** One exchange, then `update space set token_budget=1` through `sqlite3` on the run's data folder, then a send. Prints the banner text (`Paused: token budget of 1 used: N tokens`), checks the composer is disabled and the banner survives a reload, clicks Continue, sends again and checks a second `lead` message and `token_budget` 1000001 with `paused` empty. Screenshots `cap-paused`, `cap-continued`, `cap-ran-after-continue`.
 - **pages.** Adds a project with path `/nonexistent-reef-ui` and reads the `not a directory` error, adds a project and feature.
 - **stop.** Asks for a long story with a secret word, clicks Stop after a few seconds, waits for `Failed: interrupted`, checks the first 40 characters of the stored `lead` message show once on the page, then asks for the word and checks the answer. Screenshots `stop-stopped`, `stop-resumed`.

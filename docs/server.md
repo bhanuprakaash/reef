@@ -85,7 +85,7 @@ logged in and on `PATH`.
   starts with it in `--allowedTools`; the lead keeps its agent between turns, so Add for the lead also
   does `POST /spaces/{id}/stop`. Add is disabled while a turn runs. A read-only role refused an
   edit tool shows "Needs write access" and a codex role "Codex ignores allowed tools", both with no Add.
-  A checkpoint taken in another tree, such as a quick session's turn after a promote, is not
+  A checkpoint taken in another tree, such as a free Space's turn after an attach, is not
   listed. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
   reply is the stored message, so the live block does not repeat it.
 - A closed Space shows "Wrapped" and Reopen where the Wrap up button and composer were.
@@ -128,7 +128,7 @@ Every error has a JSON body: `{"error": "work item 9: not found"}`.
 | 403 | The `Host` is not `127.0.0.1`, `localhost` or `::1`. Body is `{"error":"forbidden host"}` |
 | 404 | The id in the path (or a required query filter) matches nothing, or no route knows the path. Body for an unknown path is `{"error":"not found"}` |
 | 405 | The path exists, the method does not. Body is `{"error":"method not allowed"}` |
-| 409 | A unique rule broke. A send to a Space with a wrap or promote turn running, to a Space paused by a cap other than the hop cap or to a Space open in a `reef chat`; `continue` on a Space that is not paused or has a turn running; `retry` of a turn that is not [retryable](#spaces-live), or on a Space with a turn running or paused; `rollback` on a Space with a turn running or open in a `reef chat`, on a tree other than the checkpoint's, or on a tree a turn runs on; an approval that is not pending, or one approved while the Space is paused |
+| 409 | A unique rule broke. A send to a Space with a wrap turn running, to a Space paused by a cap other than the hop cap or to a Space open in a `reef chat`; `continue` on a Space that is not paused or has a turn running; `retry` of a turn that is not [retryable](#spaces-live), or on a Space with a turn running or paused; `rollback` on a Space with a turn running or open in a `reef chat`, on a tree other than the checkpoint's, or on a tree a turn runs on; an approval that is not pending, or one approved while the Space is paused |
 | 415 | A `POST`, `PUT` or `PATCH` without `Content-Type: application/json`. Charset parameters are fine |
 | 503 | A send after the server began to stop. Body is `{"error":"server is stopping"}` |
 | 500 | Anything else. Body is `{"error":"internal error"}`; the detail goes to the log |
@@ -260,15 +260,16 @@ scope `teammate`. Their routes still read and write them.
 | Field | JSON | Notes |
 | --- | --- | --- |
 | `id` | number | |
+| `kind` | string | `work_item` (the one active Space of a work item), `free` (no work item) or `conversation` (a direct conversation with one Teammate). Set by the server |
 | `projectId` | number | required on create; never changes |
-| `workItemId` | number? | set on create. It changes only from `null`, once, when a promote gives a quick session its work item. `null` is a quick session. Must be a work item of the same project. Deleting the work item deletes the Space |
+| `workItemId` | number? | set on create. It changes only from `null`, once, when [attach](#attach-a-space-to-a-work-item) gives a free Space its work item. `null` is a free Space or a conversation. Must be a work item of the same project, and a work item has one active Space (`409` for a second). Deleting the work item deletes the Space |
 | `name` | string | required |
 | `role` | string | the name of the lead role of the Space's team. Empty when not set. For a Space from before this field existed, the role of its newest turn |
 | `backend` | string | `claude` or `codex`, the agent that runs the Space. Empty when not set. For an older Space, the backend of its newest turn |
 | `permissionMode` | string | passed to the backend as is when the Space's agent starts or resumes. Empty means the backend default |
 | `paused` | string | why the Space is paused (see [Caps](#caps)). Empty when it is not paused. Set by the server only; a client cannot set it |
 | `tokenBudget` | number | tokens the Space may use before it pauses. Starts at 1,000,000. Set by the server only |
-| `team` | string | the name of the Space's [team](#team). `solo` when none is given, and for every Space from before teams. Set on create, never changes |
+| `team` | string | the name of the Team the Space's members were copied from. `solo` when none is given. Empty for a Space made from one Teammate. Set on create, never changes. The Space keeps its own member list (`space_member`: the Teammate, its lead flag and its access rules), so editing the Team later does not change a running Space |
 | `createdAt` | string | |
 | `closedAt` | string? | `null` while the Space is open. Set when its wrap-up is approved and when its work item is closed, cleared by `POST /spaces/{id}/reopen`. A closed Space takes no turn (409) |
 
@@ -301,7 +302,7 @@ One agent run in a Space.
 | `usage` | object | `inputTokens`, `outputTokens`, `cacheReadTokens`, `cacheWriteTokens` (numbers, all four always present). The SQL columns are `input_tokens` and so on. The turn's own tokens: for claude, the session total the turn reported minus the total the session's previous turn reported (see `sessionUsage`), so a resumed turn's subagent and side-call tokens count; a running turn holds the sum of its messages so far |
 | `startedAt` | string | |
 | `endedAt` | string? | `null` while running |
-| `wakeText` | string | default `""`; the text the turn ran: the unread messages of the wake, without the context prompt. Empty for a turn from before this field existed and for a wrap-up or promote turn |
+| `wakeText` | string | default `""`; the text the turn ran: the unread messages of the wake, without the context prompt. Empty for a turn from before this field existed and for a wrap-up turn |
 | `wakeParent` | number? | the thread the wake was in, `null` for the top level. Set on create with `wakeText` |
 | `directMessageId` | number? | the direct request or response the turn was woken by; `null` for a public wake. Kept so retry preserves private reply routing |
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
@@ -461,7 +462,7 @@ A wrap-up proposal: the new brief and the memory items to save.
 mid-space. Approving it adds a brief version and leaves the memory items and the
 Space as they are; the Space's agent is not stopped. A Space has one pending proposal at most: a new wrap rejects the older pending ones of any kind, a new brief rejects the older pending briefs and is refused with `invalid: space 1 has a wrap-up waiting for approval` while a wrap is pending, and approving a brief on a closed Space is `invalid: space 1 is closed`. `reef chat` prompts for approval,
 and `reef wrap approve` or `reef wrap reject` decides it; the server offers the same over REST (see [Wrap-up and
-promotion](#wrap-up-and-promotion)). See [memory.md](memory.md#wrap-up).
+attach](#wrap-up-and-attach)). See [memory.md](memory.md#wrap-up).
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -532,7 +533,7 @@ tool calls.
 | `PUT /teams/{name}/members/{id}` | `lead`, `tools`, `mcpServers` (left out keeps the stored ones), `write`, `permissionMode` | 200 the role | 400 as `PUT /teams`, a second lead; 404 |
 | `DELETE /teams/{name}/members/{id}` | | 204 | 400 `solo`; 404 |
 | `GET /spaces` | `?project=ID`, `?workItem=ID` | 200 each Space also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
-| `POST /spaces` | `projectId`, `workItemId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the Space's `role` becomes the name of the team's lead role). A `name` is required; one that is the new-space form's default, `<backend or team> <hh:mm>` (`claude 14:32`, `claude 02:32 PM`), marks the Space as waiting for a provider name, see [Space names](#space-names) | 201 | 400 unknown project, work item or team, work item of another project, bad backend or permission mode, a role other than `lead` |
+| `POST /spaces` | `projectId`, `workItemId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the Space's `role` becomes the name of the team's lead role), `teammateId` (instead of `team`: a Space with no Team and one member, that Teammate as lead, with its default access rules; `kind` `conversation` makes it a direct conversation, which cannot have a work item). A `name` is required; one that is the new-space form's default, `<backend or team> <hh:mm>` (`claude 14:32`, `claude 02:32 PM`), marks the Space as waiting for a provider name, see [Space names](#space-names) | 201 | 400 unknown project, work item or team, work item of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /spaces/{id}` | | 200 | 404 |
 | `PUT /spaces/{id}` | `name` (required), `permissionMode`; project, work item, role and backend stay unchanged. An omitted permission mode stays unchanged. A set permission mode is validated for the Space's backend and applies the next time its agent starts. A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or permission mode, 404 |
 | `DELETE /spaces/{id}` | stops the Space first if it is live; a send during the delete is 404 | 204 | 404 |
@@ -545,7 +546,9 @@ tool calls.
 | `POST /spaces/{id}/stop` | no body needed | 204, also when the Space is not live or does not exist | |
 | `POST /spaces/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
 | `POST /spaces/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no work item); 404, 409 and 503 as send |
-| `POST /spaces/{id}/promote` | `title` for a new work item, or `workItemId` for an existing one; exactly one form | 202 the Space | 400 bad body, Space already has a work item, work item of another project; 404; 409 as send; 503 |
+| `POST /spaces/{id}/attach` | `workItemId` (required) | 200 the Space | 400 no `workItemId`, Space already has a work item or is a conversation, work item of another project, project not a git repo with a commit; 404; 409 a turn running, or the work item already has an active Space |
+| `GET /spaces/{id}/members` | | 200 the Space's members, lead first: the role fields of a [team](#team) role | 404 |
+| `POST /spaces/{id}/members` | `teammateId` (required) | 201 the member, a copy of the Teammate's default access rules | 400 unknown Teammate or a conversation, 404, 409 already a member or its name is taken |
 | `GET /spaces/{id}/proposal` | | 200 the Space's pending proposal | 404 none pending |
 | `POST /proposals/{id}/approve` | no body needed | 200 the proposal, `itemsAdded` and `warnings` (a line for each saved item that looks like a stored one or has no vector; left out when none); a wrap closes the proposal's Space and stops its agent, a brief proposal does neither | 400 already decided, 404 |
 | `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
@@ -569,7 +572,7 @@ tool calls.
 
 A `POST` with no body (`stop`, `continue`, `wrap`, `approve`, `reject`) still needs
 `Content-Type: application/json`, or the guard answers 415. These routes ignore the body,
-so an empty one or `{}` both work. `send` and `promote` read a JSON body, and an empty one
+so an empty one or `{}` both work. `send` and `attach` read a JSON body, and an empty one
 is 400.
 
 Create requests take the whole object from the table above. A field you leave out takes
@@ -585,9 +588,8 @@ route-specific: `PUT /spaces/{id}` keeps an omitted `permissionMode`, while
 a message wakes them.
 
 - The server stores the user message, then answers 202. The turns run in the background, not
-  in the request. The text `/wrap` runs the wrap-up turn (400 on a quick session, before any
-  agent turn). Every other text, `/promote` included, is a plain message: only `POST
-  /spaces/{id}/promote` promotes. A send with `parent` stores the message as a reply in that
+  in the request. The text `/wrap` runs the wrap-up turn (400 on a Space with no work item, before any
+  agent turn). Every other text is a plain message. A send with `parent` stores the message as a reply in that
   thread.
 - Each role of the team has its own agent session, its own `reef mcp` token, its own turns and
   its own session id. The role's backend, permission mode, tools and MCP servers are set up
@@ -612,7 +614,7 @@ a message wakes them.
   of another project on the same repo) cannot be added: the start fails with `branch
   work-item/<id> is checked out at <path>; switch that checkout to another branch`. A
   quick session runs in the project path. The work item is read at each agent
-  start, so a promoted Space moves to the worktree at its next wake. A project that is not
+  start, so an attached Space moves to the worktree at its next wake. A project that is not
   a git repo, or a repo with no commit, has no worktree: the start fails as a `failed` turn
   whose error is `work items need the project folder to be a git repo with a commit: <path>:`
   and git's error, and the server goes on. A worktree whose folder was deleted is pruned and
@@ -658,7 +660,7 @@ a message wakes them.
   and untracked files get the content they had, the same changes are staged, and files made
   since are removed. Ignored files are left alone. It claims the Space like a send. It is
   409, never a wait, when the Space's tree is not the directory the checkpoint was taken in
-  (a quick session's turn after a promote), when a `reef chat` holds the Space, or when a
+  (a free Space's turn after an attach), when a `reef chat` holds the Space, or when a
   turn of any role of any Space runs on the tree (the write lock is held, or a read-only
   turn is a reader). A reader that starts during the restore is not held back. A turn with
   no `checkpoint` is 400. Then `reef` posts `Rolled back
@@ -703,7 +705,7 @@ a message wakes them.
   a restart before that send holds them instead), then stops every agent of the Space, deletes their tokens and releases the lock.
   It also works while the send is still checking the caps or starting an agent: the send then
   answers 409 `space 1 was stopped`, and no turn runs. Once the send has changed something
-  (a promote's change) or stored the user message, it does not give up: it answers 202 as
+  or stored the user message, it does not give up: it answers 202 as
   usual, and its turn runs with the stop already in effect, so it is stored `failed`,
   `interrupted` and the agent gets no prompt. A turn that fails for another reason also stops
   every agent of the Space; the next turn opens them again, each by its own session id.
@@ -722,8 +724,8 @@ a message wakes them.
   no later turn of its role ran in the Space: a turn that a later one supersedes is 409. A
   turn the user stopped (`interrupted`) is retryable, since the user may want its wake run
   again. A routed wake that never sent is built again from the
-  messages not yet sent, so a retry never resends a whole thread; a turn that sent runs its kept text again. A wrap-up or promote turn keeps no wake, so it is never retryable: the user wraps or
-  promotes again. `GET /turns?retryable=1` lists the same turns, which is what the window shows
+  messages not yet sent, so a retry never resends a whole thread; a turn that sent runs its kept text again. A wrap-up turn keeps no wake, so it is never retryable: the user wraps
+  again. `GET /turns?retryable=1` lists the same turns, which is what the window shows
   as failed turns with a Retry button. The retry counts as a message of the user for the hop cap.
 
 ### Routing
@@ -759,7 +761,7 @@ role, so the message goes to `developer` and no `lead` session starts.
 A role never wakes itself. The user's own message is routed by the same rules, so a send
 with `parent` on an architect's thread goes to the architect, and `@architect ...` goes to the
 architect with no lead turn. `POST /messages` stores a message and wakes nobody. The `/wrap`
-and promote turns are not routed (see below).
+turn is not routed (see below).
 
 A wake is a turn of the woken role. Routing gives it the text it was routed with: a line
 `[Space 3, message 12]` for a top-level message, or `[Space 3, message 12, thread 9]` for a
@@ -789,12 +791,12 @@ root of a thread the role owns, and the user's reply in it goes to the role.
 
 The first turn and the wakes after it are one chain. They run one at a time, in the order
 the messages were stored, and the messages each turn stores are routed in turn and queued at
-the end. The Space has a turn running until the chain is done, so a `wrap`, a `promote`, a
+the end. The Space has a turn running until the chain is done, so a `wrap`, an `attach`, a
 `continue`, a `rollback` or a `close` during the chain is 409. A `send` during a message chain
 is accepted: the message is stored, and its wakes join the end of the chain's queue and run after the current turn and the wakes it
 queued. A `send` that finds a message chain starting waits until it runs, so the message is stored
 after the one the chain starts with and ids follow the order of the sends; if the chain never
-starts, the send starts a chain of its own. A `send` while a wrap, a promote, a `continue` or a
+starts, the send starts a chain of its own. A `send` while a wrap, an attach, a `continue` or a
 `rollback` starts is 409. Turns still run one at a time. If the chain ends first (a failed turn, a stop, a
 routing failure), a queued message's wakes are held, not run. When the hop cap or the token
 budget stops the next wake, it is held and `continue` runs it (see [Caps](#caps)). A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
@@ -816,7 +818,7 @@ A stop that sheds a queued direct wake, and a user
 message that drops a held direct wake after a hop cap pause, each give the request a `failed`
 response with body `stopped` or `dropped`, so the window tells them from a delivery that failed.
 A request its sender sent in a turn that ends stopped or failed, or that a restart cuts, gets a `failed`
-response with body `stopped` or `failed` (a restart gives `failed`). Wrap-up and promote prompts list the
+response with body `stopped` or `failed` (a restart gives `failed`). Wrap-up prompts list the
 Space's direct messages, marking a `failed` attempt `(failed)`. Partial output from a failed recipient turn is appended as
 a `failed` response attempt: it is inspectable but never routed. Retry appends a `done`
 response; a partial unique index allows only one `done` response per request, and only that
@@ -829,7 +831,7 @@ its request. Public `GET /messages` history is unchanged.
 ### Space names
 
 A Space created with the new-space form's default name has `space.name_auto` set to 1.
-The first user message sent to it (`POST /spaces/{id}/send`, not a wrap or promote command)
+The first user message sent to it (`POST /spaces/{id}/send`, not a wrap command)
 takes the one naming attempt (`name_auto` 2) and asks the Space's backend, in the background, for a name: one
 throwaway turn in one shared empty folder (`reef-name` in the temp folder), with no tools (claude on `haiku`, codex
 `read-only`), so it makes no turn or message. The reply is cut to the convention: its first
@@ -847,7 +849,7 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Seven kin
 - `turn`: `{"role":"architect","status":"running"}` when a turn of that role starts, then
   `{"role":"architect","status":"done"}` or `{"role":"architect","status":"failed","error":"interrupted"}`
   when it ends. A chain of wakes sends one pair for each turn, with no `idle` between them. A
-  wrap or promote turn in which the agent made no proposal ends `{"role":"lead","status":"done","note":"no
+  wrap turn in which the agent made no proposal ends `{"role":"lead","status":"done","note":"no
   proposal made"}`. `{"status":"idle"}` has no role. It is sent only when a subscriber
   connects and no turn runs. A turn woken by a direct message carries `"direct":true` in each of its frames; the Space shows such a turn
   as working only, without its text or tool calls; the open Coordination panel of its exchange shows its text and tool rows live while it runs, and only the stored direct messages once it ends.
@@ -916,7 +918,7 @@ event: inbox
 data: [{"kind":"waiting","spaceId":5,"workItemId":2,"text":"Plan: add the form and a test.","at":"2026-10-14T09:00:10.123456Z","messageId":28}]
 ```
 
-## Wrap-up and promotion
+## Wrap-up and attach
 
 `POST /spaces/{id}/wrap` does what a send of the text `/wrap` does: it runs the wrap-up
 turn of [`Session.Wrap`](../space/session.go) (see [memory.md](memory.md#wrap-up)). The
@@ -927,28 +929,18 @@ saves the proposal's items, retires its `retire` ids, closes the Space (`closedA
 pending wrap blocks another wrap (409 `space 2 has a wrap-up waiting for approval`). A proposal that is already decided is
 400, like `invalid: proposal 1 is already approved` in the CLI.
 
-`POST /spaces/{id}/promote` turns a quick session into a work item. It takes `{"title":
-"Login"}` to create the work item in the space's project, or `{"workItemId":
-3}` for a work item that exists in that project. Only a Space with no work item can be
-promoted. The server first checks that the Space has no work item and that a `workItemId` is
-a work item of the Space's project, so a refused promote
-changes nothing and never opens the agent. It then checks that no turn runs and the caps,
-as for send, and once the agent is open, in one transaction creates the work item and sets
-the Space's `workItemId`. It answers 202 with the
-Space and starts a turn: the stored user message is `/promote`, and the agent gets a
-prompt that names the work item and asks it to call `propose_wrap` once with the first brief,
-written from the session, and the memory items made so far, each with its scope. The user approves that
-proposal like a wrap-up, and approval makes brief version 1. The promote turn runs in the
-agent the quick session already has. When it ends, every agent of the Space is stopped, so
-the next wake of each role resumes its session in the work item's worktree. The promote first
-posts a message from `reef`: `This work item works in <worktree path> on work-item/<id>.`, and
-` Uncommitted changes stay on the main checkout.` after it when the main checkout has
-uncommitted changes. When the work item already has
-a brief, the prompt tells the agent to call `get_brief` and propose that brief merged with
-the session, and approval makes the next version. A promote that fails (a taken
-a work item of another project) changes nothing, and so does one that is stopped
-before its change. A stop after the change does not undo it: the promote answers 202 and
-its turn is stored `failed`, `interrupted`.
+### Attach a Space to a work item
+
+`POST /spaces/{id}/attach` gives a free Space a work item: `{"workItemId": 3}`, a work item
+of the Space's project. A Space that has a work item, and a direct conversation, are 400.
+The Space must be idle (409 while a turn runs), the project a git repo with a commit, and
+the work item without another active Space (409 `work item 3 already has an active Space`);
+a refused attach changes nothing. The attach sets the Space's `workItemId` and `kind`, moves
+its `space` memory items to the `work_item` scope of the work item, stops the Space's agents,
+so the next wake of each role resumes its session in the work item's worktree, and posts a
+message from `reef`: `This Space is now attached to work item "<title>" (<id>). It works in
+<worktree path> on work-item/<id>.`, with ` Uncommitted changes stay on the main checkout.`
+after it when the main checkout has uncommitted changes. No agent turn runs.
 
 ## Caps
 

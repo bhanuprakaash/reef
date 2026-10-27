@@ -73,7 +73,7 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 - [Spaces and messages](./spaces-messages.md): quick-session and work item Spaces, filters, append-only messages, cascade.
 - [Turns and restart recovery](./turns-recovery.md): running, done, failed; end once; recovery after a crash or stop; an open chat's turn is skipped.
 - [Decisions](./decisions.md): the old decision routes (nothing reads them since memory items): append-only, author and message rules, cascade.
-- [Live Spaces](./live-spaces.md): send, the event stream, stop and resume, `/wrap` and `/promote` text, wrap-up, promote, approve and reject, caps and continue, delete a live Space. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
+- [Live Spaces](./live-spaces.md): send, the event stream, stop and resume, `/wrap` and `/attach` text, wrap-up, attach, approve and reject, caps and continue, delete a live Space. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [Teams](./teams.md): `reef team apply` and `list`, a Space on a team, threads, one agent session per teammate, routing by thread, `@mention` and `post_to_space`, the hop cap, wrap wakes nobody, restart, a codex teammate on the test fixture. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [Full team](./full-team.md): `write` per role on claude and codex, `teams/full.json`, one worktree per work item, one writer per tree, checkpoints, rollback, retry, the inbox and its stream, the window's Retry, Rollback and Inbox, and the Google login run end to end with no approvals. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
 - [GitHub poll](./github.md): a fake `gh` on `PATH`, a PR note and its dedupe, a finished check's note, a failed check's note and developer wake keyed by run, a restart, a solo-team Space (note only) and no `gh` on `PATH`. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
@@ -91,7 +91,7 @@ data folder with `$H reef --data-name NAME` and assumes ids start at 1.
 
 Drive this with `$H ui SCENARIO` against a server started with `ANTHROPIC_MODEL=sonnet $H serve-start`, after building the web app.
 
-- [Window](./window.md): live Space with tool rows, a new Space that answers from the brief, promote a quick session and approve its brief, a cap banner and Continue, teams (team picker, Thread pane, Approve and Reject: `$H ui teams`, setup in [Teams](./teams.md)).
+- [Window](./window.md): live Space with tool rows, a new Space that answers from the brief, attach a free Space to a work item, a cap banner and Continue, teams (team picker, Thread pane, Approve and Reject: `$H ui teams`, setup in [Teams](./teams.md)).
 
 ### Desktop app
 

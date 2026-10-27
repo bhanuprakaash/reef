@@ -382,7 +382,7 @@ its lead, so only the lead takes part: `reef chat` routes nothing, and an `@ment
 reply wakes no one. A resumed Space with multiple roles is refused; use the Reef window
 (`reef serve`) for those teams. The code that opens a Space is in
 package `space` (`space.Open`) and has no terminal code. `reef serve` is a second runner
-of it: the window sends messages, wraps up and promotes through the same code, and it also
+of it: the window sends messages and wraps up through the same code, and it also
 routes messages between teammates (see [server.md](server.md#spaces-live)).
 
 A Space stores its role, its backend and its permission mode (see
@@ -410,7 +410,7 @@ its first turn: a first message that goes to a specialist starts no lead.
   previous turn: the newest turn of that role, Space and session that sent its prompt, by its
   start time. A turn that failed before it sent told the agent nothing, so it does not count.
   The text goes right after the wake's `[Space N, message N]` header line, before any
-  `reef wrote:` lines, or at the top when the turn has no header (wrap-up, promote). It has two
+  `reef wrote:` lines, or at the top when the turn has no header (wrap-up). It has two
   parts.
   Under `### Changed since your last turn`: one index line, as in the first prompt
   (`decision 3: Use WAL (lead, 2026-10-27)`), for each memory item accepted since (a candidate counts from the moment the user approves it) in the
@@ -504,7 +504,7 @@ A Space ends explicitly, never on a timer. The user types `/wrap` in `reef chat`
    tester: use the sqlite fixture`, with ` (failed)` after the recipient for a failed attempt (a body is cut at 1000 characters; only the newest 100 are
    listed; none are listed when there are none), and asks the agent to propose as items
    what they decided or found that is not saved yet and a brief that reflects the direct work
-   that is complete. A promote turn gets the same list.
+   that is complete.
 2. `propose_wrap` stores a `pending` proposal (see [server.md](server.md#proposal)).
 3. After the turn, `reef chat` looks for a pending wrap proposal of this Space that is newer
    than the one pending before `/wrap`. With none, it prints `no proposal made`: an agent that
@@ -547,8 +547,8 @@ changed`. To change a proposal, reject it, tell the agent what to change, and ty
 `/wrap` again. A proposal is decided once. A second approve or reject fails with
 `invalid: proposal 1 is already approved`.
 
-`reef serve` offers the same over REST, and promotes a quick session with the same
-approval: see [server.md](server.md#wrap-up-and-promotion).
+`reef serve` offers the same over REST, and attaches a free Space to a work item, moving its
+`space` items to the work item: see [server.md](server.md#wrap-up-and-attach).
 
 The chat goes on after `/wrap`. The next session, in any Space, starts from the
 approved brief and memory items.

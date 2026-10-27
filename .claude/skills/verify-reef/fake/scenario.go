@@ -25,8 +25,6 @@ var _scenarios = []scenario{
 	{"direct-review", "architect", pat(`wrote privately: Please review the login plan`)},
 	{"direct-fail", "architect", pat(`wrote privately: Please review the failing plan`)},
 	{"direct-noted", "lead", pat(`(?s)architect wrote privately: .*REVIEWED`)},
-	{"promote-propose-merge", "", pat(`now part of work item .* already has a brief`)},
-	{"promote-propose", "", pat(`This quick session is now work item`)},
 	{"wrap-propose", "", pat(`Wrap up this Space\.`)},
 	{"lockout-note", "", pat(`note: we decided to lock an account after 5 failed logins`)},
 	{"propose-brief", "", pat(`Call the propose_brief tool once`)},

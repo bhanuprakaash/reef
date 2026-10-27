@@ -63,7 +63,7 @@ func sessionFileExists(dir, sid string) bool {
 
 // findSessionDir is the projects dir that already holds sid's session file, searching every
 // cwd's folder: a resumed session may have been started under a different cwd (reef moves a
-// role's session into its feature's worktree on promote).
+// role's session into its work item's worktree on attach).
 func findSessionDir(sid string) (string, bool) {
 	home, err := os.UserHomeDir()
 	if err != nil {
