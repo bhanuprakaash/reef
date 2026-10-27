@@ -244,7 +244,7 @@ REEF_VERIFY_RUN=<id> $H reef --data-name cli -- project add
 REEF_VERIFY_RUN=<id> $H reef -- decide login "Use sessions, not JWT"
 REEF_TOKEN=<token> REEF_VERIFY_RUN=<id> $H mcp-call remember '{"kind":"decision","body":"Rate limit by IP"}'
 ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/chat-in.txt --answer y \
-  --timeout 300 -- chat login --role developer --backend claude
+  --timeout 300 -- chat login --backend claude
 ```
 
 - `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A | --sigint-at-prompt]]
