@@ -94,8 +94,8 @@ func TestStore_ProviderBinAndDelete(t *testing.T) {
 		t.Errorf("ApplyTeam with an unknown provider error = %v, want ErrInvalid", err)
 	}
 	err = st.DeleteProvider(ctx, "cx")
-	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "used by role lead of team t") {
-		t.Errorf("DeleteProvider of a provider a role names error = %v, want ErrConflict naming role lead of team t", err)
+	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "used by teammate t-lead") {
+		t.Errorf("DeleteProvider of a provider a role names error = %v, want ErrConflict naming teammate t-lead", err)
 	}
 	if _, err := st.ApplyTeam(ctx, Team{Name: "t", Roles: []Role{{Name: "lead", Lead: true, Backend: "codex"}}}); err != nil {
 		t.Fatal(err)

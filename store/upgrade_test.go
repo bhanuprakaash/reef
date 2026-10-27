@@ -36,8 +36,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 40 {
-		t.Errorf("user_version = %d, want 40", version)
+	if version != 41 {
+		t.Errorf("user_version = %d, want 41", version)
 	}
 
 	at := func(h, m, sec, ns int) time.Time {
@@ -65,7 +65,7 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 				Role: "architect", Backend: "claude", TokenBudget: 1000000, Team: "solo",
 				CreatedAt: at(3, 8, 0, 0)}},
 		{"solo team", func() (any, error) { return s.Team(ctx, "solo") },
-			Team{Name: "solo", Roles: []Role{{Name: "lead", Lead: true, Write: true, Backend: "claude",
+			Team{Name: "solo", Roles: []Role{{TeammateID: 1, Name: "lead", Lead: true, Write: true, Backend: "claude",
 				Skills: []string{},
 				Tools:  []string{}, MCPServers: []agent.MCPServer{}}}}},
 		{"messages", func() (any, error) { return s.Messages(ctx, 1, 0) },
@@ -145,8 +145,8 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 40 {
-		t.Errorf("user_version = %d, want 40", version)
+	if version != 41 {
+		t.Errorf("user_version = %d, want 41", version)
 	}
 	as, err := s.PendingApprovals(ctx, 1)
 	if err != nil {

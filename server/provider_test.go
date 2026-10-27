@@ -89,8 +89,8 @@ func TestProviders(t *testing.T) {
 		t.Fatal(err)
 	}
 	if status, out := do(t, http.MethodDelete, ts.URL+"/providers/work", ""); status != 409 ||
-		!strings.Contains(out, `provider \"work\" is used by role lead of team t`) {
-		t.Errorf("DELETE /providers/work while a role names it = %d %s, want 409 naming role lead of team t", status, out)
+		!strings.Contains(out, `provider \"work\" is used by teammate t-lead`) {
+		t.Errorf("DELETE /providers/work while a role names it = %d %s, want 409 naming teammate t-lead", status, out)
 	}
 	lead.Provider = ""
 	if _, err := st.ApplyTeam(context.Background(), store.Team{Name: "t", Roles: []store.Role{lead}}); err != nil {
