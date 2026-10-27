@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useDeleteTeam } from '@/modules/teams/api/delete-team';
 import { useUpdateTeam } from '@/modules/teams/api/update-team';
 import { AddRoleRow } from '@/modules/teams/components/add-role-row';
 import { RolePanel } from '@/modules/teams/components/role-panel';
@@ -6,6 +7,8 @@ import type { Provider, Role, Skills, Team } from '@/types/api';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
 import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
+import { Dialog } from '@/components/dialog';
+import { TextArea } from '@/components/text-area';
 import { TextField } from '@/components/text-field';
 
 const badge = 'inline-flex h-[30px] items-center rounded-pill border px-3 text-xs';
@@ -17,6 +20,7 @@ type Props = {
   providers?: Provider[];
   noProject?: boolean;
   onSaved: (name: string) => void;
+  onDeleted: () => void;
   onDuplicate: () => void;
 };
 
@@ -27,9 +31,11 @@ export function TeamEditor({
   providers,
   noProject,
   onSaved,
+  onDeleted,
   onDuplicate,
 }: Props) {
   const [loaded, setLoaded] = useState(team);
+  const [responsibility, setResponsibility] = useState(team.responsibility);
   const [roles, setRoles] = useState<Role[]>(team.roles);
   const [keys, setKeys] = useState(() => team.roles.map((_, i) => i));
   const [selected, setSelected] = useState<number | null>(() => {
@@ -37,13 +43,18 @@ export function TeamEditor({
     return i < 0 ? null : i;
   });
   const save = useUpdateTeam();
+  const remove = useDeleteTeam();
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   function load(t: Team) {
     setLoaded(t);
+    setResponsibility(t.responsibility);
     setRoles(t.roles);
     setKeys(t.roles.map((_, i) => i));
   }
-  const unsaved = JSON.stringify(roles) !== JSON.stringify(loaded.roles);
+  const unsaved =
+    responsibility !== loaded.responsibility ||
+    JSON.stringify(roles) !== JSON.stringify(loaded.roles);
   if (team !== loaded && !unsaved) load(team);
 
   const current = selected === null ? undefined : roles[selected];
@@ -67,6 +78,16 @@ export function TeamEditor({
             <p className="basis-48 pb-2.5 text-xs text-muted">
               Lead answers by default. Specialists sleep until @mentioned.
             </p>
+            {team.name !== 'solo' && (
+              <Button
+                type="button"
+                variant="ghost"
+                className="text-danger!"
+                onClick={() => setConfirmDelete(true)}
+              >
+                Delete
+              </Button>
+            )}
             <Button type="button" onClick={onDuplicate}>
               Duplicate
             </Button>
@@ -76,7 +97,10 @@ export function TeamEditor({
               disabled={save.isPending}
               onClick={() =>
                 save.mutate(
-                  { name: team.name, team: { name: team.name, roles } },
+                  {
+                    name: team.name,
+                    team: { name: team.name, responsibility: responsibility.trim(), roles },
+                  },
                   {
                     onSuccess: (saved) => {
                       load(saved);
@@ -92,6 +116,16 @@ export function TeamEditor({
           {save.isSuccess && <p className="text-sm text-muted">Saved</p>}
           {save.isError && <p className="text-sm text-danger">{save.error.message}</p>}
         </div>
+
+        <label className="block">
+          <span className="mb-1.5 block text-xs text-muted">Responsibility</span>
+          <TextArea
+            className="min-h-24 w-full resize-y"
+            value={responsibility}
+            placeholder="What work should this team own?"
+            onChange={(e) => setResponsibility(e.target.value)}
+          />
+        </label>
 
         <section aria-label="Roles" className="space-y-1.5">
           <h2 className="mb-2.5 text-[11px] uppercase tracking-[0.08em] text-muted">Roles</h2>
@@ -148,6 +182,34 @@ export function TeamEditor({
           onClose={() => setSelected(null)}
         />
       )}
+      <Dialog
+        open={confirmDelete}
+        onClose={() => setConfirmDelete(false)}
+        title={`Delete ${team.name}?`}
+      >
+        <p className="text-sm text-muted">Its existing Spaces keep their copied teammates.</p>
+        {remove.isError && <p className="mt-3 text-sm text-danger">{remove.error.message}</p>}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button type="button" onClick={() => setConfirmDelete(false)}>
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            loading={remove.isPending}
+            onClick={() =>
+              remove.mutate(team.name, {
+                onSuccess: () => {
+                  setConfirmDelete(false);
+                  onDeleted();
+                },
+              })
+            }
+          >
+            Delete team
+          </Button>
+        </div>
+      </Dialog>
     </>
   );
 }

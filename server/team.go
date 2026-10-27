@@ -15,8 +15,9 @@ import (
 // teamView is a team as REST shows it. A role's MCP servers show only a name and a label:
 // their args, env and url may carry keys.
 type teamView struct {
-	Name  string     `json:"name"`
-	Roles []roleView `json:"roles"`
+	Name           string     `json:"name"`
+	Responsibility string     `json:"responsibility"`
+	Roles          []roleView `json:"roles"`
 }
 
 type roleView struct {
@@ -42,28 +43,72 @@ type mcpView struct {
 	Label string `json:"label"`
 }
 
-// putRole is a role in a PUT body. Its mcpRemove lists the servers to drop, as GET showed them.
-type putRole struct {
+// teamRoleBody is a role in a Team request. Its mcpRemove lists the servers to drop, as GET
+// showed them.
+type teamRoleBody struct {
 	store.Role
 	MCPRemove []mcpView `json:"mcpRemove"`
 }
 
-type putBody struct {
-	Name  string    `json:"name"`
-	Roles []putRole `json:"roles"`
+type teamBody struct {
+	Name           string         `json:"name"`
+	Responsibility string         `json:"responsibility"`
+	Roles          []teamRoleBody `json:"roles"`
 }
 
 func (s *server) teamRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /teams", s.listTeams)
+	mux.HandleFunc("POST /teams", s.createTeam)
 	mux.HandleFunc("/teams", methodNotAllowed)
 	mux.HandleFunc("GET /teams/{name}", s.getTeam)
 	mux.HandleFunc("PUT /teams/{name}", s.putTeam)
+	mux.HandleFunc("DELETE /teams/{name}", s.deleteTeam)
 	mux.HandleFunc("/teams/{name}", methodNotAllowed)
 	mux.HandleFunc("POST /teams/{name}/members", s.addMember)
 	mux.HandleFunc("/teams/{name}/members", methodNotAllowed)
 	mux.HandleFunc("PUT /teams/{name}/members/{id}", s.editMember)
 	mux.HandleFunc("DELETE /teams/{name}/members/{id}", s.removeMember)
 	mux.HandleFunc("/teams/{name}/members/{id}", methodNotAllowed)
+}
+
+func (s *server) createTeam(w http.ResponseWriter, r *http.Request) {
+	var body teamBody
+	if err := readJSON(r, &body); err != nil {
+		writeError(w, err)
+		return
+	}
+	t := teamFromBody(body)
+	for _, role := range t.Roles {
+		if role.TeammateID == 0 {
+			writeError(w, fmt.Errorf("%w: role %s needs a teammateId", store.ErrInvalid, role.Name))
+			return
+		}
+	}
+	if from := r.URL.Query().Get("from"); from != "" {
+		source, err := s.st.Team(r.Context(), from)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if err := fillMCPServers(t, body, source); err != nil {
+			writeError(w, err)
+			return
+		}
+	}
+	created, err := s.st.CreateTeam(r.Context(), t)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, viewTeam(created))
+}
+
+func (s *server) deleteTeam(w http.ResponseWriter, r *http.Request) {
+	if err := s.st.DeleteTeam(r.Context(), r.PathValue("name")); err != nil {
+		writeError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (s *server) listTeams(w http.ResponseWriter, r *http.Request) {
@@ -96,15 +141,12 @@ func (s *server) getTeam(w http.ResponseWriter, r *http.Request) {
 func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	from := r.URL.Query().Get("from")
-	var body putBody
+	var body teamBody
 	if err := readJSON(r, &body); err != nil {
 		writeError(w, err)
 		return
 	}
-	t := store.Team{Name: body.Name, Roles: make([]store.Role, len(body.Roles))}
-	for i, pr := range body.Roles {
-		t.Roles[i] = pr.Role
-	}
+	t := teamFromBody(body)
 	if t.Name == "" {
 		t.Name = name
 	} else if t.Name != name {
@@ -153,7 +195,7 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 // fillMCPServers gives each role of t that omits mcpServers the servers of existing's role of
 // the same name, since the window never sees them, minus the ones the role's body lists in
 // mcpRemove.
-func fillMCPServers(t store.Team, body putBody, existing store.Team) error {
+func fillMCPServers(t store.Team, body teamBody, existing store.Team) error {
 	for i, role := range t.Roles {
 		if role.MCPServers != nil {
 			continue
@@ -212,7 +254,7 @@ func viewTeam(t store.Team) teamView {
 	for i, r := range t.Roles {
 		roles[i] = viewRole(r)
 	}
-	return teamView{Name: t.Name, Roles: roles}
+	return teamView{Name: t.Name, Responsibility: t.Responsibility, Roles: roles}
 }
 
 func viewRole(r store.Role) roleView {
@@ -224,3 +266,13 @@ func viewRole(r store.Role) roleView {
 }
 
 func mcpName(i int) string { return "mcp" + strconv.Itoa(i+1) }
+
+func teamFromBody(body teamBody) store.Team {
+	t := store.Team{
+		Name: body.Name, Responsibility: body.Responsibility, Roles: make([]store.Role, len(body.Roles)),
+	}
+	for i, role := range body.Roles {
+		t.Roles[i] = role.Role
+	}
+	return t
+}

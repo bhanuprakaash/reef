@@ -21,8 +21,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 50 {
-		t.Errorf("user_version = %d, want 50", version)
+	if version != 52 {
+		t.Errorf("user_version = %d, want 52", version)
 	}
 
 	rows, err := s.db.Query("SELECT name FROM sqlite_master WHERE type = 'table' " +
@@ -66,8 +66,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 50 {
-		t.Errorf("user_version after reopen = %d, want 50", version)
+	if version != 52 {
+		t.Errorf("user_version after reopen = %d, want 52", version)
 	}
 	var name string
 	if err := s.db.QueryRow("SELECT name FROM project WHERE id = 1").Scan(&name); err != nil {
@@ -135,8 +135,8 @@ func TestOpenConcurrent(t *testing.T) {
 	if err := stores[0].db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 50 {
-		t.Errorf("user_version = %d, want 50", version)
+	if version != 52 {
+		t.Errorf("user_version = %d, want 52", version)
 	}
 }
 

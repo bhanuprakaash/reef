@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { useUpdateTeam } from '@/modules/teams/api/update-team';
+import { useCreateTeam } from '@/modules/teams/api/create-team';
 import type { Team } from '@/types/api';
 import { Button } from '@/components/button';
 import { Dialog } from '@/components/dialog';
 import { Select } from '@/components/select';
+import { TextArea } from '@/components/text-area';
 import { TextField } from '@/components/text-field';
 
 const teamNamePattern = /^[A-Za-z0-9_-]+$/;
@@ -21,7 +22,8 @@ function NewTeamForm({ teams, from: initial, onClose, onCreated }: Omit<Props, '
   const [from, setFrom] = useState(
     () => (teams.find((t) => t.name === (initial ?? 'solo')) ?? teams[0]).name,
   );
-  const create = useUpdateTeam();
+  const [responsibility, setResponsibility] = useState('');
+  const create = useCreateTeam();
   const source = teams.find((t) => t.name === from);
 
   return (
@@ -30,11 +32,12 @@ function NewTeamForm({ teams, from: initial, onClose, onCreated }: Omit<Props, '
       onSubmit={(e) => {
         e.preventDefault();
         if (!source) return;
-        const team = { name: name.trim(), roles: source.roles };
-        create.mutate(
-          { name: team.name, team, from: source.name },
-          { onSuccess: (saved) => onCreated(saved.name) },
-        );
+        const team = {
+          name: name.trim(),
+          responsibility: responsibility.trim(),
+          roles: source.roles,
+        };
+        create.mutate({ team, from: source.name }, { onSuccess: (saved) => onCreated(saved.name) });
       }}
     >
       <label className="block">
@@ -45,6 +48,15 @@ function NewTeamForm({ teams, from: initial, onClose, onCreated }: Omit<Props, '
           required
           value={name}
           onChange={(e) => setName(e.target.value)}
+        />
+      </label>
+      <label className="block">
+        <span className="mb-1.5 block text-[12.5px] text-muted">Responsibility</span>
+        <TextArea
+          className="min-h-24 w-full resize-y"
+          value={responsibility}
+          placeholder="What work should this team own?"
+          onChange={(e) => setResponsibility(e.target.value)}
         />
       </label>
       <label className="block">

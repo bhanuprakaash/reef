@@ -67,6 +67,7 @@ export function TeamsPage() {
             providers={providers.data}
             noProject={!project}
             onSaved={(n) => setParams({ team: n })}
+            onDeleted={() => setParams({ team: 'solo' })}
             onDuplicate={() => setCreating({ from: team.name })}
           />
         )}

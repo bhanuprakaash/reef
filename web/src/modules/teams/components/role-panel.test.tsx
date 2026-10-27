@@ -4,8 +4,12 @@ import type { Role, Team } from '@/types/api';
 import { RolePanel } from './role-panel';
 import { TeamEditor } from './team-editor';
 
-const { useUpdateTeam } = vi.hoisted(() => ({ useUpdateTeam: vi.fn() }));
+const { useDeleteTeam, useUpdateTeam } = vi.hoisted(() => ({
+  useDeleteTeam: vi.fn(() => ({ isPending: false, isError: false })),
+  useUpdateTeam: vi.fn(),
+}));
 
+vi.mock('@/modules/teams/api/delete-team', () => ({ useDeleteTeam }));
 vi.mock('@/modules/teams/api/update-team', () => ({ useUpdateTeam }));
 
 const role: Role = {
@@ -67,10 +71,10 @@ describe('RolePanel', () => {
 describe('TeamEditor', () => {
   it('lists the roles and opens no panel until one is picked', () => {
     useUpdateTeam.mockReturnValue({ isPending: false, isSuccess: false, isError: false });
-    const team: Team = { name: 'solo', roles: [role] };
+    const team: Team = { name: 'solo', responsibility: '', roles: [role] };
 
     const markup = renderToStaticMarkup(
-      <TeamEditor team={team} onSaved={() => {}} onDuplicate={() => {}} />,
+      <TeamEditor team={team} onSaved={() => {}} onDeleted={() => {}} onDuplicate={() => {}} />,
     );
 
     expect(markup).toContain('2 tools');
@@ -79,10 +83,20 @@ describe('TeamEditor', () => {
 
   it('opens the panel of the role named by openRole', () => {
     useUpdateTeam.mockReturnValue({ isPending: false, isSuccess: false, isError: false });
-    const team: Team = { name: 'solo', roles: [{ ...role, name: 'lead' }, role] };
+    const team: Team = {
+      name: 'solo',
+      responsibility: '',
+      roles: [{ ...role, name: 'lead' }, role],
+    };
     const render = (openRole: string) =>
       renderToStaticMarkup(
-        <TeamEditor team={team} openRole={openRole} onSaved={() => {}} onDuplicate={() => {}} />,
+        <TeamEditor
+          team={team}
+          openRole={openRole}
+          onSaved={() => {}}
+          onDeleted={() => {}}
+          onDuplicate={() => {}}
+        />,
       );
 
     expect(render('developer')).toContain('aria-label="developer name"');

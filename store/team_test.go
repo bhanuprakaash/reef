@@ -4,8 +4,107 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
+
+func TestTeam_Responsibility(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	created, err := s.CreateTeam(ctx, Team{
+		Name:           "release",
+		Responsibility: "Ships Reef safely.",
+		Roles:          []Role{{Name: "lead", Lead: true, Backend: "claude"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if created.Responsibility != "Ships Reef safely." {
+		t.Errorf("created responsibility = %q, want %q", created.Responsibility, "Ships Reef safely.")
+	}
+
+	created.Responsibility = "Owns releases and rollback."
+	updated, err := s.ApplyTeam(ctx, created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Responsibility != "Owns releases and rollback." {
+		t.Errorf("updated responsibility = %q, want %q", updated.Responsibility,
+			"Owns releases and rollback.")
+	}
+}
+
+func TestCreateTeam_CopiesTeammateDefaults(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	teammate, err := s.CreateTeammate(ctx, Teammate{
+		Name: "sam", Backend: "claude", Tools: []string{"Read"}, PermissionMode: "default",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	team, err := s.CreateTeam(ctx, Team{Name: "release", Roles: []Role{{
+		TeammateID: teammate.ID, Name: "lead", Lead: true, Backend: "claude", Write: true,
+		PermissionMode: "acceptEdits", Tools: []string{"Edit"},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := team.Roles[0]
+	if got.TeammateID != teammate.ID || got.Write || got.PermissionMode != "default" ||
+		!reflect.DeepEqual(got.Tools, []string{"Read"}) {
+		t.Errorf("created membership = %+v, want teammate %d with defaults Read, default, no write",
+			got, teammate.ID)
+	}
+}
+
+func TestDeleteTeam_QueuedWorkItem(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	team, err := s.CreateTeam(ctx, Team{Name: "release", Roles: []Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := s.CreateProject(ctx, Project{Name: "reef", Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var teamID int64
+	if err := s.db.QueryRowContext(ctx, "SELECT id FROM team WHERE name = ?", team.Name).
+		Scan(&teamID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateWorkItem(ctx, WorkItem{
+		ProjectID: project.ID,
+		Title:     "Ship desktop updater",
+		Status:    "queued",
+		TeamID:    &teamID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.DeleteTeam(ctx, "release")
+	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "Ship desktop updater") {
+		t.Errorf("DeleteTeam error = %v, want conflict naming Ship desktop updater", err)
+	}
+}
 
 func TestApplyTeam_Solo(t *testing.T) {
 	ctx := context.Background()

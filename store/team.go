@@ -20,8 +20,9 @@ const SoloTeam = "solo"
 
 // Team is a named set of roles, exactly one of them the lead.
 type Team struct {
-	Name  string `json:"name"`
-	Roles []Role `json:"roles"`
+	Name           string `json:"name"`
+	Responsibility string `json:"responsibility"`
+	Roles          []Role `json:"roles"`
 }
 
 func faces() []string {
@@ -92,14 +93,17 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 	}
 	defer func() { _ = tx.Rollback() }()
 	if createOnly {
-		if _, err := tx.ExecContext(ctx, "INSERT INTO team (name) VALUES (?)", t.Name); err != nil {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO team (name, responsibility) VALUES (?, ?)",
+			t.Name, t.Responsibility); err != nil {
 			if isUnique(err) {
 				return Team{}, fmt.Errorf("%w: a team named %q already exists", ErrConflict, t.Name)
 			}
 			return Team{}, fmt.Errorf("insert team: %w", err)
 		}
 	} else if _, err := tx.ExecContext(ctx,
-		"INSERT INTO team (name) VALUES (?) ON CONFLICT (name) DO NOTHING", t.Name); err != nil {
+		"INSERT INTO team (name, responsibility) VALUES (?, ?) ON CONFLICT (name) DO UPDATE "+
+			"SET responsibility = excluded.responsibility", t.Name, t.Responsibility); err != nil {
 		return Team{}, fmt.Errorf("insert team: %w", err)
 	}
 	var id int64
@@ -118,6 +122,25 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 		skills, tools, servers, err := encodeLists(r.Skills, r.Tools, r.MCPServers)
 		if err != nil {
 			return Team{}, err
+		}
+		if r.TeammateID != 0 {
+			query := "INSERT INTO team_member (team_id, teammate_id, name, lead, tools, mcp_servers, " +
+				"write, permission_mode) SELECT ?, id, ?, ?, ?, ?, ?, ? FROM teammate WHERE id = ?"
+			args := []any{id, r.Name, r.Lead, tools, servers, r.Write, r.PermissionMode, r.TeammateID}
+			if createOnly {
+				query = "INSERT INTO team_member (team_id, teammate_id, name, lead, tools, " +
+					"mcp_servers, write, permission_mode) SELECT ?, id, ?, ?, tools, mcp_servers, " +
+					"write, permission_mode FROM teammate WHERE id = ?"
+				args = []any{id, r.Name, r.Lead, r.TeammateID}
+			}
+			res, err := tx.ExecContext(ctx, query, args...)
+			if err != nil {
+				return Team{}, fmt.Errorf("insert member %s: %w", r.Name, err)
+			}
+			if n, err := res.RowsAffected(); err == nil && n == 0 {
+				return Team{}, fmt.Errorf("%w: unknown teammate %d", ErrInvalid, r.TeammateID)
+			}
+			continue
 		}
 		tm := cmp.Or(behind[r.Name], t.Name+"-"+r.Name)
 		if _, err := tx.ExecContext(ctx,
@@ -166,8 +189,10 @@ func roleTeammates(ctx context.Context, tx *sql.Tx, teamID int64) (map[string]st
 // Team returns the team with the name, lead first, or ErrNotFound.
 func (s *Store) Team(ctx context.Context, name string) (Team, error) {
 	var teamID int64
-	switch err := s.db.QueryRowContext(ctx, "SELECT id FROM team WHERE name = ?", name).
-		Scan(&teamID); {
+	var responsibility string
+	switch err := s.db.QueryRowContext(ctx,
+		"SELECT id, responsibility FROM team WHERE name = ?", name).
+		Scan(&teamID, &responsibility); {
 	case errors.Is(err, sql.ErrNoRows):
 		return Team{}, fmt.Errorf("team %s: %w", name, ErrNotFound)
 	case err != nil:
@@ -180,7 +205,7 @@ func (s *Store) Team(ctx context.Context, name string) (Team, error) {
 	if len(roles) == 0 {
 		return Team{}, fmt.Errorf("team %s: %w", name, ErrNotFound)
 	}
-	return Team{Name: name, Roles: roles}, nil
+	return Team{Name: name, Responsibility: responsibility, Roles: roles}, nil
 }
 
 // TeamByID returns the team with the id, lead first, or ErrNotFound.
@@ -234,6 +259,49 @@ func (s *Store) Teams(ctx context.Context) ([]Team, error) {
 		teams = append(teams, t)
 	}
 	return teams, nil
+}
+
+// DeleteTeam removes the named Team. A top-level Queued, In progress or Needs you Work item
+// keeps it in place and is named in the conflict. Existing Spaces keep their copied members.
+func (s *Store) DeleteTeam(ctx context.Context, name string) error {
+	if name == SoloTeam {
+		return fmt.Errorf("%w: team %s is the default team and cannot be deleted", ErrInvalid, SoloTeam)
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete team: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var id int64
+	err = tx.QueryRowContext(ctx, "SELECT id FROM team WHERE name = ?", name).Scan(&id)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("team %s: %w", name, ErrNotFound)
+	case err != nil:
+		return fmt.Errorf("read team %s: %w", name, err)
+	}
+	var title, status string
+	err = tx.QueryRowContext(ctx,
+		"SELECT title, status FROM work_item WHERE team_id = ? AND parent_id IS NULL "+
+			"AND status IN ('in_progress', 'needs_you', 'queued') ORDER BY id LIMIT 1", id).
+		Scan(&title, &status)
+	switch {
+	case err == nil:
+		return fmt.Errorf("%w: team %s has work item %q in %s", ErrConflict, name, title,
+			strings.ReplaceAll(status, "_", " "))
+	case !errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("read work of team %s: %w", name, err)
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE space SET team_id = NULL WHERE team_id = ?", id); err != nil {
+		return fmt.Errorf("detach Spaces from team %s: %w", name, err)
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM team WHERE id = ?", id); err != nil {
+		return fmt.Errorf("delete team %s: %w", name, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete team %s: %w", name, err)
+	}
+	return nil
 }
 
 func (t Team) validate() error {

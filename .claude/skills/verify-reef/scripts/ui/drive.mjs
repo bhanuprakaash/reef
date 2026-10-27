@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|first-run BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, 'first-run': firstRun };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, diff, memory, inspector, review, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -197,6 +197,62 @@ async function live() {
   const lead = sql(`select count(*) from message where space_id=${cid} and author='lead'`);
   check(lead === '1', 'reply stored as one lead message', `message rows:\n${sql(`select id,author,substr(body,1,100) from message where space_id=${cid}`)}`);
   check((await main.locator('details').count()) === 0, 'live view cleared after the turn');
+}
+
+async function teamManagement() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const section = await addProject();
+  await page.goto(base + '/teams');
+  await main.getByRole('heading', { name: 'Teams', level: 1 }).waitFor();
+
+  const name = `delivery-${Date.now().toString(36)}`;
+  await main.getByRole('button', { name: 'New team' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New team' });
+  await dialog.getByLabel('Name', { exact: true }).fill(name);
+  await pick('Start from', 'full', dialog);
+  await dialog.getByLabel('Responsibility').fill('Own desktop releases.');
+  await dialog.getByRole('button', { name: 'Create team' }).click();
+  await page.waitForURL((url) => url.searchParams.get('team') === name);
+  await main.getByLabel('Team name').waitFor();
+
+  let saved = await getJson(`/teams/${name}`);
+  check(
+    saved.roles.some((role) => role.name === 'lead' && role.lead) && saved.roles.some((role) => role.name === 'developer'),
+    'the window creates a Team with a lead and a developer',
+    saved.roles.map((role) => `${role.name}${role.lead ? '*' : ''}`).join(', '),
+  );
+  check(saved.responsibility === 'Own desktop releases.', 'the responsibility entered at creation round-trips', saved.responsibility);
+
+  await main.getByLabel('Responsibility').fill('Own desktop releases and rollback.');
+  await main.getByRole('button', { name: 'Save team' }).click();
+  await main.getByText('Saved').waitFor();
+  saved = await getJson(`/teams/${name}`);
+  check(saved.responsibility === 'Own desktop releases and rollback.', 'editing responsibility saves through REST', saved.responsibility);
+  await shot('team-1280x800');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const width = await page.evaluate(() => document.documentElement.scrollWidth);
+  check(width <= 390, 'the Team editor has no horizontal scroll at 390x844', `${width} px`);
+  await main.getByLabel('Responsibility').scrollIntoViewIfNeeded();
+  await shot('team-390x844');
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await addFeature(section, 'Team run');
+  const { id } = await newTeamSpace(name, 'delivery room');
+  await send('Say ok in one word');
+  await workingAs('lead');
+  await idle();
+  const turn = sql(`select role || '|' || status from turn where space_id = ${id} order by id limit 1`);
+  check(turn === 'lead|done', 'the new Team runs a Space', turn);
+
+  await page.goto(`${base}/teams?team=${encodeURIComponent(name)}`);
+  await main.getByLabel('Team name').waitFor();
+  await main.getByRole('button', { name: 'Delete' }).click();
+  const confirm = page.getByRole('dialog', { name: `Delete ${name}?` });
+  await confirm.getByRole('button', { name: 'Delete team' }).click();
+  await page.waitForURL((url) => url.searchParams.get('team') === 'solo');
+  check(sql(`select count(*) from team where name = '${name}'`) === '0', 'Delete team removes the Team while its Space keeps its copied roster');
+  check(Number(sql(`select count(*) from space_member where space_id = ${id}`)) >= 2, "the deleted Team's Space still has its teammates");
 }
 
 async function brief() {

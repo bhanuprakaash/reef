@@ -44,7 +44,7 @@ func TestTeammateAndMembership(t *testing.T) {
 			`{"name":"sam","persona":"You test.","skills":["how"],"backend":"claude","face":"otter","tools":["Read","Grep"],"write":false}`,
 			200, `{"id":3,"name":"sam","persona":"You test.","skills":["how"],"backend":"claude","face":"otter","tools":["Read","Grep"],"mcp":[],"write":false,"permissionMode":""}`},
 		{"membership kept its copy", http.MethodGet, "/teams/core", "", 200,
-			`{"name":"core","roles":[{"teammateId":2,"name":"boss","lead":true,"write":false,"backend":"claude","permissionMode":"","persona":"","skills":[],"tools":[],"mcp":[]},` +
+			`{"name":"core","responsibility":"","roles":[{"teammateId":2,"name":"boss","lead":true,"write":false,"backend":"claude","permissionMode":"","persona":"","skills":[],"tools":[],"mcp":[]},` +
 				`{"teammateId":3,"name":"sam","lead":false,"write":true,"backend":"claude","permissionMode":"acceptEdits","persona":"You test.","skills":["how"],"face":"otter","tools":["Read"],"mcp":[]}]}`},
 		{"edit membership", http.MethodPut, "/teams/core/members/3",
 			`{"lead":false,"tools":["Read","Edit"],"write":true,"permissionMode":"acceptEdits"}`,

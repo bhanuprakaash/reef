@@ -69,6 +69,90 @@ func TestTeamsReturnFace(t *testing.T) {
 	}
 }
 
+func TestCreateUpdateAndDeleteTeam(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	developer, err := st.CreateTeammate(context.Background(), store.Teammate{
+		Name: "developer", Backend: "claude", Write: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if developer.ID != 2 {
+		t.Fatalf("developer id = %d, want 2", developer.ID)
+	}
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	status, body := do(t, http.MethodPost, ts.URL+"/teams", `{
+		"name":"release","responsibility":"Ship Reef safely.",
+		"roles":[{"teammateId":1,"name":"lead","lead":true,"backend":"claude"},
+		{"teammateId":2,"name":"developer","backend":"claude","write":true}]}`)
+	if status != http.StatusCreated || !strings.Contains(body, `"responsibility":"Ship Reef safely."`) {
+		t.Fatalf("POST /teams = %d %s, want 201 with responsibility", status, body)
+	}
+	status, body = do(t, http.MethodPut, ts.URL+"/teams/release", `{
+		"responsibility":"Own releases and rollback.",
+		"roles":[{"teammateId":1,"name":"lead","lead":true,"backend":"claude"},
+		{"teammateId":2,"name":"developer","backend":"claude","write":true}]}`)
+	if status != http.StatusOK || !strings.Contains(body, `"responsibility":"Own releases and rollback."`) {
+		t.Fatalf("PUT /teams/release = %d %s, want 200 with updated responsibility", status, body)
+	}
+	status, body = do(t, http.MethodGet, ts.URL+"/teams/release", "")
+	if status != http.StatusOK || !strings.Contains(body, `"responsibility":"Own releases and rollback."`) {
+		t.Errorf("GET /teams/release = %d %s, want updated responsibility", status, body)
+	}
+	status, body = do(t, http.MethodDelete, ts.URL+"/teams/release", "")
+	if status != http.StatusNoContent || body != "" {
+		t.Errorf("DELETE /teams/release = %d %s, want 204", status, body)
+	}
+}
+
+func TestDeleteTeam_QueuedWorkItem(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.CreateTeam(ctx, store.Team{Name: "release", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	project, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var teamID int64
+	if err := st.DB().QueryRowContext(ctx, "SELECT id FROM team WHERE name = 'release'").
+		Scan(&teamID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateWorkItem(ctx, store.WorkItem{
+		ProjectID: project.ID,
+		Title:     "Ship desktop updater",
+		Status:    "queued",
+		TeamID:    &teamID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodDelete, "/teams/release", nil)
+	req.SetPathValue("name", "release")
+	res := httptest.NewRecorder()
+	(&server{st: st}).deleteTeam(res, req)
+	status, body := res.Code, strings.TrimSpace(res.Body.String())
+	want := `{"error":"conflict: team release has work item \"Ship desktop updater\" in queued"}`
+	if status != http.StatusConflict || body != want {
+		t.Errorf("DELETE /teams/release = %d %s, want 409 %s", status, body, want)
+	}
+}
+
 func TestPutTeamModel(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -145,7 +229,7 @@ func TestSpaceTeam(t *testing.T) {
 	}
 
 	status, body := do(t, http.MethodGet, ts.URL+"/teams/core", "")
-	want := `{"name":"core","roles":[{"teammateId":2,"name":"lead","lead":true,"write":false,"backend":"codex",` +
+	want := `{"name":"core","responsibility":"","roles":[{"teammateId":2,"name":"lead","lead":true,"write":false,"backend":"codex",` +
 		`"permissionMode":"read-only","persona":"","skills":[],"tools":[],"mcp":[]},` +
 		`{"teammateId":3,"name":"architect","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"",` +
 		`"skills":[],"tools":[],"mcp":[]}]}`

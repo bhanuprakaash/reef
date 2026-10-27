@@ -167,6 +167,7 @@ export type Teammate = {
 
 export type Team = {
   name: string;
+  responsibility: string;
   roles: Role[];
 };
 

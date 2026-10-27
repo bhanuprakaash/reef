@@ -19,6 +19,7 @@ const space = (id: number, team: string): Space => ({
 
 const team = (name: string, roles: string[]): Team => ({
   name,
+  responsibility: '',
   roles: roles.map((r) => ({
     name: r,
     lead: r === 'lead',
