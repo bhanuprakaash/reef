@@ -3,7 +3,7 @@ import { Link } from 'react-router';
 import { Button } from '@/components/button';
 import { GroupAvatar } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
-import { useChannels } from '@/lib/api/get-channels';
+import { useSpaces } from '@/lib/api/get-spaces';
 import { useTeams } from '@/lib/api/get-teams';
 import { useCurrentProject } from '@/lib/current-project';
 import { useFeatures } from '@/modules/features/api/get-features';
@@ -95,10 +95,10 @@ function QuickCapture() {
 }
 
 function FeatureCard({ feature }: { feature: Feature }) {
-  const channels = useChannels();
+  const spaces = useSpaces();
   const teams = useTeams();
   const inbox = useInbox();
-  const mine = channels.data?.filter((c) => c.featureId === feature.id) ?? [];
+  const mine = spaces.data?.filter((c) => c.featureId === feature.id) ?? [];
   const latest = mine[mine.length - 1];
   const team = teams.data?.find((t) => t.name === latest?.team);
   const roles = team ? team.roles.map((r) => r.name) : latest ? [latest.role] : [];
@@ -139,8 +139,8 @@ function FeatureCard({ feature }: { feature: Feature }) {
         {waiting
           ? 'waiting on you'
           : mine.length === 0
-            ? 'no channel yet'
-            : `${mine.length} ${mine.length === 1 ? 'channel' : 'channels'}`}
+            ? 'no Space yet'
+            : `${mine.length} ${mine.length === 1 ? 'Space' : 'Spaces'}`}
       </div>
     </Link>
   );
@@ -151,7 +151,7 @@ export function HomePage() {
   const features = useFeatures();
   const inbox = useInbox();
   const tasks = useTasks();
-  const channels = useChannels();
+  const spaces = useSpaces();
   const [project] = useCurrentProject(projects.data);
   const now = new Date();
   const since = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime() - DAY;
@@ -202,7 +202,7 @@ export function HomePage() {
               <InboxRow
                 key={itemKey(item)}
                 item={item}
-                channel={channels.data?.find((c) => c.id === item.channelId)}
+                space={spaces.data?.find((c) => c.id === item.spaceId)}
               />
             ))}
           </ul>
@@ -215,7 +215,7 @@ export function HomePage() {
         </h2>
         {projectFeatures?.length === 0 && (
           <p className="text-[13px] text-muted">
-            No features yet. Add one from <span className="md:hidden">Channels.</span>
+            No features yet. Add one from <span className="md:hidden">Spaces.</span>
             <span className="hidden md:inline">the sidebar.</span>
           </p>
         )}

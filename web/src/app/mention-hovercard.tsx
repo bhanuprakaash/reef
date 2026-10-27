@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useTeams } from '@/lib/api/get-teams';
-import { useRunningTurns } from '@/modules/channels/api/get-turns';
+import { useRunningTurns } from '@/modules/spaces/api/get-turns';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
 import { gateRows } from '@/modules/teams/utils/gates';
 import type { Role } from '@/types/api';
@@ -74,18 +74,18 @@ export function MentionCard({
 }
 
 export function MentionCardsProvider({
-  channelId,
+  spaceId,
   team,
   children,
 }: {
-  channelId: number;
+  spaceId: number;
   team: string;
   children: ReactNode;
 }) {
   const teams = useTeams();
   const running = useRunningTurns();
   const found = teams.data?.find((t) => t.name === team);
-  const working = (running.data ?? []).filter((t) => t.channelId === channelId).map((t) => t.role);
+  const working = (running.data ?? []).filter((t) => t.spaceId === spaceId).map((t) => t.role);
 
   function card(name: string) {
     const role = found?.roles.find((r) => r.name === name);

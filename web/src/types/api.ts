@@ -50,7 +50,7 @@ export type Brief = {
   createdAt: string;
 };
 
-export type Channel = {
+export type Space = {
   id: number;
   projectId: number;
   featureId: number | null;
@@ -64,7 +64,7 @@ export type Channel = {
   closedAt: string | null;
 };
 
-export type ChannelPreview = Channel & {
+export type SpacePreview = Space & {
   lastMessage: { author: string; body: string; createdAt: string } | null;
 };
 
@@ -78,7 +78,7 @@ export type ProposedItem = {
 
 export type Proposal = {
   id: number;
-  channelId: number;
+  spaceId: number;
   role: string;
   kind: 'wrap' | 'brief';
   brief: string;
@@ -90,7 +90,7 @@ export type Proposal = {
 
 export type Message = {
   id: number;
-  channelId: number;
+  spaceId: number;
   parentId: number | null;
   author: string;
   body: string;
@@ -99,7 +99,7 @@ export type Message = {
 
 export type Turn = {
   id: number;
-  channelId: number;
+  spaceId: number;
   role: string;
   status: string;
   error: string;
@@ -150,7 +150,7 @@ export type Team = {
 
 export type Approval = {
   id: number;
-  channelId: number;
+  spaceId: number;
   from: string;
   to: string;
   messageId: number;
@@ -162,7 +162,7 @@ export type Approval = {
 
 export type DirectMessage = {
   id: number;
-  channelId: number;
+  spaceId: number;
   chainId: number;
   replyToId: number | null;
   sourceMessageId: number | null;
@@ -175,7 +175,7 @@ export type DirectMessage = {
 
 export type InboxItem = {
   kind: 'approval' | 'paused' | 'failed' | 'waiting';
-  channelId: number;
+  spaceId: number;
   featureId: number | null;
   text: string;
   at: string;

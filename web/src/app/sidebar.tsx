@@ -1,16 +1,16 @@
 import { useCallback, useState, type ReactNode } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
-import { FeatureChannels } from '@/app/feature-channels';
+import { FeatureSpaces } from '@/app/feature-spaces';
 import { ProjectSwitcher } from '@/app/project-switcher';
 import { UpdateCard } from '@/app/update-card';
 import { CountBadge } from '@/components/count-badge';
 import { Dialog } from '@/components/dialog';
 import { Logo } from '@/components/logo';
 import { Row } from '@/components/row';
-import { useChannels } from '@/lib/api/get-channels';
+import { useSpaces } from '@/lib/api/get-spaces';
 import { useProfile } from '@/lib/api/get-profile';
 import { useCurrentProject } from '@/lib/current-project';
-import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
+import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { useInboxEvents } from '@/modules/inbox/hooks/use-inbox-events';
@@ -81,19 +81,19 @@ export function Sidebar() {
   const projects = useProjects();
   const profileName = useProfile().data?.name ?? '';
   const features = useFeatures();
-  const channels = useChannels();
+  const spaces = useSpaces();
   const inbox = useInbox();
   useInboxEvents(useCallback((item) => void navigate(itemPath(item)), [navigate]));
   const [query, setQuery] = useState('');
   const [creating, setCreating] = useState(false);
 
   const [current] = useCurrentProject(projects.data);
-  const error = projects.error ?? features.error ?? channels.error;
+  const error = projects.error ?? features.error ?? spaces.error;
   const waiting = inbox.data ?? [];
   const projectFeatures = features.data?.filter((f) => f.projectId === current?.id).length ?? 0;
 
   return (
-    <nav aria-label="Channels" className="flex h-full flex-col px-3 pt-4 pb-3 text-sm">
+    <nav aria-label="Spaces" className="flex h-full flex-col px-3 pt-4 pb-3 text-sm">
       <div className="app-drag box-content flex h-8 items-center justify-end gap-1 pb-3.5">
         <span className="flex items-center gap-1.5 pr-1">
           <Logo size={18} />
@@ -101,7 +101,7 @@ export function Sidebar() {
         </span>
         <button
           type="button"
-          aria-label="New channel"
+          aria-label="New Space"
           disabled={!current}
           onClick={() => setCreating(true)}
           className="flex size-8 items-center justify-center rounded-lg text-soft hover:bg-hover/50"
@@ -179,7 +179,7 @@ export function Sidebar() {
         />
 
         {error && <p className="px-2.5 pt-3 text-sm text-danger">{error.message}</p>}
-        {current && <FeatureChannels project={current} query={query} />}
+        {current && <FeatureSpaces project={current} query={query} />}
       </div>
 
       <UpdateCard />
@@ -209,7 +209,7 @@ export function Sidebar() {
       {current && (
         <Dialog open={creating} onClose={() => setCreating(false)} title="New quick session">
           {creating && (
-            <NewChannelForm
+            <NewSpaceForm
               projectId={current.id}
               featureId={null}
               onClose={() => setCreating(false)}

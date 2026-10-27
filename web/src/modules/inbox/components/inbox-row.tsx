@@ -1,14 +1,14 @@
 import { Link } from 'react-router';
 import { Button, buttonClass } from '@/components/button';
 import { Creature } from '@/components/creature';
-import { useContinueChannel } from '@/lib/api/continue-channel';
+import { useContinueSpace } from '@/lib/api/continue-space';
 import { useDecideApproval } from '@/lib/api/decide-approval';
 import { useRetryTurn } from '@/lib/api/retry-turn';
 import { useTeams } from '@/lib/api/get-teams';
 import { useDismissWaiting } from '@/modules/inbox/api/dismiss-waiting';
 import { age } from '@/modules/inbox/utils/age';
 import { kindLabels } from '@/modules/inbox/utils/new-items';
-import type { Channel, InboxItem } from '@/types/api';
+import type { Space, InboxItem } from '@/types/api';
 import { itemPath } from '@/utils/anchors';
 import { roleFaces } from '@/utils/role-faces';
 
@@ -19,21 +19,21 @@ const kindColors: Record<InboxItem['kind'], string> = {
   waiting: 'text-working',
 };
 
-export function InboxRow({ item, channel }: { item: InboxItem; channel?: Channel }) {
+export function InboxRow({ item, space }: { item: InboxItem; space?: Space }) {
   const decide = useDecideApproval();
-  const cont = useContinueChannel();
+  const cont = useContinueSpace();
   const retry = useRetryTurn();
   const dismiss = useDismissWaiting();
   const teams = useTeams();
   const pending = decide.isPending || cont.isPending || retry.isPending || dismiss.isPending;
   const error = decide.error ?? cont.error ?? retry.error ?? dismiss.error;
-  const { channelId, approvalId, turnId, messageId } = item;
+  const { spaceId, approvalId, turnId, messageId } = item;
 
   return (
     <li className="flex gap-4 rounded-card border border-line bg-card px-5 py-[18px]">
       <Creature
-        role={channel?.role ?? ''}
-        face={roleFaces(teams.data, channel?.team)[channel?.role ?? '']}
+        role={space?.role ?? ''}
+        face={roleFaces(teams.data, space?.team)[space?.role ?? '']}
         size={40}
       />
       <div className="min-w-0 flex-1">
@@ -42,7 +42,7 @@ export function InboxRow({ item, channel }: { item: InboxItem; channel?: Channel
             {kindLabels[item.kind]}
           </span>
           <span className="text-muted">
-            #{channel?.name ?? `Channel ${channelId}`} · {age(item.at)}
+            #{space?.name ?? `Space ${spaceId}`} · {age(item.at)}
           </span>
         </div>
         <div className="mt-1 whitespace-pre-wrap text-[15px]">{item.text}</div>
@@ -53,14 +53,14 @@ export function InboxRow({ item, channel }: { item: InboxItem; channel?: Channel
                 type="button"
                 variant="primary"
                 disabled={pending}
-                onClick={() => decide.mutate({ channelId, id: approvalId, approve: true })}
+                onClick={() => decide.mutate({ spaceId, id: approvalId, approve: true })}
               >
                 Approve
               </Button>
               <Button
                 type="button"
                 disabled={pending}
-                onClick={() => decide.mutate({ channelId, id: approvalId, approve: false })}
+                onClick={() => decide.mutate({ spaceId, id: approvalId, approve: false })}
               >
                 Reject
               </Button>
@@ -71,7 +71,7 @@ export function InboxRow({ item, channel }: { item: InboxItem; channel?: Channel
               type="button"
               variant="primary"
               disabled={pending}
-              onClick={() => cont.mutate(channelId)}
+              onClick={() => cont.mutate(spaceId)}
             >
               Continue
             </Button>
@@ -90,14 +90,14 @@ export function InboxRow({ item, channel }: { item: InboxItem; channel?: Channel
             to={itemPath(item)}
             className={buttonClass(item.kind === 'waiting' ? 'primary' : 'ghost')}
           >
-            {item.kind === 'waiting' ? 'Open' : 'Open channel'}
+            {item.kind === 'waiting' ? 'Open' : 'Open Space'}
           </Link>
           {item.kind === 'waiting' && messageId !== undefined && (
             <Button
               type="button"
               variant="ghost"
               disabled={pending}
-              onClick={() => dismiss.mutate({ channelId, messageId })}
+              onClick={() => dismiss.mutate({ spaceId, messageId })}
             >
               Dismiss
             </Button>

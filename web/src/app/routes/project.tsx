@@ -7,9 +7,9 @@ import { Card } from '@/components/card';
 import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { EmptyState } from '@/components/empty-state';
-import { useChannels } from '@/lib/api/get-channels';
+import { useSpaces } from '@/lib/api/get-spaces';
 import { useTeams } from '@/lib/api/get-teams';
-import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
+import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
 import { useProjects } from '@/modules/projects/api/get-projects';
@@ -25,7 +25,7 @@ export function ProjectPage() {
   const id = Number(useParams().id);
   const projects = useProjects();
   const features = useFeatures();
-  const channels = useChannels();
+  const spaces = useSpaces();
   const teams = useTeams();
   const tasks = useTasks();
   const [dialog, setDialog] = useState<'feature' | 'session' | null>(null);
@@ -35,9 +35,9 @@ export function ProjectPage() {
   const project = projects.data.find((p) => p.id === id);
   if (!project) return <p className="text-sm text-danger">Project not found.</p>;
 
-  const projectChannels = channels.data?.filter((c) => c.projectId === id) ?? [];
+  const projectSpaces = spaces.data?.filter((c) => c.projectId === id) ?? [];
   const projectFeatures = features.data?.filter((f) => f.projectId === id) ?? [];
-  const quick = projectChannels.filter((c) => c.featureId === null);
+  const quick = projectSpaces.filter((c) => c.featureId === null);
 
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-6 py-6">
@@ -78,7 +78,7 @@ export function ProjectPage() {
                 <li key={f.id}>
                   <Link to={`/features/${f.id}`} className={rowClass}>
                     {f.name}
-                    {projectChannels.some((c) => c.featureId === f.id && c.paused) ? (
+                    {projectSpaces.some((c) => c.featureId === f.id && c.paused) ? (
                       <span className="ml-auto text-[12.5px] text-paused">paused</span>
                     ) : (
                       <span className="ml-auto text-[12.5px] text-muted">
@@ -91,7 +91,7 @@ export function ProjectPage() {
             </ul>
           </Card>
           <Card title="Quick sessions">
-            {channels.isError && <p className="text-sm text-danger">{channels.error.message}</p>}
+            {spaces.isError && <p className="text-sm text-danger">{spaces.error.message}</p>}
             {quick.length === 0 && (
               <EmptyState
                 title="No quick sessions"
@@ -103,7 +103,7 @@ export function ProjectPage() {
             <ul>
               {quick.map((c) => (
                 <li key={c.id}>
-                  <Link to={`/channels/${c.id}`} className={rowClass}>
+                  <Link to={`/spaces/${c.id}`} className={rowClass}>
                     <GroupAvatar roles={[c.role]} faces={roleFaces(teams.data, c.team)} size={22} />
                     {c.name}
                     <span className="ml-auto text-[12.5px] text-muted">
@@ -122,7 +122,7 @@ export function ProjectPage() {
       </Dialog>
       <Dialog open={dialog === 'session'} onClose={() => setDialog(null)} title="New quick session">
         {dialog === 'session' && (
-          <NewChannelForm projectId={id} featureId={null} onClose={() => setDialog(null)} />
+          <NewSpaceForm projectId={id} featureId={null} onClose={() => setDialog(null)} />
         )}
       </Dialog>
     </div>

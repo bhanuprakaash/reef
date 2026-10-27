@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
-import type { Channel, Message, Team } from '@/types/api';
-import { pickChannel, pickRoot, reviewText } from './send-review';
+import type { Space, Message, Team } from '@/types/api';
+import { pickSpace, pickRoot, reviewText } from './send-review';
 
-const channel = (id: number, team: string): Channel => ({
+const space = (id: number, team: string): Space => ({
   id,
   projectId: 1,
   featureId: 1,
@@ -33,7 +33,7 @@ const team = (name: string, roles: string[]): Team => ({
 
 const msg = (id: number, parentId: number | null, author: string): Message => ({
   id,
-  channelId: 1,
+  spaceId: 1,
   parentId,
   author,
   body: `m${id}`,
@@ -57,15 +57,15 @@ describe('reviewText', () => {
   });
 });
 
-describe('pickChannel', () => {
-  it('picks the most recent channel whose team has a developer role', () => {
+describe('pickSpace', () => {
+  it('picks the most recent Space whose team has a developer role', () => {
     const teams = [team('solo', ['lead']), team('full', ['lead', 'developer'])];
-    const channels = [channel(1, 'solo'), channel(2, 'full'), channel(3, 'full')];
-    expect(pickChannel(channels, teams)?.id).toBe(3);
+    const spaces = [space(1, 'solo'), space(2, 'full'), space(3, 'full')];
+    expect(pickSpace(spaces, teams)?.id).toBe(3);
   });
 
-  it('returns undefined when no channel has a developer role', () => {
-    expect(pickChannel([channel(1, 'solo')], [team('solo', ['lead'])])).toBeUndefined();
+  it('returns undefined when no Space has a developer role', () => {
+    expect(pickSpace([space(1, 'solo')], [team('solo', ['lead'])])).toBeUndefined();
   });
 });
 

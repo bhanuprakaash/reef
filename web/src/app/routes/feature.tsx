@@ -2,12 +2,12 @@ import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { FeatureTerminal } from '@/app/feature-terminal';
 import { useTerminal } from '@/app/use-terminal';
-import { ChannelList } from '@/modules/channels/components/channel-list';
-import { useChannels } from '@/lib/api/get-channels';
+import { SpaceList } from '@/modules/spaces/components/space-list';
+import { useSpaces } from '@/lib/api/get-spaces';
 import { useMemory } from '@/lib/api/get-memory';
 import { useRetireMemory } from '@/lib/api/retire-memory';
 import { useTeams } from '@/lib/api/get-teams';
-import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
+import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
 import { useBriefVersions } from '@/modules/features/api/get-brief-versions';
 import { useDiff } from '@/modules/features/api/get-diff';
 import { useFeature } from '@/modules/features/api/get-feature';
@@ -38,19 +38,19 @@ export function FeaturePage() {
   const retire = useRetireMemory(scope);
   const diff = useDiff(id);
   const tasks = useTasks({ feature: id });
-  const channels = useChannels();
+  const spaces = useSpaces();
   const teams = useTeams();
   const terminal = useTerminal(true);
   const setClosed = useSetFeatureClosed(id);
-  const [dialog, setDialog] = useState<'edit' | 'channel' | 'close' | null>(null);
+  const [dialog, setDialog] = useState<'edit' | 'space' | 'close' | null>(null);
 
   if (feature.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (feature.isError) return <p className="text-sm text-danger">{feature.error.message}</p>;
 
   const f = feature.data;
   const project = projects.data?.find((p) => p.id === f.projectId);
-  const featureChannels = channels.data?.filter((c) => c.featureId === id) ?? [];
-  const latestChannel = featureChannels[featureChannels.length - 1];
+  const featureSpaces = spaces.data?.filter((c) => c.featureId === id) ?? [];
+  const latestSpace = featureSpaces[featureSpaces.length - 1];
   const openTasks = tasks.data?.filter((t) => t.status !== 'done') ?? [];
   const doneTasks = tasks.data?.filter((t) => t.status === 'done') ?? [];
 
@@ -122,7 +122,7 @@ export function FeaturePage() {
           ) : (
             <MemoryList
               items={memory.data ?? []}
-              faces={roleFaces(teams.data, latestChannel?.team)}
+              faces={roleFaces(teams.data, latestSpace?.team)}
               onRetire={retire.mutate}
               retiring={retire.isPending}
             />
@@ -130,14 +130,14 @@ export function FeaturePage() {
           {retire.isError && <p className="text-sm text-danger">{retire.error.message}</p>}
         </div>
         <div className="flex min-w-[300px] flex-1 flex-col gap-5">
-          <Card title="Channels">
-            {channels.isError ? (
-              <p className="text-sm text-danger">{channels.error.message}</p>
+          <Card title="Spaces">
+            {spaces.isError ? (
+              <p className="text-sm text-danger">{spaces.error.message}</p>
             ) : (
-              <ChannelList channels={featureChannels} />
+              <SpaceList spaces={featureSpaces} />
             )}
-            <Button type="button" className="mt-3" onClick={() => setDialog('channel')}>
-              New channel
+            <Button type="button" className="mt-3" onClick={() => setDialog('space')}>
+              New Space
             </Button>
           </Card>
           <Card title="Tasks">
@@ -164,14 +164,14 @@ export function FeaturePage() {
       <Dialog open={dialog === 'edit'} onClose={() => setDialog(null)} title="Edit feature">
         {dialog === 'edit' && <FeatureForm feature={f} onDone={() => setDialog(null)} />}
       </Dialog>
-      <Dialog open={dialog === 'channel'} onClose={() => setDialog(null)} title="New channel">
-        {dialog === 'channel' && (
-          <NewChannelForm projectId={f.projectId} featureId={id} onClose={() => setDialog(null)} />
+      <Dialog open={dialog === 'space'} onClose={() => setDialog(null)} title="New Space">
+        {dialog === 'space' && (
+          <NewSpaceForm projectId={f.projectId} featureId={id} onClose={() => setDialog(null)} />
         )}
       </Dialog>
       <Dialog open={dialog === 'close'} onClose={() => setDialog(null)} title="Close feature">
         <p className="mb-5 text-sm text-muted">
-          Close {f.name}? Its channels close too and their agents stop. You can reopen it later.
+          Close {f.name}? Its Spaces close too and their agents stop. You can reopen it later.
         </p>
         <div className="flex justify-end gap-2">
           <Button type="button" onClick={() => setDialog(null)}>

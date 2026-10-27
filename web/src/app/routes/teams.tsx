@@ -27,7 +27,7 @@ export function TeamsPage() {
         <div>
           <h1 className="text-[32px] font-normal tracking-[-0.02em]">Teams</h1>
           <p className="mt-1 text-[13px] text-muted">
-            Define a team once, start any channel with it.
+            Define a team once, start any Space with it.
           </p>
         </div>
         <Button

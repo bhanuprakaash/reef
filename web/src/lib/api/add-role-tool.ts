@@ -2,12 +2,12 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 import type { Team } from '@/types/api';
 
-type Add = { team: string; role: string; pattern: string; stopChannel?: number };
+type Add = { team: string; role: string; pattern: string; stopSpace?: number };
 
 export function useAddRoleTool() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ team, role, pattern, stopChannel }: Add) => {
+    mutationFn: async ({ team, role, pattern, stopSpace }: Add) => {
       const path = `/teams/${encodeURIComponent(team)}`;
       const current = await api<Team>(path);
       await api<Team>(path, {
@@ -21,8 +21,8 @@ export function useAddRoleTool() {
           })),
         }),
       });
-      if (stopChannel !== undefined) {
-        await api<void>(`/channels/${stopChannel}/stop`, { method: 'POST', body: '{}' });
+      if (stopSpace !== undefined) {
+        await api<void>(`/spaces/${stopSpace}/stop`, { method: 'POST', body: '{}' });
       }
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: ['teams'] }),

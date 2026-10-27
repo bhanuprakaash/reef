@@ -8,7 +8,7 @@ export const kindLabels: Record<InboxItem['kind'], string> = {
 };
 
 export function itemKey(i: InboxItem): string {
-  return [i.kind, i.channelId, i.approvalId, i.turnId, i.at].join(':');
+  return [i.kind, i.spaceId, i.approvalId, i.turnId, i.at].join(':');
 }
 
 export function newItems(before: InboxItem[], after: InboxItem[]): InboxItem[] {

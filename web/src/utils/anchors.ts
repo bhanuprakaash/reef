@@ -13,5 +13,5 @@ function itemAnchor(item: InboxItem): string {
 }
 
 export function itemPath(item: InboxItem): string {
-  return `/channels/${item.channelId}#${itemAnchor(item)}`;
+  return `/spaces/${item.spaceId}#${itemAnchor(item)}`;
 }

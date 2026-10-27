@@ -47,9 +47,9 @@ function Tab({
 
 export function TabBar() {
   const inbox = useInbox();
-  const inChannel = useMatch('/channels/:id');
+  const inSpace = useMatch('/spaces/:id');
   const inReview = useMatch('/features/:id/review');
-  if (inChannel || inReview) return null;
+  if (inSpace || inReview) return null;
 
   return (
     <nav
@@ -60,7 +60,7 @@ export function TabBar() {
         <circle cx="12" cy="12" r="4" />
         <path d="M12 2v2M12 20v2M2 12h2M20 12h2" />
       </Tab>
-      <Tab to="/channels" label="Channels">
+      <Tab to="/spaces" label="Spaces">
         <path d="M4 5h16v11H9l-5 4z" />
       </Tab>
       <Tab to="/inbox" label="Needs you" badge={inbox.data?.length}>

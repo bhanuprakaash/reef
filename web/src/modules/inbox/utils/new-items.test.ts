@@ -4,7 +4,7 @@ import { newItems } from './new-items';
 
 const approval: InboxItem = {
   kind: 'approval',
-  channelId: 5,
+  spaceId: 5,
   featureId: 2,
   text: 'lead wants to wake architect',
   at: '2026-10-14T09:00:10Z',
@@ -12,7 +12,7 @@ const approval: InboxItem = {
 };
 const failed: InboxItem = {
   kind: 'failed',
-  channelId: 5,
+  spaceId: 5,
   featureId: 2,
   text: 'architect failed: interrupted',
   at: '2026-10-14T09:05:00Z',
@@ -24,7 +24,7 @@ describe('newItems', () => {
     expect(newItems([approval], [failed, approval])).toEqual([failed]);
   });
 
-  it('lists a new approval of the same channel again', () => {
+  it('lists a new approval of the same Space again', () => {
     const again = { ...approval, approvalId: 2, at: '2026-10-14T09:10:00Z' };
     expect(newItems([approval], [again])).toEqual([again]);
   });

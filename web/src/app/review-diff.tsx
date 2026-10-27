@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { BackButton } from '@/components/back-button';
-import { useChannels } from '@/lib/api/get-channels';
+import { useSpaces } from '@/lib/api/get-spaces';
 import { useTeams } from '@/lib/api/get-teams';
 import { type DiffScope, useDiff } from '@/modules/features/api/get-diff';
 import { useFeature } from '@/modules/features/api/get-feature';
@@ -20,11 +20,11 @@ export function ReviewDiff({ id, onClose, defaultScope = 'full' }: Props) {
   const [scope, setScope] = useState(defaultScope);
   const feature = useFeature(id);
   const diff = useDiff(id, scope);
-  const channels = useChannels();
+  const spaces = useSpaces();
   const teams = useTeams();
   const projects = useProjects();
 
-  const latestTeam = channels.data?.filter((c) => c.featureId === id).at(-1)?.team;
+  const latestTeam = spaces.data?.filter((c) => c.featureId === id).at(-1)?.team;
 
   if (feature.isPending || diff.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (feature.isError) return <p className="text-sm text-danger">{feature.error.message}</p>;

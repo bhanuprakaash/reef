@@ -9,7 +9,7 @@ export function useSetFeatureClosed(id: number) {
     onSuccess: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: ['features'] }),
-        queryClient.invalidateQueries({ queryKey: ['channels'] }),
+        queryClient.invalidateQueries({ queryKey: ['spaces'] }),
       ]),
   });
 }

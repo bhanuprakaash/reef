@@ -4,8 +4,8 @@ import { api } from '@/lib/api-client';
 export function useDismissWaiting() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ channelId, messageId }: { channelId: number; messageId: number }) =>
-      api<void>(`/channels/${channelId}/dismiss`, {
+    mutationFn: ({ spaceId, messageId }: { spaceId: number; messageId: number }) =>
+      api<void>(`/spaces/${spaceId}/dismiss`, {
         method: 'POST',
         body: JSON.stringify({ messageId }),
       }),

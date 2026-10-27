@@ -48,7 +48,7 @@ function NavButton({
 }
 
 // BrowserPane is the one browser for the whole window, shared by every
-// channel. Its content is a native Electron view drawn on top of this pane by
+// Space. Its content is a native Electron view drawn on top of this pane by
 // the desktop app; this component only runs the address bar and keeps the
 // native view's bounds in sync with the pane's own size (a hidden pane reports
 // a zero size, which hides the view). Plain Chrome has no window.reef, and so

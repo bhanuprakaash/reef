@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button } from '@/components/button';
 import { EmptyState } from '@/components/empty-state';
-import { useChannels } from '@/lib/api/get-channels';
+import { useSpaces } from '@/lib/api/get-spaces';
 import { useNotificationPermission } from '@/lib/use-notification-permission';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
 import { InboxRow } from '@/modules/inbox/components/inbox-row';
@@ -20,7 +20,7 @@ const filters: { value: Filter; label: string }[] = [
 
 export function InboxList() {
   const inbox = useInbox();
-  const channels = useChannels();
+  const spaces = useSpaces();
   const { permission, request } = useNotificationPermission();
   const [chosen, setChosen] = useState<Filter>('all');
 
@@ -76,7 +76,7 @@ export function InboxList() {
           <InboxRow
             key={itemKey(item)}
             item={item}
-            channel={channels.data?.find((c) => c.id === item.channelId)}
+            space={spaces.data?.find((c) => c.id === item.spaceId)}
           />
         ))}
       </ul>

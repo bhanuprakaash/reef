@@ -19,7 +19,7 @@ vi.mock('@/modules/features/api/set-feature-closed', () => ({
 }));
 vi.mock('@/modules/projects/api/get-projects', () => ({ useProjects: hooks.none }));
 vi.mock('@/modules/tasks/api/get-tasks', () => ({ useTasks: hooks.none }));
-vi.mock('@/lib/api/get-channels', () => ({ useChannels: hooks.none }));
+vi.mock('@/lib/api/get-spaces', () => ({ useSpaces: hooks.none }));
 vi.mock('@/lib/api/get-teams', () => ({ useTeams: hooks.none }));
 vi.mock('@/app/use-terminal', () => ({ useTerminal: () => ({}) }));
 vi.mock('@/app/feature-terminal', () => ({ FeatureTerminal: () => null }));

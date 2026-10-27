@@ -1,9 +1,9 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { messagesQuery } from '@/lib/api/get-messages';
-import { channelsQuery } from '@/lib/api/get-channels';
+import { spacesQuery } from '@/lib/api/get-spaces';
 import { sendMessage } from '@/lib/api/send-message';
 import { teamsQuery } from '@/lib/api/get-teams';
-import type { Channel, Message, Team } from '@/types/api';
+import type { Space, Message, Team } from '@/types/api';
 
 export type ReviewComment = { path: string; line: number; text: string; removed?: boolean };
 
@@ -15,13 +15,13 @@ export function reviewText(comments: ReviewComment[]): string {
     .join('\n\n');
 }
 
-// pickChannel returns the feature's channel whose team has a developer role, the most
+// pickSpace returns the feature's Space whose team has a developer role, the most
 // recently created one when there are several.
-export function pickChannel(channels: Channel[], teams: Team[]): Channel | undefined {
+export function pickSpace(spaces: Space[], teams: Team[]): Space | undefined {
   const developerTeams = new Set(
     teams.filter((t) => t.roles.some((r) => r.name === 'developer')).map((t) => t.name),
   );
-  return channels.filter((c) => developerTeams.has(c.team)).at(-1);
+  return spaces.filter((c) => developerTeams.has(c.team)).at(-1);
 }
 
 // pickRoot returns the id of the developer's latest top-level message, the thread a reply
@@ -36,21 +36,21 @@ export function useSendReview(featureId: number) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (comments: ReviewComment[]) => {
-      const [channels, teams] = await Promise.all([
-        queryClient.fetchQuery(channelsQuery),
+      const [spaces, teams] = await Promise.all([
+        queryClient.fetchQuery(spacesQuery),
         queryClient.fetchQuery(teamsQuery),
       ]);
-      const channel = pickChannel(
-        channels.filter((c) => c.featureId === featureId),
+      const space = pickSpace(
+        spaces.filter((c) => c.featureId === featureId),
         teams,
       );
-      if (!channel) throw new Error('no channel with a developer role on this feature');
-      const messages = await queryClient.fetchQuery(messagesQuery(channel.id));
+      if (!space) throw new Error('no Space with a developer role on this feature');
+      const messages = await queryClient.fetchQuery(messagesQuery(space.id));
       const parent = pickRoot(messages);
       const text = reviewText(comments);
-      await sendMessage(channel.id, parent ? text : `@developer\n${text}`, parent);
-      return channel.id;
+      await sendMessage(space.id, parent ? text : `@developer\n${text}`, parent);
+      return space.id;
     },
-    onSuccess: (channelId) => queryClient.invalidateQueries({ queryKey: ['messages', channelId] }),
+    onSuccess: (spaceId) => queryClient.invalidateQueries({ queryKey: ['messages', spaceId] }),
   });
 }

@@ -5,8 +5,8 @@ import type { FileDiff } from '@/types/api';
 
 export type DiffScope = 'current' | 'full';
 
-// refetchInterval keeps the panel current while open: it has no channel to listen to a turn's
-// done event on, since a feature can have several channels writing to its worktree.
+// refetchInterval keeps the panel current while open: it has no Space to listen to a turn's
+// done event on, since a feature can have several Spaces writing to its worktree.
 export function useDiff(featureId: number, scope: DiffScope = 'full') {
   return useQuery({
     queryKey: diffKey(featureId, scope),
