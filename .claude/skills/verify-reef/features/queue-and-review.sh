@@ -134,6 +134,19 @@ note=$(started 3)
 [ "$("$H" sql "select count(*) from message where space_id = 3 and author = 'reef'" | tail -1)" = 0 ] || restart_ok=0
 check queue-restart-starts "$restart_ok" "item 3 queued $queued_before; submit while down: $(echo "$submit_out" | grep '^< ' | cut -c1-60); item 3 $before before the restart; after: item 2 $(item 2), item 3 $(item 3), Spaces of item 3: $(spaces 3), started notes: $note"
 
+### The submit of item 2 was never heard by a live server: the restart runs its wrap-up, and Done approves it
+
+wrap_ok=1
+wait_for "/spaces/2/proposal" '"kind":"wrap"' || wrap_ok=0
+wait_done 2 2 || wrap_ok=0
+api_call DELETE /spaces/2
+check queue-review-keeps-space "$([ "$STATUS" = 409 ] && echo 1 || echo 0)" "DELETE /spaces/2 while item 2 is in review: $STATUS $BODY; Spaces of item 2: $(spaces 2)"
+api_call PATCH /work-items/2 '{"status":"done"}'
+[ "$STATUS" = 200 ] || wrap_ok=0
+[ "$("$H" sql "select status from proposal where space_id = 2 order by id desc limit 1" | tail -1)" = approved ] || wrap_ok=0
+[ "$("$H" sql "select closed_at is not null from space where id = 2" | tail -1)" = 1 ] || wrap_ok=0
+check queue-restart-wraps "$wrap_ok" "wrap-up of Space 2 after the restart: $("$H" sql "select status from proposal where space_id = 2 order by id desc limit 1" | tail -1); Done: $STATUS; Space 2 closed: $("$H" sql "select closed_at is not null from space where id = 2" | tail -1), item 2 $(item 2)"
+
 ### Send item 1 back: it goes to position 1, ahead of an item queued earlier, and starts next
 
 api_call PATCH /work-items/4 '{"status":"queued"}'
