@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page|space-header BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page|space-header|sidebar BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,8 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, teammate, 'team-page': teamPage, 'space-header': spaceHeader };if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page|space-header BASE_URL');
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, teammate, 'team-page': teamPage, 'space-header': spaceHeader, sidebar };
+if (!scenarios[scenario] || !base) {
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page|space-header|sidebar BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -112,17 +113,23 @@ async function addProject() {
   await section.waitFor();
   return section;
 }
+// Opens the sidebar's + menu and picks `item`: New Work item, New Space or New conversation.
+async function plus(item) {
+  await aside.getByRole('button', { name: 'New', exact: true }).click();
+  await aside.getByRole('menuitem', { name: item }).click();
+}
 // Adds a work item and returns its id, which names its worktree folder and branch.
-async function addFeature(section, name) {
-  await section.getByRole('button', { name: 'New feature' }).click();
-  await section.getByLabel('Feature title').fill(name);
-  await section.getByRole('button', { name: 'Add', exact: true }).click();
+async function addFeature(name) {
+  await plus('New Work item');
+  await aside.getByLabel('Feature title').fill(name);
+  await aside.getByRole('button', { name: 'Add', exact: true }).click();
   await page.getByRole('heading', { name, level: 1 }).waitFor();
   return page.url().split('/').pop();
 }
-// Starts a claude Space from the form in `box` and returns its id.
+// Starts a claude Space from the form in `box` and returns its id. The sidebar (`aside`) opens it from the + menu.
 async function newSpace(box, openName, name, mode = 'acceptEdits') {
-  await box.getByRole('button', { name: openName }).click();
+  if (box === aside) await plus(openName);
+  else await box.getByRole('button', { name: openName }).click();
   await pick('Backend', 'claude', box);
   if (mode) await pick('Permission mode', mode, box);
   await box.getByLabel('Name', { exact: true }).fill(name);
@@ -172,7 +179,7 @@ async function live() {
   writeFileSync(path.join(projectDir, 'notes.txt'), 'Reef window check: notes file.\n');
   writeFileSync(path.join(projectDir, 'todo.txt'), 'Reef window check: todo file.\n');
   const section = await addProject();
-  await addFeature(section, 'Login');
+  await addFeature('Login');
   const cid = await newSpace(main, 'New Space', 'live chat');
   await send(
     'List the files in this directory with a tool, then read one of them with a tool, then summarize what you saw in two sentences.',
@@ -236,7 +243,7 @@ async function teamManagement() {
   await shot('team-390x844');
 
   await page.setViewportSize({ width: 1280, height: 800 });
-  await addFeature(section, 'Team run');
+  await addFeature('Team run');
   const { id } = await newTeamSpace(name, 'delivery room');
   await send('Say ok in one word');
   await workingAs('lead');
@@ -256,7 +263,7 @@ async function teamManagement() {
 
 async function brief() {
   const section = await addProject();
-  await addFeature(section, 'Login');
+  await addFeature('Login');
   const featureId = page.url().split('/').pop();
   const res = await fetch(`${base}/work-items/${featureId}/brief`, {
     method: 'PUT',
@@ -289,7 +296,7 @@ async function attach() {
     'a free Space in a git repo lists its two checkpoints before the attach',
     `turns with a checkpoint: ${quick.join(',')}; row: ${await checkpoints.innerText()}`,
   );
-  await addFeature(section, 'Search');
+  await addFeature('Search');
   await section.getByRole('link', { name: 'idea chat' }).click();
   await page.getByRole('heading', { name: 'idea chat', level: 1 }).waitFor();
   await shot('before-attach');
@@ -312,14 +319,11 @@ async function attach() {
     'the free-Space checkpoints, taken in another tree, have no Roll back button after the attach',
     `row: ${JSON.stringify(left)}; GET rollbackable: ${JSON.stringify((await getJson(`/turns?space=${cid}&rollbackable=1`)).map((t) => t.id))}`,
   );
-  const under = section
-    .locator('li', { has: page.getByRole('link', { name: 'Search', exact: true }) })
-    .getByRole('link', { name: 'idea chat' });
-  await under.waitFor();
+  await section.getByRole('link', { name: '#idea chat' }).waitFor();
   check(
-    (await section.getByRole('heading', { name: 'Quick sessions' }).count()) === 0,
-    'sidebar moves the Space under the work item',
-    `space row: ${sql(`select id,work_item_id from space where id=${cid}`)}`,
+    sql(`select kind from space where id=${cid}`) === 'work_item',
+    'the attached Space stays in the sidebar Spaces section',
+    `space row: ${sql(`select id,work_item_id,kind from space where id=${cid}`)}`,
   );
   await exchange('Go on.');
   const lead = sql(`select count(*) from message where space_id=${cid} and author='lead'`);
@@ -328,7 +332,7 @@ async function attach() {
 
 async function cap() {
   const section = await addProject();
-  await addFeature(section, 'Login');
+  await addFeature('Login');
   const cid = await newSpace(main, 'New Space', 'cap chat');
   await exchange('Say hello.');
   sql(`update Space set token_budget=1 where id=${cid}`, true);
@@ -362,7 +366,7 @@ async function pages() {
   check(true, 'a bad project path shows the server error', await err.innerText());
   await page.reload();
   const section = await addProject();
-  await addFeature(section, 'Login');
+  await addFeature('Login');
 }
 
 async function capture() {
@@ -516,7 +520,7 @@ async function theme() {
   const system = (value) => cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value }] });
 
   const section = await addProject();
-  await addFeature(section, 'Login');
+  await addFeature('Login');
   const fid = sql('select id from work_item order by id desc limit 1');
   const pid = sql(`select project_id from work_item where id=${fid}`);
   await fetch(`${base}/memory`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'decision', body: 'Sessions, not JWT', why: 'one server', scope: `work_item:${fid}` }) });
@@ -582,7 +586,7 @@ async function theme() {
 async function phone() {
   if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teammates.md)');
   const section = await addProject();
-  const itemId = await addFeature(section, 'Login');
+  const itemId = await addFeature('Login');
   const featureId = page.url().split('/').pop();
   const { id: cid } = await newTeamSpace('duo', 'phone room');
   await send('DESIGN a short plan for a login form.');
@@ -631,7 +635,13 @@ async function phone() {
   const badge = await tabs.getByLabel(/waiting$/).textContent();
   check(badge === '1', 'the Needs you tab shows a count badge of 1', badge);
   await visit('board', /^Board/, main.getByRole('link', { name: /phone check/ }));
-  await visit('teams', /^Teams/, page.getByRole('heading', { name: 'Teams', level: 1 }));
+  await tabs.getByRole('button', { name: 'Menu' }).click();
+  await aside.getByRole('link', { name: 'Teams', exact: true }).click();
+  await page.getByRole('heading', { name: 'Teams', level: 1 }).waitFor();
+  check(!(await aside.isVisible()), 'the sidebar sheet closes when a link in it is followed');
+  await shot('teams');
+  const teamsScroll = await overflow();
+  check(teamsScroll.page <= 0 && teamsScroll.main <= 0, 'teams has no horizontal scroll at 390 px', `page ${teamsScroll.page}, main ${teamsScroll.main}`);
 
   const noScroll = async (step) => {
     const o = await overflow();
@@ -707,7 +717,7 @@ async function phone() {
   check((await sendButtons.count()) === 1 && (await sendButtons.first().isEnabled()) && sendBox.bottom <= 844 && sendBox.right - sendBox.left >= 340, 'review has one Send button, full width at the bottom', JSON.stringify(sendBox));
 
   await page.setViewportSize({ width: 1024, height: 800 });
-  await aside.getByRole('link', { name: /^Today/ }).waitFor();
+  await aside.getByRole('link', { name: /^Inbox/ }).waitFor();
   check(!(await tabs.isVisible()), 'the tab bar goes away at 1024 px');
   check(await page.evaluate(() => window.__marker === 'kept'), 'widening keeps the same page, no reload');
   await shot('widened');
@@ -715,7 +725,7 @@ async function phone() {
 
 async function stop() {
   const section = await addProject();
-  await addFeature(section, 'Login');
+  await addFeature('Login');
   const cid = await newSpace(main, 'New Space', 'stop chat');
   await send('Remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools.');
   await working();
@@ -737,7 +747,7 @@ async function stop() {
 
 async function retry() {
   const section = await addProject();
-  await addFeature(section, 'Login');
+  await addFeature('Login');
   const cid = await newSpace(main, 'New Space', 'retry chat');
   await send('Write a 1500-word story about lighthouses. Use no tools.');
   await working();
@@ -774,7 +784,7 @@ function ensureRepo() {
 async function rollback() {
   ensureRepo();
   const section = await addProject();
-  const itemId = await addFeature(section, 'Login');
+  const itemId = await addFeature('Login');
   const cid = await newSpace(main, 'New Space', 'rollback chat');
   const tree = path.join(data, 'worktrees', sql(`select project_id from Space where id=${cid}`), itemId);
   const state = () => [git(tree, 'rev-parse', 'HEAD'), git(tree, 'status', '--porcelain'), git(tree, 'log', '--oneline'), git(tree, 'ls-files')].join('\n--\n');
@@ -832,7 +842,7 @@ async function rollback() {
 async function diff() {
   ensureRepo();
   const section = await addProject();
-  const itemId = await addFeature(section, 'Login');
+  const itemId = await addFeature('Login');
   const featureId = page.url().split('/').pop();
   const cid = await newSpace(main, 'New Space', 'diff chat');
 
@@ -1091,7 +1101,7 @@ async function memory() {
 
 async function inspector() {
   const section = await addProject();
-  await addFeature(section, 'Login');
+  await addFeature('Login');
   const { id: cid } = await newTeamSpace('full', 'inspector room');
   await send('Say ok in one word.');
   await workingAs('lead');
@@ -1162,7 +1172,7 @@ async function subagent() {
   git('add', 'sub.txt');
   git('commit', '-q', '--allow-empty', '-m', 'sub.txt');
   const section = await addProject();
-  await addFeature(section, 'Subagent');
+  await addFeature('Subagent');
   const cid = await newSpace(main, 'New Space', 'subagent room');
   await send(
     'Use the Agent tool to start a subagent that reads the file sub.txt in the current directory with the Read tool. Then tell me its contents.',
@@ -1214,7 +1224,7 @@ async function review() {
   }
   ensureRepo();
   const section = await addProject();
-  const itemId = await addFeature(section, 'Login');
+  const itemId = await addFeature('Login');
   const featureId = page.url().split('/').pop();
   const { id: cid } = await newTeamSpace('full', 'review room');
   const tree = path.join(data, 'worktrees', sql(`select project_id from Space where id=${cid}`), itemId);
@@ -1328,14 +1338,14 @@ async function inbox() {
   const sendApi = (cid, text) =>
     fetch(`${base}/spaces/${cid}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) });
   const section = await addProject();
-  await addFeature(section, 'Login');
+  await addFeature('Login');
   const { id: cid } = await newTeamSpace('duo', 'inbox room');
   const permission = await page.evaluate(() => Notification.permission);
   check(permission === 'granted', 'the window may show notifications', permission);
 
   await send('DESIGN a short plan for a login form.');
   await workingAs('lead', 60000);
-  await aside.getByRole('link', { name: /^Needs you/ }).click();
+  await aside.getByRole('link', { name: /^Inbox/ }).click();
   await page.getByRole('heading', { name: 'Inbox', level: 1 }).waitFor();
   check(page.url().endsWith('/inbox'), 'the Needs you link opens /inbox', page.url());
   const waiting = main.getByRole('listitem').filter({ hasText: /Waiting.*inbox room/ });
@@ -1362,7 +1372,7 @@ async function inbox() {
   await page.getByRole('heading', { name: 'inbox room', level: 1 }).waitFor();
   let landed = await landedOn('latest-message');
   check(page.url().endsWith(`/spaces/${cid}#latest-message`) && landed.inView && landed.ringed, 'clicking the notification opens the Space at the newest message, on screen and marked', `${page.url()} ${JSON.stringify(landed)}`);
-  await aside.getByRole('link', { name: /^Needs you/ }).click();
+  await aside.getByRole('link', { name: /^Inbox/ }).click();
   await waiting.waitFor();
   const before = (await getJson('/inbox')).find((i) => i.kind === 'waiting').at;
   await waiting.getByRole('link', { name: 'Open' }).click();
@@ -1504,7 +1514,7 @@ async function inboxGroups() {
 
 async function wrap() {
   const section = await addProject();
-  await addFeature(section, 'Login');
+  await addFeature('Login');
   const cid = await newSpace(main, 'New Space', 'wrap chat');
   await exchange('We are building email login. Decision: sessions, not JWT, because there is one server.');
   await page.getByRole('button', { name: 'Wrap up' }).click();
@@ -1531,7 +1541,7 @@ async function wrap() {
   await panel.getByRole('button', { name: 'Approve' }).click();
   await page.getByText(/approved: \d+ items saved/).waitFor();
   await shot('approved');
-  await section.getByRole('link', { name: 'Login', exact: true }).click();
+  await page.goto(`${base}/features/${fid}`);
   await page.getByText('Version 1 by').waitFor();
   check(sql(`select count(*) from brief where work_item_id=${fid}`) === '1', '/wrap then Approve makes brief version 1', `brief rows ${sql(`select id,author from brief where work_item_id=${fid}`)}`);
 
@@ -1552,28 +1562,30 @@ async function wrap() {
   check(queued.length === 0, 'Needs you has no item for the wrapped Space', JSON.stringify(queued));
   await page.goto(`${base}/spaces/${cid}`);
   await main.getByText('Wrapped', { exact: true }).waitFor();
-  await aside.getByRole('button', { name: /^Wrapped \(1\)/ }).click();
-  await section.getByRole('link', { name: /#wrap chat/ }).waitFor();
-  await shot('wrapped-sidebar');
-  check(true, 'the Space is listed under Wrapped (1) in the sidebar');
+  await page.goto(`${base}/spaces`);
+  await main.getByRole('link', { name: /#wrap chat/ }).waitFor();
+  await shot('wrapped-spaces');
+  check(
+    (await section.getByRole('link', { name: /#wrap chat/ }).count()) === 0,
+    'the wrapped Space is on the Spaces page and not in the sidebar',
+  );
+  await page.goto(`${base}/spaces/${cid}`);
 
   await main.getByRole('button', { name: 'Reopen' }).click();
   await page.getByLabel('Message').waitFor();
   check(sql(`select closed_at is null from Space where id=${cid}`) === '1', 'Reopen brings the composer back and clears closed_at');
 
-  await section.getByRole('link', { name: 'Login', exact: true }).click();
+  await page.goto(`${base}/features/${fid}`);
   await main.getByRole('button', { name: 'Close feature' }).click();
   await page.getByRole('dialog', { name: 'Close feature' }).waitFor();
   await shot('close-dialog');
   await page.getByRole('dialog', { name: 'Close feature' }).getByRole('button', { name: 'Close feature' }).click();
   await main.getByRole('button', { name: 'Reopen' }).waitFor();
-  await aside.getByRole('button', { name: /^Closed \(1\)/ }).click();
-  await section.getByRole('link', { name: 'Login', exact: true }).waitFor();
   await shot('closed-feature');
   check(
     sql(`select closed_at is not null from work_item where id=${fid}`) === '1' &&
       sql(`select closed_at is not null from Space where id=${cid}`) === '1',
-    'Close feature closes the feature and its Space; it is listed under Closed (1)',
+    'Close feature closes the feature and its Space',
   );
 }
 
@@ -1582,7 +1594,7 @@ async function teams() {
   for (const name of ['duo', 'full']) if ((await fetch(`${base}/teams/${name}`)).status !== 200) missing.push(name);
   if (missing.length) throw new Error(`apply the teams first: missing ${missing.join(', ')} (see features/teammates.md)`);
   const section = await addProject();
-  await addFeature(section, 'Login');
+  const loginId = await addFeature('Login');
 
   const { id: cid, options } = await newTeamSpace('duo', 'duo room', 'team-picked');
   check(options.includes('duo') && options.includes('full') && options.includes('solo'), 'the New Space form lists the teams', options.join(', '));
@@ -1625,7 +1637,7 @@ async function teams() {
   check(count === '2 replies in thread', 'the main list shows the root with a replies button', count);
   await shot('main-list');
 
-  await section.getByRole('link', { name: 'Login', exact: true }).click();
+  await page.goto(`${base}/features/${loginId}`);
   await page.getByRole('heading', { name: 'Login', level: 1 }).waitFor();
   const handoff =
     'Reply with exactly one line and nothing else: an at sign immediately followed by the word developer, then a space, then the words: reply with one word, use no tools.';
@@ -1764,7 +1776,7 @@ async function workshop() {
   );
 
   // The next developer wake uses the new persona.
-  await addFeature(section, 'Login');
+  await addFeature('Login');
   const { id: cid } = await newTeamSpace('full', 'workshop room');
   await send('@developer Say ok in one word.');
   await workingAs('developer');
@@ -1797,7 +1809,7 @@ async function pr() {
   if (!gh) throw new Error('set REEF_FAKE_GH to the folder of the fake gh the server runs with');
   ensureRepo();
   const section = await addProject();
-  const itemId = await addFeature(section, 'PR panel');
+  const itemId = await addFeature('PR panel');
   const featureId = page.url().split('/').pop();
   const cid = await newSpace(main, 'New Space', 'pr chat');
   await fetch(`${base}/work-items/${featureId}/worktree`, { method: 'POST', headers: { 'Content-Type': 'application/json' } });
@@ -1881,7 +1893,7 @@ async function coordination() {
   }
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
-  await addFeature(section, 'Login');
+  await addFeature('Login');
   const { id: cid } = await newTeamSpace('duo', 'coordination room');
   const panel = page.getByRole('complementary', { name: 'Coordination' });
   const items = page.getByRole('button', { name: /^lead and architect (are coordinating|coordinated) · \d+ messages?/i });
@@ -2056,7 +2068,7 @@ async function coordination() {
 
   // Two direct wakes are queued for the architect, one from each of two pairs: the lead's request and the
   // developer's, which the lead's turn caused by posting before it sent. Each panel shows only its own turn.
-  await addFeature(section, 'Queued');
+  await addFeature('Queued');
   const { id: qid } = await newTeamSpace('full', 'queued room');
   await send('QUEUE two reviews for the architect.');
   const pair = (from) => page.getByRole('button', { name: new RegExp(`^${from} and architect (are coordinating|coordinated) · \\d+ messages?`, 'i') });
@@ -2098,7 +2110,7 @@ async function coordination() {
 
 async function team() {
   const section = await addProject();
-  await addFeature(section, 'Login');
+  await addFeature('Login');
   await newTeamSpace('full', 'team room');
   await send('Say ok in one word.');
   await workingAs('lead');
@@ -2156,7 +2168,7 @@ async function denials() {
 
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
-  await addFeature(section, 'Fetch');
+  await addFeature('Fetch');
   const { id: cid } = await newTeamSpace('denials', 'denials room');
   const card = main.getByRole('listitem').filter({ hasText: / was denied [A-Z]/ });
   const add = card.getByRole('button', { name: 'Add to role' });
@@ -2225,7 +2237,7 @@ async function denials() {
 
 async function composer() {
   const section = await addProject();
-  await addFeature(section, 'Compose');
+  await addFeature('Compose');
   await newSpace(main, 'New Space', 'compose chat');
   const field = main.getByLabel('Message');
   const box = field.locator('xpath=ancestor::div[contains(@class,"bg-field")][1]');
@@ -2364,7 +2376,7 @@ async function naming() {
     (readFileSync(process.env.REEF_FAKE_LOG ?? '/dev/null', 'utf8').match(/scenario=name-login/g) ?? []).length;
   const startUnnamed = async () => {
     const was = page.url();
-    await aside.getByRole('button', { name: 'New Space' }).click();
+    await plus('New Space');
     await pick('Backend', 'claude', aside);
     await aside.getByRole('button', { name: 'Start' }).click();
     await page.waitForURL((u) => u.href !== was && /\/spaces\/\d+$/.test(u.pathname));
@@ -2429,7 +2441,7 @@ async function conversation() {
   const sam = await (await call('POST', '/teammates', { name: 'sam', backend: 'claude' })).json();
   const start = async () => {
     const was = page.url();
-    await section.getByRole('button', { name: 'New conversation' }).click();
+    await plus('New conversation');
     await page.getByRole('button', { name: 'sam', exact: true }).click();
     await page.waitForURL((u) => u.href !== was && /\/spaces\/\d+$/.test(u.pathname));
     return page.url().split('/').pop();
@@ -2474,9 +2486,10 @@ async function conversation() {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('link', { name: 'Back' }).click();
   await page.getByRole('heading', { name: 'Spaces', level: 1 }).waitFor();
-  const phoneRows = page.getByRole('main').getByRole('link', { name: /chat/ });
+  await page.getByRole('navigation', { name: 'Tabs' }).getByRole('button', { name: 'Menu' }).click();
+  const phoneRows = aside.getByRole('link', { name: /chat/ });
   await phoneRows.first().waitFor();
-  check((await phoneRows.count()) === 2, 'the Spaces tab lists both conversations at 390 px', String(await phoneRows.count()));
+  check((await phoneRows.count()) === 2, 'the sidebar sheet lists both conversations at 390 px', String(await phoneRows.count()));
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
   check(overflow <= 0, 'the phone list has no horizontal scroll', String(overflow));
   await shot('phone');
@@ -2491,7 +2504,7 @@ async function conversationMove() {
   await call('POST', '/teammates', { name: 'kit', backend: 'claude' });
   const start = async () => {
     const was = page.url();
-    await section.getByRole('button', { name: 'New conversation' }).click();
+    await plus('New conversation');
     await page.getByRole('button', { name: 'sam', exact: true }).click();
     await page.waitForURL((u) => u.href !== was && /\/spaces\/\d+$/.test(u.pathname));
     return page.url().split('/').pop();
@@ -2563,7 +2576,7 @@ async function hovercard() {
   ensureRepo();
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
-  const itemId = await addFeature(section, 'Hover');
+  const itemId = await addFeature('Hover');
   const featureId = page.url().split('/').pop();
   const { id: cid } = await newTeamSpace('full', 'hover chat');
   await send('@developer Use the Write tool to create the file d.txt containing the word yes. Then reply done.');
@@ -2609,7 +2622,7 @@ async function hovercard() {
   check((await row.getAttribute('aria-describedby')) === null, 'the card closes when the pointer leaves, and the description goes');
 
   for (const i of (await getJson('/inbox')).filter((i) => String(i.spaceId) === cid && i.kind === 'waiting')) {
-    await fetch(`${base}/spaces/${cid}/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: i.messageId }) });
+    await fetch(`${base}/inbox/dismiss`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(i) });
   }
   await row.getByRole('img', { name: 'needs you' }).waitFor({ state: 'hidden', timeout: 15000 });
   await row.hover();
@@ -2719,7 +2732,7 @@ async function mention() {
   ensureRepo();
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
-  await addFeature(section, 'Mention');
+  await addFeature('Mention');
   const { id: cid } = await newTeamSpace('full', 'mention chat');
   await send('@lead and @developer, @nobody too: remember the secret word pineapple. Then write a 1500-word story about lighthouses. Use no tools. @tester ');
   await working();
@@ -3185,6 +3198,127 @@ async function creatures() {
   await shot('phone-picker');
 }
 
+async function sidebar() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const section = await addProject();
+  const project = (await getJson('/projects')).at(-1).id;
+  const call = (method, route, body) =>
+    fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const sam = await (await call('POST', '/teammates', { name: 'sidebar-sam', backend: 'claude' })).json();
+  const urlPath = () => new URL(page.url()).pathname;
+  const noScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
+
+  const search = aside.getByRole('searchbox', { name: 'Search' });
+  const link = (name) => aside.getByRole('link', { name, exact: typeof name === 'string' });
+  const y = async (loc) => (await loc.boundingBox()).y;
+  const x = async (loc) => (await loc.boundingBox()).x;
+  const topDown = [search, link(/^Inbox/), link(/^Board/), link('Spaces'), link('Conversations')];
+  const ys = [];
+  for (const loc of topDown) ys.push(await y(loc));
+  const bottom = [link('Teammates'), link('Teams'), link('Settings')];
+  const bottomY = await y(bottom[0]);
+  const bottomX = [];
+  for (const loc of bottom) bottomX.push(await x(loc));
+  check(
+    ys.every((v, i) => i === 0 || v > ys[i - 1]) && ys[ys.length - 1] < bottomY && bottomX.every((v, i) => i === 0 || v > bottomX[i - 1]),
+    'the sidebar lists Search, Inbox, Board, Spaces, Conversations top to bottom, then Teammates, Teams, Settings at the bottom',
+    `y: ${ys.join(',')}; bottom y ${bottomY}; bottom x: ${bottomX.join(',')}`,
+  );
+  check((await aside.getByRole('link', { name: /^Tasks/ }).count()) === 0 && (await aside.getByText('New channel').count()) === 0, 'no Tasks link and no New channel in the sidebar');
+  await shot('desktop');
+
+  const visits = [
+    [link(/^Inbox/), '/inbox', 'Inbox'],
+    [link(/^Board/), '/board', 'Board'],
+    [link('Spaces'), '/spaces', 'Spaces'],
+    [link('Conversations'), '/conversations', 'Conversations'],
+    [link('Teammates'), '/teammates', 'Teammates'],
+    [link('Teams'), '/teams', 'Teams'],
+    [link('Settings'), '/settings', 'Settings'],
+  ];
+  for (const [loc, route, heading] of visits) {
+    await loc.click();
+    await main.getByRole('heading', { name: heading, level: 1 }).waitFor();
+    check(urlPath() === route, `the ${heading} link opens ${route}`, urlPath());
+  }
+  await aside.getByRole('link', { name: 'Today' }).click();
+  await page.getByLabel('Quick capture').waitFor();
+  check(urlPath() === '/', 'the logo opens Today');
+
+  await plus('New Work item');
+  await aside.getByLabel('Feature title').fill('Sidebar item');
+  await aside.getByRole('button', { name: 'Add', exact: true }).click();
+  await main.getByRole('heading', { name: 'Sidebar item', level: 1 }).waitFor();
+  const item = sql(`select id,type,status from work_item where project_id=${project} and title='Sidebar item'`);
+  check(urlPath() === `/features/${item.split('|')[0]}` && item.endsWith('|backlog'), '+ New Work item stores a Work item and opens it', `${item} at ${urlPath()}`);
+
+  await plus('New Space');
+  await pick('Backend', 'claude', aside);
+  await aside.getByLabel('Name', { exact: true }).fill('free room');
+  await aside.getByRole('button', { name: 'Start' }).click();
+  await main.getByRole('heading', { name: 'free room', level: 1 }).waitFor();
+  const free = sql(`select id,kind,work_item_id is null from space where project_id=${project} and name='free room'`);
+  check(urlPath() === `/spaces/${free.split('|')[0]}` && free.endsWith('|free|1'), '+ New Space stores a free Space and opens it', `${free} at ${urlPath()}`);
+  await section.getByRole('link', { name: 'free room' }).waitFor();
+
+  await plus('New conversation');
+  await page.getByRole('button', { name: 'sidebar-sam', exact: true }).click();
+  await page.waitForURL((u) => /\/spaces\/\d+$/.test(u.pathname) && !u.pathname.endsWith(`/${free.split('|')[0]}`));
+  const conversation = sql(`select id,kind,team_id is null from space where project_id=${project} and kind='conversation'`);
+  check(urlPath() === `/spaces/${conversation.split('|')[0]}` && conversation.endsWith('|conversation|1'), '+ New conversation stores a conversation and opens it', `${conversation} at ${urlPath()}`);
+  await call('PUT', `/spaces/${conversation.split('|')[0]}`, { name: 'sam chat' });
+  const convoRow = section.getByRole('link', { name: /sam chat/ });
+  await convoRow.waitFor({ timeout: 15000 });
+  const fromTop = async (loc) => (await y(loc)) > (await y(link('Conversations')));
+  check(await fromTop(convoRow), 'the conversation is listed under Conversations', await convoRow.innerText());
+  await shot('created');
+
+  await search.fill('zzz-no-match');
+  await convoRow.waitFor({ state: 'hidden' });
+  await search.fill('');
+  await convoRow.waitFor();
+  check(true, 'Search filters the Space and conversation rows');
+
+  const own = Number(item.split('|')[0]);
+  const room = await (await call('POST', '/spaces', { projectId: project, name: 'review room', workItemId: own, backend: 'claude' })).json();
+  const roomRow = section.getByRole('link', { name: '#review room' });
+  await roomRow.waitFor({ timeout: 15000 });
+  sql(`update work_item set status='in_progress', closed_at=null where id=${own}`, true);
+  await page.waitForTimeout(6000);
+  check((await roomRow.count()) === 1, 'the Space of an in-progress Work item is in the Spaces section');
+  sql(`update work_item set status='review' where id=${own}`, true);
+  await roomRow.waitFor({ state: 'hidden', timeout: 15000 });
+  check(true, 'the Space leaves the Spaces section once its Work item is in Review', `item ${own} status ${sql(`select status from work_item where id=${own}`)}`);
+  await page.goto(`${base}/spaces`);
+  await main.getByRole('link', { name: '#review room' }).waitFor();
+  check(true, 'the Spaces page still lists it', String(room.id));
+  await shot('left-spaces');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${base}/`);
+  check(!(await aside.isVisible()), 'the sidebar is closed on a phone until Menu is tapped');
+  const tabs = page.getByRole('navigation', { name: 'Tabs' });
+  await tabs.getByRole('button', { name: 'Menu' }).click();
+  await aside.waitFor();
+  for (const [loc, , heading] of visits) check(await loc.isVisible(), `the phone sheet shows ${heading}`);
+  check(await search.isVisible() && (await aside.getByRole('button', { name: 'New', exact: true }).isVisible()), 'the phone sheet shows Search and the + menu');
+  const box = await aside.boundingBox();
+  const sheet = await aside.evaluate((el) => ({ over: el.scrollWidth - el.clientWidth, fixed: getComputedStyle(el).position }));
+  check(sheet.fixed === 'fixed' && box.x === 0 && box.y === 0 && box.height === 844 && box.width <= 390, 'the sidebar opens as a full-height sheet on the left', JSON.stringify(box));
+  check(sheet.over <= 0 && (await noScroll()), 'the sheet has no horizontal scroll at 390 px', `sheet ${sheet.over}`);
+  await shot('phone-sheet');
+  await page.keyboard.press('Escape');
+  await aside.waitFor({ state: 'hidden' });
+  check(true, 'Escape closes the sheet');
+  await tabs.getByRole('button', { name: 'Menu' }).click();
+  await aside.getByRole('button', { name: 'New', exact: true }).click();
+  await aside.getByRole('menuitem', { name: 'New Space' }).click();
+  await aside.getByRole('button', { name: 'Start' }).click();
+  await page.waitForURL((u) => /\/spaces\/\d+$/.test(u.pathname));
+  await aside.waitFor({ state: 'hidden' });
+  check(true, 'creating from the phone sheet opens the new Space and closes the sheet', urlPath());
+}
+
 async function teammate() {
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   const call = async (method, route, body) => {
@@ -3495,7 +3629,7 @@ async function workItem() {
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
-  const id = await addFeature(section, 'Work item page');
+  const id = await addFeature('Work item page');
   const pid = sql(`select project_id from work_item where id=${id}`);
   const item = () => getJson(`/work-items/${id}`);
   const headerText = async () =>
