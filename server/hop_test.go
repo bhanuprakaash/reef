@@ -89,7 +89,7 @@ func (e *liveEnv) pingPongTools(t *testing.T, tools map[string]string) (int, int
 func TestSend_ReefToolTurnsHitHopCap(t *testing.T) {
 	env := newLiveEnv(t)
 	id, ran := env.pingPongTools(t, map[string]string{
-		"lead": "mcp__reef__post_to_space", "architect": "mcp__reef__remember"})
+		"lead": "mcp__reef__post_to_space", "architect": "ToolSearch"})
 	if ch, err := env.st.Space(context.Background(), int64(id)); err != nil || ch.Paused != _hopPause {
 		t.Errorf("space = %+v, %v, want paused with the hop cap reason", ch, err)
 	}

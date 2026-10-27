@@ -27,9 +27,13 @@ var errStopping = errors.New("server is stopping")
 
 const _hopReasonPrefix = "hop cap:"
 
-// _reefToolPrefix starts the name of every tool of Reef's own MCP server. A turn that calls only
-// these tools is talk-only; any other tool call is work and resets the hop count.
-const _reefToolPrefix = "mcp__reef__"
+// talkTool reports whether a tool call keeps a turn talk-only: Reef's own MCP tools, except the
+// browser ones, and ToolSearch, which claude calls only to load those tools. Any other tool call
+// is work and resets the hop count.
+func talkTool(name string) bool {
+	return name == "ToolSearch" ||
+		strings.HasPrefix(name, "mcp__reef__") && !strings.HasPrefix(name, "mcp__reef__browser_")
+}
 
 const _restartReason = "app restarted: wakes were waiting to run"
 
@@ -444,7 +448,7 @@ func (s *server) runOne(
 ) (end turnState, ok bool) {
 	onEvent := func(ev agent.Event) {
 		l.mu.Lock()
-		if ev.Kind == agent.KindToolCall && !strings.HasPrefix(ev.ToolName, _reefToolPrefix) {
+		if ev.Kind == agent.KindToolCall && !talkTool(ev.ToolName) {
 			l.hops = 0
 		}
 		l.publishLocked("agent", ev)
