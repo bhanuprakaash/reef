@@ -167,7 +167,7 @@ func (s *server) startGitHubPoll() {
 }
 
 // pollGitHub checks every top-level work item with a worktree against its PR, and posts a reef note in
-// the work item's most recent Space when the PR's state changes or a check finishes. No gh
+// the work item's active Space when the PR's state changes or a check finishes. No gh
 // on PATH: nothing is posted, logged once.
 func (s *server) pollGitHub(ctx context.Context) {
 	ghPath, err := exec.LookPath("gh")
@@ -454,12 +454,12 @@ func (s *server) noteFinishedChecks(ctx context.Context, f store.WorkItem, pr gh
 	return s.wakeDeveloper(ctx, f, pr, failed, ghPath, dir)
 }
 
-// noteWorkItem posts a reef note in the work item's most recent Space, and tells an open
+// noteWorkItem posts a reef note in the work item's active Space, and tells an open
 // stream on it that a message arrived, so the window refreshes without a reload. It reports
 // posted = false, without error, when the work item has no Space yet, so the caller does not
 // record the note as sent.
 func (s *server) noteWorkItem(ctx context.Context, workItemID int64, body string) (posted bool, err error) {
-	ch, err := s.st.WorkItemLatestSpace(ctx, workItemID)
+	ch, err := s.st.WorkItemActiveSpace(ctx, workItemID)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}
@@ -475,7 +475,7 @@ func (s *server) noteWorkItem(ctx context.Context, workItemID int64, body string
 	return true, nil
 }
 
-// wakeDeveloper wakes the developer role in the work item's most recent Space with one wake
+// wakeDeveloper wakes the developer role in the work item's active Space with one wake
 // naming every run in checks not already woken, each with its log tail, once per run, also
 // across restarts. Several failed runs in the same rollup are one wake, not one each. A
 // Space whose team has no developer gets the note only. The wake text is built, including
@@ -501,7 +501,7 @@ func (s *server) wakeDeveloper(
 	if len(unwoken) == 0 {
 		return nil
 	}
-	ch, err := s.st.WorkItemLatestSpace(ctx, f.ID)
+	ch, err := s.st.WorkItemActiveSpace(ctx, f.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
 	}

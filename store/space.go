@@ -222,19 +222,13 @@ func (s *Store) Space(ctx context.Context, id int64) (Space, error) {
 	return c, err
 }
 
-// WorkItemLatestSpace returns the item's Space with the newest message, or, when it
-// has none, its most recently created Space. ErrNotFound when the work item has no Space.
-func (s *Store) WorkItemLatestSpace(ctx context.Context, workItemID int64) (Space, error) {
+// WorkItemActiveSpace returns the item's open Space, or ErrNotFound when it has none.
+func (s *Store) WorkItemActiveSpace(ctx context.Context, workItemID int64) (Space, error) {
 	row := s.db.QueryRowContext(ctx,
-		"SELECT "+_spaceCols+` FROM space LEFT JOIN message m ON m.space_id = space.id
-		 WHERE space.work_item_id = ?
-		 GROUP BY space.id
-		 ORDER BY MAX(m.id) IS NULL, MAX(m.id) DESC, space.created_at DESC
-		 LIMIT 1`,
-		workItemID)
+		"SELECT "+_spaceCols+" FROM space WHERE work_item_id = ? AND closed_at IS NULL", workItemID)
 	c, err := scanSpace(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Space{}, fmt.Errorf("work item %d has no Space: %w", workItemID, ErrNotFound)
+		return Space{}, fmt.Errorf("work item %d has no active Space: %w", workItemID, ErrNotFound)
 	}
 	return c, err
 }

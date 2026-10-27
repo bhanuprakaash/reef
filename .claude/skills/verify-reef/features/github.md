@@ -1,7 +1,7 @@
 # GitHub poll
 
 `reef serve` polls `gh pr view` for each feature with a worktree, every `REEF_GH_INTERVAL`,
-and posts a `reef` note in the feature's most recent Space when the PR appears, changes
+and posts a `reef` note in the work item's active Space when the PR appears, changes
 state, or a check run finishes. A check run that finishes failed also wakes the `developer`
 role in that Space, once per run, so it can look at the failure without the user pasting
 in logs. Contract: `docs/server.md` (GitHub poll) and `docs/product.md` (decision 48).

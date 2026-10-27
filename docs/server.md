@@ -998,8 +998,7 @@ folder. `statusCheckRollup` items are either a `CheckRun` (`name`, `status`, `co
 
 When the PR first appears, changes state (`open`, `merged`, `closed`) or a check run
 finishes (a `CheckRun` whose `status` is `COMPLETED`, or a `StatusContext` whose `state` is
-not `PENDING`/`EXPECTED`), the work item's most recent Space (the one with the newest
-message across the work item, or, when it has none, its most recently created Space) gets
+not `PENDING`/`EXPECTED`), the work item's active Space (its one open Space) gets
 one message from author `reef`: `PR #12 open: <url>` or `<check name> succeeded`/`failed`.
 A check run is identified by its name plus its `detailsUrl`/`targetUrl` (falling back to
 `completedAt`/`startedAt`) as its run key; a rerun of the same check name, such as CI run
