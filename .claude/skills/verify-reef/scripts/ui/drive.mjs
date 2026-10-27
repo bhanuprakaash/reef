@@ -367,19 +367,55 @@ async function pages() {
 }
 
 async function capture() {
+  await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
   const name = (await section.getAttribute('aria-label')) ?? '';
   const pid = sql(`select id from project where name='${name}'`);
+  const sam = await (await fetch(base + '/teammates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'sam', backend: 'claude' }) })).json();
+
   await page.goto(base + '/capture');
   await pick('Capture project', name);
-  const text = `ui capture ${Date.now().toString(36)}`;
-  await page.getByLabel('Capture text').fill(text);
+  await pick('Capture type', 'Bug');
+  await page.getByLabel('Capture text').fill('Login fails on Safari');
+  await page.getByLabel('Capture description').fill('Blank page after the redirect.');
+  await shot('desktop-item');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await shot('phone-item');
+  await page.setViewportSize({ width: 1280, height: 800 });
   await page.getByLabel('Capture text').press('Enter');
   await page.getByText('Captured').waitFor({ timeout: 15000 });
   await shot('captured');
   check((await page.getByLabel('Capture text').inputValue()) === '', 'the text box is empty after capture');
-  const row = sql(`select title from work_item where project_id=${pid} and type='task' and title='${text}'`);
-  check(row === text, 'the captured text is stored as a task work item', row);
+  const items = await getJson(`/work-items?project=${pid}`);
+  const bug = items.find((i) => i.title === 'Login fails on Safari');
+  check(
+    items.length === 1 && bug?.type === 'bug' && bug.status === 'backlog' && bug.description === 'Blank page after the redirect.',
+    'capture makes a Backlog bug with the typed title and description',
+    JSON.stringify(items.map((i) => [i.type, i.status, i.title, i.description])),
+  );
+
+  // Talk to a Teammate instead: the text is the conversation's first message and no Work item is made.
+  await page.goto(base + '/capture');
+  await pick('Capture project', name);
+  await page.getByRole('switch', { name: 'Talk to a Teammate' }).click();
+  await pick('Capture teammate', 'sam');
+  await page.getByLabel('Capture text').fill('Did I give you a codeword? Answer none.');
+  await shot('desktop-talk');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await shot('phone-talk');
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.getByLabel('Capture text').press('Enter');
+  await page.getByText('Captured').waitFor({ timeout: 15000 });
+  const spaces = (await getJson('/spaces')).filter((s) => s.projectId === Number(pid) && s.kind === 'conversation');
+  const messages = spaces.length === 1 ? await getJson(`/messages?space=${spaces[0].id}`) : [];
+  check(
+    spaces.length === 1 && messages[0]?.body === 'Did I give you a codeword? Answer none.',
+    'a conversation opens with the text as its first message',
+    JSON.stringify(messages.map((m) => [m.author, m.body])),
+  );
+  const member = sql(`select teammate_id from space_member where space_id=${spaces[0]?.id}`);
+  check(member === String(sam.id), 'the conversation is with sam', member);
+  check((await getJson(`/work-items?project=${pid}`)).length === 1, 'talking to a Teammate makes no Work item');
 
   // A failing request shows its error: the picked project is deleted before Enter.
   const section2 = await addProject();

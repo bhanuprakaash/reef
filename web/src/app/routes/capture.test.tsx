@@ -2,13 +2,23 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CapturePage } from './capture';
 
-const { useCreateFeature, useProjects } = vi.hoisted(() => ({
+const { useCreateFeature, useProjects, useTeammates, useStartConversation } = vi.hoisted(() => ({
   useCreateFeature: vi.fn(),
   useProjects: vi.fn(),
+  useTeammates: vi.fn(() => ({ data: [] })),
+  useStartConversation: vi.fn(() => ({
+    isPending: false,
+    isError: false,
+    isSuccess: false,
+    error: null,
+    mutate: vi.fn(),
+  })),
 }));
 
 vi.mock('@/modules/features/api/create-feature', () => ({ useCreateFeature }));
 vi.mock('@/modules/projects/api/get-projects', () => ({ useProjects }));
+vi.mock('@/lib/api/get-teammates', () => ({ useTeammates }));
+vi.mock('@/modules/spaces/api/start-conversation', () => ({ useStartConversation }));
 
 function stubWindow(reef?: object) {
   vi.stubGlobal('localStorage', { getItem: () => null, setItem: () => {} });
