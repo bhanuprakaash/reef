@@ -147,8 +147,9 @@ func (s *Store) neighbours(ctx context.Context, id int64) ([]neighbour, error) {
 		 UNION ALL
 		 SELECT o.from_id, p.rel || ' ' || p.to_kind || ':' || p.to_id
 		 FROM memory_link p JOIN memory_link o ON o.to_kind = p.to_kind AND o.to_id = p.to_id
-		 WHERE p.from_id = ? AND o.from_id != p.from_id AND p.to_kind NOT IN ('memory', ?, ?)`,
-		id, strconv.FormatInt(id, 10), id, ScopeProject, ScopeTeam)
+		 WHERE p.from_id = ? AND o.from_id != p.from_id AND p.to_kind NOT IN ('memory', ?, ?, ?)
+		 AND p.rel != ? AND o.rel != ?`,
+		id, strconv.FormatInt(id, 10), id, ScopeProject, ScopeTeam, ScopeWorkItem, RelSource, RelSource)
 	if err != nil {
 		return nil, fmt.Errorf("query neighbours of %d: %w", id, err)
 	}
