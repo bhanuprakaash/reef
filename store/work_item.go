@@ -247,8 +247,8 @@ func (s *Store) UpdateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error
 	return s.WorkItem(ctx, w.ID)
 }
 
-// CloseWorkItem sets closed_at on the item and on each of its Spaces still open, in one
-// transaction.
+// CloseWorkItem sets closed_at on the item and on each of its Spaces still open, and gives the
+// direct requests waiting in its Spaces a stopped response, in one transaction.
 func (s *Store) CloseWorkItem(ctx context.Context, id int64) error {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -270,6 +270,10 @@ func (s *Store) CloseWorkItem(ctx context.Context, id int64) error {
 	if _, err := tx.ExecContext(ctx,
 		"UPDATE space SET closed_at = ? WHERE work_item_id = ? AND closed_at IS NULL", at, id); err != nil {
 		return fmt.Errorf("close Spaces: %w", err)
+	}
+	if err := s.stopWaitingDirects(ctx, tx,
+		"space_id IN (SELECT id FROM space WHERE work_item_id = ?)", id); err != nil {
+		return err
 	}
 	return tx.Commit()
 }

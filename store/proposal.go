@@ -211,8 +211,9 @@ func (s *Store) PendingProposals(
 	return ps, nil
 }
 
-// ApproveProposal saves the pending proposal's brief, closes the Space of a wrap and marks
-// the proposal approved, in one transaction. A brief proposal is refused once the Space is
+// ApproveProposal saves the pending proposal's brief, closes the Space of a wrap, gives the
+// direct requests waiting in it a stopped response and marks the proposal approved, in one
+// transaction. A brief proposal is refused once the Space is
 // closed.
 func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -244,6 +245,9 @@ func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, error)
 		if _, err := tx.ExecContext(ctx,
 			"UPDATE space SET closed_at = ? WHERE id = ?", at, p.SpaceID); err != nil {
 			return Proposal{}, fmt.Errorf("close Space: %w", err)
+		}
+		if err := s.stopWaitingDirects(ctx, tx, "space_id = ?", p.SpaceID); err != nil {
+			return Proposal{}, err
 		}
 	}
 	return decideProposal(ctx, tx, p, ProposalApproved, now)

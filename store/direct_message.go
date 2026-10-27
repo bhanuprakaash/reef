@@ -81,6 +81,41 @@ func setDirectState(ctx context.Context, db execer, id int64, state string) erro
 	return nil
 }
 
+// stopWaitingDirects gives each request waiting in the Spaces matched by inSpaces, a condition on
+// space_id with one placeholder for arg, a stopped response, so a closed Space keeps none waiting.
+func (s *Store) stopWaitingDirects(
+	ctx context.Context, tx *sql.Tx, inSpaces string, arg int64,
+) error {
+	rows, err := tx.QueryContext(ctx,
+		"SELECT id, to_role FROM direct_message WHERE reply_to_id IS NULL AND state = ? AND "+inSpaces,
+		DirectWaiting, arg)
+	if err != nil {
+		return fmt.Errorf("list waiting direct requests: %w", err)
+	}
+	type request struct {
+		id int64
+		to string
+	}
+	var waiting []request
+	for rows.Next() {
+		var r request
+		if err := rows.Scan(&r.id, &r.to); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("list waiting direct requests: %w", err)
+		}
+		waiting = append(waiting, r)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return fmt.Errorf("list waiting direct requests: %w", err)
+	}
+	for _, r := range waiting {
+		if _, err := s.CreateFailedDirectResponseTx(ctx, tx, r.id, r.to, "stopped"); err != nil {
+			return fmt.Errorf("stop direct request %d: %w", r.id, err)
+		}
+	}
+	return nil
+}
+
 // IDRef returns the message id as a pointer for records that optionally refer to a direct
 // wake, such as turns.
 func (m *DirectMessage) IDRef() *int64 {

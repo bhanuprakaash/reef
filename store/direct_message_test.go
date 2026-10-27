@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"slices"
 	"testing"
 )
 
@@ -77,5 +78,55 @@ func TestDirectRequestState(t *testing.T) {
 	}
 	if got, want := state(failed.ID)+" "+state(stopped.ID), "failed stopped"; got != want {
 		t.Fatalf("states after failed responses = %q, want %q", got, want)
+	}
+}
+
+func TestClosingASpaceStopsItsWaitingDirectRequests(t *testing.T) {
+	ctx := context.Background()
+	closers := map[string]func(*Store) error{
+		"work item closed": func(s *Store) error { return s.CloseWorkItem(ctx, 1) },
+		"wrap approved": func(s *Store) error {
+			_, err := s.ApproveProposal(ctx, 1)
+			return err
+		},
+	}
+	for name, closeSpace := range closers {
+		t.Run(name, func(t *testing.T) {
+			s := proposalFixture(t)
+			request := func(spaceID int64, to string) DirectMessage {
+				t.Helper()
+				m, err := s.CreateDirectMessage(ctx,
+					DirectMessage{SpaceID: spaceID, From: "lead", To: to, Body: "status?"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				return m
+			}
+			waiting, running, elsewhere := request(1, "architect"), request(1, "tester"), request(2, "tester")
+			if err := s.SetDirectRequestState(ctx, running.ID, DirectDelivered); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := closeSpace(s); err != nil {
+				t.Fatal(err)
+			}
+
+			var got []string
+			for _, id := range []int64{waiting.ID, running.ID, elsewhere.ID} {
+				m, err := s.DirectMessage(ctx, id)
+				if err != nil {
+					t.Fatal(err)
+				}
+				got = append(got, m.State)
+			}
+			if want := []string{"stopped", "delivered", "waiting"}; !slices.Equal(got, want) {
+				t.Errorf("states = %v, want %v", got, want)
+			}
+			msgs, err := s.DirectMessages(ctx, 1, running.ID)
+			if err != nil || len(msgs) != 1 || msgs[0].Body != "stopped" || msgs[0].Status != DirectFailed ||
+				msgs[0].From != "architect" || *msgs[0].ReplyToID != waiting.ID {
+				t.Errorf("messages after the second request = %+v, err %v, want the failed response with body stopped", msgs, err)
+			}
+		})
 	}
 }
