@@ -73,7 +73,7 @@ Rules for every command:
 | --- | --- | --- |
 | `reef serve [--addr 127.0.0.1:7700]` | Runs the REST server. See [server.md](server.md) | log lines on stderr |
 | `reef project add [--name N]` | Makes the current folder a project. The name is the folder name if you give none. Fails if the folder is already a project: `/tmp/shop is already project 1` | `1  shop  /tmp/shop` |
-| `reef work-item add "<title>" [--type T] [--description D]` | Adds a Work item to the current folder's project. `T` is one of the types in [server.md](server.md#work_item); the default is `work item` | `1  work item  Email login`: id, type, title |
+| `reef work-item add "<title>" [--type T] [--description D]` | Adds a Work item to the current folder's project. `T` is one of the types in [server.md](server.md#work_item); the default is `feature` | `1  feature  Email login`: id, type, title |
 | `reef brief <work-item>` | Prints the latest brief. With none: `work item 1 has no brief yet` | the brief body |
 | `reef decide <work-item> "<body>" [--why W]` | Writes a `decision` item in the work item's `work_item` scope as author and role `user`, so it is `accepted`. After the item, the lookalike and vector lines of `reef memory add` | `1  Use sessions, not JWT`: id, body; then `3  similar  <body>` |
 | `reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval]` | Writes a memory item as author `user`, so it is `accepted`; `--needs-approval` makes it a `candidate` that waits in `pending`. `S` and each `X` are `kind:id`, such as `project:1` or `work_item:12`; `--about` and `--replaces` repeat. Each `--replaces` item must be accepted (a candidate is approved or rejected first) and in the same scope as the new one; it is retired and points at the new one, or, with `--needs-approval`, when the new one is approved. `--as` sets the role the item carries. After the item, one line per stored item that looks like it. When an embedding provider is set and the vector could not be stored, stderr gets `vector not stored: <reason>; run reef memory embed <provider> to retry` and the exit code stays 0; the reason names the status and the vendor's error code, never the key | `12  accepted  decision  project:1  Use sessions, not JWT`: id, status, kind, scope, body; then `3  similar  <body>` |
@@ -98,11 +98,14 @@ Rules for every command:
 
 ## Teams
 
-A team is a set of roles, one of them the lead. It is a JSON
-file. `reef team apply FILE.json` stores it, and a Space picks it by name (`team` in `POST
-/spaces`, see [server.md](server.md#team)). Migration 6 seeds a team `solo`, with one role,
-`lead` on `claude`, and every Space without a team is in it. A new Space created by
-`reef chat` is in `solo`. When resuming, `reef chat` allows teams with one role and refuses
+A team is a roster of Teammates, one of them the lead. Each role in it is a team member: a
+Teammate under the name the team calls it. A team file is JSON. `reef team apply FILE.json` stores it,
+and a Space picks it by name (`team` in `POST /spaces`, see [server.md](server.md#team)); the Space
+copies the members, so editing the team later does not change it. For each role the file
+describes, `reef team apply` uses the Teammate already behind that role name in the team, or
+makes one called `<team>-<role>`. The window makes teams from existing Teammates (`POST /teams`).
+Migration 6 seeds a team `solo`, with one role, `lead` on `claude`. A Space made with no
+team is in it. A new Space created by `reef chat` is in `solo`. When resuming, `reef chat` allows teams with one role and refuses
 teams with multiple roles; use the Reef window (`reef serve`) for those teams.
 
 `teams/full.json` in the repo is a four-role team: `lead`, `architect`, `developer` (the only
@@ -129,9 +132,10 @@ the single-writer lock and a checkpoint. Apply it with `reef team apply teams/fu
 }
 ```
 
-- `name` and `roles` are required. A role needs `name` and `backend` (`claude` or `codex`). The
+- `name` and `roles` are required; `responsibility` is optional text saying what the team is for
+  (a Teammate's `propose_work_item` uses it to suggest a team). A role needs `name` and `backend` (`claude` or `codex`). The
   other role fields are optional: `lead` (default `false`), `write` (default `false`), `permissionMode`, `persona`,
-  `skills`, `face`, `tools` and `mcpServers`. What each does is in [server.md](server.md#role).
+  `skills`, `face`, `colour`, `model`, `provider`, `tools` and `mcpServers`. What each does is in [server.md](server.md#role).
   Exactly one role has `"lead": true`. A role name can appear once, uses only letters, digits,
   `_` and `-` (so an `@mention` can name it), and is not `user`.
 - The file is read strictly: an unknown field is an error.
@@ -589,7 +593,7 @@ folder:
 $ reef project add
 1  shop  /Users/me/code/shop
 $ reef work-item add "Email login"
-1  work item  Email login
+1  feature  Email login
 $ reef token 1 --role developer
 claude mcp add reef --env REEF_TOKEN=572b4e83...abda4 -- /usr/local/bin/reef mcp --data '/Users/me/Library/Application Support/Reef'
 ```

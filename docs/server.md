@@ -89,31 +89,37 @@ logged in and on `PATH`.
   listed. A stopped or failed turn shows `Failed: <error>` with its tool rows; its partial
   reply is the stored message, so the live block does not repeat it.
 - A closed Space shows "Wrapped" and Reopen where the Wrap up button and composer were.
-- Work item page (`/work-items/{id}`), with Close work item (asks to confirm) or Reopen, and its diff review page (`/work-items/{id}/review`); project
-  page (`/projects/{id}`) with its work items. The work item page lists the work item's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
+- Work item page, with Edit, Close (asks to confirm) or Reopen, and its diff review page; project
+  page (`/projects/{id}`) with its work items. A top-level item shows its acceptance lines, sub-items, brief versions, its Spaces and its proof (`Not submitted yet` until the lead submits); a sub-item shows the lines only. While a top-level item is in Review the page opens with a Review card: the wrap-up proposal, a note for the lead, Send back (needs the note, `PATCH` with `queued` and `note`) and Done (`PATCH` with `done`). The page lists the work item's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
 - Board (`/board`): the top-level work items of the current project in the columns Backlog, Queued, In progress, Needs you, Review, Done and Dropped, refreshed every 5 seconds; filters for type, Team and project are in the URL. Dragging a card between Backlog and Queued is `PATCH /work-items/{id}`; dropping a queued card on another card of the same Team is `PUT /work-items/{id}/queue-position`. Any other drop is refused in the window with a message: those statuses are reached through the item's own actions.
 - Inbox (`/inbox`): what waits on you from [`/inbox/events`](#inbox), in three groups, Needs you,
   Review and FYI, with a count and the action of each item (Continue, Retry, Review, Open,
   Dismiss on FYI). The window asks once, on a click, to show desktop notifications and then
   shows one for each new item since the page loaded, except the FYI items of Work items.
-- Teams (`/teams`): lists teams and edits one's roles and faces, saving with
-  `PUT /teams/{name}`. An opened role shows its persona, skills, allowed tools, permission
+- Teams (`/teams`): lists teams, creates one (`POST /teams`, with its responsibility text), deletes
+  one (`DELETE /teams/{name}`, refused while it has a work item in progress, needing you or queued) and edits one's
+  roster, saving with `PUT /teams/{name}`. A Team's page (`/teams/{name}`) shows its responsibility, roster and queue: the item
+  in progress or needing you, then the queued items, which you reorder by dragging (`PUT
+  /work-items/{id}/queue-position`). An opened role shows its persona, skills, allowed tools, permission
   mode and MCP servers. Skills are picked from the current project's `GET /skills` list for the
   role's backend; a picked name that is not on disk shows as missing. Allowed tools are
   checkboxes (`Read`, `Grep`, `Glob`, `Edit`, `Write`, `Bash`, `WebFetch`, `WebSearch`, and
   `mcp__<name>__*` for each MCP server) plus a field for patterns such as `Bash(git log:*)`,
   and are hidden on a Codex role. A server can be removed there, not added (use `reef team apply`).
-  Duplicate applies the same roles and MCP servers under a new name with `?from=`,
-  rejected if that name is taken. "New team" asks for a name and a team to start from and
-  sends the same `?from=` request. The hop and token caps are not team fields, so the
+  "New team" (Duplicate opens it too) asks for a name, a responsibility text and a team to start from,
+  and sends `POST /teams?from=<source>` with the source's roles; it is rejected if that name is
+  taken. The hop and token caps are not team fields, so the
   page has no Caps section.
+- Teammates (`/teammates`): lists teammates and edits one's persona, skills, backend, model, face and default access
+  rules (`PUT /teammates/{id}`). A Teammate's page (`/teammates/{id}`) shows its Teams, its
+  direct conversations (`GET /teammates/{id}/conversations`) and its memory items.
 - Settings (`/settings`): your name, occupation and working preferences (chips), the current project's skills read from disk, grouped Claude Code and Codex, each with its description, the Providers section (the claude and codex found on `PATH`, each with path, version and models, and added installs with a folder and Remove; add one with a kind, a name and a folder, typed or picked with Choose… on desktop; a role picks one in Teams), theme (dark, light or Match macOS, kept in `localStorage`)
   and notifications.
 - First run: one page with two steps. Your name with an optional occupation and working preferences (saved with `PUT /profile`), then the first
   project. A name with no project starts at the project step; a project with no name asks only
   for the name.
 
-Client routes such as `/features/3` and `/inbox` have the same paths as the REST API. In the Go server, `GET /` and `HEAD /` always get the app's `index.html`; other `GET` or `HEAD` requests get it when the `Accept` header includes `text/html`. Every other request goes to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`) are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
+Client routes such as `/spaces/3` and `/inbox` have the same paths as the REST API. In the Go server, `GET /` and `HEAD /` always get the app's `index.html`; other `GET` or `HEAD` requests get it when the `Accept` header includes `text/html`. Every other request goes to the API, so `curl /projects` and the app's own `fetch` calls (`Accept: application/json`) are unchanged. A file that exists in `web/dist`, such as `/assets/...`, is served as is. The Host and Content-Type checks guard the API only, not these files.
 
 Dev mode: run `reef serve --addr 127.0.0.1:7701 --data ~/Library/Application\ Support/Reef\ Dev`,
 then `cd web && npm run dev` and open `http://localhost:5173`. Vite proxies the API paths to
@@ -136,7 +142,7 @@ Every error has a JSON body: `{"error": "work item 9: not found"}`.
 
 An id in the path that matches nothing is 404; an id in the body that matches nothing is
 400. Unknown JSON fields in a request are rejected (`{"error":"invalid: bad JSON: json: unknown
-field \"feature_id\""}`), so a misspelled field never turns into a silent default. The
+field \"work_item_id\""}`), so a misspelled field never turns into a silent default. The
 server-set fields an entity returns (such as `id` and `createdAt`) are accepted and ignored. A parent
 deleted while a write is in flight gives the same 404 or 400 as one that never existed.
 
@@ -161,8 +167,20 @@ migration 36 [`036_turn_scopes.sql`](../store/migrations/036_turn_scopes.sql) (`
 migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql) (`turn.session_cost_usd`, `turn.session_input_tokens` and the other three token counts) and
 migration 38 [`038_proposal_items.sql`](../store/migrations/038_proposal_items.sql) (`proposal.items`; drops `proposal.notes` and `proposal.decisions`, clears `proposal.retire` and rejects the wrap proposals still pending) and
 migration 39 [`039_turn_compacted.sql`](../store/migrations/039_turn_compacted.sql) (`turn.compacted`) and
-migration 43 [`043_drop_gates.sql`](../store/migrations/043_drop_gates.sql) (drops `gate`; deletes the `approval` rows of kind `gate`).
-Migrations 4 and 5 add columns to `space` (see [Space](#space)).
+migration 43 [`043_drop_gates.sql`](../store/migrations/043_drop_gates.sql) (drops `gate`; deletes the `approval` rows of kind `gate`) and
+migration 47 [`047_space_member.sql`](../store/migrations/047_space_member.sql) (`space_member`, `space.kind`) and
+migration 50 [`050_team_queue.sql`](../store/migrations/050_team_queue.sql) (one busy work item per team) and
+migration 52 [`052_team_responsibility.sql`](../store/migrations/052_team_responsibility.sql) (`team.responsibility`) and
+migration 59 [`059_team_fts.sql`](../store/migrations/059_team_fts.sql) (`team_fts`) and
+migration 65 [`065_send_back_note.sql`](../store/migrations/065_send_back_note.sql) (`proof.send_back_note`) and
+migration 66 [`066_inbox_fyi.sql`](../store/migrations/066_inbox_fyi.sql) (`inbox_fyi`) and
+migration 67 [`067_teammate_colour.sql`](../store/migrations/067_teammate_colour.sql) (`teammate.colour`) and
+migration 68 [`068_direct_request_state.sql`](../store/migrations/068_direct_request_state.sql) (`direct_message.state`) and
+migration 69 [`069_space_moved.sql`](../store/migrations/069_space_moved.sql) (`space.moved_to`) and
+migration 71 [`071_turn_wake_message.sql`](../store/migrations/071_turn_wake_message.sql) (`turn.wake_message_id`).
+Migrations 4 and 5 add columns to `space` (see [Space](#space)); migration 40
+[`040_space.sql`](../store/migrations/040_space.sql) renames the `channel` table and its columns to `space`.
+Migrations 41 (teammate and team member), 42 (Work item) and 54 (proof) are described with their tables below.
 
 ### project
 
@@ -208,7 +226,7 @@ One row per Work item. A Work item has a `type` that is only a label; it never c
 | `id` | number | |
 | `projectId` | number | required on create; never changes. Deleting the project deletes the item |
 | `parentId` | number? | `null` for a top-level item. Must be a top-level item of the same project, else `invalid: work item 2 is a sub-item and cannot have sub-items`; never changes. Deleting the parent deletes its sub-items |
-| `type` | string | `work item` (default), `bug`, `incident`, `investigation`, `task` or `improvement`, else `invalid`. A `PUT` without `type` keeps the old one |
+| `type` | string | `feature` (default), `bug`, `incident`, `investigation`, `task` or `improvement`, else `invalid`. A `PUT` without `type` keeps the old one |
 | `title` | string | required |
 | `description` | string | default `""` |
 | `status` | string | `backlog` (default), `queued`, `in_progress`, `needs_you`, `review`, `done` or `dropped`, else `invalid`. `PATCH` moves it by the rules in `PATCH /work-items/{id}`. A `PUT` without `status` keeps the old one |
@@ -370,15 +388,19 @@ memory item of kind `decision` (`remember`, `reef decide`, `POST /memory`). Its 
 
 ### team
 
-A named set of roles. A team has exactly one lead role. `reef
+A named roster of Teammates, with a queue of Work items. A team has exactly one lead role. `reef
 team apply` (see [memory.md](memory.md#teams)) and `PUT /teams/{name}` both write a team,
-through the same validation. Migration 6 seeds the team `solo`, with one role, `lead` on
-`claude`, and points every Space that exists at it.
+through the same validation. `POST /teams` creates one from existing Teammates. Migration 6 seeds the team `solo`, with one role,
+`lead` on `claude`; it cannot be deleted or have members changed.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
+| `id` | number | the `teamId` of the team's Work items |
 | `name` | string | required; unique; letters, digits, `_` and `-` only. Applying a name that exists replaces that team's roles in one transaction |
+| `responsibility` | string | default `""`; what the team is for. `propose_work_item` suggests the team whose text best matches the proposal (`team_fts`); nothing else reads it |
 | `roles` | array | [roles](#role), the lead first, then the others in the order of the file |
+
+Deleting a team (`DELETE /teams/{name}`) is `invalid` for `solo` and 409 while it has a top-level work item `queued`, `in_progress` or `needs_you`. Its Spaces keep running and lose the team link.
 
 ### teammate
 
@@ -391,7 +413,7 @@ adds `teammate` and `team_member`; nothing is migrated except the seed: one defa
 | --- | --- | --- |
 | `id` | integer | the id of its memory `teammate` scope, so a rename keeps its items |
 | `name` | string | required; unique; same rule as a role name |
-| `persona`, `skills`, `backend`, `model`, `provider`, `face` | | as a [role](#role) |
+| `persona`, `skills`, `backend`, `model`, `provider`, `face`, `colour` | | as a [role](#role) |
 | `tools`, `mcpServers`, `write`, `permissionMode` | | default access rules. Joining a team copies them into a `team_member` row; editing them later does not change any membership. REST shows `mcp` (name and label) instead of `mcpServers` |
 
 A teammate that sits in a team cannot be deleted: the error is `invalid:` and names the team. A team has at
@@ -416,6 +438,7 @@ role name in the team, else a new one called `<team>-<role>`.
 | `persona` | string | goes at the start of the role's first prompt, under `## You`, and again, marked as changed, at its next wake once it or `skills` differs from what the role's session last got |
 | `skills` | array of strings | names of skills, one per entry, trimmed; each is letters, digits, `:`, `_` or `-`, and an empty, repeated or other name is `invalid`. They go after the persona, under `Your skills:`. claude: a role that picks skills may use only these. `--allowedTools` gets `Skill(name)` for each and `--disallowedTools` gets `Skill(name)` for every other claude skill on disk (the scan of `GET /skills`, taken when the role's session starts, with the role's working folder). A role that picks none keeps every skill and gets no skill rule. Skill rules only add entries to the `write` and `tools` rules. codex: prompt only. A team file or `PUT` body that gives `skills` as a string is `invalid` |
 | `face` | string | optional; the creature the window draws for the role: `jellyfish`, `whale`, `penguin`, `shark`, `octopus`, `turtle`, `seahorse`, `otter`, `clownfish`, `manta-ray` or `pebble`. Left out, the window picks one by the role's name (`lead` jellyfish, `architect` whale, `developer` penguin, `tester` shark, else `pebble`). Any other value is `invalid` |
+| `colour` | string | optional; the creature's body colour: `orange`, `red`, `yellow`, `green`, `teal`, `blue`, `violet` or `pink`. Left out, the creature's own. Any other value is `invalid` |
 | `tools` | array of strings | claude: passed as `--allowedTools` with `mcp__reef__*`, so these tools and the reef tools run without asking; the role's own `mcpServers` do not (list `mcp__mcp1__*` here to allow one). codex: ignored |
 | `mcpServers` | array | extra MCP servers for the role, each `command`, `args`, `env` (stdio) or `url` (HTTP). They are named `mcp1`, `mcp2`, ... next to the `reef` server |
 
@@ -548,9 +571,11 @@ tool calls.
 | `POST /providers` | `name`, `kind`, `folder` | 201 the added provider, in the shape `GET` gives | 400 bad name, `kind` not `claude` or `codex`, `folder` not an absolute path to a folder, or no executable of that kind in it; 409 `name` is taken, or is `claude` or `codex` |
 | `DELETE /providers/{name}` | | 204 | 400 `claude` or `codex` (the ones on `PATH` cannot be removed), 404, 409 a teammate still names it (the error names the teammate; change that teammate first) |
 | `GET /teams` | | 200 all teams by name, each with its `id` (the `teamId` of its Work items) and its roles; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
+| `POST /teams` | `name`, `responsibility`, `roles`: each role names its Teammate with `teammateId` and gives the `name` the team calls it and `lead`. The role gets the Teammate's default access rules. `?from=<source>` takes a role's `mcpServers` from `source`'s role of the same name | 201 the team as `GET /teams/{name}` shows it | 400 a role with no `teammateId`, an unknown Teammate, or the usual `invalid: ...` team rules; 404 `?from=` names no team; 409 the name exists |
 | `GET /teams/{name}` | | 200, with `mcp` instead of `mcpServers` as above; each role shows `write` | 404 |
 | `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; a role may also list `mcpRemove`, the `{name, label}` of each stored MCP server to drop, as `GET` showed it; servers it does not list are kept); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones, minus those in its `mcpRemove`; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists, or a server in `mcpRemove` no longer matches a stored one by name and label (the team changed since it was loaded; nothing is applied) |
-| `GET /teammates` | | 200 every teammate by name, each `{id, name, persona, skills, backend, model, provider, face, tools, mcp, write, permissionMode}` | |
+| `DELETE /teams/{name}` | | 204; the team's Spaces stay, with no team | 400 `solo`, 404, 409 the team has a top-level work item queued, in progress or needing you |
+| `GET /teammates` | | 200 every teammate by name, each `{id, name, persona, skills, backend, model, provider, face, colour, tools, mcp, write, permissionMode}` | |
 | `POST /teammates` | the teammate fields above, `mcpServers` instead of `mcp` | 201 the teammate | 400 the same `invalid: ...` text a role gets, 409 name taken |
 | `GET /teammates/{id}` | | 200 | 404 |
 | `PUT /teammates/{id}` | every field; `mcpServers` left out keeps the stored ones, `[]` clears them | 200 | 400, 404, 409 name taken |
@@ -1064,8 +1089,8 @@ A check run is identified by its name plus its `detailsUrl`/`targetUrl` (falling
 `completedAt`/`startedAt`) as its run key; a rerun of the same check name, such as CI run
 again on a later push, is a different run key and is noted again, and two runs of the same
 name in one rollup (a matrix job, two workflows) are two rows, both noted. The state posted
-is stored one row per `(work item, name, run key)` (migration 16
-[`016_work_item_github.sql`](../store/migrations/016_work_item_github.sql), tables
+is stored one row per `(work item, name, run key)` (migration 42
+[`042_work_item.sql`](../store/migrations/042_work_item.sql), tables
 `work_item_github` and `work_item_github_check`), so a restart does not repeat it and a second
 poll with the same answer posts nothing. No `gh` on `PATH`: nothing is posted, logged once.
 `gh` erroring (not logged in, no PR for the branch): nothing is posted, logged once per
