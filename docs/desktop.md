@@ -127,18 +127,18 @@ take-over back off, so the button and the main process agree.
 
 ## Terminal pane
 
-One shell per working tree ([`desktop/terminal.js`](../desktop/terminal.js)): a feature's
-worktree, or a project checkout for a quick session. Neither the toggle nor viewing a page ever
-makes a worktree. With the toggle on, a feature page or feature Space reads
-`GET /features/{id}/worktree`: when the feature has one, the pane opens the shell there; when it
+One shell per working tree ([`desktop/terminal.js`](../desktop/terminal.js)): a Work item's
+worktree, or a project checkout for a free Space. Neither the toggle nor viewing a page ever
+makes a worktree. With the toggle on, a Work item page or Work item Space reads
+`GET /work-items/{id}/worktree`: when the Work item has one, the pane opens the shell there; when it
 has none, the pane shows "No worktree yet" and an Open terminal button, and only that button
-calls `POST /features/{id}/worktree` (making the worktree the same way a first wake would), then
-opens the shell in the returned path; a failed call shows its error in the pane. A quick session
-opens in the project path. The pane is keyed by feature, so moving to another feature never keeps
+calls `POST /work-items/{id}/worktree` (making the worktree the same way a first wake would), then
+opens the shell in the returned path; a failed call shows its error in the pane. A free Space
+opens in the project path. The pane is keyed by Work item, so moving to another one never keeps
 the previous one's shell.
 The Terminal toggle sits next to the Browser toggle at the window's top right, only on a Space or
-feature page (a page with a folder); one on/off choice for the window (default off, quick sessions included), remembered. On a Space
-page the terminal is a drawer under the messages, on a feature page a panel pinned to the bottom,
+Work item page (a page with a folder); one on/off choice for the window (default off, free Spaces included), remembered. On a Space
+page the terminal is a drawer under the messages, on a Work item page a panel pinned to the bottom,
 with a header (folder, Clear, hide); the toggle or the hide button turns it off.
 The pane renders nothing in a plain browser. `node-pty` spawns the login shell with the `PATH`
 the app already resolved at start, sized to xterm's own columns and rows so the shell's first
@@ -152,14 +152,14 @@ Settings > Terminal chooses where the toggle opens a working tree: Built-in pane
 installed Ghostty, iTerm, Terminal or Warp (found as `<Name>.app` in `/Applications`,
 `~/Applications` or `/System/Applications/Utilities`), or Custom, an app name typed in. With an
 app chosen the toggle runs `open -a <app> <path>` in the main process (`terminal:launch`) in the
-same worktree the pane would use, with the same Open terminal step first when a feature has no
+same worktree the pane would use, with the same Open terminal step first when a Work item has no
 worktree, then switches itself off; no xterm pane opens, and a failed `open` shows its error in
 the pane until the toggle is pressed or the page changes. The choice is kept in the window's
 `localStorage` (`reef.terminalApp`), not on the server. The path must be an absolute path to an existing folder, else `open` is not run; the app name is passed as typed, so Custom is deliberately open.
 
 ## Back and forward
 
-The window has no browser toolbar, so detail pages (feature, review, project) start with a Back
+The window has no browser toolbar, so detail pages (Work item, review, project) start with a Back
 button: it goes back one page, or to the page's parent when the window has no earlier page.
 `Cmd+[` goes back and `Cmd+]` forward, except while a text field is focused.
 
@@ -170,9 +170,11 @@ small always-on-top window on `/capture`: the same web app, no sidebar or browse
 main window's sidebar has a Capture button that calls the same open through `window.reef.capture()`
 over IPC, so capture also works where the global shortcut does not reach, and in tests; in a plain
 browser (no `window.reef`) the button just navigates to `/capture`. The capture window has a
-project picker (the project chosen last time, kept in `localStorage`, is the default), a kind
-(idea, todo, bug) and a text box. Enter creates a task with no feature, titled `<kind>: <text>`,
-through `POST /tasks`, and closes the window; Escape closes it without creating a task. The window also hides when it loses focus, so its transparent room never blocks the app below. It is placed on the main window that opened it, by its own width. The
+project picker (the project chosen last time, kept in `localStorage`, is the default), a type
+(task, feature, bug, incident, investigation or improvement), a text box and a description. Enter creates a Work item
+in the project's Backlog with that type, title and description, through `POST /work-items`, and closes the window.
+The "Talk to a Teammate" toggle swaps the type for a Teammate picker: Enter then starts a direct
+conversation with that Teammate, with the text as its first message. Escape closes the window without creating anything. The window also hides when it loses focus, so its transparent room never blocks the app below. It is placed on the main window that opened it, by its own width. The
 shortcut is unregistered when the app quits. The window is frameless and transparent: the
 rounded translucent panel on `/capture` is the window (the OS draws its shadow), and you drag it
 by the panel. It is 400px tall, about 150px of panel and transparent room below for the project

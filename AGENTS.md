@@ -1,12 +1,12 @@
 # Reef: working agreement for every agent
 
-Read this first. Then [`docs/product.md`](docs/product.md) (what we build and the 38
+Read this first. Then [`docs/product.md`](docs/product.md) (what we build and the numbered
 decisions), [`docs/server.md`](docs/server.md) (the data server) and
 [`docs/memory.md`](docs/memory.md) (the CLI, MCP tools, `reef chat` and wrap-up).
 
 ## What Reef is
 
-A personal Mac app where every feature keeps its own memory, and a team of AI agents works on it in one window. Go server is the brain, React UI is the face, Electron is the Mac shell. Claude Code and Codex are the agent backends. We build it from scratch and, once there is a baseline, use Reef to build Reef.
+A personal Mac app where every Work item keeps its own memory, and a team of AI agents works on it in one window. Go server is the brain, React UI is the face, Electron is the Mac shell. Claude Code and Codex are the agent backends. We build it from scratch and, once there is a baseline, use Reef to build Reef.
 
 ## Plan
 
@@ -26,6 +26,8 @@ Ten slices, tracked as GitHub issues labeled `slice`. Each slice is split into s
 | 10 Releases | #242 | Every merge to `main` is a release; one-command install; the app updates itself with rollback; dev copy on its own port and data |
 
 Memory first: 1, 2, 3 before any UI. 1 and 2 have no dependency on each other.
+
+The rows above say what each slice built then. Slice 16 (the domain model, decisions 96 to 142 in `docs/product.md`) replaced features, tasks and channels with Work items, Spaces and Teammates, and removed approval gates.
 
 ## Slice verification
 
@@ -66,4 +68,4 @@ Create a folder only when a ticket needs it.
 - React: follow `docs/react-style.md`.
 - Commits: conventional prefix (`feat:`, `fix:`, `docs:`, `chore:`), one-line subject, no ticket ids in the subject. No AI attribution anywhere.
 - Comments only for a constraint the code cannot show.
-- Plain words in UI and code: feature, Space, team, role, brief, decision, task. "Reef" and "jelly" are brand only.
+- Plain words in UI and code: Work item, sub-item, Space, Team, Teammate, role, brief, memory item, decision. "Channel" is kept for incoming event streams only. "Reef" and "jelly" are brand only.

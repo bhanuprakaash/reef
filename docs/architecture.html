@@ -174,8 +174,8 @@ body.read #tools{left:0;right:0;top:0;padding:max(10px,env(safe-area-inset-top,0
         <li><b>Agents are processes.</b> Every teammate is a real <code>claude</code> or <code>codex</code> CLI that <code>reef serve</code> launches headless. Reef never calls a model API itself. Adapters turn each CLI's output into one <code>agent.Event</code> type.</li>
         <li><b>SQLite is the source of truth.</b> <code>reef serve</code>, <code>reef mcp</code>, <code>reef chat</code> and the CLI all open <code>reef.db</code> directly. Only the live chain (hop count, queued wakes, SSE frames) lives in memory.</li>
         <li><b>Routing is plain code, at turn boundaries.</b> When a turn ends, <code>space.Route</code> applies four @mention rules to what that role wrote. No model picks the next speaker, and nobody is interrupted.</li>
-        <li><b>Memory is read once, then pulled.</b> A new session gets one prompt: brief + that role's notes + a one-line-per-item index. Anything deeper comes through <code>reef mcp</code> tools on demand.</li>
-        <li><b>You approve memory, except decisions.</b> Briefs and wrap-ups are proposals that wait for you. <code>record_decision</code>, tasks and <code>set_stage</code> write directly.</li>
+        <li><b>Memory is read once, then pulled.</b> A new session gets one prompt: brief + memory items by scope (every live decision, the newest of the rest, each with a count) + sub-items in progress. Anything deeper comes through <code>reef mcp</code> tools on demand.</li>
+        <li><b>You approve the brief and the wrap-up.</b> Briefs and wrap-ups are proposals that wait for you. Memory items an agent saves with <code>remember</code> are written at once, except a convention from a role other than architect or lead, which waits as a candidate. Only you set a Work item <code>done</code>.</li>
       </ol>
     </div>
     <div class="card">
@@ -192,7 +192,7 @@ body.read #tools{left:0;right:0;top:0;padding:max(10px,env(safe-area-inset-top,0
         <li><code>agent/</code> Agent interface, Event, adapters <code>agent/claude</code>, <code>agent/codex</code></li>
         <li><code>space/</code> Session, Runner, Route, Context, Trees, caps</li>
         <li><code>server/</code> HTTP routes, <code>live.go</code> (chain), <code>wake.go</code> (router), <code>mcp.go</code></li>
-        <li><code>store/</code> SQLite schema (30 migrations) and every query</li>
+        <li><code>store/</code> SQLite schema and every query · <code>memory/</code> memory items, search, evals</li>
         <li><code>worktree/</code> git worktree, checkpoint, restore, diff</li>
         <li><code>cmd/reef</code> the server and the CLI · <code>cmd/reef-agent</code> adapter harness</li>
         <li><code>web/</code> React UI · <code>desktop/</code> Electron shell</li>
@@ -217,29 +217,29 @@ body.read #tools{left:0;right:0;top:0;padding:max(10px,env(safe-area-inset-top,0
 
     <div class="node" id="m-win" style="left:560px;top:0;width:460px">
       <div class="k">web/ · React</div><div class="t">Window</div>
-      <div class="box"><b>Pages</b><span>Today, project, feature, Space, inbox, tasks, teams, review, settings. No business rules: REST in, SSE out.</span></div>
-      <div class="box"><b>Space view</b><span>Message list, composer (<code>@role</code>, <code>/wrap</code>), live turn and tool rows, approval rows, paused banner, proposal panel, coordination panel (direct chains, read-only), checkpoint rows, failed-turn rows.</span></div>
+      <div class="box"><b>Pages</b><span>Today, board, project, Work item, Space, inbox, Teams, Teammates, review, settings. No business rules: REST in, SSE out.</span></div>
+      <div class="box"><b>Space view</b><span>Message list, composer (<code>@role</code>, <code>/wrap</code>), live turn and tool rows, paused banner, proposal panel, coordination panel (direct chains, read-only), checkpoint rows, failed-turn rows.</span></div>
       <div class="box"><b>Two EventSource streams</b><span><code>GET /spaces/{id}/events</code> per open Space and <code>GET /inbox/events</code> once. A reconnect replays the running chain's frames.</span></div>
-      <div class="box"><b>REST client</b><span>One small file per call: <code>send-message</code>, <code>wrap-space</code>, <code>promote-space</code>, <code>decide-proposal</code>, <code>rollback-turn</code>.</span></div>
+      <div class="box"><b>REST client</b><span>One small file per call: <code>send-message</code>, <code>wrap-space</code>, <code>attach-space</code>, <code>decide-proposal</code>, <code>rollback-turn</code>.</span></div>
     </div>
 
     <div class="node" id="m-serve" style="left:1260px;top:0;width:780px">
       <div class="k">server/ · 127.0.0.1:7700 · holds reef.lock</div><div class="t">reef serve (Go)</div>
       <div class="box"><b>HTTP mux · <code>newHandler</code></b><span>One <code>ServeMux</code>, a <code>*Routes()</code> per area. <code>guard()</code> and <code>notifyInbox</code> wrap it. Also serves the embedded <code>web/dist</code>.</span></div>
       <div class="box"><b>send → <code>startUserTurn</code></b><span><code>claim()</code> moves the Space idle → starting. <code>checkSpace</code> refuses closed, paused or over-budget. Then <code>space.Open</code>, <code>Say(text)</code>, <code>route()</code>, start the chain.</span></div>
-      <div class="box"><b><code>chain.runTurn</code></b><span>The loop: <code>runOne</code> → <code>wakes()</code> + <code>directWakes()</code> → <code>gate()</code> → <code>checkSpace</code> + <code>countHop</code> → next wake. One turn at a time per space.</span></div>
+      <div class="box"><b><code>chain.runTurn</code></b><span>The loop: <code>runOne</code> → <code>wakes()</code> + <code>directWakes()</code> → <code>checkSpace</code> + <code>countHop</code> → next wake. One turn at a time per space.</span></div>
       <div class="box"><b>Router · <code>wake.go</code></b><span><code>route()</code> turns messages into wakes through <code>space.Route</code>, and builds the header, <code>Thread so far:</code> and <code>Asked together:</code>.</span></div>
-      <div class="box"><b>Gates &amp; caps</b><span><code>team.Gated</code> → pending <code>approval</code> rows. <code>HopCap = 6</code>, <code>TokenBudget = 1,000,000</code>. A pause stores the held wakes.</span></div>
+      <div class="box"><b>Caps &amp; queue</b><span><code>HopCap = 6</code> talk-only hops, <code>TokenBudget = 1,000,000</code> per top-level Work item; a pause stores held wakes (<code>approval</code> kind <code>hold</code>). <code>MoveWorkItem</code> changes a status by who moves it; <code>startNext</code> starts a free Team's first queued item and sends its lead the item.</span></div>
       <div class="box"><b>Live state &amp; SSE</b><span>Per Space in memory: frames, hops, held, queued. <code>publishLocked</code> never waits for a subscriber. The inbox is a view recomputed after events.</span></div>
-      <div class="box"><b>Proposals</b><span><code>/wrap</code> and promote start a chain whose prompt asks for <code>propose_wrap</code>. Approve runs <code>ApproveProposal</code> in one transaction.</span></div>
+      <div class="box"><b>Proposals</b><span><code>/wrap</code>, and the lead's <code>submit_for_review</code> when its chain ends, start a turn whose prompt asks for <code>propose_wrap</code>. Approve saves the items, retires the ids, then saves the brief and closes the Space.</span></div>
       <div class="box"><b>Background</b><span>GitHub poll every 60s (failed CI wakes the developer as author <code>reef</code>). At start, turns still <code>running</code> become <code>failed: server restarted</code>.</span></div>
     </div>
 
     <div class="node" id="m-chan" style="left:2260px;top:0;width:580px">
       <div class="k">space/ · one Session per open space</div><div class="t">Space engine</div>
-      <div class="box"><b>Session</b><span>Takes <code>chat-&lt;id&gt;.lock</code>. <code>members[role]</code> → agent + token. <code>member()</code> loads the team, finds the newest session id, mints a token, writes the MCP config and tool limits, ensures the worktree, then <code>Resume</code> or <code>Start</code>. The lead stays open; a specialist closes after its turn.</span></div>
+      <div class="box"><b>Session</b><span>Takes <code>chat-&lt;id&gt;.lock</code>. <code>members[role]</code> → agent + token. <code>member()</code> loads the Space's members, finds the newest session id, mints a token, writes the MCP config and tool limits, ensures the worktree, then <code>Resume</code> or <code>Start</code>. The lead stays open; a specialist closes after its turn.</span></div>
       <div class="box"><b>Runner</b><span><code>CreateTurn</code> → checkpoint → <code>withNotes</code> → preamble → <code>Send</code> → event stream into rows → <code>keepReply</code> → <code>EndTurn</code>.</span></div>
-      <div class="box"><b>Context builder</b><span><code>startPrompt</code> = <code>roleIntro</code> + <code>Context()</code> + <code>teamIntro</code>. Brief, this role's notes, an index. Never a message body.</span></div>
+      <div class="box"><b>Context builder</b><span><code>startPrompt</code> = <code>roleIntro</code> + <code>Context()</code> + <code>teamIntro</code>. Brief, sub-items in progress, memory items by scope, a count line. Never a message body.</span></div>
       <div class="box"><b>Trees</b><span>flock files: one writer per working tree, readers never wait, a rollback needs the lock free.</span></div>
     </div>
 
@@ -252,33 +252,33 @@ body.read #tools{left:0;right:0;top:0;padding:max(10px,env(safe-area-inset-top,0
 
     <div class="node ext" id="m-proc" style="left:3080px;top:760px;width:480px">
       <div class="k">external program</div><div class="t">claude / codex process</div>
-      <span class="dim">The real CLI you already have installed. It runs with <code>cwd</code> set to the feature's worktree, calls its own model, runs tools, and starts <code>reef mcp</code> from the MCP config Reef wrote for it.</span>
+      <span class="dim">The real CLI you already have installed. It runs with <code>cwd</code> set to the Work item's worktree, calls its own model, runs tools, and starts <code>reef mcp</code> from the MCP config Reef wrote for it.</span>
     </div>
 
     <div class="node" id="m-mcp" style="left:2200px;top:700px;width:660px">
       <div class="k">one per teammate · stdio · REEF_TOKEN</div><div class="t">reef mcp</div>
-      <div class="box"><b>Read</b><span><code>get_brief</code> · <code>read_decision</code> · <code>read_thread</code> · <code>search_sessions</code> · <code>list_tasks</code> · <code>read_task</code></span></div>
-      <div class="box"><b>Write</b><span><code>record_decision</code> · <code>add_task</code> · <code>update_task</code> · <code>set_stage</code> · <code>propose_brief</code> · <code>propose_wrap</code></span></div>
+      <div class="box"><b>Read</b><span><code>get_brief</code> · <code>recall</code> · <code>read_memory</code> · <code>read_thread</code> · <code>search_sessions</code> · <code>list_sub_items</code> · <code>read_sub_item</code></span></div>
+      <div class="box"><b>Write</b><span><code>remember</code> · <code>create_sub_item</code> · <code>propose_work_item</code> · <code>propose_brief</code> · <code>propose_wrap</code>; the lead only: <code>set_sub_item_status</code> · <code>submit_for_review</code></span></div>
       <div class="box"><b>Talk</b><span><code>post_to_space</code> · <code>send_to_role</code> · <code>read_direct_messages</code></span></div>
       <div class="box"><b>Browser</b><span><code>browser_navigate</code> · <code>screenshot</code> · <code>snapshot</code> · <code>click</code> · <code>type</code> · <code>console</code> · <code>network</code>, straight to the app over <code>browser.sock</code></span></div>
     </div>
 
     <div class="node db" id="m-db" style="left:1100px;top:960px;width:900px">
-      <div class="k">store/ · WAL · 5s busy timeout · 30 migrations</div><div class="t">SQLite · reef.db</div>
-      <div class="box"><b>Memory</b><span><code>brief</code> (versions) · <code>role_notes</code> · <code>decision</code> · <code>project.memory</code> · <code>task</code></span></div>
-      <div class="box"><b>Conversation</b><span><code>space</code> · <code>message</code> · <code>direct_message</code> · <code>turn</code> · <code>tool_call</code></span></div>
-      <div class="box"><b>Control</b><span><code>team</code> · <code>role</code> · <code>gate</code> · <code>approval</code> · <code>token</code> · <code>proposal</code> · <code>profile</code></span></div>
-      <div class="box"><b>GitHub</b><span><code>feature_github</code> · <code>feature_github_check</code></span></div>
+      <div class="k">store/ · memory/ · WAL · 5s busy timeout</div><div class="t">SQLite · reef.db</div>
+      <div class="box"><b>Memory</b><span><code>brief</code> (versions) · <code>memory</code> · <code>memory_link</code></span></div>
+      <div class="box"><b>Conversation</b><span><code>space</code> · <code>space_member</code> · <code>message</code> · <code>direct_message</code> · <code>turn</code> · <code>tool_call</code></span></div>
+      <div class="box"><b>Control</b><span><code>teammate</code> · <code>team</code> · <code>team_member</code> · <code>approval</code> (holds) · <code>token</code> · <code>proposal</code> · <code>proof</code> · <code>inbox_fyi</code> · <code>profile</code></span></div>
+      <div class="box"><b>GitHub</b><span><code>work_item_github</code> · <code>work_item_github_check</code></span></div>
     </div>
 
     <div class="node" id="m-git" style="left:3080px;top:1010px;width:480px">
-      <div class="k">worktree/ · git</div><div class="t">Feature worktree</div>
-      <span class="dim"><code>&lt;data&gt;/worktrees/&lt;project&gt;/&lt;slug&gt;</code> on <code>feature/&lt;slug&gt;</code>, shared by every Space of the feature. Checkpoints at <code>refs/reef/checkpoints/&lt;turn&gt;</code>.</span>
+      <div class="k">worktree/ · git</div><div class="t">Work item worktree</div>
+      <span class="dim"><code>&lt;data&gt;/worktrees/&lt;project id&gt;/&lt;work item id&gt;</code> on <code>work-item/&lt;id&gt;</code>, shared by every Space and sub-item of the Work item. Checkpoints at <code>refs/reef/checkpoints/&lt;turn&gt;</code>.</span>
     </div>
 
     <div class="node" id="m-cli" style="left:360px;top:960px;width:460px">
       <div class="k">cmd/reef</div><div class="t">CLI and <code>reef chat</code></div>
-      <span class="dim"><code>brief</code> · <code>decide</code> · <code>task</code> · <code>memory</code> · <code>team apply</code> · <code>context</code> · <code>token</code> · <code>wrap</code> · <code>chat</code>. Opens <code>reef.db</code> directly, so it works with the server down. <code>reef chat</code> runs a Space in a terminal through the same <code>space.Open</code>.</span>
+      <span class="dim"><code>work-item</code> · <code>brief</code> · <code>decide</code> · <code>memory</code> · <code>team apply</code> · <code>context</code> · <code>token</code> · <code>wrap</code> · <code>chat</code>. Opens <code>reef.db</code> directly, so it works with the server down. <code>reef chat</code> runs a Space in a terminal through the same <code>space.Open</code>.</span>
     </div>
   </div>
   <div class="big">The big picture</div>
@@ -293,7 +293,7 @@ body.read #tools{left:0;right:0;top:0;padding:max(10px,env(safe-area-inset-top,0
 <!-- 4 MEMORY BUILD -->
 <section class="region" data-row="1" style="width:2600px" id="r-mem" data-title="3 · How memory is built">
   <h2><span class="n">3</span>How memory is built</h2>
-  <p class="sub">Four write paths. A live decision and a task write at once. A brief or a wrap-up is a <b>proposal</b> that waits for you, and approving it is one transaction.</p>
+  <p class="sub">Four write paths. A live memory item writes at once. A brief or a wrap-up is a <b>proposal</b> that waits for you, and approving it saves the items, then the brief.</p>
   <div class="seq" id="seq2" style="grid-template-columns:repeat(5,1fr)"></div>
   <div class="big">How memory is built</div>
 </section>
@@ -311,21 +311,21 @@ body.read #tools{left:0;right:0;top:0;padding:max(10px,env(safe-area-inset-top,0
         <tr><td>Sender, recipient (MCP)</td><td class="yes">their own</td></tr>
         <tr><td>Other roles</td><td class="no">nothing</td></tr>
         <tr><td><code>read_thread</code>, message list</td><td class="no">never</td></tr>
-        <tr><td>Wrap-up and promote turn</td><td class="yes">all, as <code>[direct 1] a -&gt; b: …</code></td></tr>
+        <tr><td>Wrap-up turn</td><td class="yes">all, as <code>[direct 1] a -&gt; b: …</code></td></tr>
       </table></div>
     </div>
     <div class="card">
       <h3>When it fails</h3>
       <ul>
         <li>Recipient turn fails: a <code>failed</code> response is stored, so the sender can tell. It does not wake the sender.</li>
-        <li>You reject the gate: a failed response with body <code>rejected</code>.</li>
+        <li>Your message drops a held wake after a hop-cap pause: a failed response with body <code>dropped</code>.</li>
         <li>You press Stop with a wake queued: failed response <code>stopped</code>.</li>
         <li>Retry appends the one <code>done</code> response; a unique index allows only one.</li>
       </ul>
     </div>
     <div class="card">
       <h3>How private work reaches the team</h3>
-      <p>Not through search. The sender publishes one concise outcome with <code>post_to_space</code>, or it lands in the brief and decisions at wrap-up, which reads every direct exchange of the space.</p>
+      <p>Not through search. The sender publishes one concise outcome with <code>post_to_space</code>, or it lands in the brief and memory items at wrap-up, which reads every direct exchange of the space.</p>
       <p class="dim">A new Space never gets direct messages in its context.</p>
     </div>
   </div>
@@ -339,10 +339,8 @@ body.read #tools{left:0;right:0;top:0;padding:max(10px,env(safe-area-inset-top,0
     <div class="node sm" id="l-end" style="left:0;top:340px;width:280px"><div class="t">Turn ends</div><span>The role's reply is now a <code>message</code> row, the turn is <code>done</code>.</span></div>
     <div class="node sm" id="l-read" style="left:380px;top:340px;width:360px"><div class="t"><code>wakes()</code> + <code>directWakes()</code></div><span>Read messages stored after the cursor, written <b>by the role that just ran</b> (its reply and any <code>post_to_space</code>). Read its new <code>direct_message</code> rows.</span></div>
     <div class="node sm" id="l-route" style="left:840px;top:340px;width:380px"><div class="t"><code>space.Route</code></div><span>Thread owner, <code>@mentions</code>, lead, or nobody. Build the header. Merge same-role same-thread wakes.</span></div>
-    <div class="node sm" id="l-gate" style="left:1320px;top:340px;width:360px"><div class="t"><code>gate()</code></div><span><code>team.Gated(from, to)</code>? A gated wake is stored, not run. An open one continues.</span></div>
-    <div class="node sm" id="l-appr" style="left:1320px;top:30px;width:360px"><div class="t">Pending approval</div><span>Row in <code>approval</code> with the exact prompt, an <code>approval</code> SSE frame, an inbox item. Approve runs it; reject drops it.</span></div>
     <div class="node sm" id="l-queue" style="left:1780px;top:340px;width:420px"><div class="t">Queue</div><span>Open wakes are appended. A message you send mid-chain joins <code>l.queued</code> and runs after the current turn.</span></div>
-    <div class="node sm" id="l-cap" style="left:1780px;top:640px;width:420px"><div class="t"><code>checkSpace</code> + <code>countHop</code></div><span>Closed? Paused? Over the token budget? A turn woken by an agent counts a hop; the 7th does not run.</span></div>
+    <div class="node sm" id="l-cap" style="left:1780px;top:640px;width:420px"><div class="t"><code>checkSpace</code> + <code>countHop</code></div><span>Closed? Paused? Over the token budget? A turn woken by an agent counts a hop, and a turn that called a tool other than Reef's own resets the count; the 7th does not run.</span></div>
     <div class="node sm" id="l-hold" style="left:1320px;top:700px;width:360px"><div class="t">Pause + hold</div><span><code>space.paused</code> = reason, wakes stored as <code>approval</code> kind <code>hold</code>. <b>Continue</b>, or your next message after a hop pause, runs or clears them.</span></div>
     <div class="node sm" id="l-run" style="left:840px;top:700px;width:380px"><div class="t"><code>runOne</code> → <code>Session.RunAs</code></div><span>Publishes <code>turn: running</code> and runs the role. Strictly one turn at a time per space.</span></div>
     <div class="node sm" id="l-stop" style="left:380px;top:700px;width:360px"><div class="t">Chain ends</div><span>Nothing left to wake, a failed turn, a stop or a pause. The Space goes idle.</span></div>
@@ -376,16 +374,14 @@ Asked together: @architect, @tester</pre>
       <p class="dim">Your text goes in as typed. An agent's goes in as <code>&lt;author&gt; wrote: &lt;body&gt;</code>. A private wake starts <code>[Space N, direct message N, chain N, source: direct request]</code>.</p>
     </div>
     <div class="card">
-      <h3>Gates and caps</h3>
+      <h3>Caps</h3>
       <div class="tw"><table>
-        <tr><th>edge</th><th>default</th></tr>
-        <tr><td>lead → developer</td><td class="yes">gated</td></tr>
-        <tr><td>architect → developer</td><td class="yes">gated</td></tr>
-        <tr><td>developer → tester</td><td class="yes">gated</td></tr>
-        <tr><td>tester → developer</td><td class="yes">gated</td></tr>
-        <tr><td>everything else</td><td class="no">free</td></tr>
+        <tr><th>cap</th><th>default</th></tr>
+        <tr><td>talk-only agent hops</td><td>6 per user message</td></tr>
+        <tr><td>token budget</td><td>1,000,000 per top-level Work item</td></tr>
+        <tr><td>tool calls per turn</td><td class="no">none</td></tr>
       </table></div>
-      <p class="dim">A team file can override any edge. <b>Hop cap 6</b> per user message (your message resets it, approving a gate does not). <b>Token budget 1,000,000</b> of input + output + cache-write; cache reads do not count.</p>
+      <p class="dim">There are no approval gates: Review with proof checks the result. A hop is a turn an agent's message woke; a turn that calls any tool other than Reef's own resets the count, and so does your message. The budget counts input + output + cache-write tokens, cache reads do not count, and is checked between turns. A pause moves the Work item to Needs you.</p>
     </div>
     <div class="card">
       <h3>Who stays alive</h3>
@@ -399,18 +395,18 @@ Asked together: @architect, @tester</pre>
       <h3>Example chain</h3>
       <ol>
         <li>You → lead (rule 3).</li>
-        <li>Lead replies <code>@architect design the form</code> (rule 2, ungated).</li>
+        <li>Lead replies <code>@architect design the form</code> (rule 2).</li>
         <li>Architect runs, posts a plan naming nobody (rule 4).</li>
         <li>Chain ends. The lead gets no turn after the plan.</li>
       </ol>
-      <p class="dim">If the architect said <code>@developer build it</code>, that edge is gated: an approval row, and nothing runs until you approve.</p>
+      <p class="dim">If the architect said <code>@developer build it</code>, the developer would run next and the chain would count one more hop.</p>
     </div>
     <div class="card">
       <h3>When a chain also runs from elsewhere</h3>
       <ul>
-        <li><b>Approve</b> a gated wake: a new chain, or queued on a running one.</li>
+        <li><b>Queue</b>: a free Team's first queued Work item starts, and its lead gets the item as a message.</li>
         <li><b>Retry</b> a failed turn: runs its stored <code>wakeText</code> as if you had sent it; resets hops.</li>
-        <li><b>Failed CI</b>: author <code>reef</code> wakes the developer; no gate, but it counts as a hop.</li>
+        <li><b>Failed CI</b>: author <code>reef</code> wakes the developer; it counts as a hop.</li>
         <li><b>Continue</b>: runs the held wakes as a new chain.</li>
       </ul>
     </div>
@@ -436,24 +432,24 @@ Asked together: @architect, @tester</pre>
     <div class="card">
       <h3>Append-only where it matters</h3>
       <ul>
-        <li><b>Messages and decisions</b>: create and read only. A decision can be <i>retired</i> (<code>retiredAt</code>, <code>replacedBy</code>), never edited or deleted.</li>
+        <li><b>Messages and memory items</b>: create and read only. An item can be <i>retired</i> (<code>retired_at</code>, <code>replaced_by</code>), never edited or deleted.</li>
         <li><b>Brief</b>: every change adds a version. Old versions stay.</li>
         <li><b>Turns</b>: created <code>running</code>, ended once as <code>done</code> or <code>failed</code>. A failed one can be marked <code>retried</code> once.</li>
-        <li><b>Role notes</b> are not versioned. Wrap-up replaces them.</li>
-        <li>Deleting a Space does not delete its decisions; they only lose <code>messageId</code>.</li>
+        <li><b>Work item status</b> changes only through <code>MoveWorkItem</code>, which checks who may make each move.</li>
+        <li>Deleting a Work item closes the memory items of its scope: they are retired or rejected, and still read.</li>
       </ul>
     </div>
     <div class="card">
       <h3>Tables by job</h3>
       <div class="tw"><table>
         <tr><th>job</th><th>tables</th></tr>
-        <tr><td>work tree</td><td><code>project</code> · <code>feature</code> · <code>task</code> · <code>profile</code></td></tr>
-        <tr><td>memory</td><td><code>brief</code> · <code>role_notes</code> · <code>decision</code> · <code>project.memory</code></td></tr>
-        <tr><td>conversation</td><td><code>space</code> · <code>message</code> · <code>direct_message</code> · <code>turn</code> · <code>tool_call</code></td></tr>
-        <tr><td>team</td><td><code>team</code> · <code>role</code> · <code>gate</code></td></tr>
-        <tr><td>waiting on you</td><td><code>approval</code> (kind gate or hold) · <code>proposal</code> (kind wrap or brief)</td></tr>
+        <tr><td>work</td><td><code>project</code> · <code>work_item</code> · <code>acceptance_line</code> · <code>proof</code> · <code>profile</code></td></tr>
+        <tr><td>memory</td><td><code>brief</code> · <code>memory</code> · <code>memory_link</code></td></tr>
+        <tr><td>conversation</td><td><code>space</code> · <code>space_member</code> · <code>message</code> · <code>direct_message</code> · <code>turn</code> · <code>tool_call</code></td></tr>
+        <tr><td>team</td><td><code>teammate</code> · <code>team</code> · <code>team_member</code></td></tr>
+        <tr><td>waiting on you</td><td><code>approval</code> (kind hold) · <code>proposal</code> (kind wrap or brief) · <code>inbox_fyi</code></td></tr>
         <tr><td>identity</td><td><code>token</code> (Space + role, one per awake teammate)</td></tr>
-        <tr><td>GitHub</td><td><code>feature_github</code> · <code>feature_github_check</code></td></tr>
+        <tr><td>GitHub</td><td><code>work_item_github</code> · <code>work_item_github_check</code></td></tr>
       </table></div>
     </div>
     <div class="card">
@@ -469,13 +465,13 @@ Asked together: @architect, @tester</pre>
 	From, To string
 	Text     string   <span class="c">// the wake it would run</span>
 	Status   string   <span class="c">// pending | approved | rejected</span>
-	Kind     string   <span class="c">// gate | hold</span>
+	Kind     string   <span class="c">// hold</span>
 }
 <span class="k">type</span> Proposal <span class="k">struct</span> {
 	Kind  string      <span class="c">// wrap | brief</span>
-	Brief, Notes string
-	Decisions []ProposedDecision
-	Retire    []int64
+	Brief string
+	Items  []ProposedItem
+	Retire []int64
 }
 <span class="k">type</span> DirectMessage <span class="k">struct</span> {
 	ChainID int64; ReplyToID *int64   <span class="c">// nil = request</span>
@@ -488,81 +484,78 @@ Asked together: @architect, @tester</pre>
 <!-- 5 WHAT CLAUDE IS TOLD -->
 <section class="region" data-row="2" style="width:2000px" id="r-ctx" data-title="7 · What Claude is told">
   <h2><span class="n">7</span>What an agent is told, and when</h2>
-  <p class="sub">The first prompt of a new session carries memory. A resumed session carries none, because the CLI already holds its own conversation. Details are pulled through <code>reef mcp</code>.</p>
+  <p class="sub">The first prompt of a new session carries memory. A resumed session carries only what changed since its last turn, because the CLI already holds its own conversation. Details are pulled through <code>reef mcp</code>.</p>
   <div class="grid" style="grid-template-columns:1.1fr .9fr">
     <div class="card">
       <h3>Anatomy of the first prompt <span class="ref">space/context.go · startPrompt</span></h3>
       <div class="tw"><table>
         <tr><th>#</th><th>part</th><th>comes from</th></tr>
-        <tr><td>0</td><td>persona, then <code>Your skills:</code></td><td>the role in the team file (<code>roleIntro</code>)</td></tr>
-        <tr><td>1</td><td><code>You are the developer on feature "…" (slug) in project "…"</code></td><td><code>feature</code>, <code>project</code></td></tr>
+        <tr><td colspan="3"><code>## You</code></td></tr>
+        <tr><td>0</td><td>persona, then <code>Your skills:</code></td><td>the Teammate behind the role (<code>roleIntro</code>)</td></tr>
+        <tr><td>1</td><td><code>You are the developer on work item "…" (id) in project "…"</code></td><td><code>work_item</code>, <code>project</code></td></tr>
         <tr><td>2</td><td><code>You work with Ada, a developer. They like: …</code></td><td><code>profile</code></td></tr>
-        <tr><td>3</td><td>Goal, Stage, and the stage list with "call set_stage"</td><td><code>feature</code></td></tr>
+        <tr><td>3</td><td><code>Description: …</code></td><td><code>work_item</code>, only if set</td></tr>
         <tr><td>4</td><td><code>Base branch: dev. A pull request you open targets it.</code></td><td><code>project</code>, only if set</td></tr>
-        <tr><td>5</td><td><code>## Project memory</code></td><td><code>project.memory</code>, only if not empty</td></tr>
-        <tr><td>6</td><td><code>## Brief</code></td><td>latest <code>brief</code> version</td></tr>
-        <tr><td>7</td><td><code>## Your notes</code></td><td><code>role_notes</code> for <i>this</i> role only</td></tr>
-        <tr><td>8</td><td><code>## Index</code>: live decisions (first line, 100 chars), Spaces with messages, open tasks</td><td><code>decision</code>, <code>space</code>, <code>task</code></td></tr>
-        <tr><td>9</td><td>closing line naming <code>read_decision</code>, <code>read_thread</code>, <code>search_sessions</code>, <code>record_decision</code>, <code>propose_brief</code></td><td>constant</td></tr>
-        <tr><td>10</td><td><code>## Team</code>: who is on it, public vs direct, header format</td><td>only when the team has 2+ roles (<code>teamIntro</code>)</td></tr>
+        <tr><td colspan="3"><code>## How to work</code></td></tr>
+        <tr><td>5</td><td>team rules: who is on it, public vs direct, header format; one line naming the tools (<code>recall</code>, <code>read_memory</code>, <code>read_thread</code>, <code>search_sessions</code>, <code>remember</code>, <code>propose_brief</code>)</td><td>only when the team has 2+ roles (<code>teamIntro</code>); the tools line always</td></tr>
+        <tr><td colspan="3"><code>## What we know</code></td></tr>
+        <tr><td>6</td><td><code>### Brief</code>, <code>### In progress</code> (sub-items)</td><td>latest <code>brief</code> version, <code>work_item</code></td></tr>
+        <tr><td>7</td><td><code>### Decisions</code> (every live one), <code>### Findings</code>, <code>### Space</code>, <code>### Project</code>, <code>### Team</code>, <code>### Your items</code>, each with <code>N of M; recall(…)</code></td><td><code>memory</code>, by scope</td></tr>
+        <tr><td>8</td><td><code>### On demand</code>: counts of open sub-items and earlier Spaces</td><td><code>work_item</code>, <code>space</code></td></tr>
       </table></div>
       <div class="callout">It never contains a message body. That is why the prompt stays small after dozens of sessions.</div>
     </div>
     <div class="card">
       <h3>Real output shape</h3>
-<pre>You are the developer on feature "Email login" (login) in project "shop".
-Goal: Users sign in with email and password
-Stage: ideation
-Stages in order: ideation, grill, plan, tickets, implement,
-testing, live-testing, post-release. Call set_stage when the
-work moves to the next one.
+<pre>## You
+You are the developer on work item "Email login" (1) in
+project "shop".
+Description: Users sign in with email and password
 
-## Project memory
-Sessions are stored server-side, not JWT.
+## How to work
+Details are on demand through the reef MCP tools recall,
+read_memory, read_thread and search_sessions. ...
 
-## Brief
+## What we know
+### Brief
 Goal: Users sign in with email and password.
 Status: ideation. No implementation yet.
-Key decisions: Lock account after 5 failed logins (decision 1).
 
-## Your notes
-Only the lockout threshold is decided so far. Nothing built.
-
-## Index
 ### Decisions
 decision 1: Lock an account after 5 failed logins.
             (developer, 2026-10-13)
-### Spaces
-space 1: developer chat, 2026-10-13, 4 messages
-### Open tasks
-none
 
-Details are on demand through the reef MCP tools read_decision,
-read_thread and search_sessions. ...</pre>
+### Project
+convention 2: Sessions are stored server-side, not JWT.
+              (architect, 2026-10-12)
+1 of 1; recall(..., scope=project)
+
+### On demand
+1 earlier Space (search_sessions).</pre>
     </div>
     <div class="card">
       <h3>First turn vs every later turn</h3>
       <ol>
         <li><code>member()</code> looks for the role's newest turn <b>with a session id</b>, in this Space, on this backend.</li>
         <li><b>None</b> → <code>startPrompt()</code> becomes the Runner's <code>preamble</code>. The first <code>Send</code> is <code>preamble + "\n\n" + wake text</code>, then the preamble is cleared.</li>
-        <li><b>Found</b> → <code>ag.Resume(cfg, sessionID)</code>. No context is sent.</li>
-        <li>Two small deltas on a resume: a changed persona or skills goes in front marked <code>Your persona or skills changed:</code>; and <code>withNotes</code> adds <code>reef wrote: …</code> lines (a rollback note, a restart note) right after the wake header.</li>
-        <li>Across Spaces sessions are never shared. A teammate's memory of other Spaces is the brief, its notes and the tools.</li>
+        <li><b>Found</b> → <code>ag.Resume(cfg, sessionID)</code>. The first prompt is not sent again, unless the backend compacted the session.</li>
+        <li>Small deltas on a resume: <code>### Changed since your last turn</code> lists the memory items accepted or retired since, and <code>### New brief</code> the brief when a newer version exists; a changed persona or skills goes in front marked <code>Your persona or skills changed:</code>; and <code>withNotes</code> adds <code>reef wrote: …</code> lines (a rollback note, a restart note) right after the wake header.</li>
+        <li>Across Spaces sessions are never shared. A teammate's memory of other Spaces is the brief, memory items and the tools.</li>
       </ol>
-      <h4>Quick session (no feature)</h4>
-      <p>Two lines: role, project name and folder, and that there is no feature yet. Plus project memory and the team section.</p>
+      <h4>Free Space (no Work item)</h4>
+      <p>One line: role, project name and folder, and that there is no Work item yet, so no brief. It still gets the Space, project, team and teammate items.</p>
     </div>
     <div class="card">
       <h3>Pulled on demand <span class="ref">server/mcp.go</span></h3>
       <div class="tw"><table>
         <tr><th>tool</th><th>returns</th></tr>
-        <tr><td><code>get_brief</code></td><td>latest brief + this role's notes</td></tr>
-        <tr><td><code>read_decision</code></td><td>one decision in full, with <code>retiredAt</code> / <code>replacedBy</code></td></tr>
+        <tr><td><code>get_brief</code></td><td>the latest brief</td></tr>
+        <tr><td><code>recall</code> · <code>read_memory</code></td><td>memory items in every scope the role can read, retired ones marked; one item in full with its links</td></tr>
         <tr><td><code>read_thread</code></td><td>a Space's messages, or one thread with <code>root</code></td></tr>
-        <tr><td><code>search_sessions</code></td><td>hits with Space + message ids across the feature's spaces</td></tr>
-        <tr><td><code>list_tasks</code> · <code>read_task</code></td><td>the feature's tasks</td></tr>
+        <tr><td><code>search_sessions</code></td><td>hits with Space + message ids across the Work item's Spaces</td></tr>
+        <tr><td><code>list_sub_items</code> · <code>read_sub_item</code></td><td>the Work item's sub-items</td></tr>
       </table></div>
-      <p class="dim">The MCP process knows Space and role from <code>REEF_TOKEN</code>, so it only sees this feature. A direct hit is shown only if the role was sender or recipient.</p>
+      <p class="dim">The MCP process knows Space and role from <code>REEF_TOKEN</code>, so it only sees this Work item. A direct hit is shown only if the role was sender or recipient.</p>
     </div>
   </div>
   <div class="big">What an agent is told</div>
@@ -570,7 +563,7 @@ read_thread and search_sessions. ...</pre>
 <!-- 8 ROLES -->
 <section class="region" data-row="3" style="width:1700px" id="r-roles" data-title="8 · Roles & permissions">
   <h2><span class="n">8</span>Teams, roles and what each may touch</h2>
-  <p class="sub">A team is a JSON file applied with <code>reef team apply</code>. The role's <code>write</code> flag becomes each backend's own limit in <code>access()</code>.</p>
+  <p class="sub">A team is a roster of Teammates: a JSON file applied with <code>reef team apply</code>, or built in the window from existing Teammates. A Space copies its members from the team. The role's <code>write</code> flag becomes each backend's own limit in <code>access()</code>.</p>
   <div class="grid" style="grid-template-columns:1fr 1fr">
     <div class="card">
       <h3><code>access()</code> <span class="ref">space/session.go</span></h3>
@@ -587,6 +580,7 @@ read_thread and search_sessions. ...</pre>
       <h3>Team file <span class="ref">store/team.go</span></h3>
 <pre>{
   "name": "duo",
+  "responsibility": "Small fixes and design questions",
   "roles": [
     {"name": "lead", "lead": true, "backend": "claude",
      "persona": "Answer the user. Hand design to @architect."},
@@ -594,8 +588,7 @@ read_thread and search_sessions. ...</pre>
      "write": false, "model": "opus",
      "tools": ["Read", "Grep"],
      "mcpServers": [{"command": "my-mcp"}]}
-  ],
-  "gates": [{"from": "lead", "to": "architect", "on": true}]
+  ]
 }</pre>
       <p class="dim">Exactly one lead. A role name uses letters, digits, <code>_</code>, <code>-</code>, so an <code>@mention</code> can name it. A team <code>solo</code> (lead only) always exists.</p>
     </div>
@@ -656,17 +649,17 @@ codex app-server
   <div class="card">
     <div class="tw"><table>
       <tr><th>event</th><th>what Reef does</th></tr>
-      <tr><td>The server restarts mid-turn</td><td>At start, every turn still <code>running</code> becomes <code>failed: server restarted</code> and the Space gets a note: <i>"The worktree may be dirty; retry or roll back."</i> Pending approvals survive. The hop count and queued wakes do not. A failed turn keeps its wake, so <b>Retry</b> works.</td></tr>
+      <tr><td>The server restarts mid-turn</td><td>At start, every turn still <code>running</code> becomes <code>failed: server restarted</code> and the Space gets a note: <i>"The worktree may be dirty; retry or roll back."</i> Held wakes survive. The hop count does not. A failed turn keeps its wake, so <b>Retry</b> works.</td></tr>
       <tr><td>You press Stop</td><td>The running turn is stored <code>failed: interrupted</code>, waiting wakes are dropped, every agent of the Space stops and its token is deleted. The chat lock is released.</td></tr>
-      <tr><td>The 7th agent hop</td><td>It does not run. The Space pauses with <code>hop cap: 6 agent hops without a user message</code>, the wakes are stored as holds, an inbox item appears. Your next message clears the pause and drops the holds.</td></tr>
-      <tr><td>Token budget used</td><td>The Space pauses with <code>token budget of 1000000 used</code>. <b>Continue</b> sets the budget to tokens used + 1,000,000 and runs the holds.</td></tr>
+      <tr><td>The 7th talk-only agent hop</td><td>It does not run. The Space pauses with <code>hop cap: 6 agent hops without a user message</code>, its Work item moves to Needs you, the wakes are stored as holds and an inbox item appears. Your next message clears the pause and drops the holds.</td></tr>
+      <tr><td>Token budget used</td><td>The Space pauses with <code>token budget of 1000000 used</code>. <b>Continue</b> sets the Work item's budget to tokens used + 1,000,000 and runs the holds.</td></tr>
       <tr><td>Two write turns on one tree</td><td>The second waits for the flock, polling every 20ms, across Spaces and processes. Read-only roles are not held.</td></tr>
       <tr><td>Checkpoint fails</td><td>The turn is stored <code>failed</code> with git's error and the agent never gets the prompt.</td></tr>
       <tr><td>You roll back a turn</td><td>Files and branch go back to the checkpoint. 409 if any turn runs on the tree. The agent's session is not rewound, so Reef posts <code>Rolled back to before turn N.</code> and the next prompt carries it as a <code>reef wrote:</code> line.</td></tr>
       <tr><td>The agent process exits mid-turn</td><td>The turn is <code>failed: agent exited</code> with the reply streamed so far kept. The session closes; the next turn resumes by session id.</td></tr>
-      <tr><td>The database fails while routing</td><td>The Space pauses with the error as its reason and nothing runs ungated.</td></tr>
+      <tr><td>The database fails while routing</td><td>The Space pauses with the error as its reason and nothing more runs.</td></tr>
       <tr><td><code>reef chat</code> and the server want one space</td><td>Whoever holds <code>chat-&lt;id&gt;.lock</code> wins; the other gets 409 <i>open elsewhere</i>.</td></tr>
-      <tr><td>CI fails on the feature's PR</td><td>The poll posts a note as author <code>reef</code> and wakes the developer with the failing runs and the last 50 log lines. No gate, but it counts as a hop.</td></tr>
+      <tr><td>CI fails on the Work item's PR</td><td>The poll posts a note as author <code>reef</code> and wakes the developer with the failing runs and the last 50 log lines. It counts as a hop.</td></tr>
       <tr><td>The Mac app is not open</td><td>All browser tools fail with <code>browser unavailable: the Reef app is not open</code>. Everything else works.</td></tr>
       <tr><td>You press Take over</td><td>Every browser tool fails with <code>the user has the browser</code> until Hand back.</td></tr>
     </table></div>
@@ -751,7 +744,7 @@ steps:(()=>{const W=0,S=1,E=2,A=3,M=4,D=5;return[
  {phase:'C · Wake the role',note:'the lead\'s agent starts or resumes'},
  [S,E,'int','chain.runTurn → runOne → Session.RunAs(role, text, parent)','<code>c.start</code> marks the Space running and publishes <code>turn: running</code>. <code>runOne</code> calls the session.','live.go runTurn · session.go RunAs'],
  [E,D,'sql','team · newest session id · CreateToken(Space, role)','<code>member()</code> loads the team, picks the role, finds the role\'s newest turn with a session id on this backend, and mints a token (64 hex chars).','session.go member'],
- [E,E,'git','EnsureWorktree · access() · Start or Resume','Feature worktree is created under a lock if missing. <code>access()</code> maps the role\'s <code>write</code> flag to tool limits. A session id → <code>Resume</code>, none → <code>startPrompt</code> then <code>Start</code>.','space/trees.go · session.go access'],
+ [E,E,'git','EnsureWorktree · access() · Start or Resume','The Work item\'s worktree is created under a lock if missing. <code>access()</code> maps the role\'s <code>write</code> flag to tool limits. A session id → <code>Resume</code>, none → <code>startPrompt</code> then <code>Start</code>.','space/trees.go · session.go access'],
  [E,A,'proc','exec claude -p --input-format stream-json … (cwd = worktree)','The adapter launches the real CLI in its own process group with <code>--mcp-config</code> pointing at <code>reef mcp</code> and this teammate\'s <code>REEF_TOKEN</code>.','agent/claude/claude.go start'],
  [E,D,'sql','CreateTurn(running) · checkpoint if the role writes','The Runner creates the turn row first. A role with <code>write</code> gets a commit of HEAD + the working tree at <code>refs/reef/checkpoints/&lt;turn&gt;</code>. If the checkpoint fails the turn is <code>failed</code> and the agent gets no prompt.','space/runner.go Run'],
  [E,A,'stdio','Send(prompt): context + wake text','On a new session: <code>preamble + "\\n\\n" + wake text</code>. On a resume: just the wake text, plus any <code>reef wrote:</code> lines.','runner.go'],
@@ -772,41 +765,40 @@ steps:(()=>{const W=0,S=1,E=2,A=3,M=4,D=5;return[
 
 seq2:{lanes:[['You','Window'],['reef serve','HTTP · chain'],['claude / codex','agent CLI'],['reef mcp','stdio'],['SQLite','reef.db']],
 steps:(()=>{const U=0,S=1,A=2,M=3,D=4;return[
- {phase:'A · Live: a decision',note:'written at once, no approval'},
- [A,M,'stdio','record_decision {body, why, messageId, replaces[]}','"A decision is a choice about how the feature works, not progress, proof or a won\'t-fix list." <code>replaces</code> lists live decisions it amends.','server/mcp.go recordDecision'],
- [M,D,'sql','INSERT decision · retire replaced ones (one tx)','Author is the token\'s role. Each <code>replaces</code> id gets <code>retiredAt</code> and <code>replacedBy</code> = the new decision.','store/decision.go'],
- [M,A,'stdio','the stored decision (JSON)','The agent sees the id.','',true],
+ {phase:'A · Live: a memory item',note:'written at once, no approval'},
+ [A,M,'stdio','remember {kind, body, why, about[], replaces[], scope}','Kinds: decision, convention, finding, fact, lesson. The default scope is the Space\'s own shelf. <code>replaces</code> lists accepted items it amends. A convention from a role other than architect or lead waits as a candidate.','server/mcp.go remember'],
+ [M,D,'sql','INSERT memory item · retire replaced ones','Author is the token\'s role. Each <code>replaces</code> id gets <code>retired_at</code> and <code>replaced_by</code> = the new item. Links (<code>about</code>, <code>source</code>) go in <code>memory_link</code>.','memory/memory.go'],
+ [M,A,'stdio','the stored item (JSON)','The agent sees the id, and the stored items that look like it.','',true],
  {phase:'B · Mid-space: propose_brief',note:'when you and the team agree on goal, scope or plan'},
  [A,M,'stdio','propose_brief {brief}','The full brief: goal, status, key decisions, open questions.','mcp.go proposeBrief'],
  [M,D,'sql','INSERT proposal (kind brief, pending)','Refused while a wrap is pending. A new brief proposal rejects the space\'s older pending ones.','store/proposal.go'],
- [U,S,'http','GET /spaces/{id}/proposal → POST /proposals/{id}/approve','The proposal panel shows it. Approving adds <b>one brief version</b> and nothing else. Notes, decisions and the open Space stay.','server/proposal.go'],
- {phase:'C · Ending: /wrap',note:'the user ends a Space explicitly, never on a timer'},
- [U,S,'http','POST /spaces/{id}/wrap  (or send "/wrap")','Starts a wrap turn through the same chain. 400 on a quick session; 409 if a wrap is already pending.','proposal.go wrap · live.go send'],
+ [U,S,'http','GET /spaces/{id}/proposal → POST /proposals/{id}/approve','The proposal panel shows it. Approving adds <b>one brief version</b> and nothing else. No memory item changes and the Space stays open.','server/proposal.go'],
+ {phase:'C · Ending: /wrap',note:'the user or the lead ends a Space explicitly, never on a timer'},
+ [U,S,'http','POST /spaces/{id}/wrap  (or send "/wrap")','Starts a wrap turn through the same chain. 400 on a free Space; 409 if a wrap is already pending. The lead\'s <code>submit_for_review</code> starts the same turn when its chain ends.','proposal.go wrap · live.go send'],
  [S,A,'stdio','wrap prompt, preceded by every direct exchange','<code>Session.Wrap</code> sets <code>NoWake</code> so this turn wakes nobody. Direct exchanges are listed as <code>[direct 1] developer -&gt; tester: …</code> (newest 100, 1000 chars each).','space/session.go propose'],
- [A,M,'stdio','get_brief, then propose_wrap {brief, notes, decisions, retire}','The prompt asks for the full brief rewritten (keep what holds, status not history, drop what is done), this role\'s notes, unrecorded decisions, and ids to retire.','wrap prompt'],
+ [A,M,'stdio','get_brief, then propose_wrap {brief, items, retire}','The prompt asks for the full brief rewritten (keep what holds, status not history, drop what is done), memory items not yet saved with <code>remember</code>, each with a scope, and ids to retire.','wrap prompt'],
  [M,D,'sql','INSERT proposal (kind wrap, pending)','Nothing else changes. If the agent made no proposal the turn ends with the note <code>no proposal made</code>.','store/proposal.go CreateProposal'],
- {phase:'D · You approve',note:'one transaction, all or nothing'},
- [U,S,'http','POST /proposals/{id}/approve','Also <code>reef wrap approve &lt;id&gt;</code> from the CLI.','proposal.go approveProposal'],
- [S,D,'sql','ApproveProposal: brief v+1 · notes · decisions · retire · approved · Space closed','Decisions whose body equals a live decision are skipped (no duplicates). <code>replaces</code> and <code>retire</code> mark old ones retired. Then <code>closedAt</code> is set.','store/proposal.go ApproveProposal'],
+ {phase:'D · You approve',note:'retry-safe, not one transaction'},
+ [U,S,'http','POST /proposals/{id}/approve','Also <code>reef wrap approve &lt;id&gt;</code> from the CLI. For a Work item in Review, setting it Done approves its wrap-up.','proposal.go approveProposal'],
+ [S,D,'sql','approve: save items · retire ids · then one tx: brief v+1 · Space closed · approved','Each item is saved with <code>remember</code>; one whose body is already in its scope is skipped. A failure in the first two steps leaves the proposal pending, and approving again finishes without saving twice. Then <code>closedAt</code> is set.','store/proposal.go · server/proposal.go'],
  [S,A,'proc','stop the Space\'s agents','A closed Space refuses turns with 409 until you reopen it.','live.go'],
- {phase:'E · Promote',note:'a quick session becomes a feature'},
- [U,S,'http','POST /spaces/{id}/promote {slug,name} | {featureId}','Checks first (no feature yet, slug free, feature in the same project). A refused promote changes nothing.','proposal.go promote'],
- [S,D,'sql','create feature · set space.feature_id','Done in one transaction once the agent is open. Reef posts <code>This feature works in &lt;worktree&gt; on feature/&lt;slug&gt;.</code>','session.go noteWorktree'],
- [S,A,'stdio','promote prompt: call propose_wrap with the first brief','If the feature already has a brief, the prompt says to call <code>get_brief</code> and merge. Approval makes brief version 1 (or the next).','session.go Promote'],
- [S,A,'proc','after the turn: every agent of the Space stops','So the next wake of each role resumes inside the new worktree.','session.go closeMembers'],
+ {phase:'E · Attach',note:'a free Space joins a Work item'},
+ [U,S,'http','POST /spaces/{id}/attach {workItemId}','Checks first (a free Space, same project, idle, a git repo with a commit, the Work item has no active Space). A refused attach changes nothing. No agent turn runs.','server/space.go attachSpace'],
+ [S,D,'sql','set space.work_item_id and kind · move <code>space</code> items to <code>work_item</code>','Done in one step. Reef posts <code>This Space is now attached to work item … It works in &lt;worktree&gt; on work-item/&lt;id&gt;.</code>','store/space.go · session.go noteWorktree'],
+ [S,A,'proc','every agent of the Space stops','So the next wake of each role resumes inside the Work item\'s worktree.','session.go closeMembers'],
  {phase:'F · Read back',note:'the next session starts from this'},
- [S,D,'sql','Context(): brief · this role\'s notes · live decision index','See region 7. That is the only way memory reaches a new session.','space/context.go']
+ [S,D,'sql','Context(): brief · sub-items in progress · memory items by scope','See region 7. Every live decision is listed; the other scopes show their newest items and a count. That is the only way memory reaches a new session.','space/context.go']
 ];})()},
 
 seq3:{lanes:[['Sender agent','claude / codex'],['reef mcp','sender\'s process'],['SQLite','reef.db'],['reef serve','turn chain'],['Recipient agent','claude / codex']],
 steps:(()=>{const S=0,M=1,D=2,V=3,R=4;return[
  {phase:'A · Request',note:'the sender is mid-turn'},
- [S,M,'stdio','send_to_role {to, body}','Exactly one teammate. The checks run in order: not yourself, Space not closed, not starting, not wrapping or promoting, role is on this team.','server/mcp.go sendToRole'],
+ [S,M,'stdio','send_to_role {to, body}','Exactly one teammate. The checks run in order: not yourself, Space not closed, not starting, not wrapping, role is on this team.','server/mcp.go sendToRole'],
  [M,D,'sql','INSERT direct_message (status sent, chain id, source message)','Not in the public <code>message</code> table. <code>sourceMessageId</code> is the public message whose wake the sender was answering, read from its running turn.','store/direct_message.go'],
  [M,S,'stdio','the stored request','The sender carries on and finishes its turn normally.','',true],
  {phase:'B · Wake the recipient',note:'routing happens when the sender\'s turn ends'},
  [S,V,'int','turn ends → directWakes()','The chain reads <code>direct_message</code> rows after its cursor whose <code>from</code> is the role that just ran. Failed ones are skipped.','server/wake.go directWakes'],
- [V,V,'int','gate + hop count, the same as public wakes','<code>team.Gated(from, to)</code> may hold it as a pending approval. Public and direct wakes share one hop counter, so switching between them never resets it.','live.go gate · countHop'],
+ [V,V,'int','hop count, the same as public wakes','Public and direct wakes share one hop counter, so switching between them never resets it. A wake over the cap is held.','live.go countHop'],
  [V,R,'stdio','RunDirectAs: [Space N, direct message N, chain N, source: direct request]','Same role setup, worktree access and session lifetime as <code>RunAs</code>. The prompt says <code>X wrote privately: …</code>.','session.go RunDirectAs'],
  {phase:'C · Response',note:'one automatic reply, then it stops'},
  [R,V,'stdio','its ordinary reply','Whatever the recipient says in its turn.','',false],
@@ -824,13 +816,13 @@ const DIAGRAMS={
   ['m-app','m-win',{c:'int',label:'loads the UI',fs:'r',ts:'l',fa:.08,ta:.08}],
   ['m-app','m-serve',{c:'proc',label:'spawns reef serve --addr :7700 --data …',fs:'t',ts:'t',fa:.5,ta:.5,bend:150,dash:1}],
   ['m-win','m-serve',{c:'http',label:'REST: send · approve · wrap · rollback',fs:'r',ts:'l',fa:.2,ta:.2}],
-  ['m-serve','m-win',{c:'sse',label:'SSE: turn · agent · pause · approval',fs:'l',ts:'r',fa:.34,ta:.34}],
-  ['m-serve','m-chan',{c:'int',label:'Session.RunAs · Wrap · Promote',fs:'r',ts:'l',fa:.28,ta:.2}],
+  ['m-serve','m-win',{c:'sse',label:'SSE: turn · agent · pause · note',fs:'l',ts:'r',fa:.34,ta:.34}],
+  ['m-serve','m-chan',{c:'int',label:'Session.RunAs · Wrap',fs:'r',ts:'l',fa:.28,ta:.2}],
   ['m-chan','m-agents',{c:'int',label:'Start · Resume · Send · Events',fs:'r',ts:'l',fa:.25,ta:.3}],
   ['m-agents','m-proc',{c:'stdio',label:'stream-json / JSON-RPC',fs:'b',ts:'t',fa:.5,ta:.5}],
   ['m-proc','m-mcp',{c:'proc',label:'starts reef mcp · MCP over stdio',fs:'l',ts:'r',fa:.5,ta:.1}],
   ['m-mcp','m-db',{c:'sql',label:'reads & writes as the token\'s role',fs:'b',ts:'r',fa:.3,ta:.3}],
-  ['m-serve','m-db',{c:'sql',label:'messages · approvals · proposals · turns · tool calls',fs:'b',ts:'t',fa:.5,ta:.45}],
+  ['m-serve','m-db',{c:'sql',label:'messages · holds · proposals · turns · tool calls',fs:'b',ts:'t',fa:.5,ta:.45}],
   ['m-cli','m-db',{c:'sql',label:'opens reef.db directly',fs:'r',ts:'l',fa:.5,ta:.5}],
   ['m-chan','m-git',{c:'git',label:'EnsureWorktree · Checkpoint',fs:'b',ts:'l',fa:.9,ta:.3,dash:1,bend:200}],
   ['m-proc','m-git',{c:'git',label:'cwd = worktree',fs:'b',ts:'t',fa:.5,ta:.5,dash:1}]
@@ -838,9 +830,7 @@ const DIAGRAMS={
  'd-loop':[
   ['l-end','l-read',{c:'int',label:'',fs:'r',ts:'l'}],
   ['l-read','l-route',{c:'int',label:'[]message',fs:'r',ts:'l'}],
-  ['l-route','l-gate',{c:'int',label:'[]wake',fs:'r',ts:'l'}],
-  ['l-gate','l-appr',{c:'sql',label:'gated: store approval',fs:'t',ts:'b'}],
-  ['l-gate','l-queue',{c:'int',label:'open wakes',fs:'r',ts:'l'}],
+  ['l-route','l-queue',{c:'int',label:'[]wake',fs:'r',ts:'l'}],
   ['l-queue','l-cap',{c:'int',label:'before each next turn',fs:'b',ts:'t'}],
   ['l-cap','l-run',{c:'int',label:'ok: next wake',fs:'l',ts:'r',fa:.3,ta:.3}],
   ['l-cap','l-hold',{c:'git',label:'cap or paused',fs:'l',ts:'r',fa:.75,ta:.75}],

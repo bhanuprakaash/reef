@@ -296,7 +296,7 @@ cwd
 - Claude reports the real path (`/private/tmp` for `/tmp`). It files sessions per cwd
   (`~/.claude/projects/<cwd with each non-alphanumeric character as ->/`), but `Resume` from
   another `Cwd` still continues the session: on claude 2.1.299 a session started in a project
-  folder resumed in a feature's worktree with the same id, and the turns it added carry the new
+  folder resumed in a Work item's worktree with the same id, and the turns it added carry the new
   `cwd` in the first folder's file.
 
 Env

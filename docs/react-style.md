@@ -28,8 +28,7 @@ utils/        Shared utility functions
 ```
 
 Area code lives in `web/src/modules/<area>`, for example `modules/spaces`,
-`modules/features` and `modules/tasks`. Use `modules`, not `features`: Feature is a Reef
-product entity. Add only the subfolders an area needs (`api`, `components`, `hooks`, `utils`).
+`modules/teams` and `modules/inbox`. Add only the subfolders an area needs (`api`, `components`, `hooks`, `utils`).
 
 - Name files and folders in kebab-case.
 - Use `@/` imports for paths under `web/src`.
@@ -54,7 +53,7 @@ Keep state at its narrowest useful scope.
 - Declare each request once beside its query or mutation hook in the module's `api/` folder.
   Give each response an explicit TypeScript type.
 - Name query keys after the resource, with identifying inputs as needed, such as
-  `['spaces', featureId]`.
+  `['spaces', workItemId]`.
 - After a mutation, invalidate the matching query keys so views refresh from the server.
 - Each Space receives live agent output over its own Server-Sent Events stream with
   `EventSource`. User messages are sent with HTTP `POST`.
