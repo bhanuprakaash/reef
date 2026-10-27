@@ -190,10 +190,6 @@ export function Sidebar() {
         </span>
         <span className="min-w-0 truncate text-sm">{profileName}</span>
         <div className="ml-auto flex gap-0.5">
-          <BarLink to="/tasks" label="Tasks" active={pathname === '/tasks'}>
-            <path d="M9 11l3 3 8-8" />
-            <path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9" />
-          </BarLink>
           <BarLink to="/teams" label="Teams" active={pathname === '/teams'}>
             <circle cx="9" cy="9" r="4" />
             <circle cx="17" cy="11" r="3" />

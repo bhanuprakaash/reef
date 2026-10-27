@@ -28,23 +28,40 @@ export type MemoryAdded = MemoryItem & {
   embedError?: string;
 };
 
-export type FeatureKind = 'journey' | 'fixes';
+export type WorkItemType =
+  'feature' | 'bug' | 'incident' | 'investigation' | 'task' | 'improvement';
 
-export type Feature = {
+export type WorkItemStatus =
+  'backlog' | 'queued' | 'in_progress' | 'needs_you' | 'review' | 'done' | 'dropped';
+
+export type AcceptanceLine = {
+  position: number;
+  text: string;
+  checked: boolean;
+  note: string;
+};
+
+export type WorkItem = {
   id: number;
   projectId: number;
-  slug: string;
-  name: string;
-  goal: string;
-  stage: string;
-  kind: FeatureKind;
+  parentId: number | null;
+  type: WorkItemType;
+  title: string;
+  description: string;
+  status: WorkItemStatus;
+  teamId: number | null;
+  proposedBy: string;
+  suggestedTeamId: number | null;
+  queuePosition: number | null;
+  tokenBudget: number;
   createdAt: string;
   closedAt: string | null;
+  acceptanceLines: AcceptanceLine[];
 };
 
 export type Brief = {
   id: number;
-  featureId: number;
+  workItemId: number;
   body: string;
   author: string;
   createdAt: string;
@@ -53,7 +70,7 @@ export type Brief = {
 export type Space = {
   id: number;
   projectId: number;
-  featureId: number | null;
+  workItemId: number | null;
   name: string;
   team: string;
   role: string;
@@ -176,7 +193,7 @@ export type DirectMessage = {
 export type InboxItem = {
   kind: 'approval' | 'paused' | 'failed' | 'waiting';
   spaceId: number;
-  featureId: number | null;
+  workItemId: number | null;
   text: string;
   at: string;
   approvalId?: number;
@@ -257,17 +274,4 @@ export type FeaturePR = {
   additions: number;
   deletions: number;
   files: { path: string; additions: number; deletions: number }[];
-};
-
-export type TaskStatus = 'todo' | 'doing' | 'done';
-
-export type Task = {
-  id: number;
-  projectId: number;
-  featureId: number | null;
-  title: string;
-  body: string;
-  status: TaskStatus;
-  createdAt: string;
-  updatedAt: string;
 };

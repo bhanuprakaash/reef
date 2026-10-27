@@ -6,7 +6,7 @@ import type { FeaturePR } from '@/types/api';
 export function useFeaturePR(featureId: number) {
   return useQuery({
     queryKey: featurePrKey(featureId),
-    queryFn: () => api<{ pr: FeaturePR | null }>(`/features/${featureId}/pr`),
+    queryFn: () => api<{ pr: FeaturePR | null }>(`/work-items/${featureId}/pr`),
     refetchInterval: 15000,
   });
 }

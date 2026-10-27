@@ -1,44 +1,41 @@
 import { useState } from 'react';
 import { useUpdateFeature } from '@/modules/features/api/update-feature';
-import { KindControl } from '@/modules/features/components/kind-control';
-import type { Feature, FeatureKind } from '@/types/api';
+import type { WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
 import { TextArea } from '@/components/text-area';
 import { TextField } from '@/components/text-field';
 
-export function FeatureForm({ feature, onDone }: { feature: Feature; onDone: () => void }) {
-  const [name, setName] = useState(feature.name);
-  const [goal, setGoal] = useState(feature.goal);
-  const [kind, setKind] = useState<FeatureKind>(feature.kind);
-  const update = useUpdateFeature(feature.id);
+export function FeatureForm({ item, onDone }: { item: WorkItem; onDone: () => void }) {
+  const [title, setTitle] = useState(item.title);
+  const [description, setDescription] = useState(item.description);
+  const update = useUpdateFeature(item.id);
 
   return (
     <form
       className="space-y-3"
       onSubmit={(e) => {
         e.preventDefault();
-        update.mutate({ name, goal, stage: feature.stage, kind }, { onSuccess: onDone });
+        update.mutate({ ...item, title, description }, { onSuccess: onDone });
       }}
     >
       <label className="block space-y-1">
-        <span className="text-sm text-muted">Name</span>
+        <span className="text-sm text-muted">Title</span>
         <TextField
           className="w-full"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
           required
         />
       </label>
       <label className="block space-y-1">
-        <span className="text-sm text-muted">About</span>
+        <span className="text-sm text-muted">Description</span>
         <TextArea
           className="w-full"
           rows={4}
-          value={goal}
-          onChange={(e) => setGoal(e.target.value)}
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
         />
       </label>
-      <KindControl value={kind} onChange={setKind} />
       {update.isError && <p className="text-sm text-danger">{update.error.message}</p>}
       <div className="flex justify-end gap-2">
         <Button type="button" onClick={onDone}>

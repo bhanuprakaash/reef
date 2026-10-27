@@ -3,9 +3,9 @@ import { api } from '@/lib/api-client';
 import { briefsKey } from '@/lib/query-keys';
 import type { Brief } from '@/types/api';
 
-export function useBriefVersions(featureId: number) {
+export function useBriefVersions(workItemId: number) {
   return useQuery({
-    queryKey: briefsKey(featureId),
-    queryFn: () => api<Brief[]>(`/features/${featureId}/brief/versions`),
+    queryKey: briefsKey(workItemId),
+    queryFn: () => api<Brief[]>(`/work-items/${workItemId}/brief/versions`),
   });
 }

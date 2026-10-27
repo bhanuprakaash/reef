@@ -1,6 +1,5 @@
 import type { ComponentProps } from 'react';
 import { useOutletContext, useParams } from 'react-router';
-import { FeatureStageChip } from '@/app/feature-stage';
 import type { LayoutContext } from '@/app/layout';
 import { FeatureTerminal } from '@/app/feature-terminal';
 import { MentionCardsProvider } from '@/app/mention-hovercard';
@@ -14,7 +13,6 @@ import { useDiff } from '@/modules/features/api/get-diff';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { diffCounts } from '@/modules/features/utils/diff-counts';
 import { useProjects } from '@/modules/projects/api/get-projects';
-import { useTasks } from '@/modules/tasks/api/get-tasks';
 
 type ViewProps = ComponentProps<typeof SpaceView>;
 
@@ -38,30 +36,22 @@ export function SpacePage() {
   const space = useSpace(id);
   const features = useFeatures();
   const projects = useProjects();
-  const tasks = useTasks();
   const { browserOpen, setBrowserDriver } = useOutletContext<LayoutContext>();
   const project = projects.data?.find((p) => p.id === space.data?.projectId);
   const terminal = useTerminal(
-    space.data !== undefined && (space.data.featureId !== null || !!project),
+    space.data !== undefined && (space.data.workItemId !== null || !!project),
   );
 
   if (space.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (space.isError) return <p className="text-sm text-danger">{space.error.message}</p>;
 
-  const featureId = space.data.featureId;
+  const featureId = space.data.workItemId;
   const feature = features.data?.find((f) => f.id === featureId);
   const hasBrowser = typeof window !== 'undefined' && window.reef != null;
   const props: ViewProps = {
     space: space.data,
     features: features.data ?? [],
-    scope: feature ? (
-      <>
-        <span className="truncate">{feature.name}</span>
-        <FeatureStageChip feature={feature} tasks={tasks.data ?? []} />
-      </>
-    ) : (
-      'quick session'
-    ),
+    scope: feature ? <span className="truncate">{feature.title}</span> : 'quick session',
     browserOpen: hasBrowser && browserOpen,
     onBrowserDriver: setBrowserDriver,
   };

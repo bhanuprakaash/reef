@@ -32,7 +32,7 @@ export function NewSpaceForm({ projectId, featureId, onClose }: Props) {
         create.mutate(
           {
             projectId,
-            featureId,
+            workItemId: featureId,
             name: name.trim() || `${backend || team} ${time}`,
             team,
             backend,

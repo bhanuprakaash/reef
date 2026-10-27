@@ -1,27 +1,33 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
-import type { SpacePreview, Feature, FileDiff } from '@/types/api';
+import type { SpacePreview, WorkItem, FileDiff } from '@/types/api';
 import { SpaceCard, spaceState } from './space-hovercard';
 
 const { useDiff } = vi.hoisted(() => ({ useDiff: vi.fn() }));
 vi.mock('@/modules/features/api/get-diff', () => ({ useDiff }));
 
-const feature: Feature = {
+const feature: WorkItem = {
   id: 2,
   projectId: 1,
-  slug: 'login',
-  name: 'Login',
-  goal: '',
-  stage: 'implement',
-  kind: 'journey',
+  parentId: null,
+  type: 'feature',
+  title: 'Login',
+  description: '',
+  status: 'in_progress',
+  teamId: null,
+  proposedBy: '',
+  suggestedTeamId: null,
+  queuePosition: null,
+  tokenBudget: 0,
   createdAt: '',
   closedAt: null,
+  acceptanceLines: [],
 };
 
 const space: SpacePreview = {
   id: 4,
   projectId: 1,
-  featureId: 2,
+  workItemId: 2,
   name: 'build',
   team: 'full',
   role: 'lead',
@@ -68,7 +74,7 @@ describe('SpaceCard', () => {
       />,
     );
     expect(text(markup)).toBe(
-      ' #build Working Branch feature/login Changes 2 files +3 −1 lead idle developer working ',
+      ' #build Working Branch work-item/2 Changes 2 files +3 −1 lead idle developer working ',
     );
     expect(useDiff).toHaveBeenCalledWith(2);
   });
@@ -77,7 +83,7 @@ describe('SpaceCard', () => {
     useDiff.mockClear();
     const markup = renderToStaticMarkup(
       <SpaceCard
-        space={{ ...space, featureId: null }}
+        space={{ ...space, workItemId: null }}
         feature={undefined}
         faces={faces}
         working={[]}

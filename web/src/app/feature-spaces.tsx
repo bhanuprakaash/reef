@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query';
 import { type ReactNode, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router';
 import { SpaceCard } from '@/app/space-hovercard';
-import { FeatureStageChip } from '@/app/feature-stage';
 import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { Hovercard } from '@/components/hovercard';
@@ -15,8 +14,7 @@ import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
 import { useInbox } from '@/modules/inbox/api/get-inbox';
-import { useTasks } from '@/modules/tasks/api/get-tasks';
-import type { SpacePreview, Feature, Project } from '@/types/api';
+import type { SpacePreview, WorkItem, Project } from '@/types/api';
 import { roleFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
 
@@ -114,7 +112,7 @@ export function FeatureSpaces({ project, query }: { project: Project; query: str
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [addingFeature, setAddingFeature] = useState(false);
-  const [spaceFeature, setSpaceFeature] = useState<Feature | null>(null);
+  const [spaceFeature, setSpaceFeature] = useState<WorkItem | null>(null);
   const [collapsed, setCollapsed] = useState(storedCollapsed);
   const [wrappedOpen, setWrappedOpen] = useState<number[]>([]);
   const [closedOpen, setClosedOpen] = useState(false);
@@ -137,7 +135,6 @@ export function FeatureSpaces({ project, query }: { project: Project; query: str
   const spaces = useQuery({ ...spacesQuery, refetchInterval: 5000 });
   const teams = useTeams();
   const inbox = useInbox();
-  const tasks = useTasks();
   const running = useRunningTurns();
 
   const waiting = inbox.data ?? [];
@@ -150,13 +147,13 @@ export function FeatureSpaces({ project, query }: { project: Project; query: str
     .map((f) => ({
       feature: f,
       spaces: projectSpaces.filter(
-        (c) => c.featureId === f.id && (matches(f.name) || matches(c.name)),
+        (c) => c.workItemId === f.id && (matches(f.title) || matches(c.name)),
       ),
     }))
-    .filter((g) => matches(g.feature.name) || g.spaces.length > 0);
+    .filter((g) => matches(g.feature.title) || g.spaces.length > 0);
   const openGroups = groups.filter((g) => g.feature.closedAt === null);
   const closedGroups = groups.filter((g) => g.feature.closedAt !== null);
-  const quick = projectSpaces.filter((c) => c.featureId === null && matches(c.name));
+  const quick = projectSpaces.filter((c) => c.workItemId === null && matches(c.name));
 
   const working = new Map((running.data ?? []).map((t) => [t.spaceId, t.role]));
 
@@ -164,7 +161,7 @@ export function FeatureSpaces({ project, query }: { project: Project; query: str
     const faces = roleFaces(teams.data, c.team);
     const roles = Object.keys(faces);
     const role = working.get(c.id);
-    const feature = features.data?.find((f) => f.id === c.featureId);
+    const feature = features.data?.find((f) => f.id === c.workItemId);
     const roleNames = (running.data ?? []).filter((t) => t.spaceId === c.id).map((t) => t.role);
     return (
       <Hovercard
@@ -216,7 +213,7 @@ export function FeatureSpaces({ project, query }: { project: Project; query: str
         >
           <button
             type="button"
-            aria-label={`${open ? 'Collapse' : 'Expand'} ${f.name}`}
+            aria-label={`${open ? 'Collapse' : 'Expand'} ${f.title}`}
             aria-expanded={open}
             onClick={() => toggle(f.id)}
             className="flex size-6 flex-none items-center justify-center rounded-md text-faint hover:bg-hover hover:text-fg max-md:size-11"
@@ -238,19 +235,16 @@ export function FeatureSpaces({ project, query }: { project: Project; query: str
           </button>
           <Link
             to={`/features/${f.id}`}
-            title={f.kind === 'fixes' ? f.name : `${f.name} · ${f.stage}`}
-            aria-label={f.name}
+            title={`${f.title} · ${f.status}`}
+            aria-label={f.title}
             className="flex min-w-0 flex-1 items-center gap-2 self-stretch text-[13px] text-soft hover:text-fg"
           >
-            <span className="truncate">{f.name}</span>
+            <span className="truncate">{f.title}</span>
             {!open && cs.length > 0 && (
               <span className="flex-none text-[11px] text-faint">{cs.length}</span>
             )}
-            <span className="ml-auto">
-              <FeatureStageChip feature={f} tasks={tasks.data ?? []} />
-            </span>
           </Link>
-          <AddButton reveal label={`New Space in ${f.name}`} onClick={() => setSpaceFeature(f)} />
+          <AddButton reveal label={`New Space in ${f.title}`} onClick={() => setSpaceFeature(f)} />
         </div>
         {open && (
           <>
@@ -320,7 +314,7 @@ export function FeatureSpaces({ project, query }: { project: Project; query: str
       <Dialog
         open={spaceFeature !== null}
         onClose={() => setSpaceFeature(null)}
-        title={`New Space in ${spaceFeature?.name ?? ''}`}
+        title={`New Space in ${spaceFeature?.title ?? ''}`}
       >
         {spaceFeature && (
           <NewSpaceForm

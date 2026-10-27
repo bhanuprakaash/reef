@@ -4,7 +4,7 @@ import type { Space } from '@/types/api';
 
 type NewSpace = {
   projectId: number;
-  featureId: number | null;
+  workItemId: number | null;
   name: string;
   team: string;
   backend: string;

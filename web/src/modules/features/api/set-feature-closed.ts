@@ -5,7 +5,7 @@ export function useSetFeatureClosed(id: number) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (closed: boolean) =>
-      api<void>(`/features/${id}/${closed ? 'close' : 'reopen'}`, { method: 'POST', body: '{}' }),
+      api<void>(`/work-items/${id}/${closed ? 'close' : 'reopen'}`, { method: 'POST', body: '{}' }),
     onSuccess: () =>
       Promise.all([
         queryClient.invalidateQueries({ queryKey: ['features'] }),

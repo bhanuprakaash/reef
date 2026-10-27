@@ -18,7 +18,6 @@ vi.mock('@/modules/features/api/set-feature-closed', () => ({
   useSetFeatureClosed: () => ({ isError: false, mutate: vi.fn() }),
 }));
 vi.mock('@/modules/projects/api/get-projects', () => ({ useProjects: hooks.none }));
-vi.mock('@/modules/tasks/api/get-tasks', () => ({ useTasks: hooks.none }));
 vi.mock('@/lib/api/get-spaces', () => ({ useSpaces: hooks.none }));
 vi.mock('@/lib/api/get-teams', () => ({ useTeams: hooks.none }));
 vi.mock('@/app/use-terminal', () => ({ useTerminal: () => ({}) }));
@@ -41,19 +40,27 @@ describe('FeaturePage header', () => {
     hooks.useFeature.mockReturnValue({
       isPending: false,
       isError: false,
-      data: { id: 1, projectId: 1, slug: 'auth', name: 'Auth', goal: '', kind: 'fixes' },
+      data: {
+        id: 1,
+        projectId: 1,
+        type: 'feature',
+        title: 'Auth',
+        description: '',
+        status: 'backlog',
+        closedAt: null,
+      },
     });
   });
 
   it('has no dangling separator while the diff loads', () => {
     hooks.useDiff.mockReturnValue({ isPending: true, isError: false, data: undefined });
 
-    expect(render()).toMatch(/feature\/auth<\/span><\/div>/);
+    expect(render()).toMatch(/work-item\/1<\/span><\/div>/);
   });
 
   it('starts the diff summary with its separator once it loads', () => {
     hooks.useDiff.mockReturnValue({ isPending: false, isError: false, data: [] });
 
-    expect(render()).toMatch(/feature\/auth<\/span><span[^>]*>· No changes yet<\/span>/);
+    expect(render()).toMatch(/work-item\/1<\/span><span[^>]*>· No changes yet<\/span>/);
   });
 });

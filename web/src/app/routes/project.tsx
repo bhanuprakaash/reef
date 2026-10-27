@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { featureStage } from '@/app/feature-stage';
 import { BackButton } from '@/components/back-button';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
@@ -15,7 +14,6 @@ import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { ProjectBaseBranchForm } from '@/modules/projects/components/project-base-branch-form';
 import { ProjectMemoryForm } from '@/modules/projects/components/project-memory-form';
-import { useTasks } from '@/modules/tasks/api/get-tasks';
 import { roleFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
 
@@ -27,7 +25,6 @@ export function ProjectPage() {
   const features = useFeatures();
   const spaces = useSpaces();
   const teams = useTeams();
-  const tasks = useTasks();
   const [dialog, setDialog] = useState<'feature' | 'session' | null>(null);
 
   if (projects.isPending) return <p className="text-sm text-muted">Loading...</p>;
@@ -37,7 +34,7 @@ export function ProjectPage() {
 
   const projectSpaces = spaces.data?.filter((c) => c.projectId === id) ?? [];
   const projectFeatures = features.data?.filter((f) => f.projectId === id) ?? [];
-  const quick = projectSpaces.filter((c) => c.featureId === null);
+  const quick = projectSpaces.filter((c) => c.workItemId === null);
 
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-6 py-6">
@@ -77,13 +74,11 @@ export function ProjectPage() {
               {projectFeatures.map((f) => (
                 <li key={f.id}>
                   <Link to={`/features/${f.id}`} className={rowClass}>
-                    {f.name}
-                    {projectSpaces.some((c) => c.featureId === f.id && c.paused) ? (
+                    {f.title}
+                    {projectSpaces.some((c) => c.workItemId === f.id && c.paused) ? (
                       <span className="ml-auto text-[12.5px] text-paused">paused</span>
                     ) : (
-                      <span className="ml-auto text-[12.5px] text-muted">
-                        {featureStage(f, tasks.data ?? []).label}
-                      </span>
+                      <span className="ml-auto text-[12.5px] text-muted">{f.status}</span>
                     )}
                   </Link>
                 </li>

@@ -3,7 +3,7 @@ import { Skeleton } from '@/components/skeleton';
 import { StatusDot, type Status } from '@/components/status-dot';
 import { useDiff } from '@/modules/features/api/get-diff';
 import { diffCounts } from '@/modules/features/utils/diff-counts';
-import type { SpacePreview, Feature, InboxItem } from '@/types/api';
+import type { SpacePreview, WorkItem, InboxItem } from '@/types/api';
 
 export function spaceState(
   space: Pick<SpacePreview, 'closedAt' | 'paused'>,
@@ -43,7 +43,7 @@ export function SpaceCard({
   waiting,
 }: {
   space: SpacePreview;
-  feature: Feature | undefined;
+  feature: WorkItem | undefined;
   faces: Record<string, string | undefined>;
   working: string[];
   waiting: InboxItem['kind'][];
@@ -63,7 +63,7 @@ export function SpaceCard({
       {feature && (
         <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[13px]">
           <dt className="text-muted">Branch</dt>
-          <dd className="truncate font-mono text-xs leading-5">feature/{feature.slug}</dd>
+          <dd className="truncate font-mono text-xs leading-5">work-item/{feature.id}</dd>
           <dt className="text-muted">Changes</dt>
           <dd>
             <Changes featureId={feature.id} />

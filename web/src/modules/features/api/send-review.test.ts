@@ -5,7 +5,7 @@ import { pickSpace, pickRoot, reviewText } from './send-review';
 const space = (id: number, team: string): Space => ({
   id,
   projectId: 1,
-  featureId: 1,
+  workItemId: 1,
   name: `c${id}`,
   team,
   role: 'lead',

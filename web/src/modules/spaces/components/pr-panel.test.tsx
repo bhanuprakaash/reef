@@ -20,7 +20,7 @@ const pr: FeaturePR = {
   isDraft: false,
   reviewDecision: 'APPROVED',
   base: 'main',
-  head: 'feature/demo',
+  head: 'work-item/4',
   canMerge: true,
   checks: [],
   body: 'Line one\nLine two',

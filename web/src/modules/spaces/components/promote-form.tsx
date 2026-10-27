@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { usePromoteSpace } from '@/modules/spaces/api/promote-space';
-import type { Space, Feature } from '@/types/api';
+import type { Space, WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
 import { Select } from '@/components/select';
 import { TextField } from '@/components/text-field';
@@ -50,12 +50,11 @@ export function PromoteForm({
   onClose,
 }: {
   space: Space;
-  features: Feature[];
+  features: WorkItem[];
   onClose: () => void;
 }) {
   const [existing, setExisting] = useState(false);
-  const [slug, setSlug] = useState('');
-  const [name, setName] = useState('');
+  const [title, setTitle] = useState('');
   const [featureId, setFeatureId] = useState('');
   const promote = usePromoteSpace(space.id);
   const choices = features.filter((f) => f.projectId === space.projectId);
@@ -65,10 +64,9 @@ export function PromoteForm({
       className="space-y-4"
       onSubmit={(e) => {
         e.preventDefault();
-        promote.mutate(
-          existing ? { featureId: Number(featureId) } : { slug: slug.trim(), name: name.trim() },
-          { onSuccess: onClose },
-        );
+        promote.mutate(existing ? { workItemId: Number(featureId) } : { title: title.trim() }, {
+          onSuccess: onClose,
+        });
       }}
     >
       <p className="-mt-2.5 text-[13px] text-muted">{space.name} becomes long-lived work</p>
@@ -76,7 +74,7 @@ export function PromoteForm({
         <Choice
           checked={!existing}
           title="New feature"
-          note="Starts at Ideation"
+          note="Starts in the backlog"
           onChange={() => setExisting(false)}
         />
         <Choice
@@ -95,39 +93,23 @@ export function PromoteForm({
             onChange={setFeatureId}
             options={[
               { value: '', label: 'Pick a feature', disabled: true },
-              ...choices.map((f) => ({ value: String(f.id), label: f.name })),
+              ...choices.map((f) => ({ value: String(f.id), label: f.title })),
             ]}
           />
         </Field>
       ) : (
-        <div className="grid grid-cols-2 gap-2">
-          <Field label="Name">
-            <TextField
-              className="w-full"
-              required
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </Field>
-          <Field label="Slug">
-            <TextField
-              className="w-full font-mono"
-              required
-              value={slug}
-              onChange={(e) => setSlug(e.target.value)}
-            />
-          </Field>
-        </div>
+        <Field label="Title">
+          <TextField
+            className="w-full"
+            required
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+          />
+        </Field>
       )}
       <p className="text-[13px] text-muted">
         The Space moves under the feature and the lead reads it to{' '}
         {existing ? 'update the' : 'write the first'} brief (one turn).
-        {!existing && slug.trim() !== '' && (
-          <>
-            {' '}
-            Branch: <span className="font-mono text-soft">feature/{slug.trim()}</span>
-          </>
-        )}
       </p>
       {promote.isError && <p className="text-sm text-danger">{promote.error.message}</p>}
       <div className="flex justify-end gap-2">

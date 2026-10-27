@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { InboxItem } from '@/types/api';
 import { itemPath } from './anchors';
 
-const base = { spaceId: 4, featureId: null, text: '', at: '2026-10-14T08:00:00Z' };
+const base = { spaceId: 4, workItemId: null, text: '', at: '2026-10-14T08:00:00Z' };
 
 describe('itemPath', () => {
   it('points each kind of item at its element in the Space', () => {

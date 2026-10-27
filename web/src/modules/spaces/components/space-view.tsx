@@ -35,13 +35,13 @@ import { browserAction } from '@/modules/spaces/utils/browser-action';
 import { groupChains } from '@/modules/spaces/utils/direct-chains';
 import { groupThreads } from '@/modules/spaces/utils/group-threads';
 import { latestPullRequest } from '@/modules/spaces/utils/pull-request';
-import type { Space, Feature } from '@/types/api';
+import type { Space, WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
 
 type Props = {
   space: Space;
   scope: ReactNode;
-  features: Feature[];
+  features: WorkItem[];
   diff?: { added: number; removed: number };
   diffPanel?: (onClose: () => void) => ReactNode;
   brief?: string;
@@ -169,7 +169,7 @@ export function SpaceView({
           closeSide();
         }}
       />
-      {space.featureId === null && (
+      {space.workItemId === null && (
         <Dialog open={promoting} onClose={() => setPromoting(false)} title="Promote to a feature">
           {promoting && (
             <PromoteForm space={space} features={features} onClose={() => setPromoting(false)} />
@@ -215,7 +215,7 @@ export function SpaceView({
               <CheckpointRows spaceId={space.id} running={running} />
               <DeniedToolRows space={space} roles={roles} running={running} />
               <ApprovalRows spaceId={space.id} faces={faces} />
-              <ProposalPanel spaceId={space.id} featureId={space.featureId} faces={faces} />
+              <ProposalPanel spaceId={space.id} featureId={space.workItemId} faces={faces} />
             </div>
           </div>
           {!atBottom && (
@@ -335,8 +335,8 @@ export function SpaceView({
               {side?.kind === 'inspector' && (
                 <InspectorPanel spaceId={space.id} faces={faces} onClose={closeSide} />
               )}
-              {side?.kind === 'pr' && space.featureId !== null && (
-                <PrPanel featureId={space.featureId} onClose={closeSide} />
+              {side?.kind === 'pr' && space.workItemId !== null && (
+                <PrPanel featureId={space.workItemId} onClose={closeSide} />
               )}
             </div>
           </div>
@@ -350,7 +350,7 @@ export function SpaceView({
                   <div className="truncate text-xl">#{space.name}</div>
                   <div className="text-[13px] text-muted">Team · {space.team}</div>
                 </div>
-                {space.featureId !== null && !closed && (
+                {space.workItemId !== null && !closed && (
                   <Button
                     variant="primary"
                     type="button"
@@ -363,7 +363,7 @@ export function SpaceView({
               </div>
               <TeamPanel
                 spaceId={space.id}
-                featureId={space.featureId}
+                featureId={space.workItemId}
                 roles={roles}
                 working={running ? working : null}
                 waiting={approvals.data?.map((a) => a.to) ?? []}

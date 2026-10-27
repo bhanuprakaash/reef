@@ -6,12 +6,14 @@ import type { FileDiff } from '@/types/api';
 export type DiffScope = 'current' | 'full';
 
 // refetchInterval keeps the panel current while open: it has no Space to listen to a turn's
-// done event on, since a feature can have several Spaces writing to its worktree.
-export function useDiff(featureId: number, scope: DiffScope = 'full') {
+// done event on, since a work item can have several Spaces writing to its worktree.
+export function useDiff(workItemId: number, scope: DiffScope = 'full') {
   return useQuery({
-    queryKey: diffKey(featureId, scope),
+    queryKey: diffKey(workItemId, scope),
     queryFn: () =>
-      api<FileDiff[]>(`/features/${featureId}/diff${scope === 'current' ? '?scope=current' : ''}`),
+      api<FileDiff[]>(
+        `/work-items/${workItemId}/diff${scope === 'current' ? '?scope=current' : ''}`,
+      ),
     placeholderData: keepPreviousData,
     refetchInterval: 5000,
   });

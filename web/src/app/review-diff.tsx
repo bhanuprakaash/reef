@@ -24,7 +24,7 @@ export function ReviewDiff({ id, onClose, defaultScope = 'full' }: Props) {
   const teams = useTeams();
   const projects = useProjects();
 
-  const latestTeam = spaces.data?.filter((c) => c.featureId === id).at(-1)?.team;
+  const latestTeam = spaces.data?.filter((c) => c.workItemId === id).at(-1)?.team;
 
   if (feature.isPending || diff.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (feature.isError) return <p className="text-sm text-danger">{feature.error.message}</p>;
@@ -34,8 +34,8 @@ export function ReviewDiff({ id, onClose, defaultScope = 'full' }: Props) {
     <DiffPanel
       files={diff.data}
       featureId={id}
-      featureName={feature.data.name}
-      branch={`feature/${feature.data.slug}`}
+      featureName={feature.data.title}
+      branch={`work-item/${id}`}
       baseBranch={projects.data?.find((p) => p.id === feature.data.projectId)?.baseBranch || 'main'}
       scope={scope}
       onScopeChange={setScope}

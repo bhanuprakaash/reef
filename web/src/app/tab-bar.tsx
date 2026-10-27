@@ -67,10 +67,6 @@ export function TabBar() {
         <path d="M22 12h-6l-2 3h-4l-2-3H2" />
         <path d="M5.5 5h13L22 12v7H2v-7z" />
       </Tab>
-      <Tab to="/tasks" label="Tasks">
-        <path d="M9 11l3 3 8-8" />
-        <path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9" />
-      </Tab>
       <Tab to="/teams" label="Teams">
         <circle cx="9" cy="9" r="4" />
         <circle cx="17" cy="11" r="3" />

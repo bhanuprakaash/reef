@@ -1,7 +1,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 
-type Promotion = { slug: string; name: string } | { featureId: number };
+type Promotion = { title: string } | { workItemId: number };
 
 export function usePromoteSpace(spaceId: number) {
   const queryClient = useQueryClient();

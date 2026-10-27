@@ -15,17 +15,13 @@ import { useSetFeatureClosed } from '@/modules/features/api/set-feature-closed';
 import { BriefPanel } from '@/modules/features/components/brief-panel';
 import { MemoryList } from '@/modules/features/components/memory-list';
 import { FeatureForm } from '@/modules/features/components/feature-form';
-import { JourneyBar } from '@/modules/features/components/journey-bar';
-import { StagePicker } from '@/modules/features/components/stage-picker';
 import { diffCounts } from '@/modules/features/utils/diff-counts';
 import { useProjects } from '@/modules/projects/api/get-projects';
-import { useTasks } from '@/modules/tasks/api/get-tasks';
-import { TaskList } from '@/modules/tasks/components/task-list';
-import { TaskProgress } from '@/modules/tasks/components/task-progress';
 import { roleFaces } from '@/utils/role-faces';
 import { BackButton } from '@/components/back-button';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
+import { Chip } from '@/components/chip';
 import { Dialog } from '@/components/dialog';
 
 export function FeaturePage() {
@@ -37,7 +33,6 @@ export function FeaturePage() {
   const memory = useMemory(scope);
   const retire = useRetireMemory(scope);
   const diff = useDiff(id);
-  const tasks = useTasks({ feature: id });
   const spaces = useSpaces();
   const teams = useTeams();
   const terminal = useTerminal(true);
@@ -49,10 +44,8 @@ export function FeaturePage() {
 
   const f = feature.data;
   const project = projects.data?.find((p) => p.id === f.projectId);
-  const featureSpaces = spaces.data?.filter((c) => c.featureId === id) ?? [];
+  const featureSpaces = spaces.data?.filter((c) => c.workItemId === id) ?? [];
   const latestSpace = featureSpaces[featureSpaces.length - 1];
-  const openTasks = tasks.data?.filter((t) => t.status !== 'done') ?? [];
-  const doneTasks = tasks.data?.filter((t) => t.status === 'done') ?? [];
 
   return (
     <div className="space-y-7">
@@ -62,13 +55,12 @@ export function FeaturePage() {
             <BackButton fallback="/" />
             {project?.name} · feature
           </div>
-          <h1 className="text-[40px] leading-[1.05] font-normal tracking-[-0.02em]">{f.name}</h1>
-          {f.goal && <p className="mt-2 max-w-xl text-sm text-muted">{f.goal}</p>}
+          <h1 className="text-[40px] leading-[1.05] font-normal tracking-[-0.02em]">{f.title}</h1>
+          {f.description && <p className="mt-2 max-w-xl text-sm text-muted">{f.description}</p>}
           <div className="mt-3 flex flex-wrap items-center text-xs text-muted">
-            {f.kind === 'journey' && <StagePicker feature={f} />}
-            <span className={`font-mono ${f.kind === 'journey' ? 'ml-2 whitespace-nowrap' : ''}`}>
-              {f.kind === 'journey' && '· '}feature/{f.slug}
-            </span>
+            <Chip>{f.type}</Chip>
+            <Chip className="ml-2">{f.status}</Chip>
+            <span className="ml-2 font-mono whitespace-nowrap">work-item/{f.id}</span>
             {diff.isError ? (
               <span className="ml-2 whitespace-nowrap text-danger">· {diff.error.message}</span>
             ) : (
@@ -105,11 +97,6 @@ export function FeaturePage() {
           </Button>
         </div>
       </header>
-      {f.kind === 'journey' ? (
-        <JourneyBar stage={f.stage} />
-      ) : (
-        <TaskProgress tasks={tasks.data ?? []} />
-      )}
       <div className="flex flex-wrap items-start gap-5">
         <div className="flex min-w-0 flex-[999_1_460px] flex-col gap-5 md:min-w-[460px]">
           {briefs.isError ? (
@@ -140,29 +127,10 @@ export function FeaturePage() {
               New Space
             </Button>
           </Card>
-          <Card title="Tasks">
-            {tasks.isError ? (
-              <p className="text-sm text-danger">{tasks.error.message}</p>
-            ) : (
-              <>
-                {(openTasks.length > 0 || doneTasks.length === 0) && (
-                  <TaskList tasks={openTasks} compact />
-                )}
-                {doneTasks.length > 0 && (
-                  <details>
-                    <summary className="cursor-pointer py-2 text-xs text-muted">
-                      {doneTasks.length} done
-                    </summary>
-                    <TaskList tasks={doneTasks} compact />
-                  </details>
-                )}
-              </>
-            )}
-          </Card>
         </div>
       </div>
       <Dialog open={dialog === 'edit'} onClose={() => setDialog(null)} title="Edit feature">
-        {dialog === 'edit' && <FeatureForm feature={f} onDone={() => setDialog(null)} />}
+        {dialog === 'edit' && <FeatureForm item={f} onDone={() => setDialog(null)} />}
       </Dialog>
       <Dialog open={dialog === 'space'} onClose={() => setDialog(null)} title="New Space">
         {dialog === 'space' && (
@@ -171,7 +139,7 @@ export function FeaturePage() {
       </Dialog>
       <Dialog open={dialog === 'close'} onClose={() => setDialog(null)} title="Close feature">
         <p className="mb-5 text-sm text-muted">
-          Close {f.name}? Its Spaces close too and their agents stop. You can reopen it later.
+          Close {f.title}? Its Spaces close too and their agents stop. You can reopen it later.
         </p>
         <div className="flex justify-end gap-2">
           <Button type="button" onClick={() => setDialog(null)}>

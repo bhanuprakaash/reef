@@ -19,7 +19,7 @@ function render(files: FileDiff[], scope: DiffScope = 'current') {
         files={files}
         featureId={1}
         featureName="Login"
-        branch="feature/login"
+        branch="work-item/1"
         baseBranch="dev"
         scope={scope}
         onScopeChange={() => {}}
@@ -72,7 +72,7 @@ describe('DiffPanel', () => {
     const markup = render([], 'full');
 
     expect(markup).toMatch(/aria-pressed="true"[^>]*>Full diff</);
-    expect(markup).toContain('feature/login vs dev');
+    expect(markup).toContain('work-item/1 vs dev');
     expect(markup).not.toContain('uncommitted');
   });
 });

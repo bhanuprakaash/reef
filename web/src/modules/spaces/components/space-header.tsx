@@ -82,11 +82,11 @@ export function SpaceHeader({
           <span aria-hidden="true">#</span>
           {space.name}
         </h1>
-        {space.featureId === null ? (
+        {space.workItemId === null ? (
           <span className="flex min-w-0 items-center gap-2 text-[13px] text-muted">{scope}</span>
         ) : (
           <Link
-            to={`/features/${space.featureId}`}
+            to={`/features/${space.workItemId}`}
             className="flex min-w-0 items-center gap-2 text-[13px] text-muted hover:text-fg"
           >
             {scope}
@@ -172,7 +172,7 @@ export function SpaceHeader({
           </svg>
           <span className="max-md:hidden">Team</span>
         </Button>
-        {space.featureId !== null ? (
+        {space.workItemId !== null ? (
           space.closedAt === null && (
             <Button
               variant="primary"

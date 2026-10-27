@@ -6,7 +6,7 @@ export function useMergeFeaturePR(featureId: number) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: () =>
-      api<void>(`/features/${featureId}/pr/merge`, {
+      api<void>(`/work-items/${featureId}/pr/merge`, {
         method: 'POST',
         body: JSON.stringify({}),
       }),

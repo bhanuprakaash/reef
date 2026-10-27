@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useCurrentProject } from '@/lib/current-project';
-import { useCreateTask } from '@/modules/tasks/api/create-task';
+import { useCreateFeature } from '@/modules/features/api/create-feature';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { Button } from '@/components/button';
 import { Logo } from '@/components/logo';
@@ -13,10 +13,11 @@ const KINDS: { value: Kind; label: string }[] = [
   { value: 'todo', label: 'Todo' },
   { value: 'bug', label: 'Bug' },
 ];
+const TYPES = { idea: 'feature', todo: 'task', bug: 'bug' } as const;
 
 export function CapturePage() {
   const projects = useProjects();
-  const create = useCreateTask();
+  const create = useCreateFeature();
   const [project, pickProject] = useCurrentProject(projects.data);
   const [kind, setKind] = useState<Kind>('todo');
   const [text, setText] = useState('');
@@ -45,7 +46,7 @@ export function CapturePage() {
       onSubmit={(e) => {
         e.preventDefault();
         create.mutate(
-          { projectId: Number(project?.id), featureId: null, title: `${kind}: ${text}` },
+          { projectId: Number(project?.id), type: TYPES[kind], title: text },
           {
             onSuccess: () => {
               if (isDesktop) {
@@ -109,7 +110,7 @@ export function CapturePage() {
       ) : (
         <p className="text-[12.5px] text-muted">
           {project
-            ? `Lands in Tasks as "${kind}: ${text}" on ${project.name}, no feature.`
+            ? `Lands in ${project.name} as a ${TYPES[kind]} titled "${text}".`
             : 'Pick a project to capture into.'}
         </p>
       )}

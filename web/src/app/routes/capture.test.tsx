@@ -2,12 +2,12 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CapturePage } from './capture';
 
-const { useCreateTask, useProjects } = vi.hoisted(() => ({
-  useCreateTask: vi.fn(),
+const { useCreateFeature, useProjects } = vi.hoisted(() => ({
+  useCreateFeature: vi.fn(),
   useProjects: vi.fn(),
 }));
 
-vi.mock('@/modules/tasks/api/create-task', () => ({ useCreateTask }));
+vi.mock('@/modules/features/api/create-feature', () => ({ useCreateFeature }));
 vi.mock('@/modules/projects/api/get-projects', () => ({ useProjects }));
 
 function stubWindow(reef?: object) {
@@ -21,7 +21,7 @@ describe('CapturePage', () => {
   it('shows the error when the capture request fails', () => {
     stubWindow();
     useProjects.mockReturnValue({ data: [] });
-    useCreateTask.mockReturnValue({
+    useCreateFeature.mockReturnValue({
       isPending: false,
       isError: true,
       isSuccess: false,
@@ -37,7 +37,7 @@ describe('CapturePage', () => {
   it('shows Captured after a successful capture in a plain browser', () => {
     stubWindow();
     useProjects.mockReturnValue({ data: [] });
-    useCreateTask.mockReturnValue({
+    useCreateFeature.mockReturnValue({
       isPending: false,
       isError: false,
       isSuccess: true,
@@ -53,7 +53,7 @@ describe('CapturePage', () => {
   it('does not show Captured in the desktop window', () => {
     stubWindow({ capture: vi.fn() });
     useProjects.mockReturnValue({ data: [] });
-    useCreateTask.mockReturnValue({
+    useCreateFeature.mockReturnValue({
       isPending: false,
       isError: false,
       isSuccess: true,

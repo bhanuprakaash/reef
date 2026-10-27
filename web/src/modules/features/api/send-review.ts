@@ -31,8 +31,8 @@ export function pickRoot(messages: Message[]): number | undefined {
 }
 
 // useSendReview sends comments as one user message to the developer's latest thread on
-// featureId, or a top-level message starting "@developer" when it has none.
-export function useSendReview(featureId: number) {
+// workItemId, or a top-level message starting "@developer" when it has none.
+export function useSendReview(workItemId: number) {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (comments: ReviewComment[]) => {
@@ -41,7 +41,7 @@ export function useSendReview(featureId: number) {
         queryClient.fetchQuery(teamsQuery),
       ]);
       const space = pickSpace(
-        spaces.filter((c) => c.featureId === featureId),
+        spaces.filter((c) => c.workItemId === workItemId),
         teams,
       );
       if (!space) throw new Error('no Space with a developer role on this feature');
