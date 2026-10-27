@@ -105,7 +105,7 @@ One assembler builds the first prompt of a channel and of a quick session in thr
 
 **Session lifetime.** Within a channel each teammate's session persists and resumes. When it gets long the backend compacts it, and the role's next turn gets the full first prompt again (decision 94). Across channels sessions are not shared: a teammate's memory of other channels is the brief, the memory items and the on-demand tools, never the raw session. After 30 to 40 chats the architect still starts small and relevant.
 
-**Brief and memory items.** The agent writes the brief from the conversation and the shared understanding with the user; the user approves before it becomes the new brief. A memory item is never edited or deleted, but can be retired or replaced; each has an author, a role and a link to the channel or wrap-up it came from.
+**Brief and memory items.** The agent writes the brief from the conversation and the shared understanding with the user; the user approves before it becomes the new brief. A memory item is never edited or deleted, but can be retired or replaced; each has an author and a role, and one an agent saves links to the channel or wrap-up it came from. An item the user adds in the window or with `reef decide` has no link.
 
 **Capturing what we learn.** Both ways: the agent saves decisions, findings, facts, conventions and lessons as it goes with `remember`, and at wrap-up it proposes as items any it did not save; those are approved with the brief (decision 93).
 
