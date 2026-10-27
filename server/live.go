@@ -1268,18 +1268,6 @@ func (l *live) awaitStart(ctx context.Context) error {
 	}
 }
 
-// queue adds w to the wakes the starting or running chain runs next. It
-// reports false, adding nothing, when no chain is starting or running.
-func (l *live) queue(w wake) bool {
-	l.mu.Lock()
-	defer l.mu.Unlock()
-	if l.state != _starting && l.state != _running {
-		return false
-	}
-	l.queued = append(l.queued, w)
-	return true
-}
-
 // countHop counts w as a hop when a message from an agent woke it, and reports whether w
 // may run: a wake over the cap may not. A message from the user resets the count.
 func (l *live) countHop(w wake) bool {
