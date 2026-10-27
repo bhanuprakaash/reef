@@ -174,7 +174,7 @@ echo '{"number":12,"url":"https://github.com/x/y/pull/12","state":"OPEN","status
 wait_for '/messages?space=4' 'build failed' && busy_note_wait=0 || busy_note_wait=1
 sleep 3
 turns_while_paused=$("$H" sql "select count(*) from turn where space_id = 4" | tail -1)
-log_before=$(grep -c 'wake developer: Space 4 is paused' "$E/serve.log")
+log_before=$(grep -c 'wake developer: space 4 is paused' "$E/serve.log")
 
 for i in $(seq 10); do
 	api_call POST /spaces/4/continue
@@ -188,7 +188,7 @@ for i in $(seq 30); do
 	sleep 1
 done
 wake3=$(turn_col "$turn3" wake_text)
-log_after=$(grep -c 'wake developer: Space 4 is paused' "$E/serve.log")
+log_after=$(grep -c 'wake developer: space 4 is paused' "$E/serve.log")
 
 busy_ok=1
 [ "$busy_note_wait" = 0 ] || busy_ok=0
