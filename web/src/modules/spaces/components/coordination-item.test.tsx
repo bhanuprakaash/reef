@@ -1,6 +1,6 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
-import type { Approval, DirectMessage, Turn } from '@/types/api';
+import type { DirectMessage, Turn } from '@/types/api';
 import { groupChains } from '@/modules/spaces/utils/direct-chains';
 import { CoordinationItem } from './coordination-item';
 
@@ -25,7 +25,7 @@ const response: DirectMessage = {
   status: 'done',
 };
 const failed: DirectMessage = { ...response, status: 'failed' };
-const none = { approvals: [], failedTurns: [], retryable: [], paused: false };
+const none = { failedTurns: [], retryable: [], paused: false };
 
 function render(messages: DirectMessage[], ctx: Partial<Parameters<typeof groupChains>[1]> = {}) {
   const [chain] = groupChains(messages, { ...none, ...ctx });
@@ -54,11 +54,9 @@ describe('CoordinationItem', () => {
     expect(markup.match(/<li[ >]/g)).toHaveLength(1);
   });
 
-  it('tells waiting approval, paused, failed and stopped apart', () => {
-    const approvals = [{ id: 9, directMessageId: 1 } as Approval];
+  it('tells paused, failed and stopped apart', () => {
     const interrupted = [{ id: 5, directMessageId: 1, error: 'interrupted' } as Turn];
 
-    expect(render([request], { approvals })).toContain('</span>waiting approval</span>');
     expect(render([request], { paused: true })).toContain('</span>paused</span>');
     expect(render([request, failed])).toContain('</span>failed</span>');
     expect(render([request, failed], { failedTurns: interrupted })).toContain(
@@ -66,8 +64,7 @@ describe('CoordinationItem', () => {
     );
   });
 
-  it('tells a rejected approval and a wake shed by a stop from a failure', () => {
-    expect(render([request, { ...failed, body: 'rejected' }])).toContain('</span>rejected</span>');
+  it('tells a wake shed by a stop from a failure', () => {
     expect(render([request, { ...failed, body: 'stopped' }])).toContain('</span>stopped</span>');
   });
 });

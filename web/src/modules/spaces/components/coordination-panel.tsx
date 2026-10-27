@@ -1,5 +1,4 @@
 import { useContinueSpace } from '@/lib/api/continue-space';
-import { useDecideApproval } from '@/lib/api/decide-approval';
 import { useRetryTurn } from '@/lib/api/retry-turn';
 import { Bubble } from '@/modules/spaces/components/bubble';
 import { ToolRow } from '@/modules/spaces/components/tool-row';
@@ -32,12 +31,11 @@ export function CoordinationPanel({
   onOpenSource,
   onClose,
 }: Props) {
-  const decide = useDecideApproval();
   const cont = useContinueSpace();
   const retry = useRetryTurn();
-  const { approval, retryTurn } = chain;
+  const { retryTurn } = chain;
   const { from, to, sourceMessageId } = chain.messages[0];
-  const error = [decide, cont, retry].find((m) => m.isError)?.error;
+  const error = [cont, retry].find((m) => m.isError)?.error;
 
   return (
     <aside
@@ -122,25 +120,6 @@ export function CoordinationPanel({
                 </div>
               ),
             )}
-          </div>
-        )}
-        {approval && (
-          <div className="flex gap-3">
-            <Button
-              type="button"
-              disabled={decide.isPending}
-              onClick={() => decide.mutate({ spaceId, id: approval.id, approve: false })}
-            >
-              Reject
-            </Button>
-            <Button
-              variant="primary"
-              type="button"
-              disabled={decide.isPending}
-              onClick={() => decide.mutate({ spaceId, id: approval.id, approve: true })}
-            >
-              Approve
-            </Button>
           </div>
         )}
         {chain.state === 'paused' && (

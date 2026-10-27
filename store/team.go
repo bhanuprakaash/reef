@@ -18,18 +18,10 @@ import (
 // SoloTeam is the lead-only team a Space gets when none is named.
 const SoloTeam = "solo"
 
-// Team is a named set of roles, exactly one of them the lead, and the gates between them.
+// Team is a named set of roles, exactly one of them the lead.
 type Team struct {
 	Name  string `json:"name"`
 	Roles []Role `json:"roles"`
-	Gates []Gate `json:"gates,omitempty"`
-}
-
-// Gate switches approval on or off for the wakes one role sends another.
-type Gate struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-	On   bool   `json:"on"`
 }
 
 func faces() []string {
@@ -65,14 +57,6 @@ var _roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 // UnrestrictedBash reports whether a claude tool entry allows every shell command.
 func UnrestrictedBash(tool string) bool {
 	return slices.Contains([]string{"Bash", "Bash(*)", "Bash(:*)"}, strings.TrimSpace(tool))
-}
-
-// _defaultGates apply to an edge the team does not list.
-var _defaultGates = []Gate{
-	{From: "lead", To: "developer", On: true},
-	{From: "architect", To: "developer", On: true},
-	{From: "developer", To: "tester", On: true},
-	{From: "tester", To: "developer", On: true},
 }
 
 // ApplyTeam creates team t, or replaces the roles of the team with that name.
@@ -129,16 +113,6 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM team_member WHERE team_id = ?", id); err != nil {
 		return Team{}, fmt.Errorf("delete members: %w", err)
-	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM gate WHERE team_id = ?", id); err != nil {
-		return Team{}, fmt.Errorf("delete gates: %w", err)
-	}
-	for _, g := range t.Gates {
-		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO gate (team_id, from_role, to_role, enabled) VALUES (?, ?, ?, ?)",
-			id, g.From, g.To, g.On); err != nil {
-			return Team{}, fmt.Errorf("insert gate %s to %s: %w", g.From, g.To, err)
-		}
 	}
 	for _, r := range t.Roles {
 		skills, tools, servers, err := encodeLists(r.Skills, r.Tools, r.MCPServers)
@@ -213,20 +187,10 @@ func (s *Store) Team(ctx context.Context, name string) (Team, error) {
 	if err != nil {
 		return Team{}, err
 	}
-	rows, err = s.db.QueryContext(ctx,
-		"SELECT from_role, to_role, enabled FROM gate JOIN team ON team.id = team_id "+
-			"WHERE team.name = ? ORDER BY gate.id", name)
-	if err != nil {
-		return Team{}, fmt.Errorf("read gates of team %s: %w", name, err)
+	if len(roles) == 0 {
+		return Team{}, fmt.Errorf("team %s: %w", name, ErrNotFound)
 	}
-	gates, err := scanAll(rows, func(r interface{ Scan(...any) error }) (Gate, error) {
-		var g Gate
-		return g, r.Scan(&g.From, &g.To, &g.On)
-	})
-	if err != nil {
-		return Team{}, err
-	}
-	return Team{Name: name, Roles: roles, Gates: gates}, nil
+	return Team{Name: name, Roles: roles}, nil
 }
 
 // Teams lists all teams by name.
@@ -253,17 +217,6 @@ func (s *Store) Teams(ctx context.Context) ([]Team, error) {
 	return teams, nil
 }
 
-// Gated reports whether a wake from role from to role to waits for approval: the team's
-// gate for that edge when it lists one, else the default.
-func (t Team) Gated(from, to string) bool {
-	for _, g := range slices.Concat(t.Gates, _defaultGates) {
-		if g.From == from && g.To == to {
-			return g.On
-		}
-	}
-	return false
-}
-
 func (t Team) validate() error {
 	if t.Name == "" {
 		return fmt.Errorf("%w: team name is required", ErrInvalid)
@@ -286,12 +239,6 @@ func (t Team) validate() error {
 		seen[r.Name] = true
 		if r.Lead {
 			leads++
-		}
-	}
-	for _, g := range t.Gates {
-		if !seen[g.From] || !seen[g.To] {
-			return fmt.Errorf("%w: gate %s to %s names a role team %s does not have",
-				ErrInvalid, g.From, g.To, t.Name)
 		}
 	}
 	if leads != 1 {

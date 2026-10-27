@@ -187,56 +187,6 @@ func TestDirectStopWhileQueuedRecipientStopped(t *testing.T) {
 	sub.want(t, _idleFrame)
 }
 
-// TestDirectRejectedApprovalRecordsFailedResponse rejects a gated direct wake: nobody runs,
-// and the request gets a failed response with body "rejected" so it reads differently from a
-// completed exchange.
-func TestDirectRejectedApprovalRecordsFailedResponse(t *testing.T) {
-	ctx := context.Background()
-	env := newLiveEnv(t)
-	id, _ := env.teamSpace(t)
-	roles := []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
-	}
-	if _, err := env.st.ApplyTeam(ctx, store.Team{Name: "core", Roles: roles,
-		Gates: []store.Gate{{From: "lead", To: "architect", On: true}}}); err != nil {
-		t.Fatal(err)
-	}
-	env.fake.onRun = func(role, text string, parent *int64) {
-		if role == "lead" {
-			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "lead", To: "architect", Body: "private ask",
-			}); err != nil {
-				t.Error(err)
-			}
-		}
-	}
-	sub := subscribeTo(t, env.url, id)
-	env.sendTo(t, id, "go")
-	var held []store.Approval
-	for deadline := time.Now().Add(5 * time.Second); len(held) == 0 && time.Now().Before(deadline); {
-		held, _ = env.st.PendingApprovals(ctx, int64(id))
-		time.Sleep(10 * time.Millisecond)
-	}
-	if len(held) != 1 || held[0].DirectMessageID == nil {
-		t.Fatalf("approvals = %+v, want one holding the direct request", held)
-	}
-	status, _ := do(t, http.MethodPost,
-		fmt.Sprintf("%s/spaces/%d/approvals/%d", env.url, id, held[0].ID), `{"approve":false}`)
-	if status != 204 {
-		t.Fatalf("reject = %d, want 204", status)
-	}
-	for f := sub.next(t); f != "direct {}"; f = sub.next(t) {
-	}
-	direct, err := env.st.DirectMessages(ctx, int64(id), 0)
-	if err != nil || len(direct) != 2 {
-		t.Fatalf("direct = %+v, %v", direct, err)
-	}
-	if got := direct[1]; got.Status != store.DirectFailed || got.Body != "rejected" ||
-		got.From != "architect" || got.To != "lead" {
-		t.Errorf("response = %+v, want failed architect->lead with body rejected", got)
-	}
-}
-
 // waitHolds is the Space's hold count once it has any: a cap pause is stored just before
 // its holds, both under the chain's lock.
 func waitHolds(t *testing.T, dir string, spaceID int64) int {
@@ -459,7 +409,7 @@ func TestDirectTokenCapHoldThenContinue(t *testing.T) {
 }
 
 // countHolds opens a separate read connection to the live store's database file and counts
-// the Space's pending holds (approval rows of kind "hold").
+// the Space's pending holds.
 func countHolds(t *testing.T, dir string, spaceID int64) int {
 	t.Helper()
 	db, err := sql.Open("sqlite", "file:"+dir+"/reef.db?_pragma=busy_timeout(5000)")
@@ -470,7 +420,7 @@ func countHolds(t *testing.T, dir string, spaceID int64) int {
 	var n int
 	if err := db.QueryRowContext(context.Background(),
 		"SELECT COUNT(*) FROM approval WHERE space_id = ? AND kind = ?",
-		spaceID, store.ApprovalHold).Scan(&n); err != nil {
+		spaceID, "hold").Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -750,100 +700,4 @@ func TestDirectSelfLoopPrevented(t *testing.T) {
 	if !isErr || !strings.Contains(got, "yourself") {
 		t.Fatalf("self send = %q (error %v), want self error", got, isErr)
 	}
-}
-
-// TestDirectDeveloperTesterRepeatedExchanges drives developer<->tester direct exchanges
-// through required gate approvals past the hop cap, since each approval resets the count.
-func TestDirectDeveloperTesterRepeatedExchanges(t *testing.T) {
-	ctx := context.Background()
-	env := newLiveEnv(t)
-	id, _ := env.teamSpace(t)
-	roles := []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-		{Name: "developer", Write: true, Backend: "claude"},
-		{Name: "tester", Backend: "claude"},
-	}
-	if _, err := env.st.ApplyTeam(ctx, store.Team{Name: "core", Roles: roles,
-		Gates: []store.Gate{
-			{From: "developer", To: "tester", On: true},
-			{From: "tester", To: "developer", On: true},
-		}}); err != nil {
-		t.Fatal(err)
-	}
-	env.fake.onRun = func(role, text string, parent *int64) {
-		// Only the developer initiates direct exchanges; each one needs a gate approval.
-		// The tester's automatic reply wakes the developer back, which drives the next
-		// exchange, so the chain repeats until the shared hop cap.
-		if role == "developer" {
-			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				SpaceID: int64(id), From: "developer", To: "tester", Body: "ping",
-			}); err != nil {
-				t.Error(err)
-			}
-		}
-	}
-	sub := subscribeTo(t, env.url, id)
-	// Wake the developer directly; its direct to the tester is held for approval.
-	if status, _ := env.sendTo(t, id, "@developer go"); status != 202 {
-		t.Fatalf("send = %d, want 202", status)
-	}
-	// Wait for the first held approval to appear.
-	deadline := time.Now().Add(5 * time.Second)
-	var firstID int64
-	for time.Now().Before(deadline) {
-		as, err := env.st.PendingApprovals(ctx, int64(id))
-		if err == nil && len(as) == 1 {
-			firstID = as[0].ID
-			break
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
-	if firstID == 0 {
-		t.Fatal("no approval held for the developer's direct to the tester")
-	}
-	approveNext := func() (int, int64) {
-		t.Helper()
-		as, err := env.st.PendingApprovals(ctx, int64(id))
-		if err != nil || len(as) != 1 {
-			t.Fatalf("pending approvals = %d, %v, want exactly one", len(as), err)
-		}
-		status, _ := do(t, http.MethodPost,
-			fmt.Sprintf("%s/spaces/%d/approvals/%d", env.url, id, as[0].ID), `{"approve":true}`)
-		if status != 204 && status != 409 {
-			t.Fatalf("approve = %d, want 204 or 409", status)
-		}
-		return status, as[0].ID
-	}
-	waitNext := func(prev int64) {
-		t.Helper()
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			as, err := env.st.PendingApprovals(ctx, int64(id))
-			if err == nil && len(as) == 1 && as[0].ID != prev {
-				return
-			}
-			time.Sleep(10 * time.Millisecond)
-		}
-		t.Fatal("no next approval after the exchange completed")
-	}
-	// Each approval runs a developer<->tester exchange (tester replies, which wakes the
-	// developer to send again). An approved wake resets the hop count, so the exchanges go on
-	// past the cap and the Space never pauses.
-	var lastID int64
-	for i := 0; i < 8; i++ {
-		status, aid := approveNext()
-		if status != 204 {
-			t.Fatalf("approve %d = %d, want 204", i+1, status)
-		}
-		lastID = aid
-		waitNext(lastID)
-	}
-	ch, err := env.st.Space(ctx, int64(id))
-	if err != nil || ch.Paused != "" {
-		t.Fatalf("paused = %q, %v, want not paused", ch.Paused, err)
-	}
-	if got := len(env.ranTexts()); got < 8 {
-		t.Fatalf("turns ran = %d, want repeated exchanges", got)
-	}
-	sub.want(t, _idleFrame)
 }

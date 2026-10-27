@@ -2,7 +2,6 @@ package store
 
 import (
 	"context"
-	"errors"
 	"reflect"
 	"testing"
 )
@@ -25,39 +24,32 @@ func TestHolds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range []Approval{
-		{Kind: ApprovalHold, Text: "first"},
-		{Text: "gate"},
-		{Kind: ApprovalHold, Text: "second"},
+	for _, h := range []Hold{
+		{Text: "first"},
+		{Text: "second"},
 	} {
-		a.SpaceID, a.From, a.To, a.MessageID = ch.ID, "lead", "architect", msg.ID
-		if _, err := s.CreateApproval(ctx, a); err != nil {
+		h.SpaceID, h.From, h.To, h.MessageID = ch.ID, "lead", "architect", msg.ID
+		if _, err := s.CreateHold(ctx, h); err != nil {
 			t.Fatal(err)
 		}
 	}
 
-	texts := func(as []Approval) []string {
+	texts := func(hs []Hold) []string {
 		var out []string
-		for _, a := range as {
-			out = append(out, a.Text)
+		for _, h := range hs {
+			out = append(out, h.Text)
 		}
 		return out
 	}
-	if as, err := s.PendingApprovals(ctx, ch.ID); err != nil || !reflect.DeepEqual(texts(as), []string{"gate"}) {
-		t.Errorf("PendingApprovals = %+v, %v, want only the gate", as, err)
-	}
-	if _, err := s.Approval(ctx, ch.ID, 1); !errors.Is(err, ErrNotFound) {
-		t.Errorf("Approval of a hold = %v, want ErrNotFound", err)
-	}
-	if as, err := s.ClaimHolds(ctx, ch.ID); err != nil || !reflect.DeepEqual(texts(as), []string{"first", "second"}) {
-		t.Errorf("ClaimHolds = %+v, %v, want first, second", as, err)
+	if hs, err := s.ClaimHolds(ctx, ch.ID); err != nil || !reflect.DeepEqual(texts(hs), []string{"first", "second"}) {
+		t.Errorf("ClaimHolds = %+v, %v, want first, second", hs, err)
 	}
 	if as, err := s.ClaimHolds(ctx, ch.ID); err != nil || len(as) != 0 {
 		t.Errorf("second ClaimHolds = %+v, %v, want none", as, err)
 	}
 
-	if _, err := s.CreateApproval(ctx, Approval{SpaceID: ch.ID, From: "lead", To: "architect",
-		MessageID: msg.ID, Text: "third", Kind: ApprovalHold}); err != nil {
+	if _, err := s.CreateHold(ctx, Hold{SpaceID: ch.ID, From: "lead", To: "architect",
+		MessageID: msg.ID, Text: "third"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.PauseSpace(ctx, ch.ID, "capped"); err != nil {

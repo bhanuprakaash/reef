@@ -7,32 +7,26 @@ import (
 	"time"
 )
 
-// _inboxItems selects the items of the first three kinds. A closed Space has none. A failed turn is listed when retry
+// _inboxItems selects paused and failed items. A closed Space has none. A failed turn is listed when retry
 // may run it again, so a retry, or a send that the role answered, clears it, and of several
 // failed turns only the newest shows; a turn the user stopped is not listed. A paused Space
 // is dated by its newest turn, which is what paused it. A turn that failed and paused its own
 // Space, such as the tool call cap, shows only as paused.
 const _inboxItems = `
-SELECT 'approval', a.space_id, c.work_item_id, a.from_role || ' wants to wake ' || a.to_role,
-	a.created_at, a.id, NULL, NULL
-FROM approval a JOIN space c ON c.id = a.space_id
-WHERE a.status = ? AND a.kind = ? AND c.closed_at IS NULL
-UNION ALL
 SELECT 'paused', c.id, c.work_item_id, c.paused,
 	COALESCE((SELECT ended_at FROM turn WHERE space_id = c.id ORDER BY id DESC LIMIT 1), c.created_at),
-	NULL, NULL, NULL
+	NULL, NULL
 FROM space c WHERE c.paused != '' AND c.closed_at IS NULL
 UNION ALL
-SELECT 'failed', t.space_id, c.work_item_id, t.role || ' failed: ' || t.error, t.ended_at, NULL, t.id, NULL
+SELECT 'failed', t.space_id, c.work_item_id, t.role || ' failed: ' || t.error, t.ended_at, t.id, NULL
 FROM turn t JOIN space c ON c.id = t.space_id
 WHERE ` + _retryable + ` AND t.error != '` + _interruptedError + `' AND c.paused = '' AND c.closed_at IS NULL`
 
 // _inboxWaiting selects the Spaces that run no turn and whose newest message is from an
-// agent and held no wake at a gate: a message that woke somebody, or whose wake the user
-// decided on, is not waiting. Nor is the reply a turn the user stopped kept, nor the message
-// the user dismissed.
+// agent and held no wake: a message whose wake is paused is not waiting. Nor is the reply a
+// turn the user stopped kept, nor the message the user dismissed.
 const _inboxWaiting = `
-SELECT 'waiting', c.id, c.work_item_id, substr(m.body, 1, 200), m.created_at, NULL, NULL, m.id
+SELECT 'waiting', c.id, c.work_item_id, substr(m.body, 1, 200), m.created_at, NULL, m.id
 FROM space c JOIN message m ON m.id = (SELECT MAX(id) FROM message WHERE space_id = c.id)
 WHERE c.closed_at IS NULL AND m.author NOT IN ('user', '` + ReefAuthor + `')
 	AND m.id IS NOT c.dismissed_message_id
@@ -41,8 +35,7 @@ WHERE c.closed_at IS NULL AND m.author NOT IN ('user', '` + ReefAuthor + `')
 	AND NOT EXISTS (SELECT 1 FROM turn WHERE id = (SELECT MAX(id) FROM turn WHERE space_id = c.id)
 		AND status = '` + _turnFailed + `' AND error = '` + _interruptedError + `')`
 
-// InboxItem is one thing waiting on the user. Kind is approval (a gate holds a wake;
-// ApprovalID), paused (a cap or a failure paused the Space; Text is the reason), failed (a
+// InboxItem is one thing waiting on the user. Kind is paused (a cap or a failure paused the Space; Text is the reason), failed (a
 // turn retry may run again that the user did not stop; TurnID) or waiting (the Space ended on a
 // message of an agent that woke nobody; Text starts that message, MessageID is its id).
 type InboxItem struct {
@@ -51,16 +44,15 @@ type InboxItem struct {
 	WorkItemID *int64    `json:"workItemId"`
 	Text       string    `json:"text"`
 	At         time.Time `json:"at"`
-	ApprovalID *int64    `json:"approvalId,omitempty"`
 	TurnID     *int64    `json:"turnId,omitempty"`
 	MessageID  *int64    `json:"messageId,omitempty"`
 }
 
 // Inbox lists the items waiting on the user in every Space, newest first. It is derived from
-// the rows of approvals, Spaces, turns and messages. A waiting item shows only for a
+// the rows of cap holds, Spaces, turns and messages. A waiting item shows only for a
 // Space with no other item.
 func (s *Store) Inbox(ctx context.Context) ([]InboxItem, error) {
-	rows, err := s.db.QueryContext(ctx, _inboxItems, ApprovalPending, ApprovalGate)
+	rows, err := s.db.QueryContext(ctx, _inboxItems)
 	if err != nil {
 		return nil, fmt.Errorf("list inbox: %w", err)
 	}
@@ -108,7 +100,7 @@ func (s *Store) DismissWaiting(ctx context.Context, spaceID, messageID int64) er
 func scanInboxItem(r interface{ Scan(...any) error }) (InboxItem, error) {
 	var i InboxItem
 	var at string
-	if err := r.Scan(&i.Kind, &i.SpaceID, &i.WorkItemID, &i.Text, &at, &i.ApprovalID, &i.TurnID, &i.MessageID); err != nil {
+	if err := r.Scan(&i.Kind, &i.SpaceID, &i.WorkItemID, &i.Text, &at, &i.TurnID, &i.MessageID); err != nil {
 		return InboxItem{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, at)

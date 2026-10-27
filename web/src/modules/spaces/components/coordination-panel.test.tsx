@@ -1,16 +1,14 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Approval, DirectMessage, Turn } from '@/types/api';
+import type { DirectMessage, Turn } from '@/types/api';
 import { groupChains } from '@/modules/spaces/utils/direct-chains';
 import { CoordinationPanel } from './coordination-panel';
 
-const { useDecideApproval, useContinueSpace, useRetryTurn } = vi.hoisted(() => ({
-  useDecideApproval: vi.fn(),
+const { useContinueSpace, useRetryTurn } = vi.hoisted(() => ({
   useContinueSpace: vi.fn(),
   useRetryTurn: vi.fn(),
 }));
 
-vi.mock('@/lib/api/decide-approval', () => ({ useDecideApproval }));
 vi.mock('@/lib/api/continue-space', () => ({ useContinueSpace }));
 vi.mock('@/lib/api/retry-turn', () => ({ useRetryTurn }));
 
@@ -38,7 +36,7 @@ const response: DirectMessage = {
   status: 'done',
   createdAt: '2026-10-18T10:07:00Z',
 };
-const none = { approvals: [], failedTurns: [], retryable: [], paused: false };
+const none = { failedTurns: [], retryable: [], paused: false };
 
 function render(
   messages: DirectMessage[],
@@ -62,7 +60,6 @@ function render(
 
 describe('CoordinationPanel', () => {
   beforeEach(() => {
-    useDecideApproval.mockReturnValue({ isPending: false, isError: false });
     useContinueSpace.mockReturnValue({ isPending: false, isError: false });
     useRetryTurn.mockReturnValue({ isPending: false, isError: false });
   });
@@ -88,21 +85,11 @@ describe('CoordinationPanel', () => {
     expect(unlinked).not.toContain('Open the message that started it');
   });
 
-  it('offers Approve and Reject while waiting approval', () => {
-    const markup = render([request], { approvals: [{ id: 9, directMessageId: 1 } as Approval] });
-
-    expect(markup).toContain('Approve');
-    expect(markup).toContain('Reject');
-    expect(markup).not.toContain('Continue');
-    expect(markup).not.toContain('Retry');
-  });
-
   it('offers Continue with the reason while paused', () => {
     const markup = render([request], { paused: true }, { paused: true });
 
     expect(markup).toContain('Paused: hop cap: 6 agent hops without a user message');
     expect(markup).toContain('Continue');
-    expect(markup).not.toContain('Approve');
   });
 
   it('offers Retry for a failed or stopped chain with a retryable turn', () => {
@@ -114,15 +101,6 @@ describe('CoordinationPanel', () => {
     expect(render([request, failed], retryable, { paused: true })).not.toContain('Retry');
     expect(render([request, failed], { failedTurns: turns })).not.toContain('Retry');
     expect(render([request, response])).not.toContain('Retry');
-  });
-
-  it('names a rejected chain and offers no action on it', () => {
-    const rejected: DirectMessage = { ...response, status: 'failed', body: 'rejected' };
-    const markup = render([request, rejected]);
-
-    expect(markup).toContain('</span>rejected</span>');
-    expect(markup).not.toContain('Retry');
-    expect(markup).not.toContain('Approve');
   });
 
   it('shows the text and tool rows of the running direct turn, and nothing without one', () => {

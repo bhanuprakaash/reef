@@ -106,18 +106,14 @@ describe('SpaceCard', () => {
 describe('spaceState', () => {
   const open = { closedAt: null, paused: '' };
 
-  it('picks the first of wrapped, paused, approval, failed, working, waiting, idle', () => {
-    expect(spaceState({ closedAt: 'x', paused: 'cap' }, ['lead'], ['approval'])).toEqual({
+  it('picks the first of wrapped, paused, failed, working, waiting, idle', () => {
+    expect(spaceState({ closedAt: 'x', paused: 'cap' }, ['lead'], ['waiting'])).toEqual({
       status: 'done',
       label: 'Wrapped',
     });
-    expect(spaceState({ closedAt: null, paused: 'token budget' }, ['lead'], ['approval'])).toEqual({
+    expect(spaceState({ closedAt: null, paused: 'token budget' }, ['lead'], ['waiting'])).toEqual({
       status: 'paused',
       label: 'Paused: token budget',
-    });
-    expect(spaceState(open, ['lead'], ['waiting', 'approval'])).toEqual({
-      status: 'needs-you',
-      label: 'Waiting for your approval',
     });
     expect(spaceState(open, ['lead'], ['waiting', 'failed'])).toEqual({
       status: 'failed',

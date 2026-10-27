@@ -25,7 +25,7 @@ const text = (markup: string) =>
 const render = (role: Role, working: boolean) =>
   renderToStaticMarkup(
     <MemoryRouter>
-      <MentionCard team="full" role={role} gates={2} working={working} />
+      <MentionCard team="full" role={role} working={working} />
     </MemoryRouter>,
   );
 
@@ -34,7 +34,7 @@ describe('MentionCard', () => {
     const markup = render(developer, true);
 
     expect(text(markup)).toBe(
-      'developer Claude Code · Sonnet Edit You are the developer. State Working Access Can write Tools 3 Gates 2',
+      'developer Claude Code · Sonnet Edit You are the developer. State Working Access Can write Tools 3',
     );
     expect(markup).toContain('href="/teams?team=full&amp;role=developer"');
   });
@@ -43,7 +43,7 @@ describe('MentionCard', () => {
     const markup = render({ ...developer, write: false, backend: 'codex', model: '' }, false);
 
     expect(text(markup)).toBe(
-      'developer Codex · default model Edit You are the developer. State Idle Access Read-only Gates 2',
+      'developer Codex · default model Edit You are the developer. State Idle Access Read-only',
     );
   });
 });

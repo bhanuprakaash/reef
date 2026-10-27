@@ -1,27 +1,5 @@
 {
   "name": "poteto",
-  "gates": [
-    {
-      "from": "lead",
-      "to": "developer",
-      "on": true
-    },
-    {
-      "from": "architect",
-      "to": "developer",
-      "on": true
-    },
-    {
-      "from": "developer",
-      "to": "tester",
-      "on": false
-    },
-    {
-      "from": "tester",
-      "to": "developer",
-      "on": false
-    }
-  ],
   "roles": [
     {
       "name": "lead",

@@ -1,22 +1,5 @@
 {
   "name": "small",
-  "gates": [
-    {
-      "from": "lead",
-      "to": "developer",
-      "on": false
-    },
-    {
-      "from": "developer",
-      "to": "tester",
-      "on": false
-    },
-    {
-      "from": "tester",
-      "to": "developer",
-      "on": false
-    }
-  ],
   "roles": [
     {
       "name": "lead",

@@ -56,7 +56,7 @@ func (s *server) inbox(ctx context.Context) ([]store.InboxItem, error) {
 	}
 	s.markRunning(running)
 	items = slices.DeleteFunc(items, func(i store.InboxItem) bool {
-		return i.Kind != "approval" && running[i.SpaceID]
+		return running[i.SpaceID]
 	})
 	if items == nil {
 		items = []store.InboxItem{}

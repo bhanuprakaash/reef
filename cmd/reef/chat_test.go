@@ -23,7 +23,7 @@ type fakeSession struct {
 	spaceID  int64
 	propose  bool
 	replaces []int64
-	gate     chan struct{}
+	barrier  chan struct{}
 	sent     chan struct{}
 	stored   []string
 	said     []string
@@ -46,8 +46,8 @@ func (f *fakeSession) Wrap(ctx context.Context, onEvent func(agent.Event)) (stor
 	if f.sent != nil {
 		f.sent <- struct{}{}
 	}
-	if f.gate != nil {
-		<-f.gate
+	if f.barrier != nil {
+		<-f.barrier
 	}
 	onEvent(agent.Event{Kind: agent.KindText, Text: "ok"})
 	if !f.propose {
@@ -281,7 +281,7 @@ func TestConverse_WrapCancelledAtPromptLeavesProposalPending(t *testing.T) {
 
 func TestConverse_WrapIgnoresTypedAheadLines(t *testing.T) {
 	st, ch := chatFixture(t)
-	w := &fakeSession{propose: true, gate: make(chan struct{}), sent: make(chan struct{}, 1)}
+	w := &fakeSession{propose: true, barrier: make(chan struct{}), sent: make(chan struct{}, 1)}
 	c := startChat(t, st, ch, w)
 
 	c.say(t, "/wrap")
@@ -290,7 +290,7 @@ func TestConverse_WrapIgnoresTypedAheadLines(t *testing.T) {
 	c.say(t, "")
 	c.say(t, "y")
 	c.waitQueued(t, 3)
-	close(w.gate)
+	close(w.barrier)
 	c.waitFor(t, "approve? [y/N] ")
 	out := c.end(t)
 

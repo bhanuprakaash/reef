@@ -2,7 +2,6 @@ import { Link } from 'react-router';
 import { Button, buttonClass } from '@/components/button';
 import { Creature } from '@/components/creature';
 import { useContinueSpace } from '@/lib/api/continue-space';
-import { useDecideApproval } from '@/lib/api/decide-approval';
 import { useRetryTurn } from '@/lib/api/retry-turn';
 import { useTeams } from '@/lib/api/get-teams';
 import { useDismissWaiting } from '@/modules/inbox/api/dismiss-waiting';
@@ -13,21 +12,19 @@ import { itemPath } from '@/utils/anchors';
 import { roleFaces } from '@/utils/role-faces';
 
 const kindColors: Record<InboxItem['kind'], string> = {
-  approval: 'text-paused',
   paused: 'text-failed',
   failed: 'text-failed',
   waiting: 'text-working',
 };
 
 export function InboxRow({ item, space }: { item: InboxItem; space?: Space }) {
-  const decide = useDecideApproval();
   const cont = useContinueSpace();
   const retry = useRetryTurn();
   const dismiss = useDismissWaiting();
   const teams = useTeams();
-  const pending = decide.isPending || cont.isPending || retry.isPending || dismiss.isPending;
-  const error = decide.error ?? cont.error ?? retry.error ?? dismiss.error;
-  const { spaceId, approvalId, turnId, messageId } = item;
+  const pending = cont.isPending || retry.isPending || dismiss.isPending;
+  const error = cont.error ?? retry.error ?? dismiss.error;
+  const { spaceId, turnId, messageId } = item;
 
   return (
     <li className="flex gap-4 rounded-card border border-line bg-card px-5 py-[18px]">
@@ -47,25 +44,6 @@ export function InboxRow({ item, space }: { item: InboxItem; space?: Space }) {
         </div>
         <div className="mt-1 whitespace-pre-wrap text-[15px]">{item.text}</div>
         <div className="mt-3.5 flex flex-wrap items-center gap-2">
-          {item.kind === 'approval' && approvalId !== undefined && (
-            <>
-              <Button
-                type="button"
-                variant="primary"
-                disabled={pending}
-                onClick={() => decide.mutate({ spaceId, id: approvalId, approve: true })}
-              >
-                Approve
-              </Button>
-              <Button
-                type="button"
-                disabled={pending}
-                onClick={() => decide.mutate({ spaceId, id: approvalId, approve: false })}
-              >
-                Reject
-              </Button>
-            </>
-          )}
           {item.kind === 'paused' && (
             <Button
               type="button"

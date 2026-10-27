@@ -94,30 +94,6 @@ func TestInbox_Empty(t *testing.T) {
 	}
 }
 
-func TestInbox_Approval(t *testing.T) {
-	e := newInboxEnv(t)
-	m := e.say(1, "lead", "@architect plan")
-	a := Approval{SpaceID: 1, From: "lead", To: "architect", MessageID: m.ID, Text: "plan"}
-	made, err := e.s.CreateApproval(e.ctx, a)
-	if err != nil {
-		t.Fatal(err)
-	}
-	a.Kind = ApprovalHold
-	if _, err := e.s.CreateApproval(e.ctx, a); err != nil {
-		t.Fatal(err)
-	}
-	e.want("approval 1 lead wants to wake architect")
-	items, _ := e.s.Inbox(e.ctx)
-	if items[0].ApprovalID == nil || *items[0].ApprovalID != made.ID || items[0].TurnID != nil {
-		t.Errorf("item = %+v, want approval id %d and no turn id", items[0], made.ID)
-	}
-
-	if err := e.s.DecideApproval(e.ctx, made.ID, ApprovalRejected); err != nil {
-		t.Fatal(err)
-	}
-	e.want()
-}
-
 func TestInbox_Paused(t *testing.T) {
 	e := newInboxEnv(t)
 	e.say(1, "user", "go")
@@ -140,8 +116,8 @@ func TestInbox_Failed(t *testing.T) {
 	first := e.turn(1, "lead", "build it", "failed")
 	e.want("failed 1 lead failed: boom")
 	items, _ := e.s.Inbox(e.ctx)
-	if items[0].TurnID == nil || *items[0].TurnID != first.ID || items[0].ApprovalID != nil {
-		t.Errorf("item = %+v, want turn id %d and no approval id", items[0], first.ID)
+	if items[0].TurnID == nil || *items[0].TurnID != first.ID {
+		t.Errorf("item = %+v, want turn id %d", items[0], first.ID)
 	}
 
 	e.turn(1, "lead", "build it again", "failed")
@@ -270,17 +246,4 @@ func TestInbox_DismissWaiting(t *testing.T) {
 	if err := e.s.DismissWaiting(e.ctx, 1, other.ID); !errors.Is(err, ErrNotFound) {
 		t.Errorf("DismissWaiting(message of another Space) = %v, want ErrNotFound", err)
 	}
-}
-
-func TestInbox_DismissLeavesApprovalsAlone(t *testing.T) {
-	e := newInboxEnv(t)
-	m := e.say(1, "lead", "@architect plan")
-	a := Approval{SpaceID: 1, From: "lead", To: "architect", MessageID: m.ID, Text: "plan"}
-	if _, err := e.s.CreateApproval(e.ctx, a); err != nil {
-		t.Fatal(err)
-	}
-	if err := e.s.DismissWaiting(e.ctx, 1, m.ID); err != nil {
-		t.Fatal(err)
-	}
-	e.want("approval 1 lead wants to wake architect")
 }

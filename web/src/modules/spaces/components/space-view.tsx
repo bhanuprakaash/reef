@@ -2,7 +2,6 @@ import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
 import { Dialog } from '@/components/dialog';
 import { ResizeHandle } from '@/components/resize-handle';
 import { useResizableWidth } from '@/lib/use-resizable-width';
-import { useApprovals } from '@/modules/spaces/api/get-approvals';
 import { useDirectMessages } from '@/modules/spaces/api/get-direct-messages';
 import { useAllFailedTurns, useFailedTurns } from '@/modules/spaces/api/get-failed-turns';
 import { useMessages } from '@/lib/api/get-messages';
@@ -10,7 +9,6 @@ import { useTeams } from '@/lib/api/get-teams';
 import { useReopenSpace } from '@/modules/spaces/api/reopen-space';
 import { useProposal } from '@/modules/spaces/api/get-proposal';
 import { useWrapSpace } from '@/modules/spaces/api/wrap-space';
-import { ApprovalRows } from '@/modules/spaces/components/approval-rows';
 import { SpaceHeader } from '@/modules/spaces/components/space-header';
 import { CheckpointRows } from '@/modules/spaces/components/checkpoint-rows';
 import { Composer } from '@/modules/spaces/components/composer';
@@ -69,7 +67,6 @@ export function SpaceView({
   onBrowserDriver,
 }: Props) {
   const messages = useMessages(space.id);
-  const approvals = useApprovals(space.id);
   const failedTurns = useFailedTurns(space.id);
   const allFailedTurns = useAllFailedTurns(space.id);
   const direct = useDirectMessages(space.id);
@@ -102,7 +99,6 @@ export function SpaceView({
     last?.author === 'user' ? last.id : undefined,
   );
   const chains = groupChains(direct.data ?? [], {
-    approvals: approvals.data ?? [],
     failedTurns: allFailedTurns.data ?? [],
     retryable: failedTurns.data ?? [],
     paused: space.paused !== '',
@@ -129,9 +125,7 @@ export function SpaceView({
     return () => window.removeEventListener('keydown', onKey);
   }, [teamOpen]);
 
-  useScrollToHash(
-    messages.isSuccess && ![messages, approvals, failedTurns].some((q) => q.isFetching),
-  );
+  useScrollToHash(messages.isSuccess && ![messages, failedTurns].some((q) => q.isFetching));
 
   const closeSide = () => setSide(null);
   const openSide = (next: Side) => {
@@ -214,7 +208,6 @@ export function SpaceView({
               />
               <CheckpointRows spaceId={space.id} running={running} />
               <DeniedToolRows space={space} roles={roles} running={running} />
-              <ApprovalRows spaceId={space.id} faces={faces} />
               <ProposalPanel spaceId={space.id} featureId={space.workItemId} faces={faces} />
             </div>
           </div>
@@ -366,7 +359,6 @@ export function SpaceView({
                 featureId={space.workItemId}
                 roles={roles}
                 working={running ? working : null}
-                waiting={approvals.data?.map((a) => a.to) ?? []}
                 brief={brief}
                 onClose={() => setTeamOpen(false)}
               />

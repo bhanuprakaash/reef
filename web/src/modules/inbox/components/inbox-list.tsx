@@ -12,7 +12,6 @@ type Filter = 'all' | InboxItem['kind'];
 
 const filters: { value: Filter; label: string }[] = [
   { value: 'all', label: 'All' },
-  { value: 'approval', label: 'Approvals' },
   { value: 'waiting', label: 'Waiting' },
   { value: 'paused', label: 'Paused' },
   { value: 'failed', label: 'Failed' },

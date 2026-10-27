@@ -33,12 +33,10 @@ func wakeSource(text string) *int64 {
 }
 
 // wake is a turn to run: role answers text, and its reply goes in the thread of parent.
-// from is the author of the message messageID that woke it; gated is set when the team
-// holds wakes from that author to role for approval.
+// from is the author of the message messageID that woke it.
 type wake struct {
 	from      string
 	messageID int64
-	gated     bool
 	role      string
 	text      string
 	parent    *int64
@@ -46,9 +44,8 @@ type wake struct {
 	// scopes are set on a wake routed from a message: text is what it was routed with, and the
 	// turn's own text is built from the unread messages of scopes when it starts.
 	scopes store.Scopes
-	// approval is the id of the approval a wake was released by, when it was.
-	approval int64
-	approved bool
+	// hold is the id of the cap hold a wake was released by, when it was.
+	hold int64
 }
 
 func (s *server) directWakes(
@@ -60,14 +57,6 @@ func (s *server) directWakes(
 	}
 	if len(msgs) > 0 {
 		after = msgs[len(msgs)-1].ID
-	}
-	ch, err := s.st.Space(ctx, spaceID)
-	if err != nil {
-		return nil, after, err
-	}
-	team, err := s.st.Team(ctx, ch.Team)
-	if err != nil {
-		return nil, after, err
 	}
 	ws := make([]wake, 0, len(msgs))
 	for i := range msgs {
@@ -84,9 +73,8 @@ func (s *server) directWakes(
 		}
 		text := fmt.Sprintf("[Space %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
 			spaceID, m.ID, m.ChainID, source, m.From, m.Body)
-		gated := team.Gated(m.From, m.To)
 		ws = append(ws, wake{
-			from: m.From, messageID: m.ID, gated: gated,
+			from: m.From, messageID: m.ID,
 			role: m.To, text: text, direct: &msgs[i],
 		})
 	}
@@ -164,16 +152,14 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 			header += "\n" + asked
 		}
 		for _, role := range woken {
-			gated := team.Gated(m.Author, role)
 			if i := slices.IndexFunc(ws, func(w wake) bool { return w.role == role }); i >= 0 {
 				ws[i].text += "\n\n" + header + "\n" + text
 				ws[i].scopes = addScope(ws[i].scopes, thread, asked)
-				ws[i].gated = ws[i].gated || gated
 				ws[i].messageID = m.ID
 				continue
 			}
 			ws = append(ws, wake{
-				from: m.Author, messageID: m.ID, gated: gated,
+				from: m.Author, messageID: m.ID,
 				role: role, text: header + "\n" + text, parent: m.ParentID,
 				scopes: addScope(nil, thread, asked),
 			})

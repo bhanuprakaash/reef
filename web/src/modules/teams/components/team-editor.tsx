@@ -1,15 +1,12 @@
 import { useState } from 'react';
 import { useUpdateTeam } from '@/modules/teams/api/update-team';
-import { AddGateRow } from '@/modules/teams/components/add-gate-row';
 import { AddRoleRow } from '@/modules/teams/components/add-role-row';
 import { RolePanel } from '@/modules/teams/components/role-panel';
-import { gateRows } from '@/modules/teams/utils/gates';
-import type { Gate, Provider, Role, Skills, Team } from '@/types/api';
+import type { Provider, Role, Skills, Team } from '@/types/api';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
 import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
 import { TextField } from '@/components/text-field';
-import { Toggle } from '@/components/toggle';
 
 const badge = 'inline-flex h-[30px] items-center rounded-pill border px-3 text-xs';
 
@@ -35,7 +32,6 @@ export function TeamEditor({
   const [loaded, setLoaded] = useState(team);
   const [roles, setRoles] = useState<Role[]>(team.roles);
   const [keys, setKeys] = useState(() => team.roles.map((_, i) => i));
-  const [gates, setGates] = useState<Gate[]>(team.gates ?? []);
   const [selected, setSelected] = useState<number | null>(() => {
     const i = team.roles.findIndex((r) => r.name === openRole);
     return i < 0 ? null : i;
@@ -45,19 +41,12 @@ export function TeamEditor({
   function load(t: Team) {
     setLoaded(t);
     setRoles(t.roles);
-    setGates(t.gates ?? []);
     setKeys(t.roles.map((_, i) => i));
   }
-  const unsaved =
-    JSON.stringify([roles, gates]) !== JSON.stringify([loaded.roles, loaded.gates ?? []]);
+  const unsaved = JSON.stringify(roles) !== JSON.stringify(loaded.roles);
   if (team !== loaded && !unsaved) load(team);
 
   const current = selected === null ? undefined : roles[selected];
-  const rows = gateRows(
-    roles.map((r) => r.name),
-    gates,
-  );
-
   function updateRole(i: number, role: Role) {
     setRoles(roles.map((r, idx) => (idx === i ? role : r)));
   }
@@ -66,13 +55,6 @@ export function TeamEditor({
     setKeys(keys.filter((_, idx) => idx !== i));
     setSelected(null);
   }
-  function updateGate(i: number, gate: Gate) {
-    setGates(gates.map((g, idx) => (idx === i ? gate : g)));
-  }
-  function removeGate(i: number) {
-    setGates(gates.filter((_, idx) => idx !== i));
-  }
-
   return (
     <>
       <div className="min-w-0 flex-1 basis-80 space-y-6">
@@ -94,7 +76,7 @@ export function TeamEditor({
               disabled={save.isPending}
               onClick={() =>
                 save.mutate(
-                  { name: team.name, team: { name: team.name, roles, gates } },
+                  { name: team.name, team: { name: team.name, roles } },
                   {
                     onSuccess: (saved) => {
                       load(saved);
@@ -150,50 +132,6 @@ export function TeamEditor({
               setKeys([...keys, Math.max(-1, ...keys) + 1]);
               setSelected(roles.length);
             }}
-          />
-        </section>
-
-        <section aria-label="Gates">
-          <h2 className="mb-1 text-[11px] uppercase tracking-[0.08em] text-muted">
-            Approval gates
-          </h2>
-          <p className="mb-3 text-[12.5px] text-muted">
-            Work waits for you before it passes between these roles.
-          </p>
-          {rows.map(({ gate, listed, isDefault }) => (
-            <div
-              key={`${gate.from}-${gate.to}`}
-              className="flex min-h-11 items-center gap-2 border-b border-hairline text-[13px] text-soft last:border-b-0"
-            >
-              <span className="min-w-0 flex-1 truncate">
-                {gate.from} → {gate.to}
-              </span>
-              <Toggle
-                label={`Gate ${gate.from} to ${gate.to}`}
-                checked={gate.on}
-                onChange={(on) =>
-                  listed >= 0
-                    ? updateGate(listed, { ...gate, on })
-                    : setGates([...gates, { ...gate, on }])
-                }
-              />
-              {!isDefault && (
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  type="button"
-                  aria-label={`Remove gate ${gate.from} to ${gate.to}`}
-                  onClick={() => removeGate(listed)}
-                >
-                  Remove
-                </Button>
-              )}
-            </div>
-          ))}
-          <AddGateRow
-            roles={roles.map((r) => r.name).filter(Boolean)}
-            gates={rows.map((r) => r.gate)}
-            onAdd={(gate) => setGates([...gates, gate])}
           />
         </section>
       </div>

@@ -28,7 +28,6 @@ export function useLiveTurn(spaceId: number): LiveTurn {
       void refresh();
       void queryClient.invalidateQueries({ queryKey: ['spaces', spaceId] });
       void queryClient.invalidateQueries({ queryKey: ['proposal', spaceId] });
-      void queryClient.invalidateQueries({ queryKey: ['approvals', spaceId] });
       void queryClient.invalidateQueries({ queryKey: ['direct-messages', spaceId] });
       void queryClient.invalidateQueries({ queryKey: ['turns'] });
     };
@@ -51,9 +50,6 @@ export function useLiveTurn(spaceId: number): LiveTurn {
     });
     source.addEventListener('name', () => {
       void queryClient.invalidateQueries({ queryKey: ['spaces'] });
-    });
-    source.addEventListener('approval', () => {
-      void queryClient.invalidateQueries({ queryKey: ['approvals', spaceId] });
     });
     source.addEventListener('direct', () => {
       void queryClient.invalidateQueries({ queryKey: ['direct-messages', spaceId] });

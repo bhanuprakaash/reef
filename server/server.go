@@ -122,7 +122,7 @@ func newHandler(
 }
 
 // notifyInbox tells the inbox streams after each request that may write: it can add, clear or
-// delete an item that no Space event reports, such as the rejection of an approval.
+// delete an item that no Space event reports, such as dismissing a waiting item.
 func (s *server) notifyInbox(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)

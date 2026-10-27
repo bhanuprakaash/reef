@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { Approval, DirectMessage, Turn } from '@/types/api';
+import type { DirectMessage, Turn } from '@/types/api';
 import { groupChains } from './direct-chains';
 
 const request: DirectMessage = {
@@ -24,9 +24,7 @@ const response: DirectMessage = {
   status: 'done',
 };
 const failed: DirectMessage = { ...response, status: 'failed', body: '' };
-const none = { approvals: [], failedTurns: [], retryable: [], paused: false };
-
-const approval = { id: 9, directMessageId: 1 } as Approval;
+const none = { failedTurns: [], retryable: [], paused: false };
 const turn = (error: string) => ({ id: 5, directMessageId: 1, error }) as Turn;
 
 describe('groupChains', () => {
@@ -44,12 +42,6 @@ describe('groupChains', () => {
     expect(groupChains([request], { ...none, running: 'tester' })[0].state).toBe('working');
     expect(groupChains([request], { ...none, running: 'developer' })[0].state).toBe('working');
     expect(groupChains([request], { ...none, running: 'lead' })[0].state).toBe('working');
-  });
-
-  it('is waiting approval when a pending approval holds a message of the chain', () => {
-    expect(groupChains([request], { ...none, approvals: [approval] })[0].state).toBe(
-      'waiting approval',
-    );
   });
 
   it('is paused when the Space is paused and nobody answered', () => {
@@ -73,8 +65,7 @@ describe('groupChains', () => {
     expect(groupChains(messages, { ...ctx, running: 'lead' })[0].state).toBe('failed');
   });
 
-  it('is rejected or stopped by the body of the failed response of a wake that never ran', () => {
-    expect(groupChains([request, { ...failed, body: 'rejected' }], none)[0].state).toBe('rejected');
+  it('is stopped by the body of the failed response of a wake that never ran', () => {
     expect(groupChains([request, { ...failed, body: 'stopped' }], none)[0].state).toBe('stopped');
   });
 
@@ -112,15 +103,13 @@ describe('groupChains', () => {
     expect(groupChains([request, lead, sourced], none).map((c) => c.id)).toEqual([1, 3, 4]);
   });
 
-  it('keeps the approval and the retryable turn for the panel actions', () => {
-    const [waiting] = groupChains([request], { ...none, approvals: [approval] });
+  it('keeps the retryable turn for the panel actions', () => {
     const [broken] = groupChains([request, failed], {
       ...none,
       failedTurns: [turn('boom')],
       retryable: [turn('boom')],
     });
 
-    expect(waiting.approval?.id).toBe(9);
     expect(broken.retryTurn?.id).toBe(5);
   });
 

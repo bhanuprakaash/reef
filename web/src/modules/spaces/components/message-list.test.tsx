@@ -32,7 +32,6 @@ const direct: DirectMessage = {
 
 function render(direct: DirectMessage[]) {
   const chains = groupChains(direct, {
-    approvals: [],
     failedTurns: [],
     retryable: [],
     paused: false,

@@ -157,24 +157,9 @@ export type SkillInfo = { name: string; description: string };
 
 export type Skills = { claude: SkillInfo[]; codex: SkillInfo[] };
 
-export type Gate = { from: string; to: string; on: boolean };
-
 export type Team = {
   name: string;
   roles: Role[];
-  gates?: Gate[];
-};
-
-export type Approval = {
-  id: number;
-  spaceId: number;
-  from: string;
-  to: string;
-  messageId: number;
-  directMessageId?: number;
-  text: string;
-  status: string;
-  createdAt: string;
 };
 
 export type DirectMessage = {
@@ -191,12 +176,11 @@ export type DirectMessage = {
 };
 
 export type InboxItem = {
-  kind: 'approval' | 'paused' | 'failed' | 'waiting';
+  kind: 'paused' | 'failed' | 'waiting';
   spaceId: number;
   workItemId: number | null;
   text: string;
   at: string;
-  approvalId?: number;
   turnId?: number;
   messageId?: number;
 };

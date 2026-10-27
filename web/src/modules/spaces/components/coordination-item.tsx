@@ -9,7 +9,7 @@ type Props = {
   onOpen: () => void;
 };
 
-const live: ChainState[] = ['working', 'waiting approval', 'paused'];
+const live: ChainState[] = ['working', 'paused'];
 
 export function CoordinationItem({ chain, faces, open, onOpen }: Props) {
   const { from, to } = chain.messages[0];

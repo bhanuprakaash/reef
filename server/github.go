@@ -480,9 +480,8 @@ func (s *server) noteWorkItem(ctx context.Context, workItemID int64, body string
 // to a 409. A Space with a turn running, or paused, cannot take the wake now; that is logged
 // once and retried on a later poll, once the Space is idle. The wake runs as a new chain of
 // its own, the way a retried turn does (decision 39), attributed to store.ReefAuthor rather
-// than the user: no gate applies, since no role sent it, but it counts as a hop like any
-// agent-originated wake, so a loop of failing checks still pauses at the hop cap instead of
-// resetting it every time.
+// than the user. It counts as a hop like any agent-originated wake, so a loop of failing checks
+// still pauses at the hop cap instead of resetting it every time.
 func (s *server) wakeDeveloper(
 	ctx context.Context, f store.WorkItem, pr ghPR, checks []ghCheck, ghPath, dir string,
 ) error {

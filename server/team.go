@@ -15,9 +15,8 @@ import (
 // teamView is a team as REST shows it. A role's MCP servers show only a name and a label:
 // their args, env and url may carry keys.
 type teamView struct {
-	Name  string       `json:"name"`
-	Roles []roleView   `json:"roles"`
-	Gates []store.Gate `json:"gates,omitempty"`
+	Name  string     `json:"name"`
+	Roles []roleView `json:"roles"`
 }
 
 type roleView struct {
@@ -50,9 +49,8 @@ type putRole struct {
 }
 
 type putBody struct {
-	Name  string       `json:"name"`
-	Roles []putRole    `json:"roles"`
-	Gates []store.Gate `json:"gates,omitempty"`
+	Name  string    `json:"name"`
+	Roles []putRole `json:"roles"`
 }
 
 func (s *server) teamRoutes(mux *http.ServeMux) {
@@ -103,7 +101,7 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	t := store.Team{Name: body.Name, Roles: make([]store.Role, len(body.Roles)), Gates: body.Gates}
+	t := store.Team{Name: body.Name, Roles: make([]store.Role, len(body.Roles))}
 	for i, pr := range body.Roles {
 		t.Roles[i] = pr.Role
 	}
@@ -214,7 +212,7 @@ func viewTeam(t store.Team) teamView {
 	for i, r := range t.Roles {
 		roles[i] = viewRole(r)
 	}
-	return teamView{Name: t.Name, Roles: roles, Gates: t.Gates}
+	return teamView{Name: t.Name, Roles: roles}
 }
 
 func viewRole(r store.Role) roleView {

@@ -70,16 +70,14 @@ func (s *stream) wantInbox(t *testing.T, want ...string) {
 	}
 }
 
-// gatedTeam makes the lead post a wake for the architect when it runs "go", across a gate that
-// is on, and the architect post a plan when it runs. It returns the team Space's id.
-func (e *liveEnv) gatedTeam(t *testing.T, wake string) int {
+// handoffTeam makes the lead hand work to the architect, who posts a plan.
+func (e *liveEnv) handoffTeam(t *testing.T, wake string) int {
 	t.Helper()
 	id, post := e.teamSpace(t)
 	roles := []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
 	}
-	_, err := e.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: roles,
-		Gates: []store.Gate{{From: "lead", To: "architect", On: true}}})
+	_, err := e.st.ApplyTeam(context.Background(), store.Team{Name: "core", Roles: roles})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,16 +95,10 @@ func (e *liveEnv) gatedTeam(t *testing.T, wake string) int {
 func TestInbox_ListsEachKindAndSurvivesRestart(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id := env.gatedTeam(t, "@architect plan it")
+	_ = env.handoffTeam(t, "@architect plan it")
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"capped","team":"core"}`)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"asked","team":"core"}`)
 	env.failedTurn(t, "lead", "build it", nil)
-	sub := subscribeTo(t, env.url, id)
-	env.sendTo(t, id, "go")
-	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
-		`agent {"kind":"text","text":"hi"}`)
-	sub.next(t)
-	sub.want(t, `turn {"role":"lead","status":"done"}`)
 	if err := env.st.PauseSpace(ctx, 3, _pauseReason); err != nil {
 		t.Fatal(err)
 	}
@@ -116,12 +108,12 @@ func TestInbox_ListsEachKindAndSurvivesRestart(t *testing.T) {
 	}
 
 	want := []string{
-		"waiting 4 which database?", "approval 2 lead wants to wake architect",
+		"waiting 4 which database?",
 		"failed 1 lead failed: server restarted", "paused 3 " + _pauseReason,
 	}
 	env.wantInbox(t, want...)
 	_, body := do(t, http.MethodGet, env.url+"/inbox", "")
-	for _, field := range []string{`"approvalId":1`, `"turnId":1`, `"workItemId":null`} {
+	for _, field := range []string{`"turnId":1`, `"workItemId":null`} {
 		if !strings.Contains(body, field) {
 			t.Errorf("inbox = %s, want %s", body, field)
 		}
@@ -131,28 +123,18 @@ func TestInbox_ListsEachKindAndSurvivesRestart(t *testing.T) {
 	env.wantInbox(t, want...)
 }
 
-func TestInbox_ApproveClearsAndRuns(t *testing.T) {
+func TestInbox_HandoffRunsWithoutUserAction(t *testing.T) {
 	env := newLiveEnv(t)
-	id := env.gatedTeam(t, "@architect plan it")
-	sub := subscribeTo(t, env.url, id)
+	id := env.handoffTeam(t, "@architect plan it")
+	_ = subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "go")
-	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
-		`agent {"kind":"text","text":"hi"}`)
-	sub.next(t)
-	sub.want(t, `turn {"role":"lead","status":"done"}`)
-	env.wantInbox(t, "approval 2 lead wants to wake architect")
-
-	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/approvals/1", env.url, id),
-		`{"approve":true}`); status != 204 {
-		t.Fatalf("approve = %d, want 204", status)
-	}
-	for range 4 {
-		sub.next(t)
+	for end := time.Now().Add(5 * time.Second); len(env.ranTexts()) < 2 && time.Now().Before(end); {
+		time.Sleep(5 * time.Millisecond)
 	}
 	if got := env.ranTexts(); !slices.Equal(got, []string{
 		"[Space 2, message 1]\ngo", "[Space 2, message 2]\nlead wrote: @architect plan it",
 	}) {
-		t.Errorf("ran = %q, want the architect to run the held wake", got)
+		t.Errorf("ran = %q, want lead then architect without user action", got)
 	}
 	env.wantInbox(t, "waiting 2 the plan")
 }
@@ -240,33 +222,6 @@ func TestInbox_DismissWaiting(t *testing.T) {
 	env.wantInbox(t)
 }
 
-func TestInboxEvents_AcrossSpaces(t *testing.T) {
-	env := newLiveEnv(t)
-	id := env.gatedTeam(t, "@architect block")
-	inbox := subscribePath(t, env.url+"/inbox/events")
-	inbox.wantInbox(t)
-	lead := subscribe(t, env.url)
-
-	reason := env.overBudget(t)
-	lead.want(t, _idleFrame, `pause {"reason":"`+reason+`"}`)
-	inbox.wantInbox(t, "paused 1 "+reason)
-	env.sendTo(t, id, "go")
-	inbox.wantInbox(t, "approval 2 lead wants to wake architect", "paused 1 "+reason)
-
-	do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/approvals/1", env.url, id), `{"approve":true}`)
-	<-env.fake.started
-	inbox.wantInbox(t, "paused 1 "+reason)
-	env.fake.release <- struct{}{}
-	inbox.wantInbox(t, "waiting 2 the plan", "paused 1 "+reason)
-
-	env.sendTo(t, id, "thanks")
-	inbox.wantInbox(t, "paused 1 "+reason)
-	if status, _ := do(t, http.MethodPost, env.url+"/spaces/1/continue", ""); status != 204 {
-		t.Fatalf("continue = %d, want 204", status)
-	}
-	inbox.wantInbox(t)
-}
-
 func TestInboxEvents_PausedOnlyOnceIdle(t *testing.T) {
 	env := newLiveEnv(t)
 	inbox := subscribePath(t, env.url+"/inbox/events")
@@ -279,35 +234,6 @@ func TestInboxEvents_PausedOnlyOnceIdle(t *testing.T) {
 			t.Fatalf("continue on the first paused frame = %d, want 204", status)
 		}
 		inbox.wantInbox(t)
-	}
-}
-
-func TestInboxEvents_RejectAndDeleteSendFrames(t *testing.T) {
-	tests := []struct {
-		name   string
-		method string
-		path   string
-		body   string
-	}{
-		{"reject", http.MethodPost, "/spaces/2/approvals/1", `{"approve":false}`},
-		{"delete", http.MethodDelete, "/spaces/2", ""},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			env := newLiveEnv(t)
-			id := env.gatedTeam(t, "@architect plan it")
-			sub := subscribeTo(t, env.url, id)
-			env.sendTo(t, id, "go")
-			sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`,
-				`agent {"kind":"text","text":"hi"}`)
-			sub.next(t)
-			sub.want(t, `turn {"role":"lead","status":"done"}`)
-			inbox := subscribePath(t, env.url+"/inbox/events")
-			inbox.wantInbox(t, "approval 2 lead wants to wake architect")
-
-			do(t, tt.method, env.url+tt.path, tt.body)
-			inbox.wantInbox(t)
-		})
 	}
 }
 

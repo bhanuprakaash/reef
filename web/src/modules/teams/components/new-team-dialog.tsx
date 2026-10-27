@@ -30,7 +30,7 @@ function NewTeamForm({ teams, from: initial, onClose, onCreated }: Omit<Props, '
       onSubmit={(e) => {
         e.preventDefault();
         if (!source) return;
-        const team = { name: name.trim(), roles: source.roles, gates: source.gates };
+        const team = { name: name.trim(), roles: source.roles };
         create.mutate(
           { name: team.name, team, from: source.name },
           { onSuccess: (saved) => onCreated(saved.name) },
@@ -57,9 +57,7 @@ function NewTeamForm({ teams, from: initial, onClose, onCreated }: Omit<Props, '
           options={teams.map((t) => ({ value: t.name, label: t.name }))}
         />
       </label>
-      <p className="text-[12.5px] text-muted">
-        Copies the roles and gates of {from}. Edit them after.
-      </p>
+      <p className="text-[12.5px] text-muted">Copies the roles of {from}. Edit them after.</p>
       {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
       <div className="flex justify-end gap-2">
         <Button type="button" onClick={onClose}>

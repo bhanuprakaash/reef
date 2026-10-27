@@ -3,7 +3,6 @@ import { Link } from 'react-router';
 import { useTeams } from '@/lib/api/get-teams';
 import { useRunningTurns } from '@/modules/spaces/api/get-turns';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
-import { gateRows } from '@/modules/teams/utils/gates';
 import type { Role } from '@/types/api';
 import { Creature } from '@/components/creature';
 import { MentionCards } from '@/components/markdown';
@@ -19,12 +18,10 @@ function modelLabel(role: Role) {
 export function MentionCard({
   team,
   role,
-  gates,
   working,
 }: {
   team: string;
   role: Role;
-  gates: number;
   working: boolean;
 }) {
   const persona = role.persona.split('\n')[0];
@@ -66,8 +63,6 @@ export function MentionCard({
             <dd>{role.tools.length}</dd>
           </>
         )}
-        <dt className="text-muted">Gates</dt>
-        <dd>{gates}</dd>
       </dl>
     </div>
   );
@@ -90,11 +85,7 @@ export function MentionCardsProvider({
   function card(name: string) {
     const role = found?.roles.find((r) => r.name === name);
     if (!found || !role) return null;
-    const gates = gateRows(
-      found.roles.map((r) => r.name),
-      found.gates ?? [],
-    ).filter(({ gate }) => gate.on && (gate.from === name || gate.to === name)).length;
-    return <MentionCard team={team} role={role} gates={gates} working={working.includes(name)} />;
+    return <MentionCard team={team} role={role} working={working.includes(name)} />;
   }
 
   return <MentionCards.Provider value={card}>{children}</MentionCards.Provider>;

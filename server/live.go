@@ -10,7 +10,6 @@ import (
 	"maps"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -168,10 +167,6 @@ func (s *server) liveRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/spaces/{id}/stop", methodNotAllowed)
 	mux.HandleFunc("POST /spaces/{id}/continue", s.continueSpace)
 	mux.HandleFunc("/spaces/{id}/continue", methodNotAllowed)
-	mux.HandleFunc("GET /spaces/{id}/approvals", s.listApprovals)
-	mux.HandleFunc("/spaces/{id}/approvals", methodNotAllowed)
-	mux.HandleFunc("POST /spaces/{id}/approvals/{aid}", s.decideApproval)
-	mux.HandleFunc("/spaces/{id}/approvals/{aid}", methodNotAllowed)
 }
 
 // subscribe returns the Space's entry, creating it, and counts a subscriber on it. The
@@ -521,33 +516,11 @@ func (s *server) checkSpace(
 	return ch.Role, err
 }
 
-// gate returns the wakes of ws that may run, and holds the others as pending approvals. When
-// an approval cannot be stored it returns the wakes not held so far, and the error.
-func (s *server) gate(ctx context.Context, id int64, l *live, ws []wake) ([]wake, error) {
-	var open []wake
-	for i, w := range ws {
-		if !w.gated {
-			open = append(open, w)
-			continue
-		}
-		a, err := s.st.CreateApproval(ctx, approvalForWake(w, id, w.text))
-		if err != nil {
-			return append(open, ws[i:]...), fmt.Errorf("hold wake for %s: %w", w.role, err)
-		}
-		l.mu.Lock()
-		l.publishLocked("approval", a)
-		l.mu.Unlock()
-	}
-	return open, nil
-}
-
 // hold stores ws as the holds of a pause on Space id. When one cannot be stored it returns
 // the wakes not stored so far, and the error.
 func (s *server) hold(ctx context.Context, id int64, ws []wake) ([]wake, error) {
 	for i, w := range ws {
-		a := approvalForWake(w, id, w.text)
-		a.Kind = store.ApprovalHold
-		_, err := s.st.CreateApproval(ctx, a)
+		_, err := s.st.CreateHold(ctx, holdForWake(w, id, w.text))
 		if err != nil {
 			return ws[i:], fmt.Errorf("hold wake for %s: %w", w.role, err)
 		}
@@ -555,36 +528,51 @@ func (s *server) hold(ctx context.Context, id int64, ws []wake) ([]wake, error) 
 	return nil, nil
 }
 
-// approvalForWake maps a wake to the approval row that holds it. A direct wake stores the
+// holdForWake maps a wake to the row that holds it. A direct wake stores the
 // direct message id instead of a public message id, so the two are never confused.
-func approvalForWake(w wake, spaceID int64, text string) store.Approval {
-	a := store.Approval{
+func holdForWake(w wake, spaceID int64, text string) store.Hold {
+	h := store.Hold{
 		SpaceID: spaceID, From: w.from, To: w.role, MessageID: w.messageID,
 		Text: text, Parent: w.parent, Scopes: w.scopes,
 	}
 	if w.direct != nil {
-		a.MessageID = 0
+		h.MessageID = 0
 		idv := w.direct.ID
-		a.DirectMessageID = &idv
+		h.DirectMessageID = &idv
 	}
-	return a
+	return h
 }
 
-func (s *server) wakeOf(ctx context.Context, a store.Approval) (wake, error) {
+func (s *server) wakeOf(ctx context.Context, h store.Hold) (wake, error) {
 	w := wake{
-		from: a.From, messageID: a.MessageID, role: a.To, text: a.Text, parent: a.Parent,
-		approval: a.ID, scopes: a.Scopes,
+		from: h.From, messageID: h.MessageID, role: h.To, text: h.Text, parent: h.Parent,
+		hold: h.ID, scopes: h.Scopes,
 	}
-	if a.DirectMessageID != nil {
-		dm, err := s.st.DirectMessage(ctx, *a.DirectMessageID)
+	if h.DirectMessageID != nil {
+		dm, err := s.st.DirectMessage(ctx, *h.DirectMessageID)
 		if err != nil {
-			return wake{}, fmt.Errorf("load direct message %d: %w", *a.DirectMessageID, err)
+			return wake{}, fmt.Errorf("load direct message %d: %w", *h.DirectMessageID, err)
 		}
 		dmCopy := dm
 		w.direct = &dmCopy
 		w.messageID = dm.ID
 	}
 	return w, nil
+}
+
+// failDirect gives a held request that will not run a failed response, so the message list
+// tells it from a delivery that failed.
+func (s *server) failDirect(ctx context.Context, spaceID int64, h store.Hold, body string) {
+	ctx = context.WithoutCancel(ctx)
+	dm, err := s.st.DirectMessage(ctx, *h.DirectMessageID)
+	if err == nil && dm.ReplyToID == nil {
+		err = recordFailedDirect(ctx, s.st, dm.ID, h.To, body)
+	}
+	if err != nil {
+		log.Printf("%s direct message %d: %v", body, *h.DirectMessageID, err)
+		return
+	}
+	s.notify(spaceID, "direct")
 }
 
 // capLocked pauses the Space because the hop cap held a wake, and returns the error of
@@ -628,16 +616,16 @@ func (s *server) continueSpace(w http.ResponseWriter, r *http.Request) {
 	l.hops = 0
 	l.mu.Unlock()
 	held, err := s.retryHeld(r.Context(), id, l)
-	var holds []store.Approval
+	var holds []store.Hold
 	if err == nil {
 		holds, err = s.st.ClaimHolds(r.Context(), id)
 	}
 	var wakeErr error
-	for _, a := range holds {
-		w, err := s.wakeOf(r.Context(), a)
+	for _, h := range holds {
+		w, err := s.wakeOf(r.Context(), h)
 		if err != nil {
 			wakeErr = err
-			if rerr := s.st.ReopenApproval(context.WithoutCancel(r.Context()), a.ID); rerr != nil {
+			if rerr := s.st.ReopenHold(context.WithoutCancel(r.Context()), h.ID); rerr != nil {
 				wakeErr = errors.Join(wakeErr, rerr)
 			}
 			break
@@ -645,8 +633,8 @@ func (s *server) continueSpace(w http.ResponseWriter, r *http.Request) {
 		held = append(held, w)
 	}
 	if wakeErr != nil {
-		for _, ha := range holds {
-			if rerr := s.st.ReopenApproval(context.WithoutCancel(r.Context()), ha.ID); rerr != nil {
+		for _, h := range holds {
+			if rerr := s.st.ReopenHold(context.WithoutCancel(r.Context()), h.ID); rerr != nil {
 				wakeErr = errors.Join(wakeErr, rerr)
 			}
 		}
@@ -671,8 +659,8 @@ func (s *server) continueSpace(w http.ResponseWriter, r *http.Request) {
 		err = c.resume(r.Context(), ch, held)
 	}
 	if err != nil {
-		for _, a := range holds {
-			if rerr := s.st.ReopenApproval(context.WithoutCancel(r.Context()), a.ID); rerr != nil {
+		for _, h := range holds {
+			if rerr := s.st.ReopenHold(context.WithoutCancel(r.Context()), h.ID); rerr != nil {
 				err = errors.Join(err, rerr)
 			}
 		}
@@ -682,8 +670,8 @@ func (s *server) continueSpace(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// retryHeld does the routing read that failed, if any, and gates the held wakes again. It
-// returns the wakes to run. After an error the Space keeps what it could not do.
+// retryHeld does the routing read that failed, if any, and returns the wakes to run. After
+// an error the Space keeps what it could not do.
 func (s *server) retryHeld(ctx context.Context, id int64, l *live) ([]wake, error) {
 	l.mu.Lock()
 	held, again := slices.Clone(l.held), l.retry
@@ -700,120 +688,10 @@ func (s *server) retryHeld(ctx context.Context, id int64, l *live) ([]wake, erro
 		held = append(held, ws...)
 		held = append(held, direct...)
 	}
-	held, err := s.gate(ctx, id, l, held)
 	l.mu.Lock()
 	l.held, l.retry, l.shed = held, nil, nil
 	l.mu.Unlock()
-	return held, err
-}
-
-func (s *server) listApprovals(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	as, err := s.st.PendingApprovals(r.Context(), id)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	if as == nil {
-		as = []store.Approval{}
-	}
-	writeJSON(w, http.StatusOK, as)
-}
-
-// decideApproval runs the held wake of a pending approval as a new chain, or drops it.
-func (s *server) decideApproval(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	aid, err := strconv.ParseInt(r.PathValue("aid"), 10, 64)
-	if err != nil {
-		writeError(w, fmt.Errorf("%w: id %q is not a number", store.ErrInvalid, r.PathValue("aid")))
-		return
-	}
-	var in struct {
-		Approve *bool `json:"approve"`
-	}
-	if err := readJSON(r, &in); err != nil {
-		writeError(w, err)
-		return
-	}
-	if in.Approve == nil {
-		writeError(w, fmt.Errorf("%w: approve is required", store.ErrInvalid))
-		return
-	}
-	a, err := s.st.Approval(r.Context(), id, aid)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	if a.Status != store.ApprovalPending {
-		writeError(w, fmt.Errorf("approval %d is %s: %w", aid, a.Status, store.ErrConflict))
-		return
-	}
-	a.Status = store.ApprovalRejected
-	if *in.Approve {
-		a.Status = store.ApprovalApproved
-	}
-	if err := s.st.DecideApproval(r.Context(), aid, a.Status); err != nil {
-		writeError(w, err)
-		return
-	}
-	if !*in.Approve && a.DirectMessageID != nil {
-		s.failDirect(r.Context(), id, a, "rejected")
-	}
-	if *in.Approve {
-		ctx := context.WithoutCancel(r.Context())
-		wk, err := s.wakeOf(r.Context(), a)
-		wk.approved = true
-		if err != nil {
-			if rerr := s.st.ReopenApproval(ctx, aid); rerr != nil {
-				err = errors.Join(err, rerr)
-			}
-			writeError(w, err)
-			return
-		}
-		if l := s.lookup(id); l == nil || !l.queue(wk) {
-			c, ch, err := s.claim(ctx, id, _message)
-			if err == nil {
-				err = c.resume(ctx, ch, []wake{wk})
-			}
-			if err != nil {
-				if rerr := s.st.ReopenApproval(ctx, aid); rerr != nil {
-					err = errors.Join(err, rerr)
-				}
-				writeError(w, err)
-				return
-			}
-		}
-	}
-	if l := s.lookup(id); l != nil {
-		l.mu.Lock()
-		l.publishLocked("approval", a)
-		l.mu.Unlock()
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-// failDirect gives the request held by a direct approval that will not run a failed response
-// with body ("rejected" or "dropped"), so the message list tells it from a delivery that
-// completed.
-func (s *server) failDirect(ctx context.Context, spaceID int64, a store.Approval, body string) {
-	ctx = context.WithoutCancel(ctx)
-	dm, err := s.st.DirectMessage(ctx, *a.DirectMessageID)
-	if err == nil && dm.ReplyToID == nil {
-		err = recordFailedDirect(ctx, s.st, dm.ID, a.To, body)
-	}
-	if err != nil {
-		log.Printf("%s direct message %d: %v", body, *a.DirectMessageID, err)
-		return
-	}
-	s.notify(spaceID, "direct")
+	return held, nil
 }
 
 // failSent gives every request role sent after direct message after, during the turn that
@@ -1060,10 +938,10 @@ func (c *chain) release(err error) error {
 	stopped := c.ctx.Err() != nil
 	c.cancel()
 	var directFailed []directFail
-	var approvals []int64
+	var holds []int64
 	if c.l != nil {
 		c.l.mu.Lock()
-		directFailed, approvals = c.shedLocked(nil, stopped)
+		directFailed, holds = c.shedLocked(nil, stopped)
 		// Only the chain that still owns the live state may retire it. An older chain
 		// whose teardown ran late must not clear a newer chain's starting/running state.
 		mine := c.gen == c.l.activeGen
@@ -1072,7 +950,7 @@ func (c *chain) release(err error) error {
 			c.l.activeGen = 0
 		}
 		c.l.mu.Unlock()
-		c.finalize(mine, directFailed, approvals)
+		c.finalize(mine, directFailed, holds)
 		close(c.done)
 		close(c.ready)
 		c.s.dropIdle(c.id, c.l, false)
@@ -1084,9 +962,9 @@ func (c *chain) release(err error) error {
 }
 
 // finalize performs the store work of ending a chain outside the Space lock: failed
-// direct responses for the wakes it did not run, reopened approvals, and clearing the
+// direct responses for the wakes it did not run, reopened holds, and clearing the
 // active-turn hint when this chain still owns the live state.
-func (c *chain) finalize(mine bool, directFailed []directFail, approvals []int64) {
+func (c *chain) finalize(mine bool, directFailed []directFail, holds []int64) {
 	for _, f := range directFailed {
 		if err := recordFailedDirect(context.WithoutCancel(c.ctx), c.s.st, f.id, f.role, f.body); err != nil {
 			log.Printf("direct response for %d: %v", f.id, err)
@@ -1095,24 +973,10 @@ func (c *chain) finalize(mine bool, directFailed []directFail, approvals []int64
 	if len(directFailed) > 0 {
 		c.s.notify(c.id, "direct")
 	}
-	for _, aid := range approvals {
-		ctx := context.WithoutCancel(c.ctx)
-		err := c.s.st.ReopenApproval(ctx, aid)
-		var a store.Approval
-		if err == nil {
-			a, err = c.s.st.Approval(ctx, c.id, aid)
+	for _, id := range holds {
+		if err := c.s.st.ReopenHold(context.WithoutCancel(c.ctx), id); err != nil {
+			log.Printf("reopen hold %d of Space %d: %v", id, c.id, err)
 		}
-		if errors.Is(err, store.ErrNotFound) {
-			// A hold that continue claimed is not a gate approval: no event.
-			continue
-		}
-		if err != nil {
-			log.Printf("reopen approval %d of Space %d: %v", aid, c.id, err)
-			continue
-		}
-		c.l.mu.Lock()
-		c.l.publishLocked("approval", a)
-		c.l.mu.Unlock()
 	}
 	if mine && c.ownsActiveTurn {
 		c.ownsActiveTurn = false
@@ -1123,19 +987,19 @@ func (c *chain) finalize(mine bool, directFailed []directFail, approvals []int64
 }
 
 // shedLocked restores the state of the wakes a chain ends without running, including the
-// wake of the leftover queue: an approved wake goes back to pending, a direct wake records a
+// wake of the leftover queue: a claimed hold goes back to pending, a direct wake records a
 // failed response so its sender sees that delivery did not complete (body "stopped" when
 // the chain was stopped), and a public wake is kept as held. It returns the deferred store
 // work for the caller to perform outside the Space lock.
-func (c *chain) shedLocked(left []wake, stopped bool) (directFailed []directFail, approvals []int64) {
+func (c *chain) shedLocked(left []wake, stopped bool) (directFailed []directFail, holds []int64) {
 	body := ""
 	if stopped {
 		body = "stopped"
 	}
 	kept := len(c.l.held)
 	for _, w := range c.l.queued {
-		if w.approval != 0 {
-			approvals = append(approvals, w.approval)
+		if w.hold != 0 {
+			holds = append(holds, w.hold)
 			continue
 		}
 		if w.direct != nil {
@@ -1146,8 +1010,8 @@ func (c *chain) shedLocked(left []wake, stopped bool) (directFailed []directFail
 	}
 	c.l.queued = nil
 	for _, w := range left {
-		if w.approval != 0 {
-			approvals = append(approvals, w.approval)
+		if w.hold != 0 {
+			holds = append(holds, w.hold)
 			continue
 		}
 		if w.direct != nil {
@@ -1221,7 +1085,7 @@ func (c *chain) start(
 	l := c.l
 	l.mu.Lock()
 	err = nil
-	var dropped []store.Approval
+	var dropped []store.Hold
 	if c.unpause {
 		if dropped, err = c.s.st.PendingHolds(ctx, c.id); err == nil {
 			err = c.s.st.ContinueSpace(ctx, c.id, c.budget)
@@ -1246,9 +1110,9 @@ func (c *chain) start(
 	l.publishLocked("turn", turnState{
 		Role: queue[0].role, Status: "running", Direct: queue[0].direct != nil})
 	l.mu.Unlock()
-	for _, a := range dropped {
-		if a.DirectMessageID != nil {
-			c.s.failDirect(ctx, c.id, a, "dropped")
+	for _, h := range dropped {
+		if h.DirectMessageID != nil {
+			c.s.failDirect(ctx, c.id, h, "dropped")
 		}
 	}
 	close(c.ready)
@@ -1285,7 +1149,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 	// the chain dies outside a turn (failed or stopped turn), and nil when a stall or cap
 	// error already moved the queue to the Space's held ones.
 	finish := func(remaining []wake) {
-		directFailed, approvals := c.shedLocked(remaining, c.ctx.Err() != nil)
+		directFailed, holds := c.shedLocked(remaining, c.ctx.Err() != nil)
 		mine := c.gen == l.activeGen
 		if mine {
 			// Only the chain that still owns the live state may retire it; an older
@@ -1295,7 +1159,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 			l.activeGen = 0
 		}
 		l.mu.Unlock()
-		c.finalize(mine, directFailed, approvals)
+		c.finalize(mine, directFailed, holds)
 		close(c.done)
 	}
 	for {
@@ -1320,12 +1184,9 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 				} else {
 					ws = append(ws, direct...)
 					afterDirect = directLast
+					queue = append(queue, ws...)
 				}
-				var open []wake
-				if stall == nil {
-					open, stall = s.gate(c.ctx, c.id, l, ws)
-				}
-				queue, after = append(queue, open...), last
+				after = last
 			}
 		}
 		l.mu.Lock()
@@ -1407,7 +1268,7 @@ func (l *live) awaitStart(ctx context.Context) error {
 	}
 }
 
-// queue adds w, an approved wake, to the wakes the starting or running chain runs next. It
+// queue adds w to the wakes the starting or running chain runs next. It
 // reports false, adding nothing, when no chain is starting or running.
 func (l *live) queue(w wake) bool {
 	l.mu.Lock()
@@ -1420,10 +1281,9 @@ func (l *live) queue(w wake) bool {
 }
 
 // countHop counts w as a hop when a message from an agent woke it, and reports whether w
-// may run: a wake over the cap may not. A message from the user, or a wake the user
-// approved, resets the count.
+// may run: a wake over the cap may not. A message from the user resets the count.
 func (l *live) countHop(w wake) bool {
-	if w.from == _userAuthor || w.approved {
+	if w.from == _userAuthor {
 		l.hops = 0
 		return true
 	}

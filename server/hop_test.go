@@ -136,21 +136,19 @@ func TestCountHop(t *testing.T) {
 		name     string
 		giveHops int
 		giveFrom string
-		approved bool
 		want     bool
 		wantHops int
 	}{
-		{"user wake resets", 3, "user", false, true, 0},
-		{"user wake resets at the cap", 6, "user", false, true, 0},
-		{"first agent wake", 0, "lead", false, true, 1},
-		{"sixth agent wake", 5, "architect", false, true, 6},
-		{"seventh agent wake is over", 6, "lead", false, false, 6},
-		{"approved wake resets at the cap", 6, "lead", true, true, 0},
+		{"user wake resets", 3, "user", true, 0},
+		{"user wake resets at the cap", 6, "user", true, 0},
+		{"first agent wake", 0, "lead", true, 1},
+		{"sixth agent wake", 5, "architect", true, 6},
+		{"seventh agent wake is over", 6, "lead", false, 6},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			l := &live{hops: tt.giveHops}
-			if got := l.countHop(wake{from: tt.giveFrom, approved: tt.approved}); got != tt.want || l.hops != tt.wantHops {
+			if got := l.countHop(wake{from: tt.giveFrom}); got != tt.want || l.hops != tt.wantHops {
 				t.Errorf("countHop = %v with hops %d, want %v with hops %d",
 					got, l.hops, tt.want, tt.wantHops)
 			}

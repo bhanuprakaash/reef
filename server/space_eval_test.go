@@ -448,10 +448,6 @@ func newEval(t *testing.T, backend string) *evalEnv {
 			{Name: "developer", Backend: backend},
 			{Name: "tester", Backend: backend},
 		},
-		Gates: []store.Gate{
-			{From: "lead", To: "developer"}, {From: "developer", To: "tester"},
-			{From: "tester", To: "developer"},
-		},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -480,10 +476,6 @@ func runEval(t *testing.T, backend string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	approvals, err := e.store().PendingApprovals(ctx, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
 	lost := "the tester's wake for the lead's message to @developer @tester was lost"
 	for _, tn := range turns {
 		if tn.Role == "tester" && strings.Contains(tn.WakeText, "[c6.1]") {
@@ -494,8 +486,8 @@ func runEval(t *testing.T, backend string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range append(approvals, holds...) {
-		if a.To == "tester" {
+	for _, h := range holds {
+		if h.To == "tester" {
 			lost = ""
 		}
 	}

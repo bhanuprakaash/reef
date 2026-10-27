@@ -11,17 +11,17 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// gateAgent holds its turn in Send until the test opens the gate of its name, which is the
+// blockingAgent holds its turn in Send until the test opens the block of its name, which is the
 // Space's name and the role: "a/developer".
-type gateAgent struct {
+type blockingAgent struct {
 	*recordingAgent
 	space   string
-	gates   map[string]chan struct{}
+	blocks  map[string]chan struct{}
 	started chan<- string
 	name    string
 }
 
-func (a *gateAgent) Start(ctx context.Context, cfg agent.Config) error {
+func (a *blockingAgent) Start(ctx context.Context, cfg agent.Config) error {
 	a.name = a.space + "/tester"
 	if slices.Contains(cfg.Tools, "Task") {
 		a.name = a.space + "/developer"
@@ -29,10 +29,10 @@ func (a *gateAgent) Start(ctx context.Context, cfg agent.Config) error {
 	return a.recordingAgent.Start(ctx, cfg)
 }
 
-func (a *gateAgent) Send(ctx context.Context, prompt string) error {
+func (a *blockingAgent) Send(ctx context.Context, prompt string) error {
 	a.started <- a.name
 	select {
-	case <-a.gates[a.name]:
+	case <-a.blocks[a.name]:
 	case <-ctx.Done():
 		return ctx.Err()
 	}
@@ -43,7 +43,7 @@ type treeRig struct {
 	st      *store.Store
 	dir     string
 	trees   *Trees
-	gates   map[string]chan struct{}
+	blocks  map[string]chan struct{}
 	started chan string
 	errs    chan error
 }
@@ -60,7 +60,7 @@ func newTreeRig(t *testing.T, st *store.Store) *treeRig {
 	return &treeRig{
 		st: st, dir: t.TempDir(), trees: NewTrees(t.TempDir()), errs: make(chan error, 8),
 		started: make(chan string, 8),
-		gates: map[string]chan struct{}{
+		blocks: map[string]chan struct{}{
 			"a/developer": make(chan struct{}), "a/tester": make(chan struct{}),
 			"b/developer": make(chan struct{}), "b/tester": make(chan struct{}),
 			"c/developer": make(chan struct{}),
@@ -78,8 +78,8 @@ func (r *treeRig) session(t *testing.T, name string, f store.WorkItem) *Session 
 		t.Fatal(err)
 	}
 	mk := func(string) (agent.Agent, error) {
-		return &gateAgent{
-			recordingAgent: newRecordingAgent(), space: name, gates: r.gates, started: r.started,
+		return &blockingAgent{
+			recordingAgent: newRecordingAgent(), space: name, blocks: r.blocks, started: r.started,
 		}, nil
 	}
 	s, err := Open(context.Background(), r.st, testMemory(t, r.st), r.dir, "/bin/reef", ch.ID, r.trees, mk)
@@ -117,7 +117,7 @@ func (r *treeRig) wantNoStart(t *testing.T, why string) {
 
 func (r *treeRig) finish(t *testing.T, name string) {
 	t.Helper()
-	close(r.gates[name])
+	close(r.blocks[name])
 	select {
 	case err := <-r.errs:
 		if err != nil {

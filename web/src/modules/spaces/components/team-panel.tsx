@@ -10,7 +10,6 @@ type Props = {
   featureId: number | null;
   roles: Role[];
   working: string | null;
-  waiting: string[];
   brief?: string;
   onClose: () => void;
 };
@@ -25,12 +24,11 @@ const stateLabel: Record<CreatureState, string> = {
   failed: 'failed',
 };
 
-export function TeamPanel({ spaceId, featureId, roles, working, waiting, brief, onClose }: Props) {
+export function TeamPanel({ spaceId, featureId, roles, working, brief, onClose }: Props) {
   const inspector = useInspector(spaceId, true);
 
   function stateOf(role: Role): CreatureState {
     if (role.name === working) return 'working';
-    if (waiting.includes(role.name)) return 'needs-you';
     return role.lead ? 'idle' : 'asleep';
   }
 

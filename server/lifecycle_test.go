@@ -397,7 +397,7 @@ func TestStop_AfterPrepareTheTurnStillRuns(t *testing.T) {
 
 func TestStop_DuringTurnCheck(t *testing.T) {
 	env := newLiveEnv(t)
-	ctx := &gateCtx{Context: context.Background()}
+	ctx := &hookCtx{Context: context.Background()}
 	ctx.hook = func() {
 		l := env.h.s.lookup(1)
 		if l == nil {

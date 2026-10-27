@@ -224,14 +224,14 @@ func (r runnerSession) Promote(ctx context.Context, onEvent func(agent.Event)) (
 	return store.Proposal{}, r.run.Run(ctx, space.PromoteCommand, nil, onEvent)
 }
 
-// gateCtx calls hook on its first Done call, which the store makes as a query starts.
-type gateCtx struct {
+// hookCtx calls hook on its first Done call, which the store makes as a query starts.
+type hookCtx struct {
 	context.Context
 	once sync.Once
 	hook func()
 }
 
-func (c *gateCtx) Done() <-chan struct{} {
+func (c *hookCtx) Done() <-chan struct{} {
 	c.once.Do(c.hook)
 	return c.Context.Done()
 }
@@ -1562,40 +1562,6 @@ func TestLive_EntryOnlyForATurn(t *testing.T) {
 	}
 }
 
-func TestSend_RoutingFailurePausesAndContinueRoutes(t *testing.T) {
-	ctx := context.Background()
-	env := newLiveEnv(t)
-	id, post := env.teamSpace(t)
-	env.fake.onRun = func(role, _ string, _ *int64) {
-		if role == "lead" {
-			post("lead", "@architect plan it", nil)
-			env.exec(t, "ALTER TABLE gate RENAME TO gate_gone")
-		}
-	}
-	sub := subscribeTo(t, env.url, id)
-
-	env.sendTo(t, id, "go")
-	const reason = "route messages: read gates of team core: SQL logic error: no such table: gate (1)"
-	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
-		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
-	if ch, err := env.st.Space(ctx, int64(id)); err != nil || ch.Paused != reason {
-		t.Errorf("space = %+v, %v, want paused with %q", ch, err, reason)
-	}
-
-	env.exec(t, "ALTER TABLE gate_gone RENAME TO gate")
-	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
-		t.Fatalf("continue = %d, want 204", status)
-	}
-	sub.want(t, `pause {"reason":""}`)
-	sub.wantTurns(t, "architect")
-	if got := env.ranTexts(); !slices.Equal(got, []string{
-		"[Space 2, message 1]\ngo",
-		"[Space 2, message 2]\nlead wrote: @architect plan it",
-	}) {
-		t.Errorf("ran = %q, want the architect to run the message the failed read left", got)
-	}
-}
-
 func TestSend_DirectReadFailurePausesAndContinueRunsPublicWake(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
@@ -1705,76 +1671,5 @@ func TestSend_DirectReadFailureKeepsDirectRequestForContinue(t *testing.T) {
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want the architect to run the direct request the failed read left", got)
-	}
-}
-
-func TestRestart_RoutingFailureIsRedoneAndHeld(t *testing.T) {
-	ctx := context.Background()
-	env := newLiveEnv(t)
-	id, post := env.teamSpace(t)
-	env.fake.onRun = func(role, _ string, _ *int64) {
-		if role == "lead" {
-			post("lead", "@architect plan it", nil)
-			env.exec(t, "ALTER TABLE gate RENAME TO gate_gone")
-		}
-	}
-	sub := subscribeTo(t, env.url, id)
-	env.sendTo(t, id, "go")
-	const reason = "route messages: read gates of team core: SQL logic error: no such table: gate (1)"
-	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
-		`turn {"role":"lead","status":"done"}`, `pause {"reason":"`+reason+`"}`)
-
-	env.exec(t, "ALTER TABLE gate_gone RENAME TO gate")
-	env.restart(t)
-	holds, err := env.st.PendingHolds(ctx, int64(id))
-	if err != nil || len(holds) != 1 || holds[0].To != "architect" ||
-		holds[0].Text != "[Space 2, message 2]\nlead wrote: @architect plan it" {
-		t.Fatalf("holds = %+v, %v, want the architect's wake for the lead's message", holds, err)
-	}
-	if ch, err := env.st.Space(ctx, int64(id)); err != nil || ch.Paused != reason {
-		t.Errorf("space = %+v, %v, want still paused with %q", ch, err, reason)
-	}
-
-	sub = subscribeTo(t, env.url, id)
-	sub.want(t, _idleFrame, `pause {"reason":"`+reason+`"}`)
-	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
-		t.Fatalf("continue = %d, want 204", status)
-	}
-	sub.want(t, `pause {"reason":""}`)
-	sub.wantTurns(t, "architect")
-	if got := env.ranTexts(); !slices.Equal(got, []string{
-		"[Space 2, message 1]\ngo",
-		"[Space 2, message 2]\nlead wrote: @architect plan it",
-	}) {
-		t.Errorf("ran = %q, want the architect to run the message the failed read left", got)
-	}
-}
-
-func TestRestart_RoutingFailingAgainIsRecorded(t *testing.T) {
-	ctx := context.Background()
-	env := newLiveEnv(t)
-	id, post := env.teamSpace(t)
-	env.fake.onRun = func(role, _ string, _ *int64) {
-		if role == "lead" {
-			post("lead", "@architect plan it", nil)
-			env.exec(t, "ALTER TABLE gate RENAME TO gate_gone")
-		}
-	}
-	sub := subscribeTo(t, env.url, id)
-	env.sendTo(t, id, "go")
-	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"hi"}`,
-		`turn {"role":"lead","status":"done"}`,
-		`pause {"reason":"route messages: read gates of team core: SQL logic error: no such table: gate (1)"}`)
-
-	env.restart(t)
-	msgs, err := env.st.Messages(ctx, int64(id), 0)
-	if err != nil || len(msgs) != 3 {
-		t.Fatalf("messages = %+v, %v, want 3", msgs, err)
-	}
-	const want = "The app stopped before the last messages of lead were routed: route messages: read gates " +
-		"of team core: SQL logic error: no such table: gate (1). " +
-		"Anyone they asked was not woken; send a message to ask again."
-	if msgs[2].Author != "reef" || msgs[2].Body != want {
-		t.Errorf("last message = %+v, want from reef: %q", msgs[2], want)
 	}
 }

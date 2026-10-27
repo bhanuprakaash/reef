@@ -12,9 +12,6 @@ export function spaceState(
 ): { status: Status; label: string } {
   if (space.closedAt !== null) return { status: 'done', label: 'Wrapped' };
   if (space.paused !== '') return { status: 'paused', label: `Paused: ${space.paused}` };
-  if (waiting.includes('approval')) {
-    return { status: 'needs-you', label: 'Waiting for your approval' };
-  }
   if (waiting.includes('failed')) return { status: 'failed', label: 'A turn failed' };
   if (working.length > 0) return { status: 'working', label: 'Working' };
   if (waiting.includes('waiting')) return { status: 'needs-you', label: 'Waiting for you' };

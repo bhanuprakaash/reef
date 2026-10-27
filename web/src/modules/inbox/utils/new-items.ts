@@ -1,14 +1,13 @@
 import type { InboxItem } from '@/types/api';
 
 export const kindLabels: Record<InboxItem['kind'], string> = {
-  approval: 'Approval',
   paused: 'Paused',
   failed: 'Failed',
   waiting: 'Waiting',
 };
 
 export function itemKey(i: InboxItem): string {
-  return [i.kind, i.spaceId, i.approvalId, i.turnId, i.at].join(':');
+  return [i.kind, i.spaceId, i.turnId, i.at].join(':');
 }
 
 export function newItems(before: InboxItem[], after: InboxItem[]): InboxItem[] {

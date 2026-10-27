@@ -354,7 +354,7 @@ func (s *Store) ContinueSpace(ctx context.Context, id, budget int64) error {
 	}
 	if _, err := tx.ExecContext(ctx,
 		"UPDATE approval SET status = ? WHERE space_id = ? AND status = ? AND kind = ?",
-		ApprovalRejected, id, ApprovalPending, ApprovalHold); err != nil {
+		HoldDropped, id, HoldPending, _holdKind); err != nil {
 		return fmt.Errorf("drop holds: %w", err)
 	}
 	return tx.Commit()

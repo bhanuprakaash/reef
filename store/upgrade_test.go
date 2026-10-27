@@ -34,8 +34,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 42 {
-		t.Errorf("user_version = %d, want 42", version)
+	if version != 43 {
+		t.Errorf("user_version = %d, want 43", version)
 	}
 
 	at := time.Date(2026, time.January, 2, 3, 4, 5, 123456789, time.UTC)
@@ -64,7 +64,6 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 }
 
 func TestOpen_UpgradesVersion8Database(t *testing.T) {
-	ctx := context.Background()
 	dir := t.TempDir()
 	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "reef.db"))
 	if err != nil {
@@ -110,15 +109,24 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 42 {
-		t.Errorf("user_version = %d, want 42", version)
+	if version != 43 {
+		t.Errorf("user_version = %d, want 43", version)
 	}
-	as, err := s.PendingApprovals(ctx, 1)
-	if err != nil {
+	var approvals int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM approval").Scan(&approvals); err != nil {
 		t.Fatal(err)
 	}
-	if len(as) != 1 || as[0].Kind != ApprovalGate || as[0].Text != "plan it" {
-		t.Errorf("approvals = %+v, want the one approval with kind gate", as)
+	if approvals != 0 {
+		t.Errorf("approval rows = %d, want old rows removed", approvals)
+	}
+	var tables int
+	if err := s.db.QueryRow(
+		"SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'gate'",
+	).Scan(&tables); err != nil {
+		t.Fatal(err)
+	}
+	if tables != 0 {
+		t.Errorf("gate tables = %d, want none", tables)
 	}
 }
 
