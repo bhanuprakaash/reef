@@ -3,7 +3,10 @@ package server
 import (
 	"context"
 	"net/http"
+	"os"
+	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -127,6 +130,32 @@ func TestDeleteSpaceInReviewIsRefused(t *testing.T) {
 	}
 	if status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"done"}`); status != 200 {
 		t.Errorf("Done after the refused delete = %d %s, want 200", status, body)
+	}
+}
+
+func TestProofScreenshotsServeOnlyImagesUnderTheDataFolder(t *testing.T) {
+	env := newLiveEnv(t)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
+	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
+	env.waitIdle(t, 2)
+	inside := filepath.Join(env.dir, "shot.png")
+	notes := filepath.Join(env.dir, "notes.txt")
+	outside := filepath.Join(t.TempDir(), "secret.png")
+	for _, p := range []string{inside, notes, outside} {
+		if err := os.WriteFile(p, []byte("data"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	proof := store.Proof{SpaceID: 2, Screenshots: []string{inside, notes, outside}}
+	if _, err := env.st.SubmitForReview(context.Background(), 1, nil, proof); err != nil {
+		t.Fatal(err)
+	}
+
+	for n, want := range []int{200, 404, 404, 404} {
+		url := env.url + "/work-items/1/proof/screenshots/" + strconv.Itoa(n)
+		if status, body := do(t, http.MethodGet, url, ""); status != want {
+			t.Errorf("screenshot %d = %d %s, want %d", n, status, body, want)
+		}
 	}
 }
 

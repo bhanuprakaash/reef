@@ -4,11 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
 	"os"
 	"path/filepath"
 	"slices"
 	"strconv"
+	"strings"
 
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/space"
@@ -43,6 +45,8 @@ func (s *server) workItemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/work-items/{id}/diff", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}/proof", s.getWorkItemProof)
 	mux.HandleFunc("/work-items/{id}/proof", methodNotAllowed)
+	mux.HandleFunc("GET /work-items/{id}/proof/screenshots/{n}", s.getProofScreenshot)
+	mux.HandleFunc("/work-items/{id}/proof/screenshots/{n}", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}/pr", s.getWorkItemPR)
 	mux.HandleFunc("/work-items/{id}/pr", methodNotAllowed)
 	mux.HandleFunc("POST /work-items/{id}/pr/merge", s.mergeWorkItemPR)
@@ -493,6 +497,35 @@ func (s *server) getWorkItemProof(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, p)
+}
+
+// getProofScreenshot serves screenshot n (from 0) of the work item's proof. Only an image file
+// under the data folder is served, whatever path the lead submitted.
+func (s *server) getProofScreenshot(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	p, err := s.st.Proof(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	n, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil || n < 0 || n >= len(p.Screenshots) {
+		writeError(w, fmt.Errorf("screenshot %s of work item %d: %w", r.PathValue("n"), id, store.ErrNotFound))
+		return
+	}
+	path := p.Screenshots[n]
+	rel, err := filepath.Rel(s.dataDir, path)
+	if err != nil || !filepath.IsAbs(path) || !filepath.IsLocal(rel) ||
+		!strings.HasPrefix(mime.TypeByExtension(filepath.Ext(path)), "image/") {
+		writeError(w, fmt.Errorf("screenshot %s of work item %d is not an image under the data folder: %w",
+			r.PathValue("n"), id, store.ErrNotFound))
+		return
+	}
+	http.ServeFile(w, r, path)
 }
 
 func (s *server) getBrief(w http.ResponseWriter, r *http.Request) {

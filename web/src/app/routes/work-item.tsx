@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { WorkItemTerminal } from '@/app/work-item-terminal';
+import { ProofPanel } from '@/app/proof-panel';
 import { ReviewPanel } from '@/app/review-panel';
 import { useTerminal } from '@/app/use-terminal';
 import { SpaceList } from '@/modules/spaces/components/space-list';
@@ -17,7 +18,6 @@ import { AcceptanceLines } from '@/modules/work-items/components/acceptance-line
 import { BriefPanel } from '@/modules/work-items/components/brief-panel';
 import { MemoryList } from '@/modules/work-items/components/memory-list';
 import { WorkItemForm } from '@/modules/work-items/components/work-item-form';
-import { ProofPanel } from '@/modules/work-items/components/proof-panel';
 import { SubItems } from '@/modules/work-items/components/sub-items';
 import { diffCounts } from '@/modules/work-items/utils/diff-counts';
 import { statusLabel } from '@/modules/work-items/utils/status-label';

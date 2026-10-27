@@ -1883,6 +1883,24 @@ async function pr() {
   );
   await main.getByRole('button', { name: 'PR #12 merged' }).waitFor({ timeout: 15000 });
   check(true, 'the header chip follows to merged', sql(`select body from message where space_id = ${cid} and author = 'reef' order by id desc limit 1`));
+
+  const shotFile = path.join(data, 'shot-pr.png');
+  writeFileSync(shotFile, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64'));
+  sql(`insert into proof (work_item_id, space_id, commands, screenshots, submitted_at) values (${featureId}, ${cid}, '[]', '["${shotFile}"]', '2026-10-27T10:00:00Z')`, true);
+  sql(`update work_item set status='review' where id=${featureId}`, true);
+  await page.goto(`${base}/work-items/${featureId}`);
+  const proofCard = main.getByRole('region', { name: 'Proof' });
+  const prLink = proofCard.getByRole('link', { name: '#12 Add the login page' });
+  await prLink.waitFor({ timeout: 15000 });
+  const proofImg = proofCard.getByRole('img', { name: 'Screenshot 1' });
+  await proofImg.waitFor();
+  await shot('review-proof');
+  check(
+    (await prLink.getAttribute('href')) === 'https://github.com/x/y/pull/12' && (await proofCard.innerText()).includes('Merged') &&
+      (await proofImg.evaluate((el) => el.complete && el.naturalWidth > 0)),
+    'the Proof card of an item in review shows the PR state and link and the screenshot as an image',
+    (await proofCard.innerText()).replace(/\s+/g, ' '),
+  );
 }
 
 // Teammates' direct messages show as one compact item in the Space, never as bubbles. The
@@ -3725,7 +3743,7 @@ async function workItem() {
   const proofText = (await proofCard.innerText()).replace(/\s+/g, ' ');
   const proof = await getJson(`/work-items/${id}/proof`);
   check(
-    proofText.includes('$ make test') && proofText.includes('ok: 12 passed') && proofText.includes('/data/shot-login.png') && proofText.includes(`Space ${space.id}`) && proof.commands[0].command === 'make test',
+    proofText.includes('$ make test') && proofText.includes('ok: 12 passed') && (await proofCard.getByRole('img', { name: 'Screenshot 1' }).count()) === 1 && proofText.includes(`Space ${space.id}`) && proof.commands[0].command === 'make test',
     'the proof section shows the submitted commands, output and screenshots read-only',
     proofText,
   );
@@ -3855,8 +3873,21 @@ async function workItemReview() {
   );
   await shot('sub-item-review-1280x800');
 
+  const bare = await call('POST', '/work-items', { projectId: pid, title: 'Review without proof', status: 'review' });
+  await page.goto(`${base}/work-items/${bare.id}`);
+  const bareReview = main.getByRole('region', { name: 'Review', exact: true });
+  await bareReview.getByText('No proof submitted.').waitFor();
+  await shot('no-proof-1280x800');
+  check(
+    (await bareReview.getByRole('button', { name: 'Send back' }).count()) === 1 && (await bareReview.getByRole('button', { name: 'Done', exact: true }).count()) === 1,
+    'an item in review with no proof shows Done and Send back',
+  );
+  await bareReview.getByRole('button', { name: 'Done', exact: true }).click();
+  await eventually(async () => (await getJson(`/work-items/${bare.id}`)).status === 'done');
+  check((await getJson(`/work-items/${bare.id}`)).status === 'done', 'Done on an item with no proof sets it done');
+
   await page.setViewportSize({ width: 390, height: 844 });
-  const rev = await call('POST', '/work-items', { projectId: pid, title: 'Review on a phone', teamId: solo.id, acceptanceLines: [{ text: 'Wrong password is refused' }, { text: 'Session lasts a day' }] });
+  const rev =await call('POST', '/work-items', { projectId: pid, title: 'Review on a phone', teamId: solo.id, acceptanceLines: [{ text: 'Wrong password is refused' }, { text: 'Session lasts a day' }] });
   await call('PATCH', `/work-items/${rev.id}`, { status: 'queued' });
   await eventually(async () => (await getJson(`/spaces?workItem=${rev.id}`))[0] !== undefined);
   const rsid = (await getJson(`/spaces?workItem=${rev.id}`))[0].id;
