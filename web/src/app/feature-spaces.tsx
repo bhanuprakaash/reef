@@ -8,8 +8,10 @@ import { Hovercard } from '@/components/hovercard';
 import { Row } from '@/components/row';
 import { StatusDot } from '@/components/status-dot';
 import { spacesQuery } from '@/lib/api/get-spaces';
+import { useTeammates } from '@/lib/api/get-teammates';
 import { useTeams } from '@/lib/api/get-teams';
 import { useRunningTurns } from '@/modules/spaces/api/get-turns';
+import { NewConversationForm } from '@/modules/spaces/components/new-conversation-form';
 import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
 import { useFeatures } from '@/modules/features/api/get-features';
 import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
@@ -112,6 +114,7 @@ export function FeatureSpaces({ project, query }: { project: Project; query: str
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const [addingFeature, setAddingFeature] = useState(false);
+  const [addingConversation, setAddingConversation] = useState(false);
   const [spaceFeature, setSpaceFeature] = useState<WorkItem | null>(null);
   const [collapsed, setCollapsed] = useState(storedCollapsed);
   const [wrappedOpen, setWrappedOpen] = useState<number[]>([]);
@@ -134,6 +137,7 @@ export function FeatureSpaces({ project, query }: { project: Project; query: str
   const features = useFeatures();
   const spaces = useQuery({ ...spacesQuery, refetchInterval: 5000 });
   const teams = useTeams();
+  const teammates = useTeammates();
   const inbox = useInbox();
   const running = useRunningTurns();
 
@@ -153,12 +157,22 @@ export function FeatureSpaces({ project, query }: { project: Project; query: str
     .filter((g) => matches(g.feature.title) || g.spaces.length > 0);
   const openGroups = groups.filter((g) => g.feature.closedAt === null);
   const closedGroups = groups.filter((g) => g.feature.closedAt !== null);
-  const quick = projectSpaces.filter((c) => c.workItemId === null && matches(c.name));
+  const quick = projectSpaces.filter((c) => c.kind === 'free' && matches(c.name));
+  const conversations = projectSpaces
+    .filter((c) => c.kind === 'conversation' && matches(c.name))
+    .sort((a, b) =>
+      (b.lastMessage?.createdAt ?? b.createdAt).localeCompare(
+        a.lastMessage?.createdAt ?? a.createdAt,
+      ),
+    );
 
   const working = new Map((running.data ?? []).map((t) => [t.spaceId, t.role]));
 
   function spaceRow(c: SpacePreview, named: string) {
-    const faces = roleFaces(teams.data, c.team);
+    const faces =
+      c.kind === 'conversation'
+        ? { [c.role]: teammates.data?.find((t) => t.name === c.role)?.face }
+        : roleFaces(teams.data, c.team);
     const roles = Object.keys(faces);
     const role = working.get(c.id);
     const feature = features.data?.find((f) => f.id === c.workItemId);
@@ -281,6 +295,18 @@ export function FeatureSpaces({ project, query }: { project: Project; query: str
       </div>
       {groups.length === 0 && <p className="px-2.5 pb-1 text-[13px] text-faint">No features yet</p>}
       <ul className="flex flex-col gap-0.5">{openGroups.map(featureGroup)}</ul>
+      <div className="group/h flex items-center gap-2 pt-3.5 pr-1 pb-1 pl-2.5">
+        <h4 className="text-xs text-muted">Conversations</h4>
+        <AddButton label="New conversation" onClick={() => setAddingConversation(true)} />
+      </div>
+      {conversations.length === 0 && (
+        <p className="px-2.5 pb-1 text-[13px] text-faint">No conversations yet</p>
+      )}
+      <ul className="flex flex-col gap-0.5">
+        {conversations.map((c) => (
+          <li key={c.id}>{spaceRow(c, c.name)}</li>
+        ))}
+      </ul>
       {quick.length > 0 && (
         <>
           <h4 className="px-2.5 pt-3.5 pb-1 text-xs text-muted">Quick sessions</h4>
@@ -308,6 +334,18 @@ export function FeatureSpaces({ project, query }: { project: Project; query: str
             projectId={project.id}
             onClose={() => setAddingFeature(false)}
             onCreated={(f) => void navigate(`/features/${f.id}`)}
+          />
+        )}
+      </Dialog>
+      <Dialog
+        open={addingConversation}
+        onClose={() => setAddingConversation(false)}
+        title="New conversation"
+      >
+        {addingConversation && (
+          <NewConversationForm
+            projectId={project.id}
+            onClose={() => setAddingConversation(false)}
           />
         )}
       </Dialog>

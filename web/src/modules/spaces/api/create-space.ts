@@ -4,11 +4,13 @@ import type { Space } from '@/types/api';
 
 type NewSpace = {
   projectId: number;
-  workItemId: number | null;
+  workItemId?: number | null;
   name: string;
-  team: string;
-  backend: string;
-  permissionMode: string;
+  team?: string;
+  backend?: string;
+  permissionMode?: string;
+  teammateId?: number;
+  kind?: Space['kind'];
 };
 
 export function useCreateSpace() {

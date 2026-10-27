@@ -530,6 +530,7 @@ tool calls.
 | `GET /teammates/{id}` | | 200 | 404 |
 | `PUT /teammates/{id}` | every field; `mcpServers` left out keeps the stored ones, `[]` clears them | 200 | 400, 404, 409 name taken |
 | `DELETE /teammates/{id}` | | 204 | 400 the teammate is in a team (names it), 404 |
+| `GET /teammates/{id}/conversations` | | 200 the Teammate's direct conversations as Space previews, the one with the newest message first (a conversation with no message sorts by its creation). Start one with `POST /spaces` and `teammateId`; continue any by sending to it: its Teammate resumes its session. A conversation runs with the Teammate's default access rules, never a Team's | 404 |
 | `POST /teams/{name}/members` | `teammateId`, `lead` | 201 the role as `GET /teams/{name}` shows it, with the teammate's default access copied | 400 unknown teammate, a second lead, or `solo`; 404 team; 409 already a member |
 | `PUT /teams/{name}/members/{id}` | `lead`, `tools`, `mcpServers` (left out keeps the stored ones), `write`, `permissionMode` | 200 the role | 400 as `PUT /teams`, a second lead; 404 |
 | `DELETE /teams/{name}/members/{id}` | | 204 | 400 `solo`; 404 |

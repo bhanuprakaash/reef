@@ -98,6 +98,46 @@ func TestSpaceTeam_KeepsRulesCopiedWhenTheSpaceWasMade(t *testing.T) {
 	}
 }
 
+func TestTeammateConversations_NewestActivityFirstAndOnlyOwnConversations(t *testing.T) {
+	ctx := context.Background()
+	s := spaceMemberStore(t)
+	sam, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kim, err := s.CreateTeammate(ctx, Teammate{Name: "kim", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := func(name string, with Teammate, kind string) Space {
+		c, err := s.CreateTeammateSpace(ctx,
+			Space{ProjectID: 1, Name: name, Kind: kind, Role: with.Name, Backend: "claude"}, with.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return c
+	}
+	old := start("old", sam, KindConversation)
+	start("new", sam, KindConversation)
+	start("kims", kim, KindConversation)
+	start("free", sam, KindFree)
+	if _, err := s.CreateMessage(ctx, Message{SpaceID: old.ID, Author: "user", Body: "back again"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.TeammateConversations(ctx, sam.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, c := range got {
+		names = append(names, c.Name)
+	}
+	if want := []string{"old", "new"}; !reflect.DeepEqual(names, want) {
+		t.Errorf("sam's conversations = %v, want %v", names, want)
+	}
+}
+
 func TestTeammateSpace_HasOneLeadAndTakesMoreOneByOne(t *testing.T) {
 	ctx := context.Background()
 	s := spaceMemberStore(t)

@@ -51,7 +51,13 @@ export function SpacePage() {
   const props: ViewProps = {
     space: space.data,
     features: features.data ?? [],
-    scope: feature ? <span className="truncate">{feature.title}</span> : 'quick session',
+    scope: feature ? (
+      <span className="truncate">{feature.title}</span>
+    ) : space.data.kind === 'conversation' ? (
+      'conversation'
+    ) : (
+      'quick session'
+    ),
     browserOpen: hasBrowser && browserOpen,
     onBrowserDriver: setBrowserDriver,
   };

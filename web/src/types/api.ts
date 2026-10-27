@@ -158,6 +158,13 @@ export type SkillInfo = { name: string; description: string };
 
 export type Skills = { claude: SkillInfo[]; codex: SkillInfo[] };
 
+export type Teammate = {
+  id: number;
+  name: string;
+  backend: string;
+  face?: string;
+};
+
 export type Team = {
   name: string;
   roles: Role[];

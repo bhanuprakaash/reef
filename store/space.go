@@ -247,11 +247,27 @@ func (s *Store) Spaces(ctx context.Context, f SpaceFilter) ([]Space, error) {
 // SpacePreviews is Spaces with each Space's newest message, in one query.
 func (s *Store) SpacePreviews(ctx context.Context, f SpaceFilter) ([]SpacePreview, error) {
 	where, args := f.where()
+	return s.spacePreviews(ctx, where, args, "space.id")
+}
+
+// TeammateConversations is the direct conversations with the Teammate, the one with the newest
+// message (or, with none, the newest created) first.
+func (s *Store) TeammateConversations(ctx context.Context, teammateID int64) ([]SpacePreview, error) {
+	return s.spacePreviews(ctx,
+		" AND space.kind = ? AND EXISTS "+
+			"(SELECT 1 FROM space_member WHERE space_id = space.id AND teammate_id = ?)",
+		[]any{KindConversation, teammateID},
+		"COALESCE(m.created_at, space.created_at) DESC, space.id DESC")
+}
+
+func (s *Store) spacePreviews(
+	ctx context.Context, where string, args []any, order string,
+) ([]SpacePreview, error) {
 	rows, err := s.db.QueryContext(ctx,
 		"SELECT "+_spaceCols+", m.author, substr(m.body, 1, "+_previewChars+"), m.created_at FROM space "+
 			"LEFT JOIN message m ON m.id = "+
 			"(SELECT MAX(id) FROM message WHERE space_id = space.id) "+
-			"WHERE 1 = 1"+where+" ORDER BY space.id", args...)
+			"WHERE 1 = 1"+where+" ORDER BY "+order, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list Space previews: %w", err)
 	}

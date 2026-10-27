@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|hovercard|mention|providers|first-run BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, hovercard, mention, providers, 'first-run': firstRun };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, retry, rollback, inbox, diff, memory, inspector, review, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|hovercard|mention|providers|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -2175,6 +2175,68 @@ async function naming() {
   for (let i = 0; i < 150 && sql(`select count(*) from message where space_id=${created.id} and author<>'user'`) === '0'; i++) await page.waitForTimeout(200);
   await page.waitForTimeout(2000);
   check(renamed.status === 200 && row(created.id) === 'mine|0', 'a rename sent right after the first message is never overwritten', `${row(created.id)}; PUT ${renamed.status}`);
+}
+
+async function conversation() {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const section = await addProject();
+  const project = (await getJson('/projects')).at(-1).id;
+  const call = (method, route, body) =>
+    fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  const sam = await (await call('POST', '/teammates', { name: 'sam', backend: 'claude' })).json();
+  const start = async () => {
+    const was = page.url();
+    await section.getByRole('button', { name: 'New conversation' }).click();
+    await page.getByRole('button', { name: 'sam', exact: true }).click();
+    await page.waitForURL((u) => u.href !== was && /\/spaces\/\d+$/.test(u.pathname));
+    return page.url().split('/').pop();
+  };
+  const named = async (id, name) => {
+    for (let i = 0; i < 100 && sql(`select name_auto from Space where id=${id}`) !== '0'; i++) await page.waitForTimeout(200);
+    await call('PUT', `/spaces/${id}`, { name });
+    await section.getByRole('link', { name: new RegExp(name) }).waitFor();
+  };
+  const sidebarOrder = async () =>
+    (await section.locator('a[href^="/spaces/"]').evaluateAll((as) => as.map((a) => a.getAttribute('href').split('/').pop())));
+  const restOrder = async () => (await getJson(`/teammates/${sam.id}/conversations`)).map((c) => String(c.id));
+  // The sidebar refreshes its Spaces every 5 seconds.
+  const sidebarIs = async (ids) => {
+    for (let i = 0; i < 40 && (await sidebarOrder()).join() !== ids.join(); i++) await page.waitForTimeout(250);
+    return (await sidebarOrder()).join() === ids.join();
+  };
+
+  const first = await start();
+  await exchange('Remember the codeword plum-31 for this conversation only.');
+  await named(first, 'codeword chat');
+  const second = await start();
+  await exchange('Did I give you a codeword? Answer with the codeword, or none if I did not.');
+  await named(second, 'other chat');
+  const kinds = sql(`select id, kind, team_id is null from Space where project_id=${project} order by id`);
+  check(kinds === `${first}|conversation|1\n${second}|conversation|1`, 'each start makes its own conversation with no Team', kinds);
+  const sessions = sql(`select space_id, session_id from turn where space_id in (${first}, ${second}) order by id`).split('\n');
+  check(sessions.length === 2 && sessions[0].split('|')[1] !== sessions[1].split('|')[1], 'the two conversations have their own session', sessions.join(' ; '));
+  check(await sidebarIs([second, first]), 'the sidebar lists the newer conversation first', (await sidebarOrder()).join());
+  check((await restOrder()).join() === [second, first].join(), 'GET /teammates/{id}/conversations lists the newer conversation first', (await restOrder()).join());
+  await shot('desktop-two');
+
+  await section.getByRole('link', { name: /codeword chat/ }).click();
+  await main.getByRole('heading', { name: 'codeword chat', level: 1 }).waitFor();
+  await exchange('Which codeword did I just give you? Answer with the codeword only.');
+  const own = sql(`select count(distinct session_id), count(*) from turn where space_id=${first}`);
+  check(own === '1|2', 'continuing the older conversation resumes its one session', own);
+  check(await sidebarIs([first, second]), 'the continued conversation moves to the top of the sidebar', (await sidebarOrder()).join());
+  check((await restOrder()).join() === [first, second].join(), 'GET /teammates/{id}/conversations puts it first too', (await restOrder()).join());
+  await shot('desktop-continued');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.getByRole('link', { name: 'Back' }).click();
+  await page.getByRole('heading', { name: 'Spaces', level: 1 }).waitFor();
+  const phoneRows = page.getByRole('main').getByRole('link', { name: /chat/ });
+  await phoneRows.first().waitFor();
+  check((await phoneRows.count()) === 2, 'the Spaces tab lists both conversations at 390 px', String(await phoneRows.count()));
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - innerWidth);
+  check(overflow <= 0, 'the phone list has no horizontal scroll', String(overflow));
+  await shot('phone');
 }
 
 async function hovercard() {

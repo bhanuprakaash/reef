@@ -20,6 +20,9 @@ func pat(s string) *regexp.Regexp { return regexp.MustCompile(s) }
 var _scenarios = []scenario{
 	{"name-fail", "", pat(`(?s)^Name this chat Space.*naming-fail`)},
 	{"name-login", "", pat(`^Name this chat Space`)},
+	{"sam-codeword", "sam", pat(`Remember the codeword plum-31`)},
+	{"sam-recall-codeword", "sam", pat(`Which codeword did I just give you`)},
+	{"sam-no-codeword", "sam", pat(`Did I give you a codeword`)},
 	{"coordinate-send", "lead", pat(`COORDINATE the login review`)},
 	{"coordinate-fail", "lead", pat(`COORDINATE the failing review`)},
 	{"direct-review", "architect", pat(`wrote privately: Please review the login plan`)},

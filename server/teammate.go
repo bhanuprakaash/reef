@@ -37,6 +37,29 @@ func (s *server) teammateRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /teammates/{id}", s.putTeammate)
 	mux.HandleFunc("DELETE /teammates/{id}", s.deleteTeammate)
 	mux.HandleFunc("/teammates/{id}", methodNotAllowed)
+	mux.HandleFunc("GET /teammates/{id}/conversations", s.listConversations)
+	mux.HandleFunc("/teammates/{id}/conversations", methodNotAllowed)
+}
+
+func (s *server) listConversations(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if _, err := s.st.Teammate(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	cs, err := s.st.TeammateConversations(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	if cs == nil {
+		cs = []store.SpacePreview{}
+	}
+	writeJSON(w, http.StatusOK, cs)
 }
 
 func (s *server) listTeammates(w http.ResponseWriter, r *http.Request) {

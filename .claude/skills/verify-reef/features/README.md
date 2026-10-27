@@ -76,6 +76,7 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 - [Live Spaces](./live-spaces.md): send, the event stream, stop and resume, `/wrap` and `/attach` text, wrap-up, attach, approve and reject, caps and continue, delete a live Space. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [Teams](./teams.md): `reef team apply` and `list`, a Space on a team, threads, one agent session per teammate, routing by thread, `@mention` and `post_to_space`, the hop cap, wrap wakes nobody, restart, a codex teammate on the test fixture. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [Full team](./full-team.md): `write` per role on claude and codex, `teams/full.json`, one worktree per work item, one writer per tree, checkpoints, rollback, retry, the inbox and its stream, the window's Retry, Rollback and Inbox, and the Google login run end to end with no approvals. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
+- [Direct conversations](./conversations.md): start a conversation with a Teammate, two conversations with their own sessions, the list newest first, continue an old one by resume, the Teammate's default access, the sidebar. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [GitHub poll](./github.md): a fake `gh` on `PATH`, a PR note and its dedupe, a finished check's note, a failed check's note and developer wake keyed by run, a restart, a solo-team Space (note only) and no `gh` on `PATH`. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
 
 ### Memory loop
