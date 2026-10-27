@@ -6,6 +6,14 @@ set -u
 : "${H:?}" "${REEF_VERIFY_RUN:?}" "${E:?}" "${S:?}"
 export REEF_VERIFY_RUN
 
+# Sections to run: the names given as arguments, else all.
+all_sections="full cx ui2 google fu"
+sections="$*"
+for sec in $sections; do
+	case " $all_sections " in *" $sec "*) ;; *) echo "full-team: unknown section '$sec'; sections: $all_sections" >&2; exit 2 ;; esac
+done
+sections=${sections:-$all_sections}
+
 failed=0
 check() { # check ID OK DETAIL
 	if [ "$2" = 1 ]; then echo "PASS $1: $3"; else echo "FAIL $1: $3"; failed=1; fi
@@ -1005,20 +1013,32 @@ section() (
 ui=.claude/skills/verify-reef/scripts/ui
 [ -d "$ui/node_modules" ] || (cd "$ui" && npm ci >&2)
 
-for sec in full cx ui2 google fu; do
+for sec in $sections; do
 	section "$sec" &
 done
 wait
 
-for id in $(sed -n '/^## Sub-features/,/^## /s/^- `\([a-z0-9-]*\)`.*/\1/p' "$(dirname "$0")/full-team.md"); do
-	line=$(grep -h "^\(PASS\|FAIL\) $id:" "$E"/*/full-team.log 2>/dev/null | head -1)
-	if [ -n "$line" ]; then
-		echo "$line"
-		case $line in FAIL*) failed=1 ;; esac
-	else
-		not_run "$id" "no PASS or FAIL line in $E/*/full-team.log"
-	fi
-done
+if [ "$sections" != "$all_sections" ]; then
+	for sec in $sections; do
+		lines=$(grep -h '^\(PASS\|FAIL\) ' "$E/$sec/full-team.log" 2>/dev/null)
+		if [ -z "$lines" ]; then
+			not_run "section-$sec" "no PASS or FAIL line in $E/$sec/full-team.log"
+			continue
+		fi
+		echo "$lines"
+		echo "$lines" | grep -q '^FAIL' && failed=1
+	done
+else
+	for id in $(sed -n '/^## Sub-features/,/^## /s/^- `\([a-z0-9-]*\)`.*/\1/p' "$(dirname "$0")/full-team.md"); do
+		line=$(grep -h "^\(PASS\|FAIL\) $id:" "$E"/*/full-team.log 2>/dev/null | head -1)
+		if [ -n "$line" ]; then
+			echo "$line"
+			case $line in FAIL*) failed=1 ;; esac
+		else
+			not_run "$id" "no PASS or FAIL line in $E/*/full-team.log"
+		fi
+	done
+fi
 
 rm -rf "$HOME"/.claude/projects/"$(printf '%s' "$S" | sed 's/[^A-Za-z0-9]/-/g')"-*
 

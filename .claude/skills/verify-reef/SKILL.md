@@ -278,7 +278,9 @@ server, so launch as in Server. Read `features/window.md` first.
 On Linux there is no system Chrome (the launch fails with `Chromium distribution 'chrome' is not
 found`). Install Playwright's Chromium once, with its system libraries, and set
 `REEF_VERIFY_CHROME` to its binary on every `ui` call (each Bash call is a new shell). `ui` then
-launches that binary with `--no-sandbox`:
+launches that binary with `--no-sandbox`. When `REEF_VERIFY_CHROME` is unset and there is no system
+Chrome, `ui` uses the newest `~/.cache/ms-playwright/chromium-*/chrome-linux*/chrome` itself, so
+the export is only needed to pick another binary:
 
 ```sh
 PLAYWRIGHT_DOWNLOAD_HOST=https://cdn.playwright.dev npx playwright@1.64.0 install chromium
@@ -419,8 +421,8 @@ done) with `H`, `REEF_VERIFY_RUN`, `E` and `S` exported, tees its output to
 `~/.reef-verify/<id>/feature-NAME.log`, and exits 1 if any line is `FAIL`. So far there is
 `features/full-team.sh`, which drives every line of `full-team.md` and prints one
 `PASS <id>: ...` or `FAIL <id>: ...` per sub-feature id, in the order of its Sub-features list.
-It works the same whichever `claude` is on `PATH` (fake, record or real). Its six sections
-(`full`, `cx`, `inbox`, `ui2`, `google`, `fu`) run at the same time, each as its own run
+It works the same whichever `claude` is on `PATH` (fake, record or real). Its five sections
+(`full`, `cx`, `ui2`, `google`, `fu`) run at the same time, each as its own run
 `<id>/<section>` (`build`, `doctor`, its own scratch folder and server), so the run takes about
 as long as its longest section (`google`, about 3.5 minutes on the fake). Each section's full output is in
 `~/.reef-verify/<id>/<section>/full-team.log`, next to that section's `serve.log`, `api.log` and
@@ -429,6 +431,9 @@ as long as its longest section (`google`, about 3.5 minutes on the fake). Each s
 ```sh
 ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H feature full-team
 ```
+
+Name sections after `full-team` to run only those (`$H feature full-team ui2 fu`); it prints
+the `PASS`/`FAIL` lines of those sections only. An unknown section name exits 2.
 
 ## Real-claude set
 
@@ -498,7 +503,8 @@ kills by name: other claude sessions and a managed `codex app-server --listen` d
 run on this machine. It removes `<scratch>/` and claude's state for
 the scratch cwd (`~/.claude/projects/<key>` and its task
 folder under `claude-<uid>/` beside `reef-verify/`), then
-lists the evidence dir it kept. The server's data folder goes with the scratch dir; `sql.log`
+lists the evidence dir it kept. It also stops any process still running this run's scratch
+binaries, whatever data folder it was started on. The server's data folder goes with the scratch dir; `sql.log`
 keeps what you read from it. Run it after every run, failed ones too. Codex threads stay
 in `~/.codex/sessions`; cleanup leaves them.
 
@@ -527,3 +533,4 @@ claude, above).
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |
 | `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |
+| `cleanup-all` | `cleanup` for every run under the scratch root that no live process drives (a driver has `REEF_VERIFY_RUN=<id>` in its environment); a run with a live driver is left alone |
