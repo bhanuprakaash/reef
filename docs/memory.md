@@ -16,10 +16,11 @@ Reef has no handoff file. A new session starts with three things:
 
 - The feature's brief: goal, status, key decisions, open questions.
 - The role's own notes on the feature.
-- An index: one line per live decision, channel and open task. Retired decisions are left out.
+- An index: one line per live decision and per task in progress, and a count of the other open tasks and
+  of the earlier channels. Retired decisions are left out.
 
 It never gets old message bodies. When it needs details, it fetches them on demand with
-the MCP tools (`read_decision`, `read_thread`, `search_sessions`). So the first prompt
+the MCP tools (`read_decision`, `read_thread`, `list_tasks`, `search_sessions`). So the first prompt
 stays small after many sessions. At the end of a session, the agent proposes a new brief,
 new notes and the decisions it did not record yet. The user approves, and the next
 session starts from that.
@@ -277,80 +278,94 @@ carries a private decision into the feature's memory.
 
 ## The context prompt
 
-`reef context <feature> --role R` prints it, and `reef chat` puts it before the first
-message of a new channel. It holds the brief, the role's notes and an index. It never
-holds a message body. Its shape:
+`reef context <feature> --role R` prints it, and `reef chat` and `reef serve` put it before the
+first message of a new session. One assembler (`channel/context.go`) builds it for a channel on
+a feature and for a quick session. It has three sections in this order, each with its own
+`##` header. It never holds a message body. A part with nothing to say is left out: there is
+no `No brief yet.`, no `No notes yet.` and no `none`. A section with no part left is left out.
 
-0. When the role has a persona or skills (a team role, see Teams): the persona, then
-   `Your skills:` and the skills, each followed by a blank line. `reef serve` and `reef chat`
-   add this before part 1. `reef context` does not print it. A role that wakes with a
-   persona or skills that differ from what its session last got, whether it is starting or
-   resuming, gets this part again, marked `Your persona or skills changed:`.
-1. One line: role, feature name and slug, project name. Then, when a profile exists,
-   `You work with Ada, a developer. They like: short answers, ask before big changes.` (occupation
-   and style only when set, lower-cased; `Other` is left out). Then the goal (if set) and the stage, then one line that lists the stages in order and asks the agent to call `set_stage` when the work moves to the next (a `fixes` feature says it is a list of fixes tracked as tasks instead, with no stage lines). Then, when the project has a base branch, `Base branch: dev. A pull request you open targets it.` A quick session
-   adds the same line after its second line.
-2. `## Project memory`: the project's memory (see [server.md](server.md#project_memory)), only
-   when it is not empty.
-3. `## Brief`: the latest brief, or `No brief yet.`
-4. `## Your notes`: this role's notes, or `No notes yet.`
-5. `## Index`, with `### Decisions` (one line each for a live decision: id, the first line of the body cut
-   at 100 characters with `…`, author, date; retired decisions are left out), `### Channels` (channels with messages, one line each: id, name,
-   date, message count) and `### Open tasks` (tasks not `done`). An empty group says
-   `none`.
-6. One closing line that names the tools for details.
-7. When the team has two or more roles, a `## Team` section: `Your team: @lead, @architect.`
-   It says that `post_to_channel` and @mentions are shared (decisions, blockers, user questions
-   and outcomes belong there), while `send_to_role` coordinates in detail with one teammate and
-   gets one automatic direct response, and that an `Asked together:` line names every role one
-   message woke. A public message that wakes you starts with `[channel N, message
-   N]` or `[channel N, message N, thread N]`; your plain reply goes where the header says (a
-   top-level reply starts your own thread), and `post_to_channel` takes the header's `thread` as
-   its `parent` when there is one.
-   After the header, a wake may carry `reef wrote: ...` lines: what `reef` posted in the
-   channel since the role's last turn began, such as a rollback note (see
-   [server.md](server.md#channels-live)). The prompt does not explain them.
-   It also asks a role to publish one concise outcome with `post_to_channel` when a direct
-   chain completes with information the team or the user needs; raw logs and routine
-   acknowledgements stay private. A new channel never gets direct messages in its context:
-   the brief, decisions and notes are the memory that carries over.
-   The lead gets one more line: do not summarize or repeat a
-   specialist's post back to the user, because they see it. `reef context` does not print it.
+1. `## You`
+   - When the role has a persona or skills (a team role, see Teams): the persona, then
+     `Your skills:` and the skills, each followed by a blank line. `reef context` has no role
+     to read them from and does not print them. A role that wakes with a persona or skills that
+     differ from what its session last got, whether it is starting or resuming, gets them again
+     before the wake text, marked `Your persona or skills changed:`, without the header.
+   - One line: role, feature name and slug, project name. A quick session says instead:
+     role, project name and folder, and that the session has no feature yet.
+   - When a profile exists, `You work with Ada, a developer. They like: short answers, ask before
+     big changes.` (occupation and style only when set, lower-cased; `Other` is left out).
+   - The goal (if set) and the stage, then one line that lists the stages in order and asks the
+     agent to call `set_stage` when the work moves to the next. A `fixes` feature says it is a
+     list of fixes tracked as tasks instead, with no stage lines. A quick session has none of these.
+   - When the project has a base branch, `Base branch: dev. A pull request you open targets it.`
+2. `## How to work`
+   - When the team has two or more roles: `Your team: @lead, @architect.` It says that
+     `post_to_channel` and @mentions are shared (decisions, blockers, user questions and outcomes
+     belong there), while `send_to_role` coordinates in detail with one teammate and gets one
+     automatic direct response, and that an `Asked together:` line names every role one message
+     woke. A public message that wakes you starts with `[channel N, message N]` or `[channel N,
+     message N, thread N]`; your plain reply goes where the header says (a top-level reply starts
+     your own thread), and `post_to_channel` takes the header's `thread` as its `parent` when there
+     is one. After the header, a wake may carry `reef wrote: ...` lines: what `reef` posted in the
+     channel since the role's last turn began, such as a rollback note (see
+     [server.md](server.md#channels-live)). The prompt does not explain them. It also asks a role
+     to publish one concise outcome with `post_to_channel` when a direct chain completes with
+     information the team or the user needs; raw logs and routine acknowledgements stay private.
+     A new channel never gets direct messages in its context: the brief, decisions and notes are
+     the memory that carries over. The lead gets one more line: do not summarize or repeat a
+     specialist's post back to the user, because they see it. `reef context` has no team and
+     prints none of this.
+   - On a feature, one line that names the tools for details (`read_decision`, `read_thread`,
+     `list_tasks`, `search_sessions`), `record_decision` and `propose_brief`. Those tools need a
+     feature, so a quick session gets no such line, and a quick session with a team of one has no `## How to work` at all.
+3. `## What we know`, each part under a `###` label and only when it has content:
+   - `### Brief`: the latest brief.
+   - `### Project memory`: the project's memory (see [server.md](server.md#project_memory)). A
+     quick session has only this part.
+   - `### Your notes`: this role's notes.
+   - `### Decisions`: one line for each live decision: id, the first line of the body cut at 100
+     characters with `…`, author, date. Retired decisions are left out.
+   - `### Doing`: one line `task N: title` for each task in status `doing`.
+   - `### On demand`: one line that counts what the role can look up:
+     `23 open tasks (list_tasks). 3 earlier channels (search_sessions).` Open tasks are those not
+     `done`; earlier channels are the feature's channels that have messages, not counting the
+     channel the prompt is for. A count of one reads `1 open task` and `1 earlier channel`. A zero
+     count is left out of the line, and the part is left out when both are zero.
 
-A quick session gets the same parts 0, 2 and 7 around its two lines.
-
-Example, for a feature with one approved wrap-up:
+Example, for a feature with one approved wrap-up, asked by the developer of a team of two:
 
 ```
+## You
 You are the developer on feature "Email login" (login) in project "shop".
 Goal: Users sign in with email and password
 Stage: ideation
 Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
 
-## Project memory
-Sessions are stored server-side, not JWT.
+## How to work
+Your team: @lead, @developer. Use post_to_channel and @mentions for work the whole team needs: ...
+Details are on demand through the reef MCP tools read_decision, read_thread, list_tasks and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
 
-## Brief
+## What we know
+### Brief
 Goal: Users sign in with email and password.
 Status: ideation. No implementation yet.
 Key decisions: Lock account after 5 failed logins (decision 1).
 Open questions: lockout duration and unlock method.
 
-## Your notes
-Only the lockout threshold is decided so far. Nothing built.
+### Project memory
+Sessions are stored server-side, not JWT.
 
-## Index
+### Your notes
+Only the lockout threshold is decided so far. Nothing built.
 
 ### Decisions
 decision 1: Lock an account after 5 failed logins. (developer, 2026-10-13)
 
-### Channels
-channel 1: developer chat, 2026-10-13, 4 messages
+### Doing
+task 2: Build the login form
 
-### Open tasks
-none
-
-Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
+### On demand
+3 open tasks (list_tasks). 1 earlier channel (search_sessions).
 ```
 
 ## reef chat
@@ -389,11 +404,23 @@ its first turn: a first message that goes to a specialist starts no lead.
 
 - With a turn of the role that has a session id, the agent resumes the session of the newest
   such turn, and the context prompt is not sent again, unless the role's persona or skills
-  changed since that turn: then part 0 goes before the wake text, marked as changed.
+  changed since that turn: then the persona and skills go before the wake text, marked as changed.
+  On a channel with a feature, the wake text then holds what changed since the session's
+  previous turn: the newest turn of that role, channel and session that sent its prompt, by its
+  start time. A turn that failed before it sent told the agent nothing, so it does not count.
+  The text goes right after the wake's `[channel N, message N]` header line, as the `reef wrote:`
+  lines do, or at the top when the turn has no header (wrap-up, promote). It has two parts.
+  Under `### Changed since your last turn`: one `decision N: ...` index line for each decision
+  added since, whatever its author (the author is only a role name, which every channel's lead
+  shares), and `decision N is retired, replaced by decision M.` for each one retired since. A
+  decision added and retired since is in neither list. Under `### New brief`: the latest brief,
+  in full, when a version is newer; the next turn does not repeat it. A wake with no change has
+  neither part, tasks are never in it, and a change alone starts no turn. Nothing is stored for
+  it: the turn's `prompt` holds the text. It is built after the turn's start is stamped, so what
+  is written while the turn waits for its tree is in it or in the next one, never in neither.
 - Without one, the agent starts a new session and the context prompt goes before the
-  first message, in the same prompt. A channel on a feature gets the prompt below. A
-  quick session (no feature) gets two lines: the role, the project's name and folder, and
-  that there is no feature yet.
+  first message, in the same prompt: the three sections above, for a channel on a feature
+  and for a quick session alike. It is built after the turn's start is stamped.
 
 New channel (`<feature> --role R --backend B`): it makes a channel named `N` (default
 `<role> chat`) on the feature, with the role, backend and `--permission-mode`, then opens

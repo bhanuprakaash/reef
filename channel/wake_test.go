@@ -18,9 +18,15 @@ type wakeAgent struct {
 	sendErr *error
 	prompts []string
 	events  chan agent.Event
+	onStart func()
 }
 
-func (a *wakeAgent) Start(context.Context, agent.Config) error { return nil }
+func (a *wakeAgent) Start(context.Context, agent.Config) error {
+	if a.onStart != nil {
+		a.onStart()
+	}
+	return nil
+}
 
 func (a *wakeAgent) Resume(_ context.Context, _ agent.Config, id string) error {
 	a.session = id
@@ -55,6 +61,7 @@ type wakeEnv struct {
 	fail    string
 	sendErr error
 	mkErr   error
+	onStart func()
 }
 
 func newWakeEnv(t *testing.T) *wakeEnv {
@@ -83,6 +90,7 @@ func newWakeEnv(t *testing.T) *wakeEnv {
 		e.started++
 		a := &wakeAgent{
 			session: "s" + strconv.Itoa(e.started), fail: e.fail, sendErr: &e.sendErr, events: make(chan agent.Event, 8),
+			onStart: e.onStart,
 		}
 		e.agents = append(e.agents, a)
 		return a, nil

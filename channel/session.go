@@ -510,9 +510,6 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		}
 		err = ag.Resume(ctx, cfg, last.SessionID)
 	default:
-		if preamble, err = startPrompt(wctx, s.st, s.ch.ID, s.project, team, r); err != nil {
-			return nil, err
-		}
 		err = ag.Start(ctx, cfg)
 	}
 	if err != nil {
@@ -520,6 +517,15 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.sessionID = last.SessionID
+	if last.SessionID == "" {
+		m.run.Start = func(ctx context.Context) (string, error) {
+			ch, err := s.st.Channel(ctx, s.ch.ID)
+			if err != nil {
+				return "", err
+			}
+			return firstPrompt(ctx, s.st, ch.ProjectID, ch.FeatureID, ch.ID, team, r)
+		}
+	}
 	m.run.OnPrompt = s.onPrompt
 	if m.write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
 		m.run.CheckpointDir = cwd
@@ -756,29 +762,6 @@ func InUse(dataDir string, channelID int64) bool {
 	return errors.Is(syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB), syscall.EWOULDBLOCK)
 }
 
-func startPrompt(
-	ctx context.Context, st *store.Store, channelID int64, p store.Project, team store.Team,
-	r store.Role,
-) (string, error) {
-	ch, err := st.Channel(ctx, channelID)
-	if err != nil {
-		return "", err
-	}
-	if ch.FeatureID == nil {
-		mem, err := st.ProjectMemory(ctx, p.ID)
-		if err != nil {
-			return "", err
-		}
-		who, err := profileLine(ctx, st)
-		if err != nil {
-			return "", err
-		}
-		return roleIntro(r) + projectContext(p, r.Name, mem.Body, who) + teamIntro(team, r), nil
-	}
-	body, err := Context(ctx, st, *ch.FeatureID, r.Name)
-	return roleIntro(r) + body + teamIntro(team, r), err
-}
-
 func failStaleTurns(ctx context.Context, st *store.Store, channelID int64) error {
 	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &channelID, Status: "running"})
 	if err != nil {
@@ -821,9 +804,10 @@ func sessionMissing(msg string) bool {
 }
 
 // introSent is the role intro its session (same session id) in the channel was last given:
-// the session's first turn always carries one, from startPrompt, and a later turn carries one
-// when the role's persona or skills changed since, from updatedRoleIntro. Empty when neither
-// applies, so a prefix check against it never matches a non-empty roleIntro.
+// the session's first turn always carries one, from firstPrompt, after its "## You" header,
+// and a later turn carries one when the role's persona or skills changed since, from
+// updatedRoleIntro. Empty when neither applies, so a prefix check against it never matches a
+// non-empty roleIntro.
 func introSent(
 	ctx context.Context, st *store.Store, channelID int64, role, backend, sessionID string,
 ) (string, error) {
@@ -838,7 +822,7 @@ func introSent(
 			continue
 		}
 		if first {
-			sent, first = t.Prompt, false
+			sent, first = strings.TrimPrefix(t.Prompt, _youHeader), false
 			continue
 		}
 		if after, ok := strings.CutPrefix(t.Prompt, _introChangedPrefix); ok {

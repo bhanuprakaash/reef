@@ -46,7 +46,9 @@ Not yet discussed. Direction: a Channel ingests events; an Automation may propos
 
 ## Reef context and prompt cleanup
 
-Locally the channel system prompt reached roughly seven or eight screens. This is a symptom, not a diagnosed bug. Trace initial assembly, role and team instructions, memory injection, resumed sessions and repeated turns; measure prompt sizes and add duplication tests. Then design one inspectable, bounded context assembler that separates instructions from retrieved knowledge. Runs alongside the memory work (R2), not inside it.
+Locally the channel prompt reached roughly seven or eight screens. Diagnosed on the Mac database: it was the wakes, not the first prompt. One wake was 90,755 characters because every wake resent the whole thread; channel-fixes stopped that (0 duplicate characters in the eval). The first prompt was 3,300 to 3,700 characters: persona about 1,300, team rules about 1,100, feature context about 900.
+
+The context assembler (R31–R36) is still worth building: one place for the first prompt in three sections, a count line instead of unbounded lists, and a delta so a resumed role learns of new decisions and a new brief. It reads today's tables; the memory slice swaps the sources (see [memory-and-retrieval.md](memory-and-retrieval.md) "Memory slice").
 
 ## Open questions
 

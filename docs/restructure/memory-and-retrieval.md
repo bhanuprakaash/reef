@@ -21,7 +21,18 @@ Everything else is one `recall` away. Scopes are relevance filters, not access c
 ## Still open
 
 - Space continuation: what triggers a new Space for the same Work item, and what carries over.
-- Context assembler: exact section order, how the delta is rendered, and the measured prompt-size tests. Comes after the prompt audit (R2).
 - Local embedder (Ollama) as another provider.
 - Reranker, only if the eval set shows ranking is the weak spot.
 - Migration from brief, role notes and project memory: none planned (R14, R27); revisit only if real data exists by then.
+
+## Memory slice
+
+What the memory-wiring slice must do, after the context assembler (R31–R36) lands:
+
+- MCP tools `remember`, `recall` and `read_memory` (R23), replacing `record_decision` and `read_decision`; the "How to work" tool line names them.
+- Swap the sources of "What we know": project memory becomes up to 10 project items, your notes up to 5 Teammate items, decisions become work-item decision items (all live); add findings (5) and team lessons (5) (R24). Each part ends `N of M; recall(..., scope=...)`.
+- The delta (R34) runs over accepted memory items in scope since the role's previous turn, not the decision table.
+- Which items fill a fixed count. Not settled. Options: the newest; the most relevant to the Work item (a recall with its title and brief); pinned first, then the newest (needs a pinned field).
+- Compaction refreshes the snapshot (R24). Reef cannot see a compaction yet; find the signal in the claude and codex adapters first.
+- The tasks and channels count line (R33) follows the Work item model: sub-items and Spaces (R5, R11, R13), when those exist.
+

@@ -89,6 +89,7 @@ func TestContext(t *testing.T) {
 	for _, task := range []store.Task{
 		{ProjectID: f.ProjectID, FeatureID: &f.ID, Title: "write tests"},
 		{ProjectID: f.ProjectID, FeatureID: &f.ID, Title: "set up OAuth app", Status: "done"},
+		{ProjectID: f.ProjectID, FeatureID: &f.ID, Title: "wire the callback", Status: "doing"},
 	} {
 		if _, err := st.CreateTask(ctx, task); err != nil {
 			t.Fatal(err)
@@ -103,32 +104,32 @@ func TestContext(t *testing.T) {
 	if day != channels[0].CreatedAt.Format("2006-01-02") {
 		t.Skip("test ran across midnight UTC")
 	}
-	want := `You are the architect on feature "Login" (login) in project "shop".
+	want := `## You
+You are the architect on feature "Login" (login) in project "shop".
 Goal: Google login
 Stage: ideation
 Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
 
-## Brief
+## How to work
+Details are on demand through the reef MCP tools read_decision, read_thread, list_tasks and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
+
+## What we know
+### Brief
 Use Google OAuth.
 
-## Your notes
+### Your notes
 Keep the session in a cookie.
-
-## Index
 
 ### Decisions
 decision 1: use OAuth (user, ` + day + `)
 decision 2: store sessions in SQLite (user, ` + day + `)
 decision 3: ` + strings.Repeat("é", 100) + `… (user, ` + day + `)
 
-### Channels
-channel 1: spike, ` + day + `, 1 messages
-channel 2: build, ` + day + `, 2 messages
+### Doing
+task 3: wire the callback
 
-### Open tasks
-task 1 [todo]: write tests
-
-Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
+### On demand
+2 open tasks (list_tasks). 2 earlier channels (search_sessions).
 `
 	if got != want {
 		t.Errorf("Context =\n%s\nwant\n%s", got, want)
@@ -145,29 +146,14 @@ func TestContext_EmptyFeature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := `You are the architect on feature "Login" (login) in project "shop".
+	want := `## You
+You are the architect on feature "Login" (login) in project "shop".
 Goal: Google login
 Stage: ideation
 Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
 
-## Brief
-No brief yet.
-
-## Your notes
-No notes yet.
-
-## Index
-
-### Decisions
-none
-
-### Channels
-none
-
-### Open tasks
-none
-
-Details are on demand through the reef MCP tools read_decision, read_thread and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
+## How to work
+Details are on demand through the reef MCP tools read_decision, read_thread, list_tasks and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
 `
 	if got != want {
 		t.Errorf("Context =\n%s\nwant\n%s", got, want)
@@ -207,7 +193,7 @@ func TestContext_FixesFeature(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := "Goal: Google login\nThis feature is a list of fixes tracked as tasks, not one piece of work with stages.\n\n## Brief"
+	want := "Goal: Google login\nThis feature is a list of fixes tracked as tasks, not one piece of work with stages.\n\n## How to work"
 	if !strings.Contains(got, want) || strings.Contains(got, "Stage:") {
 		t.Errorf("Context =\n%s\nwant it to contain %q and no Stage line", got, want)
 	}
@@ -225,27 +211,60 @@ func TestContext_ProjectMemory(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(got, "\n## Project memory\nUse Go, not Python.\n") {
+	if !strings.Contains(got, "\n## What we know\n### Project memory\nUse Go, not Python.\n") {
 		t.Errorf("Context =\n%s\nwant it to contain the project memory section", got)
 	}
 }
 
-func TestProjectContext_Memory(t *testing.T) {
-	p := store.Project{Name: "shop", Path: "/work/shop"}
-
-	if got := projectContext(p, "lead", "", ""); strings.Contains(got, "Project memory") {
-		t.Errorf("projectContext with no memory = %q, want no Project memory section", got)
+func TestFirstPrompt_QuickSession(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	p, err := st.Project(ctx, f.ProjectID)
+	if err != nil {
+		t.Fatal(err)
 	}
+	lead := store.Role{Name: "lead", Lead: true}
+	team := store.Team{Name: "core", Roles: []store.Role{lead, {Name: "architect"}}}
 
-	got := projectContext(p, "lead", "Use Go, not Python.", "")
-	want := `You are the lead in project "shop" (/work/shop).
+	got, err := firstPrompt(ctx, st, p.ID, nil, 0, store.Team{}, lead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := `## You
+You are the lead in project "shop" (` + p.Path + `).
 This is a quick session: it has no feature yet, so there is no brief, notes or decisions.
-
-## Project memory
-Use Go, not Python.
 `
 	if got != want {
-		t.Errorf("projectContext with memory =\n%s\nwant\n%s", got, want)
+		t.Errorf("quick session with no memory =\n%s\nwant\n%s", got, want)
+	}
+
+	if _, err := st.PutProjectMemory(ctx,
+		store.ProjectMemory{ProjectID: p.ID, Body: "Use Go, not Python."}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.PutProfile(ctx, store.Profile{Name: "Ada"}); err != nil {
+		t.Fatal(err)
+	}
+	p.BaseBranch = "dev"
+	if _, err := st.UpdateProject(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	got, err = firstPrompt(ctx, st, p.ID, nil, 0, team, lead)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"## You\nYou are the lead in project \"shop\" (" + p.Path + ").\nThis is a quick session: " +
+			"it has no feature yet, so there is no brief, notes or decisions.\nYou work with Ada.\n" +
+			"Base branch: dev. A pull request you open targets it.\n\n## How to work\nYour team: @lead, @architect. ",
+		"\n\n## What we know\n### Project memory\nUse Go, not Python.\n",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("quick session =\n%s\nwant it to contain %q", got, want)
+		}
+	}
+	if strings.Contains(got, "list_tasks") {
+		t.Errorf("quick session =\n%s\nwant no tools line", got)
 	}
 }
 
@@ -259,7 +278,7 @@ func TestContext_Profile(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		return strings.SplitN(got, "\n", 3)[1]
+		return strings.SplitN(got, "\n", 4)[2]
 	}
 	if got := first(); got != "Goal: Google login" {
 		t.Errorf("second line with no profile = %q, want the goal", got)
@@ -287,19 +306,6 @@ func TestContext_Profile(t *testing.T) {
 				t.Errorf("second line = %q, want %q", got, tt.want)
 			}
 		})
-	}
-
-	p := store.Project{Name: "shop", Path: "/work/shop"}
-	want := `You are the lead in project "shop" (/work/shop).
-This is a quick session: it has no feature yet, so there is no brief, notes or decisions.
-You work with Ada, a developer. They like: short answers, ask before big changes.
-`
-	who, err := profileLine(ctx, st)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got := projectContext(p, "lead", "", who); got != want {
-		t.Errorf("projectContext =\n%s\nwant\n%s", got, want)
 	}
 }
 
@@ -346,7 +352,7 @@ func TestContext_DecisionFirstLine(t *testing.T) {
 func TestTeamIntro(t *testing.T) {
 	lead, architect := store.Role{Name: "lead", Lead: true}, store.Role{Name: "architect"}
 	team := store.Team{Name: "core", Roles: []store.Role{lead, architect}}
-	const common = "\n## Team\nYour team: @lead, @architect. Use post_to_channel and @mentions " +
+	const common = "Your team: @lead, @architect. Use post_to_channel and @mentions " +
 		"for work the whole team needs: decisions, blockers, questions for the user and outcomes " +
 		"belong in the channel. Only a line that starts with @name wakes that teammate; an @name " +
 		"inside a sentence wakes nobody. Use send_to_role for detailed coordination with exactly one " +

@@ -37,6 +37,10 @@ type Runner struct {
 	// Scopes, when set, are the scopes of the wake the next turn sends, each with its newest
 	// message, and are stored on the turn so a later turn of the session skips them.
 	Scopes store.Scopes
+	// Start, when set, builds the first prompt of a session that has been sent none. It runs
+	// once the turn's start is stamped, so what is written after that is in the prompt or in
+	// the next turn's delta, never in neither. Cleared when a prompt has been sent.
+	Start func(ctx context.Context) (string, error)
 	// OnNote, when set, is called after the watch posts a message, so a window shows it.
 	OnNote func()
 
@@ -123,8 +127,20 @@ func (r *Runner) Run(
 	if err != nil {
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
-	if r.preamble != "" {
-		prompt = r.preamble + "\n\n" + prompt
+	preamble, delta := r.preamble, ""
+	if r.Start != nil {
+		preamble, err = r.Start(wctx)
+	} else {
+		delta, err = r.delta(wctx)
+	}
+	if err != nil {
+		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
+	}
+	if delta != "" {
+		prompt = afterHeader(prompt, delta+"\n")
+	}
+	if preamble != "" {
+		prompt = preamble + "\n\n" + prompt
 	}
 	turn.Prompt = prompt
 	if r.OnPrompt != nil {
@@ -137,7 +153,7 @@ func (r *Runner) Run(
 		r.sessionGone = sessionMissing(err.Error())
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
-	r.preamble = ""
+	r.preamble, r.Start = "", nil
 	if _, err := r.st.SetTurnSent(wctx, turn.ID, prompt); err != nil {
 		return r.abort(wctx, turn, err, err.Error(), "", parent)
 	}
@@ -326,6 +342,21 @@ func (r *Runner) wake(text string) string {
 		return ""
 	}
 	return text
+}
+
+// delta is what changed in the channel's feature since the session was last sent a prompt. It
+// is empty for a channel without a feature and for a session that has been sent none. A turn
+// that failed before it sent told the agent nothing, so it does not move the point.
+func (r *Runner) delta(ctx context.Context) (string, error) {
+	ch, err := r.st.Channel(ctx, r.channelID)
+	if err != nil || ch.FeatureID == nil || r.sessionID == "" {
+		return "", err
+	}
+	since, ok, err := r.st.LastSentAt(ctx, ch.ID, r.role, r.sessionID)
+	if err != nil || !ok {
+		return "", err
+	}
+	return changedSince(ctx, r.st, *ch.FeatureID, since)
 }
 
 // checkpointRef is refs/reef/checkpoints/<12 hex of sha256 of the absolute data dir>/<turn id>.

@@ -37,8 +37,13 @@ func (r *Runner) withNotes(ctx context.Context, turn store.Turn, text string) (s
 		fmt.Fprintf(&b, "%s wrote: %s\n", m.Author, m.Body)
 	}
 	b.WriteString("\n")
+	return afterHeader(text, b.String()), nil
+}
+
+// afterHeader puts add after the header line of a wake, or at the top of text with none.
+func afterHeader(text, add string) string {
 	if header, rest, ok := strings.Cut(text, "\n"); ok && strings.HasPrefix(header, "[channel ") {
-		return header + "\n" + b.String() + rest, nil
+		return header + "\n" + add + rest
 	}
-	return b.String() + text, nil
+	return add + text
 }
