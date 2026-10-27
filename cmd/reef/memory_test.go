@@ -83,7 +83,7 @@ func TestCLI_MemoryItems(t *testing.T) {
 		{[]string{"memory", "reject", "5"}, "invalid: memory 5 is not a candidate"},
 		{[]string{"memory", "show", "99"}, "memory 99: not found"},
 		{[]string{"memory", "show", "x"}, `invalid: "x" is not a memory id`},
-		{[]string{"memory", "add", "decision", "x", "--scope", "project"}, `invalid: --scope "project" is not kind:id`},
+		{[]string{"memory", "add", "decision", "x", "--scope", "project"}, `--scope: invalid: "project" is not kind:id`},
 		{[]string{"memory", "add", "decision", "x", "--scope", "shelf:1"}, `invalid: unknown scope kind "shelf"`},
 		{[]string{"memory", "add", "idea", "x", "--scope", "project:1"}, `invalid: unknown kind "idea"`},
 		{[]string{"memory", "add", "decision", "x", "--scope", "project:1", "--replaces", "3"},

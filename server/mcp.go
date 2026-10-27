@@ -337,11 +337,11 @@ func (m *mcpServer) remember(
 	}
 	about := make([]memory.Ref, 0, len(in.About))
 	for _, a := range in.About {
-		kind, id, ok := strings.Cut(a, ":")
-		if !ok || kind == "" || id == "" {
-			return nil, rememberOut{}, fmt.Errorf("%w: about %q is not kind:id", store.ErrInvalid, a)
+		ref, err := memory.ParseRef(a)
+		if err != nil {
+			return nil, rememberOut{}, fmt.Errorf("about: %w", err)
 		}
-		about = append(about, memory.Ref{Kind: kind, ID: id})
+		about = append(about, ref)
 	}
 	for _, id := range in.Replaces {
 		if _, err := m.readable(ctx, scopes, id); err != nil {

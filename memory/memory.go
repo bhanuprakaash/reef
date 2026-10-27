@@ -76,6 +76,15 @@ var (
 // Ref points at a target by kind and id; nothing checks that it exists.
 type Ref struct{ Kind, ID string }
 
+// ParseRef reads a Ref written as kind:id.
+func ParseRef(s string) (Ref, error) {
+	kind, id, ok := strings.Cut(s, ":")
+	if !ok || kind == "" || id == "" {
+		return Ref{}, fmt.Errorf("%w: %q is not kind:id", ErrInvalid, s)
+	}
+	return Ref{Kind: kind, ID: id}, nil
+}
+
 // Link is one edge from an item to a target.
 type Link struct{ Rel, ToKind, ToID string }
 

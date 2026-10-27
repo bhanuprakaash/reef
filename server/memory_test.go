@@ -54,12 +54,12 @@ func TestMemoryStatus(t *testing.T) {
 	}{
 		{
 			name: "list needs a scope", method: http.MethodGet, path: "/memory",
-			wantStatus: 400, wantBody: `{"error":"invalid: scope \"\" is not kind:id"}`,
+			wantStatus: 400, wantBody: `{"error":"scope: invalid: \"\" is not kind:id"}`,
 		},
 		{
 			name: "create with a bad scope", method: http.MethodPost, path: "/memory",
 			give:       `{"kind":"fact","body":"b","scope":"7"}`,
-			wantStatus: 400, wantBody: `{"error":"invalid: scope \"7\" is not kind:id"}`,
+			wantStatus: 400, wantBody: `{"error":"scope: invalid: \"7\" is not kind:id"}`,
 		},
 		{
 			name: "create with an unknown kind", method: http.MethodPost, path: "/memory",

@@ -114,14 +114,14 @@ func memoryAdd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 		return err
 	}
 	w := memory.Writer{Author: _cliAuthor, Role: *role}
-	if w.Scope, err = parseMemoryRef("--scope", *scope); err != nil {
-		return err
+	if w.Scope, err = memory.ParseRef(*scope); err != nil {
+		return fmt.Errorf("--scope: %w", err)
 	}
 	n := memory.Note{Kind: pos[0], Body: pos[1], Why: *why, NeedsApproval: *needs}
 	for _, a := range about {
-		r, err := parseMemoryRef("--about", a)
+		r, err := memory.ParseRef(a)
 		if err != nil {
-			return err
+			return fmt.Errorf("--about: %w", err)
 		}
 		n.About = append(n.About, r)
 	}
@@ -182,9 +182,9 @@ func memoryRecall(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	q := memory.Query{Text: pos[0], Limit: *limit}
 	if *scope != "" {
-		r, err := parseMemoryRef("--scope", *scope)
+		r, err := memory.ParseRef(*scope)
 		if err != nil {
-			return err
+			return fmt.Errorf("--scope: %w", err)
 		}
 		q.Scope = &r
 	}
@@ -458,12 +458,4 @@ func parseMemoryID(s string) (int64, error) {
 		return 0, fmt.Errorf("%w: %q is not a memory id", memory.ErrInvalid, s)
 	}
 	return id, nil
-}
-
-func parseMemoryRef(flag, s string) (memory.Ref, error) {
-	kind, id, ok := strings.Cut(s, ":")
-	if !ok || kind == "" || id == "" {
-		return memory.Ref{}, fmt.Errorf("%w: %s %q is not kind:id", memory.ErrInvalid, flag, s)
-	}
-	return memory.Ref{Kind: kind, ID: id}, nil
 }
