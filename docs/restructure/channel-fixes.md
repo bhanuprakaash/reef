@@ -2,7 +2,7 @@
 
 [Back to restructuring index](index.md)
 
-> Status: plan, 2026-10-26. Nothing built yet. Slice issue #65, tickets #46–#64.
+> Status: done. Written 2026-10-26 as a plan (slice issue #65, tickets #46–#64) and built since. This is history: it says channel where Reef now says Space.
 
 ## Goal
 

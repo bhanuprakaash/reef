@@ -1,6 +1,6 @@
 # Reef restructuring proposal
 
-> Status: domain model under discussion. Settled points are in [decisions.md](decisions.md); this file keeps what is still open. No existing Reef behavior is changed by these documents.
+> Status: done. The domain model, memory service and context assembler are built, and their decisions are in [docs/product.md](../product.md#decisions) (the R to number table is in [decisions.md](decisions.md)). This folder is history: it says Feature and channel where Reef did then. What is still open is under Open questions below.
 
 ## Contents
 

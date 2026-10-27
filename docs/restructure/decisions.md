@@ -1,6 +1,29 @@
 # Restructure decisions
 
-Settled in discussion, 2026-10-23. Numbered R1… so they do not collide with `docs/product.md`; they move there when implementation starts. Re-open one only with a new numbered decision and a reason.
+> Status: done. Every decision below is now a numbered decision in [docs/product.md](../product.md#decisions), written in the new terms. This file is history: the wording below is the original, with Feature and channel where they were then. Re-open a decision only with a new numbered decision in `docs/product.md` and a reason.
+
+Settled in discussion, 2026-10-23. Numbered R1… so they do not collide with `docs/product.md`.
+
+| R | Product decision | R | Product decision | R | Product decision |
+| --- | --- | --- | --- | --- | --- |
+| R1 | 96 | R19 | 114 | R37 | 126 |
+| R2 | 97 | R20 | 115 | R38 | 127 |
+| R3 | 98 | R21 | 116 | R39 | 128 |
+| R4 | 99 | R22 | 117 | R40 | 129 |
+| R5 | 100 | R23 | 118 | R41 | 130 |
+| R6 | 101 | R24 | 119 | R42 | 131 |
+| R7 | 102 | R25 | 120 | R43 | 132 |
+| R8 | 103 | R26 | 121 | R44 | 133 |
+| R9 | 104 | R27 | 122 | R45 | 134 |
+| R10 | 105 | R28 | 123 | R46 | 135 |
+| R11 | 106 | R29 | 124 | R47 | 136 |
+| R12 | 107 | R30 | 125 | R48 | 137 |
+| R13 | 108 | R31 | 85 | R49 | 138 |
+| R14 | 109 | R32 | 86 | R50 | 139 |
+| R15 | 110 | R33 | 87 | R51 | 140 |
+| R16 | 111 | R34 | 88 and 92 | R52 | 141 |
+| R17 | 112 | R35 | 89 | R53 | 142 |
+| R18 | 113 | R36 | 85 | R54 | 38 and 69 |
 
 | # | Decision | Why |
 | --- | --- | --- |
