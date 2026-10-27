@@ -57,6 +57,51 @@ func TestRunner_NotesReachTheNextTurnOnce(t *testing.T) {
 	}
 }
 
+func TestRunner_NextPromptNamesAFailedRequestOnce(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionSpace(t, st, f, false)
+	ag := newRecordingAgent()
+	r := NewRunner(st, ag, ch.ID, "lead", "claude", "")
+	r.Memory = testMemory(t, st)
+
+	if err := r.Run(ctx, "[Space 1, message 1]\nhello", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	failed, err := st.CreateDirectMessage(ctx, store.DirectMessage{
+		SpaceID: ch.ID, From: "lead", To: "architect", Body: "Review the plan\nand the tests",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	answered, err := st.CreateDirectMessage(ctx, store.DirectMessage{
+		SpaceID: ch.ID, From: "lead", To: "tester", Body: "Run the checks",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateFailedDirectResponse(ctx, failed.ID, "architect", "failed"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateDirectResponse(ctx, answered.ID, "tester", "green"); err != nil {
+		t.Fatal(err)
+	}
+	for _, text := range []string{"[Space 1, message 2]\nagain", "[Space 1, message 3]\nonce more"} {
+		if err := r.Run(ctx, text, nil, discard); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	want := []string{
+		"[Space 1, message 1]\nhello",
+		"[Space 1, message 2]\nreef wrote: Your direct request to architect failed: Review the plan\n\nagain",
+		"[Space 1, message 3]\nonce more",
+	}
+	if !slices.Equal(ag.prompts, want) {
+		t.Errorf("prompts = %q, want %q", ag.prompts, want)
+	}
+}
+
 func TestRunner_NotesReachARetry(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
