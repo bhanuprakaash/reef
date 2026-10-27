@@ -8,7 +8,7 @@ import { useTeammates } from '@/lib/api/get-teammates';
 import { useTeams } from '@/lib/api/get-teams';
 import { useRunningTurns } from '@/modules/spaces/api/get-turns';
 import { useWorkItems } from '@/modules/work-items/api/get-work-items';
-import { useInbox } from '@/modules/inbox/api/get-inbox';
+import { useNeedsYou } from '@/modules/inbox/api/get-inbox';
 import type { SpacePreview } from '@/types/api';
 import { roleFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
@@ -21,7 +21,7 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
   const workItems = useWorkItems();
   const teams = useTeams();
   const teammates = useTeammates();
-  const inbox = useInbox();
+  const inbox = useNeedsYou();
   const running = useRunningTurns();
 
   const waiting = inbox.data ?? [];

@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { NavLink, useMatch } from 'react-router';
 import { CountBadge } from '@/components/count-badge';
-import { useInbox } from '@/modules/inbox/api/get-inbox';
+import { useNeedsYou } from '@/modules/inbox/api/get-inbox';
 
 function Tab({
   to,
@@ -46,7 +46,7 @@ function Tab({
 }
 
 export function TabBar({ onMenu }: { onMenu: () => void }) {
-  const inbox = useInbox();
+  const inbox = useNeedsYou();
   const inSpace = useMatch('/spaces/:id');
   const inReview = useMatch('/work-items/:id/review');
   if (inSpace || inReview) return null;
