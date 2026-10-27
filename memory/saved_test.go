@@ -24,20 +24,22 @@ func TestSaved(t *testing.T) {
 	other := Ref{Kind: ScopeProject, ID: "7"}
 
 	tests := []struct {
-		name  string
-		scope Ref
-		body  string
-		want  bool
+		name   string
+		scope  Ref
+		body   string
+		except []int64
+		want   bool
 	}{
-		{"accepted", w.Scope, "accepted one", true},
-		{"candidate", w.Scope, "candidate one", true},
-		{"retired", w.Scope, "retired one", false},
-		{"other scope", other, "accepted one", false},
-		{"not exact", w.Scope, "accepted", false},
+		{"accepted", w.Scope, "accepted one", nil, true},
+		{"candidate", w.Scope, "candidate one", nil, true},
+		{"retired", w.Scope, "retired one", nil, false},
+		{"other scope", other, "accepted one", nil, false},
+		{"not exact", w.Scope, "accepted", nil, false},
+		{"only the excepted one", w.Scope, "accepted one", []int64{1}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := s.Saved(ctx, tt.scope, tt.body)
+			got, err := s.Saved(ctx, tt.scope, tt.body, tt.except)
 			if err != nil || got != tt.want {
 				t.Errorf("Saved(%v, %q) = %v, %v, want %v", tt.scope, tt.body, got, err, tt.want)
 			}

@@ -646,3 +646,52 @@ func TestOpen_RefusesNewerMemorySchema(t *testing.T) {
 		t.Fatalf("Open err = %v, want it to contain %q", err, want)
 	}
 }
+
+func TestRetireScope_RejectsCandidatesAndRetiresAcceptedItemsOfOneScope(t *testing.T) {
+	s, _ := openTest(t)
+	ctx := context.Background()
+	gone, kept := Ref{Kind: ScopeWorkItem, ID: "7"}, Ref{Kind: ScopeWorkItem, ID: "70"}
+	remember := func(scope Ref, body string) int64 {
+		res, err := s.Remember(ctx, Writer{Author: "user", Scope: scope}, Note{Kind: KindFact, Body: body})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return res.Item.ID
+	}
+	a, b := remember(gone, "sessions, not JWT"), remember(gone, "tabs")
+	old := remember(gone, "spaces")
+	if err := s.Retire(ctx, old); err != nil {
+		t.Fatal(err)
+	}
+	cand := candidate(t, s, gone, "use sqlite")
+	other, otherCand := remember(kept, "yaml config"), candidate(t, s, kept, "use postgres")
+
+	if err := s.RetireScope(ctx, gone); err != nil {
+		t.Fatal(err)
+	}
+
+	for id, want := range map[int64]string{
+		a: StatusRetired, b: StatusRetired, old: StatusRetired, cand: StatusRejected,
+		other: StatusAccepted, otherCand: StatusCandidate,
+	} {
+		it, err := s.Read(ctx, id)
+		if err != nil || it.Status != want {
+			t.Errorf("item %d = %+v, %v; want status %s", id, it, err, want)
+		}
+	}
+	for _, id := range []int64{a, cand} {
+		if it, _ := s.Read(ctx, id); it.RetiredAt == nil {
+			t.Errorf("item %d has no retired_at", id)
+		}
+	}
+	pending, err := s.Pending(ctx)
+	if err != nil || len(pending) != 1 || pending[0].ID != otherCand {
+		t.Errorf("pending = %+v, %v; want only item %d", pending, err, otherCand)
+	}
+	if items, total, err := s.Newest(ctx, gone, nil, 0); err != nil || len(items) != 0 || total != 0 {
+		t.Errorf("newest = %+v, %d, %v; want none", items, total, err)
+	}
+	if err := s.RetireScope(ctx, gone); err != nil {
+		t.Errorf("second RetireScope: %v", err)
+	}
+}

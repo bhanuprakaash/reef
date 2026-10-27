@@ -3,10 +3,8 @@ package server
 import (
 	"fmt"
 	"net/http"
-	"strings"
 
 	"github.com/bhanuprakaash/reef/memory"
-	"github.com/bhanuprakaash/reef/store"
 )
 
 type memoryIn struct {
@@ -24,18 +22,10 @@ func (s *server) memoryRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/memory/{id}/retire", methodNotAllowed)
 }
 
-func parseScope(v string) (memory.Ref, error) {
-	kind, id, ok := strings.Cut(v, ":")
-	if !ok || kind == "" || id == "" {
-		return memory.Ref{}, fmt.Errorf("%w: scope %q is not kind:id", store.ErrInvalid, v)
-	}
-	return memory.Ref{Kind: kind, ID: id}, nil
-}
-
 func (s *server) listMemory(w http.ResponseWriter, r *http.Request) {
-	scope, err := parseScope(r.URL.Query().Get("scope"))
+	scope, err := memory.ParseRef(r.URL.Query().Get("scope"))
 	if err != nil {
-		writeError(w, err)
+		writeError(w, fmt.Errorf("scope: %w", err))
 		return
 	}
 	items, _, err := s.ms.Newest(r.Context(), scope, nil, 0)
@@ -56,9 +46,9 @@ func (s *server) createMemory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	scope, err := parseScope(in.Scope)
+	scope, err := memory.ParseRef(in.Scope)
 	if err != nil {
-		writeError(w, err)
+		writeError(w, fmt.Errorf("scope: %w", err))
 		return
 	}
 	res, err := s.ms.Remember(r.Context(),

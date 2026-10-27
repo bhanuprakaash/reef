@@ -75,6 +75,30 @@ func TestDeleteProject_RemovesWorktreesAndCheckpointRefs(t *testing.T) {
 	}
 }
 
+func TestDeleteProject_RetiresTheMemoryItemsOfItsScopes(t *testing.T) {
+	env, login := rollbackEnv(t)
+	projectTrees(t, env, login)
+	gitIn(t, login, "add", ".")
+	gitIn(t, login, "commit", "-m", "work")
+	proj := seedMemory(t, env, "project:2")
+	login1 := seedMemory(t, env, "work_item:1")
+	signup := seedMemory(t, env, "work_item:2")
+	scratch := seedMemory(t, env, "project:1")
+
+	if status, body := do(t, http.MethodDelete, env.url+"/projects/2", ""); status != 204 || body != "" {
+		t.Fatalf("delete = %d %q, want 204", status, body)
+	}
+
+	for _, ids := range [][]int64{proj, login1, signup} {
+		wantStatuses(t, env, ids, "retired", "retired", "rejected")
+	}
+	wantStatuses(t, env, scratch, "accepted", "accepted", "candidate")
+	pending, err := env.h.s.ms.Pending(context.Background())
+	if err != nil || len(pending) != 1 || pending[0].ID != scratch[2] {
+		t.Errorf("pending = %+v, %v; want only item %d", pending, err, scratch[2])
+	}
+}
+
 func TestDeleteProject_FolderGoneRemovesRowsAndWorktrees(t *testing.T) {
 	env, login := rollbackEnv(t)
 	_, signup := projectTrees(t, env, login)

@@ -42,7 +42,7 @@ type Runner struct {
 	// session. It is built after the turn's start is stamped, so what is written after it is
 	// in the prompt or the next delta.
 	FirstPrompt func(ctx context.Context) (string, error)
-	// Memory is read for the delta of a feature's channel.
+	// Memory is read for the delta of a channel.
 	Memory *memory.Store
 	// OnNote, when set, is called after the watch posts a message, so a window shows it.
 	OnNote func()
@@ -356,12 +356,12 @@ func (r *Runner) wake(text string) string {
 	return text
 }
 
-// delta is what changed in the channel's feature since the session was last sent a prompt. It
-// is empty for a channel without a feature and for a session that has been sent none. A turn
+// delta is what changed in the channel's memory scopes since the session was last sent a prompt.
+// It is empty for a session that has been sent none. A turn
 // that failed before it sent told the agent nothing, so it does not move the point.
 func (r *Runner) delta(ctx context.Context) (string, error) {
 	ch, err := r.st.Channel(ctx, r.channelID)
-	if err != nil || ch.FeatureID == nil || r.sessionID == "" {
+	if err != nil || r.sessionID == "" {
 		return "", err
 	}
 	since, ok, err := r.st.LastSentAt(ctx, ch.ID, r.role, r.sessionID)
@@ -384,7 +384,8 @@ func (r *Runner) checkpointRef(turnID int64) (string, error) {
 
 // abort interrupts the agent and stores turn as failed with reason, keeping the reply
 // streamed so far in the thread of parent. It returns cause joined with the errors of those
-// steps. Usage the agent left in Events while stopping counts to the turn.
+// steps. Usage the agent left in Events while stopping counts to the turn, and a compaction
+// there is kept like one during the turn.
 func (r *Runner) abort(
 	ctx context.Context, turn store.Turn, cause error, reason, reply string, parent *int64,
 ) error {
@@ -396,8 +397,11 @@ drain:
 			if !ok {
 				break drain
 			}
-			if ev.Kind == agent.KindUsage && ev.Usage != nil {
+			switch {
+			case ev.Kind == agent.KindUsage && ev.Usage != nil:
 				turn.Usage.Add(*ev.Usage)
+			case ev.Kind == agent.KindCompacted:
+				turn.Compacted, r.firstPromptSent = true, false
 			}
 		default:
 			break drain

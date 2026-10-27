@@ -493,8 +493,8 @@ tool calls.
 | `GET /projects/{id}` | | 200 | 404 |
 | `PUT /projects/{id}` | `name`, `path`, `baseBranch` (optional; the branch a new feature starts from and its PRs target; empty means the repo's default branch) | 200 | 400 (same `path` rule, or a `baseBranch` that is not a branch name), 404 |
 | `DELETE /projects/{id}` | | 204; the worktrees of its features and the checkpoint refs of the turns of all its channels are removed, its branches are kept | 404, 409 a feature's worktree has uncommitted changes (nothing is removed) |
-| `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set | 404 |
-| `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200 | 404 |
+| `GET /projects/{id}/memory` | | 200; `body` is `""` when none has been set. Unused since decision 91 | 404 |
+| `PUT /projects/{id}/memory` | `body`; replaces the old memory | 200. Unused since decision 91 | 404 |
 | `GET /profile` | | 200 | 404 no name set yet |
 | `PUT /profile` | `name`, `occupation`, `style`; replaces the old profile | 200 | 400 empty name or a line break in a field |
 | `GET /features` | `?project=ID` | 200 | 400 bad id |
@@ -507,9 +507,9 @@ tool calls.
 | `GET /features/{id}/brief` | | 200 latest version | 404 no feature, or no brief yet |
 | `PUT /features/{id}/brief` | `body`, `author` | 201 new version | 400, 404 |
 | `GET /features/{id}/brief/versions` | | 200 oldest first | 404 |
-| `GET /features/{id}/notes/{role}` | | 200 | 404 no feature, or no notes for the role |
-| `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200 | 404 no feature |
-| `DELETE /features/{id}/notes/{role}` | | 204 | 404 no feature, or no notes for the role |
+| `GET /features/{id}/notes/{role}` | | 200. Unused since decision 91 | 404 no feature, or no notes for the role |
+| `PUT /features/{id}/notes/{role}` | `body`; replaces the old notes | 200. Unused since decision 91 | 404 no feature |
+| `DELETE /features/{id}/notes/{role}` | | 204. Unused since decision 91 | 404 no feature, or no notes for the role |
 | `GET /features/{id}/worktree` | | 200 `{"path": "..."}`; the path of the feature's worktree, or `""` when it has none yet. Never makes one | 404 |
 | `POST /features/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the feature's worktree the same way the first wake of one of its channels would, reusing it when it already exists | 404 |
 | `GET /features/{id}/diff` | query `scope=current` for the changes against the worktree's HEAD only | 200 the worktree's changes against the commit its branch and the project's base branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the feature has no worktree yet | 404 |
@@ -558,9 +558,9 @@ tool calls.
 | `GET /inbox/events` | | 200 `text/event-stream` | |
 | `POST /channels/{id}/dismiss` | `messageId` | 204, no body; the channel's `waiting` item for that message is hidden, see [Inbox](#inbox) | 400 bad body, 404 unknown channel or a message that is not the channel's |
 | `POST /turns/{id}/rollback` | no body needed | 204, no body; the channel's worktree is as it was before the turn, and `reef` posts `Rolled back to before turn N.` | 400 the turn has no `checkpoint`, 404, 409 the channel has a turn running, a `reef chat` has it open, its tree is not the one the checkpoint was taken in, or a turn of any role runs on the tree, 503 |
-| `GET /decisions` | `?feature=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy` | 400 no feature, 404 unknown feature |
-| `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author`, `replaces` | 201 | 400 missing field, unknown feature, a message of another feature, or a `replaces` id that is not a live decision of the feature |
-| `GET /decisions/{id}` | | 200 | 404 |
+| `GET /decisions` | `?feature=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy`. Unused since decision 91 | 400 no feature, 404 unknown feature |
+| `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author`, `replaces` | 201. Unused since decision 91 | 400 missing field, unknown feature, a message of another feature, or a `replaces` id that is not a live decision of the feature |
+| `GET /decisions/{id}` | | 200. Unused since decision 91 | 404 |
 | `GET /memory` | `?scope=KIND:ID` (required, such as `work_item:3` or `project:1`) | 200 the accepted items of that scope, the most recently accepted first, as objects (`id`, `kind`, `body`, `why`, `scope`, `author`, `role`, `status`, `retiredAt`, `replacedBy`, `createdAt`; no `links`); `[]` when none | 400 no scope or one that is not `kind:id` |
 | `POST /memory` | `kind`, `body`, `why`, `scope` (`KIND:ID`) | 201 the item as for `GET /memory`, written with author and role `user`, so always accepted, plus `similar` (`[{id, body}]`, stored items that look like it) and `embedError` (why no vector was stored), each left out when empty | 400 unknown kind or scope kind, empty body, bad scope |
 | `POST /memory/{id}/retire` | no body needed | 204, no body; sets `retiredAt` | 400 not an accepted item (already retired, a candidate), 404 |
@@ -677,12 +677,17 @@ a message wakes them.
   failure there leaves refs that no turn points to, and the delete is 500. The branch
   `feature/<slug>` is kept: it is the user's work. A feature with no worktree folder (no agent
   ever started) only has its rows deleted. Deleting a channel keeps worktrees and refs.
+  Right after the rows go, the memory items of the feature's `work_item:<id>` scope are
+  closed: pending candidates are rejected and accepted items retired, so nothing of it is left
+  in `reef memory pending`. Retired and rejected items are kept and still read.
 - `DELETE /projects/{id}` does the same for every feature of the project, and deletes the
   checkpoint refs of the turns of every channel of the project, quick sessions included (their
   refs are taken in the project folder). It checks every worktree first: one with uncommitted
   changes is 409 for that feature, and nothing is removed. Then it removes all worktrees,
   deletes the project rows, and last deletes the refs, in the same order and with the same
-  failure rule as a feature delete. Branches are kept.
+  failure rule as a feature delete. Branches are kept. Its memory items are closed the same
+  way, in the project's `project:<id>` scope and in the `work_item:<id>` scope of each of its
+  features.
 - The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session. A background task a specialist started ends with its agent, and its

@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
-	"sync"
 
 	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/memory"
@@ -116,7 +115,9 @@ func (s *server) approveProposal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.approveMu.Lock()
 	a, err := ApproveProposal(r.Context(), s.st, s.ms, id)
+	s.approveMu.Unlock()
 	if err != nil {
 		writeError(w, err)
 		return
@@ -133,8 +134,6 @@ func (s *server) approveProposal(w http.ResponseWriter, r *http.Request) {
 	}{a.Proposal, a.Added, a.Warnings})
 }
 
-var _approveMu sync.Mutex
-
 // Approval is what approving a proposal did: how many memory items it saved, and a line for
 // each saved item that looks like a stored one or whose vector was not stored.
 type Approval struct {
@@ -148,12 +147,11 @@ type Approval struct {
 // retires its retire ids, skipping any already retired; only then does the store save the
 // brief, close the channel and mark the proposal approved, in one transaction. It is not one
 // transaction as a whole: a failure leaves the proposal pending and the channel open, and
-// approving again saves each item once.
+// approving again saves each item once. Two approves of one proposal at once can both save its
+// items; the REST handler serializes them.
 func ApproveProposal(
 	ctx context.Context, st *store.Store, ms *memory.Store, id int64,
 ) (Approval, error) {
-	_approveMu.Lock()
-	defer _approveMu.Unlock()
 	p, err := st.Proposal(ctx, id)
 	if err != nil {
 		return Approval{}, err
@@ -198,13 +196,6 @@ func saveItems(
 		if i < 0 {
 			return added, warnings, fmt.Errorf("%w: scope %q is not one of the channel's", store.ErrInvalid, it.Scope)
 		}
-		saved, err := ms.Saved(ctx, scopes[i], it.Body)
-		if err != nil {
-			return added, warnings, err
-		}
-		if saved {
-			continue
-		}
 		replaces := make([]int64, 0, len(it.Replaces))
 		for _, rid := range it.Replaces {
 			old, err := ms.Read(ctx, rid)
@@ -214,6 +205,17 @@ func saveItems(
 			if old.Status == memory.StatusAccepted {
 				replaces = append(replaces, rid)
 			}
+		}
+		saved, err := ms.Saved(ctx, scopes[i], it.Body, p.Retire)
+		if err != nil {
+			return added, warnings, err
+		}
+		if saved {
+			for _, rid := range replaces {
+				warnings = append(warnings,
+					fmt.Sprintf("memory %d not replaced: item %q already saved", rid, it.Body))
+			}
+			continue
 		}
 		res, err := ms.Remember(ctx,
 			memory.Writer{

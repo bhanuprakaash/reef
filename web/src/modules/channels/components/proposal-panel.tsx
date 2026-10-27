@@ -31,7 +31,14 @@ export function ProposalPanel({
       if (decide.data.kind === 'brief')
         return <p className="text-sm text-done">approved: brief saved</p>;
       return (
-        <p className="text-sm text-done">approved: {decide.data.itemsAdded ?? 0} items saved</p>
+        <div className="space-y-1">
+          <p className="text-sm text-done">approved: {decide.data.itemsAdded ?? 0} items saved</p>
+          {decide.data.warnings?.map((w, i) => (
+            <p key={i} className="text-sm text-muted">
+              {w}
+            </p>
+          ))}
+        </div>
       );
     }
     if (decide.data?.status === 'rejected') return <p className="text-sm text-muted">rejected</p>;

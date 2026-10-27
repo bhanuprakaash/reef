@@ -43,11 +43,11 @@ func TestRecall_NoneEmbedderIsSearchPlusExpansion(t *testing.T) {
 	s, _ := openTest(t)
 	shelf := Ref{Kind: ScopeProject, ID: "1"}
 	elsewhere := Ref{Kind: ScopeProject, ID: "2"}
-	task := Ref{Kind: ScopeWorkItem, ID: "12"}
+	task := Ref{Kind: "file", ID: "12"}
 	put(t, s, shelf, Note{Body: "cache the token", About: []Ref{task}})
 	put(t, s, shelf, Note{Body: "refresh before expiry", About: []Ref{task}})
 	put(t, s, shelf, Note{Body: "cache the session"})
-	put(t, s, shelf, Note{Body: "unrelated deploy note", About: []Ref{{Kind: ScopeWorkItem, ID: "99"}}})
+	put(t, s, shelf, Note{Body: "unrelated deploy note", About: []Ref{{Kind: "file", ID: "99"}}})
 	put(t, s, elsewhere, Note{Body: "rotate keys", About: []Ref{task}})
 
 	scopes := []Ref{shelf}
@@ -60,7 +60,7 @@ func TestRecall_NoneEmbedderIsSearchPlusExpansion(t *testing.T) {
 	if got := hitIDs(hits); !reflect.DeepEqual(got, want) || !reflect.DeepEqual(want, []int64{3, 1, 2}) {
 		t.Fatalf("ids = %v, want search ids + expansion %v", got, want)
 	}
-	if got, want := vias(hits), []string{"direct", "direct", "about work_item:12"}; !reflect.DeepEqual(got, want) {
+	if got, want := vias(hits), []string{"direct", "direct", "about file:12"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("via = %v, want %v", got, want)
 	}
 	if h := hits[2]; h.Kind != KindFinding || h.Body != "refresh before expiry" ||
@@ -143,19 +143,61 @@ func TestRecall_ExpansionSkipsHubs(t *testing.T) {
 	for i := 1; i <= 50; i++ {
 		put(t, s, shelf, Note{
 			Body:  fmt.Sprintf("entry %d", i),
-			About: []Ref{shelf, {Kind: ScopeWorkItem, ID: fmt.Sprint(i)}},
+			About: []Ref{shelf, {Kind: "file", ID: fmt.Sprint(i)}},
 		})
 	}
 	put(t, s, shelf, Note{
-		Body: "unrelated words", About: []Ref{{Kind: ScopeWorkItem, ID: "7"}},
+		Body: "unrelated words", About: []Ref{{Kind: "file", ID: "7"}},
 	})
 
 	hits := recall(t, s, Query{Scopes: []Ref{shelf}, Text: "7", Limit: 100})
 	if got, want := hitIDs(hits), []int64{7, 51}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("ids = %v, want %v", got, want)
 	}
-	if got, want := vias(hits), []string{"direct", "about work_item:7"}; !reflect.DeepEqual(got, want) {
+	if got, want := vias(hits), []string{"direct", "about file:7"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("via = %v, want %v", got, want)
+	}
+}
+
+func TestRecall_ExpansionSkipsSourceLinks(t *testing.T) {
+	s, _ := openTest(t)
+	shelf := Ref{Kind: ScopeProject, ID: "1"}
+	from := func(channel, body string) {
+		t.Helper()
+		w := Writer{
+			Author: "ada", Role: "developer", Scope: shelf,
+			Links: []Link{{Rel: RelSource, ToKind: "channel", ToID: channel}},
+		}
+		if _, err := s.Remember(context.Background(), w, Note{Kind: KindFinding, Body: body}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	from("100", "login tokens expire after an hour")
+	from("101", "login needs the session cookie")
+	from("102", "login retries stop after three tries")
+	for i := 1; i <= 8; i++ {
+		from("100", fmt.Sprintf("deploy note %d", i))
+	}
+
+	hits := recall(t, s, Query{Scopes: []Ref{shelf}, Text: "login", Limit: 5})
+	if got, want := hitIDs(hits), []int64{2, 3, 1}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ids = %v, want %v", got, want)
+	}
+	if got, want := vias(hits), []string{"direct", "direct", "direct"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("via = %v, want %v", got, want)
+	}
+}
+
+func TestRecall_ExpansionSkipsWorkItems(t *testing.T) {
+	s, _ := openTest(t)
+	shelf := Ref{Kind: ScopeProject, ID: "1"}
+	task := Ref{Kind: ScopeWorkItem, ID: "3"}
+	put(t, s, shelf, Note{Body: "cache the token", About: []Ref{task}})
+	put(t, s, shelf, Note{Body: "refresh before expiry", About: []Ref{task}})
+
+	hits := recall(t, s, Query{Scopes: []Ref{shelf}, Text: "cache"})
+	if got, want := hitIDs(hits), []int64{1}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("ids = %v, want %v", got, want)
 	}
 }
 
@@ -189,7 +231,7 @@ func TestRecall_LiveBeforeNewerRetiredOnEqualScore(t *testing.T) {
 func TestRecall_NeverExceedsLimit(t *testing.T) {
 	s, _ := openTest(t)
 	shelf := Ref{Kind: ScopeProject, ID: "1"}
-	task := Ref{Kind: ScopeWorkItem, ID: "1"}
+	task := Ref{Kind: "file", ID: "1"}
 	for i := 1; i <= 15; i++ {
 		put(t, s, shelf, Note{Body: fmt.Sprintf("cache entry %d", i), About: []Ref{task}})
 	}

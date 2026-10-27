@@ -76,6 +76,15 @@ var (
 // Ref points at a target by kind and id; nothing checks that it exists.
 type Ref struct{ Kind, ID string }
 
+// ParseRef reads a Ref written as kind:id.
+func ParseRef(s string) (Ref, error) {
+	kind, id, ok := strings.Cut(s, ":")
+	if !ok || kind == "" || id == "" {
+		return Ref{}, fmt.Errorf("%w: %q is not kind:id", ErrInvalid, s)
+	}
+	return Ref{Kind: kind, ID: id}, nil
+}
+
 // Link is one edge from an item to a target.
 type Link struct{ Rel, ToKind, ToID string }
 
@@ -243,6 +252,20 @@ func (s *Store) Retire(ctx context.Context, id int64) error {
 	return retire(ctx, s.db, id, nil, time.Now().UTC().Format(time.RFC3339Nano))
 }
 
+// RetireScope rejects the pending candidates and retires the accepted items of one scope,
+// all or nothing. Items already retired or rejected are left as they are.
+func (s *Store) RetireScope(ctx context.Context, scope Ref) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE memory SET status = CASE status WHEN ? THEN ? ELSE ? END, retired_at = ?
+		 WHERE scope_kind = ? AND scope_id = ? AND status IN (?, ?)`,
+		StatusCandidate, StatusRejected, StatusRetired, time.Now().UTC().Format(time.RFC3339Nano),
+		scope.Kind, scope.ID, StatusCandidate, StatusAccepted)
+	if err != nil {
+		return fmt.Errorf("retire scope %s:%s: %w", scope.Kind, scope.ID, err)
+	}
+	return nil
+}
+
 // Accept moves a candidate to accepted and retires the items it replaces, skipping any
 // already retired.
 func (s *Store) Accept(ctx context.Context, id int64) error {
@@ -326,6 +349,11 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
+// _acceptedOrder sorts accepted_at newest first. The stored text drops trailing zeros of the
+// fraction, so the fraction is padded to nine digits; julianday would round it to milliseconds.
+const _acceptedOrder = `substr(accepted_at, 1, 19) DESC,
+	substr(rtrim(substr(accepted_at, 21), 'Z') || '000000000', 1, 9) DESC, id DESC`
+
 // Newest returns the most recently accepted items in scope, of any of kinds (any kind when
 // empty), latest first, and how many accepted items match in all. A limit of 0 or less returns every
 // match. The items carry no links.
@@ -349,7 +377,7 @@ func (s *Store) Newest(
 		limit = -1
 	}
 	rows, err := s.db.QueryContext(ctx,
-		_selectItem+where+` ORDER BY accepted_at DESC, id DESC LIMIT ?`, append(args, limit)...)
+		_selectItem+where+` ORDER BY `+_acceptedOrder+` LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query newest: %w", err)
 	}

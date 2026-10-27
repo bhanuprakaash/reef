@@ -23,6 +23,11 @@ export type MemoryItem = {
   createdAt: string;
 };
 
+export type MemoryAdded = MemoryItem & {
+  similar?: { id: number; body: string }[];
+  embedError?: string;
+};
+
 export type FeatureKind = 'journey' | 'fixes';
 
 export type Feature = {

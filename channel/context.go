@@ -24,6 +24,8 @@ const (
 	_toolsLine     = "Details are on demand through the reef MCP tools recall, read_memory, " +
 		"read_thread, list_tasks and search_sessions. Record decisions with remember. When the " +
 		"user and the team agree on the goal, scope or plan, call propose_brief."
+	_quickToolsLine = "Details are on demand through the reef MCP tools recall and read_memory. " +
+		"Save what holds across the project or for you with remember, scope project or teammate."
 )
 
 var _findingKinds = []string{
@@ -100,6 +102,7 @@ func firstPrompt(
 		fmt.Fprintf(&b, "You are the %s in project %q (%s).\n"+
 			"This is a quick session: it has no feature yet, so there is no brief or feature items.\n",
 			r.Name, p.Name, p.Path)
+		how += _quickToolsLine + "\n"
 		b.WriteString(who)
 		if know, err = itemParts(ctx, ms, nil, ch, r.Name); err != nil {
 			return "", err
@@ -254,12 +257,15 @@ func changedSince(
 		}
 		lines = append(lines, line+".")
 	}
-	brief, err := st.Brief(ctx, *ch.FeatureID)
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return "", err
-	}
-	if !brief.CreatedAt.After(since) {
-		brief.Body = ""
+	var brief store.Brief
+	if ch.FeatureID != nil {
+		brief, err = st.Brief(ctx, *ch.FeatureID)
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			return "", err
+		}
+		if !brief.CreatedAt.After(since) {
+			brief.Body = ""
+		}
 	}
 	var parts []string
 	parts = appendPart(parts, "Changed since your last turn", strings.Join(lines, "\n"))

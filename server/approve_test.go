@@ -3,7 +3,10 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http/httptest"
 	"reflect"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -272,7 +275,7 @@ func (slowEmbedder) Embed(context.Context, string) ([]float32, error) {
 
 func (slowEmbedder) MinCosine() float64 { return 0 }
 
-func TestApproveProposalTwiceAtOnceSavesEachItemOnce(t *testing.T) {
+func TestApproveProposalRESTTwiceAtOnceSavesEachItemOnce(t *testing.T) {
 	st, tok := mcpFixture(t)
 	call := callTool(t, st, tok)
 	call("remember", map[string]any{"kind": "fact", "body": "old"})
@@ -291,29 +294,123 @@ func TestApproveProposalTwiceAtOnceSavesEachItemOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	errs := make(chan error, 2)
+	h := New(st, ms, t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	replies := make(chan string, 2)
 	var wg sync.WaitGroup
 	for range 2 {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			_, err := ApproveProposal(context.Background(), st, ms, 1)
-			errs <- err
+			status, body := do(t, "POST", ts.URL+"/proposals/1/approve", "")
+			replies <- fmt.Sprintf("%d %s", status, body)
 		}()
 	}
 	wg.Wait()
-	close(errs)
+	close(replies)
 
 	var failed []string
-	for err := range errs {
-		if err != nil {
-			failed = append(failed, err.Error())
+	for r := range replies {
+		if strings.HasPrefix(r, "400") {
+			failed = append(failed, r)
 		}
 	}
-	if want := []string{"invalid: proposal 1 is already approved"}; !reflect.DeepEqual(failed, want) {
-		t.Errorf("failed approves = %q, want %q", failed, want)
+	if want := []string{`400 {"error":"invalid: proposal 1 is already approved"}`}; !reflect.DeepEqual(failed, want) {
+		t.Errorf("rejected approves = %q, want %q", failed, want)
 	}
 	if n := countMemory(t, st); n != 3 {
 		t.Errorf("memory rows = %d, want 3: the old one and each item once", n)
+	}
+}
+
+func TestApproveProposalWarnsWhenASkippedItemDropsItsReplaces(t *testing.T) {
+	st, tok := mcpFixture(t)
+	call := callTool(t, st, tok)
+	call("remember", map[string]any{"kind": "fact", "body": "sessions last a day"})
+	call("remember", map[string]any{"kind": "decision", "body": "use sessions"})
+	if got, isErr := call("propose_wrap", map[string]any{
+		"brief": "v2",
+		"items": []any{map[string]any{
+			"kind": "decision", "body": "use sessions", "replaces": []any{1},
+		}},
+	}); isErr {
+		t.Fatalf("propose_wrap = %q", got)
+	}
+
+	a, err := ApproveProposal(context.Background(), st, openMemory(t, st), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{`memory 1 not replaced: item "use sessions" already saved`}
+	if a.Added != 0 || !reflect.DeepEqual(a.Warnings, want) {
+		t.Errorf("approve = added %d, warnings %q, want 0 and %q", a.Added, a.Warnings, want)
+	}
+}
+
+func TestApproveProposalKeepsAnItemItsOwnProposalRetires(t *testing.T) {
+	rows := func(t *testing.T, st *store.Store) []string {
+		t.Helper()
+		r, err := st.DB().Query("SELECT id || ' ' || body || ' ' || status FROM memory ORDER BY id")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close()
+		var out []string
+		for r.Next() {
+			var s string
+			if err := r.Scan(&s); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, s)
+		}
+		return out
+	}
+	propose := func(t *testing.T) *store.Store {
+		t.Helper()
+		st, tok := mcpFixture(t)
+		call := callTool(t, st, tok)
+		call("remember", map[string]any{"kind": "decision", "body": "use sessions"})
+		if got, isErr := call("propose_wrap", map[string]any{
+			"brief": "v2",
+			"items": []any{
+				map[string]any{"kind": "decision", "body": "use sessions"},
+				map[string]any{"kind": "fact", "body": "login at /in"},
+			},
+			"retire": []any{1},
+		}); isErr {
+			t.Fatalf("propose_wrap = %q", got)
+		}
+		return st
+	}
+	want := []string{
+		"1 use sessions retired", "2 use sessions accepted", "3 login at /in accepted",
+	}
+
+	clean := propose(t)
+	if _, err := ApproveProposal(context.Background(), clean, openMemory(t, clean), 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := rows(t, clean); !reflect.DeepEqual(got, want) {
+		t.Errorf("clean approve memory = %q, want %q", got, want)
+	}
+
+	retried := propose(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ms, err := memory.Open(retried.DB(), &cancelEmbedder{cancel: cancel, at: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApproveProposal(ctx, retried, ms, 1); err == nil {
+		t.Fatal("first approve succeeded, want it to fail on the second item")
+	}
+	if _, err := ApproveProposal(context.Background(), retried, ms, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := rows(t, retried); !reflect.DeepEqual(got, want) {
+		t.Errorf("retried approve memory = %q, want %q", got, want)
 	}
 }
