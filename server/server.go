@@ -64,7 +64,7 @@ type Handler struct {
 func New(st *store.Store, ms *memory.Store, dataDir, exe string) *Handler {
 	trees := channel.NewTrees(dataDir)
 	return newHandler(st, ms, dataDir, trees, func(ctx context.Context, channelID int64) (session, error) {
-		sess, err := channel.Open(ctx, st, dataDir, exe, channelID, trees, channel.NewAgent)
+		sess, err := channel.Open(ctx, st, ms, dataDir, exe, channelID, trees, channel.NewAgent)
 		if err != nil {
 			return nil, err
 		}

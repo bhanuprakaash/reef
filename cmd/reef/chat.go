@@ -60,6 +60,10 @@ func chatCmd(
 	if err != nil {
 		return fmt.Errorf("find reef path: %w", err)
 	}
+	ms, err := openMemory(ctx, st)
+	if err != nil {
+		return err
+	}
 
 	if !resuming {
 		f, err := st.FeatureByRef(ctx, pos[0])
@@ -91,7 +95,7 @@ func chatCmd(
 				ch.ID, team.Name)
 		}
 	}
-	sess, err := channel.Open(ctx, st, dir, exe, *channelID, channel.NewTrees(dir), channel.NewAgent)
+	sess, err := channel.Open(ctx, st, ms, dir, exe, *channelID, channel.NewTrees(dir), channel.NewAgent)
 	if err == nil {
 		if err = sess.Start(ctx); err != nil {
 			_ = sess.Close()

@@ -15,9 +15,10 @@ so that the next session can continue, and the history of why things were done g
 Reef has no handoff file. A new session starts with three things:
 
 - The feature's brief: goal, status, key decisions, open questions.
-- The role's own notes on the feature.
-- An index: one line per live decision and per task in progress, and a count of the other open tasks and
-  of the earlier channels. Retired decisions are left out.
+- Memory items: every live decision of the feature and the newest findings, project, team and
+  teammate items, each part with a count of how many exist.
+- An index: one line per task in progress, and a count of the other open tasks and of the earlier
+  channels.
 
 It never gets old message bodies. When it needs details, it fetches them on demand with
 the MCP tools (`recall`, `read_memory`, `read_thread`, `list_tasks`, `search_sessions`). So the first prompt
@@ -320,18 +321,28 @@ no `No brief yet.`, no `No notes yet.` and no `none`. A section with no part lef
      `list_tasks`, `search_sessions`), `remember` and `propose_brief`. Those tools need a
      feature, so a quick session gets no such line, and a quick session with a team of one has no `## How to work` at all.
 3. `## What we know`, each part under a `###` label and only when it has content:
-   - `### Brief`: the latest brief.
-   - `### Project memory`: the project's memory (see [server.md](server.md#project_memory)). A
-     quick session has only this part.
-   - `### Your notes`: this role's notes.
-   - `### Decisions`: one line for each live decision: id, the first line of the body cut at 100
-     characters with `…`, author, date. Retired decisions are left out.
+   - `### Brief`: the latest brief, in full. Features only.
+   - `### Decisions`: every live decision item in the feature's `work_item` scope, newest first,
+     with no limit. Features only.
+   - `### Findings`: the 5 newest accepted findings, facts, conventions and lessons in the
+     feature's `work_item` scope. Features only.
+   - `### Project`: the 10 newest accepted items in the project's scope.
+   - `### Team`: the 5 newest accepted items in the team's scope, only when the channel has a
+     team. `reef context` has no team and prints none.
+   - `### Your items`: the 5 newest accepted items in the role's `teammate` scope.
    - `### Doing`: one line `task N: title` for each task in status `doing`.
    - `### On demand`: one line that counts what the role can look up:
      `23 open tasks (list_tasks). 3 earlier channels (search_sessions).` Open tasks are those not
      `done`; earlier channels are the feature's channels that have messages, not counting the
      channel the prompt is for. A count of one reads `1 open task` and `1 earlier channel`. A zero
      count is left out of the line, and the part is left out when both are zero.
+
+   Only accepted items are read: a candidate, a rejected item and a retired item never appear.
+   Each line reads `kind id: first line of the body (author, date)`,
+   the line cut at 100 characters with `…`. Findings, Project, Team and Your items end with
+   `N of M; recall(..., scope=<kind>)`, where N is the lines shown and M the accepted items in
+   that scope, so the agent knows to recall the rest. A quick session has only Project, Team
+   and Your items. The old decision, notes and project memory tables are not read.
 
 Example, for a feature with one approved wrap-up, asked by the developer of a team of two:
 
@@ -353,14 +364,20 @@ Status: ideation. No implementation yet.
 Key decisions: Lock account after 5 failed logins (decision 1).
 Open questions: lockout duration and unlock method.
 
-### Project memory
-Sessions are stored server-side, not JWT.
-
-### Your notes
-Only the lockout threshold is decided so far. Nothing built.
-
 ### Decisions
 decision 1: Lock an account after 5 failed logins. (developer, 2026-10-13)
+
+### Findings
+finding 4: The mail provider rate-limits to 10 sends a minute. (developer, 2026-10-14)
+1 of 1; recall(..., scope=work_item)
+
+### Project
+convention 2: Sessions are stored server-side, not JWT. (architect, 2026-10-12)
+1 of 1; recall(..., scope=project)
+
+### Your items
+lesson 3: Ask before adding a dependency. (developer, 2026-10-12)
+1 of 1; recall(..., scope=teammate)
 
 ### Doing
 task 2: Build the login form

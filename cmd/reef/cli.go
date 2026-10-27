@@ -275,7 +275,11 @@ func contextCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	out, err := channel.Context(ctx, st, f.ID, *role)
+	ms, err := openMemory(ctx, st)
+	if err != nil {
+		return err
+	}
+	out, err := channel.Context(ctx, st, ms, f.ID, *role)
 	if err != nil {
 		return err
 	}

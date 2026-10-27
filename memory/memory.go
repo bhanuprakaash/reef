@@ -318,6 +318,48 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
+// Newest returns the newest accepted items in scope, of any of kinds (any kind when empty),
+// newest first, and how many accepted items match in all. A limit of 0 or less returns every
+// match. The items carry no links.
+func (s *Store) Newest(
+	ctx context.Context, scope Ref, kinds []string, limit int,
+) ([]Item, int, error) {
+	where := ` WHERE status = ? AND scope_kind = ? AND scope_id = ?`
+	args := []any{StatusAccepted, scope.Kind, scope.ID}
+	if len(kinds) > 0 {
+		where += ` AND kind IN (?` + strings.Repeat(", ?", len(kinds)-1) + `)`
+		for _, k := range kinds {
+			args = append(args, k)
+		}
+	}
+	var total int
+	if err := s.db.QueryRowContext(ctx, `SELECT COUNT(*) FROM memory`+where, args...).
+		Scan(&total); err != nil {
+		return nil, 0, fmt.Errorf("count newest: %w", err)
+	}
+	if limit <= 0 {
+		limit = -1
+	}
+	rows, err := s.db.QueryContext(ctx,
+		_selectItem+where+` ORDER BY id DESC LIMIT ?`, append(args, limit)...)
+	if err != nil {
+		return nil, 0, fmt.Errorf("query newest: %w", err)
+	}
+	defer rows.Close()
+	var items []Item
+	for rows.Next() {
+		it, err := scanItem(rows)
+		if err != nil {
+			return nil, 0, err
+		}
+		items = append(items, it)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, fmt.Errorf("scan newest: %w", err)
+	}
+	return items, total, nil
+}
+
 func statusFor(w Writer, n Note) string {
 	if n.NeedsApproval {
 		return StatusCandidate

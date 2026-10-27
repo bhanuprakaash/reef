@@ -3,11 +3,13 @@ package channel
 import (
 	"context"
 	"errors"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -173,7 +175,8 @@ func TestWakeAs_DecisionWrittenWhileAWriterHoldsTheTreeIsInTheFirstPrompt(t *tes
 	case err := <-done:
 		t.Fatalf("wake ended before its agent started: %v", err)
 	}
-	decide(t, e, "lead", "Use WAL")
+	remember(t, e.s.ms, memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*e.ch.FeatureID, 10)},
+		memory.KindDecision, "lead", "Use WAL")
 	day := time.Now().UTC().Format(_dateLayout)
 	unlock()
 	if err := <-done; err != nil {

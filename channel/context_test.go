@@ -3,9 +3,11 @@ package channel
 import (
 	"context"
 	"os/exec"
+	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -40,6 +42,42 @@ func openStore(t *testing.T) (*store.Store, store.Feature) {
 	return st, f
 }
 
+func testMemory(t *testing.T, st *store.Store) *memory.Store {
+	t.Helper()
+	ms, err := memory.Open(st.DB(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ms
+}
+
+func remember(
+	t *testing.T, ms *memory.Store, scope memory.Ref, kind, author, body string,
+) memory.Item {
+	t.Helper()
+	r, err := ms.Remember(context.Background(),
+		memory.Writer{Author: author, Role: author, Scope: scope}, memory.Note{Kind: kind, Body: body})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r.Item.Status != memory.StatusAccepted {
+		t.Fatalf("remember %q: status %s, want accepted", body, r.Item.Status)
+	}
+	return r.Item
+}
+
+func workScope(f store.Feature) memory.Ref {
+	return memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(f.ID, 10)}
+}
+
+func projectScope(f store.Feature) memory.Ref {
+	return memory.Ref{Kind: memory.ScopeProject, ID: strconv.FormatInt(f.ProjectID, 10)}
+}
+
+func teammateScope(role string) memory.Ref {
+	return memory.Ref{Kind: memory.ScopeTeammate, ID: role}
+}
+
 func TestContext(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
@@ -50,22 +88,13 @@ func TestContext(t *testing.T) {
 	if _, err := st.PutBrief(ctx, store.Brief{FeatureID: f.ID, Body: "Use Google OAuth.", Author: "user"}); err != nil {
 		t.Fatal(err)
 	}
-	for _, n := range []store.RoleNotes{
-		{FeatureID: f.ID, Role: "architect", Body: "Keep the session in a cookie."},
-		{FeatureID: f.ID, Role: "developer", Body: "developer-only note"},
-	} {
-		if _, err := st.PutRoleNotes(ctx, n); err != nil {
-			t.Fatal(err)
-		}
-	}
-	var decided []store.Decision
+	ms := testMemory(t, st)
+	var decided []memory.Item
 	for _, body := range []string{"use OAuth", "store sessions in SQLite\nsecret second line", strings.Repeat("é", 101)} {
-		d, err := st.CreateDecision(ctx, store.Decision{FeatureID: f.ID, Body: body, Author: "user"})
-		if err != nil {
-			t.Fatal(err)
-		}
-		decided = append(decided, d)
+		decided = append(decided, remember(t, ms, workScope(f), memory.KindDecision, "user", body))
 	}
+	remember(t, ms, teammateScope("architect"), memory.KindLesson, "architect", "Keep the session in a cookie.")
+	remember(t, ms, teammateScope("developer"), memory.KindLesson, "developer", "developer-only note")
 	var channels []store.Channel
 	for i, name := range []string{"spike", "build"} {
 		c, err := st.CreateChannel(ctx, store.Channel{ProjectID: f.ProjectID, FeatureID: &f.ID, Name: name})
@@ -96,7 +125,7 @@ func TestContext(t *testing.T) {
 		}
 	}
 
-	got, err := Context(ctx, st, f.ID, "architect")
+	got, err := Context(ctx, st, ms, f.ID, "architect")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,13 +146,14 @@ Details are on demand through the reef MCP tools recall, read_memory, read_threa
 ### Brief
 Use Google OAuth.
 
-### Your notes
-Keep the session in a cookie.
-
 ### Decisions
-decision 1: use OAuth (user, ` + day + `)
-decision 2: store sessions in SQLite (user, ` + day + `)
 decision 3: ` + strings.Repeat("é", 100) + `… (user, ` + day + `)
+decision 2: store sessions in SQLite (user, ` + day + `)
+decision 1: use OAuth (user, ` + day + `)
+
+### Your items
+lesson 4: Keep the session in a cookie. (architect, ` + day + `)
+1 of 1; recall(..., scope=teammate)
 
 ### Doing
 task 3: wire the callback
@@ -142,7 +172,7 @@ task 3: wire the callback
 func TestContext_EmptyFeature(t *testing.T) {
 	st, f := openStore(t)
 
-	got, err := Context(context.Background(), st, f.ID, "architect")
+	got, err := Context(context.Background(), st, testMemory(t, st), f.ID, "architect")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -172,7 +202,7 @@ func TestContext_OmitsDirectMessages(t *testing.T) {
 		ChannelID: ch.ID, From: "developer", To: "tester", Body: "private fixture detail"}); err != nil {
 		t.Fatal(err)
 	}
-	got, err := Context(ctx, st, f.ID, "tester")
+	got, err := Context(ctx, st, testMemory(t, st), f.ID, "tester")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -189,30 +219,13 @@ func TestContext_FixesFeature(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got, err := Context(ctx, st, f.ID, "architect")
+	got, err := Context(ctx, st, testMemory(t, st), f.ID, "architect")
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := "Goal: Google login\nThis feature is a list of fixes tracked as tasks, not one piece of work with stages.\n\n## How to work"
 	if !strings.Contains(got, want) || strings.Contains(got, "Stage:") {
 		t.Errorf("Context =\n%s\nwant it to contain %q and no Stage line", got, want)
-	}
-}
-
-func TestContext_ProjectMemory(t *testing.T) {
-	ctx := context.Background()
-	st, f := openStore(t)
-	if _, err := st.PutProjectMemory(ctx,
-		store.ProjectMemory{ProjectID: f.ProjectID, Body: "Use Go, not Python."}); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := Context(ctx, st, f.ID, "architect")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.Contains(got, "\n## What we know\n### Project memory\nUse Go, not Python.\n") {
-		t.Errorf("Context =\n%s\nwant it to contain the project memory section", got)
 	}
 }
 
@@ -226,7 +239,8 @@ func TestFirstPrompt_QuickSession(t *testing.T) {
 	lead := store.Role{Name: "lead", Lead: true}
 	team := store.Team{Name: "core", Roles: []store.Role{lead, {Name: "architect"}}}
 
-	got, err := firstPrompt(ctx, st, p.ID, nil, 0, store.Team{}, lead)
+	ms := testMemory(t, st)
+	got, err := firstPrompt(ctx, st, ms, p.ID, nil, 0, store.Team{}, lead)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -238,10 +252,9 @@ This is a quick session: it has no feature yet, so there is no brief, notes or d
 		t.Errorf("quick session with no memory =\n%s\nwant\n%s", got, want)
 	}
 
-	if _, err := st.PutProjectMemory(ctx,
-		store.ProjectMemory{ProjectID: p.ID, Body: "Use Go, not Python."}); err != nil {
-		t.Fatal(err)
-	}
+	day := remember(t, ms, projectScope(f), memory.KindFact, "user", "Use Go, not Python.").
+		CreatedAt.Format(_dateLayout)
+	remember(t, ms, teammateScope("lead"), memory.KindLesson, "lead", "Ask before renaming.")
 	if _, err := st.PutProfile(ctx, store.Profile{Name: "Ada"}); err != nil {
 		t.Fatal(err)
 	}
@@ -249,7 +262,7 @@ This is a quick session: it has no feature yet, so there is no brief, notes or d
 	if _, err := st.UpdateProject(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	got, err = firstPrompt(ctx, st, p.ID, nil, 0, team, lead)
+	got, err = firstPrompt(ctx, st, ms, p.ID, nil, 0, team, lead)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -257,7 +270,10 @@ This is a quick session: it has no feature yet, so there is no brief, notes or d
 		"## You\nYou are the lead in project \"shop\" (" + p.Path + ").\nThis is a quick session: " +
 			"it has no feature yet, so there is no brief, notes or decisions.\nYou work with Ada.\n" +
 			"Base branch: dev. A pull request you open targets it.\n\n## How to work\nYour team: @lead, @architect. ",
-		"\n\n## What we know\n### Project memory\nUse Go, not Python.\n",
+		"\n\n## What we know\n### Project\nfact 1: Use Go, not Python. (user, " + day + ")\n" +
+			"1 of 1; recall(..., scope=project)\n\n" +
+			"### Your items\nlesson 2: Ask before renaming. (lead, " + day + ")\n" +
+			"1 of 1; recall(..., scope=teammate)\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("quick session =\n%s\nwant it to contain %q", got, want)
@@ -274,7 +290,7 @@ func TestContext_Profile(t *testing.T) {
 
 	first := func() string {
 		t.Helper()
-		got, err := Context(ctx, st, f.ID, "architect")
+		got, err := Context(ctx, st, testMemory(t, st), f.ID, "architect")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -330,14 +346,10 @@ func TestContext_DecisionFirstLine(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			st, f := openStore(t)
-			d, err := st.CreateDecision(ctx, store.Decision{
-				FeatureID: f.ID, Body: tt.give, Author: "user",
-			})
-			if err != nil {
-				t.Fatal(err)
-			}
+			ms := testMemory(t, st)
+			d := remember(t, ms, workScope(f), memory.KindDecision, "user", tt.give)
 
-			got, err := Context(ctx, st, f.ID, "developer")
+			got, err := Context(ctx, st, ms, f.ID, "developer")
 			if err != nil {
 				t.Fatal(err)
 			}

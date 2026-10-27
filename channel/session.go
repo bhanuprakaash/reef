@@ -15,6 +15,7 @@ import (
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/agent/claude"
 	"github.com/bhanuprakaash/reef/agent/codex"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/skill"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
@@ -24,6 +25,7 @@ import (
 // first turn. The lead's stays open until Close; a specialist's is closed after its turn.
 type Session struct {
 	st       *store.Store
+	ms       *memory.Store
 	dataDir  string
 	exe      string
 	ch       store.Channel
@@ -98,8 +100,8 @@ var ErrNoProposal = errors.New("no proposal made")
 // backend, NewAgent in production. The caller must Close the Session. Sessions that share
 // trees run one write turn at a time on a working tree.
 func Open(
-	ctx context.Context, st *store.Store, dataDir, exe string, channelID int64, trees *Trees,
-	mk func(backend string) (agent.Agent, error),
+	ctx context.Context, st *store.Store, ms *memory.Store, dataDir, exe string, channelID int64,
+	trees *Trees, mk func(backend string) (agent.Agent, error),
 ) (_ *Session, err error) {
 	ch, err := st.Channel(ctx, channelID)
 	if err != nil {
@@ -114,7 +116,7 @@ func Open(
 		return nil, err
 	}
 	s := &Session{
-		st: st, dataDir: dataDir, exe: exe, ch: ch, project: p, mk: mk, lock: lock,
+		st: st, ms: ms, dataDir: dataDir, exe: exe, ch: ch, project: p, mk: mk, lock: lock,
 		members: map[string]*member{}, trees: trees,
 	}
 	defer func() {
@@ -532,7 +534,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 			if err != nil {
 				return "", err
 			}
-			return firstPrompt(ctx, s.st, ch.ProjectID, ch.FeatureID, ch.ID, team, r)
+			return firstPrompt(ctx, s.st, s.ms, ch.ProjectID, ch.FeatureID, ch.ID, team, r)
 		}
 	}
 	m.run.OnPrompt = s.onPrompt

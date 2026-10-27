@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -128,7 +129,7 @@ func TestOpen_StartsNewSession(t *testing.T) {
 	ag := newRecordingAgent()
 	dir := t.TempDir()
 
-	s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -185,7 +186,7 @@ func TestOpen_QuickSession(t *testing.T) {
 	ch := sessionChannel(t, st, f, true)
 	ag := newRecordingAgent()
 
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -212,14 +213,13 @@ func TestOpen_QuickSession(t *testing.T) {
 func TestOpen_QuickSession_ProjectMemory(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	if _, err := st.PutProjectMemory(ctx,
-		store.ProjectMemory{ProjectID: f.ProjectID, Body: "Use Go, not Python."}); err != nil {
-		t.Fatal(err)
-	}
+	ms := testMemory(t, st)
+	day := remember(t, ms, projectScope(f), memory.KindFact, "user", "Use Go, not Python.").
+		CreatedAt.Format(_dateLayout)
 	ch := sessionChannel(t, st, f, true)
 	ag := newRecordingAgent()
 
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, ms, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -228,8 +228,10 @@ func TestOpen_QuickSession_ProjectMemory(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], "\n## What we know\n### Project memory\nUse Go, not Python.\n") {
-		t.Errorf("prompts = %q, want it to contain the project memory section", ag.prompts)
+	want := "\n## What we know\n### Project\nfact 1: Use Go, not Python. (user, " + day + ")\n" +
+		"1 of 1; recall(..., scope=project)\n"
+	if len(ag.prompts) != 1 || !strings.Contains(ag.prompts[0], want) {
+		t.Errorf("prompts = %q, want it to contain %q", ag.prompts, want)
 	}
 }
 
@@ -254,7 +256,7 @@ func TestOpen_ResumesNewestSession(t *testing.T) {
 	}
 	ag := newRecordingAgent()
 
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -316,7 +318,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -398,7 +400,7 @@ func TestSession_RunAsRoleAppliedAfterOpen(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -440,7 +442,7 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -521,7 +523,7 @@ func TestSession_MissingSessionStartsNewOne(t *testing.T) {
 			}
 			dir := t.TempDir()
 			trees := NewTrees(t.TempDir())
-			s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, trees, mk)
+			s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, trees, mk)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -532,7 +534,7 @@ func TestSession_MissingSessionStartsNewOne(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			s, err = Open(ctx, st, dir, "/bin/reef", ch.ID, trees, mk)
+			s, err = Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, trees, mk)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -555,7 +557,7 @@ func TestSession_MissingSessionStartsNewOne(t *testing.T) {
 			if err := s.Close(); err != nil {
 				t.Fatal(err)
 			}
-			s, err = Open(ctx, st, dir, "/bin/reef", ch.ID, trees, mk)
+			s, err = Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, trees, mk)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -585,7 +587,7 @@ func TestSession_LeadSessionFromStartIsStored(t *testing.T) {
 			ch := sessionChannel(t, st, f, false)
 			ag := newRecordingAgent()
 			ag.handshake = &agent.Event{Kind: agent.KindSession, SessionID: "c1", Model: "gpt-5"}
-			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+			s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -629,7 +631,7 @@ func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -681,7 +683,7 @@ func TestSession_WriteEditReachesLiveLead(t *testing.T) {
 				ags = append(ags, ag)
 				return ag, nil
 			}
-			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+			s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -733,7 +735,7 @@ func TestSession_PersonaUnchangedNoRoleIntroOnResume(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -771,7 +773,7 @@ func TestSession_NoEditFourResumedWakesOnlyFirstHasIntro(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -817,7 +819,7 @@ func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -870,7 +872,7 @@ func TestSession_NoEditFourLiveWakesOnlyFirstHasIntro(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -920,7 +922,7 @@ func TestSession_EditAfterSecondLiveWakeUpdatesOnceThenNone(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -979,7 +981,7 @@ func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 		backends = append(backends, backend)
 		return ag, nil
 	}
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1023,7 +1025,7 @@ func TestOpen_Errors(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", tt.give, NewTrees(t.TempDir()), NewAgent)
+			s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", tt.give, NewTrees(t.TempDir()), NewAgent)
 			if err == nil {
 				err = s.Start(ctx)
 				_ = s.Close()
@@ -1036,12 +1038,12 @@ func TestOpen_Errors(t *testing.T) {
 
 	t.Run("open elsewhere", func(t *testing.T) {
 		dir := t.TempDir()
-		s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
+		s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer func() { _ = s.Close() }()
-		_, err = Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
+		_, err = Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
 		if err == nil || err.Error() != "channel 1 is open elsewhere: conflict" {
 			t.Errorf("second open error = %v, want the open-elsewhere error", err)
 		}
@@ -1051,7 +1053,7 @@ func TestOpen_Errors(t *testing.T) {
 		dir := t.TempDir()
 		ag := newRecordingAgent()
 		ag.startErr = errors.New("no claude")
-		s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+		s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -1085,7 +1087,7 @@ func TestSession_Wrap(t *testing.T) {
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1136,7 +1138,7 @@ func TestSession_WrapIncludesDirectExchanges(t *testing.T) {
 	}
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1162,7 +1164,7 @@ func TestSession_WrapIgnoresBriefProposal(t *testing.T) {
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose, ag.kind = st, ch.ID, true, store.ProposalBrief
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1180,7 +1182,7 @@ func TestSession_Promote(t *testing.T) {
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
 	dir := t.TempDir()
-	s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1229,7 +1231,7 @@ func TestSession_PromoteMovesNextWakeToWorktree(t *testing.T) {
 		return ag, nil
 	}
 	dir := t.TempDir()
-	s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1281,7 +1283,7 @@ func TestSession_NoWorktreeFailsTurn(t *testing.T) {
 	}
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1313,7 +1315,7 @@ func TestSession_RecreatesRemovedWorktree(t *testing.T) {
 		return ag, nil
 	}
 	dir := t.TempDir()
-	s, err := Open(ctx, st, dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, testMemory(t, st), dir, "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1365,7 +1367,7 @@ func TestSession_WrapOrPromoteCancelledStoresTurn(t *testing.T) {
 			st, f := openStore(t)
 			ch := sessionChannel(t, st, f, false)
 			ag := newRecordingAgent()
-			s, err := Open(bg, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+			s, err := Open(bg, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1399,7 +1401,7 @@ func TestSession_LockErrorStoresItsOwnReason(t *testing.T) {
 		t.Fatal(err)
 	}
 	ag := newRecordingAgent()
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(dataDir), ag.factory)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(dataDir), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1426,7 +1428,7 @@ func TestSession_PromoteIntoFeatureWithBrief(t *testing.T) {
 	ch := sessionChannel(t, st, f, true)
 	ag := newRecordingAgent()
 	ag.st, ag.channelID, ag.propose = st, ch.ID, true
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1473,7 +1475,7 @@ func TestSession_LeadOnAnotherBackendIgnoresItsRoleProvider(t *testing.T) {
 			}
 			ag := newRecordingAgent()
 			mk := func(string) (agent.Agent, error) { return ag, nil }
-			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+			s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -1520,7 +1522,7 @@ func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
 		ags = append(ags, ag)
 		return ag, nil
 	}
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1539,7 +1541,7 @@ func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
 	if err := os.Remove(filepath.Join(dir, "claude")); err != nil {
 		t.Fatal(err)
 	}
-	s2, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
+	s2, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), mk)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1570,7 +1572,7 @@ func TestSession_RemovedRoleStoresFailedTurn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), newRecordingAgent().factory)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1623,7 +1625,7 @@ func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
 	}
 	dataDir, trees := t.TempDir(), NewTrees(t.TempDir())
 	hung := hangingAgent{newRecordingAgent()}
-	s1, err := Open(ctx, st, dataDir, "/bin/reef", ch.ID, trees,
+	s1, err := Open(ctx, st, testMemory(t, st), dataDir, "/bin/reef", ch.ID, trees,
 		func(string) (agent.Agent, error) { return hung, nil })
 	if err != nil {
 		t.Fatal(err)
@@ -1651,7 +1653,7 @@ func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	var ags []*recordingAgent
-	s2, err := Open(ctx, st, dataDir, "/bin/reef", ch.ID, trees, func(string) (agent.Agent, error) {
+	s2, err := Open(ctx, st, testMemory(t, st), dataDir, "/bin/reef", ch.ID, trees, func(string) (agent.Agent, error) {
 		ag := newRecordingAgent()
 		ags = append(ags, ag)
 		return ag, nil
@@ -1697,7 +1699,7 @@ func TestSession_IdleLeadPostsBackgroundAnswer(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionChannel(t, st, f, false)
 	ag := newRecordingAgent()
-	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
 	if err != nil {
 		t.Fatal(err)
 	}
