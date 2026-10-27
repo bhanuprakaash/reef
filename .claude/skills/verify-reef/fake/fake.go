@@ -33,7 +33,7 @@ func runFake(args []string) error {
 		sid = cli.resume
 		if !sessionFileExists(dir, sid) {
 			// Real claude resumes a session id from any cwd, not only the one it was
-			// created in (reef moves a role's session into its feature's worktree on
+			// created in (reef moves a role's session into its work item's worktree on
 			// attach): find wherever this session actually lives.
 			if found, ok := findSessionDir(sid); ok {
 				dir = found
