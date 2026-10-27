@@ -35,7 +35,7 @@ var _scenarios = []scenario{
 	{"flow-lead-resubmit", "lead", pat(`^Sent back from review by the user:\nADD A PHONE FIELD`)},
 	{"flow-propose-kit", "kit", pat(`PROPOSE THE SLOW SEARCH`)},
 	{"queue-lead", "lead", pat(`^Work item \d+: `)},
-	{"submit-lead", "lead", pat(`^SUBMIT FOR REVIEW$`)},
+	{"submit-lead", "lead", pat(`(?m)^SUBMIT FOR REVIEW$`)},
 	{"propose-deploy", "sam", pat(`^PROPOSE THE FAILING DEPLOY$`)},
 	{"sent-back-lead", "lead", pat(`^Sent back from review by the user:`)},
 	{"coordinate-send", "lead", pat(`COORDINATE the login review`)},
