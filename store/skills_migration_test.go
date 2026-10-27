@@ -95,6 +95,15 @@ func TestMigrateSkillsToList(t *testing.T) {
 			if _, err := s.db.Exec("ALTER TABLE role DROP COLUMN provider"); err != nil {
 				t.Fatal(err)
 			}
+			for _, stmt := range []string{
+				"ALTER TABLE proposal DROP COLUMN items",
+				"ALTER TABLE proposal ADD COLUMN notes TEXT NOT NULL DEFAULT ''",
+				"ALTER TABLE proposal ADD COLUMN decisions TEXT NOT NULL DEFAULT '[]'",
+			} {
+				if _, err := s.db.Exec(stmt); err != nil {
+					t.Fatal(err)
+				}
+			}
 			if _, err := s.db.Exec("UPDATE role SET persona = ?, skills = ?", tt.persona, tt.skills); err != nil {
 				t.Fatal(err)
 			}

@@ -135,10 +135,9 @@ type (
 		Messages []store.DirectMessage `json:"messages"`
 	}
 	wrapIn struct {
-		Brief     string                   `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
-		Notes     string                   `json:"notes" jsonschema:"your own notes on this feature"`
-		Decisions []store.ProposedDecision `json:"decisions" jsonschema:"decisions made in this channel that are not recorded yet; replaces on one lists the earlier decisions it amends or replaces"`
-		Retire    []int64                  `json:"retire,omitempty" jsonschema:"ids of live decisions that are stale or duplicate"`
+		Brief  string               `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
+		Items  []store.ProposedItem `json:"items,omitempty" jsonschema:"memory items made in this channel that are not saved with remember yet: kind (decision, finding, fact, lesson or convention), body, why, scope (work_item by default, project, teammate, or team for a team lead), replaces (ids of live items it replaces)"`
+		Retire []int64              `json:"retire,omitempty" jsonschema:"ids of live memory items that are stale or duplicate"`
 	}
 	briefIn struct {
 		Brief string `json:"brief" jsonschema:"the full brief: goal, status, key decisions, open questions"`
@@ -240,10 +239,11 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 		Name: "propose_wrap",
 		Description: "Propose how to wrap up this channel; the user approves it before " +
 			"anything is saved. brief is the full rewritten brief (goal, status, key " +
-			"decisions, open questions), notes are your own notes for this feature, " +
-			"decisions are ones made in this channel that are not recorded yet, each with " +
-			"replaces for earlier decisions it amends or replaces. retire lists ids of " +
-			"decisions that are stale or duplicate.",
+			"decisions, open questions). items are memory items made in this channel that " +
+			"are not saved with remember yet, each with a kind, body, why, a scope " +
+			"(work_item by default; project, teammate, or team when you are the team lead: " +
+			"team items wait for the user) and replaces for earlier items it replaces. " +
+			"retire lists ids of live memory items that are stale or duplicate.",
 	}, m.proposeWrap)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_brief",
@@ -412,6 +412,11 @@ func (m *mcpServer) scopes(ctx context.Context) ([]memory.Ref, error) {
 	if err != nil {
 		return nil, err
 	}
+	return channelScopes(c, m.tok.Role), nil
+}
+
+// channelScopes are the shelves role can read in channel c.
+func channelScopes(c store.Channel, role string) []memory.Ref {
 	scopes := []memory.Ref{{Kind: memory.ScopeProject, ID: strconv.FormatInt(c.ProjectID, 10)}}
 	if c.FeatureID != nil {
 		scopes = append(scopes, memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*c.FeatureID, 10)})
@@ -419,7 +424,7 @@ func (m *mcpServer) scopes(ctx context.Context) ([]memory.Ref, error) {
 	if c.Team != "" {
 		scopes = append(scopes, memory.Ref{Kind: memory.ScopeTeam, ID: c.Team})
 	}
-	return append(scopes, memory.Ref{Kind: memory.ScopeTeammate, ID: m.tok.Role}), nil
+	return append(scopes, memory.Ref{Kind: memory.ScopeTeammate, ID: role})
 }
 
 // readable reads an item; it is not found when its scope is not one of scopes.
@@ -670,14 +675,68 @@ func (m *mcpServer) proposeWrap(
 	if _, err := m.feature(ctx); err != nil {
 		return nil, wrapOut{}, err
 	}
+	c, err := m.st.Channel(ctx, m.tok.ChannelID)
+	if err != nil {
+		return nil, wrapOut{}, err
+	}
+	scopes := channelScopes(c, m.tok.Role)
+	ids := slices.Clone(in.Retire)
+	for i := range in.Items {
+		it := &in.Items[i]
+		if it.Scope == "" {
+			it.Scope = memory.ScopeWorkItem
+		}
+		if !memory.ValidKind(it.Kind) {
+			return nil, wrapOut{}, fmt.Errorf("%w: unknown item kind %q", store.ErrInvalid, it.Kind)
+		}
+		if !slices.ContainsFunc(scopes, func(r memory.Ref) bool { return r.Kind == it.Scope }) {
+			return nil, wrapOut{}, fmt.Errorf("%w: scope %q is not work_item, project, teammate or team",
+				store.ErrInvalid, it.Scope)
+		}
+		if it.Scope == memory.ScopeTeam {
+			if err := m.requireLead(ctx, c.Team); err != nil {
+				return nil, wrapOut{}, err
+			}
+		}
+		ids = append(ids, it.Replaces...)
+	}
+	if err := requireLive(ctx, m.ms, scopes, ids); err != nil {
+		return nil, wrapOut{}, err
+	}
 	p, err := m.st.CreateProposal(ctx, store.Proposal{
-		ChannelID: m.tok.ChannelID, Role: m.tok.Role, Brief: in.Brief, Notes: in.Notes,
-		Decisions: in.Decisions, Retire: in.Retire,
+		ChannelID: m.tok.ChannelID, Role: m.tok.Role, Brief: in.Brief, Items: in.Items, Retire: in.Retire,
 	})
 	if err != nil {
 		return nil, wrapOut{}, err
 	}
 	return nil, wrapOut{ID: p.ID, Message: "proposal saved; the user will approve it"}, nil
+}
+
+// requireLead fails unless the token's role leads team.
+func (m *mcpServer) requireLead(ctx context.Context, team string) error {
+	t, err := m.st.Team(ctx, team)
+	if err != nil {
+		return err
+	}
+	if !slices.ContainsFunc(t.Roles, func(r store.Role) bool { return r.Lead && r.Name == m.tok.Role }) {
+		return fmt.Errorf("%w: only the lead of team %q can propose team items", store.ErrInvalid, team)
+	}
+	return nil
+}
+
+// requireLive fails with ErrInvalid unless every id is an accepted item in one of scopes.
+func requireLive(ctx context.Context, ms *memory.Store, scopes []memory.Ref, ids []int64) error {
+	for _, id := range ids {
+		it, err := ms.Read(ctx, id)
+		if err != nil && !errors.Is(err, memory.ErrNotFound) {
+			return err
+		}
+		if err != nil || it.Status != memory.StatusAccepted || !slices.Contains(scopes, it.Scope) {
+			return fmt.Errorf("%w: memory %d is not a live item in this channel's scopes",
+				store.ErrInvalid, id)
+		}
+	}
+	return nil
 }
 
 func (m *mcpServer) proposeBrief(

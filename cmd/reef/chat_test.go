@@ -14,6 +14,7 @@ import (
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -52,8 +53,11 @@ func (f *fakeSession) Wrap(ctx context.Context, onEvent func(agent.Event)) (stor
 		return store.Proposal{}, channel.ErrNoProposal
 	}
 	return f.st.CreateProposal(ctx, store.Proposal{
-		ChannelID: f.channelID, Role: "architect", Brief: "new brief", Notes: "my notes",
-		Decisions: []store.ProposedDecision{{Body: "use sessions", Why: "simple"}},
+		ChannelID: f.channelID, Role: "architect", Brief: "new brief",
+		Items: []store.ProposedItem{
+			{Kind: "decision", Body: "use sessions", Why: "simple", Scope: "work_item"},
+			{Kind: "lesson", Body: "reply short", Scope: "teammate"},
+		},
 	})
 }
 
@@ -158,14 +162,16 @@ func TestConverse_Wrap(t *testing.T) {
 		wantExactOut string
 		wantBrief    string
 		wantPending  bool
+		wantRows     int
 	}{
 		{name: "approve", propose: true, answer: "y",
-			wantOut: "approved: brief, notes and 1 decisions saved", wantBrief: "new brief"},
+			wantOut: "approved: brief and 2 items saved", wantBrief: "new brief", wantRows: 2},
 		{name: "reject", propose: true, answer: "no", wantOut: "rejected: nothing changed"},
 		{name: "end of input", propose: true,
 			wantOut: "proposal 1 left pending",
-			wantExactOut: "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nnotes:\nmy notes\n\n" +
-				"decisions:\n- use sessions (simple)\n\napprove? [y/N] \nproposal 1 left pending\n\n",
+			wantExactOut: "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nitems:\n" +
+				"- decision (work_item): use sessions (simple)\n- lesson (teammate): reply short\n\n" +
+				"approve? [y/N] \nproposal 1 left pending\n\n",
 			wantPending: true},
 		{name: "no proposal", wantOut: "no proposal made"},
 	}
@@ -204,6 +210,13 @@ func TestConverse_Wrap(t *testing.T) {
 			if tt.wantPending != (err == nil) {
 				t.Errorf("PendingProposal error = %v, want pending %v", err, tt.wantPending)
 			}
+			if _, err := memory.Open(st.DB(), nil); err != nil {
+				t.Fatal(err)
+			}
+			var rows int
+			if err := st.DB().QueryRow("SELECT COUNT(*) FROM memory").Scan(&rows); err != nil || rows != tt.wantRows {
+				t.Errorf("memory rows = %d, %v, want %d", rows, err, tt.wantRows)
+			}
 		})
 	}
 }
@@ -218,8 +231,9 @@ func TestConverse_WrapCancelledAtPromptLeavesProposalPending(t *testing.T) {
 	c.cancel()
 	out := c.end(t)
 
-	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nnotes:\nmy notes\n\n" +
-		"decisions:\n- use sessions (simple)\n\napprove? [y/N] \nproposal 1 left pending\n\n"
+	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nitems:\n" +
+		"- decision (work_item): use sessions (simple)\n- lesson (teammate): reply short\n\n" +
+		"approve? [y/N] \nproposal 1 left pending\n\n"
 	if out != want {
 		t.Errorf("output = %q, want %q", out, want)
 	}
@@ -244,8 +258,9 @@ func TestConverse_WrapIgnoresTypedAheadLines(t *testing.T) {
 	c.waitFor(t, "approve? [y/N] ")
 	out := c.end(t)
 
-	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nnotes:\nmy notes\n\n" +
-		"decisions:\n- use sessions (simple)\n\napprove? [y/N] \n" +
+	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nitems:\n" +
+		"- decision (work_item): use sessions (simple)\n- lesson (teammate): reply short\n\n" +
+		"approve? [y/N] \n" +
 		"ignored while wrapping: a\nignored while wrapping: y\napprove? [y/N] \n" +
 		"proposal 1 left pending\n\n"
 	if out != want {
@@ -307,7 +322,7 @@ func TestConverse_WrapDecisionElsewhereContinues(t *testing.T) {
 		{
 			name: "approved", answer: "y", status: store.ProposalApproved,
 			decide: func(st *store.Store) error {
-				_, _, err := st.ApproveProposal(context.Background(), 1)
+				_, err := st.ApproveProposal(context.Background(), 1)
 				return err
 			},
 		},

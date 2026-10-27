@@ -174,8 +174,8 @@ func TestProposalRoutes(t *testing.T) {
 	propose := func(brief string) {
 		t.Helper()
 		_, err := env.st.CreateProposal(context.Background(), store.Proposal{
-			ChannelID: 2, Role: "lead", Brief: brief, Notes: "n",
-			Decisions: []store.ProposedDecision{{Body: "use SQLite", Why: "simple"}},
+			ChannelID: 2, Role: "lead", Brief: brief,
+			Items: []store.ProposedItem{{Kind: "decision", Body: "use SQLite", Why: "simple", Scope: "work_item"}},
 		})
 		if err != nil {
 			t.Fatal(err)
@@ -188,8 +188,8 @@ func TestProposalRoutes(t *testing.T) {
 		t.Fatalf("proposal = %d %s, want proposal 1", status, body)
 	}
 	status, body = do(t, http.MethodPost, env.url+"/proposals/1/approve", "")
-	if status != 200 || !strings.Contains(body, `"status":"approved"`) || !strings.Contains(body, `"decisionsAdded":1`) {
-		t.Errorf("approve = %d %s, want approved with 1 decision", status, body)
+	if status != 200 || !strings.Contains(body, `"status":"approved"`) || !strings.Contains(body, `"itemsAdded":1`) {
+		t.Errorf("approve = %d %s, want approved with 1 item", status, body)
 	}
 	if _, body := do(t, http.MethodGet, env.url+"/features/1/brief", ""); !strings.Contains(body, `"body":"first brief"`) {
 		t.Errorf("brief = %s, want first brief", body)

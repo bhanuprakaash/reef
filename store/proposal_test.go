@@ -9,7 +9,7 @@ import (
 
 // proposalFixture has feature 1 with channel 1, a brief "v1", architect notes
 // "old" and one decision; channel 2 is a quick session. Proposal 1 is pending.
-func proposalFixture(t *testing.T, decisions ...ProposedDecision) *Store {
+func proposalFixture(t *testing.T, items ...ProposedItem) *Store {
 	t.Helper()
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
@@ -41,7 +41,7 @@ func proposalFixture(t *testing.T, decisions ...ProposedDecision) *Store {
 		},
 		func() error {
 			_, err := s.CreateProposal(ctx, Proposal{
-				ChannelID: 1, Role: "architect", Brief: "v2", Notes: "new", Decisions: decisions,
+				ChannelID: 1, Role: "architect", Brief: "v2", Items: items,
 			})
 			return err
 		},
@@ -70,52 +70,6 @@ func countRows(t *testing.T, s *Store) counts {
 	return counts{len(bs), len(ds)}
 }
 
-func TestApproveProposal(t *testing.T) {
-	ctx := context.Background()
-	want := []ProposedDecision{{Body: "cookie sessions", Why: "simple"}, {Body: "24h expiry"}}
-	s := proposalFixture(t, want...)
-
-	got, added, err := s.ApproveProposal(ctx, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Status != ProposalApproved || got.DecidedAt == nil {
-		t.Errorf("ApproveProposal = status %q decided %v, want approved and a time",
-			got.Status, got.DecidedAt)
-	}
-	b, err := s.Brief(ctx, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if b.Body != "v2" || b.Author != "architect" {
-		t.Errorf("Brief = %q by %q, want %q by architect", b.Body, b.Author, "v2")
-	}
-	n, err := s.RoleNotes(ctx, 1, "architect")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n.Body != "new" {
-		t.Errorf("notes = %q, want %q", n.Body, "new")
-	}
-	ds, err := s.Decisions(ctx, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var gotDecisions []ProposedDecision
-	for _, d := range ds[1:] {
-		if d.Author != "architect" {
-			t.Errorf("decision %q author = %q, want architect", d.Body, d.Author)
-		}
-		gotDecisions = append(gotDecisions, ProposedDecision{Body: d.Body, Why: d.Why})
-	}
-	if !reflect.DeepEqual(gotDecisions, want) || added != 2 {
-		t.Errorf("decisions added = %v (%d), want %v (2)", gotDecisions, added, want)
-	}
-	if _, err := s.PendingProposal(ctx, 1); !errors.Is(err, ErrNotFound) {
-		t.Errorf("PendingProposal after approve = %v, want ErrNotFound", err)
-	}
-}
-
 func TestApproveBriefProposal(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
@@ -129,13 +83,12 @@ func TestApproveBriefProposal(t *testing.T) {
 	}
 	before := countRows(t, s)
 
-	got, added, err := s.ApproveProposal(ctx, 2)
+	got, err := s.ApproveProposal(ctx, 2)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Kind != ProposalBrief || got.Status != ProposalApproved || added != 0 {
-		t.Errorf("ApproveProposal = kind %q status %q added %d, want brief approved 0",
-			got.Kind, got.Status, added)
+	if got.Kind != ProposalBrief || got.Status != ProposalApproved {
+		t.Errorf("ApproveProposal = kind %q status %q, want brief approved", got.Kind, got.Status)
 	}
 	if after := countRows(t, s); after != (counts{before.Briefs + 1, before.Decisions}) {
 		t.Errorf("counts after approve = %+v, want one more brief than %+v", after, before)
@@ -146,13 +99,6 @@ func TestApproveBriefProposal(t *testing.T) {
 	}
 	if b.Body != "v3" || b.Author != "lead" {
 		t.Errorf("Brief = %q by %q, want %q by lead", b.Body, b.Author, "v3")
-	}
-	n, err := s.RoleNotes(ctx, 1, "architect")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n.Body != "old" {
-		t.Errorf("notes = %q, want %q", n.Body, "old")
 	}
 	c, err := s.Channel(ctx, 1)
 	if err != nil {
@@ -190,118 +136,15 @@ func TestCreateBriefProposalRejectsOlderBriefProposals(t *testing.T) {
 	}
 }
 
-func TestApproveProposalSkipsRecordedDecisions(t *testing.T) {
-	ctx := context.Background()
-	s := proposalFixture(t,
-		ProposedDecision{Body: "use go", Why: "again"},
-		ProposedDecision{Body: "cookie sessions"},
-		ProposedDecision{Body: "cookie sessions"},
-		ProposedDecision{Body: "Use Go"})
-
-	_, added, err := s.ApproveProposal(ctx, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ds, err := s.Decisions(ctx, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var bodies []string
-	for _, d := range ds {
-		bodies = append(bodies, d.Body)
-	}
-	if want := []string{"use go", "cookie sessions", "Use Go"}; !reflect.DeepEqual(bodies, want) || added != 2 {
-		t.Errorf("decisions = %q, added = %d, want %q, 2", bodies, added, want)
-	}
-}
-
-func TestApproveProposalRecordsBodyOfRetiredDecision(t *testing.T) {
-	ctx := context.Background()
-	s := proposalFixture(t, ProposedDecision{Body: "use go", Why: "back again"})
-	if _, err := s.CreateDecision(ctx, Decision{
-		FeatureID: 1, Body: "use rust", Author: "user", Replaces: []int64{1},
-	}); err != nil {
-		t.Fatal(err)
-	}
-
-	_, added, err := s.ApproveProposal(ctx, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	ds, err := s.Decisions(ctx, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(ds) != 3 || ds[2].Body != "use go" || ds[2].RetiredAt != nil || added != 1 {
-		t.Errorf("decisions = %+v, added = %d, want a live \"use go\" as decision 3 and 1 added", ds, added)
-	}
-}
-
-func TestRejectProposal(t *testing.T) {
-	ctx := context.Background()
-	s := proposalFixture(t, ProposedDecision{Body: "cookie sessions"})
-	before := countRows(t, s)
-
-	got, err := s.RejectProposal(ctx, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if got.Status != ProposalRejected {
-		t.Errorf("RejectProposal status = %q, want rejected", got.Status)
-	}
-	if after := countRows(t, s); after != before {
-		t.Errorf("counts after reject = %+v, want %+v", after, before)
-	}
-	n, err := s.RoleNotes(ctx, 1, "architect")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n.Body != "old" {
-		t.Errorf("notes = %q, want %q", n.Body, "old")
-	}
-}
-
-func TestApproveProposalFailureAppliesNothing(t *testing.T) {
-	ctx := context.Background()
-	s := proposalFixture(t,
-		ProposedDecision{Body: "cookie sessions"}, ProposedDecision{Body: "boom"})
-	if _, err := s.db.Exec(`CREATE TRIGGER decision_boom BEFORE INSERT ON decision
-		WHEN NEW.body = 'boom' BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
-		t.Fatal(err)
-	}
-	before := countRows(t, s)
-
-	if _, _, err := s.ApproveProposal(ctx, 1); err == nil {
-		t.Fatal("ApproveProposal succeeded, want the decision insert to fail")
-	}
-	if after := countRows(t, s); after != before {
-		t.Errorf("counts after failed approve = %+v, want %+v", after, before)
-	}
-	n, err := s.RoleNotes(ctx, 1, "architect")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if n.Body != "old" {
-		t.Errorf("notes = %q, want %q", n.Body, "old")
-	}
-	p, err := s.PendingProposal(ctx, 1)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if p.Status != ProposalPending {
-		t.Errorf("status = %q, want pending", p.Status)
-	}
-}
-
 func TestDecideProposalTwice(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
-	if _, _, err := s.ApproveProposal(ctx, 1); err != nil {
+	if _, err := s.ApproveProposal(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
 	before := countRows(t, s)
 
-	if _, _, err := s.ApproveProposal(ctx, 1); !errors.Is(err, ErrInvalid) {
+	if _, err := s.ApproveProposal(ctx, 1); !errors.Is(err, ErrInvalid) {
 		t.Errorf("second approve = %v, want ErrInvalid", err)
 	}
 	if _, err := s.RejectProposal(ctx, 1); !errors.Is(err, ErrInvalid) {
@@ -372,8 +215,8 @@ func TestCreateProposalInvalid(t *testing.T) {
 		{"quick session", Proposal{ChannelID: 2, Role: "architect", Brief: "b"}, ErrInvalid},
 		{"empty brief", Proposal{ChannelID: 1, Role: "architect"}, ErrInvalid},
 		{
-			"empty decision body",
-			Proposal{ChannelID: 1, Role: "architect", Brief: "b", Decisions: []ProposedDecision{{}}},
+			"empty item body",
+			Proposal{ChannelID: 1, Role: "architect", Brief: "b", Items: []ProposedItem{{}}},
 			ErrInvalid,
 		},
 		{"unknown channel", Proposal{ChannelID: 9, Role: "architect", Brief: "b"}, ErrNotFound},
@@ -390,7 +233,7 @@ func TestCreateProposalInvalid(t *testing.T) {
 func TestApproveProposalClosesChannelAndReopenClearsIt(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
-	if _, _, err := s.ApproveProposal(ctx, 1); err != nil {
+	if _, err := s.ApproveProposal(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
 
@@ -449,17 +292,17 @@ func TestStaleBriefProposalCannotOverwriteWrap(t *testing.T) {
 	}
 	for _, p := range []Proposal{
 		{ChannelID: 1, Role: "lead", Kind: ProposalBrief, Brief: "stale"},
-		{ChannelID: 1, Role: "lead", Brief: "final", Notes: "n"},
+		{ChannelID: 1, Role: "lead", Brief: "final"},
 	} {
 		if _, err := s.CreateProposal(ctx, p); err != nil {
 			t.Fatal(err)
 		}
 	}
-	if _, _, err := s.ApproveProposal(ctx, 3); err != nil {
+	if _, err := s.ApproveProposal(ctx, 3); err != nil {
 		t.Fatal(err)
 	}
 
-	if _, _, err := s.ApproveProposal(ctx, 2); !errors.Is(err, ErrInvalid) {
+	if _, err := s.ApproveProposal(ctx, 2); !errors.Is(err, ErrInvalid) {
 		t.Errorf("approve stale brief = %v, want ErrInvalid", err)
 	}
 	b, err := s.Brief(ctx, 1)
@@ -509,11 +352,87 @@ func TestApproveBriefProposalOnClosedChannel(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	_, _, err := s.ApproveProposal(ctx, 2)
+	_, err := s.ApproveProposal(ctx, 2)
 	if want := "invalid: channel 1 is closed"; err == nil || err.Error() != want {
 		t.Errorf("approve = %v, want %s", err, want)
 	}
 	if b, err := s.Brief(ctx, 1); err != nil || b.Body != "v1" {
 		t.Errorf("Brief = %q, err %v, want v1", b.Body, err)
+	}
+}
+
+func TestApproveProposal(t *testing.T) {
+	ctx := context.Background()
+	want := []ProposedItem{
+		{Kind: "decision", Body: "cookie sessions", Why: "simple", Scope: "work_item"},
+		{Kind: "lesson", Body: "24h expiry", Scope: "team", Replaces: []int64{3}},
+	}
+	s := proposalFixture(t, want...)
+
+	pending, err := s.PendingProposal(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(pending.Items, want) {
+		t.Errorf("pending items = %+v, want %+v", pending.Items, want)
+	}
+	got, err := s.ApproveProposal(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != ProposalApproved || got.DecidedAt == nil {
+		t.Errorf("ApproveProposal = status %q decided %v, want approved and a time",
+			got.Status, got.DecidedAt)
+	}
+	b, err := s.Brief(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if b.Body != "v2" || b.Author != "architect" {
+		t.Errorf("Brief = %q by %q, want %q by architect", b.Body, b.Author, "v2")
+	}
+	if _, err := s.PendingProposal(ctx, 1); !errors.Is(err, ErrNotFound) {
+		t.Errorf("PendingProposal after approve = %v, want ErrNotFound", err)
+	}
+}
+
+func TestRejectProposal(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t, ProposedItem{Kind: "decision", Body: "cookie sessions"})
+	before := countRows(t, s)
+
+	got, err := s.RejectProposal(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != ProposalRejected {
+		t.Errorf("RejectProposal status = %q, want rejected", got.Status)
+	}
+	if after := countRows(t, s); after != before {
+		t.Errorf("counts after reject = %+v, want %+v", after, before)
+	}
+}
+
+func TestApproveProposalFailureAppliesNothing(t *testing.T) {
+	ctx := context.Background()
+	s := proposalFixture(t)
+	if _, err := s.db.Exec(`CREATE TRIGGER channel_boom BEFORE UPDATE OF closed_at ON channel
+		BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
+		t.Fatal(err)
+	}
+	before := countRows(t, s)
+
+	if _, err := s.ApproveProposal(ctx, 1); err == nil {
+		t.Fatal("ApproveProposal succeeded, want the channel close to fail")
+	}
+	if after := countRows(t, s); after != before {
+		t.Errorf("counts after failed approve = %+v, want %+v", after, before)
+	}
+	p, err := s.PendingProposal(ctx, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p.Status != ProposalPending {
+		t.Errorf("status = %q, want pending", p.Status)
 	}
 }

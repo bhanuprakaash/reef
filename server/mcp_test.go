@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net"
 	"path/filepath"
 	"reflect"
@@ -301,8 +302,11 @@ func TestMCPProposeWrap(t *testing.T) {
 	call := callTool(t, st, tok)
 
 	got, isErr := call("propose_wrap", map[string]any{
-		"brief": "v2", "notes": "mine",
-		"decisions": []any{map[string]any{"body": "use sessions", "why": "simple"}},
+		"brief": "v2",
+		"items": []any{
+			map[string]any{"kind": "decision", "body": "use sessions", "why": "simple"},
+			map[string]any{"kind": "lesson", "body": "reply short", "why": "", "scope": "teammate"},
+		},
 	})
 	if want := `{"id":1,"message":"proposal saved; the user will approve it"}`; got != want || isErr {
 		t.Errorf("propose_wrap = %q (error %v), want %q", got, isErr, want)
@@ -312,17 +316,20 @@ func TestMCPProposeWrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := store.Proposal{
-		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalWrap, Brief: "v2", Notes: "mine",
-		Decisions: []store.ProposedDecision{{Body: "use sessions", Why: "simple"}},
-		Retire:    []int64{},
-		Status:    store.ProposalPending,
+		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalWrap, Brief: "v2",
+		Items: []store.ProposedItem{
+			{Kind: "decision", Body: "use sessions", Why: "simple", Scope: "work_item"},
+			{Kind: "lesson", Body: "reply short", Scope: "teammate"},
+		},
+		Retire: []int64{},
+		Status: store.ProposalPending,
 	}
 	p.CreatedAt = time.Time{}
 	if !reflect.DeepEqual(p, want) {
 		t.Errorf("proposal = %+v, want %+v", p, want)
 	}
 
-	got, isErr = call("propose_wrap", map[string]any{"brief": "", "notes": "n", "decisions": []any{}})
+	got, isErr = call("propose_wrap", map[string]any{"brief": ""})
 	if want := "invalid: proposal brief is required"; got != want || !isErr {
 		t.Errorf("propose_wrap with empty brief = %q (error %v), want %q", got, isErr, want)
 	}
@@ -538,7 +545,7 @@ func TestMCPProposeBrief(t *testing.T) {
 	}
 	want := store.Proposal{
 		ID: 1, ChannelID: 1, Role: "architect", Kind: store.ProposalBrief,
-		Brief: "plan: ship login first", Decisions: []store.ProposedDecision{},
+		Brief: "plan: ship login first", Items: []store.ProposedItem{},
 		Retire: []int64{}, Status: store.ProposalPending,
 	}
 	p.CreatedAt = time.Time{}
@@ -552,15 +559,55 @@ func TestMCPProposeBrief(t *testing.T) {
 	}
 }
 
-func TestMCPProposeWrapRejectsBadRetireID(t *testing.T) {
+func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 	st, tok := mcpFixture(t)
+	billing, err := st.CreateToken(context.Background(), 3, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	callTool(t, st, billing)("remember", map[string]any{"kind": "fact", "body": "billing item"})
 	call := callTool(t, st, tok)
+	call("remember", map[string]any{"kind": "fact", "body": "live item"})
+	call("remember", map[string]any{"kind": "fact", "body": "stale item", "replaces": []any{2}})
 
-	got, isErr := call("propose_wrap", map[string]any{
-		"brief": "v2", "notes": "n", "decisions": []any{}, "retire": []any{9},
-	})
-	if want := "invalid: decision 9 is not a live decision of feature 1"; got != want || !isErr {
-		t.Errorf("propose_wrap = %q (error %v), want %q", got, isErr, want)
+	const notLive = "invalid: memory %d is not a live item in this channel's scopes"
+	tests := []struct {
+		name string
+		give map[string]any
+		want string
+	}{
+		{"retire unknown id", map[string]any{"retire": []any{9}}, fmt.Sprintf(notLive, 9)},
+		{"retire another feature's item", map[string]any{"retire": []any{1}}, fmt.Sprintf(notLive, 1)},
+		{"retire a retired item", map[string]any{"retire": []any{2}}, fmt.Sprintf(notLive, 2)},
+		{
+			"replace unknown id",
+			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "replaces": []any{9}}}},
+			fmt.Sprintf(notLive, 9),
+		},
+		{
+			"unknown kind",
+			map[string]any{"items": []any{map[string]any{"kind": "idea", "body": "x"}}},
+			`invalid: unknown item kind "idea"`,
+		},
+		{
+			"unknown scope",
+			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "scope": "space"}}},
+			`invalid: scope "space" is not work_item, project, teammate or team`,
+		},
+		{
+			"team scope from a role that does not lead the team",
+			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "scope": "team"}}},
+			`invalid: only the lead of team "solo" can propose team items`,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tt.give["brief"] = "v2"
+			got, isErr := call("propose_wrap", tt.give)
+			if got != tt.want || !isErr {
+				t.Errorf("propose_wrap = %q (error %v), want %q", got, isErr, tt.want)
+			}
+		})
 	}
 	if _, err := st.PendingProposal(context.Background(), 1); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("PendingProposal = %v, want ErrNotFound: nothing saved", err)
@@ -570,7 +617,7 @@ func TestMCPProposeWrapRejectsBadRetireID(t *testing.T) {
 func TestMCPProposeBriefRefusedWhileWrapPending(t *testing.T) {
 	st, tok := mcpFixture(t)
 	call := callTool(t, st, tok)
-	if got, isErr := call("propose_wrap", map[string]any{"brief": "final", "notes": "n", "decisions": []any{}}); isErr {
+	if got, isErr := call("propose_wrap", map[string]any{"brief": "final"}); isErr {
 		t.Fatalf("propose_wrap = %q", got)
 	}
 
@@ -826,7 +873,7 @@ func TestMCPQuickSession(t *testing.T) {
 		{"update_task", map[string]any{"id": 1, "status": "done"}},
 		{"search_sessions", map[string]any{"query": "q"}},
 		{"read_thread", map[string]any{"channelId": 1}},
-		{"propose_wrap", map[string]any{"brief": "b", "notes": "n", "decisions": []any{}}},
+		{"propose_wrap", map[string]any{"brief": "b"}},
 		{"set_stage", map[string]any{"stage": "plan"}},
 		{"propose_brief", map[string]any{"brief": "b"}},
 	}

@@ -62,9 +62,13 @@ func TestCLI_Wrap(t *testing.T) {
 	}
 	day := time.Now().UTC().Format(time.DateOnly)
 	for _, prop := range []store.Proposal{
-		{ChannelID: 1, Role: "architect", Brief: "sign in with sessions", Notes: "n1",
-			Decisions: []store.ProposedDecision{{Body: "cookie sessions", Why: "simple"}, {Body: "24h expiry"}}},
-		{ChannelID: 2, Role: "reviewer", Brief: "bill monthly", Notes: "n2"},
+		{ChannelID: 1, Role: "architect", Brief: "sign in with sessions",
+			Items: []store.ProposedItem{
+				{Kind: "decision", Body: "cookie sessions", Why: "simple", Scope: "work_item"},
+				{Kind: "lesson", Body: "24h expiry", Scope: "teammate"},
+			}},
+		{ChannelID: 2, Role: "reviewer", Brief: "bill monthly", Retire: []int64{7},
+			Items: []store.ProposedItem{{Kind: "fact", Body: "bills on the 1st", Scope: "project", Replaces: []int64{8}}}},
 		{ChannelID: ch.ID, Role: "developer", Brief: "outside project"},
 		{ChannelID: brief.ID, Role: "lead", Kind: store.ProposalBrief, Brief: "outside plan"},
 		{ChannelID: sch.ID, Role: "lead", Kind: store.ProposalBrief, Brief: "search plan"},
@@ -87,12 +91,15 @@ func TestCLI_Wrap(t *testing.T) {
 				"\n5  search  5  lead  brief  " + day + "\n"},
 		{"list feature", []string{"wrap", "list", "billing"}, "2  billing  2  reviewer  wrap  " + day + "\n"},
 		{"show", []string{"wrap", "show", "1"},
-			"proposal 1 from architect\nstatus: pending\n\nbrief:\nsign in with sessions\n\nnotes:\nn1\n\n" +
-				"decisions:\n- cookie sessions (simple)\n- 24h expiry\n"},
-		{"approve", []string{"wrap", "approve", "1"}, "approved: brief, notes and 2 decisions saved\n"},
+			"proposal 1 from architect\nstatus: pending\n\nbrief:\nsign in with sessions\n\n" +
+				"items:\n- decision (work_item): cookie sessions (simple)\n- lesson (teammate): 24h expiry\n"},
+		{"show retire", []string{"wrap", "show", "2"},
+			"proposal 2 from reviewer\nstatus: pending\n\nbrief:\nbill monthly\n\n" +
+				"items:\n- fact (project): bills on the 1st [replaces [8]]\n\nretire memory items: [7]\n"},
+		{"approve", []string{"wrap", "approve", "1"}, "approved: brief and 2 items saved\n"},
 		{"show decided", []string{"wrap", "show", "1"},
-			"proposal 1 from architect\nstatus: approved\n\nbrief:\nsign in with sessions\n\nnotes:\nn1\n\n" +
-				"decisions:\n- cookie sessions (simple)\n- 24h expiry\n"},
+			"proposal 1 from architect\nstatus: approved\n\nbrief:\nsign in with sessions\n\n" +
+				"items:\n- decision (work_item): cookie sessions (simple)\n- lesson (teammate): 24h expiry\n"},
 		{"reject", []string{"wrap", "reject", "2"}, "rejected: nothing changed\n"},
 		{"list after deciding", []string{"wrap", "list"}, "5  search  5  lead  brief  " + day + "\n"},
 		{"show brief", []string{"wrap", "show", "4"},

@@ -97,7 +97,7 @@ Rules for every command:
 | `reef context <feature> --role R` | Prints the context prompt for role `R` (see below) | the prompt |
 | `reef token <feature> --role R` | Makes a channel and a token for role `R` (see Tokens) | a `claude mcp add` command |
 | `reef wrap list [<feature>]` | Lists pending wrap-up proposals (see Wrap-up): of the feature, or of the current folder's project | `1  login  3  architect  wrap  2026-10-13`: id, feature slug, channel id, role, kind (`wrap` or `brief`), created date |
-| `reef wrap show <id>` | Prints a proposal and its status | `proposal 1 from architect` (`brief update 2 from lead` for a brief proposal), status, then brief, notes and decisions |
+| `reef wrap show <id>` | Prints a proposal and its status | `proposal 1 from architect` (`brief update 2 from lead` for a brief proposal), status, then brief, items (kind and scope each) and retire ids |
 | `reef wrap approve <id>` | Approves a pending proposal | `approved: brief, notes and 1 decisions saved` |
 | `reef wrap reject <id>` | Rejects a pending proposal | `rejected: nothing changed` |
 | `reef chat ...` | Runs a channel in the terminal (see below) | the conversation |
@@ -227,7 +227,7 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `send_to_role` | `to` (exactly one teammate role), `body` (required) | the stored direct request, with `channelId`, `chainId`, `from`, `to`, `replyToId: null` and `status: sent` | empty body, self, unknown or out-of-team role, a recipient list, a closed channel, a starting channel, or a wrapping or promoting channel are errors; nothing is stored |
 | `read_direct_messages` | `after` (only newer direct-message ids) | `{"messages": [...]}` containing only exchanges in this channel where the token's role is sender or recipient | |
 | `set_stage` | `stage` (required): `ideation`, `grill`, `plan`, `tickets`, `implement`, `testing`, `live-testing` or `post-release` | the updated feature, as in [server.md](server.md#feature). It also stores a `reef` message in the token's channel: `<role> moved the stage to <stage>`, unless the feature is already in that stage. No approval: the stage is a label | `invalid: unknown stage "x"`, `invalid: feature login is a list of fixes and has no stage` |
-| `propose_wrap` | `brief`, `notes`, `decisions` (all required); `retire` (ids of live decisions that are stale or duplicate). Each decision is `{"body", "why", "replaces"}`; `why` may be `""`, `replaces` lists the ids it amends or replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: decision body is required`, `invalid: decision 9 is not a live decision of feature 1` (a `retire` or `replaces` id) |
+| `propose_wrap` | `brief` (required); `items` (memory items not saved with `remember` yet), `retire` (ids of live memory items that are stale or duplicate). Each item is `{"kind", "body", "why", "scope", "replaces"}`: `kind` and `body` required, `scope` is `work_item` (the default), `project`, `teammate`, or `team` when the token's role leads the channel's team, `replaces` lists live item ids it replaces | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: item body is required`, `invalid: unknown item kind "x"`, `invalid: scope "x" is not work_item, project, teammate or team`, `invalid: only the lead of team "core" can propose team items`, `invalid: memory 9 is not a live item in this channel's scopes` (a `retire` or `replaces` id that is not an accepted item of the project, feature, team or role here) (nothing is stored) |
 | `propose_brief` | `brief` (required) | `{"id": 1, "message": "proposal saved; the user will approve it"}` | `invalid: proposal brief is required`, `invalid: channel 1 has a wrap-up waiting for approval` |
 | `browser_navigate` | `url` (required) | `{"text": "navigated to <url>"}` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser`, `refused: the browser pane cannot open Reef itself` (or another `refused: ...` for a non-http(s) URL), the page's own error (e.g. `net::ERR_CONNECTION_REFUSED`) when it fails to load |
 | `browser_screenshot` | none | a PNG image of the browser pane's current page | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
@@ -239,8 +239,8 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 
 `propose_wrap` saves a pending proposal and changes nothing else. See Wrap-up. A channel has one
 pending proposal: a new wrap rejects the older pending proposals of the channel, whatever their
-kind, and `propose_wrap` refuses a `retire` or `replaces` id that is not a live decision of the
-feature, so the agent sees the error and nothing is saved.
+kind, and `propose_wrap` refuses a `retire` or `replaces` id that is not an accepted item in a scope
+the role can read, so the agent sees the error and nothing is saved.
 `propose_brief` saves a pending proposal of kind `brief`: the agent calls it when the user and
 the team agree on the goal, scope or plan, and the channel goes on. Approving it adds one
 brief version and nothing else: the role's notes stay, no decisions are recorded and the channel
@@ -500,11 +500,12 @@ A channel ends explicitly, never on a timer. The user types `/wrap` in `reef cha
    is still `/wrap`. The prompt asks the agent to call `get_brief` first, then `propose_wrap`
    once, with the full brief written as the latest brief plus what this channel achieved
    (keep what still holds, status is where the feature is now and not a history, drop what
-   is done or no longer true, stay short), its own notes on the feature, and the decisions
-   made in this channel that are not recorded yet. Decisions the agent already recorded
-   with `record_decision` are not proposed again. The prompt also asks it to review the
-   decision index: `retire` lists decisions that are stale or duplicate, and `replaces` on
-   a new decision lists older ones it amends. When the channel has direct messages, the
+   is done or no longer true, stay short), and as `items` what the channel made that the
+   agent has not saved with `remember` yet: decisions, findings, facts, lessons and
+   conventions, each with a scope (`work_item` by default, `project`, `teammate`). Items it
+   already saved are not proposed again. A lead may also propose `team` lessons. The prompt
+   also asks it to use `recall` for stale or duplicate items: `retire` lists their ids, and
+   `replaces` on a new item lists older ones it amends. When the channel has direct messages, the
    prompt starts with all of them as plain text, one line each, `[direct 1] developer ->
    tester: use the sqlite fixture`, with ` (failed)` after the recipient for a failed attempt (a body is cut at 1000 characters; only the newest 100 are
    listed; none are listed when there are none), and asks the agent to propose the decisions
@@ -515,8 +516,8 @@ A channel ends explicitly, never on a timer. The user types `/wrap` in `reef cha
    than the one pending before `/wrap`. With none, it prints `no proposal made`: an agent that
    answers with `propose_brief` has made none. A pending brief proposal does not block `/wrap`;
    the new wrap rejects it.
-4. Otherwise it prints the proposal: brief, notes and decisions (with what each replaces),
-   the decisions to retire, then `approve? [y/N]`.
+4. Otherwise it prints the proposal: the brief, the items (`- decision (work_item): body
+   (why) [replaces [3]]`, kind and scope first), the memory items to retire, then `approve? [y/N]`.
 5. The next line typed after the prompt decides. `y` or `yes` (any case) approves.
    Anything else, a blank line too, rejects. `reef chat` reads stdin all the time, so it
    drops lines already queued after first printing `approve? [y/N]`. It prints
@@ -525,24 +526,27 @@ A channel ends explicitly, never on a timer. The user types `/wrap` in `reef cha
    If stdin ends at the prompt, or the user presses Ctrl-C there, the proposal stays
    `pending` and it prints `proposal 1 left pending`. After Ctrl-C it then prints the resume line and exits 0.
 
-Approve applies everything in one transaction:
+Approve is not one transaction: saving an item calls the memory store, which may embed over
+the network, and that must not hold the database write lock. It runs in three steps, and the
+same code serves `reef chat`, `reef wrap approve` and the server:
 
-- a new brief version, with the role as author,
-- the role's notes, replacing the old ones,
-- each proposed decision, with the role as author and no source message. A decision whose
-  body is exactly the body of a live decision of the feature is skipped, so a decision the
-  agent recorded live is not saved twice. A body that only a retired decision has is saved
-  again. A repeat inside the proposal is skipped too, and so is its `replaces`: a skipped
-  decision retires nothing,
-- for each added decision, its `replaces` retired with `replacedBy` set to it, and each id
-  in `retire` retired with no `replacedBy`. Ids were checked when the proposal was made, and
-  an id claimed twice is kept for its first claim only. An id that another channel retired
-  since is skipped. An id that is not a decision of the feature fails the whole approve,
-- the proposal marked `approved`, with `decidedAt`,
-- the proposal's channel closed (`closedAt`). The server then stops its agent and refuses new turns on it until `POST /channels/{id}/reopen`.
+1. Each item is saved with `remember`, the role as author and role, in the scope it names
+   (`work_item` is the channel's feature, `project` its project, `teammate` the role, `team`
+   the channel's team). The usual write rules apply, so a `team` item, and a convention from a
+   role other than `architect` or `lead`, is a `candidate` that waits in `reef memory pending`.
+   An item whose exact body is already an accepted or candidate item of that scope is
+   skipped, so an item the agent saved live is not saved twice. An id in `replaces` that is
+   no longer accepted is dropped.
+2. Each id in `retire` is retired with no replacement. One that is already retired is
+   skipped.
+3. One store transaction: a new brief version with the role as author, the proposal's channel
+   closed (`closedAt`) and the proposal marked `approved` with `decidedAt`. The server then
+   stops its agent and refuses new turns on it until `POST /channels/{id}/reopen`.
 
-If any step fails, nothing is applied. It prints `approved: brief, notes and 1 decisions
-saved`, counting only the decisions it added.
+A failure in step 1 or 2 leaves the proposal `pending` and the channel open. Items saved
+before it stay saved; approving again skips them and finishes. It prints `approved: brief and 2 items
+saved`, counting only the items this approve saved. Each `retire` and `replaces` id was checked when the proposal was
+made; a `retire` id that has since become unknown, a candidate or rejected fails step 2.
 
 Reject marks the proposal `rejected` and changes nothing else: `rejected: nothing
 changed`. To change a proposal, reject it, tell the agent what to change, and type

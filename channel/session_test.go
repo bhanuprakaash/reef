@@ -80,7 +80,6 @@ func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 	if strings.Contains(prompt, "propose_wrap") && a.propose {
 		_, err := a.st.CreateProposal(ctx, store.Proposal{
 			ChannelID: a.channelID, Role: "architect", Kind: a.kind, Brief: "new brief",
-			Notes: "my notes",
 		})
 		if err != nil {
 			return err

@@ -70,11 +70,14 @@ const (
 		"propose_wrap tool once with the full brief rewritten as the latest brief plus what " +
 		"this channel achieved (goal, status, key decisions, open questions): keep what still " +
 		"holds, make status where the feature is now, not a history, drop what is done or no " +
-		"longer true, and keep it short. Add your own notes on this feature, and the decisions " +
-		"made in this channel that are not recorded yet. Review the decision index: pass " +
-		"retire with the ids of decisions that are stale or duplicate, and replaces on a " +
-		"new decision that amends older ones. " +
-		"Then reply with one line saying it is proposed."
+		"longer true, and keep it short. Add as items what this channel made that you have not " +
+		"saved with remember yet: decisions, findings, facts, lessons and conventions, each " +
+		"with its scope (work_item by default; project for what holds across the project; " +
+		"teammate for what only you should recall). Skip what you already saved with " +
+		"remember. If you are the team lead, you may add team lessons about how this team " +
+		"works together; the user approves those. Use recall to find stale or duplicate " +
+		"items: pass retire with their ids, and replaces on a new item that amends older " +
+		"ones. Then reply with one line saying it is proposed."
 	_maxDirectLines = 100
 	_maxDirectRunes = 1000
 
@@ -84,13 +87,14 @@ const (
 
 	_promotePrompt = "This quick session is now feature %q (%s). Call the propose_wrap tool " +
 		"once with the first brief (goal, status, key decisions, open questions) written from " +
-		"this session, your own notes on the feature, and the decisions made so far. " +
+		"this session, and the items made so far (decisions, findings, facts, lessons, " +
+		"conventions), each with its scope. " +
 		"Then reply with one line saying it is proposed."
 	_promoteIntoBriefPrompt = "This quick session is now part of feature %q (%s), which " +
 		"already has a brief. Call the get_brief tool first. Then call the propose_wrap tool " +
 		"once with the full brief rewritten to merge this session into the existing brief: " +
-		"keep its content and add this session's, your notes on the feature merged the same " +
-		"way, and the decisions made so far. Then reply with one line saying it is proposed."
+		"keep its content and add this session's, and the items made so far. Then reply with " +
+		"one line saying it is proposed."
 )
 
 // ErrNoProposal is returned by Wrap when the agent made no proposal.

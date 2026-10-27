@@ -247,7 +247,7 @@ func decideWrap(
 		return true, err
 	}
 	if a := strings.ToLower(answer); a == "y" || a == "yes" {
-		p, added, err := st.ApproveProposal(ctx, p.ID)
+		p, added, err := approveProposal(ctx, st, p.ID)
 		if err != nil {
 			if errors.Is(err, store.ErrInvalid) {
 				_, err = fmt.Fprintf(stdout, "reef: %s\n\n", strings.TrimPrefix(err.Error(), "invalid: "))
@@ -284,7 +284,7 @@ func approvedText(p store.Proposal, added int) string {
 	if p.Kind == store.ProposalBrief {
 		return "approved: brief saved"
 	}
-	return fmt.Sprintf("approved: brief, notes and %d decisions saved", added)
+	return fmt.Sprintf("approved: brief and %d items saved", added)
 }
 
 func proposalBodyText(p store.Proposal) string {
@@ -292,19 +292,19 @@ func proposalBodyText(p store.Proposal) string {
 		return fmt.Sprintf("brief:\n%s\n", p.Brief)
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "brief:\n%s\n\nnotes:\n%s\n\ndecisions:\n", p.Brief, p.Notes)
-	for _, d := range p.Decisions {
-		fmt.Fprintf(&b, "- %s", d.Body)
-		if d.Why != "" {
-			fmt.Fprintf(&b, " (%s)", d.Why)
+	fmt.Fprintf(&b, "brief:\n%s\n\nitems:\n", p.Brief)
+	for _, it := range p.Items {
+		fmt.Fprintf(&b, "- %s (%s): %s", it.Kind, it.Scope, it.Body)
+		if it.Why != "" {
+			fmt.Fprintf(&b, " (%s)", it.Why)
 		}
-		if len(d.Replaces) > 0 {
-			fmt.Fprintf(&b, " [replaces %v]", d.Replaces)
+		if len(it.Replaces) > 0 {
+			fmt.Fprintf(&b, " [replaces %v]", it.Replaces)
 		}
 		b.WriteString("\n")
 	}
 	if len(p.Retire) > 0 {
-		fmt.Fprintf(&b, "\nretire decisions: %v\n", p.Retire)
+		fmt.Fprintf(&b, "\nretire memory items: %v\n", p.Retire)
 	}
 	return b.String()
 }

@@ -265,7 +265,7 @@ func newLiveEnv(t *testing.T) *liveEnv {
 
 func (e *liveEnv) serve(t *testing.T) {
 	t.Helper()
-	e.h = newHandler(e.st, nil, e.dir, channel.NewTrees(e.dir), func(ctx context.Context, id int64) (session, error) {
+	e.h = newHandler(e.st, testMemory(t, e.st), e.dir, channel.NewTrees(e.dir), func(ctx context.Context, id int64) (session, error) {
 		e.opened.Add(1)
 		e.fake.channelID.Store(id)
 		if e.open != nil {
