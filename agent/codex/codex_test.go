@@ -27,6 +27,15 @@ func TestMessage_event(t *testing.T) {
 			want: &agent.Event{Kind: agent.KindText, Text: "I"},
 		},
 		{
+			name: "compaction start is skipped",
+			give: `{"method":"item/started","params":{"item":{"type":"contextCompaction","id":"01a17ba0-d600-7bb3-85b9-5db76671462f"},"threadId":"01a17ba0-d166-7ca0-a7a3-dd40ea0a5976","turnId":"01a17ba0-d5fb-7343-bada-36989ab157a1","startedAtMs":1793075500544},"emittedAtMs":1793075500544}`,
+		},
+		{
+			name: "compaction done",
+			give: `{"method":"item/completed","params":{"item":{"type":"contextCompaction","id":"01a17ba0-d600-7bb3-85b9-5db76671462f"},"threadId":"01a17ba0-d166-7ca0-a7a3-dd40ea0a5976","turnId":"01a17ba0-d5fb-7343-bada-36989ab157a1","completedAtMs":1793075503195},"emittedAtMs":1793075503196}`,
+			want: &agent.Event{Kind: agent.KindCompacted},
+		},
+		{
 			name: "command start",
 			give: `{"method":"item/started","params":{"item":{"type":"commandExecution","id":"exec-0ff8","command":"/bin/zsh -lc 'ls -la'","cwd":"/tmp/cx","status":"inProgress","aggregatedOutput":null,"exitCode":null}}}`,
 			want: &agent.Event{

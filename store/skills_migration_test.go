@@ -83,7 +83,7 @@ func TestMigrateSkillsToList(t *testing.T) {
 			}
 			for _, col := range []string{
 				"session_cost_usd", "session_input_tokens", "session_output_tokens",
-				"session_cache_read_tokens", "session_cache_write_tokens", "scopes",
+				"session_cache_read_tokens", "session_cache_write_tokens", "scopes", "compacted",
 			} {
 				if _, err := s.db.Exec("ALTER TABLE turn DROP COLUMN " + col); err != nil {
 					t.Fatal(err)

@@ -491,6 +491,8 @@ func (m message) event() (ev agent.Event, ok bool) {
 		return agent.Event{Kind: agent.KindText, Text: p.Delta}, true
 	case m.Method == "item/started":
 		return p.Item.toolCall()
+	case m.Method == "item/completed" && p.Item.Type == "contextCompaction":
+		return agent.Event{Kind: agent.KindCompacted}, true
 	case m.Method == "item/completed":
 		return p.Item.toolResult()
 	case m.Method == "thread/tokenUsage/updated":

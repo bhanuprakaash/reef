@@ -34,7 +34,7 @@ const (
 		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, " +
 		"wake_text, wake_parent, retried, checkpoint, sent, model, cost_usd, prompt, direct_message_id, reply, " +
 		"session_cost_usd, session_input_tokens, session_output_tokens, session_cache_read_tokens, " +
-		"session_cache_write_tokens, scopes"
+		"session_cache_write_tokens, scopes, compacted"
 )
 
 // Turn is one agent run in a channel. It starts running and ends once, as
@@ -84,6 +84,9 @@ type Turn struct {
 	// a turn that is not a routed wake, and for one from before scopes: it read nothing.
 	// Hidden from Turn's own JSON.
 	Scopes Scopes `json:"-"`
+	// Compacted is set when the backend compacted the session's history during the turn.
+	// Hidden from Turn's own JSON.
+	Compacted bool `json:"-"`
 }
 
 // TurnFilter narrows Turns. A nil ChannelID or empty Status matches everything. Retryable
@@ -180,6 +183,22 @@ func (s *Store) LastSentAt(
 	return t, true, nil
 }
 
+// SessionCompacted reports whether the newest turn of role in the session of channelID that
+// sent its prompt saw the backend compact the session. It is false when no turn of the session
+// sent one.
+func (s *Store) SessionCompacted(
+	ctx context.Context, channelID int64, role, sessionID string,
+) (bool, error) {
+	var compacted bool
+	err := s.db.QueryRowContext(ctx,
+		"SELECT compacted FROM turn WHERE channel_id = ? AND role = ? AND session_id = ? "+
+			"AND sent = 1 ORDER BY id DESC LIMIT 1", channelID, role, sessionID).Scan(&compacted)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return false, fmt.Errorf("session compacted: %w", err)
+	}
+	return compacted, nil
+}
+
 // SessionCostBefore is the running cost of the session with the id when its turns before turn
 // beforeID ended: the total the latest of them reported. A session with only turns stored before
 // totals were kept has the largest cost, a running total, plus the costs stored after it, which
@@ -262,13 +281,13 @@ func (s *Store) EndTurn(ctx context.Context, t Turn) (Turn, error) {
 		session_id = COALESCE(NULLIF(?, ''), session_id), ended_at = ?,
 		model = ?, cost_usd = ?, prompt = ?, reply = ?, session_cost_usd = ?,
 		session_input_tokens = ?, session_output_tokens = ?, session_cache_read_tokens = ?,
-		session_cache_write_tokens = ?
+		session_cache_write_tokens = ?, compacted = ?
 		WHERE id = ? AND status = ?`,
 		t.Status, t.Error, t.Usage.InputTokens, t.Usage.OutputTokens,
 		t.Usage.CacheReadTokens, t.Usage.CacheWriteTokens, t.SessionID,
 		time.Now().UTC().Format(time.RFC3339Nano), t.Model, t.CostUSD, t.Prompt, t.Reply,
 		t.SessionCostUSD, session.input, session.output, session.cacheRead, session.cacheWrite,
-		t.ID, _turnRunning)
+		t.Compacted, t.ID, _turnRunning)
 	if err != nil {
 		return Turn{}, fmt.Errorf("end turn: %w", err)
 	}
@@ -499,7 +518,7 @@ func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried,
 		&checkpoint, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID, &t.Reply,
 		&t.SessionCostUSD, &session.input, &session.output, &session.cacheRead, &session.cacheWrite,
-		&t.Scopes); err != nil {
+		&t.Scopes, &t.Compacted); err != nil {
 		return Turn{}, err
 	}
 	if session.input != nil {

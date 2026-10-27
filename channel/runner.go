@@ -38,9 +38,10 @@ type Runner struct {
 	// Scopes, when set, are the scopes of the wake the next turn sends, each with its newest
 	// message, and are stored on the turn so a later turn of the session skips them.
 	Scopes store.Scopes
-	// FirstPrompt, when set, builds the first prompt of a session that has been sent none. It
-	// runs once the turn's start is stamped, so what is written after that is in the prompt or
-	// in the next turn's delta, never in neither. Cleared when a prompt has been sent.
+	// FirstPrompt, when set, builds the first prompt: for a session that has been sent none,
+	// and again for the turn after the backend compacted the session's history. It runs once
+	// the turn's start is stamped, so what is written after that is in the prompt or in the
+	// next turn's delta, never in neither.
 	FirstPrompt func(ctx context.Context) (string, error)
 	// Memory is read for the delta of a feature's channel.
 	Memory *memory.Store
@@ -58,6 +59,10 @@ type Runner struct {
 	direct    *store.DirectMessage
 
 	sessionGone bool
+
+	// snapshotSent is set once the session holds a first prompt and cleared when the backend
+	// compacts it; until it is set again the next prompt is a first prompt, not a delta.
+	snapshotSent bool
 
 	// watching is closed to stop the watch that Watch started; watched is closed when it has.
 	// The rest is what the watch read that the next turn needs: endWatch applies the session,
@@ -78,7 +83,7 @@ const (
 
 // NewRunner returns a Runner for ag, which must already be started or resumed.
 // A non-empty preamble is put before the first message sent. When FirstPrompt is set, it is
-// built for each turn until one is sent, and replaces the preamble.
+// built for each turn until one is sent and after a compaction, and replaces the preamble.
 func NewRunner(
 	st *store.Store, ag agent.Agent, channelID int64, role, backend, preamble string,
 ) *Runner {
@@ -132,7 +137,7 @@ func (r *Runner) Run(
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
 	preamble, delta := r.preamble, ""
-	if r.FirstPrompt != nil {
+	if r.FirstPrompt != nil && !r.snapshotSent {
 		preamble, err = r.FirstPrompt(wctx)
 	} else {
 		delta, err = r.delta(wctx)
@@ -157,7 +162,7 @@ func (r *Runner) Run(
 		r.sessionGone = sessionMissing(err.Error())
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
-	r.preamble, r.FirstPrompt = "", nil
+	r.preamble, r.snapshotSent = "", true
 	if _, err := r.st.SetTurnSent(wctx, turn.ID, prompt); err != nil {
 		return r.abort(wctx, turn, err, err.Error(), "", parent)
 	}
@@ -183,6 +188,8 @@ func (r *Runner) Run(
 				if _, err := r.st.SetTurnSession(wctx, turn.ID, ev.SessionID); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
+			case agent.KindCompacted:
+				turn.Compacted, r.snapshotSent = true, false
 			case agent.KindText:
 				reply.WriteString(ev.Text)
 			case agent.KindBackground:
@@ -261,6 +268,8 @@ func (r *Runner) Watch() {
 				switch {
 				case ev.Kind == agent.KindSession:
 					r.idleSession = ev
+				case ev.Kind == agent.KindCompacted:
+					r.snapshotSent = false
 				case ev.Kind == agent.KindError:
 					r.idleErr = ev.Text
 				case ev.Kind == agent.KindUsage && ev.Usage != nil:

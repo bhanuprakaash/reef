@@ -282,3 +282,42 @@ func TestRunner_FailedPromptBuildOfDirectTurnLeavesFailedResponse(t *testing.T) 
 		t.Errorf("turns = %+v, %v, prompts = %q, want one failed turn and nothing sent", turns, err, ag.prompts)
 	}
 }
+
+// The lead keeps its agent between turns; a specialist's is closed after each turn and resumed.
+func TestWakeAs_CompactedSessionGetsTheFirstPromptAgain(t *testing.T) {
+	for _, role := range []string{"lead", "developer"} {
+		t.Run(role, func(t *testing.T) {
+			ctx := context.Background()
+			e := newWakeEnv(t)
+			say := func(body string) store.Scope {
+				return store.Scope{Read: e.say("user", body, nil)}
+			}
+			work := memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*e.ch.FeatureID, 10)}
+			remember(t, e.s.ms, work, memory.KindDecision, "lead", "Use SQLite")
+			compact := true
+			e.onSend = func() {
+				if compact {
+					e.agents[0].events <- agent.Event{Kind: agent.KindCompacted}
+				}
+			}
+			e.wake(role, "one", nil, say("one"))
+			compact = false
+			e.wake(role, "two", nil, say("two"))
+			e.wake(role, "three", nil, say("three"))
+
+			turns, err := e.st.Turns(ctx, store.TurnFilter{ChannelID: &e.ch.ID})
+			if err != nil || len(turns) != 3 {
+				t.Fatalf("turns = %d, %v, want 3", len(turns), err)
+			}
+			for _, section := range []string{"## You\n", "## How to work\n", "## What we know\n"} {
+				if !strings.Contains(turns[1].Prompt, section) {
+					t.Errorf("turn 2 prompt = %q, want %q: the session compacted in turn 1", turns[1].Prompt, section)
+				}
+			}
+			if got := turns[2].Prompt; !strings.HasPrefix(got, "[channel 1, message 5]\n") ||
+				strings.Contains(got, "## You\n") || strings.Contains(got, "## What we know\n") {
+				t.Errorf("turn 3 prompt = %q, want a wake and at most a delta", got)
+			}
+		})
+	}
+}

@@ -64,6 +64,9 @@ const (
 	// KindBackground is the answer of a turn the backend ran by itself for a finished
 	// background task, in Text. It answers no Send and no turn ends with it.
 	KindBackground Kind = "background"
+	// KindCompacted says the backend has shortened the session's history. The agent no longer
+	// holds everything it was sent, so what the caller sent it once it must send again.
+	KindCompacted Kind = "compacted"
 )
 
 // Event is one normalized step of a session. Its JSON is the wire format

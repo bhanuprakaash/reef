@@ -159,7 +159,8 @@ migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`
 migration 32 [`032_provider.sql`](../store/migrations/032_provider.sql) (`provider`, `role.provider`) and
 migration 33 [`033_channel_name_auto.sql`](../store/migrations/033_channel_name_auto.sql) (`channel.name_auto`) and
 migration 36 [`036_turn_scopes.sql`](../store/migrations/036_turn_scopes.sql) (`turn.scopes`, `approval.scopes`) and
-migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql) (`turn.session_cost_usd`, `turn.session_input_tokens` and the other three token counts).
+migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql) (`turn.session_cost_usd`, `turn.session_input_tokens` and the other three token counts) and
+migration 38 [`038_turn_compacted.sql`](../store/migrations/038_turn_compacted.sql) (`turn.compacted`).
 Migrations 4 and 5 add columns to `channel` (see [channel](#channel)).
 
 ### project

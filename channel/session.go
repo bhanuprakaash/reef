@@ -524,22 +524,27 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.sessionID = last.SessionID
-	if last.SessionID == "" {
-		m.run.FirstPrompt = func(ctx context.Context) (string, error) {
-			ch, err := s.st.Channel(ctx, s.ch.ID)
-			if err != nil {
-				return "", err
-			}
-			team, err := s.st.Team(ctx, s.ch.Team)
-			if err != nil {
-				return "", err
-			}
-			r, err := s.roleSetup(team, role)
-			if err != nil {
-				return "", err
-			}
-			return firstPrompt(ctx, s.st, s.ms, ch.ProjectID, ch.FeatureID, ch.ID, team, r)
+	if last.SessionID != "" {
+		compacted, err := s.st.SessionCompacted(wctx, s.ch.ID, role, last.SessionID)
+		if err != nil {
+			return nil, err
 		}
+		m.run.snapshotSent = !compacted
+	}
+	m.run.FirstPrompt = func(ctx context.Context) (string, error) {
+		ch, err := s.st.Channel(ctx, s.ch.ID)
+		if err != nil {
+			return "", err
+		}
+		team, err := s.st.Team(ctx, s.ch.Team)
+		if err != nil {
+			return "", err
+		}
+		r, err := s.roleSetup(team, role)
+		if err != nil {
+			return "", err
+		}
+		return firstPrompt(ctx, s.st, s.ms, ch.ProjectID, ch.FeatureID, ch.ID, team, r)
 	}
 	m.run.OnPrompt = s.onPrompt
 	m.run.Memory = s.ms
