@@ -94,8 +94,10 @@ Never preload history, only a summary; details are fetched on demand.
 | Role | Persona, skills, tools, MCPs | Always |
 | Feature brief | Goal, status, key decisions, open questions; rewritten after each session | Always |
 | Role notes | This role's own notes for this feature, updated after each chat | Always |
-| Index | One line per decision, session, PR | Always |
-| Details | Full decisions, old chats, PR diffs, channel threads | On demand via tools |
+| Index | One line per live decision, one per task in progress, and a count of open tasks and earlier channels | Always |
+| Details | Full decisions, old tasks, old chats, PR diffs, channel threads | On demand via tools |
+
+One assembler builds the first prompt of a channel and of a quick session in three sections: `## You` (persona, skills, role, feature, project, the user, goal, stage, base branch), `## How to work` (team rules, one line on the tools) and `## What we know` (brief, project memory, the role's notes, the index). A part with nothing in it is left out (decisions 85 to 87).
 
 **Reef as an MCP server.** The on-demand tools (read decision, search sessions, get PR diff, read thread) are exposed by Reef's own MCP server, so Claude Code and Codex query history the same way.
 
@@ -243,6 +245,10 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 82 | The answer of a background task a role started is posted to the channel as that role's message | The user asked for that work, and it otherwise lands in no turn |
 | 83 | On Claude, a role without `write` whose `tools` allow a shell command outside the reading-command allow-list in `channel/session.go` (`Bash(git diff:*)`, `Bash(go test:*)`, `Bash(make:*)`) runs as a writer, with the single-writer lock and a checkpoint. Amends 32 | Such commands can change files, so they need the single-writer lock and an undo point |
 | 84 | A specialist's process closes after its turn, so a background task it started ends with it and its answer is not posted. Only a role whose process stays alive, the lead, posts a background answer, also while no turn runs. Amends 82 | Keeping a specialist alive for a task it may never finish costs a process per role, and a closed one has no answer to read |
+| 85 | One assembler builds every first prompt, a feature channel's and a quick session's, in three sections in this order: `## You` (persona, skills, role, feature, project, the user, goal, stage, base branch), `## How to work` (team rules, then one line on the tools), `## What we know` (brief, project memory, the role's notes, live decisions, tasks in progress, one count line) | Instructions before knowledge, one header per kind of content, one place that builds it |
+| 86 | An empty part of the first prompt is left out: no "No brief yet.", "No notes yet." or "none"; a section with no part left is left out too | Those lines tell the agent nothing |
+| 87 | The first prompt lists only the tasks in `doing`. Open tasks and earlier channels are one count line with the tool to use: `23 open tasks (list_tasks). 3 earlier channels (search_sessions).` | A task has no owner and the wake names the work; the agent only needs to know that more exists |
+| 88 | The team rules keep their wording; only their `## Team` header goes, under `## How to work`. Amends 85 | The channel evals tested that exact text; a rewrite needs its own eval run |
 
 ## Open questions
 
