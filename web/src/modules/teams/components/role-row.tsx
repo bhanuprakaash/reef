@@ -5,7 +5,7 @@ import { Creature } from '@/components/creature';
 const badge = 'inline-flex h-[30px] items-center rounded-pill border px-3 text-xs';
 
 type Props = {
-  role: Omit<Role, 'lead'> & { lead?: boolean };
+  role: Omit<Role, 'lead' | 'teammateId'> & { lead?: boolean };
   badges?: string[];
   selected: boolean;
   onSelect: () => void;

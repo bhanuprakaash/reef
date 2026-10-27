@@ -42,7 +42,7 @@ export function TeammatesPage() {
           >
             <path d="M12 5v14M5 12h14" />
           </svg>
-          New teammate
+          New Teammate
         </Button>
       </header>
       {teammates.isPending && <p className="text-sm text-muted">Loading...</p>}

@@ -18,6 +18,7 @@ vi.mock('@/lib/api/get-teammates', () => ({ useTeammates: () => ({ data: [] }) }
 vi.mock('@/modules/teams/api/update-team', () => ({ useUpdateTeam }));
 
 const role: Role = {
+  teammateId: 1,
   name: 'developer',
   lead: false,
   write: true,
@@ -97,7 +98,7 @@ describe('RolePanel', () => {
 describe('TeamEditor', () => {
   it('lists the roles and opens no panel until one is picked', () => {
     useUpdateTeam.mockReturnValue({ isPending: false, isSuccess: false, isError: false });
-    const team: Team = { name: 'solo', responsibility: '', roles: [role] };
+    const team: Team = { id: 1, name: 'solo', responsibility: '', roles: [role] };
 
     const markup = renderToStaticMarkup(
       <MemoryRouter>
@@ -112,6 +113,7 @@ describe('TeamEditor', () => {
   it('opens the panel of the role named by openRole', () => {
     useUpdateTeam.mockReturnValue({ isPending: false, isSuccess: false, isError: false });
     const team: Team = {
+      id: 1,
       name: 'solo',
       responsibility: '',
       roles: [{ ...role, name: 'lead' }, role],

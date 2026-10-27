@@ -3,7 +3,6 @@ import { teammateRequestBody } from './teammate-request-body';
 
 it('sends only the fields the server knows for a Teammate', () => {
   const body = teammateRequestBody({
-    teammateId: 4,
     name: 'sam',
     lead: true,
     write: false,

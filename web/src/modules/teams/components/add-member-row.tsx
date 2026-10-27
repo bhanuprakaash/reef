@@ -25,9 +25,9 @@ export function AddMemberRow({ team, members, onAdded }: Props) {
         onClick={() => setOpen(true)}
         className="flex h-12 w-full items-center justify-center gap-2 rounded-2xl border border-dashed border-faint text-sm text-soft outline-none hover:bg-card focus-visible:ring-3 focus-visible:ring-ring"
       >
-        <span aria-hidden="true">+</span> Add a teammate
+        <span aria-hidden="true">+</span> Add a Teammate
       </button>
-      <Dialog open={open} onClose={close} title="Add a teammate">
+      <Dialog open={open} onClose={close} title="Add a Teammate">
         {open && (
           <div className="space-y-1.5">
             {available.map((t) => (

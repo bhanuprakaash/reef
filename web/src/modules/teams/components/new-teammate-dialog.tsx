@@ -11,7 +11,7 @@ import { TextField } from '@/components/text-field';
 
 const rolePattern = /^[A-Za-z0-9_-]+$/;
 
-const blankRole: Role = {
+const blankRole: Omit<Role, 'teammateId'> = {
   name: '',
   lead: false,
   write: false,
@@ -89,7 +89,7 @@ type Props = { open: boolean; onClose: () => void; onCreated: (id: number) => vo
 
 export function NewTeammateDialog({ open, onClose, onCreated }: Props) {
   return (
-    <Dialog open={open} onClose={onClose} title="New teammate">
+    <Dialog open={open} onClose={onClose} title="New Teammate">
       {open && <NewTeammateForm onCreated={onCreated} onClose={onClose} />}
     </Dialog>
   );

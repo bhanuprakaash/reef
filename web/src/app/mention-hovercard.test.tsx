@@ -5,6 +5,7 @@ import type { Role } from '@/types/api';
 import { MentionCard } from './mention-hovercard';
 
 const developer: Role = {
+  teammateId: 1,
   name: 'developer',
   lead: false,
   write: true,

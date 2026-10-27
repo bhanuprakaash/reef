@@ -14,7 +14,7 @@ type Props = {
 };
 
 export function TeammatePanel({ teammate, skills, providers, noProject, onClose }: Props) {
-  const [role, setRole] = useState<Role>({ ...teammate, lead: false });
+  const [role, setRole] = useState<Role>({ ...teammate, teammateId: teammate.id, lead: false });
   const save = useUpdateTeammate();
 
   return (

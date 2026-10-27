@@ -68,16 +68,7 @@ export function CapturePage() {
           },
         };
         if (talk && teammate) {
-          const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-          startConversation.mutate(
-            {
-              projectId: Number(project?.id),
-              teammateId: teammate.id,
-              name: `${teammate.name} ${time}`,
-              text,
-            },
-            options,
-          );
+          startConversation.mutate({ projectId: Number(project?.id), teammate, text }, options);
         } else {
           createItem.mutate(
             { projectId: Number(project?.id), type, title: text, description },

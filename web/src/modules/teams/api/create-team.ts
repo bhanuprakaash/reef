@@ -6,7 +6,7 @@ import type { Team } from '@/types/api';
 export function useCreateTeam() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ team, from }: { team: Team; from?: string }) => {
+    mutationFn: ({ team, from }: { team: Omit<Team, 'id'>; from?: string }) => {
       const query = from ? `?from=${encodeURIComponent(from)}` : '';
       return api<Team>(`/teams${query}`, {
         method: 'POST',

@@ -79,12 +79,12 @@ export function BoardPage() {
           ]}
         />
         <Button type="button" variant="primary" disabled={!addTo} onClick={() => setAdding(true)}>
-          New work item
+          New Work item
         </Button>
       </header>
       {error && <p className="text-sm text-danger">{error.message}</p>}
       <Board items={items} teams={teams.data ?? []} />
-      <Dialog open={adding} onClose={() => setAdding(false)} title="New work item">
+      <Dialog open={adding} onClose={() => setAdding(false)} title="New Work item">
         {adding && addTo && (
           <AddWorkItemForm projectId={addTo.id} onClose={() => setAdding(false)} />
         )}

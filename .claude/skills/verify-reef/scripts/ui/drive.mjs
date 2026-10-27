@@ -301,7 +301,7 @@ async function attach() {
   await page.getByRole('heading', { name: 'idea chat', level: 1 }).waitFor();
   await shot('before-attach');
   await page.getByRole('button', { name: 'Attach to Work item' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Attach to a work item' });
+  const dialog = page.getByRole('dialog', { name: 'Attach to a Work item' });
   await pick('Work item', 'Search', dialog);
   await shot('attach-form');
   await dialog.getByRole('button', { name: 'Attach', exact: true }).click();
@@ -3049,8 +3049,8 @@ async function teammates() {
   await page.goto(`${base}/teammates`);
   await main.getByRole('heading', { name: 'Teammates', level: 1 }).waitFor();
 
-  await main.getByRole('button', { name: 'New teammate' }).click();
-  const dialog = page.getByRole('dialog', { name: 'New teammate' });
+  await main.getByRole('button', { name: 'New Teammate' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New Teammate' });
   await dialog.getByLabel('Teammate name').fill(mate);
   await dialog.getByRole('button', { name: 'Create teammate' }).click();
   await page.waitForURL((url) => url.searchParams.has('teammate'));
@@ -3076,8 +3076,8 @@ async function teammates() {
   await newTeam.getByRole('button', { name: 'Create team' }).click();
   await page.waitForURL((url) => url.searchParams.get('team') === teamName);
   await main.getByLabel('Team name').waitFor();
-  await main.getByRole('button', { name: 'Add a teammate' }).click();
-  const picker = page.getByRole('dialog', { name: 'Add a teammate' });
+  await main.getByRole('button', { name: 'Add a Teammate' }).click();
+  const picker = page.getByRole('dialog', { name: 'Add a Teammate' });
   await picker.getByRole('button', { name: new RegExp(`^${mate}`) }).click();
   const writeSwitch = main.getByRole('switch', { name: `${mate} write` });
   await writeSwitch.waitFor();
@@ -3163,8 +3163,8 @@ async function creatures() {
   check(pebble.includes('#8E8E93') && !pebble.includes('#8B5CF6'), 'a Teammate with no creature, in a role named architect, is a pebble, not a whale');
 
   await page.goto(`${base}/teammates`);
-  await main.getByRole('button', { name: 'New teammate' }).click();
-  const dialog = page.getByRole('dialog', { name: 'New teammate' });
+  await main.getByRole('button', { name: 'New Teammate' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New Teammate' });
   const kit = `kit-${suffix}`;
   await dialog.getByLabel('Teammate name').fill(kit);
   await dialog.getByRole('button', { name: /^Change creature/ }).click();
@@ -3175,7 +3175,7 @@ async function creatures() {
   await dialog.getByRole('button', { name: 'Create teammate' }).click();
   await page.waitForURL((url) => url.searchParams.has('teammate'));
   const made = (await getJson('/teammates')).find((t) => t.name === kit);
-  check(look(made) === '{"face":"penguin","colour":"pink"}', 'the New teammate dialog saves the creature and colour picked', look(made));
+  check(look(made) === '{"face":"penguin","colour":"pink"}', 'the New Teammate dialog saves the creature and colour picked', look(made));
 
   await main.getByRole('button', { name: /^Change creature/ }).click();
   await main.getByRole('button', { name: 'Shark', exact: true }).click();
@@ -3193,8 +3193,8 @@ async function creatures() {
     await shot(`phone-${route.replace(/\W+/g, '-').replace(/^-|-$/g, '')}`);
   }
   await page.goto(`${base}/teammates`);
-  await main.getByRole('button', { name: 'New teammate' }).click();
-  await page.getByRole('dialog', { name: 'New teammate' }).getByRole('button', { name: /^Change creature/ }).click();
+  await main.getByRole('button', { name: 'New Teammate' }).click();
+  await page.getByRole('dialog', { name: 'New Teammate' }).getByRole('button', { name: /^Change creature/ }).click();
   await shot('phone-picker');
 }
 
@@ -3951,7 +3951,7 @@ async function spaceHeader() {
 
   await open(freeSpace.id, `free-space-${suffix}`);
   await header.getByRole('button', { name: 'Attach to Work item', exact: true }).click();
-  const attachDialog = page.getByRole('dialog', { name: 'Attach to a work item' });
+  const attachDialog = page.getByRole('dialog', { name: 'Attach to a Work item' });
   await pick('Work item', itemB.title, attachDialog);
   await attachDialog.getByRole('button', { name: 'Attach', exact: true }).click();
   await header.getByRole('link', { name: 'Open Work item', exact: true }).waitFor();

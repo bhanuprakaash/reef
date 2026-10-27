@@ -20,7 +20,7 @@ export function TeamPage() {
     <div className="mx-auto flex w-full max-w-[820px] flex-col gap-6 py-6">
       {teams.isPending && <p className="text-sm text-muted">Loading...</p>}
       {error && <p className="text-sm text-danger">{error.message}</p>}
-      {teams.data && !team && <p className="text-sm text-muted">No team named {name}.</p>}
+      {teams.data && !team && <p className="text-sm text-muted">No Team named {name}.</p>}
       {team && (
         <>
           <header className="flex flex-wrap items-start gap-3">

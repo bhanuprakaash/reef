@@ -49,7 +49,7 @@ export function DeniedToolRows({ space, roles, running }: Props) {
                   onClick={() =>
                     add.mutate({
                       space: space.id,
-                      teammateId: d.role.teammateId!,
+                      teammateId: d.role.teammateId,
                       pattern: d.pattern,
                       stopSpace: lead ? space.id : undefined,
                     })

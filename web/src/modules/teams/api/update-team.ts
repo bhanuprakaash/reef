@@ -6,7 +6,7 @@ import type { Team } from '@/types/api';
 export function useUpdateTeam() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ name, team }: { name: string; team: Team }) => {
+    mutationFn: ({ name, team }: { name: string; team: Omit<Team, 'id'> }) => {
       return api<Team>(`/teams/${encodeURIComponent(name)}`, {
         method: 'PUT',
         body: JSON.stringify(teamRequestBody(team)),

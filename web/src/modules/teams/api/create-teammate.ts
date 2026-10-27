@@ -6,7 +6,7 @@ import type { Role, Teammate } from '@/types/api';
 export function useCreateTeammate() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (role: Role) =>
+    mutationFn: (role: Omit<Role, 'teammateId'>) =>
       api<Teammate>('/teammates', {
         method: 'POST',
         body: JSON.stringify(teammateRequestBody(role)),

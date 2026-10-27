@@ -1,13 +1,13 @@
 import { useNavigate } from 'react-router';
 import { useTeammates } from '@/lib/api/get-teammates';
-import { useCreateSpace } from '@/modules/spaces/api/create-space';
+import { useStartConversation } from '@/modules/spaces/api/start-conversation';
 import { GroupAvatar } from '@/components/creature';
 
 type Props = { projectId: number; onClose: () => void };
 
 export function NewConversationForm({ projectId, onClose }: Props) {
   const teammates = useTeammates();
-  const create = useCreateSpace();
+  const create = useStartConversation();
   const navigate = useNavigate();
 
   return (
@@ -20,17 +20,8 @@ export function NewConversationForm({ projectId, onClose }: Props) {
             type="button"
             disabled={create.isPending}
             onClick={() => {
-              const time = new Date().toLocaleTimeString([], {
-                hour: '2-digit',
-                minute: '2-digit',
-              });
               create.mutate(
-                {
-                  projectId,
-                  name: `${t.name} ${time}`,
-                  teammateId: t.id,
-                  kind: 'conversation',
-                },
+                { projectId, teammate: t },
                 {
                   onSuccess: (space) => {
                     onClose();

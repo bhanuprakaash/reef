@@ -19,9 +19,11 @@ const space = (id: number, team: string): Space => ({
 });
 
 const team = (name: string, roles: string[]): Team => ({
+  id: 1,
   name,
   responsibility: '',
-  roles: roles.map((r) => ({
+  roles: roles.map((r, i) => ({
+    teammateId: i + 1,
     name: r,
     lead: r === 'lead',
     write: false,

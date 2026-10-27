@@ -4,7 +4,7 @@ import { useTeammates } from '@/lib/api/get-teammates';
 import { useTeams } from '@/lib/api/get-teams';
 import { useCurrentProject } from '@/lib/current-project';
 import { useProjects } from '@/modules/projects/api/get-projects';
-import { useCreateSpace } from '@/modules/spaces/api/create-space';
+import { useStartConversation } from '@/modules/spaces/api/start-conversation';
 import { useTeammateConversations } from '@/modules/teams/api/get-teammate-conversations';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
 import { rowTime } from '@/utils/row-time';
@@ -23,7 +23,7 @@ export function TeammatePage() {
   const memory = useMemory(`teammate:${id}`);
   const projects = useProjects();
   const [project] = useCurrentProject(projects.data);
-  const create = useCreateSpace();
+  const create = useStartConversation();
   const navigate = useNavigate();
 
   if (teammates.isPending) return <p className="text-sm text-muted">Loading...</p>;
@@ -37,14 +37,9 @@ export function TeammatePage() {
 
   function start() {
     if (!project) return;
-    const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+    if (!teammate) return;
     create.mutate(
-      {
-        projectId: project.id,
-        name: `${teammate?.name} ${time}`,
-        teammateId: id,
-        kind: 'conversation',
-      },
+      { projectId: project.id, teammate },
       { onSuccess: (space) => void navigate(`/spaces/${space.id}`) },
     );
   }

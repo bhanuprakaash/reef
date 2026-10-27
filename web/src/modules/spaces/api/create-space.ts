@@ -13,11 +13,13 @@ type NewSpace = {
   kind?: Space['kind'];
 };
 
+export const createSpace = (input: NewSpace) =>
+  api<Space>('/spaces', { method: 'POST', body: JSON.stringify(input) });
+
 export function useCreateSpace() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (input: NewSpace) =>
-      api<Space>('/spaces', { method: 'POST', body: JSON.stringify(input) }),
+    mutationFn: createSpace,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['spaces'] }),
   });
 }

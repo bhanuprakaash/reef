@@ -167,7 +167,7 @@ export function SpaceView({
         }}
       />
       {space.workItemId === null && (
-        <Dialog open={attaching} onClose={() => setAttaching(false)} title="Attach to a work item">
+        <Dialog open={attaching} onClose={() => setAttaching(false)} title="Attach to a Work item">
           {attaching && (
             <AttachForm space={space} workItems={workItems} onClose={() => setAttaching(false)} />
           )}
