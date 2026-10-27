@@ -2148,7 +2148,7 @@ async function denials() {
   const putTeam = (r) =>
     fetch(`${base}/teams/denials`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'denials', roles: r }) });
   check((await putTeam(roles)).status === 200, 'the team denials is applied: a lead and a read-only reviewer, both allowed only Read');
-  const toolsOf = async (role) => (await getJson('/teams/denials')).roles.find((r) => r.name === role).tools.join(',');
+  const toolsOf = async (role) => (await getJson(`/spaces/${cid}/members`)).find((r) => r.name === role).tools.join(',');
   const turnLines = (role) =>
     readFileSync(process.env.REEF_FAKE_LOG ?? '/dev/null', 'utf8').split('\n').filter((l) => l.includes(` role=${role} `));
   const allowed = (line) => /--allowedTools (\S+)/.exec(line)?.[1];

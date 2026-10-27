@@ -48,8 +48,8 @@ export function DeniedToolRows({ space, roles, running }: Props) {
                   disabled={running || add.isPending}
                   onClick={() =>
                     add.mutate({
-                      team: space.team,
-                      role: d.role.name,
+                      space: space.id,
+                      teammateId: d.role.teammateId!,
                       pattern: d.pattern,
                       stopSpace: lead ? space.id : undefined,
                     })
