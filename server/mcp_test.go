@@ -5,9 +5,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net"
+	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
@@ -650,9 +652,11 @@ func TestMCPProposeWrapTeamItemsOnlyFromTheLeadOfARealTeam(t *testing.T) {
 	}
 }
 
-func TestMCPSubItems(t *testing.T) {
+// leadAndDeveloper adds team core (lead and developer) and a Space of work item 1 for it, and
+// returns the tokens of the two.
+func leadAndDeveloper(t *testing.T, st *store.Store) (lead, developer store.Token) {
+	t.Helper()
 	ctx := context.Background()
-	st, _ := mcpFixture(t)
 	if _, err := st.CreateTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{Name: "developer", Backend: "claude"},
@@ -667,14 +671,87 @@ func TestMCPSubItems(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	lead, err := st.CreateToken(ctx, ch.ID, "lead")
+	if lead, err = st.CreateToken(ctx, ch.ID, "lead"); err != nil {
+		t.Fatal(err)
+	}
+	if developer, err = st.CreateToken(ctx, ch.ID, "developer"); err != nil {
+		t.Fatal(err)
+	}
+	return lead, developer
+}
+
+func TestMCPSubmitForReview(t *testing.T) {
+	ctx := context.Background()
+	st, _ := mcpFixture(t)
+	lead, developer := leadAndDeveloper(t, st)
+	if _, err := st.UpdateWorkItem(ctx, store.WorkItem{ID: 1, Title: "Auth", AcceptanceLines: []store.AcceptanceLine{
+		{Text: "wrong password is refused"}, {Text: "session lasts a day"}, {Text: "logout clears it"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.DB().Exec("UPDATE work_item SET status = 'in_progress' WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	dataDir := t.TempDir()
+	shot := filepath.Join(dataDir, "login.png")
+	if err := os.WriteFile(shot, []byte("png"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	leadCall := callToolResult(t, st, lead, dataDir)
+	devCall := callToolResult(t, st, developer, dataDir)
+	if _, isErr := leadCall("create_sub_item", map[string]any{"title": "Schema"}); isErr {
+		t.Fatal("create_sub_item failed")
+	}
+	args := map[string]any{
+		"lines": []map[string]any{
+			{"position": 1, "checked": true, "note": "401 on a bad password"},
+			{"position": 2, "checked": true},
+		},
+		"commands":    []map[string]any{{"command": "go test ./...", "output": "ok  reef/server 1.2s"}},
+		"screenshots": []string{shot},
+	}
+
+	got, isErr := devCall("submit_for_review", args)
+	if want := "invalid: only the lead submits a work item for review"; got != want || !isErr {
+		t.Errorf("developer submit = %q (error %v), want %q", got, isErr, want)
+	}
+	got, isErr = leadCall("submit_for_review", args)
+	if want := `invalid: work item 1 cannot go to review while sub-item 3 "Schema" is backlog`; got != want || !isErr {
+		t.Errorf("submit with an open sub-item = %q (error %v), want %q", got, isErr, want)
+	}
+	if _, isErr := leadCall("set_sub_item_status", map[string]any{"id": 3, "status": "done"}); isErr {
+		t.Fatal("set_sub_item_status failed")
+	}
+	args["screenshots"] = []string{filepath.Join(dataDir, "..", "login.png")}
+	got, isErr = leadCall("submit_for_review", args)
+	if want := `invalid: screenshot "` + args["screenshots"].([]string)[0] + `" is not under the data folder ` + dataDir; got != want || !isErr {
+		t.Errorf("submit with a screenshot outside the data folder = %q (error %v), want %q", got, isErr, want)
+	}
+	args["screenshots"] = []string{shot}
+	got, isErr = leadCall("submit_for_review", args)
+	if !strings.Contains(got, `"status":"review"`) || isErr {
+		t.Fatalf("lead submit = %q (error %v), want review", got, isErr)
+	}
+	p, err := st.Proof(ctx, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	developer, err := st.CreateToken(ctx, ch.ID, "developer")
-	if err != nil {
-		t.Fatal(err)
+	p.SubmittedAt = time.Time{}
+	b, _ := json.Marshal(p)
+	want := `{"spaceId":5,"acceptanceLines":[` +
+		`{"position":1,"text":"wrong password is refused","checked":true,"note":"401 on a bad password"},` +
+		`{"position":2,"text":"session lasts a day","checked":true,"note":""},` +
+		`{"position":3,"text":"logout clears it","checked":false,"note":""}],` +
+		`"commands":[{"command":"go test ./...","output":"ok  reef/server 1.2s"}],` +
+		`"screenshots":["` + shot + `"],"submittedAt":"0001-01-01T00:00:00Z"}`
+	if string(b) != want {
+		t.Errorf("proof = %s, want %s", b, want)
 	}
+}
+
+func TestMCPSubItems(t *testing.T) {
+	st, _ := mcpFixture(t)
+	lead, developer := leadAndDeveloper(t, st)
 	leadCall, devCall := callTool(t, st, lead), callTool(t, st, developer)
 
 	for _, title := range []string{"Schema", "Handlers"} {

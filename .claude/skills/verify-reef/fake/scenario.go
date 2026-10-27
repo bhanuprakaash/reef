@@ -24,6 +24,7 @@ var _scenarios = []scenario{
 	{"sam-recall-codeword", "sam", pat(`Which codeword did I just give you`)},
 	{"sam-no-codeword", "sam", pat(`Did I give you a codeword`)},
 	{"queue-lead", "lead", pat(`^Work item \d+: `)},
+	{"submit-lead", "lead", pat(`^SUBMIT FOR REVIEW$`)},
 	{"coordinate-send", "lead", pat(`COORDINATE the login review`)},
 	{"coordinate-fail", "lead", pat(`COORDINATE the failing review`)},
 	{"direct-review", "architect", pat(`wrote privately: Please review the login plan`)},

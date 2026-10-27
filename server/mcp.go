@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -148,6 +150,11 @@ type (
 	listSubItemsOut struct {
 		SubItems []subItemRow `json:"subItems"`
 	}
+	submitForReviewIn struct {
+		Lines       []store.LineTick     `json:"lines,omitempty" jsonschema:"acceptance lines to tick, each a position (from 1), checked and a note on how you proved it or why it is not ticked; lines you leave out keep their tick and note"`
+		Commands    []store.ProofCommand `json:"commands,omitempty" jsonschema:"the commands you ran as proof, each with its output"`
+		Screenshots []string             `json:"screenshots,omitempty" jsonschema:"absolute paths of screenshot files under the Reef data folder"`
+	}
 	browserNavigateIn struct {
 		URL string `json:"url" jsonschema:"the URL to open in the browser pane"`
 	}
@@ -251,6 +258,14 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 		Description: "Set the status of a sub-item: backlog, queued, in_progress, needs_you, " +
 			"review, done or dropped. Only the lead may; the lead is the one that sets it done.",
 	}, m.setSubItemStatus)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "submit_for_review",
+		Description: "Submit this work item for the user's review with your proof: tick its " +
+			"acceptance lines with a note each, add the commands you ran with their output and " +
+			"screenshot files. Only the lead may, and only while every sub-item is done or " +
+			"dropped. The work item goes to review, its team is free for the next queued item, " +
+			"and when your turn ends you are asked to wrap up this Space.",
+	}, m.submitForReview)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "browser_navigate",
 		Description: "Open a URL in the shared browser pane. The user watches it live.",
@@ -688,6 +703,43 @@ func (m *mcpServer) setSubItemStatus(
 	}
 	w, err := m.st.MoveWorkItem(ctx, in.ID, in.Status, store.ByLead)
 	return nil, w, err
+}
+
+func (m *mcpServer) submitForReview(
+	ctx context.Context, _ *mcp.CallToolRequest, in submitForReviewIn,
+) (*mcp.CallToolResult, store.WorkItem, error) {
+	lead, err := m.isLead(ctx)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	if !lead {
+		return nil, store.WorkItem{}, fmt.Errorf("%w: only the lead submits a work item for review", store.ErrInvalid)
+	}
+	f, err := m.workItem(ctx)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	for _, p := range in.Screenshots {
+		if err := m.checkScreenshot(p); err != nil {
+			return nil, store.WorkItem{}, err
+		}
+	}
+	w, err := m.st.SubmitForReview(ctx, f.ID, in.Lines, store.Proof{
+		SpaceID: m.tok.SpaceID, Commands: in.Commands, Screenshots: in.Screenshots,
+	})
+	return nil, w, err
+}
+
+// checkScreenshot is ErrInvalid unless path is an existing file under the Reef data folder.
+func (m *mcpServer) checkScreenshot(path string) error {
+	rel, err := filepath.Rel(m.dataDir, path)
+	if err != nil || !filepath.IsAbs(path) || !filepath.IsLocal(rel) {
+		return fmt.Errorf("%w: screenshot %q is not under the data folder %s", store.ErrInvalid, path, m.dataDir)
+	}
+	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: screenshot %q is not a file", store.ErrInvalid, path)
+	}
+	return nil
 }
 
 // subItem is the sub-item id of this Space's work item; any other work item is not found.

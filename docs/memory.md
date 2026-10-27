@@ -219,6 +219,7 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 | `list_sub_items` | none | `{"subItems": [{"id", "type", "title", "status"}]}`: the work item's sub-items, oldest first, every status | `this Space has no work item` |
 | `read_sub_item` | `id` (required) | one sub-item in full: `description`, `status` and `acceptanceLines` | `sub-item 9: not found`, also for a work item that is not a sub-item of the token's work item |
 | `set_sub_item_status` | `id`, `status` (required: `backlog`, `queued`, `in_progress`, `needs_you`, `review`, `done` or `dropped`) | the sub-item with its new status. Only the lead of the Space's team may call it; it is the one that sets a sub-item `done`. The move goes through the same function as every status change, so a sub-item that is `done` or `dropped` does not move again. A top-level work item goes to `review` only when every sub-item is `done` or `dropped` | `invalid: only the lead sets a sub-item's status`, `sub-item 9: not found`, `invalid: work item 3: lead cannot move an item from done to in_progress`, `invalid: work item 4: unknown status "x"` |
+| `submit_for_review` | `lines` (`[{"position", "checked", "note"}]`: acceptance lines to tick, positions from 1; lines left out keep their tick and note), `commands` (`[{"command", "output"}]` run as proof), `screenshots` (absolute paths of existing files under the data folder). All optional | the work item, in status `review`. Only the lead of the Space's team may call it. The work item must be `in_progress` and every sub-item `done` or `dropped`. It stores the proof (`GET /work-items/{id}/proof`), frees the Team for its next queued item, and when the Space's chain ends `reef serve` asks the lead to wrap up the Space (see Wrap-up). A submit from `reef chat`, or while `reef serve` is down, starts no wrap-up until a turn of that Space ends under `reef serve`, or the user sends `/wrap` | `invalid: only the lead submits a work item for review`, `invalid: work item 1 cannot go to review while sub-item 3 "Schema" is backlog`, `invalid: work item 1 has no acceptance line 4`, `invalid: work item 1: submit cannot move an item from backlog to review` (an item that is not in progress), `invalid: screenshot "/tmp/a.png" is not under the data folder /home/me/.reef`, `invalid: screenshot "/x/a.png" is not a file` (nothing is stored) |
 | `browser_navigate` | `url` (required) | `{"text": "navigated to <url>"}` | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser`, `refused: the browser pane cannot open Reef itself` (or another `refused: ...` for a non-http(s) URL), the page's own error (e.g. `net::ERR_CONNECTION_REFUSED`) when it fails to load |
 | `browser_screenshot` | none | a PNG image of the browser pane's current page | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
 | `browser_snapshot` | none | the page's accessibility tree as text, one line per element: `- role "name" [ref=e12]`. A ref is only valid until the next snapshot or a navigation | `browser unavailable: the Reef app is not open`, `browser did not answer: <error>`, `the user has the browser` |
@@ -496,7 +497,10 @@ Flags:
 
 ## Wrap-up
 
-A Space ends explicitly, never on a timer. The user types `/wrap` in `reef chat`:
+A Space ends explicitly, never on a timer. Under `reef serve` the lead's `submit_for_review` also
+starts it: when the lead's chain of turns ends, the server runs the same wrap-up turn once for that
+submit, and the user decides the proposal as for any wrap-up. The user can also type `/wrap` in
+`reef chat`:
 
 1. `reef chat` sends the agent a fixed prompt instead of `/wrap`. The stored user message
    is still `/wrap`. The prompt asks the agent to call `get_brief` first, then `propose_wrap`

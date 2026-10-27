@@ -42,6 +42,8 @@ func (s *server) workItemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/work-items/{id}/worktree", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}/diff", s.getWorkItemDiff)
 	mux.HandleFunc("/work-items/{id}/diff", methodNotAllowed)
+	mux.HandleFunc("GET /work-items/{id}/proof", s.getWorkItemProof)
+	mux.HandleFunc("/work-items/{id}/proof", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}/pr", s.getWorkItemPR)
 	mux.HandleFunc("/work-items/{id}/pr", methodNotAllowed)
 	mux.HandleFunc("POST /work-items/{id}/pr/merge", s.mergeWorkItemPR)
@@ -432,6 +434,21 @@ func (s *server) getWorkItemDiff(w http.ResponseWriter, r *http.Request) {
 		diffs = []worktree.FileDiff{}
 	}
 	writeJSON(w, http.StatusOK, diffs)
+}
+
+// getWorkItemProof returns what the lead submitted the work item with; 404 before it submitted.
+func (s *server) getWorkItemProof(w http.ResponseWriter, r *http.Request) {
+	id, err := pathID(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	p, err := s.st.Proof(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, p)
 }
 
 func (s *server) getBrief(w http.ResponseWriter, r *http.Request) {

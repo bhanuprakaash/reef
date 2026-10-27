@@ -1142,6 +1142,7 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 	s, l := c.s, c.l
 	defer s.wg.Done()
 	defer s.inboxChanged()
+	defer s.startSubmitted(c.id)
 	// finish ends the chain owning the live state, and hands the wakes of remaining, the
 	// queue left before the next turn, to shedLocked. Callers pass the leftover queue when
 	// the chain dies outside a turn (failed or stopped turn), and nil when a stall or cap

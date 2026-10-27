@@ -226,6 +226,22 @@ A `PUT` replaces every editable field: `title`, `description`, `type`, `status`,
 
 A Team works one top-level item at a time: one with status `in_progress` or `needs_you` (a unique index on `team_id` holds this). Moving an item to `queued` puts it last in its Team's queue, `queuePosition` 1, 2, 3; moving it from `review` back to `queued` puts it first. When the Team has no item in progress or needing the user, its first queued item moves to `in_progress` by itself: at once on a queue, after a move that frees the Team (to `review`, `done` or `dropped`), and at boot for a queued item of a free Team. The server then opens an active Space for a started item that has none, with the Team's lead, and sends the lead one message: `Work item N: <title>`, `Description:`, the numbered `Acceptance lines:` and `Brief:`, each `none` when empty, one line each. A `reef` note `Started from the queue.` follows in the Space. A sent-back item keeps its Space and gets no new prompt. A first turn that cannot run leaves a note saying so instead.
 
+The lead's `submit_for_review` runs in the `reef mcp` process, which the server cannot hear, so the server learns of a submit when the chain of turns of the submitting Space ends. It then opens the Space of the item the move started, the same way as after a `PATCH`, and runs a wrap-up turn for the lead (the same turn as `POST /spaces/{id}/wrap`), once per submit. A wrap-up that cannot start leaves a `reef` note in the Space: `Submitted for review, but the wrap-up did not start: <why>. Send /wrap to run it.` A submit that happens while the server is down starts its next item at the next boot, and its wrap-up when a turn of that Space next ends.
+
+#### proof
+
+What the lead submitted a top-level item with (`submit_for_review`, see [memory.md](memory.md#reef-mcp)). One row per item, replaced by each submit; a sent-back item is submitted again. No REST write.
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `spaceId` | number | the Space the lead submitted from; the wrap-up runs there |
+| `acceptanceLines` | array | the item's lines as they are now, with `checked` and `note` as the submit set them |
+| `commands` | array | `{"command", "output"}` each, as submitted; `[]` when none |
+| `screenshots` | array | absolute paths of files under the data folder; `[]` when none |
+| `submittedAt` | string | RFC 3339 |
+
+The row also keeps whether the wrap-up was started (`wrap_started`), which is not in REST. The PR of the proof is the item's branch PR: `GET /work-items/{id}/pr`. Migration 54 [`054_proof.sql`](../store/migrations/054_proof.sql).
+
 ### work_item_github
 
 The last GitHub PR state the [GitHub poll](#github-poll) posted about a Work item, kept across
@@ -520,6 +536,7 @@ tool calls.
 | `GET /work-items/{id}/worktree` | | 200 `{"path": "...", "branch": "work-item/<id>"}`; the path of the work item's worktree, or `""` when it has none yet, and its branch. A sub-item answers with its parent's. Never makes one | 404 |
 | `POST /work-items/{id}/worktree` | no body needed | 200 `{"path": "...", "branch": "..."}`; makes the work item's worktree (a sub-item's is its parent's) the same way the first wake of one of its Spaces would, reusing it when it already exists | 404 |
 | `GET /work-items/{id}/diff` | query `scope=current` for the changes against the worktree's HEAD only | 200 the worktree's changes against the commit its branch and the project's base branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the work item has no worktree yet | 404 |
+| `GET /work-items/{id}/proof` | | 200 the [proof](#proof): `{"spaceId", "acceptanceLines", "commands", "screenshots", "submittedAt"}` | 404 the item was never submitted for review |
 | `GET /work-items/{id}/pr` | | 200 `{"pr": {"number", "title", "state": "OPEN"\|"MERGED"\|"CLOSED", "url", "isDraft", "reviewDecision", "base", "head", "canMerge", "checks": [{"name", "state": "pass"\|"fail"\|"pending"}], "body", "additions", "deletions", "files": [{"path", "additions", "deletions"}]}}`, from `gh pr view work-item/<id>` run in the project's folder; `canMerge` is true only when `state` is `OPEN` and gh calls it `MERGEABLE`; `{"pr": null}` when the branch has no PR | 404, 502 gh is not on `PATH` or failed, with its text |
 | `POST /work-items/{id}/pr/merge` | no body needed | 200 the same body as `GET /work-items/{id}/pr`, after `gh pr merge <number> --merge` (a merge commit) | 404 no work item or no PR, 409 gh refused, with its text, 502 |
 | `GET /skills?project={id}` | `project` is required | 200 `{"claude":[...],"codex":[...]}`, each a list of `{name, description}` read from disk, never stored. claude: `~/.claude/skills`, the project's `.claude/skills` and the skills of the plugins in `~/.claude/plugins/installed_plugins.json` installed for the user or for the project path, named `plugin:skill`. codex: `~/.agents/skills` and the project's `.agents/skills`. A name found twice is listed once; each list is ordered by name. A skill whose name is not letters, digits, `:`, `_` or `-`, or whose file cannot be read, is left out, and a malformed `installed_plugins.json` gives no plugin skills; each is logged and the rest are listed | 400 `project` missing or not a number, 404 |

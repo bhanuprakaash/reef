@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -24,6 +25,33 @@ func (s *server) startQueue() {
 		}
 		s.openStarted(s.ctx)
 	}()
+}
+
+// startSubmitted runs when a chain ends on Space id. submit_for_review runs in the reef mcp
+// process, which the server cannot hear, so this is where it learns of one: the Team is free, so
+// the item the queue started opens now, and the lead wraps up the Space. The wrap-up is claimed
+// first, so one submit starts one. A wrap-up that cannot start is noted in the Space.
+func (s *server) startSubmitted(id int64) {
+	if s.ctx.Err() != nil {
+		return
+	}
+	claimed, err := s.st.ClaimWrap(s.ctx, id)
+	if err != nil {
+		log.Printf("claim wrap-up of Space %d: %v", id, err)
+		return
+	}
+	if !claimed {
+		return
+	}
+	s.openStarted(s.ctx)
+	err = s.startUserTurn(s.ctx, id, userTurn{kind: _wrap, text: space.WrapCommand})
+	if err == nil {
+		return
+	}
+	note := fmt.Sprintf("Submitted for review, but the wrap-up did not start: %v. Send /wrap to run it.", err)
+	if _, err := s.st.CreateMessage(s.ctx, store.Message{SpaceID: id, Author: store.ReefAuthor, Body: note}); err != nil {
+		log.Printf("note failed wrap-up in Space %d: %v", id, err)
+	}
 }
 
 // openStarted gives each top-level item the queue moved to in progress that has no open Space
