@@ -206,15 +206,16 @@ func (s *server) deleteWorkItem(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	gone := projectGone(p.Path)
-	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
-	if gone {
-		err = os.RemoveAll(dir)
-	} else {
-		err = s.removeWorkItemTree(r.Context(), p, f)
-	}
-	if err != nil {
-		writeError(w, err)
-		return
+	if f.ParentID == nil {
+		if gone {
+			err = os.RemoveAll(worktree.Path(s.dataDir, p.ID, f.TreeKey()))
+		} else {
+			err = s.removeWorkItemTree(r.Context(), p, f)
+		}
+		if err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	subs, err := s.st.WorkItems(r.Context(), store.WorkItemFilter{ParentID: &id})
 	if err != nil {
@@ -314,8 +315,8 @@ func treeConflict(f store.WorkItem, dir string, err error) error {
 	return err
 }
 
-// getWorkItemWorktree returns the path of the work item's worktree, or an empty path when it
-// has none yet. It never makes one.
+// getWorkItemWorktree returns the path and branch of the work item's worktree, the parent's for
+// a sub-item, or an empty path when it has none yet. It never makes one.
 func (s *server) getWorkItemWorktree(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -336,7 +337,7 @@ func (s *server) getWorkItemWorktree(w http.ResponseWriter, r *http.Request) {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		dir = ""
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"path": dir})
+	writeJSON(w, http.StatusOK, map[string]string{"path": dir, "branch": worktree.Branch(f.TreeKey())})
 }
 
 // ensureWorkItemWorktree makes the work item's worktree, the same way the first wake of one of
@@ -363,7 +364,7 @@ func (s *server) ensureWorkItemWorktree(w http.ResponseWriter, r *http.Request) 
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"path": dir})
+	writeJSON(w, http.StatusOK, map[string]string{"path": dir, "branch": worktree.Branch(f.TreeKey())})
 }
 
 // getWorkItemDiff returns the work item worktree's changes, uncommitted and untracked files

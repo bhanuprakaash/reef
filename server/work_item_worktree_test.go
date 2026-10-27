@@ -32,24 +32,24 @@ func TestEnsureWorkItemWorktree_MakesItAndReusesIt(t *testing.T) {
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
 
 	want := worktree.Path(dataDir, 1, "1")
-	if status, body := do(t, http.MethodGet, ts.URL+"/work-items/1/worktree", ""); status != 200 || body != `{"path":""}` {
-		t.Fatalf("get worktree before = %d %s, want 200 {\"path\":\"\"}", status, body)
+	if status, body := do(t, http.MethodGet, ts.URL+"/work-items/1/worktree", ""); status != 200 || body != `{"branch":"work-item/1","path":""}` {
+		t.Fatalf("get worktree before = %d %s, want 200 {\"branch\":\"work-item/1\",\"path\":\"\"}", status, body)
 	}
 	status, body := do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
-	if wantBody := fmt.Sprintf(`{"path":%q}`, want); status != 200 || body != wantBody {
+	if wantBody := fmt.Sprintf(`{"branch":"work-item/1","path":%q}`, want); status != 200 || body != wantBody {
 		t.Fatalf("ensure worktree = %d %s, want 200 %s", status, body, wantBody)
 	}
 	if got := gitIn(t, want, "branch", "--show-current"); got != "work-item/1" {
 		t.Errorf("branch = %q, want work-item/1", got)
 	}
 
-	if status, body := do(t, http.MethodGet, ts.URL+"/work-items/1/worktree", ""); status != 200 || body != fmt.Sprintf(`{"path":%q}`, want) {
+	if status, body := do(t, http.MethodGet, ts.URL+"/work-items/1/worktree", ""); status != 200 || body != fmt.Sprintf(`{"branch":"work-item/1","path":%q}`, want) {
 		t.Fatalf("get worktree after = %d %s, want 200 path %s", status, body, want)
 	}
 
 	// A second call reuses the same tree.
 	status, body = do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
-	if wantBody := fmt.Sprintf(`{"path":%q}`, want); status != 200 || body != wantBody {
+	if wantBody := fmt.Sprintf(`{"branch":"work-item/1","path":%q}`, want); status != 200 || body != wantBody {
 		t.Fatalf("ensure worktree again = %d %s, want 200 %s", status, body, wantBody)
 	}
 }

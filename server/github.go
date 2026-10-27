@@ -166,7 +166,7 @@ func (s *server) startGitHubPoll() {
 	}()
 }
 
-// pollGitHub checks every work item with a worktree against its PR, and posts a reef note in
+// pollGitHub checks every top-level work item with a worktree against its PR, and posts a reef note in
 // the work item's most recent Space when the PR's state changes or a check finishes. No gh
 // on PATH: nothing is posted, logged once.
 func (s *server) pollGitHub(ctx context.Context) {
@@ -181,6 +181,9 @@ func (s *server) pollGitHub(ctx context.Context) {
 		return
 	}
 	for _, f := range items {
+		if f.ParentID != nil {
+			continue
+		}
 		if err := s.pollWorkItemGitHub(ctx, ghPath, f); err != nil {
 			log.Printf("github poll: work item %d: %v", f.ID, err)
 		}

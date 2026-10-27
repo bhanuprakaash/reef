@@ -60,8 +60,14 @@ type WorkItemFilter struct {
 	Type      string
 }
 
-// TreeKey names the item's worktree folder and branch.
-func (w WorkItem) TreeKey() string { return strconv.FormatInt(w.ID, 10) }
+// TreeKey names the worktree folder and branch of the item's top-level item: a sub-item works
+// in its parent's tree, so every tree, branch and PR lookup goes through here.
+func (w WorkItem) TreeKey() string {
+	if w.ParentID != nil {
+		return strconv.FormatInt(*w.ParentID, 10)
+	}
+	return strconv.FormatInt(w.ID, 10)
+}
 
 // CreateWorkItem adds w and its acceptance lines. A parent must be a top-level item of
 // w.ProjectID.

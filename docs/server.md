@@ -512,8 +512,8 @@ tool calls.
 | `GET /work-items/{id}/notes/{role}` | | 200. Unused since decision 91 | 404 no work item, or no notes for the role |
 | `PUT /work-items/{id}/notes/{role}` | `body`; replaces the old notes | 200. Unused since decision 91 | 404 no work item |
 | `DELETE /work-items/{id}/notes/{role}` | | 204. Unused since decision 91 | 404 no work item, or no notes for the role |
-| `GET /work-items/{id}/worktree` | | 200 `{"path": "..."}`; the path of the work item's worktree, or `""` when it has none yet. Never makes one | 404 |
-| `POST /work-items/{id}/worktree` | no body needed | 200 `{"path": "..."}`; makes the work item's worktree the same way the first wake of one of its Spaces would, reusing it when it already exists | 404 |
+| `GET /work-items/{id}/worktree` | | 200 `{"path": "...", "branch": "work-item/<id>"}`; the path of the work item's worktree, or `""` when it has none yet, and its branch. A sub-item answers with its parent's. Never makes one | 404 |
+| `POST /work-items/{id}/worktree` | no body needed | 200 `{"path": "...", "branch": "..."}`; makes the work item's worktree (a sub-item's is its parent's) the same way the first wake of one of its Spaces would, reusing it when it already exists | 404 |
 | `GET /work-items/{id}/diff` | query `scope=current` for the changes against the worktree's HEAD only | 200 the worktree's changes against the commit its branch and the project's base branch last shared, uncommitted and untracked files included, as `[{"path", "status": "added"\|"modified"\|"deleted", "hunks": [{"header", "lines": [{"kind": "add"\|"del"\|"ctx", "old", "new", "text"}]}]}]`; `[]` when the work item has no worktree yet | 404 |
 | `GET /work-items/{id}/pr` | | 200 `{"pr": {"number", "title", "state": "OPEN"\|"MERGED"\|"CLOSED", "url", "isDraft", "reviewDecision", "base", "head", "canMerge", "checks": [{"name", "state": "pass"\|"fail"\|"pending"}], "body", "additions", "deletions", "files": [{"path", "additions", "deletions"}]}}`, from `gh pr view work-item/<id>` run in the project's folder; `canMerge` is true only when `state` is `OPEN` and gh calls it `MERGEABLE`; `{"pr": null}` when the branch has no PR | 404, 502 gh is not on `PATH` or failed, with its text |
 | `POST /work-items/{id}/pr/merge` | no body needed | 200 the same body as `GET /work-items/{id}/pr`, after `gh pr merge <number> --merge` (a merge commit) | 404 no work item or no PR, 409 gh refused, with its text, 502 |
@@ -606,7 +606,9 @@ a message wakes them.
   missing (claude `No conversation found`, codex `no rollout found for thread id`), that turn
   fails and the role's next wake starts a new session, with its intro, not the dead one.
 - An agent of a Space under a work item runs in the work item's worktree,
-  `<data folder>/worktrees/<project id>/<work item id>`, on branch `work-item/<work item id>`. It is made at
+  `<data folder>/worktrees/<project id>/<work item id>`, on branch `work-item/<work item id>`. A
+  sub-item has none of its own: its worktree, branch and PR are its parent's, so the diff and
+  PR routes of a sub-item answer for the parent, and deleting a sub-item keeps the tree. It is made at
   the first start of any agent of the work item, from the project's base branch (fetched from
   `origin` first, a failed fetch is only logged; `origin/<branch>` if it exists, else the local
   branch) or the repo's default branch when none is set, with `git worktree add`; a worktree or branch that exists is reused, so every Space of the work item shares
@@ -987,7 +989,7 @@ exist in `reef chat`: it wakes nobody.
 
 ## GitHub poll
 
-`reef serve` polls GitHub for each work item that has a worktree, every `REEF_GH_INTERVAL`
+`reef serve` polls GitHub for each top-level work item that has a worktree, every `REEF_GH_INTERVAL`
 (default 60s), once right away and then on that interval until the server closes: `gh pr
 view work-item/<id> --json number,title,url,state,isDraft,mergeable,reviewDecision,headRefName,baseRefName,statusCheckRollup,body,additions,deletions,files`, run in the project's
 folder. `statusCheckRollup` items are either a `CheckRun` (`name`, `status`, `conclusion`,
