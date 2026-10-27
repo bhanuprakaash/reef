@@ -28,6 +28,7 @@ var _scenarios = []scenario{
 	{"promote-propose-merge", "", pat(`now part of feature .* already has a brief`)},
 	{"promote-propose", "", pat(`This quick session is now feature`)},
 	{"wrap-propose", "", pat(`Wrap up this channel\.`)},
+	{"lockout-note", "", pat(`note: we decided to lock an account after 5 failed logins`)},
 	{"propose-brief", "", pat(`Call the propose_brief tool once`)},
 	{"design-codeword", "lead", pat(`codeword kiwi-77`)},
 	{"recall-codeword-decision", "architect", pat(`What codeword did I give you`)},
