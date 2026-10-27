@@ -198,13 +198,6 @@ func saveItems(
 		if i < 0 {
 			return added, warnings, fmt.Errorf("%w: scope %q is not one of the channel's", store.ErrInvalid, it.Scope)
 		}
-		saved, err := ms.Saved(ctx, scopes[i], it.Body)
-		if err != nil {
-			return added, warnings, err
-		}
-		if saved {
-			continue
-		}
 		replaces := make([]int64, 0, len(it.Replaces))
 		for _, rid := range it.Replaces {
 			old, err := ms.Read(ctx, rid)
@@ -214,6 +207,17 @@ func saveItems(
 			if old.Status == memory.StatusAccepted {
 				replaces = append(replaces, rid)
 			}
+		}
+		saved, err := ms.Saved(ctx, scopes[i], it.Body, p.Retire)
+		if err != nil {
+			return added, warnings, err
+		}
+		if saved {
+			for _, rid := range replaces {
+				warnings = append(warnings,
+					fmt.Sprintf("memory %d not replaced: item %q already saved", rid, it.Body))
+			}
+			continue
 		}
 		res, err := ms.Remember(ctx,
 			memory.Writer{

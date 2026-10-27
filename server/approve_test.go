@@ -317,3 +317,92 @@ func TestApproveProposalTwiceAtOnceSavesEachItemOnce(t *testing.T) {
 		t.Errorf("memory rows = %d, want 3: the old one and each item once", n)
 	}
 }
+
+func TestApproveProposalWarnsWhenASkippedItemDropsItsReplaces(t *testing.T) {
+	st, tok := mcpFixture(t)
+	call := callTool(t, st, tok)
+	call("remember", map[string]any{"kind": "fact", "body": "sessions last a day"})
+	call("remember", map[string]any{"kind": "decision", "body": "use sessions"})
+	if got, isErr := call("propose_wrap", map[string]any{
+		"brief": "v2",
+		"items": []any{map[string]any{
+			"kind": "decision", "body": "use sessions", "replaces": []any{1},
+		}},
+	}); isErr {
+		t.Fatalf("propose_wrap = %q", got)
+	}
+
+	a, err := ApproveProposal(context.Background(), st, openMemory(t, st), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{`memory 1 not replaced: item "use sessions" already saved`}
+	if a.Added != 0 || !reflect.DeepEqual(a.Warnings, want) {
+		t.Errorf("approve = added %d, warnings %q, want 0 and %q", a.Added, a.Warnings, want)
+	}
+}
+
+func TestApproveProposalKeepsAnItemItsOwnProposalRetires(t *testing.T) {
+	rows := func(t *testing.T, st *store.Store) []string {
+		t.Helper()
+		r, err := st.DB().Query("SELECT id || ' ' || body || ' ' || status FROM memory ORDER BY id")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Close()
+		var out []string
+		for r.Next() {
+			var s string
+			if err := r.Scan(&s); err != nil {
+				t.Fatal(err)
+			}
+			out = append(out, s)
+		}
+		return out
+	}
+	propose := func(t *testing.T) *store.Store {
+		t.Helper()
+		st, tok := mcpFixture(t)
+		call := callTool(t, st, tok)
+		call("remember", map[string]any{"kind": "decision", "body": "use sessions"})
+		if got, isErr := call("propose_wrap", map[string]any{
+			"brief": "v2",
+			"items": []any{
+				map[string]any{"kind": "decision", "body": "use sessions"},
+				map[string]any{"kind": "fact", "body": "login at /in"},
+			},
+			"retire": []any{1},
+		}); isErr {
+			t.Fatalf("propose_wrap = %q", got)
+		}
+		return st
+	}
+	want := []string{
+		"1 use sessions retired", "2 use sessions accepted", "3 login at /in accepted",
+	}
+
+	clean := propose(t)
+	if _, err := ApproveProposal(context.Background(), clean, openMemory(t, clean), 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := rows(t, clean); !reflect.DeepEqual(got, want) {
+		t.Errorf("clean approve memory = %q, want %q", got, want)
+	}
+
+	retried := propose(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	ms, err := memory.Open(retried.DB(), &cancelEmbedder{cancel: cancel, at: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ApproveProposal(ctx, retried, ms, 1); err == nil {
+		t.Fatal("first approve succeeded, want it to fail on the second item")
+	}
+	if _, err := ApproveProposal(context.Background(), retried, ms, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got := rows(t, retried); !reflect.DeepEqual(got, want) {
+		t.Errorf("retried approve memory = %q, want %q", got, want)
+	}
+}
