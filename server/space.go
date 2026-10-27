@@ -376,7 +376,7 @@ func (s *server) listSpaceMembers(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, t.Roles)
+	writeJSON(w, http.StatusOK, viewTeam(t).Roles)
 }
 
 func (s *server) addSpaceMember(w http.ResponseWriter, r *http.Request) {

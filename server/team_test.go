@@ -45,6 +45,39 @@ func TestTeamsOmitMCPServers(t *testing.T) {
 	}
 }
 
+func TestSpaceMembersOmitMCPServers(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	_, err = st.ApplyTeam(ctx, store.Team{Name: "keys", Roles: []store.Role{{
+		Name: "lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
+			{Command: "my-mcp", Env: map[string]string{"API_KEY": "sk-secret-123"}},
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, Name: "talk", Team: "keys", Backend: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	status, body := do(t, http.MethodGet, ts.URL+"/spaces/1/members", "")
+	if status != 200 || !strings.Contains(body, `"mcp":[{"name":"mcp1","label":"my-mcp"}]`) ||
+		strings.Contains(body, "mcpServers") || strings.Contains(body, "sk-secret-123") {
+		t.Errorf("GET members = %d %s, want the lead with an mcp label and no env", status, body)
+	}
+}
+
 func TestTeamsReturnFace(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
