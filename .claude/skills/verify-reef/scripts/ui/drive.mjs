@@ -1877,7 +1877,9 @@ async function pr() {
 // Teammates' direct messages show as one compact item in the Space, never as bubbles. The
 // lead's direct request runs the architect at once, and the fake architect answers slowly.
 async function coordination() {
-  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teams.md)');
+  for (const team of ['duo', 'full']) {
+    if ((await fetch(`${base}/teams/${team}`)).status !== 200) throw new Error(`apply the team ${team} first (see features/teams.md)`);
+  }
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
   await addFeature(section, 'Login');
@@ -2052,6 +2054,47 @@ async function coordination() {
   await panel.waitFor();
   check((await panel.getByRole('button', { name: 'Retry' }).count()) === 0, 'it offers no Retry: no turn failed');
   await shot('desktop-4-dropped');
+
+  // Two direct wakes are queued for the architect, one from each of two pairs: the lead's request and the
+  // developer's, which the lead's turn caused by posting before it sent. Each panel shows only its own turn.
+  await addFeature(section, 'Queued');
+  const { id: qid } = await newTeamSpace('full', 'queued room');
+  await send('QUEUE two reviews for the architect.');
+  const pair = (from) => page.getByRole('button', { name: new RegExp(`^${from} and architect (are coordinating|coordinated) · \\d+ messages?`, 'i') });
+  const architectRuns = async (id, timeout = 60000) => {
+    for (const end = Date.now() + timeout; Date.now() < end; await page.waitForTimeout(100)) {
+      const turn = (await getJson('/turns?status=running')).find((t) => t.spaceId === Number(qid) && t.role === 'architect');
+      if (turn?.directMessageId === id) return true;
+    }
+    return false;
+  };
+  const panelHas = async (text, timeout = 0) => {
+    for (const end = Date.now() + timeout; ; await page.waitForTimeout(100)) {
+      if ((await panel.innerText()).includes(text)) return true;
+      if (Date.now() >= end) return false;
+    }
+  };
+  const requests = async () => (await getJson(`/spaces/${qid}/direct-messages`)).filter((m) => m.replyToId === null && m.to === 'architect');
+  while ((await requests()).length < 2) await page.waitForTimeout(100);
+  const [first, second] = await requests();
+  check(first.from === 'lead' && second.from === 'developer', 'two requests to the architect are stored, from two pairs', `${first.from} ${first.id}, ${second.from} ${second.id}`);
+  check(await architectRuns(first.id), "the architect runs the lead's request first, while the developer's is queued", `running ${first.id}`);
+  await pair('lead').click();
+  await panel.waitFor();
+  check(await panelHas('Reviewing the plan', 8000), "the lead's panel streams the running turn");
+  check(!(await panelHas('Checking the second plan')), "the lead's panel shows nothing of the queued turn");
+  await shot('queued-first-lead');
+  await pair('developer').click();
+  check(!(await panelHas('Reviewing the plan')), "the developer's panel shows nothing of the running turn", (await panel.innerText()).replace(/\s+/g, ' '));
+  check((await getJson('/turns?status=running')).some((t) => t.directMessageId === first.id), 'the first turn is still running when the panels are read');
+  await shot('queued-first-developer');
+  check(await architectRuns(second.id), "the architect then runs the developer's request", `running ${second.id}`);
+  check(await panelHas('Checking the second plan', 8000), "the developer's panel streams its own turn");
+  await shot('queued-second-developer');
+  await pair('lead').click();
+  check(!(await panelHas('Checking the second plan')), "the lead's panel still shows nothing of the other turn", (await panel.innerText()).replace(/\s+/g, ' '));
+  check((await getJson('/turns?status=running')).some((t) => t.directMessageId === second.id), 'the second turn is still running when the panel is read');
+  await shot('queued-second-lead');
 }
 
 async function team() {

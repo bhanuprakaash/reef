@@ -37,6 +37,8 @@ type cliArgs struct {
 	// removes the file at claude's first output line.
 	mcpConfig string
 	resume    string
+	// fork, with resume, continues in a copy of the session that has a new id.
+	fork bool
 }
 
 func parseArgs(args []string) cliArgs {
@@ -54,6 +56,8 @@ func parseArgs(args []string) cliArgs {
 				i++
 				c.resume = args[i]
 			}
+		case "--fork-session":
+			c.fork = true
 		case "--permission-mode", "--allowedTools", "--disallowedTools":
 			i++ // value is unused by the fake
 		}

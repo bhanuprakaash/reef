@@ -47,6 +47,9 @@ func runFake(args []string) error {
 			}
 		}
 		role = readRole(dir, sid)
+		if cli.fork {
+			sid = forkSession(dir, sid)
+		}
 	} else {
 		sid = newUUID()
 	}
