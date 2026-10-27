@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
@@ -258,5 +260,60 @@ func TestApproveProposalReportsLookalikesAndEmbedErrors(t *testing.T) {
 	want := []string{"memory 2 looks like memory 1", "memory 2: vector not stored: provider down"}
 	if !reflect.DeepEqual(a.Warnings, want) {
 		t.Errorf("warnings = %q, want %q", a.Warnings, want)
+	}
+}
+
+type slowEmbedder struct{}
+
+func (slowEmbedder) Embed(context.Context, string) ([]float32, error) {
+	time.Sleep(20 * time.Millisecond)
+	return nil, nil
+}
+
+func (slowEmbedder) MinCosine() float64 { return 0 }
+
+func TestApproveProposalTwiceAtOnceSavesEachItemOnce(t *testing.T) {
+	st, tok := mcpFixture(t)
+	call := callTool(t, st, tok)
+	call("remember", map[string]any{"kind": "fact", "body": "old"})
+	if got, isErr := call("propose_wrap", map[string]any{
+		"brief": "v2",
+		"items": []any{
+			map[string]any{"kind": "decision", "body": "alpha"},
+			map[string]any{"kind": "finding", "body": "bravo"},
+		},
+		"retire": []any{1},
+	}); isErr {
+		t.Fatalf("propose_wrap = %q", got)
+	}
+	ms, err := memory.Open(st.DB(), slowEmbedder{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	errs := make(chan error, 2)
+	var wg sync.WaitGroup
+	for range 2 {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			_, err := ApproveProposal(context.Background(), st, ms, 1)
+			errs <- err
+		}()
+	}
+	wg.Wait()
+	close(errs)
+
+	var failed []string
+	for err := range errs {
+		if err != nil {
+			failed = append(failed, err.Error())
+		}
+	}
+	if want := []string{"invalid: proposal 1 is already approved"}; !reflect.DeepEqual(failed, want) {
+		t.Errorf("failed approves = %q, want %q", failed, want)
+	}
+	if n := countMemory(t, st); n != 3 {
+		t.Errorf("memory rows = %d, want 3: the old one and each item once", n)
 	}
 }

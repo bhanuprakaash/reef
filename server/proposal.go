@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"sync"
 
 	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/memory"
@@ -132,6 +133,8 @@ func (s *server) approveProposal(w http.ResponseWriter, r *http.Request) {
 	}{a.Proposal, a.Added, a.Warnings})
 }
 
+var _approveMu sync.Mutex
+
 // Approval is what approving a proposal did: how many memory items it saved, and a line for
 // each saved item that looks like a stored one or whose vector was not stored.
 type Approval struct {
@@ -149,6 +152,8 @@ type Approval struct {
 func ApproveProposal(
 	ctx context.Context, st *store.Store, ms *memory.Store, id int64,
 ) (Approval, error) {
+	_approveMu.Lock()
+	defer _approveMu.Unlock()
 	p, err := st.Proposal(ctx, id)
 	if err != nil {
 		return Approval{}, err
