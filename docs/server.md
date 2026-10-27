@@ -90,7 +90,7 @@ logged in and on `PATH`.
   reply is the stored message, so the live block does not repeat it.
 - A closed channel shows "Wrapped" and Reopen where the Wrap up button and composer were.
 - Feature page (`/features/{id}`), with Close feature (asks to confirm) or Reopen, and its diff review page (`/features/{id}/review`); project
-  page (`/projects/{id}`) with project memory and its features.
+  page (`/projects/{id}`) with its features. The feature page lists the feature's accepted `work_item` memory items and the project page the project's, each with Retire; the project page also adds an item (kind and body). The window reads and writes them through `/memory`, not `/decisions` or `/projects/{id}/memory`.
 - Needs you (`/inbox`): what waits on you from [`/inbox/events`](#inbox), with a count and
   the action of each item (Approve or Reject, Continue, Retry, Open). The window asks once,
   on a click, to show desktop notifications and then shows one for each item that is new
@@ -555,6 +555,9 @@ tool calls.
 | `GET /decisions` | `?feature=ID` (required) | 200, retired decisions too, with `retiredAt` and `replacedBy` | 400 no feature, 404 unknown feature |
 | `POST /decisions` | `featureId`, `messageId`, `body`, `why`, `author`, `replaces` | 201 | 400 missing field, unknown feature, a message of another feature, or a `replaces` id that is not a live decision of the feature |
 | `GET /decisions/{id}` | | 200 | 404 |
+| `GET /memory` | `?scope=KIND:ID` (required, such as `work_item:3` or `project:1`) | 200 the accepted items of that scope, newest first, as objects (`id`, `kind`, `body`, `why`, `scope`, `author`, `role`, `status`, `retiredAt`, `replacedBy`, `createdAt`, `links`); `[]` when none | 400 no scope or one that is not `kind:id` |
+| `POST /memory` | `kind`, `body`, `why`, `scope` (`KIND:ID`) | 201 the item, written with author and role `user`, so always accepted | 400 unknown kind or scope kind, empty body, bad scope |
+| `POST /memory/{id}/retire` | no body needed | 204, no body; sets `retiredAt` | 400 not an accepted item (already retired, a candidate), 404 |
 
 A `POST` with no body (`stop`, `continue`, `wrap`, `approve`, `reject`) still needs
 `Content-Type: application/json`, or the guard answers 415. These routes ignore the body,

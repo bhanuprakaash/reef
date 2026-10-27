@@ -112,6 +112,7 @@ func newHandler(
 	s.proposalRoutes(mux)
 	s.taskRoutes(mux)
 	s.decisionRoutes(mux)
+	s.memoryRoutes(mux)
 	s.turnRoutes(mux)
 	s.inboxRoutes(mux)
 	s.startGitHubPoll()
@@ -195,9 +196,9 @@ func writeError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, errStopping):
 		status, msg = http.StatusServiceUnavailable, err.Error()
-	case errors.Is(err, store.ErrInvalid):
+	case errors.Is(err, store.ErrInvalid), errors.Is(err, memory.ErrInvalid):
 		status, msg = http.StatusBadRequest, err.Error()
-	case errors.Is(err, store.ErrNotFound):
+	case errors.Is(err, store.ErrNotFound), errors.Is(err, memory.ErrNotFound):
 		status, msg = http.StatusNotFound, err.Error()
 	case errors.Is(err, store.ErrConflict), errors.Is(err, worktree.ErrNoRepo):
 		status, msg = http.StatusConflict, err.Error()
