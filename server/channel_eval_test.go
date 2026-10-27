@@ -31,6 +31,7 @@ import (
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -194,8 +195,12 @@ func (a *evalAgent) open(ctx context.Context, cfg agent.Config, sessionID string
 	if a.env.rec == nil {
 		return nil
 	}
+	ms, err := memory.Open(a.env.store().DB(), nil)
+	if err != nil {
+		return err
+	}
 	client, server := mcp.NewInMemoryTransports()
-	if _, err := NewMCP(a.env.store(), tok, a.env.dir).Connect(ctx, server, nil); err != nil {
+	if _, err := NewMCP(a.env.store(), ms, tok, a.env.dir).Connect(ctx, server, nil); err != nil {
 		return err
 	}
 	a.mcp, err = mcp.NewClient(&mcp.Implementation{Name: "eval", Version: "v0"}, nil).

@@ -111,7 +111,7 @@ Stage: ideation
 Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
 
 ## How to work
-Details are on demand through the reef MCP tools read_decision, read_thread, list_tasks and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
+Details are on demand through the reef MCP tools recall, read_memory, read_thread, list_tasks and search_sessions. Record decisions with remember. When the user and the team agree on the goal, scope or plan, call propose_brief.
 
 ## What we know
 ### Brief
@@ -153,7 +153,7 @@ Stage: ideation
 Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
 
 ## How to work
-Details are on demand through the reef MCP tools read_decision, read_thread, list_tasks and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
+Details are on demand through the reef MCP tools recall, read_memory, read_thread, list_tasks and search_sessions. Record decisions with remember. When the user and the team agree on the goal, scope or plan, call propose_brief.
 `
 	if got != want {
 		t.Errorf("Context =\n%s\nwant\n%s", got, want)

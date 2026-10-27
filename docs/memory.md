@@ -20,7 +20,7 @@ Reef has no handoff file. A new session starts with three things:
   of the earlier channels. Retired decisions are left out.
 
 It never gets old message bodies. When it needs details, it fetches them on demand with
-the MCP tools (`read_decision`, `read_thread`, `list_tasks`, `search_sessions`). So the first prompt
+the MCP tools (`recall`, `read_memory`, `read_thread`, `list_tasks`, `search_sessions`). So the first prompt
 stays small after many sessions. At the end of a session, the agent proposes a new brief,
 new notes and the decisions it did not record yet. The user approves, and the next
 session starts from that.
@@ -202,7 +202,7 @@ It serves Reef's MCP tools over stdio, with the official Go SDK
 with exit code 1, when `REEF_TOKEN` is empty (`REEF_TOKEN is not set`) or matches no
 token (`unknown REEF_TOKEN`). It stops when stdin closes.
 
-Every tool except `post_to_channel`, `send_to_role` and `read_direct_messages` works on the token's feature. On a quick-session channel
+Every tool except `post_to_channel`, `send_to_role`, `read_direct_messages`, `recall` and `read_memory` works on the token's feature, and so does `remember` unless its scope is `project` or `teammate`. On a quick-session channel
 (no feature) those tools fail with `this channel has no feature`, except `read_thread` of the
 token's own channel. A result is one JSON object as text. A
 tool error comes back as a result with `isError: true` and the message as text, so the
@@ -212,14 +212,15 @@ JSON-RPC error (`-32602`, `unknown tool "nope"`).
 
 | Tool | Input | Output | Errors |
 | --- | --- | --- | --- |
-| `get_brief` | none | `{"brief": "...", "notes": "..."}`: the latest brief and this role's notes. Each is `""` when there is none yet | |
-| `record_decision` | `body` (required), `why`, `messageId`, `replaces` (ids of live decisions it amends or replaces) | the new decision, as in [server.md](server.md#decision). The author is the token's role. Each `replaces` id is retired with `replacedBy` set to the new decision, in one transaction. The tool says a decision is a choice about how the feature works, not progress, proof or a won't-fix list | `invalid: decision body is required`, `invalid: message 5 is not in a channel of feature 1`, `invalid: decision 9 is not a live decision of feature 1` (nothing is written) |
+| `get_brief` | none | `{"brief": "..."}`: the latest brief, `""` when there is none yet. Notes are items: read them with `recall` and scope `teammate` | |
+| `remember` | `kind` (`decision`, `convention`, `finding`, `fact` or `lesson`) and `body` (required), `about` (strings `kind:id`), `replaces` (ids of accepted items it amends or replaces), `why`, `scope` (`work_item`, the default, `project` or `teammate`), `needsApproval` | `{"item": {...}, "similar": [{"id", "body"}]}`: the stored item with `id`, `kind`, `body`, `why`, `scope` (`work_item:1`), `author` and `role` (both the token's role), `status`, `retiredAt`, `replacedBy`, `createdAt` and `links` (`{"rel", "to"}`); `similar` appears only when stored items look like it. `work_item` is the token's feature, `project` its project, `teammate` the token's role on every feature. The item is `accepted`, or a `candidate` that waits for the user when `needsApproval` is set or the kind is `convention` from a role other than `architect` or `lead`. Each `replaces` item is retired and points at the new one, or when the new one is a candidate, after the user approves it. `team` is never written from here: team items come only from the lead's wrap-up | `invalid: scope "team" is not work_item, project or teammate`, `this channel has no feature` (`work_item` on a quick session), `invalid: unknown kind "x"`, `invalid: body is required`, `memory 9: not found` (a `replaces` id that is not readable here) (nothing is written) |
+| `recall` | `query` (required), `limit` (default 10), `scope` (`work_item`, `project`, `team` or `teammate`: only that one) | `{"hits": [{"id", "kind", "body", "scope", "status", "via"}]}`: matches in every scope the token can read, retired items included and marked, plus items one link away; `via` is `direct` or the link it came through. A feature's `work_item` items are read only on that feature; `team` only on a channel with a team. `hits` is `[]` when nothing matches | `query is required`, `invalid: you have no "team" scope here` |
+| `read_memory` | `id` (required) | the item as `remember` returns it, with its `links` | `memory 99: not found`, also for an item in a scope the token cannot read |
 | `add_task` | `title` (required), `body` | the new task: `todo`, in the feature's project, tagged with the feature | `invalid: task title is required` |
 | `list_tasks` | `status` (`todo`, `doing` or `done`; leave it out for all) | `{"tasks": [...]}`: the feature's tasks by id, as in [server.md](server.md#task). `tasks` is `[]` when there are none | `invalid: unknown status "later"` |
 | `read_task` | `id` (required) | the task, with its full body | `task 99: not found`, also for a task of another feature or of no feature |
 | `update_task` | `id` (required), `title`, `body`, `status` (`todo`, `doing` or `done`) | the updated task. Only the fields given change; `{"id": 3, "status": "done"}` marks task 3 done. There is no tool to delete a task | `task 99: not found` as for `read_task`, `invalid: task title is required`, `invalid: unknown status "later"` |
 | `search_sessions` | `query` (required), `limit` (default 20) | `{"hits": [{"channelId", "messageId", "kind", "author", "snippet"}]}`: messages in all of the feature's channels that contain `query`, newest first. `kind` is `public` or `direct`. A direct hit appears only when the token's role is its sender or recipient, in any channel of the feature, and also has `from`, `to` and `chainId`; its `messageId` is the direct message id, which `read_thread` does not take. Case is ignored for ASCII. The snippet is about 120 characters around the match. `hits` is `null` when nothing matches | `query is required` |
-| `read_decision` | `id` (required) | the decision, with `retiredAt` and `replacedBy` when it is retired | `decision 99: not found`, also for a decision of another feature |
 | `read_thread` | `channelId` (required), `after` (only newer message ids), `root` (the id of a top-level message) | `{"messages": [...]}`: the channel's messages, oldest first. With `root`: that message and its replies, oldest first, and `after` is ignored. Each message has `parentId`, `null` at the top level. `messages` is `null` when there are none | `channel 9: not found`, also for a channel of another feature or a quick session other than the token's own; `thread 9: not found` when `root` is not a top-level message of the channel |
 | `post_to_channel` | `body` (required), `parent` (the id of a top-level message: reply in its thread; leave it out to post at the top level) | the stored message, with the token's role as `author`. It works on a quick session too | `invalid: message body is required`, `invalid: parent 9 is not a top-level message of channel 1` |
 | `send_to_role` | `to` (exactly one teammate role), `body` (required) | the stored direct request, with `channelId`, `chainId`, `from`, `to`, `replyToId: null` and `status: sent` | empty body, self, unknown or out-of-team role, a recipient list, a closed channel, a starting channel, or a wrapping or promoting channel are errors; nothing is stored |
@@ -315,8 +316,8 @@ no `No brief yet.`, no `No notes yet.` and no `none`. A section with no part lef
      the memory that carries over. The lead gets one more line: do not summarize or repeat a
      specialist's post back to the user, because they see it. `reef context` has no team and
      prints none of this.
-   - On a feature, one line that names the tools for details (`read_decision`, `read_thread`,
-     `list_tasks`, `search_sessions`), `record_decision` and `propose_brief`. Those tools need a
+   - On a feature, one line that names the tools for details (`recall`, `read_memory`, `read_thread`,
+     `list_tasks`, `search_sessions`), `remember` and `propose_brief`. Those tools need a
      feature, so a quick session gets no such line, and a quick session with a team of one has no `## How to work` at all.
 3. `## What we know`, each part under a `###` label and only when it has content:
    - `### Brief`: the latest brief.
@@ -343,7 +344,7 @@ Stages in order: ideation, grill, plan, tickets, implement, testing, live-testin
 
 ## How to work
 Your team: @lead, @developer. Use post_to_channel and @mentions for work the whole team needs: ...
-Details are on demand through the reef MCP tools read_decision, read_thread, list_tasks and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
+Details are on demand through the reef MCP tools recall, read_memory, read_thread, list_tasks and search_sessions. Record decisions with remember. When the user and the team agree on the goal, scope or plan, call propose_brief.
 
 ## What we know
 ### Brief

@@ -15,8 +15,8 @@ const (
 	_dateLayout    = "2006-01-02"
 	_maxIndexRunes = 100
 	_youHeader     = "## You\n"
-	_toolsLine     = "Details are on demand through the reef MCP tools read_decision, " +
-		"read_thread, list_tasks and search_sessions. Record decisions with record_decision. When the " +
+	_toolsLine     = "Details are on demand through the reef MCP tools recall, read_memory, " +
+		"read_thread, list_tasks and search_sessions. Record decisions with remember. When the " +
 		"user and the team agree on the goal, scope or plan, call propose_brief."
 )
 
