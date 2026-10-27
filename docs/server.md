@@ -190,8 +190,9 @@ The server stores `occupation` and `style` as given, but a line break in `name`,
 ### project_memory
 
 One body per project, kept as a column on `project` (migration 14
-[`014_project_memory.sql`](../store/migrations/014_project_memory.sql)). The user writes it; it
-is loaded into every fresh session's context prompt (see [memory.md](memory.md#the-context-prompt)).
+[`014_project_memory.sql`](../store/migrations/014_project_memory.sql)). Nothing loads or shows it
+since decision 91: the context prompt and the project page read the project's memory items instead
+(see [memory.md](memory.md#the-context-prompt)). Its routes still read and write it.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -235,7 +236,8 @@ One row per version. A feature's brief is its latest version.
 
 ### role_notes
 
-One row per feature and role.
+One row per feature and role. Nothing reads them since decision 91: a role's own items are in
+scope `teammate`. Their routes still read and write them.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -316,6 +318,9 @@ delete; deleting the turn deletes its tool calls.
 | `parentId` | number? | the `Agent` call a claude subagent's call nests under, set from the event's `parentToolId`; absent for a top-level call, and for a call whose parent was not seen (shown flat) |
 
 ### decision
+
+No agent, CLI command or window page reads or writes this table since decision 91: a decision is a
+memory item of kind `decision` (`remember`, `reef decide`, `POST /memory`). Its routes still work.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -948,7 +953,7 @@ as for send, and once the agent is open, in one transaction creates the feature 
 the channel's `featureId`. It answers 202 with the
 channel and starts a turn: the stored user message is `/promote`, and the agent gets a
 prompt that names the feature and asks it to call `propose_wrap` once with the first brief,
-written from the session, its notes and the decisions so far. The user approves that
+written from the session, and the memory items made so far, each with its scope. The user approves that
 proposal like a wrap-up, and approval makes brief version 1. The promote turn runs in the
 agent the quick session already has. When it ends, every agent of the channel is stopped, so
 the next wake of each role resumes its session in the feature's worktree. The promote first
@@ -1132,8 +1137,8 @@ $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/channels -d
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/messages -d '{"channelId":1,"author":"user","body":"Start with the form"}'
 {"id":1,"channelId":1,"parentId":null,"author":"user","body":"Start with the form","createdAt":"2026-10-13T09:00:04.123456Z"}
 
-$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/decisions -d '{"featureId":1,"messageId":1,"body":"Use sessions, not JWT","why":"One server, no token refresh","author":"user"}'
-{"id":1,"featureId":1,"messageId":1,"body":"Use sessions, not JWT","why":"One server, no token refresh","author":"user","createdAt":"2026-10-13T09:00:05.123456Z"}
+$ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/memory -d '{"kind":"decision","body":"Use sessions, not JWT","why":"One server, no token refresh","scope":"work_item:1"}'
+{"id":1,"kind":"decision","body":"Use sessions, not JWT","why":"One server, no token refresh","scope":"work_item:1","author":"user","role":"user","status":"accepted","retiredAt":null,"replacedBy":null,"createdAt":"2026-10-13T09:00:05.123456Z"}
 
 $ curl -s -X POST -H 'Content-Type: application/json' localhost:7700/tasks -d '{"projectId":1,"featureId":1,"title":"Build the login form"}'
 {"id":1,"projectId":1,"featureId":1,"title":"Build the login form","body":"","status":"todo","createdAt":"2026-10-13T09:00:06.123456Z","updatedAt":"2026-10-13T09:00:06.123456Z"}
