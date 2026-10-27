@@ -56,23 +56,32 @@ func (s *server) approveProposal(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	s.approveMu.Lock()
-	a, err := ApproveProposal(r.Context(), s.st, s.ms, id)
-	s.approveMu.Unlock()
+	a, err := s.approve(r.Context(), id)
 	if err != nil {
 		writeError(w, err)
 		return
-	}
-	if a.Proposal.Kind == store.ProposalWrap {
-		if l := s.lookup(a.Proposal.SpaceID); l != nil {
-			s.stopLive(l)
-		}
 	}
 	writeJSON(w, http.StatusOK, struct {
 		store.Proposal
 		ItemsAdded int      `json:"itemsAdded"`
 		Warnings   []string `json:"warnings,omitempty"`
 	}{a.Proposal, a.Added, a.Warnings})
+}
+
+// approve approves the pending proposal id and, for a wrap, stops the Space's agent.
+func (s *server) approve(ctx context.Context, id int64) (Approval, error) {
+	s.approveMu.Lock()
+	a, err := ApproveProposal(ctx, s.st, s.ms, id)
+	s.approveMu.Unlock()
+	if err != nil {
+		return Approval{}, err
+	}
+	if a.Proposal.Kind == store.ProposalWrap {
+		if l := s.lookup(a.Proposal.SpaceID); l != nil {
+			s.stopLive(l)
+		}
+	}
+	return a, nil
 }
 
 // Approval is what approving a proposal did: how many memory items it saved, and a line for

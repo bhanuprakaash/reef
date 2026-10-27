@@ -135,7 +135,7 @@ check queue-restart-starts "$restart_ok" "item 3 queued $queued_before; submit w
 
 api_call PATCH /work-items/4 '{"status":"queued"}'
 c_pos=$(item 4)
-api_call PATCH /work-items/1 '{"status":"queued"}'
+api_call PATCH /work-items/1 '{"status":"queued","note":"SAY IT TWICE"}'
 back_ok=1
 [ "$STATUS" = 200 ] || back_ok=0
 [ "$c_pos" = "queued:1" ] || back_ok=0
@@ -152,6 +152,14 @@ next_ok=1
 [ "$(item 4)" = "queued:1" ] || next_ok=0
 [ "$(spaces 1)" = 1 ] || next_ok=0
 check queue-send-back-starts "$next_ok" "after item 3 dropped: item 1 $(item 1), item 4 $(item 4), Spaces of item 1: $(spaces 1)"
+
+for i in $(seq 40); do grep -q 'scenario=sent-back-lead' "$E/fake-claude.log" && break; sleep 1; done
+note_prompt=$("$H" sql "select body from message where space_id = 1 and author = 'user' order by id desc limit 1" | tail -n +2)
+note_ok=1
+[ "$note_prompt" = "$(printf 'Sent back from review by the user:\nSAY IT TWICE')" ] || note_ok=0
+[ "$(grep -c 'scenario=sent-back-lead' "$E/fake-claude.log")" = 1 ] || note_ok=0
+[ "$("$H" sql "select status from proposal where space_id = 1 order by id desc limit 1" | tail -1)" = rejected ] || note_ok=0
+check queue-send-back-note "$note_ok" "newest user message of Space 1: $(echo "$note_prompt" | tr '\n' '|'); sent-back-lead replays: $(grep -c 'scenario=sent-back-lead' "$E/fake-claude.log"); wrap-up proposal of Space 1: $("$H" sql "select status from proposal where space_id = 1 order by id desc limit 1" | tail -1)"
 
 "$H" serve-stop
 

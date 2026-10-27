@@ -26,6 +26,7 @@ var _scenarios = []scenario{
 	{"queue-lead", "lead", pat(`^Work item \d+: `)},
 	{"submit-lead", "lead", pat(`^SUBMIT FOR REVIEW$`)},
 	{"propose-deploy", "sam", pat(`^PROPOSE THE FAILING DEPLOY$`)},
+	{"sent-back-lead", "lead", pat(`^Sent back from review by the user:`)},
 	{"coordinate-send", "lead", pat(`COORDINATE the login review`)},
 	{"coordinate-fail", "lead", pat(`COORDINATE the failing review`)},
 	{"direct-review", "architect", pat(`wrote privately: Please review the login plan`)},

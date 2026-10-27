@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|first-run BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|work-item-review|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, teammates, 'work-item': workItem, 'first-run': firstRun };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|work-item-review|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -3054,6 +3054,118 @@ async function workItem() {
     check(await noOverflow(), `the ${name} page has no horizontal scroll at 390x844`, `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
     await shot(`${name}-390x844`);
   }
+}
+
+async function workItemReview() {
+  const section = await addProject();
+  const name = (await section.getAttribute('aria-label')) ?? '';
+  const pid = Number(sql(`select id from project where name='${name}'`));
+  const call = async (method, route, body) => {
+    const res = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`${method} ${route}: ${res.status} ${await res.text()}`);
+    const text = await res.text();
+    return text ? JSON.parse(text) : null;
+  };
+  const eventually = async (ok, ms = 30000) => {
+    const end = Date.now() + ms;
+    while (!(await ok()) && Date.now() < end) await page.waitForTimeout(200);
+    return ok();
+  };
+  const solo = (await getJson('/teams')).find((t) => t.name === 'solo');
+  const item = await call('POST', '/work-items', { projectId: pid, title: 'Review me', teamId: solo.id, acceptanceLines: [{ text: 'Wrong password is refused' }, { text: 'Session lasts a day' }] });
+  const id = item.id;
+  const status = async () => (await getJson(`/work-items/${id}`)).status;
+  const spaceOf = async () => (await getJson(`/spaces?workItem=${id}`))[0];
+  const idle = async (sid) => sql(`select active_turn from space where id=${sid}`) === '';
+  const submit = async (sid) => {
+    await call('POST', `/spaces/${sid}/send`, { text: 'SUBMIT FOR REVIEW' });
+    await eventually(async () => (await status()) === 'review');
+    await eventually(async () => (await fetch(`${base}/spaces/${sid}/proposal`)).status === 200);
+    await eventually(() => idle(sid));
+  };
+
+  await call('PATCH', `/work-items/${id}`, { status: 'queued' });
+  await eventually(async () => (await spaceOf()) !== undefined && (await idle((await spaceOf()).id)));
+  const sid = (await spaceOf()).id;
+  await submit(sid);
+  const proposal = await getJson(`/spaces/${sid}/proposal`);
+  check(proposal.kind === 'wrap' && proposal.items.length > 0, 'the lead submitted: the item is in review with a pending wrap-up proposal', `status ${await status()}, ${proposal.items.length} items`);
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${base}/features/${id}`);
+  const review = main.getByRole('region', { name: 'Review', exact: true });
+  await review.waitFor();
+  await review.getByText('Wrap-up proposal from lead').waitFor();
+  const reviewText = (await review.innerText()).replace(/\s+/g, ' ');
+  check(
+    proposal.items.every((it) => reviewText.includes(it.body)) && /brief/i.test(reviewText) && (await main.getByRole('region', { name: 'Proof' }).count()) === 1,
+    'the Review panel shows the wrap-up proposal next to the proof',
+    reviewText.slice(0, 200),
+  );
+  await shot('review-1280x800');
+  check(await review.getByRole('button', { name: 'Send back' }).isDisabled(), 'Send back is disabled until there is a note');
+
+  await review.getByLabel('Note for the lead').fill('SAY IT TWICE');
+  await review.getByRole('button', { name: 'Send back' }).click();
+  await eventually(async () => (await getJson(`/work-items/${id}`)).status === 'in_progress');
+  const woken = () => sql(`select body from message where space_id=${sid} and author='user' order by id desc limit 1`);
+  await eventually(async () => woken().startsWith('Sent back from review by the user:'));
+  await eventually(() => idle(sid));
+  check(
+    woken() === 'Sent back from review by the user:\nSAY IT TWICE' && (await status()) === 'in_progress',
+    'Send back with a note puts the item back to work and the lead is woken with the note',
+    `status ${await status()}, newest user message ${JSON.stringify(woken())}`,
+  );
+  check(sql(`select status from proposal where id=${proposal.id}`) === 'rejected', 'the wrap-up proposal it waited on is rejected', sql(`select id,status from proposal where space_id=${sid}`));
+
+  await submit(sid);
+  const again = await getJson(`/spaces/${sid}/proposal`);
+  const before = Number(sql('select count(*) from memory'));
+  await page.reload();
+  await review.waitFor();
+  await review.getByRole('button', { name: 'Done', exact: true }).click();
+  await eventually(async () => (await status()) === 'done');
+  await review.waitFor({ state: 'hidden' });
+  const added = Number(sql('select count(*) from memory')) - before;
+  check(
+    (await status()) === 'done' && added === again.items.length && sql(`select status from proposal where id=${again.id}`) === 'approved' && sql(`select closed_at is not null from space where id=${sid}`) === '1',
+    'one click on Done saves the wrap-up memory items, approves the proposal, closes the Space and sets Done',
+    `status ${await status()}, memory rows +${added} of ${again.items.length} proposed, proposal ${sql(`select status from proposal where id=${again.id}`)}`,
+  );
+  const header = (await main.getByRole('heading', { name: 'Review me', level: 1 }).locator('xpath=..').innerText()).replace(/\s+/g, ' ');
+  check(/done/i.test(header), 'the header shows Done', header);
+  await shot('done-1280x800');
+
+  const parent = await call('POST', '/work-items', { projectId: pid, title: 'Parent of a review' });
+  const sub = await call('POST', '/work-items', { projectId: pid, parentId: parent.id, title: 'Sub in review', status: 'review' });
+  await page.goto(`${base}/features/${sub.id}`);
+  await main.getByRole('heading', { name: 'Sub in review', level: 1 }).waitFor();
+  const subHeader = (await main.getByRole('heading', { name: 'Sub in review', level: 1 }).locator('xpath=..').innerText()).replace(/\s+/g, ' ');
+  const offered = (await main.getByRole('region', { name: 'Review', exact: true }).count()) + (await main.getByRole('button', { name: 'Done', exact: true }).count());
+  const res = await fetch(`${base}/work-items/${sub.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: 'done' }) });
+  const refusal = await res.text();
+  check(
+    /review/i.test(subHeader) && offered === 0 && res.status === 400 && refusal.includes('only the lead sets a sub-item done'),
+    'a sub-item in review is not offered Done, and the server refuses the user setting it',
+    `header ${subHeader}, Review/Done controls ${offered}, PATCH done ${res.status} ${refusal}`,
+  );
+  await shot('sub-item-review-1280x800');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  const rev = await call('POST', '/work-items', { projectId: pid, title: 'Review on a phone', teamId: solo.id, acceptanceLines: [{ text: 'Wrong password is refused' }, { text: 'Session lasts a day' }] });
+  await call('PATCH', `/work-items/${rev.id}`, { status: 'queued' });
+  await eventually(async () => (await getJson(`/spaces?workItem=${rev.id}`))[0] !== undefined);
+  const rsid = (await getJson(`/spaces?workItem=${rev.id}`))[0].id;
+  await eventually(() => idle(rsid));
+  await call('POST', `/spaces/${rsid}/send`, { text: 'SUBMIT FOR REVIEW' });
+  await eventually(async () => (await fetch(`${base}/spaces/${rsid}/proposal`)).status === 200);
+  await eventually(() => idle(rsid));
+  await page.goto(`${base}/features/${rev.id}`);
+  await main.getByRole('region', { name: 'Review', exact: true }).waitFor();
+  await page.waitForTimeout(500);
+  const fits = await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  check(fits, 'the Review panel has no horizontal scroll at 390x844', `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
+  await shot('review-390x844');
 }
 
 try {

@@ -123,6 +123,7 @@ func (s *server) updateWorkItem(w http.ResponseWriter, r *http.Request) {
 }
 
 // moveWorkItem sets the status of the work item as the user; a move the user may not make is 400.
+// note is the reason for sending an item in review back to the queue.
 func (s *server) moveWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -131,18 +132,63 @@ func (s *server) moveWorkItem(w http.ResponseWriter, r *http.Request) {
 	}
 	var in struct {
 		Status string `json:"status"`
+		Note   string `json:"note"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
-	f, err := s.st.MoveWorkItem(r.Context(), id, in.Status, store.ByUser)
+	item, err := s.st.WorkItem(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	var f store.WorkItem
+	if item.Status == "review" && item.ParentID == nil {
+		f, err = s.decideReview(r.Context(), item, in.Status, in.Note)
+	} else {
+		f, err = s.st.MoveWorkItem(r.Context(), id, in.Status, store.ByUser)
+	}
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	s.openStarted(r.Context())
 	writeJSON(w, http.StatusOK, f)
+}
+
+// decideReview moves the top-level item in review as the user. Done approves the wrap-up the
+// lead proposed when it submitted. Queued sends the item back with note, which reaches the lead
+// when the Team restarts the item. A wrap-up still running is 409, so the user decides on what
+// the lead finished.
+func (s *server) decideReview(ctx context.Context, item store.WorkItem, to, note string) (store.WorkItem, error) {
+	if to != "done" && to != "queued" {
+		return s.st.MoveWorkItem(ctx, item.ID, to, store.ByUser)
+	}
+	proof, err := s.st.Proof(ctx, item.ID)
+	if err != nil {
+		return store.WorkItem{}, err
+	}
+	if l := s.lookup(proof.SpaceID); l != nil {
+		l.mu.Lock()
+		busy := l.state != _idle
+		l.mu.Unlock()
+		if busy {
+			return store.WorkItem{}, fmt.Errorf("space %d has a turn running, wait for the wrap-up: %w",
+				proof.SpaceID, store.ErrConflict)
+		}
+	}
+	if to == "queued" {
+		return s.st.SendBack(ctx, item.ID, note)
+	}
+	p, err := s.st.PendingProposal(ctx, proof.SpaceID)
+	if err == nil {
+		_, err = s.approve(ctx, p.ID)
+	}
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return store.WorkItem{}, err
+	}
+	return s.st.MoveWorkItem(ctx, item.ID, to, store.ByUser)
 }
 
 // moveInQueue puts the queued work item at a position in its Team's queue; a position outside

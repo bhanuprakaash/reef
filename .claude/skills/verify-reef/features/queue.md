@@ -17,8 +17,9 @@ of a free Team. Contract: `docs/server.md` (Work items) and `docs/restructure/de
 - `queue-submit-starts` the lead of the running item submits for review in a live turn (the scripted lead replays `submit-lead`, which calls `submit_for_review` through `reef mcp`): the item is `review`, and with no restart and no `PATCH` the queued item is `in_progress`, has a Space whose first message starts `Work item 2: Logout`, and that Space has one `reef` note `Started from the queue.`.
 - `queue-submit-proof` after that submit `GET /work-items/1/proof` shows both lines ticked, the note `a wrong password gets 401` and the command `go test ./...` with its output, and `GET /spaces/1/proposal` is a pending `wrap` proposal: the lead's wrap-up ran when its turn ended.
 - `queue-restart-starts` the running item submits through `reef mcp` while the server is down (no live turn) with one item queued behind it: the store starts the queued item at once, and after a restart it has a Space, and that Space has one `reef` note `Started from the queue.`.
-- `queue-send-back-first` `PATCH {"status":"queued"}` on an item in `review` puts it at position 1 and moves the item queued before it to 2.
+- `queue-send-back-first` `PATCH {"status":"queued","note":"SAY IT TWICE"}` on an item in `review` puts it at position 1 and moves the item queued before it to 2.
 - `queue-send-back-starts` when the running item is dropped, the sent-back item starts, ahead of the other queued item, and keeps its one Space.
+- `queue-send-back-note` once the sent-back item starts, the newest user message of its Space is `Sent back from review by the user:` and the note, the lead's turn replays `sent-back-lead`, and the wrap-up proposal it waited on is `rejected`.
 
 ## How to get to it (user POV)
 
@@ -42,4 +43,4 @@ REEF_VERIFY_RUN=<id> $H feature queue
 
 - The server learns of a submit when the chain of turns of the submitting Space ends, because `reef mcp` is another process: `queue-submit-starts` needs a live turn that submits (the scenario `submit-lead`: the user text `SUBMIT FOR REVIEW` sent to the lead). A submit from `mcp-call` starts nothing live; `queue-restart-starts` uses it on purpose while the server is down.
 - The script sets the token budget on the work item (`work_item.token_budget`), where the cap pause reads it.
-- A sent-back item already has its Space, so the queue starts it without opening another or sending a first prompt.
+- A sent-back item already has its Space, so the queue starts it without opening another or sending the first prompt; the lead is woken in that Space with a user message that carries the note. A send back without a note is 400.

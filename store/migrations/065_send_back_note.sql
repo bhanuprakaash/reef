@@ -1,0 +1,1 @@
+ALTER TABLE proof ADD COLUMN send_back_note TEXT NOT NULL DEFAULT '';

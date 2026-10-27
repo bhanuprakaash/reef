@@ -56,7 +56,7 @@ func (s *server) startSubmitted(id int64) {
 
 // openStarted gives each top-level item the queue moved to in progress that has no open Space
 // one, led by its Team's lead, and puts the item in the lead's first prompt. A failure is
-// noted in the Space. A sent-back item already has a Space and is left to it.
+// noted in the Space. A sent-back item already has a Space: its lead is woken with the note.
 func (s *server) openStarted(ctx context.Context) {
 	items, err := s.st.WorkItems(ctx, store.WorkItemFilter{Status: "in_progress"})
 	if err != nil {
@@ -71,7 +71,9 @@ func (s *server) openStarted(ctx context.Context) {
 		if !errors.Is(err, store.ErrNotFound) {
 			if err != nil {
 				log.Printf("read Space of work item %d: %v", w.ID, err)
+				continue
 			}
+			s.wakeSentBack(ctx, w.ID)
 			continue
 		}
 		if err := s.openItem(ctx, w); err != nil && !errors.Is(err, store.ErrConflict) {
@@ -104,6 +106,29 @@ func (s *server) openItem(ctx context.Context, w store.WorkItem) error {
 	}
 	_, err = s.st.CreateMessage(ctx, store.Message{SpaceID: sp.ID, Author: store.ReefAuthor, Body: note})
 	return err
+}
+
+// wakeSentBack tells the lead of the Space a sent-back item restarted in why the user sent it
+// back, in a user message that starts its turn. A turn that cannot start is noted in the Space
+// with the user's note.
+func (s *server) wakeSentBack(ctx context.Context, id int64) {
+	spaceID, note, ok, err := s.st.ClaimSendBack(ctx, id)
+	if err != nil {
+		log.Printf("claim send-back note of work item %d: %v", id, err)
+		return
+	}
+	if !ok {
+		return
+	}
+	text := "Sent back from review by the user:\n" + note
+	err = s.startUserTurn(ctx, spaceID, userTurn{kind: _message, text: text})
+	if err == nil {
+		return
+	}
+	text = fmt.Sprintf("%s\n\nThe lead's turn did not run: %v. Send the lead a message to run it.", text, err)
+	if _, err := s.st.CreateMessage(ctx, store.Message{SpaceID: spaceID, Author: store.ReefAuthor, Body: text}); err != nil {
+		log.Printf("note failed send-back turn in Space %d: %v", spaceID, err)
+	}
 }
 
 // queuePrompt is what the lead is told when its Team starts the item.

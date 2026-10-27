@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -114,6 +115,60 @@ func (s *Store) Proof(ctx context.Context, id int64) (Proof, error) {
 	}
 	p.AcceptanceLines = w.AcceptanceLines
 	return p, nil
+}
+
+// SendBack puts the item in review at the top of its Team's queue, keeps note for the lead's
+// next wake (see ClaimSendBack) and rejects the wrap-up proposal its Space waits on, which the
+// next submit replaces. A blank note is ErrInvalid.
+func (s *Store) SendBack(ctx context.Context, id int64, note string) (WorkItem, error) {
+	if strings.TrimSpace(note) == "" {
+		return WorkItem{}, fmt.Errorf("%w: a note for the lead is required to send work item %d back", ErrInvalid, id)
+	}
+	p, err := s.Proof(ctx, id)
+	if err != nil {
+		return WorkItem{}, err
+	}
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE proof SET send_back_note = ? WHERE work_item_id = ?", note, id); err != nil {
+		return WorkItem{}, fmt.Errorf("keep send-back note: %w", err)
+	}
+	w, err := s.MoveWorkItem(ctx, id, _queued, ByUser)
+	if err != nil {
+		return WorkItem{}, err
+	}
+	pending, err := s.PendingProposal(ctx, p.SpaceID)
+	switch {
+	case errors.Is(err, ErrNotFound), err == nil && pending.Kind != ProposalWrap:
+		return w, nil
+	case err != nil:
+		return WorkItem{}, err
+	}
+	_, err = s.RejectProposal(ctx, pending.ID)
+	return w, err
+}
+
+// ClaimSendBack returns the Space the item was submitted from and the note it was sent back
+// with, and forgets the note: only the first caller gets ok.
+func (s *Store) ClaimSendBack(ctx context.Context, id int64) (spaceID int64, note string, ok bool, err error) {
+	err = s.db.QueryRowContext(ctx,
+		"SELECT space_id, send_back_note FROM proof WHERE work_item_id = ? AND send_back_note != ''", id).
+		Scan(&spaceID, &note)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, "", false, nil
+	}
+	if err != nil {
+		return 0, "", false, fmt.Errorf("read send-back note: %w", err)
+	}
+	res, err := s.db.ExecContext(ctx,
+		"UPDATE proof SET send_back_note = '' WHERE work_item_id = ? AND send_back_note = ?", id, note)
+	if err != nil {
+		return 0, "", false, fmt.Errorf("claim send-back note: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, "", false, fmt.Errorf("claim send-back note: %w", err)
+	}
+	return spaceID, note, n > 0, nil
 }
 
 // ClaimWrap reports whether Space id submitted its Work item for review and no one has started

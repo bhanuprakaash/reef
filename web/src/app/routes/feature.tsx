@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
 import { FeatureTerminal } from '@/app/feature-terminal';
+import { ReviewPanel } from '@/app/review-panel';
 import { useTerminal } from '@/app/use-terminal';
 import { SpaceList } from '@/modules/spaces/components/space-list';
 import { useSpaces } from '@/lib/api/get-spaces';
@@ -60,6 +61,7 @@ export function FeaturePage() {
   const featureSpaces = spaces.data?.filter((c) => c.workItemId === id) ?? [];
   const latestSpace = featureSpaces[featureSpaces.length - 1];
   const team = teams.data?.find((t) => t.id === f.teamId);
+  const reviewing = f.parentId === null && f.status === 'review';
 
   return (
     <div className="space-y-7">
@@ -117,6 +119,12 @@ export function FeaturePage() {
       </header>
       <div className="flex flex-wrap items-start gap-5">
         <div className="flex min-w-0 flex-[999_1_460px] flex-col gap-5 md:min-w-[460px]">
+          {reviewing && (
+            <>
+              <ReviewPanel workItemId={id} />
+              <ProofPanel workItemId={id} />
+            </>
+          )}
           <AcceptanceLines item={f} />
           {f.parentId === null && <SubItems parent={f} />}
           {f.parentId === null &&
@@ -125,7 +133,7 @@ export function FeaturePage() {
             ) : (
               <BriefPanel versions={briefs.data ?? []} />
             ))}
-          {f.parentId === null && <ProofPanel workItemId={id} />}
+          {f.parentId === null && !reviewing && <ProofPanel workItemId={id} />}
           {memory.isError ? (
             <p className="text-sm text-danger">{memory.error.message}</p>
           ) : (
