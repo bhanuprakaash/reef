@@ -101,7 +101,7 @@ export function SpaceView({
   const chains = groupChains(direct.data ?? [], {
     retryable: failedTurns.data ?? [],
     paused: space.paused !== '',
-    running: running || turn.status === 'done' ? turn.role : undefined,
+    running: (running || turn.status === 'done') && turn.direct ? turn.role : undefined,
   });
   const chain = side?.kind === 'direct' ? chains.find((c) => c.id === side.chainId) : undefined;
   const wake = (direct.data ?? []).filter((m) => m.to === turn.role).at(-1);
