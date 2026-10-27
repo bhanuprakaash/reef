@@ -400,7 +400,13 @@ func TestChannelEval_WakeCountsItsDelta(t *testing.T) {
 		t.Fatal(err)
 	}
 	e.say(evalBody("", 0, "0", ""), nil)
-	_, err = e.store().CreateDecision(ctx, store.Decision{FeatureID: 1, Body: "Register on load", Author: "user"})
+	ms, err := memory.Open(e.store().DB(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = ms.Remember(ctx, memory.Writer{
+		Author: "user", Role: "user", Scope: memory.Ref{Kind: memory.ScopeWorkItem, ID: "1"},
+	}, memory.Note{Kind: memory.KindDecision, Body: "Register on load"})
 	if err != nil {
 		t.Fatal(err)
 	}

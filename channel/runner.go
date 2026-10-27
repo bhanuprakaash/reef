@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -41,6 +42,8 @@ type Runner struct {
 	// runs once the turn's start is stamped, so what is written after that is in the prompt or
 	// in the next turn's delta, never in neither. Cleared when a prompt has been sent.
 	FirstPrompt func(ctx context.Context) (string, error)
+	// Memory is read for the delta of a feature's channel.
+	Memory *memory.Store
 	// OnNote, when set, is called after the watch posts a message, so a window shows it.
 	OnNote func()
 
@@ -357,7 +360,7 @@ func (r *Runner) delta(ctx context.Context) (string, error) {
 	if err != nil || !ok {
 		return "", err
 	}
-	return changedSince(ctx, r.st, *ch.FeatureID, since)
+	return changedSince(ctx, r.st, r.Memory, ch, r.role, since)
 }
 
 // checkpointRef is refs/reef/checkpoints/<12 hex of sha256 of the absolute data dir>/<turn id>.

@@ -542,6 +542,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		}
 	}
 	m.run.OnPrompt = s.onPrompt
+	m.run.Memory = s.ms
 	if m.write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
 		m.run.CheckpointDir = cwd
 		m.run.DataDir = s.dataDir

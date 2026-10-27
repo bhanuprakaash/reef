@@ -360,6 +360,50 @@ func (s *Store) Newest(
 	return items, total, nil
 }
 
+// Changed returns what happened in scopes after since, each ordered by id: the accepted items
+// created after it, and the items retired after it. An item created and retired since is only
+// in retired. Candidates and rejected items are in neither. The items carry no links.
+func (s *Store) Changed(
+	ctx context.Context, scopes []Ref, since time.Time,
+) (added, retired []Item, err error) {
+	if len(scopes) == 0 {
+		return nil, nil, nil
+	}
+	// Stored times have a varying number of fraction digits, so SQL only drops what is a whole
+	// second too old; the exact comparison is in Go.
+	sec := since.UTC().Format("2006-01-02T15:04:05")
+	where := make([]string, len(scopes))
+	args := []any{StatusAccepted, sec, StatusRetired, sec}
+	for i, sc := range scopes {
+		where[i] = "(scope_kind = ? AND scope_id = ?)"
+		args = append(args, sc.Kind, sc.ID)
+	}
+	rows, err := s.db.QueryContext(ctx,
+		_selectItem+` WHERE ((status = ? AND substr(created_at, 1, 19) >= ?)
+		 OR (status = ? AND substr(retired_at, 1, 19) >= ?))
+		 AND (`+strings.Join(where, " OR ")+`) ORDER BY id`, args...)
+	if err != nil {
+		return nil, nil, fmt.Errorf("query changed: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		it, err := scanItem(rows)
+		if err != nil {
+			return nil, nil, err
+		}
+		switch {
+		case it.Status == StatusAccepted && it.CreatedAt.After(since):
+			added = append(added, it)
+		case it.Status == StatusRetired && it.RetiredAt.After(since):
+			retired = append(retired, it)
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, nil, fmt.Errorf("scan changed: %w", err)
+	}
+	return added, retired, nil
+}
+
 func statusFor(w Writer, n Note) string {
 	if n.NeedsApproval {
 		return StatusCandidate

@@ -222,40 +222,43 @@ func itemLine(it memory.Item) string {
 		it.Kind, it.ID, firstLine(it.Body), it.Author, it.CreatedAt.Format(_dateLayout))
 }
 
-func decisionLine(d store.Decision) string {
-	return fmt.Sprintf("decision %d: %s (%s, %s)",
-		d.ID, firstLine(d.Body), d.Author, d.CreatedAt.Format(_dateLayout))
-}
-
 // changedSince is what the feature gained after since that a role whose session was told of
-// everything before it has not seen: the decisions added, the decisions retired and the brief
-// in full when a version is newer. A decision added and retired since is named as retired
-// only, as the role may have seen it in its previous turn. It is empty when nothing changed.
-// Tasks are left out.
+// everything before it has not seen: the accepted memory items added in the scopes the role
+// reads, the items retired in them and the brief in full when a version is newer. An item added
+// and retired since is named as retired only, as the role may have seen it in its previous
+// turn. It is empty when nothing changed. Tasks are left out.
 func changedSince(
-	ctx context.Context, st *store.Store, featureID int64, since time.Time,
+	ctx context.Context, st *store.Store, ms *memory.Store, ch store.Channel, role string,
+	since time.Time,
 ) (string, error) {
-	decisions, err := st.Decisions(ctx, featureID)
+	scopes := []memory.Ref{
+		{Kind: memory.ScopeProject, ID: strconv.FormatInt(ch.ProjectID, 10)},
+		{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*ch.FeatureID, 10)},
+		{Kind: memory.ScopeTeammate, ID: role},
+	}
+	if ch.Team != "" {
+		scopes = append(scopes, memory.Ref{Kind: memory.ScopeTeam, ID: ch.Team})
+	}
+	added, retired, err := ms.Changed(ctx, scopes, since)
 	if err != nil {
 		return "", err
 	}
 	var lines []string
-	for _, d := range decisions {
-		if d.CreatedAt.After(since) && d.RetiredAt == nil {
-			lines = append(lines, decisionLine(d))
-		}
+	for _, it := range added {
+		lines = append(lines, itemLine(it))
 	}
-	for _, d := range decisions {
-		if d.RetiredAt == nil || !d.RetiredAt.After(since) {
-			continue
-		}
-		line := fmt.Sprintf("decision %d is retired", d.ID)
-		if d.ReplacedBy != nil {
-			line += fmt.Sprintf(", replaced by decision %d", *d.ReplacedBy)
+	for _, it := range retired {
+		line := fmt.Sprintf("%s %d is retired", it.Kind, it.ID)
+		if it.ReplacedBy != nil {
+			by, err := ms.Read(ctx, *it.ReplacedBy)
+			if err != nil {
+				return "", err
+			}
+			line += fmt.Sprintf(", replaced by %s %d", by.Kind, by.ID)
 		}
 		lines = append(lines, line+".")
 	}
-	brief, err := st.Brief(ctx, featureID)
+	brief, err := st.Brief(ctx, *ch.FeatureID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return "", err
 	}

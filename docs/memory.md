@@ -429,11 +429,14 @@ its first turn: a first message that goes to a specialist starts no lead.
   The text goes right after the wake's `[channel N, message N]` header line, before any
   `reef wrote:` lines, or at the top when the turn has no header (wrap-up, promote). It has two
   parts.
-  Under `### Changed since your last turn`: one `decision N: ...` index line for each decision
-  added since, whatever its author (the author is only a role name, which every channel's lead
-  shares), and `decision N is retired, replaced by decision M.` for each one retired since. A
-  decision added and retired since is named as retired only: the role may have seen it in its
-  previous turn. Under `### New brief`: the latest brief,
+  Under `### Changed since your last turn`: one index line, as in the first prompt
+  (`decision 3: Use WAL (lead, 2026-10-27)`), for each accepted memory item added since in the
+  scopes the role reads (`work_item`, `project`, the channel's `team` and the role's own
+  `teammate`), whatever its author (the author is only a role name, which every channel's lead
+  shares), and `decision N is retired, replaced by decision M.` (`decision N is retired.` when
+  nothing replaced it) for each one retired since. An item added and retired since is named as
+  retired only: the role may have seen it in its previous turn. A candidate, a rejected item
+  and the `teammate` items of another role never appear. Under `### New brief`: the latest brief,
   in full, when a version is newer; the next turn does not repeat it. A wake with no change has
   neither part, tasks are never in it, and a change alone starts no turn. Nothing is stored for
   it: the turn's `prompt` holds the text. It is built after the turn's start is stamped, so what

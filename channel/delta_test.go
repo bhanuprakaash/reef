@@ -18,15 +18,19 @@ func lastPrompt(e *wakeEnv) string {
 	return a.prompts[len(a.prompts)-1]
 }
 
-func decide(t *testing.T, e *wakeEnv, author, body string, replaces ...int64) store.Decision {
+func wakeWork(e *wakeEnv) memory.Ref {
+	return memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*e.ch.FeatureID, 10)}
+}
+
+func decide(t *testing.T, e *wakeEnv, author, body string, replaces ...int64) memory.Item {
 	t.Helper()
-	d, err := e.st.CreateDecision(context.Background(), store.Decision{
-		FeatureID: *e.ch.FeatureID, Body: body, Author: author, Replaces: replaces,
-	})
+	r, err := e.s.ms.Remember(context.Background(),
+		memory.Writer{Author: author, Role: author, Scope: wakeWork(e)},
+		memory.Note{Kind: memory.KindDecision, Body: body, Replaces: replaces})
 	if err != nil {
 		t.Fatal(err)
 	}
-	return d
+	return r.Item
 }
 
 func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
@@ -52,14 +56,23 @@ func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 		t.Fatalf("first prompt = %q, want the first prompt, with no delta", got)
 	}
 
-	d1 := decide(t, e, "lead", "Use SQLite, not Postgres\nit is one file")
-	decide(t, e, "developer", "Name the table turn")
+	d1 := decide(t, e, "architect", "Use SQLite, not Postgres\nit is one file")
+	remember(t, e.s.ms, projectScope(store.Feature{ProjectID: e.ch.ProjectID}),
+		memory.KindFact, "lead", "Builds need cgo off")
+	remember(t, e.s.ms, teammateScope("developer"), memory.KindFinding, "developer", "Name the table turn")
+	remember(t, e.s.ms, teammateScope("tester"), memory.KindFact, "tester", "Tester only")
+	if _, err := e.s.ms.Remember(ctx,
+		memory.Writer{Author: "lead", Role: "lead", Scope: wakeWork(e)},
+		memory.Note{Kind: memory.KindDecision, Body: "Maybe use Redis", NeedsApproval: true}); err != nil {
+		t.Fatal(err)
+	}
 	e.wake("developer", "two", nil, say("two"))
-	check("a decision of another role, and one of the developer's own name",
+	check("items of every author in the role's scopes, no tester item, no candidate",
 		"[channel 1, message 3]\n"+
 			"### Changed since your last turn\n"+
-			"decision 1: Use SQLite, not Postgres (lead, "+day+")\n"+
-			"decision 2: Name the table turn (developer, "+day+")\n\n"+
+			"decision 1: Use SQLite, not Postgres (architect, "+day+")\n"+
+			"fact 2: Builds need cgo off (lead, "+day+")\n"+
+			"finding 3: Name the table turn (developer, "+day+")\n\n"+
 			"two")
 
 	e.wake("developer", "three", nil, say("three"))
@@ -73,8 +86,8 @@ func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 	check("a retirement and a new brief",
 		"[channel 1, message 7]\n"+
 			"### Changed since your last turn\n"+
-			"decision 3: Use WAL (lead, "+day+")\n"+
-			"decision 1 is retired, replaced by decision 3.\n\n"+
+			"decision 6: Use WAL (lead, "+day+")\n"+
+			"decision 1 is retired, replaced by decision 6.\n\n"+
 			"### New brief\nShip the store.\n\n"+
 			"four")
 
@@ -96,11 +109,11 @@ func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 	check("a turn that failed before it sent did not tell the agent",
 		"[channel 1, message 12]\n"+
 			"### Changed since your last turn\n"+
-			"decision 4: Use JSON (lead, "+day+")\n\n"+
+			"decision 7: Use JSON (lead, "+day+")\n\n"+
 			"New in the channel:\nuser: six\n\nseven")
 }
 
-func TestWakeAs_DecisionAddedAndRetiredSinceShowsOnlyAsRetired(t *testing.T) {
+func TestWakeAs_ItemAddedAndRetiredSinceShowsOnlyAsRetired(t *testing.T) {
 	e := newWakeEnv(t)
 	e.wake("developer", "one", nil, store.Scope{Read: e.say("user", "one", nil)})
 	d1 := decide(t, e, "lead", "Use CSV")
@@ -122,9 +135,28 @@ func TestWakeAs_DecisionAddedAndRetiredSinceShowsOnlyAsRetired(t *testing.T) {
 	}
 }
 
-func TestWakeAs_DecisionRecordedDuringTheTurnThenReplacedIsNamedAsRetired(t *testing.T) {
+func TestWakeAs_ItemRetiredWithNothingReplacingItIsNamedAlone(t *testing.T) {
 	e := newWakeEnv(t)
-	var d1 store.Decision
+	d1 := decide(t, e, "lead", "Use CSV")
+	e.wake("developer", "one", nil, store.Scope{Read: e.say("user", "one", nil)})
+	if err := e.s.ms.Retire(context.Background(), d1.ID); err != nil {
+		t.Fatal(err)
+	}
+
+	e.wake("developer", "two", nil, store.Scope{Read: e.say("user", "two", nil)})
+
+	want := "[channel 1, message 3]\n" +
+		"### Changed since your last turn\n" +
+		"decision 1 is retired.\n\n" +
+		"two"
+	if got := lastPrompt(e); got != want {
+		t.Errorf("prompt =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestWakeAs_ItemRecordedDuringTheTurnThenReplacedIsNamedAsRetired(t *testing.T) {
+	e := newWakeEnv(t)
+	var d1 memory.Item
 	e.onSend = func() { d1 = decide(t, e, "developer", "Use CSV") }
 	e.wake("developer", "one", nil, store.Scope{Read: e.say("user", "one", nil)})
 	e.onSend = nil

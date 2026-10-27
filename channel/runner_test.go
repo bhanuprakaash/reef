@@ -65,6 +65,7 @@ func TestRunner_Send(t *testing.T) {
 	}
 	fa := &fakeAgent{events: make(chan agent.Event, 8)}
 	r := NewRunner(st, fa, ch.ID, "architect", "claude", "CONTEXT")
+	r.Memory = testMemory(t, st)
 
 	var streamed []string
 	for _, text := range []string{"one 1", "two 2"} {
