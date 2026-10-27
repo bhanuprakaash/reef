@@ -145,9 +145,9 @@ func TestSpaceTeam(t *testing.T) {
 	}
 
 	status, body := do(t, http.MethodGet, ts.URL+"/teams/core", "")
-	want := `{"name":"core","roles":[{"name":"lead","lead":true,"write":false,"backend":"codex",` +
+	want := `{"name":"core","roles":[{"teammateId":2,"name":"lead","lead":true,"write":false,"backend":"codex",` +
 		`"permissionMode":"read-only","persona":"","skills":[],"tools":[],"mcp":[]},` +
-		`{"name":"architect","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"",` +
+		`{"teammateId":3,"name":"architect","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"",` +
 		`"skills":[],"tools":[],"mcp":[]}]}`
 	if status != 200 || body != want {
 		t.Errorf("GET /teams/core = %d %s, want %s", status, body, want)

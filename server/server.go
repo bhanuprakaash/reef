@@ -107,6 +107,7 @@ func newHandler(
 	s.featureRoutes(mux)
 	s.spaceRoutes(mux)
 	s.teamRoutes(mux)
+	s.teammateRoutes(mux)
 	s.providerRoutes(mux)
 	s.skillRoutes(mux)
 	s.liveRoutes(mux)

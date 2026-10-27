@@ -21,6 +21,7 @@ type teamView struct {
 }
 
 type roleView struct {
+	TeammateID     int64     `json:"teammateId,omitempty"`
 	Name           string    `json:"name"`
 	Lead           bool      `json:"lead"`
 	Write          bool      `json:"write"`
@@ -60,6 +61,11 @@ func (s *server) teamRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /teams/{name}", s.getTeam)
 	mux.HandleFunc("PUT /teams/{name}", s.putTeam)
 	mux.HandleFunc("/teams/{name}", methodNotAllowed)
+	mux.HandleFunc("POST /teams/{name}/members", s.addMember)
+	mux.HandleFunc("/teams/{name}/members", methodNotAllowed)
+	mux.HandleFunc("PUT /teams/{name}/members/{id}", s.editMember)
+	mux.HandleFunc("DELETE /teams/{name}/members/{id}", s.removeMember)
+	mux.HandleFunc("/teams/{name}/members/{id}", methodNotAllowed)
 }
 
 func (s *server) listTeams(w http.ResponseWriter, r *http.Request) {
@@ -206,12 +212,17 @@ func viewMCP(servers []agent.MCPServer) []mcpView {
 func viewTeam(t store.Team) teamView {
 	roles := make([]roleView, len(t.Roles))
 	for i, r := range t.Roles {
-		roles[i] = roleView{
-			Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend, PermissionMode: r.PermissionMode,
-			Persona: r.Persona, Skills: r.Skills, Face: r.Face, Model: r.Model, Provider: r.Provider, Tools: r.Tools, MCP: viewMCP(r.MCPServers),
-		}
+		roles[i] = viewRole(r)
 	}
 	return teamView{Name: t.Name, Roles: roles, Gates: t.Gates}
+}
+
+func viewRole(r store.Role) roleView {
+	return roleView{
+		TeammateID: r.TeammateID, Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend,
+		PermissionMode: r.PermissionMode, Persona: r.Persona, Skills: r.Skills, Face: r.Face,
+		Model: r.Model, Provider: r.Provider, Tools: r.Tools, MCP: viewMCP(r.MCPServers),
+	}
 }
 
 func mcpName(i int) string { return "mcp" + strconv.Itoa(i+1) }
