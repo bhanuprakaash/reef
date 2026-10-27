@@ -294,7 +294,7 @@ func TestPutTeam(t *testing.T) {
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
 
-	// A body that omits mcpServers keeps the lead's stored one and updates the persona.
+	// A body that omits mcpServers keeps the lead's stored one, and a persona in it does not rewrite the Teammate.
 	body := `{"name":"crew","roles":[` +
 		`{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"","persona":"new persona","skills":[],"tools":[]},` +
 		`{"name":"developer","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"","skills":[],"tools":[]}]}`
@@ -306,8 +306,8 @@ func TestPutTeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Roles[0].Persona != "new persona" {
-		t.Errorf("lead persona = %q, want %q", got.Roles[0].Persona, "new persona")
+	if got.Roles[0].Persona != "old persona" {
+		t.Errorf("lead persona = %q, want %q", got.Roles[0].Persona, "old persona")
 	}
 	if len(got.Roles[0].MCPServers) != 1 || got.Roles[0].MCPServers[0].Args[1] != "sk-secret-456" {
 		t.Errorf("lead mcpServers = %+v, want the stored one kept", got.Roles[0].MCPServers)

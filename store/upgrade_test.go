@@ -34,8 +34,8 @@ func TestOpen_UpgradesVersion1Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 71 {
-		t.Errorf("user_version = %d, want 71", version)
+	if version != 72 {
+		t.Errorf("user_version = %d, want 72", version)
 	}
 
 	at := time.Date(2026, time.January, 2, 3, 4, 5, 123456789, time.UTC)
@@ -109,8 +109,8 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 71 {
-		t.Errorf("user_version = %d, want 71", version)
+	if version != 72 {
+		t.Errorf("user_version = %d, want 72", version)
 	}
 	var approvals int
 	if err := s.db.QueryRow("SELECT COUNT(*) FROM approval").Scan(&approvals); err != nil {
@@ -127,69 +127,6 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	}
 	if tables != 0 {
 		t.Errorf("gate tables = %d, want none", tables)
-	}
-}
-
-func TestOpen_ProposalItemsMigrationRejectsPendingWrapsOnly(t *testing.T) {
-	ctx := context.Background()
-	dir := t.TempDir()
-	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "reef.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	for n := 1; n <= 37; n++ {
-		files, err := fs.Glob(_migrations, fmt.Sprintf("migrations/%03d_*.sql", n))
-		if err != nil || len(files) != 1 {
-			t.Fatalf("migration %d: %v, %v", n, files, err)
-		}
-		body, err := _migrations.ReadFile(files[0])
-		if err != nil {
-			t.Fatal(err)
-		}
-		if _, err := db.Exec(string(body)); err != nil {
-			t.Fatal(err)
-		}
-	}
-	for _, stmt := range []string{
-		"INSERT INTO project (name, path, created_at) VALUES ('shop', '/work/shop', '2026-01-02T03:04:05Z')",
-		"INSERT INTO channel (project_id, name, created_at, team_id) " +
-			"VALUES (1, 'c', '2026-01-02T03:04:05Z', 1)",
-		"INSERT INTO proposal (channel_id, role, kind, brief, notes, decisions, status, created_at) " +
-			"VALUES (1, 'lead', 'wrap', 'wrap', '', '[]', 'pending', '2026-01-02T03:04:05Z')",
-		"INSERT INTO proposal (channel_id, role, kind, brief, notes, decisions, status, created_at) " +
-			"VALUES (1, 'lead', 'brief', 'brief', '', '[]', 'pending', '2026-01-02T03:04:06Z')",
-		"INSERT INTO proposal (channel_id, role, kind, brief, notes, decisions, status, created_at, decided_at) " +
-			"VALUES (1, 'lead', 'wrap', 'old wrap', '', '[]', 'approved', '2026-01-02T03:04:07Z', '2026-01-02T03:04:08Z')",
-		"PRAGMA user_version = 37",
-	} {
-		if _, err := db.Exec(stmt); err != nil {
-			t.Fatal(err)
-		}
-	}
-	if err := db.Close(); err != nil {
-		t.Fatal(err)
-	}
-
-	s, err := Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = s.Close() }()
-
-	wrap, err := s.Proposal(ctx, 1)
-	if err != nil || wrap.Status != ProposalRejected || wrap.DecidedAt == nil ||
-		time.Since(*wrap.DecidedAt) > time.Minute || time.Until(*wrap.DecidedAt) > time.Minute {
-		t.Errorf("pending wrap = %+v, %v, want rejected just now", wrap, err)
-	}
-	brief, err := s.Proposal(ctx, 2)
-	if err != nil || brief.Status != ProposalPending || brief.DecidedAt != nil {
-		t.Errorf("pending brief = %+v, %v, want still pending", brief, err)
-	}
-	approved, err := s.Proposal(ctx, 3)
-	want := time.Date(2026, time.January, 2, 3, 4, 8, 0, time.UTC)
-	if err != nil || approved.Status != ProposalApproved || approved.DecidedAt == nil ||
-		!approved.DecidedAt.Equal(want) {
-		t.Errorf("approved wrap = %+v, %v, want approved at %v", approved, err, want)
 	}
 }
 
@@ -240,5 +177,62 @@ func TestOpen_UpgradeLeavesSpaceNamesUserSet(t *testing.T) {
 	}
 	if ok, err := s.ClaimName(context.Background(), 1); err != nil || ok {
 		t.Errorf("ClaimName on an upgraded Space = %v, %v, want false", ok, err)
+	}
+}
+
+func TestOpen_UpgradeRemovesTeamsWithoutRoles(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "reef.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := 1; n <= 39; n++ {
+		files, err := fs.Glob(_migrations, fmt.Sprintf("migrations/%03d_*.sql", n))
+		if err != nil || len(files) != 1 {
+			t.Fatalf("migration %d: %v, %v", n, files, err)
+		}
+		body, err := _migrations.ReadFile(files[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(string(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, stmt := range []string{
+		"INSERT INTO team (name) VALUES ('full')",
+		"INSERT INTO role (team_id, name, backend, lead) SELECT id, 'lead', 'claude', 1 FROM team WHERE name = 'full'",
+		"INSERT INTO project (name, path, created_at) VALUES ('shop', '/work/shop', '2026-01-02T03:04:05Z')",
+		"INSERT INTO channel (project_id, name, created_at, team_id) " +
+			"SELECT 1, 'c', '2026-01-02T03:04:05Z', id FROM team WHERE name = 'full'",
+		"INSERT INTO message (channel_id, author, body, created_at) " +
+			"VALUES (1, 'lead', 'hi', '2026-01-02T03:04:05Z')",
+		"PRAGMA user_version = 39",
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	teams, err := s.Teams(ctx)
+	if err != nil || len(teams) != 1 || teams[0].Name != SoloTeam {
+		t.Errorf("Teams after the upgrade = %+v, %v, want only solo", teams, err)
+	}
+	var spaces, messages int
+	if err := s.db.QueryRow("SELECT (SELECT COUNT(*) FROM space), (SELECT COUNT(*) FROM message)").
+		Scan(&spaces, &messages); err != nil {
+		t.Fatal(err)
+	}
+	if spaces != 0 || messages != 0 {
+		t.Errorf("spaces, messages after the upgrade = %d, %d, want 0, 0", spaces, messages)
 	}
 }

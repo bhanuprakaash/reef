@@ -97,7 +97,7 @@ func TestStore_ProviderBinAndDelete(t *testing.T) {
 	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "used by teammate t-lead") {
 		t.Errorf("DeleteProvider of a provider a role names error = %v, want ErrConflict naming teammate t-lead", err)
 	}
-	if _, err := st.ApplyTeam(ctx, Team{Name: "t", Roles: []Role{{Name: "lead", Lead: true, Backend: "codex"}}}); err != nil {
+	if _, err := st.UpdateTeammate(ctx, Teammate{ID: got.Roles[0].TeammateID, Name: "t-lead", Backend: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 	if err := st.DeleteProvider(ctx, "cx"); err != nil {

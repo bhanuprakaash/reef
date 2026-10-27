@@ -14,7 +14,7 @@ Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 - `teammate-rest` `POST /teammates` makes a Teammate (201, its `write` false unless given); the same name is 409, a backend other than `claude` or `codex` is 400; `GET /teammates` lists them (the seeded `lead` first); `PUT /teammates/{id}` replaces every field; `DELETE` is 204, and 400 naming the Team while the Teammate is in one.
 - `team-members` `PUT /teams/{name}` with a `responsibility` and one lead makes a Team; `POST /teams/{name}/members` adds a Teammate with its default access copied (201), twice is 409, a second lead is 400; `PUT /teams/{name}/members/{id}` changes the access in that Team only and the Teammate's default stays; `DELETE` of the member is 204.
 - `team-delete` `DELETE /teams/{name}` is 204 and the Team is then 404; `DELETE /teams/solo` is 400.
-- `team-apply` `reef team apply FILE.json` creates a team; `reef team list` shows each team with its roles and backends, the lead starred. The same name again replaces its roles: a changed persona updates the one team.
+- `team-apply` `reef team apply FILE.json` creates a team; `reef team list` shows each team with its roles and backends, the lead starred. The same name again replaces its roles but never rewrites an existing Teammate: a changed persona in the file leaves the Teammate's persona as it was.
 - `team-errors` a file with no lead or two leads, a role named `user` or with a space, a bad backend, an unknown field, a missing file, and no subcommand each fail with `reef: ...`, exit 1, and change nothing.
 - `team-rest` `GET /teams` lists teams by name (`solo` always exists); `GET /teams/{name}` returns one with its roles, 404 for an unknown name; the routes take no write; a role has no `mcpServers` key.
 - `team-space` `POST /spaces` with `team` stores it and fills `role` (the lead's name), `backend` and `permissionMode` from the lead role; with no team the Space is in `solo`; an unknown team and a `role` other than `lead` are 400.
@@ -112,7 +112,7 @@ printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude","color
 Teams, no server needed (data folder `teams`):
 
 - **Apply and list.** `$H reef --data-name teams -- team apply $E/duo.json` prints `applied team duo: lead*(claude) architect(claude)`. `$H reef -- team list` prints `duo  lead*(claude) architect(claude)` and `solo  lead*(claude)`. `$H sql "select team.name, member.name, lead from team_member member join team on team.id = team_id order by team.name, member.id"` shows `duo|lead|1`, `duo|architect|0`, `solo|lead|1`.
-- **Apply again.** `$H reef -- team apply $E/duo2.json` prints the same line. `$H sql "select count(*) from team"` is still `2`, and `$H sql "select skills from teammate where name = 'duo-architect'"` is `["very-short-plans"]`. Put the original back with `$H reef -- team apply $E/duo.json`.
+- **Apply again.** `$H reef -- team apply $E/duo2.json` prints the same line. `$H sql "select count(*) from team"` is still `2`, and `$H sql "select skills from teammate where name = 'duo-architect'"` is still `["short-plans"]`: the Teammate behind the role is kept as it was. The original needs no putting back.
 - **Errors.** Each `$H reef -- team apply $E/<file>` ends `exit: 1` and `$H sql "select count(*) from team"` stays `2`:
   - `nolead.json`: `reef: invalid: team bad needs exactly one lead role, has 0`
   - `twolead.json`: `reef: invalid: team bad needs exactly one lead role, has 2`

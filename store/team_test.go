@@ -68,6 +68,23 @@ func TestCreateTeam_CopiesTeammateDefaults(t *testing.T) {
 	}
 }
 
+func TestTeams_SkipsTeamWithoutRoles(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.db.ExecContext(ctx, "INSERT INTO team (name) VALUES ('empty')"); err != nil {
+		t.Fatal(err)
+	}
+
+	teams, err := s.Teams(ctx)
+	if err != nil || len(teams) != 1 || teams[0].Name != SoloTeam {
+		t.Errorf("Teams = %+v, %v, want only solo", teams, err)
+	}
+}
+
 func TestDeleteTeam_QueuedWorkItem(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
@@ -244,6 +261,30 @@ func TestApplyTeam_Write(t *testing.T) {
 	}
 	if want := []bool{false, true, false}; !reflect.DeepEqual(writes, want) {
 		t.Errorf("write of lead, developer, tester = %v, want %v", writes, want)
+	}
+}
+
+func TestApplyTeam_KeepsExistingTeammate(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if _, err := s.ApplyTeam(ctx, Team{Name: "crew", Roles: []Role{
+		{Name: "lead", Lead: true, Backend: "claude", Persona: "Plans.", Face: "whale", Model: "opus"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ApplyTeam(ctx, Team{Name: "crew", Roles: []Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := got.Roles[0]; r.Persona != "Plans." || r.Face != "whale" || r.Model != "opus" {
+		t.Errorf("lead after a second apply = %+v, want persona Plans., face whale, model opus", r)
 	}
 }
 

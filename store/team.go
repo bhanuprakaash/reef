@@ -153,10 +153,7 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 		if _, err := tx.ExecContext(ctx,
 			"INSERT INTO teammate (name, persona, skills, backend, model, provider, face, colour, "+
 				"tools, mcp_servers, write, permission_mode) "+
-				"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
-				"ON CONFLICT (name) DO UPDATE SET persona = excluded.persona, skills = excluded.skills, "+
-				"backend = excluded.backend, model = excluded.model, provider = excluded.provider, "+
-				"face = excluded.face, colour = excluded.colour",
+				"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING",
 			tm, r.Persona, skills, r.Backend, r.Model, r.Provider, r.Face, r.Colour, tools,
 			servers, r.Write, r.PermissionMode); err != nil {
 			return Team{}, fmt.Errorf("insert teammate %s: %w", tm, err)
@@ -296,6 +293,9 @@ func (s *Store) Teams(ctx context.Context) ([]Team, error) {
 	teams := make([]Team, 0, len(names))
 	for _, n := range names {
 		t, err := s.Team(ctx, n)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}

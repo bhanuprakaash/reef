@@ -4,6 +4,7 @@ DROP TABLE feature_github;
 
 ALTER TABLE feature RENAME TO work_item;
 DELETE FROM work_item;
+DELETE FROM space WHERE feature_id IS NULL;
 CREATE TEMP TABLE work_item_seq AS SELECT seq FROM sqlite_sequence WHERE name = 'work_item';
 
 CREATE TABLE work_item_new (

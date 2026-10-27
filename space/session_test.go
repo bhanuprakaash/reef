@@ -103,6 +103,24 @@ func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 
 func (a *recordingAgent) factory(string) (agent.Agent, error) { return a, nil }
 
+func editTeammate(t *testing.T, st *store.Store, name string, edit func(*store.Teammate)) {
+	t.Helper()
+	all, err := st.Teammates(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range all {
+		if m.Name == name {
+			edit(&m)
+			if _, err := st.UpdateTeammate(context.Background(), m); err != nil {
+				t.Fatal(err)
+			}
+			return
+		}
+	}
+	t.Fatalf("no teammate %s", name)
+}
+
 func sessionSpace(t *testing.T, st *store.Store, f store.WorkItem, quick bool) store.Space {
 	t.Helper()
 	c := store.Space{
@@ -454,6 +472,14 @@ func TestSession_RunAsMemberAddedAfterOpen(t *testing.T) {
 	}
 }
 
+func TestSession_RoleSetupSpaceWithoutMembers(t *testing.T) {
+	s := &Session{ch: store.Space{ID: 7, Role: "lead"}}
+	_, err := s.roleSetup(store.Team{Name: "full"}, "lead")
+	if !errors.Is(err, store.ErrConflict) || err.Error() != "conflict: Space 7 has no members" {
+		t.Errorf("roleSetup of a Space with no members error = %v, want conflict: Space 7 has no members", err)
+	}
+}
+
 func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
@@ -484,10 +510,7 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	developer.Persona = "You code in Go only."
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
-		t.Fatal(err)
-	}
+	editTeammate(t, st, "core-developer", func(m *store.Teammate) { m.Persona = "You code in Go only." })
 	if err := s.RunAs(ctx, "developer", "build more", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
@@ -676,10 +699,7 @@ func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	lead.Persona = "You lead with care."
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
-		t.Fatal(err)
-	}
+	editTeammate(t, st, "core-lead", func(m *store.Teammate) { m.Persona = "You lead with care." })
 	if err := s.Run(ctx, "again", nil, discard); err != nil {
 		t.Fatal(err)
 	}
@@ -862,10 +882,7 @@ func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
 	if err := s.RunAs(ctx, "developer", "wake 2", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	developer.Persona = "You code in Go only."
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
-		t.Fatal(err)
-	}
+	editTeammate(t, st, "core-developer", func(m *store.Teammate) { m.Persona = "You code in Go only." })
 	if err := s.RunAs(ctx, "developer", "wake 3", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
@@ -968,10 +985,7 @@ func TestSession_EditAfterSecondLiveWakeUpdatesOnceThenNone(t *testing.T) {
 	if err := s.Run(ctx, "wake 2", nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	lead.Persona = "You lead with care."
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
-		t.Fatal(err)
-	}
+	editTeammate(t, st, "core-lead", func(m *store.Teammate) { m.Persona = "You lead with care." })
 	if err := s.Run(ctx, "wake 3", nil, discard); err != nil {
 		t.Fatal(err)
 	}
@@ -1022,10 +1036,7 @@ func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	architect.Backend = "codex"
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
-		t.Fatal(err)
-	}
+	editTeammate(t, st, "core-architect", func(m *store.Teammate) { m.Backend = "codex" })
 	if err := s.RunAs(ctx, "architect", "again", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}

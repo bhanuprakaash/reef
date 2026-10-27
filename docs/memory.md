@@ -103,7 +103,7 @@ Teammate under the name the team calls it. A team file is JSON. `reef team apply
 and a Space picks it by name (`team` in `POST /spaces`, see [server.md](server.md#team)); the Space
 copies the members, so editing the team later does not change it. For each role the file
 describes, `reef team apply` uses the Teammate already behind that role name in the team, or
-makes one called `<team>-<role>`. The window makes teams from existing Teammates (`POST /teams`).
+makes one called `<team>-<role>`; it never rewrites an existing Teammate. The window makes teams from existing Teammates (`POST /teams`).
 Migration 6 seeds a team `solo`, with one role, `lead` on `claude`. A Space made with no
 team is in it. A new Space created by `reef chat` is in `solo`. When resuming, `reef chat` allows teams with one role and refuses
 teams with multiple roles; use the Reef window (`reef serve`) for those teams.

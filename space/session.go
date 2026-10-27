@@ -559,6 +559,9 @@ func WorkDir(
 // roleSetup is the team's role called name. The lead is the Space's role; it takes the
 // Space's own backend and permission mode.
 func (s *Session) roleSetup(team store.Team, name string) (store.Role, error) {
+	if len(team.Roles) == 0 {
+		return store.Role{}, fmt.Errorf("%w: Space %d has no members", store.ErrConflict, s.ch.ID)
+	}
 	if name == s.ch.Role {
 		lead := team.Roles[0]
 		if lead.Backend != s.ch.Backend {

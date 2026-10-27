@@ -419,11 +419,13 @@ adds `teammate` and `team_member`; nothing is migrated except the seed: one defa
 | `tools`, `mcpServers`, `write`, `permissionMode` | | default access rules. Joining a team copies them into a `team_member` row; editing them later does not change any membership. REST shows `mcp` (name and label) instead of `mcpServers` |
 
 A teammate that sits in a team cannot be deleted: the error is `invalid:` and names the team. A team has at
-most one lead; a second one is `invalid`. `solo` keeps its one lead and takes no member changes.
+most one lead; a second one is `invalid`. A team always has exactly one lead: removing the lead or
+saving it with `lead` false is `invalid` and changes nothing. `solo` keeps its one lead and takes no member changes.
 A team member row holds the name the team calls the teammate (`name`, unique in the team; the role name below),
 `lead`, and its own `tools`, `mcpServers`, `write` and `permissionMode`. The rest of a role is read from the teammate.
-`reef team apply` and `PUT /teams/{name}` write the teammate behind each role: the one already behind that
-role name in the team, else a new one called `<team>-<role>`.
+`reef team apply` and `PUT /teams/{name}` use the teammate already behind each role name in the team,
+else make a new one called `<team>-<role>`. They never rewrite an existing teammate: its persona, skills,
+backend, model, provider, face and colour stay as they are (edit it with `PUT /teammates/{id}`).
 
 ### role
 
