@@ -290,6 +290,7 @@ scope `teammate`. Their routes still read and write them.
 | `permissionMode` | string | passed to the backend as is when the Space's agent starts or resumes. Empty means the backend default |
 | `paused` | string | why the Space is paused (see [Caps](#caps)). Empty when it is not paused. Set by the server only; a client cannot set it |
 | `tokenBudget` | number | tokens the Space may use before it pauses: its top-level Work item's `tokenBudget`, shared with the item's other Spaces, or its own when it has no item. Starts at 1,000,000. Set by the server only |
+| `tokensUsed` | number | only in `GET /spaces/{id}`: the tokens counted against `tokenBudget` (see [Caps](#caps)) |
 | `team` | string | the name of the Team the Space's members were copied from. `solo` when none is given. Empty for a Space made from one Teammate. Set on create, never changes. The Space keeps its own member list (`space_member`: the Teammate, its lead flag and its access rules), so editing the Team later does not change a running Space |
 | `createdAt` | string | |
 | `closedAt` | string? | `null` while the Space is open. Set when its wrap-up is approved and when its work item is closed, cleared by `POST /spaces/{id}/reopen`. A closed Space takes no turn (409) |

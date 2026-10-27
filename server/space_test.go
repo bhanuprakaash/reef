@@ -6,7 +6,36 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/bhanuprakaash/reef/agent"
+	"github.com/bhanuprakaash/reef/store"
 )
+
+func TestGetSpaceTokensUsed(t *testing.T) {
+	ts, st := newEmbedServer(t, nil)
+	ctx := context.Background()
+	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"auth"}`)
+	for _, u := range []agent.Usage{
+		{InputTokens: 100, OutputTokens: 20, CacheReadTokens: 9999},
+		{InputTokens: 30, CacheWriteTokens: 4},
+	} {
+		tr, err := st.CreateTurn(ctx, store.Turn{SpaceID: 1, Role: "lead", Backend: "claude"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		tr.Status, tr.Usage = "done", u
+		if _, err := st.EndTurn(ctx, tr); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	status, body := do(t, http.MethodGet, ts.URL+"/spaces/1", "")
+	if status != 200 || !strings.Contains(body, `"tokenBudget":1000000`) || !strings.Contains(body, `"tokensUsed":154}`) {
+		t.Fatalf("GET /spaces/1 = %d %s, want tokensUsed 154", status, body)
+	}
+}
 
 func TestUpdateSpacePermissionModeUsedWhenSessionOpens(t *testing.T) {
 	env := newLiveEnv(t)

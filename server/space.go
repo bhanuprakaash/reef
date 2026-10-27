@@ -235,7 +235,15 @@ func (s *server) getSpace(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, c)
+	used, err := s.st.SpaceTokens(r.Context(), id)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		store.Space
+		TokensUsed int64 `json:"tokensUsed"`
+	}{c, used})
 }
 
 func (s *server) updateSpace(w http.ResponseWriter, r *http.Request) {
