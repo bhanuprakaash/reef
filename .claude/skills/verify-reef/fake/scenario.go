@@ -94,7 +94,7 @@ var _scenarios = []scenario{
 	{"handoff-mention", "", pat(`an at sign immediately followed by the word`)},
 	{"google-ask", "", pat(`Add Google login to this app`)},
 	{"recall-secret-word", "", pat(`What was the secret word`)},
-	{"recall-failed-logins", "developer", pat(`What did we decide about failed logins`)},
+	{"recall-failed-logins", "lead", pat(`What did we decide about failed logins`)},
 	{"story-pineapple", "", pat(`secret word pineapple`)},
 	{"story", "", pat(`1500-word story about lighthouses`)},
 	{"numbers-600", "", pat(`numbers from 1 to 600`)},
