@@ -12,7 +12,7 @@ that needs the user keeps the Team busy. A restart starts a queued item of a fre
 ## Sub-features
 
 - `queue-first-starts` `PATCH /work-items/1 {"status":"queued"}` on a Team with nothing running answers `in_progress`, opens one Space for the item with the Team's lead, and the lead's turn replays the `queue-lead` recording.
-- `queue-prompt` the first message of that Space starts `Work item 1: Login` and has the description, each acceptance line numbered, and `Brief: sessions, not JWT`.
+- `queue-prompt` the first message of that Space starts `Work item 1: Login` and has the description and `Brief: sessions, not JWT`, and no acceptance line. The first prompt of the Space's first turn lists them: `Acceptance lines:`, then `1. [ ] wrong password is refused` and `2. [ ] session lasts a day`.
 - `queue-second-waits` a second item queued on the same Team stays `queued` at position 1 and has no Space.
 - `queue-needs-you-holds` a cap pause moves the running item to `needs_you`; the queued item stays queued with no Space, before and after Continue.
 - `queue-submit-starts` the lead of the running item submits for review in a live turn (the scripted lead replays `submit-lead`, which calls `submit_for_review` through `reef mcp`): the item is `review`, and with no restart and no `PATCH` the queued item is `in_progress`, has a Space whose first message starts `Work item 2: Logout`, and `GET /inbox` has a `started` item for it, `Started from the queue: Logout`, with no `reef` note in its Space.

@@ -54,10 +54,15 @@ check queue-first-starts "$first_ok" "PATCH queued: $STATUS $BODY; Spaces of ite
 
 prompt=$("$H" sql "select body from message where space_id = 1 and author = 'user'" | tail -n +2)
 prompt_ok=1
-for want in "Work item 1: Login" "Description: email and password" "1. wrong password is refused" "2. session lasts a day" "Brief: sessions, not JWT"; do
+for want in "Work item 1: Login" "Description: email and password" "Brief: sessions, not JWT"; do
 	echo "$prompt" | grep -qxF "$want" || prompt_ok=0
 done
-check queue-prompt "$prompt_ok" "first message of Space 1: $(echo "$prompt" | tr '\n' '|')"
+echo "$prompt" | grep -q "wrong password" && prompt_ok=0
+context=$("$H" sql "select prompt from turn where space_id = 1 order by id limit 1" | tail -n +2)
+for want in "Acceptance lines:" "1. [ ] wrong password is refused" "2. [ ] session lasts a day"; do
+	echo "$context" | grep -qxF "$want" || prompt_ok=0
+done
+check queue-prompt "$prompt_ok" "first message of Space 1: $(echo "$prompt" | tr '\n' '|'); first prompt of its first turn: $(echo "$context" | tr '\n' '|' | cut -c1-300)"
 
 ### The second item waits while the first runs
 
