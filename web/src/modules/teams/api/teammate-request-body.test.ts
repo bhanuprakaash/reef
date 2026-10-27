@@ -17,6 +17,7 @@ it('sends only the fields the server knows for a Teammate', () => {
 
   expect(Object.keys(body).sort()).toEqual([
     'backend',
+    'colour',
     'face',
     'model',
     'name',

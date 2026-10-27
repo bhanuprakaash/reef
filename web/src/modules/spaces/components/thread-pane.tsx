@@ -3,13 +3,14 @@ import { Bubble } from '@/modules/spaces/components/bubble';
 import { Composer } from '@/modules/spaces/components/composer';
 import type { Thread } from '@/modules/spaces/utils/group-threads';
 import { Button } from '@/components/button';
+import type { Faces } from '@/components/creature';
 
 type Props = {
   spaceId: number;
   thread: Thread;
   lead: string;
   roles: string[];
-  faces: Record<string, string | undefined>;
+  faces: Faces;
   running: boolean;
   paused: boolean;
   reason: string;
@@ -71,7 +72,7 @@ export function ThreadPane({
       <div className="flex min-h-0 flex-1 flex-col gap-2.5 overflow-y-auto px-[18px] py-4">
         <ul>
           <li className="flex flex-col items-start gap-2.5">
-            <Author name={root.author} face={faces[root.author]} time={time} />
+            <Author name={root.author} look={faces[root.author]} time={time} />
             <Bubble own={root.author === 'user'}>{root.body}</Bubble>
           </li>
         </ul>
@@ -89,7 +90,7 @@ export function ThreadPane({
               className={`flex flex-col gap-2.5 ${m.author === 'user' ? 'items-end' : 'items-start'}`}
             >
               {m.author !== 'user' && replies[i - 1]?.author !== m.author && (
-                <Author name={m.author} face={faces[m.author]} />
+                <Author name={m.author} look={faces[m.author]} />
               )}
               <Bubble own={m.author === 'user'}>{m.body}</Bubble>
             </li>

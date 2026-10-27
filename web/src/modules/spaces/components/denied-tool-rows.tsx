@@ -29,7 +29,7 @@ export function DeniedToolRows({ space, roles, running }: Props) {
               key={`${d.turnId}-${d.pattern}`}
               className="flex flex-wrap items-center gap-3 rounded-card border border-line bg-card px-4 py-3.5 [--creature-ring:var(--color-card)]"
             >
-              <Creature role={d.role.name} face={d.role.face} size={24} />
+              <Creature look={d.role} size={24} />
               <p className="min-w-0 flex-1 basis-48">
                 <span className="capitalize">{d.role.name}</span>
                 {' was denied '}

@@ -163,7 +163,7 @@ export function HomePage() {
           <EmptyState
             title="Nothing needs you"
             body="Everything is moving on its own."
-            role="lead"
+            face="jellyfish"
           />
         ) : (
           <ul className="flex flex-col gap-3">

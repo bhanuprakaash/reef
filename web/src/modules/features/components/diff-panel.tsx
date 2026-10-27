@@ -6,7 +6,7 @@ import { diffCounts } from '@/modules/features/utils/diff-counts';
 import { buildFileTree, type TreeNode } from '@/modules/features/utils/file-tree';
 import type { DiffLine, FileDiff } from '@/types/api';
 import { Button } from '@/components/button';
-import { Creature } from '@/components/creature';
+import { Creature, type Look } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 import { SegmentedControl } from '@/components/segmented-control';
 import { TextArea } from '@/components/text-area';
@@ -48,7 +48,7 @@ type Props = {
   baseBranch: string;
   scope: DiffScope;
   onScopeChange: (scope: DiffScope) => void;
-  developerFace?: string;
+  developerLook?: Look;
   leading?: ReactNode;
   actions?: (drafts: number) => ReactNode;
 };
@@ -61,7 +61,7 @@ export function DiffPanel({
   baseBranch,
   scope,
   onScopeChange,
-  developerFace,
+  developerLook,
   leading,
   actions,
 }: Props) {
@@ -190,7 +190,7 @@ export function DiffPanel({
             disabled={comments.length === 0 || send.isPending}
             onClick={() => send.mutate(comments, { onSuccess: () => setComments([]) })}
           >
-            Send to <Creature role="developer" face={developerFace} size={18} /> Developer
+            Send to <Creature look={developerLook} size={18} /> Developer
           </Button>
           {actions?.(comments.length)}
         </div>
@@ -201,7 +201,7 @@ export function DiffPanel({
           <EmptyState
             title="No changes yet"
             body="Files the developer edits show up here."
-            role="developer"
+            face="penguin"
           />
         </div>
       ) : (

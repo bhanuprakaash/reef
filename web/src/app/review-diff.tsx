@@ -39,7 +39,7 @@ export function ReviewDiff({ id, onClose, defaultScope = 'full' }: Props) {
       baseBranch={projects.data?.find((p) => p.id === feature.data.projectId)?.baseBranch || 'main'}
       scope={scope}
       onScopeChange={setScope}
-      developerFace={roleFaces(teams.data, latestTeam).developer}
+      developerLook={roleFaces(teams.data, latestTeam).developer}
       leading={!onClose && <BackButton fallback={`/features/${id}`} />}
       actions={
         onClose &&

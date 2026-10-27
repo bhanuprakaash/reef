@@ -34,8 +34,12 @@ func faces() []string {
 	}
 }
 
-// Role is one teammate's setup. Face picks the creature the window draws for the role; empty
-// means the default for its name. Model names the model the backend runs the role on; empty is
+func colours() []string {
+	return []string{"orange", "red", "yellow", "green", "teal", "blue", "violet", "pink"}
+}
+
+// Role is one teammate's setup. Face picks the creature the window draws for the role and Colour
+// its body colour; empty Colour is the creature's own. Model names the model the backend runs the role on; empty is
 // the backend's default. Provider names an added install (see Provider) whose binary the role
 // runs; empty is the claude or codex found on PATH. Tools are the backend's allowed tools. Write says whether the
 // role may change files: without it the backend's tools and sandbox are held to read-only.
@@ -49,6 +53,7 @@ type Role struct {
 	Persona        string            `json:"persona"`
 	Skills         []string          `json:"skills"`
 	Face           string            `json:"face,omitempty"`
+	Colour         string            `json:"colour,omitempty"`
 	Model          string            `json:"model,omitempty"`
 	Provider       string            `json:"provider,omitempty"`
 	Tools          []string          `json:"tools"`
@@ -146,12 +151,13 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 		}
 		tm := cmp.Or(behind[r.Name], t.Name+"-"+r.Name)
 		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO teammate (name, persona, skills, backend, model, provider, face, tools, "+
-				"mcp_servers, write, permission_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
+			"INSERT INTO teammate (name, persona, skills, backend, model, provider, face, colour, "+
+				"tools, mcp_servers, write, permission_mode) "+
+				"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) "+
 				"ON CONFLICT (name) DO UPDATE SET persona = excluded.persona, skills = excluded.skills, "+
 				"backend = excluded.backend, model = excluded.model, provider = excluded.provider, "+
-				"face = excluded.face",
-			tm, r.Persona, skills, r.Backend, r.Model, r.Provider, r.Face, tools,
+				"face = excluded.face, colour = excluded.colour",
+			tm, r.Persona, skills, r.Backend, r.Model, r.Provider, r.Face, r.Colour, tools,
 			servers, r.Write, r.PermissionMode); err != nil {
 			return Team{}, fmt.Errorf("insert teammate %s: %w", tm, err)
 		}
@@ -254,12 +260,12 @@ func (s *Store) SuggestTeam(ctx context.Context, text string) (Team, error) {
 }
 
 // roles lists the members in table (team_member or space_member) whose key column is id, lead
-// first, with the Teammate's persona, skills, backend and face. The access rules are the
+// first, with the Teammate's persona, skills, backend, face and colour. The access rules are the
 // member's own.
 func (s *Store) roles(ctx context.Context, table, key string, id int64) ([]Role, error) {
 	rows, err := s.db.QueryContext(ctx,
 		"SELECT teammate.id, member.name, member.lead, member.write, teammate.backend, "+
-			"member.permission_mode, teammate.persona, teammate.skills, teammate.face, teammate.model, "+
+			"member.permission_mode, teammate.persona, teammate.skills, teammate.face, teammate.colour, teammate.model, "+
 			"teammate.provider, member.tools, member.mcp_servers "+
 			"FROM "+table+" member JOIN teammate ON teammate.id = member.teammate_id "+
 			"WHERE member."+key+" = ? ORDER BY member.lead DESC, member.id", id)
@@ -382,6 +388,10 @@ func validateRole(r Role) error {
 		return fmt.Errorf("%w: role %s: face %q must be one of %s",
 			ErrInvalid, r.Name, r.Face, strings.Join(faces(), ", "))
 	}
+	if r.Colour != "" && !slices.Contains(colours(), r.Colour) {
+		return fmt.Errorf("%w: role %s: colour %q must be one of %s",
+			ErrInvalid, r.Name, r.Colour, strings.Join(colours(), ", "))
+	}
 	if r.Backend == "claude" && !r.Write && slices.ContainsFunc(r.Tools, UnrestrictedBash) {
 		return fmt.Errorf("%w: role %s has no write, so it cannot have unrestricted Bash; "+
 			"list command patterns such as Bash(go test:*)", ErrInvalid, r.Name)
@@ -429,7 +439,7 @@ func scanRole(r interface{ Scan(...any) error }) (Role, error) {
 	var ro Role
 	var skills, tools, servers string
 	if err := r.Scan(&ro.TeammateID, &ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Persona,
-		&skills, &ro.Face, &ro.Model, &ro.Provider, &tools, &servers); err != nil {
+		&skills, &ro.Face, &ro.Colour, &ro.Model, &ro.Provider, &tools, &servers); err != nil {
 		return Role{}, err
 	}
 	if err := json.Unmarshal([]byte(skills), &ro.Skills); err != nil {

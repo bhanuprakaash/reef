@@ -11,7 +11,7 @@ import (
 	"github.com/bhanuprakaash/reef/agent"
 )
 
-// Teammate is one persistent agent: who it is (persona, skills, face) and what runs it (backend,
+// Teammate is one persistent agent: who it is (persona, skills, face, colour) and what runs it (backend,
 // model, provider). Tools, MCPServers, Write and PermissionMode are its default access rules,
 // copied into a team_member or space_member row when it joins a Team or a Space; editing them
 // later leaves memberships alone.
@@ -24,6 +24,7 @@ type Teammate struct {
 	Model          string            `json:"model,omitempty"`
 	Provider       string            `json:"provider,omitempty"`
 	Face           string            `json:"face,omitempty"`
+	Colour         string            `json:"colour,omitempty"`
 	Tools          []string          `json:"tools"`
 	MCPServers     []agent.MCPServer `json:"mcpServers"`
 	Write          bool              `json:"write"`
@@ -40,12 +41,12 @@ type Membership struct {
 	PermissionMode string            `json:"permissionMode"`
 }
 
-const _teammateCols = "id, name, persona, skills, backend, model, provider, face, tools, " +
+const _teammateCols = "id, name, persona, skills, backend, model, provider, face, colour, tools, " +
 	"mcp_servers, write, permission_mode"
 
 func (t Teammate) role() Role {
 	return Role{Name: t.Name, Write: t.Write, Backend: t.Backend, PermissionMode: t.PermissionMode,
-		Persona: t.Persona, Skills: t.Skills, Face: t.Face, Model: t.Model, Provider: t.Provider,
+		Persona: t.Persona, Skills: t.Skills, Face: t.Face, Colour: t.Colour, Model: t.Model, Provider: t.Provider,
 		Tools: t.Tools, MCPServers: t.MCPServers}
 }
 
@@ -60,10 +61,11 @@ func (s *Store) CreateTeammate(ctx context.Context, t Teammate) (Teammate, error
 		return Teammate{}, err
 	}
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO teammate (name, persona, skills, backend, model, provider, face, tools, "+
-			"mcp_servers, write, permission_mode) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		t.Name, t.Persona, skills, t.Backend, t.Model, t.Provider, t.Face, tools, servers, t.Write,
-		t.PermissionMode)
+		"INSERT INTO teammate (name, persona, skills, backend, model, provider, face, colour, "+
+			"tools, mcp_servers, write, permission_mode) "+
+			"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		t.Name, t.Persona, skills, t.Backend, t.Model, t.Provider, t.Face, t.Colour, tools, servers,
+		t.Write, t.PermissionMode)
 	if err != nil {
 		if isUnique(err) {
 			return Teammate{}, fmt.Errorf("%w: a teammate named %q already exists", ErrConflict, t.Name)
@@ -109,9 +111,10 @@ func (s *Store) UpdateTeammate(ctx context.Context, t Teammate) (Teammate, error
 	}
 	res, err := s.db.ExecContext(ctx,
 		"UPDATE teammate SET name = ?, persona = ?, skills = ?, backend = ?, model = ?, provider = ?, "+
-			"face = ?, tools = ?, mcp_servers = ?, write = ?, permission_mode = ? WHERE id = ?",
-		t.Name, t.Persona, skills, t.Backend, t.Model, t.Provider, t.Face, tools, servers, t.Write,
-		t.PermissionMode, t.ID)
+			"face = ?, colour = ?, tools = ?, mcp_servers = ?, write = ?, permission_mode = ? "+
+			"WHERE id = ?",
+		t.Name, t.Persona, skills, t.Backend, t.Model, t.Provider, t.Face, t.Colour, tools, servers,
+		t.Write, t.PermissionMode, t.ID)
 	if err != nil {
 		if isUnique(err) {
 			return Teammate{}, fmt.Errorf("%w: a teammate named %q already exists", ErrConflict, t.Name)
@@ -354,7 +357,7 @@ func scanTeammate(r interface{ Scan(...any) error }) (Teammate, error) {
 	var t Teammate
 	var skills, tools, servers string
 	if err := r.Scan(&t.ID, &t.Name, &t.Persona, &skills, &t.Backend, &t.Model, &t.Provider,
-		&t.Face, &tools, &servers, &t.Write, &t.PermissionMode); err != nil {
+		&t.Face, &t.Colour, &tools, &servers, &t.Write, &t.PermissionMode); err != nil {
 		return Teammate{}, err
 	}
 	if err := json.Unmarshal([]byte(skills), &t.Skills); err != nil {

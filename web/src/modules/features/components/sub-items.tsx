@@ -21,7 +21,7 @@ export function SubItems({ parent }: { parent: WorkItem }) {
         <EmptyState
           title="No sub-items yet"
           body="Split the work into smaller steps."
-          role="developer"
+          face="penguin"
           compact
         />
       )}

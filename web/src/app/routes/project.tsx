@@ -66,7 +66,7 @@ export function ProjectPage() {
               <EmptyState
                 title="No features yet"
                 body="Add one with New feature."
-                role="architect"
+                face="whale"
                 compact
               />
             )}
@@ -91,7 +91,7 @@ export function ProjectPage() {
               <EmptyState
                 title="No quick sessions"
                 body="Start one for a chat outside a feature."
-                role="lead"
+                face="jellyfish"
                 compact
               />
             )}

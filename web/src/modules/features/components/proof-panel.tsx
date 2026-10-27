@@ -26,7 +26,7 @@ export function ProofPanel({ workItemId }: { workItemId: number }) {
         <EmptyState
           title="Not submitted yet"
           body="The lead's commands and screenshots land here when it submits for review."
-          role="tester"
+          face="shark"
           compact
         />
       )}

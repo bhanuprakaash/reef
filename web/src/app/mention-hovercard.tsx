@@ -28,13 +28,7 @@ export function MentionCard({
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2.5">
-        <Creature
-          role={role.name}
-          face={role.face}
-          state={working ? 'working' : 'idle'}
-          size={36}
-          animate={working}
-        />
+        <Creature look={role} state={working ? 'working' : 'idle'} size={36} animate={working} />
         <div className="min-w-0 flex-1">
           <div className="truncate capitalize">{role.name}</div>
           <div className="truncate text-[13px] text-soft">

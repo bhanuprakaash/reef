@@ -25,7 +25,12 @@ function Spaces({ spaces }: { spaces: Space[] }) {
 export function SpaceList({ spaces }: { spaces: Space[] }) {
   if (spaces.length === 0) {
     return (
-      <EmptyState title="No Spaces yet" body="Start one to talk to the team." role="lead" compact />
+      <EmptyState
+        title="No Spaces yet"
+        body="Start one to talk to the team."
+        face="jellyfish"
+        compact
+      />
     );
   }
 

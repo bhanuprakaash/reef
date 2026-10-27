@@ -5,7 +5,7 @@ import { useRetryTurn } from '@/lib/api/retry-turn';
 import { confirmRollback } from '@/modules/spaces/utils/confirm-rollback';
 import { failedTurnAnchor } from '@/utils/anchors';
 import { Button } from '@/components/button';
-import { Creature } from '@/components/creature';
+import { Creature, type Faces } from '@/components/creature';
 
 export function FailedTurnRows({
   spaceId,
@@ -14,7 +14,7 @@ export function FailedTurnRows({
   paused,
 }: {
   spaceId: number;
-  faces: Record<string, string | undefined>;
+  faces: Faces;
   running: boolean;
   paused: boolean;
 }) {
@@ -36,7 +36,7 @@ export function FailedTurnRows({
             id={failedTurnAnchor(t.id)}
             className="flex flex-wrap items-center gap-3 rounded-card border border-failed-line bg-failed-bg px-4 py-3.5 [--creature-ring:var(--color-failed-bg)]"
           >
-            <Creature role={t.role} face={faces[t.role]} state="failed" size={24} />
+            <Creature look={faces[t.role]} state="failed" size={24} />
             <div className="min-w-0 flex-1 basis-48">
               <p className="text-failed-fg">
                 <span className="capitalize">{t.role}</span>

@@ -41,7 +41,7 @@ export function NewConversationForm({ projectId, onClose }: Props) {
             }}
             className="flex min-w-0 items-center gap-2 rounded-menu border border-line p-2.5 text-left text-sm text-soft outline-none hover:text-fg focus-visible:ring-3 focus-visible:ring-ring"
           >
-            <GroupAvatar roles={[t.name]} faces={{ [t.name]: t.face }} size={26} />
+            <GroupAvatar roles={[t.name]} faces={{ [t.name]: t }} size={26} />
             <span className="truncate">{t.name}</span>
           </button>
         ))}

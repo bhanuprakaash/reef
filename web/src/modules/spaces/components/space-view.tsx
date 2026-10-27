@@ -1,4 +1,5 @@
 import { type CSSProperties, type ReactNode, useEffect, useState } from 'react';
+import type { BrowserDriver } from '@/app/browser-pane';
 import { Dialog } from '@/components/dialog';
 import { ResizeHandle } from '@/components/resize-handle';
 import { useResizableWidth } from '@/lib/use-resizable-width';
@@ -44,7 +45,7 @@ type Props = {
   diffPanel?: (onClose: () => void) => ReactNode;
   brief?: string;
   browserOpen?: boolean;
-  onBrowserDriver?: (driver: { role: string; face?: string; action: string } | null) => void;
+  onBrowserDriver?: (driver: BrowserDriver | null) => void;
 };
 
 type Side =
@@ -90,9 +91,9 @@ export function SpaceView({
     side?.kind === 'thread' ? threads.find((t) => t.root.id === side.rootId) : undefined;
   const teams = useTeams();
   const roles = teams.data?.find((t) => t.name === space.team)?.roles ?? [];
-  const faces = Object.fromEntries(roles.map((r) => [r.name, r.face]));
+  const faces = Object.fromEntries(roles.map((r) => [r.name, r]));
   const working = turn.role || space.role || 'agent';
-  const face = faces[working];
+  const look = faces[working];
   const action = browserAction(turn);
   const last = messages.data?.at(-1);
   const { box, onScroll, atBottom, toBottom } = useStickToBottom(
@@ -114,9 +115,9 @@ export function SpaceView({
   if (side?.kind === 'turn' && turn.status === 'idle') setSide(null);
 
   useEffect(() => {
-    onBrowserDriver?.(action ? { role: working, face, action } : null);
+    onBrowserDriver?.(action ? { role: working, look, action } : null);
     return () => onBrowserDriver?.(null);
-  }, [onBrowserDriver, action, working, face]);
+  }, [onBrowserDriver, action, working, look]);
 
   useEffect(() => {
     if (!teamOpen) return;
@@ -195,7 +196,7 @@ export function SpaceView({
               <LiveTurn
                 turn={turn}
                 role={working}
-                face={face}
+                look={look}
                 open={turnOpen}
                 onOpen={() => openSide(turnOpen ? null : { kind: 'turn' })}
               />
@@ -323,7 +324,7 @@ export function SpaceView({
                   onClose={closeSide}
                 />
               )}
-              {turnOpen && <TurnPanel turn={turn} role={working} face={face} onClose={closeSide} />}
+              {turnOpen && <TurnPanel turn={turn} role={working} look={look} onClose={closeSide} />}
               {wide && diffPanel?.(closeSide)}
               {side?.kind === 'inspector' && (
                 <InspectorPanel spaceId={space.id} faces={faces} onClose={closeSide} />

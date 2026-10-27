@@ -1,4 +1,4 @@
-import { Creature, type CreatureState } from '@/components/creature';
+import { Creature, type CreatureState, type Faces } from '@/components/creature';
 import { Skeleton } from '@/components/skeleton';
 import { StatusDot, type Status } from '@/components/status-dot';
 import { useDiff } from '@/modules/features/api/get-diff';
@@ -41,7 +41,7 @@ export function SpaceCard({
 }: {
   space: SpacePreview;
   feature: WorkItem | undefined;
-  faces: Record<string, string | undefined>;
+  faces: Faces;
   working: string[];
   waiting: InboxItem['kind'][];
 }) {
@@ -73,13 +73,7 @@ export function SpaceCard({
           const creature: CreatureState = active ? 'working' : 'idle';
           return (
             <li key={role} className="flex items-center gap-2.5">
-              <Creature
-                role={role}
-                face={faces[role]}
-                state={creature}
-                size={22}
-                animate={active}
-              />
+              <Creature look={faces[role]} state={creature} size={22} animate={active} />
               <span className="min-w-0 flex-1 truncate text-[13px] capitalize">{role}</span>
               <span className={`text-xs ${active ? 'text-working' : 'text-muted'}`}>
                 {active ? 'working' : 'idle'}

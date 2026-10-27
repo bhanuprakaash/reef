@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Creature } from '@/components/creature';
+import { Creature, type Look } from '@/components/creature';
 import { ToolRow } from '@/modules/spaces/components/tool-row';
 import type { LiveTurn as LiveTurnState } from '@/modules/spaces/utils/fold-events';
 import { recentTools, toolCount } from '@/modules/spaces/utils/turn-status';
@@ -7,7 +7,7 @@ import { recentTools, toolCount } from '@/modules/spaces/utils/turn-status';
 type Props = {
   turn: LiveTurnState;
   role: string;
-  face?: string;
+  look?: Look;
   open?: boolean;
   onOpen?: () => void;
 };
@@ -25,7 +25,7 @@ function Elapsed() {
   return <>{seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${seconds % 60}s`}</>;
 }
 
-export function LiveTurn({ turn, role, face, open, onOpen }: Props) {
+export function LiveTurn({ turn, role, look, open, onOpen }: Props) {
   if (turn.status === 'idle') return null;
 
   const running = turn.status === 'running';
@@ -42,7 +42,7 @@ export function LiveTurn({ turn, role, face, open, onOpen }: Props) {
         onClick={onOpen}
         className="flex w-full items-center gap-3 px-4 py-3 text-left after:absolute after:inset-0 after:rounded-card"
       >
-        <Creature role={role} face={face} size={24} state={running ? 'working' : 'failed'} />
+        <Creature look={look} size={24} state={running ? 'working' : 'failed'} />
         <span className="min-w-0 flex-1">
           <span className="block text-[14.5px] capitalize">
             {role} {running && <span className="normal-case">is working</span>}

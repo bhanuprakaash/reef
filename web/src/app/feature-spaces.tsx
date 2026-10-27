@@ -171,7 +171,7 @@ export function FeatureSpaces({ project, query }: { project: Project; query: str
   function spaceRow(c: SpacePreview, named: string) {
     const faces =
       c.kind === 'conversation'
-        ? { [c.role]: teammates.data?.find((t) => t.name === c.role)?.face }
+        ? { [c.role]: teammates.data?.find((t) => t.name === c.role) }
         : roleFaces(teams.data, c.team);
     const roles = Object.keys(faces);
     const role = working.get(c.id);

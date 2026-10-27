@@ -5,14 +5,14 @@ import { ToolRow } from '@/modules/spaces/components/tool-row';
 import { dotFor, type Chain } from '@/modules/spaces/utils/direct-chains';
 import type { LiveTurn } from '@/modules/spaces/utils/fold-events';
 import { Button } from '@/components/button';
-import { Creature } from '@/components/creature';
+import { Creature, type Faces } from '@/components/creature';
 import { StatusDot } from '@/components/status-dot';
 
 type Props = {
   spaceId: number;
   chain: Chain;
   live?: LiveTurn;
-  faces: Record<string, string | undefined>;
+  faces: Faces;
   running: boolean;
   paused: boolean;
   reason: string;
@@ -95,7 +95,7 @@ export function CoordinationPanel({
               className="rounded-card border border-line bg-card px-4 py-3 [--creature-ring:var(--color-card)]"
             >
               <div className="flex items-center gap-2 text-[13px] text-muted">
-                <Creature role={m.from} face={faces[m.from]} size={20} />
+                <Creature look={faces[m.from]} size={20} />
                 <span className="capitalize">{`${m.from} → ${m.to}`}</span>
                 <span className="ml-auto">
                   {new Date(m.createdAt).toLocaleTimeString([], {

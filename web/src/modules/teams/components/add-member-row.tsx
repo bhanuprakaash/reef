@@ -48,7 +48,7 @@ export function AddMemberRow({ team, members, onAdded }: Props) {
                 }
                 className="flex min-h-12 w-full items-center gap-3 rounded-xl border border-transparent p-2 text-left outline-none hover:bg-bubble focus-visible:ring-3 focus-visible:ring-ring"
               >
-                <Creature role={t.name} face={t.face} size={32} />
+                <Creature look={t} size={32} />
                 <span className="min-w-0 flex-1 truncate text-sm">{t.name}</span>
                 <span className="text-xs text-muted">{backendLabel(t.backend)}</span>
               </button>

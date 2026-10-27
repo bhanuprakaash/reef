@@ -3,8 +3,8 @@ import { useCreateTeammate } from '@/modules/teams/api/create-teammate';
 import type { Role } from '@/types/api';
 import { CreaturePicker } from '@/modules/teams/components/creature-picker';
 import { backendOptions } from '@/modules/teams/utils/backend-label';
-import { suggestFace } from '@/modules/teams/utils/suggest-face';
 import { Button } from '@/components/button';
+import type { Look } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { Select } from '@/components/select';
 import { TextField } from '@/components/text-field';
@@ -27,9 +27,8 @@ type FormProps = { onCreated: (id: number) => void; onClose: () => void };
 
 function NewTeammateForm({ onCreated, onClose }: FormProps) {
   const [name, setName] = useState('');
-  const [picked, setPicked] = useState('');
+  const [look, setLook] = useState<Look>({ face: 'pebble' });
   const [backend, setBackend] = useState('claude');
-  const face = picked || suggestFace(name);
   const valid = rolePattern.test(name.trim());
   const create = useCreateTeammate();
 
@@ -39,7 +38,7 @@ function NewTeammateForm({ onCreated, onClose }: FormProps) {
       onSubmit={(e) => {
         e.preventDefault();
         create.mutate(
-          { ...blankRole, name: name.trim(), backend, face },
+          { ...blankRole, name: name.trim(), backend, ...look },
           {
             onSuccess: (saved) => {
               onCreated(saved.id);
@@ -50,7 +49,7 @@ function NewTeammateForm({ onCreated, onClose }: FormProps) {
       }}
     >
       <div className="flex justify-center py-1">
-        <CreaturePicker value={face} onChange={setPicked} size={56} />
+        <CreaturePicker value={look} onChange={setLook} size={56} />
       </div>
       <label className="block">
         <span className="mb-1.5 block text-[12.5px] text-muted">Teammate name</span>

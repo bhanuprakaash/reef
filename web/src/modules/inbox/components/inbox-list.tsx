@@ -40,7 +40,11 @@ export function InboxList() {
       </header>
       {inbox.isError && <p className="text-sm text-danger">{inbox.error.message}</p>}
       {inbox.data?.length === 0 && (
-        <EmptyState title="Nothing needs you" body="Everything is moving on its own." role="lead" />
+        <EmptyState
+          title="Nothing needs you"
+          body="Everything is moving on its own."
+          face="jellyfish"
+        />
       )}
       {groups.map(({ group, title, hint }) => {
         const shown = items.filter((i) => i.group === group);

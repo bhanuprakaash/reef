@@ -31,6 +31,7 @@ type roleView struct {
 	Persona        string    `json:"persona"`
 	Skills         []string  `json:"skills"`
 	Face           string    `json:"face,omitempty"`
+	Colour         string    `json:"colour,omitempty"`
 	Model          string    `json:"model,omitempty"`
 	Provider       string    `json:"provider,omitempty"`
 	Tools          []string  `json:"tools"`
@@ -262,7 +263,7 @@ func viewRole(r store.Role) roleView {
 	return roleView{
 		TeammateID: r.TeammateID, Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend,
 		PermissionMode: r.PermissionMode, Persona: r.Persona, Skills: r.Skills, Face: r.Face,
-		Model: r.Model, Provider: r.Provider, Tools: r.Tools, MCP: viewMCP(r.MCPServers),
+		Colour: r.Colour, Model: r.Model, Provider: r.Provider, Tools: r.Tools, MCP: viewMCP(r.MCPServers),
 	}
 }
 

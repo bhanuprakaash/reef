@@ -9,7 +9,7 @@ import { findMention, insertMention } from '@/modules/spaces/utils/mention';
 import { insertFiles, withPaths } from '@/modules/spaces/utils/file-path';
 import { ClipboardChip } from '@/modules/spaces/components/clipboard-chip';
 import { Button } from '@/components/button';
-import { Creature, type CreatureState } from '@/components/creature';
+import { Creature, type CreatureState, type Faces } from '@/components/creature';
 import { Menu } from '@/components/menu';
 
 type Props = {
@@ -19,7 +19,7 @@ type Props = {
   parent?: number;
   reason?: string;
   roles?: string[];
-  faces?: Record<string, string | undefined>;
+  faces?: Faces;
   working?: string;
 };
 
@@ -182,7 +182,7 @@ export function Composer({
                 pick(name);
               }}
             >
-              <Creature role={name} face={faces?.[name]} size={22} state={state(name)} />
+              <Creature look={faces?.[name]} size={22} state={state(name)} />
               {name}
               <span className="ml-auto text-xs text-muted">{state(name).replace('-', ' ')}</span>
             </div>

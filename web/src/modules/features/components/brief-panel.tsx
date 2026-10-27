@@ -47,7 +47,7 @@ export function BriefPanel({ versions }: { versions: Brief[] }) {
         <EmptyState
           title="No brief yet"
           body="What this feature is for goes here."
-          role="architect"
+          face="whale"
           compact
         />
       ) : (

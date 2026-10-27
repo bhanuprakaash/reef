@@ -36,11 +36,7 @@ export function InboxRow({ item, space }: { item: InboxItem; space?: Space }) {
 
   return (
     <li className="flex gap-4 rounded-card border border-line bg-card px-5 py-[18px]">
-      <Creature
-        role={space?.role ?? ''}
-        face={roleFaces(teams.data, space?.team)[space?.role ?? '']}
-        size={40}
-      />
+      <Creature look={roleFaces(teams.data, space?.team)[space?.role ?? '']} size={40} />
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-2 text-xs">
           <span className={`uppercase tracking-wider ${kindColors[item.kind]}`}>

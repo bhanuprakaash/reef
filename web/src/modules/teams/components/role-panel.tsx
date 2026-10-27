@@ -7,7 +7,7 @@ import { SkillPicker } from '@/modules/teams/components/skill-picker';
 import { ToolPicker } from '@/modules/teams/components/tool-picker';
 import { providerOptions, providerFor } from '@/modules/teams/utils/providers';
 import { backendOptions } from '@/modules/teams/utils/backend-label';
-import { Creature, creatureName } from '@/components/creature';
+import { Creature } from '@/components/creature';
 import { Select } from '@/components/select';
 import { TextArea } from '@/components/text-area';
 import { TextField } from '@/components/text-field';
@@ -102,11 +102,11 @@ export function RolePanel({
           {teammate ? (
             <CreaturePicker
               size={56}
-              value={creatureName(role.name, role.face)}
-              onChange={(face) => onChange({ ...role, face })}
+              value={role}
+              onChange={(look) => onChange({ ...role, ...look })}
             />
           ) : (
-            <Creature role={role.name} face={role.face} size={56} animate />
+            <Creature look={role} size={56} animate />
           )}
           <TextField
             className="min-w-0 flex-1"

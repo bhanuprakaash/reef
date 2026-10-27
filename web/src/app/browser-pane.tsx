@@ -1,13 +1,13 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { Button } from '@/components/button';
-import { Creature } from '@/components/creature';
+import { Creature, type Look } from '@/components/creature';
 import { ResizeHandle } from '@/components/resize-handle';
 import { useResizableWidth } from '@/lib/use-resizable-width';
 
 const HAS_SCHEME = /^[a-z][a-z0-9+.-]*:/i;
 const MIN_WIDTH = 320;
 
-export type BrowserDriver = { role: string; face?: string; action: string };
+export type BrowserDriver = { role: string; look?: Look; action: string };
 
 const navButton =
   'flex size-[30px] shrink-0 items-center justify-center rounded-lg text-soft hover:bg-card disabled:text-faint disabled:hover:bg-transparent';
@@ -189,9 +189,7 @@ export function BrowserPane({
       </form>
       {banner && (
         <div className="flex items-center gap-2.5 border-b border-banner-line bg-banner-bg px-3.5 py-2.5 text-[13px]">
-          {!takenOver && driver && (
-            <Creature role={driver.role} face={driver.face} size={22} state="working" />
-          )}
+          {!takenOver && driver && <Creature look={driver.look} size={22} state="working" />}
           <span role="status" className="flex-1 text-banner-fg">
             {takenOver || !driver ? (
               'You have the browser'

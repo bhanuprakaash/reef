@@ -1,10 +1,10 @@
-import { GroupAvatar } from '@/components/creature';
+import { GroupAvatar, type Faces } from '@/components/creature';
 import { StatusDot } from '@/components/status-dot';
 import { dotFor, type Chain, type ChainState } from '@/modules/spaces/utils/direct-chains';
 
 type Props = {
   chain: Chain;
-  faces: Record<string, string | undefined>;
+  faces: Faces;
   open: boolean;
   onOpen: () => void;
 };

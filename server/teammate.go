@@ -18,6 +18,7 @@ type teammateView struct {
 	Model          string    `json:"model,omitempty"`
 	Provider       string    `json:"provider,omitempty"`
 	Face           string    `json:"face,omitempty"`
+	Colour         string    `json:"colour,omitempty"`
 	Tools          []string  `json:"tools"`
 	MCP            []mcpView `json:"mcp"`
 	Write          bool      `json:"write"`
@@ -216,7 +217,7 @@ func (s *server) removeMember(w http.ResponseWriter, r *http.Request) {
 func viewTeammate(t store.Teammate) teammateView {
 	return teammateView{
 		ID: t.ID, Name: t.Name, Persona: t.Persona, Skills: t.Skills, Backend: t.Backend,
-		Model: t.Model, Provider: t.Provider, Face: t.Face, Tools: t.Tools,
+		Model: t.Model, Provider: t.Provider, Face: t.Face, Colour: t.Colour, Tools: t.Tools,
 		MCP: viewMCP(t.MCPServers), Write: t.Write, PermissionMode: t.PermissionMode,
 	}
 }

@@ -3,11 +3,11 @@ import { ToolRow } from '@/modules/spaces/components/tool-row';
 import { useStickToBottom } from '@/modules/spaces/hooks/use-stick-to-bottom';
 import type { LiveTurn } from '@/modules/spaces/utils/fold-events';
 import { Button } from '@/components/button';
-import { Creature } from '@/components/creature';
+import { Creature, type Look } from '@/components/creature';
 
-type Props = { turn: LiveTurn; role: string; face?: string; onClose: () => void };
+type Props = { turn: LiveTurn; role: string; look?: Look; onClose: () => void };
 
-export function TurnPanel({ turn, role, face, onClose }: Props) {
+export function TurnPanel({ turn, role, look, onClose }: Props) {
   const { box, onScroll } = useStickToBottom();
   const failed = turn.status === 'failed';
   const items = turn.direct ? [] : turn.items;
@@ -16,8 +16,7 @@ export function TurnPanel({ turn, role, face, onClose }: Props) {
     <aside aria-label="Turn" className="flex min-h-0 flex-1 flex-col bg-sidebar max-md:bg-main">
       <div className="flex min-h-14 items-center gap-2.5 border-b border-hairline py-2 pl-[18px] pr-3 max-md:pl-2">
         <Creature
-          role={role}
-          face={face}
+          look={look}
           size={22}
           state={turn.status === 'running' ? 'working' : failed ? 'failed' : 'idle'}
         />

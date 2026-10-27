@@ -2,7 +2,7 @@ import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { formatTokens } from '@/modules/spaces/utils/format-tokens';
 import { subagentLabel } from '@/modules/spaces/utils/subagent-label';
 import type { InspectorToolCall, InspectorTurn, Usage } from '@/types/api';
-import { Creature } from '@/components/creature';
+import { Creature, type Faces } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 
 const NO_COST = 'n/a';
@@ -53,18 +53,12 @@ function ToolCallRow({ call }: { call: InspectorToolCall }) {
   );
 }
 
-function TurnRow({
-  turn,
-  faces,
-}: {
-  turn: InspectorTurn;
-  faces: Record<string, string | undefined>;
-}) {
+function TurnRow({ turn, faces }: { turn: InspectorTurn; faces: Faces }) {
   const { usage } = turn;
   return (
     <details className="rounded-menu bg-field text-[12.5px]">
       <summary className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-[13.5px]">
-        <Creature role={turn.role} face={faces[turn.role]} size={20} />
+        <Creature look={faces[turn.role]} size={20} />
         <span className="whitespace-nowrap">Turn {turn.id}</span>
         <span
           className={`min-w-0 truncate ${turn.status === 'failed' ? 'text-danger' : 'text-muted'}`}
@@ -106,7 +100,7 @@ export function InspectorPanel({
   onClose,
 }: {
   spaceId: number;
-  faces: Record<string, string | undefined>;
+  faces: Faces;
   onClose: () => void;
 }) {
   const inspector = useInspector(spaceId, true);
@@ -156,7 +150,7 @@ export function InspectorPanel({
         <EmptyState
           title="No turns yet"
           body="Tokens and tools show up after the first turn."
-          role="tester"
+          face="shark"
           compact
         />
       )}
@@ -175,7 +169,7 @@ export function InspectorPanel({
             <ul className="text-[13.5px] tabular-nums">
               {roles.map((role) => (
                 <li key={role.role} className="flex min-h-9 items-center gap-2">
-                  <Creature role={role.role} face={faces[role.role]} size={20} />
+                  <Creature look={faces[role.role]} size={20} />
                   <span className="min-w-0 flex-1 truncate capitalize">{role.role}</span>
                   <span className="text-right text-muted">{turnsLabel(role.turns)}</span>
                   <span className="w-11 text-right text-muted">{tokens(role.usage)}</span>

@@ -66,7 +66,7 @@ export function TeamPanel({ spaceId, featureId, roles, working, brief, onClose }
                 key={role.name}
                 className={`flex items-center gap-3 rounded-field px-1.5 py-2 ${state === 'working' ? 'bg-card' : ''}`}
               >
-                <Creature role={role.name} face={role.face} state={state} size={30} animate />
+                <Creature look={role} state={state} size={30} animate />
                 <span className="min-w-0 flex-1">
                   <span
                     className={`block text-[14.5px] capitalize ${state === 'asleep' ? 'text-muted' : ''}`}

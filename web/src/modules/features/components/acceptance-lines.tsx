@@ -28,7 +28,7 @@ export function AcceptanceLines({ item }: { item: WorkItem }) {
         <EmptyState
           title="No acceptance lines yet"
           body="What must hold for this to be done."
-          role="tester"
+          face="shark"
           compact
         />
       ) : (

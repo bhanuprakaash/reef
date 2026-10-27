@@ -299,16 +299,23 @@ type CreatureName = keyof typeof drawings;
 
 export const creatureNames = Object.keys(drawings) as CreatureName[];
 
-const byRole: Record<string, CreatureName> = {
-  lead: 'jellyfish',
-  architect: 'whale',
-  developer: 'penguin',
-  tester: 'shark',
-};
+export const bodyColours = {
+  orange: '#F26B2E',
+  red: '#E5484D',
+  yellow: '#F5C542',
+  green: '#8BC34A',
+  teal: '#3FBFA0',
+  blue: '#3B82F6',
+  violet: '#8B5CF6',
+  pink: '#EC6FA8',
+} as const;
 
-export function creatureName(role: string, face?: string): CreatureName {
-  if (face && Object.hasOwn(drawings, face)) return face as CreatureName;
-  return Object.hasOwn(byRole, role) ? byRole[role] : 'pebble';
+export type Look = { face?: string; colour?: string };
+
+export type Faces = Record<string, Look | undefined>;
+
+export function creatureName(face?: string): CreatureName {
+  return face && Object.hasOwn(drawings, face) ? (face as CreatureName) : 'pebble';
 }
 
 function eyes([a, b]: readonly [Eye, Eye], state: CreatureState) {
@@ -339,9 +346,13 @@ function eyes([a, b]: readonly [Eye, Eye], state: CreatureState) {
   );
 }
 
-function Body({ role, face, state }: { role: string; face?: string; state: CreatureState }) {
-  const d: Drawing = drawings[creatureName(role, face)];
-  const p = state === 'asleep' ? asleep : d.colors;
+function Body({ look, state }: { look?: Look; state: CreatureState }) {
+  const d: Drawing = drawings[creatureName(look?.face)];
+  const hex =
+    look?.colour && Object.hasOwn(bodyColours, look.colour)
+      ? bodyColours[look.colour as keyof typeof bodyColours]
+      : undefined;
+  const p = state === 'asleep' ? asleep : hex ? { ...d.colors, body: hex } : d.colors;
   return (
     <g className={d.motion}>
       {d.shapes(p)}
@@ -387,8 +398,7 @@ const marks = {
 };
 
 type CreatureProps = {
-  role: string;
-  face?: string;
+  look?: Look;
   state?: CreatureState;
   size: number;
   animate?: boolean;
@@ -418,7 +428,7 @@ const bubbles = (
   </>
 );
 
-export function Creature({ role, face, state = 'idle', size, animate, delay }: CreatureProps) {
+export function Creature({ look, state = 'idle', size, animate, delay }: CreatureProps) {
   const looping = animate && state === 'idle';
   return (
     <svg
@@ -429,9 +439,9 @@ export function Creature({ role, face, state = 'idle', size, animate, delay }: C
       style={delay ? ({ '--c-delay': `${-delay}s` } as CSSProperties) : undefined}
       className={`shrink-0 overflow-visible${animate ? ' creature-live' : ''}${looping ? ' creature-loop' : ''}`}
     >
-      <Body role={role} face={face} state={state} />
+      <Body look={look} state={state} />
       {state === 'needs-you' || state === 'asleep' ? marks[state] : null}
-      {looping && creatureName(role, face) === 'pebble' ? bubbles : null}
+      {looping && creatureName(look?.face) === 'pebble' ? bubbles : null}
     </svg>
   );
 }
@@ -450,7 +460,7 @@ const stacks = [
 
 type GroupAvatarProps = {
   roles: string[];
-  faces?: Record<string, string | undefined>;
+  faces?: Faces;
   size: number;
   working?: string | null;
 };
@@ -461,8 +471,7 @@ export function GroupAvatar({ roles, faces, size, working }: GroupAvatarProps) {
     const busy = working === shown[0];
     return (
       <Creature
-        role={shown[0] ?? ''}
-        face={faces?.[shown[0]]}
+        look={faces?.[shown[0]]}
         state={busy ? 'working' : 'idle'}
         size={size}
         animate={busy}
@@ -495,7 +504,7 @@ export function GroupAvatar({ roles, faces, size, working }: GroupAvatarProps) {
               />
             )}
             <g transform={`translate(${s.x} ${s.y}) scale(${s.scale})`}>
-              <Body role={role} face={faces?.[role]} state={busy ? 'working' : 'idle'} />
+              <Body look={faces?.[role]} state={busy ? 'working' : 'idle'} />
             </g>
           </g>
         );

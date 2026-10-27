@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router';
 import { useProviders } from '@/lib/api/get-providers';
 import { useSkills } from '@/lib/api/get-skills';
 import { useTeammates } from '@/lib/api/get-teammates';
+import { useTeams } from '@/lib/api/get-teams';
 import { useCurrentProject } from '@/lib/current-project';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { NewTeammateDialog } from '@/modules/teams/components/new-teammate-dialog';
@@ -13,6 +14,7 @@ import { Button } from '@/components/button';
 export function TeammatesPage() {
   const [params, setParams] = useSearchParams();
   const teammates = useTeammates();
+  const teams = useTeams();
   const projects = useProjects();
   const [project] = useCurrentProject(projects.data);
   const skills = useSkills(project?.id);
@@ -50,6 +52,11 @@ export function TeammatesPage() {
           <RoleRow
             key={t.id}
             role={t}
+            badges={(teams.data ?? []).flatMap((team) =>
+              team.roles
+                .filter((r) => r.teammateId === t.id)
+                .map((r) => `${r.name} · ${team.name}`),
+            )}
             selected={t.id === id}
             onSelect={() => setParams({ teammate: String(t.id) })}
           />

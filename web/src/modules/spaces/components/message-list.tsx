@@ -9,14 +9,14 @@ import { showTimestamp, timestampLabel } from '@/modules/spaces/utils/message-ti
 import { checkResult, pullRequestNote } from '@/modules/spaces/utils/pull-request';
 import { latestMessageAnchor } from '@/utils/anchors';
 import { Button } from '@/components/button';
-import { Creature, GroupAvatar } from '@/components/creature';
+import { Creature, GroupAvatar, type Faces } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 import { StatusDot } from '@/components/status-dot';
 
 type Props = {
   threads: Thread[];
   chains: Chain[];
-  faces: Record<string, string | undefined>;
+  faces: Faces;
   openId?: number;
   openChainId?: number;
   onOpen: (rootId: number) => void;
@@ -40,7 +40,7 @@ export function MessageList({
         <EmptyState
           title="Quiet water"
           body="Say what you want to build. Lead answers first."
-          role="lead"
+          face="jellyfish"
         />
       </div>
     );
@@ -97,7 +97,7 @@ export function MessageList({
             {joined && (
               <li className="flex items-center justify-center gap-2 py-2.5 text-sm text-muted">
                 Joined
-                <Creature role={root.author} face={faces[root.author]} size={18} />
+                <Creature look={faces[root.author]} size={18} />
                 <span className="capitalize text-fg">{root.author}</span>
               </li>
             )}
@@ -122,7 +122,7 @@ export function MessageList({
                 </p>
               ) : (
                 <>
-                  {named && <Author name={root.author} face={faces[root.author]} />}
+                  {named && <Author name={root.author} look={faces[root.author]} />}
                   <Bubble own={root.author === 'user'} ringed={root.id === openId}>
                     {root.body}
                   </Bubble>

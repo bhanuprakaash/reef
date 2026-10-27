@@ -149,6 +149,7 @@ export type Role = {
   persona: string;
   skills: string[];
   face?: string;
+  colour?: string;
   model?: string;
   tools: string[];
   mcp: { name: string; label: string }[];

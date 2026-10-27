@@ -5,13 +5,13 @@ import type { PullRequest } from '@/modules/spaces/utils/pull-request';
 import type { Space } from '@/types/api';
 import { Button } from '@/components/button';
 import { Chip } from '@/components/chip';
-import { GroupAvatar } from '@/components/creature';
+import { GroupAvatar, type Faces } from '@/components/creature';
 
 type Props = {
   space: Space;
   scope: ReactNode;
   roles: string[];
-  faces: Record<string, string | undefined>;
+  faces: Faces;
   working: string | null;
   pullRequest: PullRequest | null;
   onPullRequest: () => void;
