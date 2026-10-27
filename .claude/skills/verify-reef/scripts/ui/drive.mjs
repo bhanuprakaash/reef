@@ -3684,7 +3684,7 @@ async function teamPage() {
   check(prefilled.includes(fresh.name), 'the edit form prefills its Team from the suggestion', prefilled);
   await suggestedEdit.getByRole('button', { name: 'Cancel' }).click();
 
-  const madeId = Number(await addFeature('window item'));
+  const madeId = Number(await addWorkItem('window item'));
   await main.getByRole('button', { name: 'Edit', exact: true }).click();
   const edit = page.getByRole('dialog', { name: 'Edit Work item' });
   await pick('Team', fresh.name, edit);
