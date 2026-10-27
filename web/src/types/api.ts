@@ -59,6 +59,16 @@ export type WorkItem = {
   acceptanceLines: AcceptanceLine[];
 };
 
+export type ProofCommand = { command: string; output: string };
+
+export type Proof = {
+  spaceId: number;
+  acceptanceLines: AcceptanceLine[];
+  commands: ProofCommand[];
+  screenshots: string[];
+  submittedAt: string;
+};
+
 export type Brief = {
   id: number;
   workItemId: number;
