@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// proposalFixture has feature 1 with Space 1, a brief "v1", architect notes
+// proposalFixture has work item 1 with Space 1, a brief "v1", architect notes
 // "old" and one decision; Space 2 is a quick session. Proposal 1 is pending.
 func proposalFixture(t *testing.T, items ...ProposedItem) *Store {
 	t.Helper()
@@ -22,21 +22,21 @@ func proposalFixture(t *testing.T, items ...ProposedItem) *Store {
 	steps := []func() error{
 		func() error { _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); return err },
 		func() error {
-			_, err := s.CreateFeature(ctx, Feature{ProjectID: 1, Slug: "auth", Name: "Auth"})
+			_, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: 1, Title: "Auth"})
 			return err
 		},
 		func() error {
-			_, err := s.CreateSpace(ctx, Space{ProjectID: 1, FeatureID: &one, Name: "architect"})
+			_, err := s.CreateSpace(ctx, Space{ProjectID: 1, WorkItemID: &one, Name: "architect"})
 			return err
 		},
 		func() error { _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "quick"}); return err },
-		func() error { _, err := s.PutBrief(ctx, Brief{FeatureID: 1, Body: "v1", Author: "user"}); return err },
+		func() error { _, err := s.PutBrief(ctx, Brief{WorkItemID: 1, Body: "v1", Author: "user"}); return err },
 		func() error {
-			_, err := s.PutRoleNotes(ctx, RoleNotes{FeatureID: 1, Role: "architect", Body: "old"})
+			_, err := s.PutRoleNotes(ctx, RoleNotes{WorkItemID: 1, Role: "architect", Body: "old"})
 			return err
 		},
 		func() error {
-			_, err := s.CreateDecision(ctx, Decision{FeatureID: 1, Body: "use go", Author: "user"})
+			_, err := s.CreateDecision(ctx, Decision{WorkItemID: 1, Body: "use go", Author: "user"})
 			return err
 		},
 		func() error {
@@ -158,13 +158,13 @@ func TestDecideProposalTwice(t *testing.T) {
 func TestPendingProposals(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
-	if _, err := s.CreateFeature(ctx, Feature{ProjectID: 1, Slug: "billing", Name: "Billing"}); err != nil {
+	if _, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: 1, Title: "Billing"}); err != nil {
 		t.Fatal(err)
 	}
 	one, two := int64(1), int64(2)
 	for _, c := range []Space{
-		{ProjectID: 1, FeatureID: &two, Name: "dev"},
-		{ProjectID: 1, FeatureID: &one, Name: "review"},
+		{ProjectID: 1, WorkItemID: &two, Name: "dev"},
+		{ProjectID: 1, WorkItemID: &one, Name: "review"},
 	} {
 		if _, err := s.CreateSpace(ctx, c); err != nil {
 			t.Fatal(err)
@@ -182,8 +182,8 @@ func TestPendingProposals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ids := func(featureID *int64) []int64 {
-		ps, err := s.PendingProposals(ctx, featureID, nil)
+	ids := func(workItemID *int64) []int64 {
+		ps, err := s.PendingProposals(ctx, workItemID, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -197,10 +197,10 @@ func TestPendingProposals(t *testing.T) {
 		t.Errorf("all pending = %v, want %v", got, want)
 	}
 	if got, want := ids(&one), []int64{1}; !reflect.DeepEqual(got, want) {
-		t.Errorf("pending of feature 1 = %v, want %v", got, want)
+		t.Errorf("pending of work item 1 = %v, want %v", got, want)
 	}
 	if got, want := ids(&two), []int64{2}; !reflect.DeepEqual(got, want) {
-		t.Errorf("pending of feature 2 = %v, want %v", got, want)
+		t.Errorf("pending of work item 2 = %v, want %v", got, want)
 	}
 }
 
@@ -348,7 +348,7 @@ func TestApproveBriefProposalOnClosedSpace(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CloseFeature(ctx, 1); err != nil {
+	if err := s.CloseWorkItem(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
 

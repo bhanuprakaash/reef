@@ -69,7 +69,7 @@ const (
 	_wrapPrompt = "Wrap up this Space. Call the get_brief tool first. Then call the " +
 		"propose_wrap tool once with the full brief rewritten as the latest brief plus what " +
 		"this Space achieved (goal, status, key decisions, open questions): keep what still " +
-		"holds, make status where the feature is now, not a history, drop what is done or no " +
+		"holds, make status where the work item is now, not a history, drop what is done or no " +
 		"longer true, and keep it short. Add as items what this Space made that you have not " +
 		"saved with remember yet: decisions, findings, facts, lessons and conventions, each " +
 		"with its scope (work_item by default; project for what holds across the project; " +
@@ -85,12 +85,12 @@ const (
 	_directAsk   = "Propose as items what these exchanges decided or found that is not saved yet, " +
 		"and a brief that reflects the direct work that is complete.\n\n"
 
-	_promotePrompt = "This quick session is now feature %q (%s). Call the propose_wrap tool " +
+	_promotePrompt = "This quick session is now work item %q (%d). Call the propose_wrap tool " +
 		"once with the first brief (goal, status, key decisions, open questions) written from " +
 		"this session, and the items made so far (decisions, findings, facts, lessons, " +
 		"conventions), each with its scope. " +
 		"Then reply with one line saying it is proposed."
-	_promoteIntoBriefPrompt = "This quick session is now part of feature %q (%s), which " +
+	_promoteIntoBriefPrompt = "This quick session is now part of work item %q (%d), which " +
 		"already has a brief. Call the get_brief tool first. Then call the propose_wrap tool " +
 		"once with the full brief rewritten to merge this session into the existing brief: " +
 		"keep its content and add this session's, and the items made so far. Then reply with " +
@@ -348,8 +348,8 @@ func (s *Session) Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Pr
 }
 
 // Promote runs a promote turn and returns the proposal the agent made, or ErrNoProposal.
-// The Space must already have its feature. Like Run, a cancelled ctx still stores the turn.
-// Every agent is stopped afterwards, so the next turn of each role runs in the feature's
+// The Space must already have its work item. Like Run, a cancelled ctx still stores the turn.
+// Every agent is stopped afterwards, so the next turn of each role runs in the work item's
 // worktree.
 func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error) {
 	rctx := context.WithoutCancel(ctx)
@@ -357,10 +357,10 @@ func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store
 	if err != nil {
 		return store.Proposal{}, err
 	}
-	if ch.FeatureID == nil {
-		return store.Proposal{}, fmt.Errorf("%w: Space %d has no feature", store.ErrInvalid, ch.ID)
+	if ch.WorkItemID == nil {
+		return store.Proposal{}, fmt.Errorf("%w: Space %d has no work item", store.ErrInvalid, ch.ID)
 	}
-	f, err := s.st.Feature(rctx, *ch.FeatureID)
+	f, err := s.st.WorkItem(rctx, *ch.WorkItemID)
 	if err != nil {
 		return store.Proposal{}, err
 	}
@@ -373,19 +373,19 @@ func (s *Session) Promote(ctx context.Context, onEvent func(agent.Event)) (store
 	if err := s.noteWorktree(rctx, f); err != nil {
 		return store.Proposal{}, err
 	}
-	p, err := s.propose(ctx, fmt.Sprintf(prompt, f.Name, f.Slug), onEvent)
+	p, err := s.propose(ctx, fmt.Sprintf(prompt, f.Title, f.ID), onEvent)
 	return p, errors.Join(err, s.closeMembers())
 }
 
 // noteWorktree tells the Space where its work goes from now on, and that uncommitted
 // changes of the main checkout stay there.
-func (s *Session) noteWorktree(ctx context.Context, f store.Feature) error {
+func (s *Session) noteWorktree(ctx context.Context, f store.WorkItem) error {
 	dirty, err := worktree.Dirty(ctx, s.project.Path)
 	if err != nil {
 		log.Printf("check %s for changes: %v", s.project.Path, err)
 	}
-	body := fmt.Sprintf("This feature works in %s on %s.",
-		worktree.Path(s.dataDir, s.project.ID, f.Slug), worktree.Branch(f.Slug))
+	body := fmt.Sprintf("This work item works in %s on %s.",
+		worktree.Path(s.dataDir, s.project.ID, f.TreeKey()), worktree.Branch(f.TreeKey()))
 	if dirty {
 		body += " Uncommitted changes stay on the main checkout."
 	}
@@ -485,7 +485,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	for i, srv := range r.MCPServers {
 		servers["mcp"+strconv.Itoa(i+1)] = srv
 	}
-	cwd, slug, err := WorkDir(wctx, s.st, s.dataDir, s.ch.ID)
+	cwd, key, err := WorkDir(wctx, s.st, s.dataDir, s.ch.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -495,10 +495,10 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	m.cfg = cfg
 	var preamble string
 	cfg.Bin, err = s.st.RoleBin(wctx, r)
-	if err == nil && ctx.Err() == nil && slug != "" {
+	if err == nil && ctx.Err() == nil && key != "" {
 		var p store.Project
 		if p, err = s.st.Project(wctx, s.project.ID); err == nil {
-			err = EnsureWorktree(ctx, s.trees, p, cwd, slug)
+			err = EnsureWorktree(ctx, s.trees, p, cwd, key)
 		}
 	}
 	switch {
@@ -544,11 +544,11 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		if err != nil {
 			return "", err
 		}
-		return firstPrompt(ctx, s.st, s.ms, ch.ProjectID, ch.FeatureID, ch.ID, team, r)
+		return firstPrompt(ctx, s.st, s.ms, ch.ProjectID, ch.WorkItemID, ch.ID, team, r)
 	}
 	m.run.OnPrompt = s.onPrompt
 	m.run.Memory = s.ms
-	if m.write && (slug != "" || worktree.IsRepo(wctx, cwd)) {
+	if m.write && (key != "" || worktree.IsRepo(wctx, cwd)) {
 		m.run.CheckpointDir = cwd
 		m.run.DataDir = s.dataDir
 	}
@@ -573,12 +573,12 @@ func sameAccess(a, b agent.Config) bool {
 		slices.Equal(a.Tools, b.Tools) && slices.Equal(a.DisallowedTools, b.DisallowedTools)
 }
 
-// WorkDir is where an agent of Space spaceID runs: the worktree of its feature, or the
-// project for a quick session. The feature is read now, as a promote may have given it one
-// since the Space opened. slug is the feature's, empty for a quick session.
+// WorkDir is where an agent of Space spaceID runs: the worktree of its work item, or the
+// project for a quick session. The work item is read now, as a promote may have given it one
+// since the Space opened. key is the work item's tree key, empty for a quick session.
 func WorkDir(
 	ctx context.Context, st *store.Store, dataDir string, spaceID int64,
-) (dir, slug string, err error) {
+) (dir, key string, err error) {
 	ch, err := st.Space(ctx, spaceID)
 	if err != nil {
 		return "", "", err
@@ -587,14 +587,14 @@ func WorkDir(
 	if err != nil {
 		return "", "", err
 	}
-	if ch.FeatureID == nil {
+	if ch.WorkItemID == nil {
 		return p.Path, "", nil
 	}
-	f, err := st.Feature(ctx, *ch.FeatureID)
+	f, err := st.WorkItem(ctx, *ch.WorkItemID)
 	if err != nil {
 		return "", "", err
 	}
-	return worktree.Path(dataDir, p.ID, f.Slug), f.Slug, nil
+	return worktree.Path(dataDir, p.ID, f.TreeKey()), f.TreeKey(), nil
 }
 
 // roleSetup is the team's role called name. The lead is the Space's role; it takes the

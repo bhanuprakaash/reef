@@ -45,15 +45,15 @@ type server struct {
 	inboxMu   sync.Mutex
 	inboxWake chan struct{}
 
-	// ghMu guards ghNoGhLogged and ghFeatureErrLogged: the first github poll runs on its
+	// ghMu guards ghNoGhLogged and ghWorkItemErrLogged: the first github poll runs on its
 	// own goroutine and can overlap a caller that polls the server right after construction.
 	ghMu sync.Mutex
 	// ghNoGhLogged is set once the github poll has logged that gh is not on PATH, so it
 	// logs that once, not every poll.
 	ghNoGhLogged bool
-	// ghFeatureErrLogged is the last gh error logged for a feature, so the poll logs a
+	// ghWorkItemErrLogged is the last gh error logged for a work item, so the poll logs a
 	// cause once and logs again only when it changes.
-	ghFeatureErrLogged map[int64]string
+	ghWorkItemErrLogged map[int64]string
 }
 
 // Handler serves the API. Close it when done.
@@ -88,7 +88,7 @@ func newHandler(
 		st: st, ms: ms, dataDir: dataDir, trees: trees, open: open, name: space.ProposeName,
 		ctx: ctx, cancel: cancel,
 		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{},
-		inboxWake: make(chan struct{}), ghFeatureErrLogged: map[int64]string{},
+		inboxWake: make(chan struct{}), ghWorkItemErrLogged: map[int64]string{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -104,7 +104,7 @@ func newHandler(
 	mux.HandleFunc("/", notFound)
 	s.projectRoutes(mux)
 	s.profileRoutes(mux)
-	s.featureRoutes(mux)
+	s.workItemRoutes(mux)
 	s.spaceRoutes(mux)
 	s.teamRoutes(mux)
 	s.teammateRoutes(mux)
@@ -113,7 +113,6 @@ func newHandler(
 	s.liveRoutes(mux)
 	s.turnOpRoutes(mux)
 	s.proposalRoutes(mux)
-	s.taskRoutes(mux)
 	s.decisionRoutes(mux)
 	s.memoryRoutes(mux)
 	s.turnRoutes(mux)

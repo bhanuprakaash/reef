@@ -12,8 +12,8 @@ import (
 )
 
 const (
-	_wrapUsage     = "usage: reef wrap list|show|approve|reject [<feature>|<id>] [--data DIR]"
-	_wrapListUsage = "usage: reef wrap list [<feature>] [--data DIR]"
+	_wrapUsage     = "usage: reef wrap list|show|approve|reject [<work-item>|<id>] [--data DIR]"
+	_wrapListUsage = "usage: reef wrap list [<work-item>] [--data DIR]"
 	_wrapIDUsage   = "usage: reef wrap show|approve|reject <id> [--data DIR]"
 )
 
@@ -38,14 +38,14 @@ func wrapList(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer func() { _ = st.Close() }()
 
-	var featureID *int64
+	var workItemID *int64
 	var projectID *int64
 	if len(pos) == 1 {
-		f, err := st.FeatureByRef(ctx, pos[0])
+		f, err := workItemArg(ctx, st, pos[0])
 		if err != nil {
 			return err
 		}
-		featureID = &f.ID
+		workItemID = &f.ID
 	} else {
 		p, err := cwdProject(ctx, st)
 		if err != nil {
@@ -53,7 +53,7 @@ func wrapList(ctx context.Context, args []string, stdout io.Writer) error {
 		}
 		projectID = &p.ID
 	}
-	ps, err := st.PendingProposals(ctx, featureID, projectID)
+	ps, err := st.PendingProposals(ctx, workItemID, projectID)
 	if err != nil {
 		return err
 	}
@@ -62,12 +62,12 @@ func wrapList(ctx context.Context, args []string, stdout io.Writer) error {
 		if err != nil {
 			return err
 		}
-		f, err := st.Feature(ctx, *ch.FeatureID)
+		f, err := st.WorkItem(ctx, *ch.WorkItemID)
 		if err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(stdout, "%d  %s  %d  %s  %s  %s\n",
-			p.ID, f.Slug, p.SpaceID, p.Role, p.Kind, p.CreatedAt.Format(time.DateOnly)); err != nil {
+		if _, err := fmt.Fprintf(stdout, "%d  %d  %d  %s  %s  %s\n",
+			p.ID, f.ID, p.SpaceID, p.Role, p.Kind, p.CreatedAt.Format(time.DateOnly)); err != nil {
 			return err
 		}
 	}

@@ -29,9 +29,9 @@ func TestCLI_Token(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			t.Chdir(t.TempDir())
 			mustReef(t, tt.give, "project", "add", "--name", "shop")
-			mustReef(t, tt.give, "feature", "add", "login", "Login")
+			mustReef(t, tt.give, "work-item", "add", "Login")
 
-			out := mustReef(t, tt.give, "token", "login", "--role", "architect")
+			out := mustReef(t, tt.give, "token", "1", "--role", "architect")
 
 			m := regexp.MustCompile(`REEF_TOKEN=([0-9a-f]{64}) `).FindStringSubmatch(out)
 			if m == nil {

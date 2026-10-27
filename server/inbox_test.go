@@ -121,7 +121,7 @@ func TestInbox_ListsEachKindAndSurvivesRestart(t *testing.T) {
 	}
 	env.wantInbox(t, want...)
 	_, body := do(t, http.MethodGet, env.url+"/inbox", "")
-	for _, field := range []string{`"approvalId":1`, `"turnId":1`, `"featureId":null`} {
+	for _, field := range []string{`"approvalId":1`, `"turnId":1`, `"workItemId":null`} {
 		if !strings.Contains(body, field) {
 			t.Errorf("inbox = %s, want %s", body, field)
 		}

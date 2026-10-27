@@ -27,20 +27,18 @@ const (
 commands:
   serve [--addr 127.0.0.1:7700]
   project add [--name N]
-  feature add <slug> <name> [--goal G]
-  brief <feature>
-  decide <feature> "<body>" [--why W]
-  task add [<feature>] "<title>"
-  task list [<feature>] [--status S]
+  work-item add "<title>" [--type T] [--description D]
+  brief <work-item>
+  decide <work-item> "<body>" [--why W]
   memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval]
   memory recall "<q>" [--scope S] [--limit N]
   memory show <id> | retire <id> | approve <id> | reject <id> | pending
   memory embed [none|openai|voyage|gemini [--key K]]
   team apply FILE.json | team list
-  context <feature> --role R
-  wrap list [<feature>] | show <id> | approve <id> | reject <id>
-  token <feature> --role R
-  chat <feature> --role R --backend claude|codex | chat --space ID
+  context <work-item> --role R
+  wrap list [<work-item>] | show <id> | approve <id> | reject <id>
+  token <work-item> --role R
+  chat <work-item> --role R --backend claude|codex | chat --space ID
   mcp`
 	_serveUsage        = "usage: reef serve [--addr 127.0.0.1:7700] [--data DIR]"
 	_defaultAddr       = "127.0.0.1:7700"
@@ -67,16 +65,14 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 		return serve(ctx, args[1:], stderr)
 	case "project":
 		return projectCmd(ctx, args[1:], stdout)
-	case "feature":
-		return featureCmd(ctx, args[1:], stdout)
+	case "work-item":
+		return workItemCmd(ctx, args[1:], stdout)
 	case "brief":
 		return briefCmd(ctx, args[1:], stdout)
 	case "decide":
 		return decideCmd(ctx, args[1:], stdout, stderr)
 	case "team":
 		return teamCmd(ctx, args[1:], stdout)
-	case "task":
-		return taskCmd(ctx, args[1:], stdout)
 	case "memory":
 		return memoryCmd(ctx, args[1:], stdout, stderr)
 	case "context":

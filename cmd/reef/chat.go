@@ -22,7 +22,7 @@ import (
 
 const _continueCommand = "/continue"
 
-const _chatUsage = `usage: reef chat <feature> --role R --backend claude|codex [--name N]
+const _chatUsage = `usage: reef chat <work-item> --role R --backend claude|codex [--name N]
   [--permission-mode M] [--debug] [--data DIR]
        reef chat --space ID [--debug] [--data DIR]`
 
@@ -68,7 +68,7 @@ func chatCmd(
 	}
 
 	if !resuming {
-		f, err := st.FeatureByRef(ctx, pos[0])
+		f, err := workItemArg(ctx, st, pos[0])
 		if err != nil {
 			return err
 		}
@@ -76,7 +76,7 @@ func chatCmd(
 			*name = *role + " chat"
 		}
 		ch, err := st.CreateSpace(ctx, store.Space{
-			ProjectID: f.ProjectID, FeatureID: &f.ID, Name: *name, Role: *role,
+			ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: *name, Role: *role,
 			Backend: *backend, PermissionMode: *permissionMode,
 		})
 		if err != nil {

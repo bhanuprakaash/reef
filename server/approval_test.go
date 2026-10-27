@@ -529,8 +529,8 @@ func TestApproval_ApproveWhileWrapRunsAfter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	do(t, http.MethodPost, env.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"featureId":1,"name":"w","team":"core"}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"w","team":"core"}`)
 	approvals := env.url + "/spaces/3/approvals"
 	ran := make(chan struct{})
 	var status int

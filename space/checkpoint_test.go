@@ -78,7 +78,7 @@ func TestSession_CheckpointsWriteTurnsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
 		Team: "crew",
 	})
 	if err != nil {
@@ -96,7 +96,7 @@ func TestSession_CheckpointsWriteTurnsOnly(t *testing.T) {
 	if err := s.RunAs(ctx, "tester", "look", nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	tree := filepath.Join(dir, "worktrees", "1", "login")
+	tree := filepath.Join(dir, "worktrees", "1", "1")
 	if err := os.WriteFile(filepath.Join(tree, "note.txt"), []byte("draft"), 0o644); err != nil {
 		t.Fatal(err)
 	}

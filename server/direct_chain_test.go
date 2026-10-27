@@ -711,7 +711,7 @@ func TestDirectCloseRejectsSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	one := int64(1)
-	if _, err := st.CreateFeature(ctx, store.Feature{ProjectID: 1, Slug: "auth", Name: "Auth"}); err != nil {
+	if _, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: 1, Title: "Auth"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
@@ -720,7 +720,7 @@ func TestDirectCloseRejectsSend(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, FeatureID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude"})
+	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}

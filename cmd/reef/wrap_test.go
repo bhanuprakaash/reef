@@ -27,12 +27,12 @@ func TestCLI_Wrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, slug := range []string{"login", "billing"} {
-		f, err := st.CreateFeature(ctx, store.Feature{ProjectID: p.ID, Slug: slug, Name: slug})
+	for _, title := range []string{"login", "billing"} {
+		f, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: p.ID, Title: title})
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := st.CreateSpace(ctx, store.Space{ProjectID: p.ID, FeatureID: &f.ID, Name: "chat"}); err != nil {
+		if _, err := st.CreateSpace(ctx, store.Space{ProjectID: p.ID, WorkItemID: &f.ID, Name: "chat"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -40,23 +40,23 @@ func TestCLI_Wrap(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := st.CreateFeature(ctx, store.Feature{ProjectID: other.ID, Slug: "outside", Name: "outside"})
+	f, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: other.ID, Title: "outside"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: other.ID, FeatureID: &f.ID, Name: "chat"})
+	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: other.ID, WorkItemID: &f.ID, Name: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	brief, err := st.CreateSpace(ctx, store.Space{ProjectID: other.ID, FeatureID: &f.ID, Name: "plan"})
+	brief, err := st.CreateSpace(ctx, store.Space{ProjectID: other.ID, WorkItemID: &f.ID, Name: "plan"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	search, err := st.CreateFeature(ctx, store.Feature{ProjectID: p.ID, Slug: "search", Name: "search"})
+	search, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: p.ID, Title: "search"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	sch, err := st.CreateSpace(ctx, store.Space{ProjectID: p.ID, FeatureID: &search.ID, Name: "chat"})
+	sch, err := st.CreateSpace(ctx, store.Space{ProjectID: p.ID, WorkItemID: &search.ID, Name: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,9 +87,9 @@ func TestCLI_Wrap(t *testing.T) {
 		want string
 	}{
 		{"list all", []string{"wrap", "list"},
-			"1  login  1  architect  wrap  " + day + "\n2  billing  2  reviewer  wrap  " + day +
-				"\n5  search  5  lead  brief  " + day + "\n"},
-		{"list feature", []string{"wrap", "list", "billing"}, "2  billing  2  reviewer  wrap  " + day + "\n"},
+			"1  1  1  architect  wrap  " + day + "\n2  2  2  reviewer  wrap  " + day +
+				"\n5  4  5  lead  brief  " + day + "\n"},
+		{"list work item", []string{"wrap", "list", "2"}, "2  2  2  reviewer  wrap  " + day + "\n"},
 		{"show", []string{"wrap", "show", "1"},
 			"proposal 1 from architect\nstatus: pending\n\nbrief:\nsign in with sessions\n\n" +
 				"items:\n- decision (work_item): cookie sessions (simple)\n- lesson (teammate): 24h expiry\n"},
@@ -101,7 +101,7 @@ func TestCLI_Wrap(t *testing.T) {
 			"proposal 1 from architect\nstatus: approved\n\nbrief:\nsign in with sessions\n\n" +
 				"items:\n- decision (work_item): cookie sessions (simple)\n- lesson (teammate): 24h expiry\n"},
 		{"reject", []string{"wrap", "reject", "2"}, "rejected: nothing changed\n"},
-		{"list after deciding", []string{"wrap", "list"}, "5  search  5  lead  brief  " + day + "\n"},
+		{"list after deciding", []string{"wrap", "list"}, "5  4  5  lead  brief  " + day + "\n"},
 		{"show brief", []string{"wrap", "show", "4"},
 			"brief update 4 from lead\nstatus: pending\n\nbrief:\noutside plan\n"},
 		{"approve brief", []string{"wrap", "approve", "4"}, "approved: brief saved\n"},
@@ -112,7 +112,7 @@ func TestCLI_Wrap(t *testing.T) {
 		}
 	}
 
-	if got, want := mustReef(t, dir, "brief", "login"), "sign in with sessions\n"; got != want {
+	if got, want := mustReef(t, dir, "brief", "1"), "sign in with sessions\n"; got != want {
 		t.Errorf("brief = %q, want %q", got, want)
 	}
 	for _, args := range [][]string{{"wrap", "approve", "1"}, {"wrap", "reject", "1"}} {
@@ -138,11 +138,11 @@ func TestCLI_WrapApprovePrintsAWarningForEachLookalike(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := st.CreateFeature(ctx, store.Feature{ProjectID: p.ID, Slug: "login", Name: "login"})
+	f, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: p.ID, Title: "login"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: p.ID, FeatureID: &f.ID, Name: "chat"}); err != nil {
+	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: p.ID, WorkItemID: &f.ID, Name: "chat"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateProposal(ctx, store.Proposal{

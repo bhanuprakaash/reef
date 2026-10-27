@@ -32,7 +32,7 @@ func writeIn(t *testing.T, dir, name, body string) {
 	}
 }
 
-// rollbackEnv is a feature Space (id 2) whose worktree has a checkpoint on turn 1, with
+// rollbackEnv is a work item Space (id 2) whose worktree has a checkpoint on turn 1, with
 // a.txt changed and new.txt untracked when the checkpoint was taken.
 func rollbackEnv(t *testing.T) (env *liveEnv, tree string) {
 	t.Helper()
@@ -44,10 +44,10 @@ func rollbackEnv(t *testing.T) (env *liveEnv, tree string) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, env.url+"/features", `{"projectId":2,"slug":"login","name":"Login"}`)
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"featureId":1,"name":"c","backend":"claude"}`)
-	tree = worktree.Path(env.dir, 2, "login")
-	if err := worktree.Ensure(ctx, repo, tree, worktree.Branch("login"), ""); err != nil {
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Login"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":1,"name":"c","backend":"claude"}`)
+	tree = worktree.Path(env.dir, 2, "1")
+	if err := worktree.Ensure(ctx, repo, tree, worktree.Branch("1"), ""); err != nil {
 		t.Fatal(err)
 	}
 	writeIn(t, tree, "a.txt", "a edited")
@@ -115,7 +115,7 @@ func TestRollback_RestoresTheWorktree(t *testing.T) {
 
 func TestRollback_NotesEverySpaceOnTheTree(t *testing.T) {
 	env, _ := rollbackEnv(t)
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"featureId":1,"name":"d","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":1,"name":"d","backend":"claude"}`)
 
 	if status, body := do(t, http.MethodPost, env.url+"/turns/1/rollback", ""); status != 204 || body != "" {
 		t.Fatalf("rollback = %d %q, want 204", status, body)

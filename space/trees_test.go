@@ -68,10 +68,10 @@ func newTreeRig(t *testing.T, st *store.Store) *treeRig {
 	}
 }
 
-func (r *treeRig) session(t *testing.T, name string, f store.Feature) *Session {
+func (r *treeRig) session(t *testing.T, name string, f store.WorkItem) *Session {
 	t.Helper()
 	ch, err := r.st.CreateSpace(context.Background(), store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: name, Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: name, Role: "lead", Backend: "claude",
 		Team: "crew",
 	})
 	if err != nil {
@@ -148,8 +148,8 @@ func TestSession_WriteTurnsOnOneTreeRunOneAtATime(t *testing.T) {
 
 func TestSession_WriteTurnsOnTwoTreesRunTogether(t *testing.T) {
 	st, f := openStore(t)
-	other, err := st.CreateFeature(context.Background(), store.Feature{
-		ProjectID: f.ProjectID, Slug: "search", Name: "Search", Goal: "Search",
+	other, err := st.CreateWorkItem(context.Background(), store.WorkItem{
+		ProjectID: f.ProjectID, Title: "Search", Description: "Search",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -334,7 +334,7 @@ func TestSession_ShellThatChangesFilesRunsAsAWriteTurn(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.role, func(t *testing.T) {
 			ch, err := st.CreateSpace(ctx, store.Space{
-				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: tt.role, Role: "lead", Backend: "claude",
+				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: tt.role, Role: "lead", Backend: "claude",
 				Team: "crew",
 			})
 			if err != nil {

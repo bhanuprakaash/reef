@@ -81,7 +81,7 @@ func newWakeEnv(t *testing.T) *wakeEnv {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
 		Team: "core",
 	})
 	if err != nil {

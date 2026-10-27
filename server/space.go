@@ -60,13 +60,13 @@ func (s *server) listDirectMessages(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) search(w http.ResponseWriter, r *http.Request) {
-	featureID, err := queryID(r, "feature")
+	workItemID, err := queryID(r, "workItem")
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if featureID == nil {
-		writeError(w, fmt.Errorf("%w: feature is required", store.ErrInvalid))
+	if workItemID == nil {
+		writeError(w, fmt.Errorf("%w: work item is required", store.ErrInvalid))
 		return
 	}
 	q := r.URL.Query().Get("q")
@@ -83,7 +83,7 @@ func (s *server) search(w http.ResponseWriter, r *http.Request) {
 	if n != nil && *n > 0 {
 		limit = *n
 	}
-	hits, err := s.st.SearchHistory(r.Context(), *featureID, q, int(limit), "")
+	hits, err := s.st.SearchHistory(r.Context(), *workItemID, q, int(limit), "")
 	if err != nil {
 		writeError(w, err)
 		return
@@ -101,7 +101,7 @@ func (s *server) listSpaces(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if f.FeatureID, err = queryID(r, "feature"); err != nil {
+	if f.WorkItemID, err = queryID(r, "workItem"); err != nil {
 		writeError(w, err)
 		return
 	}

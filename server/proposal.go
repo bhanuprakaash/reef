@@ -46,24 +46,22 @@ func (s *server) promote(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Slug      string `json:"slug"`
-		Name      string `json:"name"`
-		FeatureID *int64 `json:"featureId"`
+		Title      string `json:"title"`
+		WorkItemID *int64 `json:"workItemId"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
-	newFeature := in.Slug != "" || in.Name != ""
-	if newFeature == (in.FeatureID != nil) {
-		writeError(w, fmt.Errorf("%w: give slug and name, or featureId", store.ErrInvalid))
+	if (in.Title != "") == (in.WorkItemID != nil) {
+		writeError(w, fmt.Errorf("%w: give title, or workItemId", store.ErrInvalid))
 		return
 	}
-	var f store.Feature
-	if in.FeatureID != nil {
-		f.ID = *in.FeatureID
+	var f store.WorkItem
+	if in.WorkItemID != nil {
+		f.ID = *in.WorkItemID
 	} else {
-		f.Slug, f.Name = in.Slug, in.Name
+		f.Title = in.Title
 	}
 	if err := s.st.CheckPromote(r.Context(), id, f); err != nil {
 		writeError(w, err)

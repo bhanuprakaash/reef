@@ -22,7 +22,7 @@ const (
 	_teamLimit     = 5
 	_yourLimit     = 5
 	_toolsLine     = "Details are on demand through the reef MCP tools recall, read_memory, " +
-		"read_thread, list_tasks and search_sessions. Record decisions with remember. When the " +
+		"read_thread and search_sessions. Record decisions with remember. When the " +
 		"user and the team agree on the goal, scope or plan, call propose_brief."
 	_quickToolsLine = "Details are on demand through the reef MCP tools recall and read_memory. " +
 		"Save what holds across the project or for you with remember, scope project or teammate."
@@ -48,25 +48,25 @@ var _shelfParts = map[string][]shelfPart{
 	memory.ScopeTeammate: {{label: "Your items", limit: _yourLimit}},
 }
 
-// Context is the first prompt of a role on a feature without a team: what `reef context`
+// Context is the first prompt of a role on a work item without a team: what `reef context`
 // prints. It never holds a message body.
 func Context(
-	ctx context.Context, st *store.Store, ms *memory.Store, featureID int64, role string,
+	ctx context.Context, st *store.Store, ms *memory.Store, workItemID int64, role string,
 ) (string, error) {
-	f, err := st.Feature(ctx, featureID)
+	f, err := st.WorkItem(ctx, workItemID)
 	if err != nil {
 		return "", err
 	}
 	return firstPrompt(ctx, st, ms, f.ProjectID, &f.ID, 0, store.Team{}, store.Role{Name: role})
 }
 
-// Scopes are the shelves of memory a role reads and writes in ch: the feature's when it has
+// Scopes are the shelves of memory a role reads and writes in ch: the work item's when it has
 // one, the project's, the team's unless it is the solo team, and the role's own.
 func Scopes(ch store.Space, role string) []memory.Ref {
 	var scopes []memory.Ref
-	if ch.FeatureID != nil {
+	if ch.WorkItemID != nil {
 		scopes = append(scopes,
-			memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*ch.FeatureID, 10)})
+			memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*ch.WorkItemID, 10)})
 	}
 	scopes = append(scopes,
 		memory.Ref{Kind: memory.ScopeProject, ID: strconv.FormatInt(ch.ProjectID, 10)})
@@ -78,10 +78,10 @@ func Scopes(ch store.Space, role string) []memory.Ref {
 
 // firstPrompt is the first prompt of a role in three sections: You, How to work and What we
 // know. A part with nothing to say is left out, and so is a section with no part left. A quick
-// session has no featureID. spaceID is the Space the prompt is for, or 0 for none; it is not
+// session has no workItemID. spaceID is the Space the prompt is for, or 0 for none; it is not
 // counted as an earlier Space.
 func firstPrompt(
-	ctx context.Context, st *store.Store, ms *memory.Store, projectID int64, featureID *int64,
+	ctx context.Context, st *store.Store, ms *memory.Store, projectID int64, workItemID *int64,
 	spaceID int64, team store.Team, r store.Role,
 ) (string, error) {
 	p, err := st.Project(ctx, projectID)
@@ -93,14 +93,14 @@ func firstPrompt(
 		return "", err
 	}
 
-	ch := store.Space{ID: spaceID, ProjectID: projectID, FeatureID: featureID, Team: team.Name}
+	ch := store.Space{ID: spaceID, ProjectID: projectID, WorkItemID: workItemID, Team: team.Name}
 	var b strings.Builder
 	b.WriteString(_youHeader + roleIntro(r))
 	var know []string
 	how := teamIntro(team, r)
-	if featureID == nil {
+	if workItemID == nil {
 		fmt.Fprintf(&b, "You are the %s in project %q (%s).\n"+
-			"This is a quick session: it has no feature yet, so there is no brief or feature items.\n",
+			"This is a quick session: it has no work item yet, so there is no brief or work item items.\n",
 			r.Name, p.Name, p.Path)
 		how += _quickToolsLine + "\n"
 		b.WriteString(who)
@@ -108,25 +108,18 @@ func firstPrompt(
 			return "", err
 		}
 	} else {
-		f, err := st.Feature(ctx, *featureID)
+		f, err := st.WorkItem(ctx, *workItemID)
 		if err != nil {
 			return "", err
 		}
-		fmt.Fprintf(&b, "You are the %s on feature %q (%s) in project %q.\n",
-			r.Name, f.Name, f.Slug, p.Name)
+		fmt.Fprintf(&b, "You are the %s on work item %q (%d) in project %q.\n",
+			r.Name, f.Title, f.ID, p.Name)
 		how += _toolsLine + "\n"
 		b.WriteString(who)
-		if f.Goal != "" {
-			fmt.Fprintf(&b, "Goal: %s\n", f.Goal)
+		if f.Description != "" {
+			fmt.Fprintf(&b, "Description: %s\n", f.Description)
 		}
-		if f.Kind == "fixes" {
-			b.WriteString("This feature is a list of fixes tracked as tasks, not one piece of work with stages.\n")
-		} else {
-			fmt.Fprintf(&b, "Stage: %s\n", f.Stage)
-			fmt.Fprintf(&b, "Stages in order: %s. Call set_stage when the work moves to the next one.\n",
-				strings.Join(store.Stages(), ", "))
-		}
-		if know, err = featureKnow(ctx, st, ms, f, ch, r.Name); err != nil {
+		if know, err = workItemKnow(ctx, st, ms, f, ch, r.Name); err != nil {
 			return "", err
 		}
 	}
@@ -143,39 +136,22 @@ func firstPrompt(
 	return b.String(), nil
 }
 
-// featureKnow is the parts of What we know for a role on f. Open tasks and Spaces with
-// messages, other than ch, are only counted: the role looks them up with tools.
-func featureKnow(
-	ctx context.Context, st *store.Store, ms *memory.Store, f store.Feature, ch store.Space,
+// workItemKnow is the parts of What we know for a role on f. Spaces with messages, other
+// than ch, are only counted: the role looks them up with tools.
+func workItemKnow(
+	ctx context.Context, st *store.Store, ms *memory.Store, f store.WorkItem, ch store.Space,
 	role string,
 ) ([]string, error) {
 	brief, err := st.Brief(ctx, f.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
-	spaces, err := st.Spaces(ctx, store.SpaceFilter{FeatureID: &f.ID})
-	if err != nil {
-		return nil, err
-	}
-	tasks, err := st.Tasks(ctx, store.TaskFilter{FeatureID: &f.ID})
+	spaces, err := st.Spaces(ctx, store.SpaceFilter{WorkItemID: &f.ID})
 	if err != nil {
 		return nil, err
 	}
 
-	var doing, counts []string
-	open := 0
-	for _, t := range tasks {
-		if t.Status == "done" {
-			continue
-		}
-		open++
-		if t.Status == "doing" {
-			doing = append(doing, fmt.Sprintf("task %d: %s", t.ID, t.Title))
-		}
-	}
-	if open > 0 {
-		counts = append(counts, fmt.Sprintf("%d open %s (list_tasks).", open, plural(open, "task")))
-	}
+	var counts []string
 	earlier := 0
 	for _, c := range spaces {
 		if c.ID == ch.ID {
@@ -197,7 +173,6 @@ func featureKnow(
 	if parts, err = itemParts(ctx, ms, parts, ch, role); err != nil {
 		return nil, err
 	}
-	parts = appendPart(parts, "Doing", strings.Join(doing, "\n"))
 	return appendPart(parts, "On demand", strings.Join(counts, " ")), nil
 }
 
@@ -258,8 +233,8 @@ func changedSince(
 		lines = append(lines, line+".")
 	}
 	var brief store.Brief
-	if ch.FeatureID != nil {
-		brief, err = st.Brief(ctx, *ch.FeatureID)
+	if ch.WorkItemID != nil {
+		brief, err = st.Brief(ctx, *ch.WorkItemID)
 		if err != nil && !errors.Is(err, store.ErrNotFound) {
 			return "", err
 		}

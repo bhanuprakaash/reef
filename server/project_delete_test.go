@@ -14,8 +14,8 @@ import (
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
-// projectTrees extends rollbackEnv (project 2, feature 1 "login", worktree login, ref
-// checkpoints/1) with feature 2 "signup" and a clean worktree whose turn has ref
+// projectTrees extends rollbackEnv (project 2, work item 1 "login", worktree login, ref
+// checkpoints/1) with work item 2 "signup" and a clean worktree whose turn has ref
 // checkpoints/2, and a quick-session Space whose turn has ref checkpoints/3 taken in the
 // main checkout. It returns the main checkout's .git folder and signup's worktree.
 func projectTrees(t *testing.T, env *liveEnv, login string) (repo, signup string) {
@@ -23,11 +23,11 @@ func projectTrees(t *testing.T, env *liveEnv, login string) (repo, signup string
 	ctx := context.Background()
 	repo = gitIn(t, login, "rev-parse", "--path-format=absolute", "--git-common-dir")
 	main := filepath.Dir(repo)
-	do(t, http.MethodPost, env.url+"/features", `{"projectId":2,"slug":"signup","name":"Signup"}`)
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"featureId":2,"name":"s","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":2,"title":"Signup"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"workItemId":2,"name":"s","backend":"claude"}`)
 	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"name":"quick","backend":"claude"}`)
-	signup = worktree.Path(env.dir, 2, "signup")
-	if err := worktree.Ensure(ctx, main, signup, worktree.Branch("signup"), ""); err != nil {
+	signup = worktree.Path(env.dir, 2, "2")
+	if err := worktree.Ensure(ctx, main, signup, worktree.Branch("2"), ""); err != nil {
 		t.Fatal(err)
 	}
 	for _, c := range []struct {
@@ -67,7 +67,7 @@ func TestDeleteProject_RemovesWorktreesAndCheckpointRefs(t *testing.T) {
 	if got := gitIn(t, repo, "for-each-ref", "refs/reef/checkpoints"); got != "" {
 		t.Errorf("checkpoint refs = %q, want none", got)
 	}
-	for _, branch := range []string{"feature/login", "feature/signup"} {
+	for _, branch := range []string{"work-item/1", "work-item/2"} {
 		gitIn(t, repo, "rev-parse", "--verify", "refs/heads/"+branch)
 	}
 	if status, _ := do(t, http.MethodGet, env.url+"/projects/2", ""); status != 404 {
@@ -172,7 +172,7 @@ func TestDeleteProject_DirtyWorktreeRemovesNothing(t *testing.T) {
 
 	status, body := do(t, http.MethodDelete, env.url+"/projects/2", "")
 
-	want := `{"error":"conflict: feature signup has uncommitted changes in ` + signup +
+	want := `{"error":"conflict: work item 2 has uncommitted changes in ` + signup +
 		`; commit or discard them first"}`
 	if status != 409 || strings.TrimSpace(body) != want {
 		t.Fatalf("delete = %d %s, want 409 %s", status, body, want)

@@ -76,9 +76,9 @@ func TestStartGitHubPoll_PollsOnceAtStart(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 	ts.Close()
 	h1.Close()
 
@@ -129,9 +129,9 @@ func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 	ts.Close()
 	h.Close()
 
@@ -180,10 +180,10 @@ func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
 	if status, body := do(t, http.MethodPost, ts.URL+"/spaces",
-		`{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`); status != 201 {
+		`{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`); status != 201 {
 		t.Fatalf("create Space = %d %s", status, body)
 	}
 
@@ -244,11 +244,11 @@ func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 	}
 }
 
-// TestPollGitHub_NoteNotLostBeforeFeatureHasSpace covers a PR and a finished check that
-// appear while the feature has a worktree but no Space yet: noteFeature cannot post, so
+// TestPollGitHub_NoteNotLostBeforeWorkItemHasSpace covers a PR and a finished check that
+// appear while the work item has a worktree but no Space yet: noteWorkItem cannot post, so
 // neither must be recorded as posted, or the note is lost for good. Once the first Space
 // exists, the next poll posts both notes, once.
-func TestPollGitHub_NoteNotLostBeforeFeatureHasSpace(t *testing.T) {
+func TestPollGitHub_NoteNotLostBeforeWorkItemHasSpace(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -264,9 +264,9 @@ func TestPollGitHub_NoteNotLostBeforeFeatureHasSpace(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-	// No Space yet: the feature's worktree exists, but noteFeature has nowhere to post.
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	// No Space yet: the work item's worktree exists, but noteWorkItem has nowhere to post.
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -278,11 +278,11 @@ func TestPollGitHub_NoteNotLostBeforeFeatureHasSpace(t *testing.T) {
 		`"conclusion":"SUCCESS","detailsUrl":"https://github.com/x/y/actions/runs/1/job/1"}]}`)
 
 	h.s.pollGitHub(context.Background())
-	if _, ok, err := st.FeatureGitHub(context.Background(), 1); err != nil || ok {
-		t.Fatalf("feature github stored with no Space yet: ok=%v, err=%v, want not stored, so it is retried", ok, err)
+	if _, ok, err := st.WorkItemGitHub(context.Background(), 1); err != nil || ok {
+		t.Fatalf("work item github stored with no Space yet: ok=%v, err=%v, want not stored, so it is retried", ok, err)
 	}
 
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 	h.s.pollGitHub(context.Background())
 	msgs, err := st.Messages(context.Background(), 1, 0)
 	if err != nil {
@@ -318,9 +318,9 @@ func TestPollGitHub_NotePublishesToOpenSpace(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -375,9 +375,9 @@ func TestPollGitHub_NewCheckRunNotesAgain(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -415,7 +415,7 @@ func TestPollGitHub_NewCheckRunNotesAgain(t *testing.T) {
 
 // TestPollGitHub_TwoRunsSameNameBothNoted covers a rollup that lists two check runs under the
 // same name, such as a matrix job or two workflows: each run is its own row, keyed by
-// (feature, name, run key), so both are noted once and neither is re-noted on a repeat poll.
+// (work item, name, run key), so both are noted once and neither is re-noted on a repeat poll.
 func TestPollGitHub_TwoRunsSameNameBothNoted(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -432,9 +432,9 @@ func TestPollGitHub_TwoRunsSameNameBothNoted(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -482,9 +482,9 @@ func TestPollGitHub_TimedOutAndStartupFailureCountAsFailed(t *testing.T) {
 			gitIn(t, repo, "add", ".")
 			gitIn(t, repo, "commit", "-m", "first")
 			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-			do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-			do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-			do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+			do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+			do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+			do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 
 			binDir := t.TempDir()
 			writeFakeGh(t, binDir, repo)
@@ -524,8 +524,8 @@ func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -536,7 +536,7 @@ func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
 	log.SetOutput(&buf)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
-	t.Setenv("GH_FAKE_ERR", "no pull requests found for branch \"feature/demo\"")
+	t.Setenv("GH_FAKE_ERR", "no pull requests found for branch \"work-item/1\"")
 	h.s.pollGitHub(context.Background())
 	h.s.pollGitHub(context.Background())
 	if got := strings.Count(buf.String(), "no pull requests found"); got != 1 {
@@ -551,9 +551,9 @@ func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
 	}
 }
 
-// ghFeatureSetup creates a git repo project, a feature with a worktree, and a Space of
+// ghWorkItemSetup creates a git repo project, a work item with a worktree, and a Space of
 // team on it, via h. It returns the repo path.
-func ghFeatureSetup(t *testing.T, url, team string) string {
+func ghWorkItemSetup(t *testing.T, url, team string) string {
 	t.Helper()
 	repo := t.TempDir()
 	gitIn(t, repo, "init", "-b", "main")
@@ -561,10 +561,10 @@ func ghFeatureSetup(t *testing.T, url, team string) string {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, url+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, url+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, url+"/features/1/worktree", "")
+	do(t, http.MethodPost, url+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, url+"/work-items/1/worktree", "")
 	do(t, http.MethodPost, url+"/spaces",
-		`{"projectId":1,"featureId":1,"name":"main","team":"`+team+`","backend":"claude"}`)
+		`{"projectId":1,"workItemId":1,"name":"main","team":"`+team+`","backend":"claude"}`)
 	return repo
 }
 
@@ -593,7 +593,7 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghFeatureSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -688,7 +688,7 @@ func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghFeatureSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -757,7 +757,7 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy(t *testing.T) {
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghFeatureSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -838,7 +838,7 @@ func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
 	h := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghFeatureSetup(t, ts.URL, store.SoloTeam)
+	repo := ghWorkItemSetup(t, ts.URL, store.SoloTeam)
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -887,7 +887,7 @@ func TestPollGitHub_TwoFailedChecksOneWake(t *testing.T) {
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghFeatureSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -973,7 +973,7 @@ func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghFeatureSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)

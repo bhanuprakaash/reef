@@ -11,7 +11,7 @@ import (
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
-func TestGetFeatureDiff_UncommittedFile(t *testing.T) {
+func TestGetWorkItemDiff_UncommittedFile(t *testing.T) {
 	dataDir := t.TempDir()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -29,13 +29,13 @@ func TestGetFeatureDiff_UncommittedFile(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
 
-	dir := worktree.Path(dataDir, 1, "demo")
+	dir := worktree.Path(dataDir, 1, "1")
 	writeIn(t, dir, "new.txt", "one\ntwo\n")
 
-	status, body := do(t, http.MethodGet, ts.URL+"/features/1/diff", "")
+	status, body := do(t, http.MethodGet, ts.URL+"/work-items/1/diff", "")
 	if status != 200 {
 		t.Fatalf("status = %d, body = %s", status, body)
 	}
@@ -46,7 +46,7 @@ func TestGetFeatureDiff_UncommittedFile(t *testing.T) {
 	}
 }
 
-func TestGetFeatureDiff_ScopeCurrent(t *testing.T) {
+func TestGetWorkItemDiff_ScopeCurrent(t *testing.T) {
 	dataDir := t.TempDir()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -64,17 +64,17 @@ func TestGetFeatureDiff_ScopeCurrent(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
 
-	dir := worktree.Path(dataDir, 1, "demo")
+	dir := worktree.Path(dataDir, 1, "1")
 	writeIn(t, dir, "old.txt", "old\n")
 	gitIn(t, dir, "add", ".")
 	gitIn(t, dir, "commit", "-m", "old work")
 	writeIn(t, dir, "new.txt", "new\n")
 
 	paths := func(query string) string {
-		status, body := do(t, http.MethodGet, ts.URL+"/features/1/diff"+query, "")
+		status, body := do(t, http.MethodGet, ts.URL+"/work-items/1/diff"+query, "")
 		if status != 200 {
 			t.Fatalf("status = %d, body = %s", status, body)
 		}
@@ -96,7 +96,7 @@ func TestGetFeatureDiff_ScopeCurrent(t *testing.T) {
 	}
 }
 
-func TestGetFeatureDiff_NoWorktree(t *testing.T) {
+func TestGetWorkItemDiff_NoWorktree(t *testing.T) {
 	ts := newTestServer(t)
 	repo := t.TempDir()
 	gitIn(t, repo, "init", "-b", "main")
@@ -104,18 +104,18 @@ func TestGetFeatureDiff_NoWorktree(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
 
-	status, body := do(t, http.MethodGet, ts.URL+"/features/1/diff", "")
+	status, body := do(t, http.MethodGet, ts.URL+"/work-items/1/diff", "")
 	if want := `[]`; status != 200 || body != want {
 		t.Errorf("diff = %d %s, want 200 %s", status, body, want)
 	}
 }
 
-func TestGetFeatureDiff_UnknownFeature(t *testing.T) {
+func TestGetWorkItemDiff_UnknownWorkItem(t *testing.T) {
 	ts := newTestServer(t)
-	status, body := do(t, http.MethodGet, ts.URL+"/features/9/diff", "")
-	if want := `{"error":"feature 9: not found"}`; status != 404 || body != want {
-		t.Errorf("diff of unknown feature = %d %s, want 404 %s", status, body, want)
+	status, body := do(t, http.MethodGet, ts.URL+"/work-items/9/diff", "")
+	if want := `{"error":"work item 9: not found"}`; status != 404 || body != want {
+		t.Errorf("diff of unknown work item = %d %s, want 404 %s", status, body, want)
 	}
 }

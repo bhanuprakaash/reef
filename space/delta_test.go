@@ -19,7 +19,7 @@ func lastPrompt(e *wakeEnv) string {
 }
 
 func wakeWork(e *wakeEnv) memory.Ref {
-	return memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*e.ch.FeatureID, 10)}
+	return memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*e.ch.WorkItemID, 10)}
 }
 
 func decide(t *testing.T, e *wakeEnv, author, body string, replaces ...int64) memory.Item {
@@ -36,7 +36,7 @@ func decide(t *testing.T, e *wakeEnv, author, body string, replaces ...int64) me
 func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 	ctx := context.Background()
 	e := newWakeEnv(t)
-	fid := *e.ch.FeatureID
+	fid := *e.ch.WorkItemID
 	day := time.Now().UTC().Format(_dateLayout)
 	say := func(body string) store.Scope {
 		return store.Scope{Read: e.say("user", body, nil)}
@@ -57,7 +57,7 @@ func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 	}
 
 	d1 := decide(t, e, "architect", "Use SQLite, not Postgres\nit is one file")
-	remember(t, e.s.ms, projectScope(store.Feature{ProjectID: e.ch.ProjectID}),
+	remember(t, e.s.ms, projectScope(store.WorkItem{ProjectID: e.ch.ProjectID}),
 		memory.KindFact, "lead", "Builds need cgo off")
 	remember(t, e.s.ms, teammateScope("developer"), memory.KindFinding, "developer", "Name the table turn")
 	remember(t, e.s.ms, teammateScope("tester"), memory.KindFact, "tester", "Tester only")
@@ -79,7 +79,7 @@ func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 	check("nothing changed", "[Space 1, message 5]\nthree")
 
 	decide(t, e, "lead", "Use WAL", d1.ID)
-	if _, err := e.st.PutBrief(ctx, store.Brief{FeatureID: fid, Body: "Ship the store.", Author: "user"}); err != nil {
+	if _, err := e.st.PutBrief(ctx, store.Brief{WorkItemID: fid, Body: "Ship the store.", Author: "user"}); err != nil {
 		t.Fatal(err)
 	}
 	e.wake("developer", "four", nil, say("four"))
@@ -238,7 +238,7 @@ func TestWakeAs_DecisionWrittenWhileAWriterHoldsTheTreeIsInTheFirstPrompt(t *tes
 	case err := <-done:
 		t.Fatalf("wake ended before its agent started: %v", err)
 	}
-	remember(t, e.s.ms, memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*e.ch.FeatureID, 10)},
+	remember(t, e.s.ms, memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*e.ch.WorkItemID, 10)},
 		memory.KindDecision, "lead", "Use WAL")
 	day := time.Now().UTC().Format(_dateLayout)
 	unlock()
@@ -284,7 +284,7 @@ func TestRunner_FailedPromptBuildOfDirectTurnLeavesFailedResponse(t *testing.T) 
 	ctx := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -323,7 +323,7 @@ func TestWakeAs_CompactedSessionGetsTheFirstPromptAgain(t *testing.T) {
 			say := func(body string) store.Scope {
 				return store.Scope{Read: e.say("user", body, nil)}
 			}
-			work := memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*e.ch.FeatureID, 10)}
+			work := memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(*e.ch.WorkItemID, 10)}
 			remember(t, e.s.ms, work, memory.KindDecision, "lead", "Use SQLite")
 			compact := true
 			e.onSend = func() {

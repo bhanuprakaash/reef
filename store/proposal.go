@@ -16,7 +16,7 @@ const (
 	ProposalRejected = "rejected"
 )
 
-// Proposal kinds. A wrap ends the Space; a brief only updates the feature's brief.
+// Proposal kinds. A wrap ends the Space; a brief only updates the item's brief.
 const (
 	ProposalWrap  = "wrap"
 	ProposalBrief = "brief"
@@ -51,7 +51,7 @@ type Proposal struct {
 }
 
 // CreateProposal adds p as pending, of kind wrap unless p.Kind says otherwise. The Space
-// must belong to a feature. The Space has one pending proposal at most: a wrap rejects the
+// must belong to a work item. The Space has one pending proposal at most: a wrap rejects the
 // older pending ones of any kind, and a brief rejects the older pending briefs but is
 // refused while a wrap is pending.
 func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error) {
@@ -85,8 +85,8 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 	if err != nil {
 		return Proposal{}, err
 	}
-	if c.FeatureID == nil {
-		return Proposal{}, fmt.Errorf("%w: Space %d has no feature", ErrInvalid, c.ID)
+	if c.WorkItemID == nil {
+		return Proposal{}, fmt.Errorf("%w: Space %d has no work item", ErrInvalid, c.ID)
 	}
 	dedupeRetired(&p)
 	items, err := json.Marshal(p.Items)
@@ -178,15 +178,15 @@ func (s *Store) Proposal(ctx context.Context, id int64) (Proposal, error) {
 	return p, err
 }
 
-// PendingProposals returns every pending proposal, oldest first. With featureID
-// set, only those of that feature's Spaces. With projectID set, only that project's.
+// PendingProposals returns every pending proposal, oldest first. With workItemID
+// set, only those of that item's Spaces. With projectID set, only that project's.
 func (s *Store) PendingProposals(
-	ctx context.Context, featureID, projectID *int64,
+	ctx context.Context, workItemID, projectID *int64,
 ) ([]Proposal, error) {
 	query, args := "SELECT "+_proposalCols+" FROM proposal WHERE status = ?", []any{ProposalPending}
-	if featureID != nil {
-		query += " AND space_id IN (SELECT id FROM space WHERE feature_id = ?)"
-		args = append(args, *featureID)
+	if workItemID != nil {
+		query += " AND space_id IN (SELECT id FROM space WHERE work_item_id = ?)"
+		args = append(args, *workItemID)
 	}
 	if projectID != nil {
 		query += " AND space_id IN (SELECT id FROM space WHERE project_id = ?)"
@@ -224,20 +224,20 @@ func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, error)
 	if err != nil {
 		return Proposal{}, err
 	}
-	var featureID int64
+	var workItemID int64
 	var closed sql.NullString
 	err = tx.QueryRowContext(ctx,
-		"SELECT feature_id, closed_at FROM space WHERE id = ?", p.SpaceID).
-		Scan(&featureID, &closed)
+		"SELECT work_item_id, closed_at FROM space WHERE id = ?", p.SpaceID).
+		Scan(&workItemID, &closed)
 	if err != nil {
-		return Proposal{}, fmt.Errorf("read feature of proposal %d: %w", id, err)
+		return Proposal{}, fmt.Errorf("read work item of proposal %d: %w", id, err)
 	}
 	if p.Kind == ProposalBrief && closed.Valid {
 		return Proposal{}, fmt.Errorf("%w: Space %d is closed", ErrInvalid, p.SpaceID)
 	}
 	now := time.Now().UTC()
 	at := now.Format(time.RFC3339Nano)
-	if _, err := tx.ExecContext(ctx, _insertBrief, featureID, p.Brief, p.Role, at); err != nil {
+	if _, err := tx.ExecContext(ctx, _insertBrief, workItemID, p.Brief, p.Role, at); err != nil {
 		return Proposal{}, fmt.Errorf("insert brief: %w", err)
 	}
 	if p.Kind == ProposalWrap {

@@ -18,7 +18,7 @@ import (
 
 const (
 	_mcpUsage   = "usage: reef mcp [--data DIR]"
-	_tokenUsage = "usage: reef token <feature> --role R [--data DIR]"
+	_tokenUsage = "usage: reef token <work-item> --role R [--data DIR]"
 )
 
 // mcpCmd must write nothing but MCP to stdout.
@@ -56,7 +56,7 @@ func mcpCmd(ctx context.Context, args []string) error {
 	return err
 }
 
-// tokenCmd makes a Space on the feature for role and a token for it, and
+// tokenCmd makes a Space on the work item for role and a token for it, and
 // prints the command that registers the MCP server with Claude Code.
 func tokenCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	c := newCommand("reef token", _tokenUsage, 1, 1)
@@ -70,12 +70,12 @@ func tokenCmd(ctx context.Context, args []string, stdout io.Writer) error {
 		return errors.New(_tokenUsage)
 	}
 
-	f, err := st.FeatureByRef(ctx, pos[0])
+	f, err := workItemArg(ctx, st, pos[0])
 	if err != nil {
 		return err
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: *role + " (claude code)",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: *role + " (claude code)",
 		Role: "lead", Backend: "claude",
 	})
 	if err != nil {

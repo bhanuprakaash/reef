@@ -80,10 +80,10 @@ func TestContext_FindingsAndEmptyParts(t *testing.T) {
 	st, f := openStore(t)
 	ms := testMemory(t, st)
 	remember(t, ms, workScope(f), memory.KindFact, "developer", "the API is v2")
-	if _, err := st.CreateDecision(ctx, store.Decision{FeatureID: f.ID, Body: "old table decision", Author: "user"}); err != nil {
+	if _, err := st.CreateDecision(ctx, store.Decision{WorkItemID: f.ID, Body: "old table decision", Author: "user"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PutRoleNotes(ctx, store.RoleNotes{FeatureID: f.ID, Role: "developer", Body: "old notes"}); err != nil {
+	if _, err := st.PutRoleNotes(ctx, store.RoleNotes{WorkItemID: f.ID, Role: "developer", Body: "old notes"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.PutProjectMemory(ctx, store.ProjectMemory{ProjectID: f.ProjectID, Body: "old project memory"}); err != nil {
@@ -202,7 +202,7 @@ func TestScopes(t *testing.T) {
 	}{
 		{
 			name: "feature Space of a real team",
-			give: store.Space{ProjectID: 3, FeatureID: &feature, Team: "core"},
+			give: store.Space{ProjectID: 3, WorkItemID: &feature, Team: "core"},
 			want: []memory.Ref{
 				{Kind: "work_item", ID: "7"}, {Kind: "project", ID: "3"},
 				{Kind: "team", ID: "core"}, {Kind: "teammate", ID: "lead"},
@@ -210,7 +210,7 @@ func TestScopes(t *testing.T) {
 		},
 		{
 			name: "feature Space of the solo team",
-			give: store.Space{ProjectID: 3, FeatureID: &feature, Team: store.SoloTeam},
+			give: store.Space{ProjectID: 3, WorkItemID: &feature, Team: store.SoloTeam},
 			want: []memory.Ref{
 				{Kind: "work_item", ID: "7"}, {Kind: "project", ID: "3"}, {Kind: "teammate", ID: "lead"},
 			},

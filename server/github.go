@@ -144,7 +144,7 @@ func ghInterval() time.Duration {
 	return 60 * time.Second
 }
 
-// startGitHubPoll polls every feature with a worktree for its PR and CI status once right
+// startGitHubPoll polls every work item with a worktree for its PR and CI status once right
 // away, then every ghInterval until the server closes, so a restart does not sit on a stale
 // note for a whole interval. Both the first poll and the ticker run on the same background
 // goroutine, so construction never blocks on gh.
@@ -166,8 +166,8 @@ func (s *server) startGitHubPoll() {
 	}()
 }
 
-// pollGitHub checks every feature with a worktree against its PR, and posts a reef note in
-// the feature's most recent Space when the PR's state changes or a check finishes. No gh
+// pollGitHub checks every work item with a worktree against its PR, and posts a reef note in
+// the work item's most recent Space when the PR's state changes or a check finishes. No gh
 // on PATH: nothing is posted, logged once.
 func (s *server) pollGitHub(ctx context.Context) {
 	ghPath, err := exec.LookPath("gh")
@@ -175,30 +175,30 @@ func (s *server) pollGitHub(ctx context.Context) {
 		s.logGhNoPathOnce()
 		return
 	}
-	features, err := s.st.Features(ctx, nil)
+	items, err := s.st.WorkItems(ctx, store.WorkItemFilter{})
 	if err != nil {
-		log.Printf("github poll: list features: %v", err)
+		log.Printf("github poll: list work items: %v", err)
 		return
 	}
-	for _, f := range features {
-		if err := s.pollFeatureGitHub(ctx, ghPath, f); err != nil {
-			log.Printf("github poll: feature %d: %v", f.ID, err)
+	for _, f := range items {
+		if err := s.pollWorkItemGitHub(ctx, ghPath, f); err != nil {
+			log.Printf("github poll: work item %d: %v", f.ID, err)
 		}
 	}
 }
 
-// pollFeatureGitHub polls the PR of one feature. A feature with no worktree yet, or no gh
+// pollWorkItemGitHub polls the PR of one work item. A work item with no worktree yet, or no gh
 // PR (no PR, or gh not logged in), posts nothing.
-func (s *server) pollFeatureGitHub(ctx context.Context, ghPath string, f store.Feature) error {
+func (s *server) pollWorkItemGitHub(ctx context.Context, ghPath string, f store.WorkItem) error {
 	p, err := s.st.Project(ctx, f.ProjectID)
 	if err != nil {
 		return err
 	}
-	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		return nil
 	}
-	pr, err := runGh(ctx, ghPath, p.Path, f.Slug)
+	pr, err := runGh(ctx, ghPath, p.Path, f.TreeKey())
 	if err != nil {
 		s.logGhErrOnce(f.ID, err)
 		return nil
@@ -222,18 +222,18 @@ func (s *server) logGhNoPathOnce() {
 	s.ghNoGhLogged = true
 }
 
-// logGhErrOnce logs a gh error for the feature once, and again only once its text changes,
+// logGhErrOnce logs a gh error for the work item once, and again only once its text changes,
 // so a cause such as "no PR for the branch" does not fill the log on every poll. Guarded by
 // ghMu for the same reason as logGhNoPathOnce.
-func (s *server) logGhErrOnce(featureID int64, err error) {
+func (s *server) logGhErrOnce(workItemID int64, err error) {
 	text := err.Error()
 	s.ghMu.Lock()
 	defer s.ghMu.Unlock()
-	if s.ghFeatureErrLogged[featureID] == text {
+	if s.ghWorkItemErrLogged[workItemID] == text {
 		return
 	}
-	log.Printf("github poll: feature %d: %v", featureID, err)
-	s.ghFeatureErrLogged[featureID] = text
+	log.Printf("github poll: work item %d: %v", workItemID, err)
+	s.ghWorkItemErrLogged[workItemID] = text
 }
 
 func runGh(ctx context.Context, ghPath, dir, slug string) (ghPR, error) {
@@ -263,7 +263,7 @@ func ghFailure(what string, err error) error {
 	return fmt.Errorf("%s: %w", what, err)
 }
 
-// prView is a feature's PR as the window shows it. Each check's state is pass, fail or
+// prView is a work item's PR as the window shows it. Each check's state is pass, fail or
 // pending; canMerge is true only for an open PR gh calls mergeable.
 type prView struct {
 	Number         int       `json:"number"`
@@ -317,14 +317,14 @@ func newPRView(pr ghPR) prView {
 	}
 }
 
-// featurePR finds the feature in the request and the project folder to run gh in. It writes
+// workItemPR finds the work item in the request and the project folder to run gh in. It writes
 // the error and reports ok = false when it cannot.
-func (s *server) featurePR(w http.ResponseWriter, r *http.Request) (
-	f store.Feature, p store.Project, ghPath string, ok bool,
+func (s *server) workItemPR(w http.ResponseWriter, r *http.Request) (
+	f store.WorkItem, p store.Project, ghPath string, ok bool,
 ) {
 	id, err := pathID(r)
 	if err == nil {
-		f, err = s.st.Feature(r.Context(), id)
+		f, err = s.st.WorkItem(r.Context(), id)
 	}
 	if err == nil {
 		p, err = s.st.Project(r.Context(), f.ProjectID)
@@ -340,13 +340,13 @@ func (s *server) featurePR(w http.ResponseWriter, r *http.Request) (
 	return f, p, ghPath, true
 }
 
-// getFeaturePR answers with the feature's PR, or {"pr": null} when it has none.
-func (s *server) getFeaturePR(w http.ResponseWriter, r *http.Request) {
-	f, p, ghPath, ok := s.featurePR(w, r)
+// getWorkItemPR answers with the work item's PR, or {"pr": null} when it has none.
+func (s *server) getWorkItemPR(w http.ResponseWriter, r *http.Request) {
+	f, p, ghPath, ok := s.workItemPR(w, r)
 	if !ok {
 		return
 	}
-	pr, err := runGh(r.Context(), ghPath, p.Path, f.Slug)
+	pr, err := runGh(r.Context(), ghPath, p.Path, f.TreeKey())
 	if err != nil {
 		if strings.Contains(err.Error(), _noPRText) {
 			writeJSON(w, http.StatusOK, map[string]*prView{"pr": nil})
@@ -359,14 +359,14 @@ func (s *server) getFeaturePR(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]*prView{"pr": &view})
 }
 
-// mergeFeaturePR merges the feature's PR with a merge commit and answers with its new state.
+// mergeWorkItemPR merges the work item's PR with a merge commit and answers with its new state.
 // gh's own message is the error when it refuses.
-func (s *server) mergeFeaturePR(w http.ResponseWriter, r *http.Request) {
-	f, p, ghPath, ok := s.featurePR(w, r)
+func (s *server) mergeWorkItemPR(w http.ResponseWriter, r *http.Request) {
+	f, p, ghPath, ok := s.workItemPR(w, r)
 	if !ok {
 		return
 	}
-	pr, err := runGh(r.Context(), ghPath, p.Path, f.Slug)
+	pr, err := runGh(r.Context(), ghPath, p.Path, f.TreeKey())
 	if err != nil {
 		status := http.StatusBadGateway
 		if strings.Contains(err.Error(), _noPRText) {
@@ -384,7 +384,7 @@ func (s *server) mergeFeaturePR(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]string{"error": err.Error()})
 		return
 	}
-	if pr, err = runGh(r.Context(), ghPath, p.Path, f.Slug); err != nil {
+	if pr, err = runGh(r.Context(), ghPath, p.Path, f.TreeKey()); err != nil {
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": err.Error()})
 		return
 	}
@@ -393,8 +393,8 @@ func (s *server) mergeFeaturePR(w http.ResponseWriter, r *http.Request) {
 }
 
 // notePRState posts a reef note when the PR appeared or changed state since the last poll.
-func (s *server) notePRState(ctx context.Context, f store.Feature, pr ghPR) error {
-	stored, ok, err := s.st.FeatureGitHub(ctx, f.ID)
+func (s *server) notePRState(ctx context.Context, f store.WorkItem, pr ghPR) error {
+	stored, ok, err := s.st.WorkItemGitHub(ctx, f.ID)
 	if err != nil {
 		return err
 	}
@@ -402,23 +402,23 @@ func (s *server) notePRState(ctx context.Context, f store.Feature, pr ghPR) erro
 		return nil
 	}
 	body := fmt.Sprintf("PR #%d %s: %s", pr.Number, strings.ToLower(pr.State), pr.URL)
-	posted, err := s.noteFeature(ctx, f.ID, body)
+	posted, err := s.noteWorkItem(ctx, f.ID, body)
 	if err != nil || !posted {
 		return err
 	}
-	return s.st.SetFeatureGitHub(ctx, store.FeatureGitHub{
-		FeatureID: f.ID, PRNumber: int64(pr.Number), PRState: pr.State, PRURL: pr.URL,
+	return s.st.SetWorkItemGitHub(ctx, store.WorkItemGitHub{
+		WorkItemID: f.ID, PRNumber: int64(pr.Number), PRState: pr.State, PRURL: pr.URL,
 	})
 }
 
 // noteFinishedChecks posts a reef note for each check run that finished and was not yet
 // noted, once per run: the same check name run again, such as a rerun on a later push, is its
 // own run, noted on its own. A check run is recorded as noted only once its note was actually
-// posted, so a feature with no Space yet, or a failed CreateMessage, is retried on a later
+// posted, so a work item with no Space yet, or a failed CreateMessage, is retried on a later
 // poll instead of losing the note. Every failed run in the rollup wakes the developer in one
 // wake; noting and waking are independent, so a wake that could not run (the Space is busy
 // or paused) is retried on a later poll even though the run was already noted.
-func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghPR, ghPath, dir string) error {
+func (s *server) noteFinishedChecks(ctx context.Context, f store.WorkItem, pr ghPR, ghPath, dir string) error {
 	var failed []ghCheck
 	for _, c := range pr.StatusCheckRollup {
 		finished, word := c.outcome()
@@ -431,7 +431,7 @@ func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghP
 			return err
 		}
 		if !noted {
-			posted, err := s.noteFeature(ctx, f.ID, fmt.Sprintf("%s %s", name, word))
+			posted, err := s.noteWorkItem(ctx, f.ID, fmt.Sprintf("%s %s", name, word))
 			if err != nil {
 				return err
 			}
@@ -451,12 +451,12 @@ func (s *server) noteFinishedChecks(ctx context.Context, f store.Feature, pr ghP
 	return s.wakeDeveloper(ctx, f, pr, failed, ghPath, dir)
 }
 
-// noteFeature posts a reef note in the feature's most recent Space, and tells an open
+// noteWorkItem posts a reef note in the work item's most recent Space, and tells an open
 // stream on it that a message arrived, so the window refreshes without a reload. It reports
-// posted = false, without error, when the feature has no Space yet, so the caller does not
+// posted = false, without error, when the work item has no Space yet, so the caller does not
 // record the note as sent.
-func (s *server) noteFeature(ctx context.Context, featureID int64, body string) (posted bool, err error) {
-	ch, err := s.st.FeatureLatestSpace(ctx, featureID)
+func (s *server) noteWorkItem(ctx context.Context, workItemID int64, body string) (posted bool, err error) {
+	ch, err := s.st.WorkItemLatestSpace(ctx, workItemID)
 	if errors.Is(err, store.ErrNotFound) {
 		return false, nil
 	}
@@ -472,7 +472,7 @@ func (s *server) noteFeature(ctx context.Context, featureID int64, body string) 
 	return true, nil
 }
 
-// wakeDeveloper wakes the developer role in the feature's most recent Space with one wake
+// wakeDeveloper wakes the developer role in the work item's most recent Space with one wake
 // naming every run in checks not already woken, each with its log tail, once per run, also
 // across restarts. Several failed runs in the same rollup are one wake, not one each. A
 // Space whose team has no developer gets the note only. The wake text is built, including
@@ -484,7 +484,7 @@ func (s *server) noteFeature(ctx context.Context, featureID int64, body string) 
 // agent-originated wake, so a loop of failing checks still pauses at the hop cap instead of
 // resetting it every time.
 func (s *server) wakeDeveloper(
-	ctx context.Context, f store.Feature, pr ghPR, checks []ghCheck, ghPath, dir string,
+	ctx context.Context, f store.WorkItem, pr ghPR, checks []ghCheck, ghPath, dir string,
 ) error {
 	var unwoken []ghCheck
 	for _, c := range checks {
@@ -499,7 +499,7 @@ func (s *server) wakeDeveloper(
 	if len(unwoken) == 0 {
 		return nil
 	}
-	ch, err := s.st.FeatureLatestSpace(ctx, f.ID)
+	ch, err := s.st.WorkItemLatestSpace(ctx, f.ID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil
 	}

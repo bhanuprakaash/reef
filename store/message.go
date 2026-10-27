@@ -182,20 +182,20 @@ func (s *Store) CountMessages(ctx context.Context, spaceID int64) (int, error) {
 	return n, nil
 }
 
-// SearchMessages finds messages in the feature's Spaces whose body contains
+// SearchMessages finds messages in the item's Spaces whose body contains
 // query, ignoring ASCII case, newest first. A hit's snippet is about 120
 // characters of the body around the match.
 func (s *Store) SearchMessages(
-	ctx context.Context, featureID int64, query string, limit int,
+	ctx context.Context, workItemID int64, query string, limit int,
 ) ([]MessageHit, error) {
 	like := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT m.space_id, m.id, m.author,
 		  substr(m.body, max(instr(lower(m.body), lower(?)) - 40, 1), 120), m.created_at
 		FROM message m JOIN space c ON c.id = m.space_id
-		WHERE c.feature_id = ? AND m.body LIKE '%' || ? || '%' ESCAPE '\'
+		WHERE c.work_item_id = ? AND m.body LIKE '%' || ? || '%' ESCAPE '\'
 		ORDER BY m.id DESC LIMIT ?`,
-		query, featureID, like, limit)
+		query, workItemID, like, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search messages: %w", err)
 	}
@@ -214,17 +214,17 @@ func (s *Store) SearchMessages(
 // SearchDirectMessages is SearchMessages over direct messages. A role other than "" sees
 // only the messages it sent or received.
 func (s *Store) SearchDirectMessages(
-	ctx context.Context, featureID int64, query string, limit int, role string,
+	ctx context.Context, workItemID int64, query string, limit int, role string,
 ) ([]MessageHit, error) {
 	like := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 	rows, err := s.db.QueryContext(ctx,
 		`SELECT d.space_id, d.id, d.from_role, d.to_role, d.chain_id,
 		  substr(d.body, max(instr(lower(d.body), lower(?)) - 40, 1), 120), d.created_at
 		FROM direct_message d JOIN space c ON c.id = d.space_id
-		WHERE c.feature_id = ? AND d.body LIKE '%' || ? || '%' ESCAPE '\'
+		WHERE c.work_item_id = ? AND d.body LIKE '%' || ? || '%' ESCAPE '\'
 		  AND (? = '' OR d.from_role = ? OR d.to_role = ?)
 		ORDER BY d.id DESC LIMIT ?`,
-		query, featureID, like, role, role, role, limit)
+		query, workItemID, like, role, role, role, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search direct messages: %w", err)
 	}
@@ -244,13 +244,13 @@ func (s *Store) SearchDirectMessages(
 
 // SearchHistory merges SearchMessages and SearchDirectMessages, newest first, up to limit.
 func (s *Store) SearchHistory(
-	ctx context.Context, featureID int64, query string, limit int, role string,
+	ctx context.Context, workItemID int64, query string, limit int, role string,
 ) ([]MessageHit, error) {
-	hits, err := s.SearchMessages(ctx, featureID, query, limit)
+	hits, err := s.SearchMessages(ctx, workItemID, query, limit)
 	if err != nil {
 		return nil, err
 	}
-	direct, err := s.SearchDirectMessages(ctx, featureID, query, limit, role)
+	direct, err := s.SearchDirectMessages(ctx, workItemID, query, limit, role)
 	if err != nil {
 		return nil, err
 	}

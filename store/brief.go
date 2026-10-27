@@ -8,18 +8,18 @@ import (
 	"time"
 )
 
-// Brief is one version of a feature's brief.
+// Brief is one version of a item's brief.
 type Brief struct {
-	ID        int64     `json:"id"`
-	FeatureID int64     `json:"featureId"`
-	Body      string    `json:"body"`
-	Author    string    `json:"author"`
-	CreatedAt time.Time `json:"createdAt"`
+	ID         int64     `json:"id"`
+	WorkItemID int64     `json:"workItemId"`
+	Body       string    `json:"body"`
+	Author     string    `json:"author"`
+	CreatedAt  time.Time `json:"createdAt"`
 }
 
-const _insertBrief = "INSERT INTO brief (feature_id, body, author, created_at) VALUES (?, ?, ?, ?)"
+const _insertBrief = "INSERT INTO brief (work_item_id, body, author, created_at) VALUES (?, ?, ?, ?)"
 
-// PutBrief appends b as a new version of the feature's brief.
+// PutBrief appends b as a new version of the item's brief. A sub-item has no brief.
 func (s *Store) PutBrief(ctx context.Context, b Brief) (Brief, error) {
 	if b.Body == "" {
 		return Brief{}, fmt.Errorf("%w: brief body is required", ErrInvalid)
@@ -27,12 +27,18 @@ func (s *Store) PutBrief(ctx context.Context, b Brief) (Brief, error) {
 	if b.Author == "" {
 		return Brief{}, fmt.Errorf("%w: brief author is required", ErrInvalid)
 	}
+	w, err := s.WorkItem(ctx, b.WorkItemID)
+	if err != nil {
+		return Brief{}, err
+	}
+	if w.ParentID != nil {
+		return Brief{}, fmt.Errorf("%w: work item %d is a sub-item and has no brief", ErrInvalid, w.ID)
+	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx, _insertBrief,
-		b.FeatureID, b.Body, b.Author, now.Format(time.RFC3339Nano))
+		b.WorkItemID, b.Body, b.Author, now.Format(time.RFC3339Nano))
 	if err != nil {
-		return Brief{}, s.writeErr(ctx, "insert brief", err, ErrNotFound,
-			parent{table: "feature", id: &b.FeatureID})
+		return Brief{}, fmt.Errorf("insert brief: %w", err)
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -42,28 +48,28 @@ func (s *Store) PutBrief(ctx context.Context, b Brief) (Brief, error) {
 	return b, nil
 }
 
-// Brief returns the latest version of the feature's brief.
-func (s *Store) Brief(ctx context.Context, featureID int64) (Brief, error) {
+// Brief returns the latest version of the item's brief.
+func (s *Store) Brief(ctx context.Context, workItemID int64) (Brief, error) {
 	row := s.db.QueryRowContext(ctx,
-		"SELECT id, feature_id, body, author, created_at FROM brief "+
-			"WHERE feature_id = ? ORDER BY id DESC LIMIT 1",
-		featureID)
+		"SELECT id, work_item_id, body, author, created_at FROM brief "+
+			"WHERE work_item_id = ? ORDER BY id DESC LIMIT 1",
+		workItemID)
 	b, err := scanBrief(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Brief{}, fmt.Errorf("brief of feature %d: %w", featureID, ErrNotFound)
+		return Brief{}, fmt.Errorf("brief of work item %d: %w", workItemID, ErrNotFound)
 	}
 	return b, err
 }
 
-// BriefVersions returns every version of the feature's brief, oldest first.
-func (s *Store) BriefVersions(ctx context.Context, featureID int64) ([]Brief, error) {
-	if err := s.requireFeature(ctx, featureID); err != nil {
+// BriefVersions returns every version of the item's brief, oldest first.
+func (s *Store) BriefVersions(ctx context.Context, workItemID int64) ([]Brief, error) {
+	if err := s.requireWorkItem(ctx, workItemID); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, feature_id, body, author, created_at FROM brief "+
-			"WHERE feature_id = ? ORDER BY id",
-		featureID)
+		"SELECT id, work_item_id, body, author, created_at FROM brief "+
+			"WHERE work_item_id = ? ORDER BY id",
+		workItemID)
 	if err != nil {
 		return nil, fmt.Errorf("list brief versions: %w", err)
 	}
@@ -73,7 +79,7 @@ func (s *Store) BriefVersions(ctx context.Context, featureID int64) ([]Brief, er
 func scanBrief(r interface{ Scan(...any) error }) (Brief, error) {
 	var b Brief
 	var created string
-	if err := r.Scan(&b.ID, &b.FeatureID, &b.Body, &b.Author, &created); err != nil {
+	if err := r.Scan(&b.ID, &b.WorkItemID, &b.Body, &b.Author, &created); err != nil {
 		return Brief{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

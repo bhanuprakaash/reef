@@ -33,16 +33,16 @@ func validActiveTurn(kind string) bool {
 	return false
 }
 
-const _spaceCols = "space.id, space.project_id, space.feature_id, space.name, " +
+const _spaceCols = "space.id, space.project_id, space.work_item_id, space.name, " +
 	"space.role, space.backend, space.permission_mode, space.paused, " +
 	"space.token_budget, space.created_at, space.closed_at, space.active_turn, " +
 	"COALESCE((SELECT name FROM team WHERE id = space.team_id), '" + SoloTeam + "')"
 
-// Space with a nil FeatureID is a quick session.
+// Space with a nil WorkItemID is a quick session.
 type Space struct {
 	ID             int64      `json:"id"`
 	ProjectID      int64      `json:"projectId"`
-	FeatureID      *int64     `json:"featureId"`
+	WorkItemID     *int64     `json:"workItemId"`
 	Name           string     `json:"name"`
 	Role           string     `json:"role"`
 	Backend        string     `json:"backend"`
@@ -75,10 +75,10 @@ type LastMessage struct {
 	CreatedAt time.Time `json:"createdAt"`
 }
 
-// SpaceFilter narrows Spaces to one project and/or one feature when set.
+// SpaceFilter narrows Spaces to one project and/or one work item when set.
 type SpaceFilter struct {
-	ProjectID *int64
-	FeatureID *int64
+	ProjectID  *int64
+	WorkItemID *int64
 }
 
 func (f SpaceFilter) where() (string, []any) {
@@ -87,19 +87,19 @@ func (f SpaceFilter) where() (string, []any) {
 	if f.ProjectID != nil {
 		q, args = q+" AND space.project_id = ?", append(args, *f.ProjectID)
 	}
-	if f.FeatureID != nil {
-		q, args = q+" AND space.feature_id = ?", append(args, *f.FeatureID)
+	if f.WorkItemID != nil {
+		q, args = q+" AND space.work_item_id = ?", append(args, *f.WorkItemID)
 	}
 	return q, args
 }
 
 // CreateSpace adds c in team c.Team (solo when empty), which must exist. A set
-// FeatureID must be a feature of c.ProjectID.
+// WorkItemID must be a work item of c.ProjectID.
 func (s *Store) CreateSpace(ctx context.Context, c Space) (Space, error) {
 	if err := c.validate(); err != nil {
 		return Space{}, err
 	}
-	if err := s.checkFeatureInProject(ctx, c.FeatureID, c.ProjectID); err != nil {
+	if err := s.checkWorkItemInProject(ctx, c.WorkItemID, c.ProjectID); err != nil {
 		return Space{}, err
 	}
 	if c.Team == "" {
@@ -115,13 +115,13 @@ func (s *Store) CreateSpace(ctx context.Context, c Space) (Space, error) {
 	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO space (project_id, feature_id, name, role, backend, permission_mode, "+
+		"INSERT INTO space (project_id, work_item_id, name, role, backend, permission_mode, "+
 			"token_budget, created_at, team_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		c.ProjectID, c.FeatureID, c.Name, c.Role, c.Backend, c.PermissionMode, TokenBudget,
+		c.ProjectID, c.WorkItemID, c.Name, c.Role, c.Backend, c.PermissionMode, TokenBudget,
 		now.Format(time.RFC3339Nano), teamID)
 	if err != nil {
 		return Space{}, s.writeErr(ctx, "insert space", err, ErrInvalid,
-			parent{table: "project", id: &c.ProjectID}, parent{table: "feature", id: c.FeatureID})
+			parent{table: "project", id: &c.ProjectID}, parent{table: "work_item", id: c.WorkItemID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -141,19 +141,19 @@ func (s *Store) Space(ctx context.Context, id int64) (Space, error) {
 	return c, err
 }
 
-// FeatureLatestSpace returns the feature's Space with the newest message, or, when it
-// has none, its most recently created Space. ErrNotFound when the feature has no Space.
-func (s *Store) FeatureLatestSpace(ctx context.Context, featureID int64) (Space, error) {
+// WorkItemLatestSpace returns the item's Space with the newest message, or, when it
+// has none, its most recently created Space. ErrNotFound when the work item has no Space.
+func (s *Store) WorkItemLatestSpace(ctx context.Context, workItemID int64) (Space, error) {
 	row := s.db.QueryRowContext(ctx,
 		"SELECT "+_spaceCols+` FROM space LEFT JOIN message m ON m.space_id = space.id
-		 WHERE space.feature_id = ?
+		 WHERE space.work_item_id = ?
 		 GROUP BY space.id
 		 ORDER BY MAX(m.id) IS NULL, MAX(m.id) DESC, space.created_at DESC
 		 LIMIT 1`,
-		featureID)
+		workItemID)
 	c, err := scanSpace(row)
 	if errors.Is(err, sql.ErrNoRows) {
-		return Space{}, fmt.Errorf("feature %d has no Space: %w", featureID, ErrNotFound)
+		return Space{}, fmt.Errorf("work item %d has no Space: %w", workItemID, ErrNotFound)
 	}
 	return c, err
 }
@@ -184,7 +184,7 @@ func (s *Store) SpacePreviews(ctx context.Context, f SpaceFilter) ([]SpacePrevie
 }
 
 // UpdateSpace sets the name and permission mode of c.ID. A Space never changes
-// project, and its feature changes only from nil, through PromoteSpace.
+// project, and its work item changes only from nil, through PromoteSpace.
 func (s *Store) UpdateSpace(ctx context.Context, c Space) (Space, error) {
 	if err := c.validate(); err != nil {
 		return Space{}, err
@@ -249,10 +249,10 @@ func (s *Store) nameStep(ctx context.Context, query string, args ...any) (bool, 
 	return n > 0, nil
 }
 
-// PromoteSpace attaches quick session id to feature f: the existing one when f.ID
-// is set, else a new one. A Space that already has a feature is ErrInvalid.
-func (s *Store) PromoteSpace(ctx context.Context, id int64, f Feature) (Space, error) {
-	tx, err := s.promote(ctx, id, f)
+// PromoteSpace attaches quick session id to work item w: the existing one when w.ID
+// is set, else a new one. A Space that already has a work item is ErrInvalid.
+func (s *Store) PromoteSpace(ctx context.Context, id int64, w WorkItem) (Space, error) {
+	tx, err := s.promote(ctx, id, w)
 	if err != nil {
 		return Space{}, err
 	}
@@ -263,8 +263,8 @@ func (s *Store) PromoteSpace(ctx context.Context, id int64, f Feature) (Space, e
 }
 
 // CheckPromote returns the error PromoteSpace would return, and changes nothing.
-func (s *Store) CheckPromote(ctx context.Context, id int64, f Feature) error {
-	tx, err := s.promote(ctx, id, f)
+func (s *Store) CheckPromote(ctx context.Context, id int64, w WorkItem) error {
+	tx, err := s.promote(ctx, id, w)
 	if err != nil {
 		return err
 	}
@@ -273,7 +273,7 @@ func (s *Store) CheckPromote(ctx context.Context, id int64, f Feature) error {
 
 // promote does the work of PromoteSpace in a transaction it leaves open for the
 // caller to commit or roll back. On error it has rolled the transaction back.
-func (s *Store) promote(ctx context.Context, id int64, f Feature) (_ *sql.Tx, err error) {
+func (s *Store) promote(ctx context.Context, id int64, w WorkItem) (_ *sql.Tx, err error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, fmt.Errorf("begin promote: %w", err)
@@ -284,43 +284,40 @@ func (s *Store) promote(ctx context.Context, id int64, f Feature) (_ *sql.Tx, er
 		}
 	}()
 	var projectID int64
-	var featureID *int64
-	err = tx.QueryRowContext(ctx, "SELECT project_id, feature_id FROM space WHERE id = ?", id).
-		Scan(&projectID, &featureID)
+	var workItemID *int64
+	err = tx.QueryRowContext(ctx, "SELECT project_id, work_item_id FROM space WHERE id = ?", id).
+		Scan(&projectID, &workItemID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, fmt.Errorf("space %d: %w", id, ErrNotFound)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("read Space %d: %w", id, err)
 	}
-	if featureID != nil {
-		return nil, fmt.Errorf("%w: Space %d already has feature %d", ErrInvalid, id, *featureID)
+	if workItemID != nil {
+		return nil, fmt.Errorf("%w: Space %d already has work item %d", ErrInvalid, id, *workItemID)
 	}
-	if f.ID != 0 {
+	if w.ID != 0 {
 		var inProject bool
 		err = tx.QueryRowContext(ctx,
-			"SELECT EXISTS (SELECT 1 FROM feature WHERE id = ? AND project_id = ?)",
-			f.ID, projectID).Scan(&inProject)
+			"SELECT EXISTS (SELECT 1 FROM work_item WHERE id = ? AND project_id = ?)",
+			w.ID, projectID).Scan(&inProject)
 		if err != nil {
-			return nil, fmt.Errorf("check feature: %w", err)
+			return nil, fmt.Errorf("check work item: %w", err)
 		}
 		if !inProject {
-			return nil, fmt.Errorf("%w: feature %d is not in project %d", ErrInvalid, f.ID, projectID)
+			return nil, fmt.Errorf("%w: work item %d is not in project %d", ErrInvalid, w.ID, projectID)
 		}
 	} else {
-		if err := f.validateSlug(); err != nil {
+		if err := w.validate(); err != nil {
 			return nil, err
 		}
-		if err := f.validate(); err != nil {
-			return nil, err
-		}
-		f.ProjectID = projectID
-		if f, err = insertFeature(ctx, tx, f); err != nil {
+		w.ProjectID = projectID
+		if w, err = insertWorkItem(ctx, tx, w); err != nil {
 			return nil, err
 		}
 	}
 	if _, err := tx.ExecContext(ctx,
-		"UPDATE space SET feature_id = ? WHERE id = ?", f.ID, id); err != nil {
+		"UPDATE space SET work_item_id = ? WHERE id = ?", w.ID, id); err != nil {
 		return nil, fmt.Errorf("update Space: %w", err)
 	}
 	return tx, nil
@@ -424,7 +421,7 @@ func scanSpacePreview(r interface{ Scan(...any) error }) (SpacePreview, error) {
 	var author, body, lastCreated, closed sql.NullString
 	// active_turn is a server-side hint (not client data), so the preview reads it without
 	// exposing it: the Space JSON omits it.
-	if err := r.Scan(&p.ID, &p.ProjectID, &p.FeatureID, &p.Name, &p.Role, &p.Backend,
+	if err := r.Scan(&p.ID, &p.ProjectID, &p.WorkItemID, &p.Name, &p.Role, &p.Backend,
 		&p.PermissionMode, &p.Paused, &p.TokenBudget, &created, &closed, &p.ActiveTurn, &p.Team,
 		&author, &body, &lastCreated); err != nil {
 		return SpacePreview{}, err
@@ -452,7 +449,7 @@ func scanSpace(r interface{ Scan(...any) error }) (Space, error) {
 	var c Space
 	var created string
 	var closed sql.NullString
-	if err := r.Scan(&c.ID, &c.ProjectID, &c.FeatureID, &c.Name, &c.Role, &c.Backend,
+	if err := r.Scan(&c.ID, &c.ProjectID, &c.WorkItemID, &c.Name, &c.Role, &c.Backend,
 		&c.PermissionMode, &c.Paused, &c.TokenBudget, &created, &closed, &c.ActiveTurn, &c.Team); err != nil {
 		return Space{}, err
 	}

@@ -355,11 +355,11 @@ func (e *liveEnv) sendTo(t *testing.T, id int, text string) (int, string) {
 	return do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/send", e.url, id), `{"text":"`+text+`"}`)
 }
 
-// featureSpace adds a feature and a Space on it, and returns the Space's id.
-func (e *liveEnv) featureSpace(t *testing.T) int {
+// workItemSpace adds a work item and a Space on it, and returns the Space's id.
+func (e *liveEnv) workItemSpace(t *testing.T) int {
 	t.Helper()
-	do(t, http.MethodPost, e.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
-	do(t, http.MethodPost, e.url+"/spaces", `{"projectId":1,"featureId":1,"name":"c","backend":"claude"}`)
+	do(t, http.MethodPost, e.url+"/work-items", `{"projectId":1,"title":"Login"}`)
+	do(t, http.MethodPost, e.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"c","backend":"claude"}`)
 	return 2
 }
 
@@ -998,7 +998,7 @@ func TestSend_AfterFailedTurnNotesTheLeftoverWakes(t *testing.T) {
 
 func TestSend_Wrap(t *testing.T) {
 	env := newLiveEnv(t)
-	id := env.featureSpace(t)
+	id := env.workItemSpace(t)
 	sub := subscribeTo(t, env.url, id)
 	if status, _ := env.sendTo(t, id, "/wrap"); status != 202 {
 		t.Fatalf("send = %d, want 202", status)
@@ -1127,7 +1127,7 @@ func TestSend_WhileStartFails(t *testing.T) {
 
 func TestSend_WhileWrapStarts(t *testing.T) {
 	env := newLiveEnv(t)
-	id := env.featureSpace(t)
+	id := env.workItemSpace(t)
 	var status int
 	var body string
 	env.open = func(context.Context) (session, error) {
@@ -1152,8 +1152,8 @@ func TestSend_WhileWrapStarts(t *testing.T) {
 func TestSend_WrapWakesNobody(t *testing.T) {
 	env := newLiveEnv(t)
 	env.teamSpace(t)
-	do(t, http.MethodPost, env.url+"/features", `{"projectId":1,"slug":"login","name":"Login"}`)
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"featureId":1,"name":"w","team":"core"}`)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"w","team":"core"}`)
 	env.fake.onRun = func(string, string, *int64) {
 		_, err := env.st.CreateMessage(context.Background(),
 			store.Message{SpaceID: 3, Author: "lead", Body: "@architect look at this"})
@@ -1351,7 +1351,7 @@ func TestCreateSpace_RoleDefaultsToLead(t *testing.T) {
 
 func TestSend_PromoteTextIsAMessage(t *testing.T) {
 	env := newLiveEnv(t)
-	id := env.featureSpace(t)
+	id := env.workItemSpace(t)
 	sub := subscribeTo(t, env.url, id)
 
 	if status, _ := env.sendTo(t, id, "/promote"); status != 202 {
@@ -1423,7 +1423,7 @@ func TestWrap_QuickSession(t *testing.T) {
 func TestWrap_NoProposalNote(t *testing.T) {
 	env := newLiveEnv(t)
 	env.fake.noProposal.Store(true)
-	id := env.featureSpace(t)
+	id := env.workItemSpace(t)
 	sub := subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "/wrap")
 	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"wrapped"}`,
@@ -1462,8 +1462,8 @@ func (e *liveEnv) wantInterruptedPromote(t *testing.T, ag *countingAgent) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if ch.FeatureID == nil {
-		t.Error("space has no feature, want the promote to stand")
+	if ch.WorkItemID == nil {
+		t.Error("space has no work item, want the promote to stand")
 	}
 	turns, err := e.st.Turns(context.Background(), store.TurnFilter{})
 	if err != nil {
@@ -1490,8 +1490,8 @@ func TestPromote_StopDuringSayAnswers202(t *testing.T) {
 	stopWhile, stopped, ag := stopAfterOpen(env)
 	env.fake.say = stopWhile
 
-	status, body := do(t, http.MethodPost, env.url+"/spaces/1/promote", `{"slug":"login","name":"Login"}`)
-	if status != 202 || !strings.Contains(body, `"featureId":1`) {
+	status, body := do(t, http.MethodPost, env.url+"/spaces/1/promote", `{"title":"Login"}`)
+	if status != 202 || !strings.Contains(body, `"workItemId":1`) {
 		t.Fatalf("promote = %d %s, want 202 and the promoted space", status, body)
 	}
 	<-stopped

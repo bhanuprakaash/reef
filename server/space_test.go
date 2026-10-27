@@ -50,20 +50,20 @@ func TestSpaceStatus(t *testing.T) {
 			wantBody:   `{"error":"invalid: unknown project 9"}`,
 		},
 		{
-			name:       "feature of another project",
+			name:       "work item of another project",
 			method:     http.MethodPost,
 			path:       "/spaces",
-			give:       `{"projectId":2,"featureId":1,"name":"c","backend":"claude"}`,
+			give:       `{"projectId":2,"workItemId":1,"name":"c","backend":"claude"}`,
 			wantStatus: 400,
-			wantBody:   `{"error":"invalid: feature 1 is not in project 2"}`,
+			wantBody:   `{"error":"invalid: work item 1 is not in project 2"}`,
 		},
 		{
-			name:       "unknown feature",
+			name:       "unknown work item",
 			method:     http.MethodPost,
 			path:       "/spaces",
-			give:       `{"projectId":1,"featureId":9,"name":"c","backend":"claude"}`,
+			give:       `{"projectId":1,"workItemId":9,"name":"c","backend":"claude"}`,
 			wantStatus: 400,
-			wantBody:   `{"error":"invalid: unknown feature 9"}`,
+			wantBody:   `{"error":"invalid: unknown work item 9"}`,
 		},
 		{
 			name:       "unknown field",
@@ -124,7 +124,7 @@ func TestSpaceStatus(t *testing.T) {
 			ts := newTestServer(t)
 			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
 			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"other","path":"/"}`)
-			do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"auth","name":"Auth"}`)
+			do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth"}`)
 			status, body := do(t, tt.method, ts.URL+tt.path, tt.give)
 			if status != tt.wantStatus {
 				t.Errorf("status = %d, want %d", status, tt.wantStatus)
@@ -185,32 +185,32 @@ func TestListSpacesLastMessage(t *testing.T) {
 func TestSpaceRoundTrip(t *testing.T) {
 	ts := newTestServer(t)
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"auth","name":"Auth"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth"}`)
 
 	status, body := do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"scratch","role":"lead","backend":"claude","permissionMode":"acceptEdits"}`)
 	if status != 201 || !strings.HasPrefix(body,
-		`{"id":1,"projectId":1,"featureId":null,"name":"scratch","role":"lead","backend":"claude",`+
+		`{"id":1,"projectId":1,"workItemId":null,"name":"scratch","role":"lead","backend":"claude",`+
 			`"permissionMode":"acceptEdits","paused":"","tokenBudget":1000000,"team":"solo","createdAt":"`) {
 		t.Fatalf("quick session = %d %s", status, body)
 	}
-	status, body = do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"featureId":1,"name":"auth","backend":"claude"}`)
-	if status != 201 || !strings.Contains(body, `"featureId":1,"name":"auth"`) {
-		t.Fatalf("feature Space = %d %s", status, body)
+	status, body = do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"auth","backend":"claude"}`)
+	if status != 201 || !strings.Contains(body, `"workItemId":1,"name":"auth"`) {
+		t.Fatalf("work item Space = %d %s", status, body)
 	}
 
 	status, body = do(t, http.MethodGet, ts.URL+"/spaces?project=1", "")
 	if status != 200 || strings.Count(body, `"projectId":1`) != 2 {
 		t.Fatalf("by project = %d %s", status, body)
 	}
-	status, body = do(t, http.MethodGet, ts.URL+"/spaces?feature=1", "")
+	status, body = do(t, http.MethodGet, ts.URL+"/spaces?workItem=1", "")
 	if status != 200 || strings.Count(body, `"projectId":1`) != 1 || !strings.Contains(body, `"name":"auth"`) {
-		t.Fatalf("by feature = %d %s", status, body)
+		t.Fatalf("by work item = %d %s", status, body)
 	}
 
 	status, body = do(t, http.MethodPut, ts.URL+"/spaces/1",
 		`{"name":"renamed","permissionMode":"default"}`)
 	if status != 200 || !strings.Contains(body,
-		`"projectId":1,"featureId":null,"name":"renamed"`) ||
+		`"projectId":1,"workItemId":null,"name":"renamed"`) ||
 		!strings.Contains(body, `"permissionMode":"default"`) {
 		t.Fatalf("rename quick session = %d %s", status, body)
 	}
@@ -219,8 +219,8 @@ func TestSpaceRoundTrip(t *testing.T) {
 		t.Fatalf("bad permission mode = %d %s, want 400", status, body)
 	}
 	status, body = do(t, http.MethodPut, ts.URL+"/spaces/2", `{"name":"renamed"}`)
-	if status != 200 || !strings.Contains(body, `"projectId":1,"featureId":1,"name":"renamed"`) {
-		t.Fatalf("rename feature Space = %d %s", status, body)
+	if status != 200 || !strings.Contains(body, `"projectId":1,"workItemId":1,"name":"renamed"`) {
+		t.Fatalf("rename work item Space = %d %s", status, body)
 	}
 	if status, body = do(t, http.MethodPut, ts.URL+"/spaces/2", `{"projectId":9,"name":"x"}`); status != 400 {
 		t.Fatalf("ignored field update = %d %s, want 400", status, body)

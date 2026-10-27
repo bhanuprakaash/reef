@@ -22,7 +22,7 @@ func TestSearchDirectVisibility(t *testing.T) {
 	}
 	one := int64(1)
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: 1, FeatureID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
+		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -95,7 +95,7 @@ func TestSearchDirectVisibility(t *testing.T) {
 		want       string
 	}{
 		{
-			name: "user sees both kinds", path: "/search?feature=1&q=handoff", wantStatus: 200,
+			name: "user sees both kinds", path: "/search?workItem=1&q=handoff", wantStatus: 200,
 			want: `[{"spaceId":5,"messageId":5,"kind":"public","author":"lead",` +
 				`"snippet":"handoff plan for @developer"},` +
 				`{"spaceId":5,"messageId":2,"kind":"direct","author":"developer",` +
@@ -103,13 +103,13 @@ func TestSearchDirectVisibility(t *testing.T) {
 				`{"spaceId":5,"messageId":1,"kind":"direct","author":"lead",` +
 				`"from":"lead","to":"developer","chainId":1,"snippet":"build the handoff"}]`,
 		},
-		{name: "limit", path: "/search?feature=1&q=handoff&limit=1", wantStatus: 200,
+		{name: "limit", path: "/search?workItem=1&q=handoff&limit=1", wantStatus: 200,
 			want: `[{"spaceId":5,"messageId":5,"kind":"public","author":"lead",` +
 				`"snippet":"handoff plan for @developer"}]`},
-		{name: "no match", path: "/search?feature=1&q=zebra", wantStatus: 200, want: `[]`},
-		{name: "feature is required", path: "/search?q=handoff", wantStatus: 400,
-			want: `{"error":"invalid: feature is required"}`},
-		{name: "query is required", path: "/search?feature=1", wantStatus: 400,
+		{name: "no match", path: "/search?workItem=1&q=zebra", wantStatus: 200, want: `[]`},
+		{name: "work item is required", path: "/search?q=handoff", wantStatus: 400,
+			want: `{"error":"invalid: work item is required"}`},
+		{name: "query is required", path: "/search?workItem=1", wantStatus: 400,
 			want: `{"error":"invalid: q is required"}`},
 	}
 	for _, tt := range tests {
@@ -120,7 +120,7 @@ func TestSearchDirectVisibility(t *testing.T) {
 			}
 		})
 	}
-	if status, _ := do(t, http.MethodPost, ts.URL+"/search?feature=1&q=handoff", ""); status != 405 {
+	if status, _ := do(t, http.MethodPost, ts.URL+"/search?workItem=1&q=handoff", ""); status != 405 {
 		t.Errorf("POST /search = %d, want 405", status)
 	}
 }

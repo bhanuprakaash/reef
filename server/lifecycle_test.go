@@ -374,7 +374,7 @@ func TestStop_AfterPrepareTheTurnStillRuns(t *testing.T) {
 			}
 			prepare := func() error {
 				_, err := env.st.PromoteSpace(
-					context.Background(), 1, store.Feature{Slug: "login", Name: "Login"})
+					context.Background(), 1, store.WorkItem{Title: "Login"})
 				if tt.inPrepare {
 					stopWhile()
 				}
@@ -429,18 +429,18 @@ func TestStop_DuringTurnCheck(t *testing.T) {
 	}
 }
 
-func TestDelete_FeatureOrProjectStopsLiveSpace(t *testing.T) {
+func TestDelete_WorkItemOrProjectStopsLiveSpace(t *testing.T) {
 	tests := []struct {
 		name string
 		give string
 	}{
-		{name: "feature", give: "/features/1"},
+		{name: "work item", give: "/work-items/1"},
 		{name: "project", give: "/projects/1"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			env := newLiveEnv(t)
-			id := env.featureSpace(t)
+			id := env.workItemSpace(t)
 			sub := subscribeTo(t, env.url, id)
 			env.sendTo(t, id, "block")
 			<-env.fake.started

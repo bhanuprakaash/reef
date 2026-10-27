@@ -13,17 +13,17 @@ import (
 // is dated by its newest turn, which is what paused it. A turn that failed and paused its own
 // Space, such as the tool call cap, shows only as paused.
 const _inboxItems = `
-SELECT 'approval', a.space_id, c.feature_id, a.from_role || ' wants to wake ' || a.to_role,
+SELECT 'approval', a.space_id, c.work_item_id, a.from_role || ' wants to wake ' || a.to_role,
 	a.created_at, a.id, NULL, NULL
 FROM approval a JOIN space c ON c.id = a.space_id
 WHERE a.status = ? AND a.kind = ? AND c.closed_at IS NULL
 UNION ALL
-SELECT 'paused', c.id, c.feature_id, c.paused,
+SELECT 'paused', c.id, c.work_item_id, c.paused,
 	COALESCE((SELECT ended_at FROM turn WHERE space_id = c.id ORDER BY id DESC LIMIT 1), c.created_at),
 	NULL, NULL, NULL
 FROM space c WHERE c.paused != '' AND c.closed_at IS NULL
 UNION ALL
-SELECT 'failed', t.space_id, c.feature_id, t.role || ' failed: ' || t.error, t.ended_at, NULL, t.id, NULL
+SELECT 'failed', t.space_id, c.work_item_id, t.role || ' failed: ' || t.error, t.ended_at, NULL, t.id, NULL
 FROM turn t JOIN space c ON c.id = t.space_id
 WHERE ` + _retryable + ` AND t.error != '` + _interruptedError + `' AND c.paused = '' AND c.closed_at IS NULL`
 
@@ -32,7 +32,7 @@ WHERE ` + _retryable + ` AND t.error != '` + _interruptedError + `' AND c.paused
 // decided on, is not waiting. Nor is the reply a turn the user stopped kept, nor the message
 // the user dismissed.
 const _inboxWaiting = `
-SELECT 'waiting', c.id, c.feature_id, substr(m.body, 1, 200), m.created_at, NULL, NULL, m.id
+SELECT 'waiting', c.id, c.work_item_id, substr(m.body, 1, 200), m.created_at, NULL, NULL, m.id
 FROM space c JOIN message m ON m.id = (SELECT MAX(id) FROM message WHERE space_id = c.id)
 WHERE c.closed_at IS NULL AND m.author NOT IN ('user', '` + ReefAuthor + `')
 	AND m.id IS NOT c.dismissed_message_id
@@ -48,7 +48,7 @@ WHERE c.closed_at IS NULL AND m.author NOT IN ('user', '` + ReefAuthor + `')
 type InboxItem struct {
 	Kind       string    `json:"kind"`
 	SpaceID    int64     `json:"spaceId"`
-	FeatureID  *int64    `json:"featureId"`
+	WorkItemID *int64    `json:"workItemId"`
 	Text       string    `json:"text"`
 	At         time.Time `json:"at"`
 	ApprovalID *int64    `json:"approvalId,omitempty"`
@@ -108,7 +108,7 @@ func (s *Store) DismissWaiting(ctx context.Context, spaceID, messageID int64) er
 func scanInboxItem(r interface{ Scan(...any) error }) (InboxItem, error) {
 	var i InboxItem
 	var at string
-	if err := r.Scan(&i.Kind, &i.SpaceID, &i.FeatureID, &i.Text, &at, &i.ApprovalID, &i.TurnID, &i.MessageID); err != nil {
+	if err := r.Scan(&i.Kind, &i.SpaceID, &i.WorkItemID, &i.Text, &at, &i.ApprovalID, &i.TurnID, &i.MessageID); err != nil {
 		return InboxItem{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, at)

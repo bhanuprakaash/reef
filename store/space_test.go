@@ -133,27 +133,24 @@ func TestCheckPromote_ChangesNothing(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := s.CheckPromote(ctx, 1, Feature{Slug: "login", Name: "Login"}); err != nil {
+	if err := s.CheckPromote(ctx, 1, WorkItem{Title: "Login"}); err != nil {
 		t.Fatalf("CheckPromote = %v, want nil", err)
 	}
-	if got, err := s.Space(ctx, 1); err != nil || got.FeatureID != nil {
-		t.Errorf("space after check = %+v, %v, want no feature", got, err)
+	if got, err := s.Space(ctx, 1); err != nil || got.WorkItemID != nil {
+		t.Errorf("space after check = %+v, %v, want no work item", got, err)
 	}
-	if fs, err := s.Features(ctx, nil); err != nil || len(fs) != 0 {
-		t.Errorf("features after check = %+v, %v, want none", fs, err)
+	if fs, err := s.WorkItems(ctx, WorkItemFilter{}); err != nil || len(fs) != 0 {
+		t.Errorf("work items after check = %+v, %v, want none", fs, err)
 	}
 
-	if _, err := s.PromoteSpace(ctx, 1, Feature{Slug: "login", Name: "Login"}); err != nil {
+	if _, err := s.PromoteSpace(ctx, 1, WorkItem{Title: "Login"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "second"}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CheckPromote(ctx, 2, Feature{Slug: "login", Name: "Login"}); !errors.Is(err, ErrConflict) {
-		t.Errorf("CheckPromote with a taken slug = %v, want ErrConflict", err)
-	}
-	if err := s.CheckPromote(ctx, 1, Feature{ID: 1}); !errors.Is(err, ErrInvalid) {
-		t.Errorf("CheckPromote on a Space with a feature = %v, want ErrInvalid", err)
+	if err := s.CheckPromote(ctx, 1, WorkItem{ID: 1}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("CheckPromote on a Space with a work item = %v, want ErrInvalid", err)
 	}
 }
 

@@ -10,7 +10,7 @@ func TestSession_ReadOnlyTurnBlocksTryLockNotWrites(t *testing.T) {
 	st, f := openStore(t)
 	r := newTreeRig(t, st)
 	a, b := r.session(t, "a", f), r.session(t, "b", f)
-	tree := worktree.Path(r.dir, f.ProjectID, f.Slug)
+	tree := worktree.Path(r.dir, f.ProjectID, f.TreeKey())
 
 	r.run(a, "tester")
 	r.wantStarted(t, "a/tester")

@@ -23,7 +23,7 @@ import (
 
 var _timestamp = regexp.MustCompile(`"(createdAt|updatedAt|retiredAt)":"[^"]*"`)
 
-// mcpFixture has features 1 (auth) and 2 (billing). The returned token is the
+// mcpFixture has work items 1 (auth) and 2 (billing). The returned token is the
 // architect in Space 1; Space 2 is a second Space of auth, Space 3 is
 // billing's and Space 4 is a quick session.
 func mcpFixture(t *testing.T) (*store.Store, store.Token) {
@@ -44,14 +44,14 @@ func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 	one, two := int64(1), int64(2)
 	_, err = st.CreateProject(ctx, store.Project{Name: "reef", Path: "/tmp/reef"})
 	must(err)
-	_, err = st.CreateFeature(ctx, store.Feature{ProjectID: 1, Slug: "auth", Name: "Auth"})
+	_, err = st.CreateWorkItem(ctx, store.WorkItem{ProjectID: 1, Title: "Auth"})
 	must(err)
-	_, err = st.CreateFeature(ctx, store.Feature{ProjectID: 1, Slug: "billing", Name: "Billing"})
+	_, err = st.CreateWorkItem(ctx, store.WorkItem{ProjectID: 1, Title: "Billing"})
 	must(err)
 	for _, c := range []store.Space{
-		{ProjectID: 1, FeatureID: &one, Name: "architect"},
-		{ProjectID: 1, FeatureID: &one, Name: "developer"},
-		{ProjectID: 1, FeatureID: &two, Name: "architect"},
+		{ProjectID: 1, WorkItemID: &one, Name: "architect"},
+		{ProjectID: 1, WorkItemID: &one, Name: "developer"},
+		{ProjectID: 1, WorkItemID: &two, Name: "architect"},
 		{ProjectID: 1, Name: "quick"},
 	} {
 		_, err = st.CreateSpace(ctx, c)
@@ -66,11 +66,11 @@ func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 		_, err = st.CreateMessage(ctx, m)
 		must(err)
 	}
-	_, err = st.PutBrief(ctx, store.Brief{FeatureID: 1, Body: "Build login", Author: "user"})
+	_, err = st.PutBrief(ctx, store.Brief{WorkItemID: 1, Body: "Build login", Author: "user"})
 	must(err)
-	_, err = st.PutRoleNotes(ctx, store.RoleNotes{FeatureID: 1, Role: "architect", Body: "keep it small"})
+	_, err = st.PutRoleNotes(ctx, store.RoleNotes{WorkItemID: 1, Role: "architect", Body: "keep it small"})
 	must(err)
-	_, err = st.CreateDecision(ctx, store.Decision{FeatureID: 2, Body: "use stripe", Author: "user"})
+	_, err = st.CreateDecision(ctx, store.Decision{WorkItemID: 2, Body: "use stripe", Author: "user"})
 	must(err)
 	tok, err := st.CreateToken(ctx, 1, "architect")
 	must(err)
@@ -168,14 +168,7 @@ func TestMCPTools(t *testing.T) {
 			want: `{"brief":"Build login"}`,
 		},
 		{
-			name: "add task to the feature",
-			tool: "add_task",
-			give: map[string]any{"title": "write tests"},
-			want: `{"body":"","createdAt":"T","featureId":1,"id":1,"projectId":1,` +
-				`"status":"todo","title":"write tests","updatedAt":"T"}`,
-		},
-		{
-			name: "search skips another feature",
+			name: "search skips another work item",
 			tool: "search_sessions",
 			give: map[string]any{"query": "SESSIONS"},
 			want: `{"hits":[{"author":"developer","kind":"public","messageId":2,` +
@@ -241,7 +234,7 @@ func TestMCPTools(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "read another feature's thread",
+			name:    "read another work item's thread",
 			tool:    "read_thread",
 			give:    map[string]any{"spaceId": 3},
 			want:    "space 3: not found",
@@ -364,7 +357,7 @@ func TestMCPRemember(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "a decision is accepted on the feature",
+			name: "a decision is accepted on the work item",
 			call: dev,
 			give: map[string]any{"kind": "decision", "body": "item 1"},
 			want: item(1, "decision", "work_item:1", "developer", "accepted"),
@@ -450,7 +443,7 @@ func TestMCPMemoryScopes(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			name: "recall finds its own feature and the project, never another feature",
+			name: "recall finds its own work item and the project, never another work item",
 			tool: "recall",
 			give: map[string]any{"query": "sqlite"},
 			want: `{"hits":[{"body":"use sqlite for auth","id":1,"kind":"decision","scope":"work_item:1",` +
@@ -464,7 +457,7 @@ func TestMCPMemoryScopes(t *testing.T) {
 				`"status":"accepted","via":"direct"}]}`,
 		},
 		{
-			name:    "read another feature's item",
+			name:    "read another work item's item",
 			tool:    "read_memory",
 			give:    map[string]any{"id": 2},
 			want:    "memory 2: not found",
@@ -478,7 +471,7 @@ func TestMCPMemoryScopes(t *testing.T) {
 			wantErr: true,
 		},
 		{
-			name:    "replace another feature's item",
+			name:    "replace another work item's item",
 			tool:    "remember",
 			give:    map[string]any{"kind": "decision", "body": "x", "replaces": []int{2}},
 			want:    "memory 2: not found",
@@ -506,62 +499,6 @@ func TestMCPMemoryScopes(t *testing.T) {
 		`"status":"accepted","why":""}`
 	if got != want || isErr {
 		t.Errorf("read_memory of a project item = %q (error %v), want %q", got, isErr, want)
-	}
-}
-
-func TestMCPSetStage(t *testing.T) {
-	st, tok := mcpFixture(t)
-	ctx := context.Background()
-	if _, err := st.CreateFeature(ctx, store.Feature{ProjectID: 1, Slug: "login", Name: "Login", Kind: "fixes"}); err != nil {
-		t.Fatal(err)
-	}
-	three := int64(3)
-	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, FeatureID: &three, Name: "architect"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	fixesTok, err := st.CreateToken(ctx, ch.ID, "architect")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	got, isErr := callTool(t, st, tok)("set_stage", map[string]any{"stage": "plan"})
-	if want := `{"closedAt":null,"createdAt":"T","goal":"","id":1,"kind":"journey",` +
-		`"name":"Auth","projectId":1,"slug":"auth","stage":"plan"}`; got != want || isErr {
-		t.Errorf("set_stage plan = %q (error %v), want %q", got, isErr, want)
-	}
-	msgs, err := st.Messages(ctx, 1, 4)
-	if err != nil || len(msgs) != 1 || msgs[0].Author != "reef" ||
-		msgs[0].Body != "architect moved the stage to plan" {
-		t.Errorf("messages after id 4 = %+v, %v, want one reef note", msgs, err)
-	}
-
-	got, isErr = callTool(t, st, tok)("set_stage", map[string]any{"stage": "plan"})
-	if want := `{"closedAt":null,"createdAt":"T","goal":"","id":1,"kind":"journey",` +
-		`"name":"Auth","projectId":1,"slug":"auth","stage":"plan"}`; got != want || isErr {
-		t.Errorf("set_stage plan again = %q (error %v), want %q", got, isErr, want)
-	}
-	msgs, err = st.Messages(ctx, 1, 4)
-	if err != nil || len(msgs) != 1 {
-		t.Errorf("messages after id 4 = %+v, %v, want still one reef note", msgs, err)
-	}
-
-	tests := []struct {
-		name string
-		tok  store.Token
-		give string
-		want string
-	}{
-		{"unknown stage", tok, "x", `invalid: unknown stage "x"`},
-		{"fixes feature", fixesTok, "plan", "invalid: feature login is a list of fixes and has no stage"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, isErr := callTool(t, st, tt.tok)("set_stage", map[string]any{"stage": tt.give})
-			if got != tt.want || !isErr {
-				t.Errorf("set_stage %q = %q (error %v), want %q", tt.give, got, isErr, tt.want)
-			}
-		})
 	}
 }
 
@@ -615,7 +552,7 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 		want string
 	}{
 		{"retire unknown id", map[string]any{"retire": []any{9}}, fmt.Sprintf(notLive, 9)},
-		{"retire another feature's item", map[string]any{"retire": []any{1}}, fmt.Sprintf(notLive, 1)},
+		{"retire another work item's item", map[string]any{"retire": []any{1}}, fmt.Sprintf(notLive, 1)},
 		{"retire a retired item", map[string]any{"retire": []any{2}}, fmt.Sprintf(notLive, 2)},
 		{
 			"replace unknown id",
@@ -623,7 +560,7 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 			fmt.Sprintf(notOnTheShelf, 9),
 		},
 		{
-			"replace an item of the project shelf from a feature item",
+			"replace an item of the project shelf from a work item item",
 			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "replaces": []any{4}}}},
 			fmt.Sprintf(notOnTheShelf, 4),
 		},
@@ -668,7 +605,7 @@ func TestMCPProposeWrapTeamItemsOnlyFromTheLeadOfARealTeam(t *testing.T) {
 	}
 	one := int64(1)
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: 1, FeatureID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
+		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -725,7 +662,7 @@ func TestMCPDirectMessages(t *testing.T) {
 	}
 	one := int64(1)
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: 1, FeatureID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
+		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -794,156 +731,6 @@ func TestMCPDirectMessages(t *testing.T) {
 	}
 }
 
-func TestMCPListTasks(t *testing.T) {
-	st, tok := mcpFixture(t)
-	ctx := context.Background()
-	one, two := int64(1), int64(2)
-	for _, task := range []store.Task{
-		{ProjectID: 1, FeatureID: &one, Title: "login form"},
-		{ProjectID: 1, FeatureID: &two, Title: "invoice"},
-		{ProjectID: 1, FeatureID: &one, Title: "logout", Status: "done"},
-		{ProjectID: 1, Title: "no feature"},
-	} {
-		if _, err := st.CreateTask(ctx, task); err != nil {
-			t.Fatal(err)
-		}
-	}
-	call := callTool(t, st, tok)
-	tests := []struct {
-		name    string
-		give    map[string]any
-		want    string
-		wantErr bool
-	}{
-		{
-			name: "only this feature's tasks",
-			want: `{"tasks":[{"body":"","createdAt":"T","featureId":1,"id":1,"projectId":1,` +
-				`"status":"todo","title":"login form","updatedAt":"T"},{"body":"","createdAt":"T",` +
-				`"featureId":1,"id":3,"projectId":1,"status":"done","title":"logout","updatedAt":"T"}]}`,
-		},
-		{
-			name: "status filter",
-			give: map[string]any{"status": "done"},
-			want: `{"tasks":[{"body":"","createdAt":"T","featureId":1,"id":3,"projectId":1,` +
-				`"status":"done","title":"logout","updatedAt":"T"}]}`,
-		},
-		{
-			name: "no match",
-			give: map[string]any{"status": "doing"},
-			want: `{"tasks":[]}`,
-		},
-		{
-			name:    "unknown status",
-			give:    map[string]any{"status": "later"},
-			want:    `invalid: unknown status "later"`,
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, isErr := call("list_tasks", tt.give)
-			if got != tt.want || isErr != tt.wantErr {
-				t.Errorf("list_tasks = %q (error %v), want %q (error %v)", got, isErr, tt.want, tt.wantErr)
-			}
-		})
-	}
-}
-
-func TestMCPReadAndUpdateTask(t *testing.T) {
-	st, tok := mcpFixture(t)
-	ctx := context.Background()
-	one, two := int64(1), int64(2)
-	for _, task := range []store.Task{
-		{ProjectID: 1, FeatureID: &one, Title: "login form", Body: "email and password"},
-		{ProjectID: 1, FeatureID: &two, Title: "invoice"},
-	} {
-		if _, err := st.CreateTask(ctx, task); err != nil {
-			t.Fatal(err)
-		}
-	}
-	call := callTool(t, st, tok)
-	tests := []struct {
-		name    string
-		tool    string
-		give    map[string]any
-		want    string
-		wantErr bool
-	}{
-		{
-			name: "read own task",
-			tool: "read_task",
-			give: map[string]any{"id": 1},
-			want: `{"body":"email and password","createdAt":"T","featureId":1,"id":1,"projectId":1,` +
-				`"status":"todo","title":"login form","updatedAt":"T"}`,
-		},
-		{
-			name:    "read another feature's task",
-			tool:    "read_task",
-			give:    map[string]any{"id": 2},
-			want:    "task 2: not found",
-			wantErr: true,
-		},
-		{
-			name:    "read a missing task",
-			tool:    "read_task",
-			give:    map[string]any{"id": 99},
-			want:    "task 99: not found",
-			wantErr: true,
-		},
-		{
-			name: "update only the status",
-			tool: "update_task",
-			give: map[string]any{"id": 1, "status": "done"},
-			want: `{"body":"email and password","createdAt":"T","featureId":1,"id":1,"projectId":1,` +
-				`"status":"done","title":"login form","updatedAt":"T"}`,
-		},
-		{
-			name: "update title and body",
-			tool: "update_task",
-			give: map[string]any{"id": 1, "title": "sign in form", "body": ""},
-			want: `{"body":"","createdAt":"T","featureId":1,"id":1,"projectId":1,` +
-				`"status":"done","title":"sign in form","updatedAt":"T"}`,
-		},
-		{
-			name:    "update with an unknown status",
-			tool:    "update_task",
-			give:    map[string]any{"id": 1, "status": "later"},
-			want:    `invalid: unknown status "later"`,
-			wantErr: true,
-		},
-		{
-			name:    "update with an empty title",
-			tool:    "update_task",
-			give:    map[string]any{"id": 1, "title": ""},
-			want:    "invalid: task title is required",
-			wantErr: true,
-		},
-		{
-			name:    "update another feature's task",
-			tool:    "update_task",
-			give:    map[string]any{"id": 2, "status": "done"},
-			want:    "task 2: not found",
-			wantErr: true,
-		},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			got, isErr := call(tt.tool, tt.give)
-			if got != tt.want || isErr != tt.wantErr {
-				t.Errorf("%s = %q (error %v), want %q (error %v)",
-					tt.tool, got, isErr, tt.want, tt.wantErr)
-			}
-		})
-	}
-	other, err := st.Task(ctx, 2)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if other.Status != "todo" {
-		t.Errorf("another feature's task status = %q, want todo", other.Status)
-	}
-}
-
 func TestMCPQuickSession(t *testing.T) {
 	st, _ := mcpFixture(t)
 	tok, err := st.CreateToken(context.Background(), 4, "architect")
@@ -957,21 +744,16 @@ func TestMCPQuickSession(t *testing.T) {
 	}{
 		{"get_brief", nil},
 		{"remember", map[string]any{"kind": "decision", "body": "d"}},
-		{"add_task", map[string]any{"title": "t"}},
-		{"list_tasks", nil},
-		{"read_task", map[string]any{"id": 1}},
-		{"update_task", map[string]any{"id": 1, "status": "done"}},
 		{"search_sessions", map[string]any{"query": "q"}},
 		{"read_thread", map[string]any{"spaceId": 1}},
 		{"propose_wrap", map[string]any{"brief": "b"}},
-		{"set_stage", map[string]any{"stage": "plan"}},
 		{"propose_brief", map[string]any{"brief": "b"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.tool, func(t *testing.T) {
 			got, isErr := call(tt.tool, tt.give)
-			if got != "this Space has no feature" || !isErr {
-				t.Errorf("%s = %q (error %v), want the no-feature error", tt.tool, got, isErr)
+			if got != "this Space has no work item" || !isErr {
+				t.Errorf("%s = %q (error %v), want the no-work-item error", tt.tool, got, isErr)
 			}
 		})
 	}

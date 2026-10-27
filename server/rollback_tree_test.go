@@ -35,11 +35,11 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 	if _, body := do(t, http.MethodGet, env.url+"/turns?space=3&rollbackable=1", ""); !strings.Contains(body, `"id":2,`) {
 		t.Errorf("rollbackable turns of the quick session = %s, want turn 2", body)
 	}
-	if _, err := env.st.PromoteSpace(ctx, 3, store.Feature{Slug: "search", Name: "Search"}); err != nil {
+	if _, err := env.st.PromoteSpace(ctx, 3, store.WorkItem{Title: "Search"}); err != nil {
 		t.Fatal(err)
 	}
-	other := worktree.Path(env.dir, 2, "search")
-	if err := worktree.Ensure(ctx, p.Path, other, worktree.Branch("search"), ""); err != nil {
+	other := worktree.Path(env.dir, 2, "2")
+	if err := worktree.Ensure(ctx, p.Path, other, worktree.Branch("2"), ""); err != nil {
 		t.Fatal(err)
 	}
 	writeIn(t, other, "work.txt", "w")
@@ -56,7 +56,7 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 		t.Errorf("rollback after promote = %d %s, want 409 %s", status, body, want)
 	}
 	if got := gitIn(t, other, "status", "--porcelain"); got != "?? work.txt" {
-		t.Errorf("status of the feature worktree = %q, want work.txt left alone", got)
+		t.Errorf("status of the work item worktree = %q, want work.txt left alone", got)
 	}
 	if got := gitIn(t, tree, "status", "--porcelain"); got != "M a.txt\n?? new.txt" {
 		t.Errorf("status of the other worktree = %q, want it untouched", got)
@@ -114,11 +114,11 @@ func TestRollback_ChecksOutTheBranchItWasTakenOn(t *testing.T) {
 		t.Fatalf("rollback = %d %s, want 204", status, body)
 	}
 
-	if got := gitIn(t, tree, "branch", "--show-current"); got != "feature/login" {
-		t.Errorf("branch = %q, want feature/login", got)
+	if got := gitIn(t, tree, "branch", "--show-current"); got != "work-item/1" {
+		t.Errorf("branch = %q, want work-item/1", got)
 	}
-	if got := gitIn(t, tree, "rev-parse", "feature/login"); got != head {
-		t.Errorf("feature/login = %q, want %q", got, head)
+	if got := gitIn(t, tree, "rev-parse", "work-item/1"); got != head {
+		t.Errorf("work-item/1 = %q, want %q", got, head)
 	}
 	if got := gitIn(t, tree, "status", "--porcelain"); got != "M a.txt\n?? new.txt" {
 		t.Errorf("status = %q, want the checkpoint's changes", got)

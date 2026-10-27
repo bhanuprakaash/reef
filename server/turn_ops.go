@@ -107,13 +107,13 @@ func (s *server) rollbackTurn(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// noteRollback posts the rollback note of turn id in every Space of ch's feature, since
-// feature Spaces share a worktree; a quick session's Space has no feature to share with.
+// noteRollback posts the rollback note of turn id in every Space of ch's work item, since
+// work item Spaces share a worktree; a quick session's Space has no work item to share with.
 func (s *server) noteRollback(ctx context.Context, ch store.Space, id int64) error {
 	chs := []store.Space{ch}
-	if ch.FeatureID != nil {
+	if ch.WorkItemID != nil {
 		var err error
-		if chs, err = s.st.Spaces(ctx, store.SpaceFilter{FeatureID: ch.FeatureID}); err != nil {
+		if chs, err = s.st.Spaces(ctx, store.SpaceFilter{WorkItemID: ch.WorkItemID}); err != nil {
 			return err
 		}
 	}

@@ -11,7 +11,7 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-func openStore(t *testing.T) (*store.Store, store.Feature) {
+func openStore(t *testing.T) (*store.Store, store.WorkItem) {
 	t.Helper()
 	ctx := context.Background()
 	st, err := store.Open(t.TempDir())
@@ -33,8 +33,8 @@ func openStore(t *testing.T) (*store.Store, store.Feature) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := st.CreateFeature(ctx, store.Feature{
-		ProjectID: p.ID, Slug: "login", Name: "Login", Goal: "Google login",
+	f, err := st.CreateWorkItem(ctx, store.WorkItem{
+		ProjectID: p.ID, Title: "Login", Description: "Google login",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -66,11 +66,11 @@ func remember(
 	return r.Item
 }
 
-func workScope(f store.Feature) memory.Ref {
+func workScope(f store.WorkItem) memory.Ref {
 	return memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(f.ID, 10)}
 }
 
-func projectScope(f store.Feature) memory.Ref {
+func projectScope(f store.WorkItem) memory.Ref {
 	return memory.Ref{Kind: memory.ScopeProject, ID: strconv.FormatInt(f.ProjectID, 10)}
 }
 
@@ -82,10 +82,10 @@ func TestContext(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 
-	if _, err := st.PutBrief(ctx, store.Brief{FeatureID: f.ID, Body: "old brief", Author: "user"}); err != nil {
+	if _, err := st.PutBrief(ctx, store.Brief{WorkItemID: f.ID, Body: "old brief", Author: "user"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.PutBrief(ctx, store.Brief{FeatureID: f.ID, Body: "Use Google OAuth.", Author: "user"}); err != nil {
+	if _, err := st.PutBrief(ctx, store.Brief{WorkItemID: f.ID, Body: "Use Google OAuth.", Author: "user"}); err != nil {
 		t.Fatal(err)
 	}
 	ms := testMemory(t, st)
@@ -97,7 +97,7 @@ func TestContext(t *testing.T) {
 	remember(t, ms, teammateScope("developer"), memory.KindLesson, "developer", "developer-only note")
 	var spaces []store.Space
 	for i, name := range []string{"spike", "build"} {
-		c, err := st.CreateSpace(ctx, store.Space{ProjectID: f.ProjectID, FeatureID: &f.ID, Name: name})
+		c, err := st.CreateSpace(ctx, store.Space{ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: name})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -111,18 +111,9 @@ func TestContext(t *testing.T) {
 		}
 	}
 	if _, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "empty",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "empty",
 	}); err != nil {
 		t.Fatal(err)
-	}
-	for _, task := range []store.Task{
-		{ProjectID: f.ProjectID, FeatureID: &f.ID, Title: "write tests"},
-		{ProjectID: f.ProjectID, FeatureID: &f.ID, Title: "set up OAuth app", Status: "done"},
-		{ProjectID: f.ProjectID, FeatureID: &f.ID, Title: "wire the callback", Status: "doing"},
-	} {
-		if _, err := st.CreateTask(ctx, task); err != nil {
-			t.Fatal(err)
-		}
 	}
 
 	got, err := Context(ctx, st, ms, f.ID, "architect")
@@ -134,13 +125,11 @@ func TestContext(t *testing.T) {
 		t.Skip("test ran across midnight UTC")
 	}
 	want := `## You
-You are the architect on feature "Login" (login) in project "shop".
-Goal: Google login
-Stage: ideation
-Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
+You are the architect on work item "Login" (1) in project "shop".
+Description: Google login
 
 ## How to work
-Details are on demand through the reef MCP tools recall, read_memory, read_thread, list_tasks and search_sessions. Record decisions with remember. When the user and the team agree on the goal, scope or plan, call propose_brief.
+Details are on demand through the reef MCP tools recall, read_memory, read_thread and search_sessions. Record decisions with remember. When the user and the team agree on the goal, scope or plan, call propose_brief.
 
 ## What we know
 ### Brief
@@ -155,11 +144,8 @@ decision 1: use OAuth (user, ` + day + `)
 lesson 4: Keep the session in a cookie. (architect, ` + day + `)
 1 of 1; recall(..., scope=teammate)
 
-### Doing
-task 3: wire the callback
-
 ### On demand
-2 open tasks (list_tasks). 2 earlier Spaces (search_sessions).
+2 earlier Spaces (search_sessions).
 `
 	if got != want {
 		t.Errorf("Context =\n%s\nwant\n%s", got, want)
@@ -169,7 +155,7 @@ task 3: wire the callback
 	}
 }
 
-func TestContext_EmptyFeature(t *testing.T) {
+func TestContext_EmptyWorkItem(t *testing.T) {
 	st, f := openStore(t)
 
 	got, err := Context(context.Background(), st, testMemory(t, st), f.ID, "architect")
@@ -177,13 +163,11 @@ func TestContext_EmptyFeature(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := `## You
-You are the architect on feature "Login" (login) in project "shop".
-Goal: Google login
-Stage: ideation
-Stages in order: ideation, grill, plan, tickets, implement, testing, live-testing, post-release. Call set_stage when the work moves to the next one.
+You are the architect on work item "Login" (1) in project "shop".
+Description: Google login
 
 ## How to work
-Details are on demand through the reef MCP tools recall, read_memory, read_thread, list_tasks and search_sessions. Record decisions with remember. When the user and the team agree on the goal, scope or plan, call propose_brief.
+Details are on demand through the reef MCP tools recall, read_memory, read_thread and search_sessions. Record decisions with remember. When the user and the team agree on the goal, scope or plan, call propose_brief.
 `
 	if got != want {
 		t.Errorf("Context =\n%s\nwant\n%s", got, want)
@@ -194,7 +178,7 @@ func TestContext_OmitsDirectMessages(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "earlier", Role: "lead", Backend: "claude"})
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "earlier", Role: "lead", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,23 +193,6 @@ func TestContext_OmitsDirectMessages(t *testing.T) {
 	if strings.Contains(got, "private fixture detail") || strings.Contains(got, "[direct") ||
 		strings.Contains(got, "earlier") {
 		t.Errorf("Context = %q, want no direct message and no Space that only has one", got)
-	}
-}
-
-func TestContext_FixesFeature(t *testing.T) {
-	ctx := context.Background()
-	st, f := openStore(t)
-	if _, err := st.UpdateFeature(ctx, store.Feature{ID: f.ID, Name: f.Name, Goal: f.Goal, Kind: "fixes"}); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := Context(ctx, st, testMemory(t, st), f.ID, "architect")
-	if err != nil {
-		t.Fatal(err)
-	}
-	want := "Goal: Google login\nThis feature is a list of fixes tracked as tasks, not one piece of work with stages.\n\n## How to work"
-	if !strings.Contains(got, want) || strings.Contains(got, "Stage:") {
-		t.Errorf("Context =\n%s\nwant it to contain %q and no Stage line", got, want)
 	}
 }
 
@@ -246,7 +213,7 @@ func TestFirstPrompt_QuickSession(t *testing.T) {
 	}
 	want := `## You
 You are the lead in project "shop" (` + p.Path + `).
-This is a quick session: it has no feature yet, so there is no brief or feature items.
+This is a quick session: it has no work item yet, so there is no brief or work item items.
 
 ## How to work
 Details are on demand through the reef MCP tools recall and read_memory. Save what holds across the project or for you with remember, scope project or teammate.
@@ -271,7 +238,7 @@ Details are on demand through the reef MCP tools recall and read_memory. Save wh
 	}
 	for _, want := range []string{
 		"## You\nYou are the lead in project \"shop\" (" + p.Path + ").\nThis is a quick session: " +
-			"it has no feature yet, so there is no brief or feature items.\nYou work with Ada.\n" +
+			"it has no work item yet, so there is no brief or work item items.\nYou work with Ada.\n" +
 			"Base branch: dev. A pull request you open targets it.\n\n## How to work\nYour team: @lead, @architect. ",
 		"\n\n## What we know\n### Project\nfact 1: Use Go, not Python. (user, " + day + ")\n" +
 			"1 of 1; recall(..., scope=project)\n\n" +
@@ -287,8 +254,8 @@ Details are on demand through the reef MCP tools recall and read_memory. Save wh
 			t.Errorf("quick session =\n%s\nwant it to name %q", got, want)
 		}
 	}
-	if strings.Contains(got, "list_tasks") {
-		t.Errorf("quick session =\n%s\nwant no feature tools", got)
+	if strings.Contains(got, "read_thread") {
+		t.Errorf("quick session =\n%s\nwant no work item tools", got)
 	}
 }
 
@@ -304,8 +271,8 @@ func TestContext_Profile(t *testing.T) {
 		}
 		return strings.SplitN(got, "\n", 4)[2]
 	}
-	if got := first(); got != "Goal: Google login" {
-		t.Errorf("second line with no profile = %q, want the goal", got)
+	if got := first(); got != "Description: Google login" {
+		t.Errorf("second line with no profile = %q, want the description", got)
 	}
 
 	tests := []struct {

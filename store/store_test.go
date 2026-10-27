@@ -21,8 +21,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 41 {
-		t.Errorf("user_version = %d, want 41", version)
+	if version != 42 {
+		t.Errorf("user_version = %d, want 42", version)
 	}
 
 	rows, err := s.db.Query("SELECT name FROM sqlite_master WHERE type = 'table' " +
@@ -40,10 +40,10 @@ func TestOpen(t *testing.T) {
 		tables = append(tables, name)
 	}
 	want := []string{
-		"approval", "brief", "decision", "direct_message", "feature", "feature_github",
-		"feature_github_check", "gate", "message", "profile",
-		"project", "proposal", "provider", "role_notes", "setting", "space", "task", "team",
-		"team_member", "teammate", "token", "tool_call", "turn",
+		"acceptance_line", "approval", "brief", "decision", "direct_message", "gate", "message",
+		"profile", "project", "proposal", "provider", "role_notes", "setting", "space",
+		"team", "team_member", "teammate", "token", "tool_call", "turn", "work_item", "work_item_github",
+		"work_item_github_check",
 	}
 	if !reflect.DeepEqual(tables, want) {
 		t.Errorf("tables = %v, want %v", tables, want)
@@ -66,8 +66,8 @@ func TestOpen(t *testing.T) {
 	if err := s.db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 41 {
-		t.Errorf("user_version after reopen = %d, want 41", version)
+	if version != 42 {
+		t.Errorf("user_version after reopen = %d, want 42", version)
 	}
 	var name string
 	if err := s.db.QueryRow("SELECT name FROM project WHERE id = 1").Scan(&name); err != nil {
@@ -135,8 +135,8 @@ func TestOpenConcurrent(t *testing.T) {
 	if err := stores[0].db.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
 		t.Fatal(err)
 	}
-	if version != 41 {
-		t.Errorf("user_version = %d, want 41", version)
+	if version != 42 {
+		t.Errorf("user_version = %d, want 42", version)
 	}
 }
 
@@ -147,10 +147,10 @@ func TestForeignKeys(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 
-	const feature = "INSERT INTO feature (project_id, slug, name, created_at) " +
-		"VALUES (?, 'a', 'A', '2026-10-13T00:00:00Z')"
-	if _, err := s.db.Exec(feature, 99); err == nil {
-		t.Error("insert feature with unknown project_id succeeded, want error")
+	const item = "INSERT INTO work_item (project_id, title, created_at) " +
+		"VALUES (?, 'A', '2026-10-13T00:00:00Z')"
+	if _, err := s.db.Exec(item, 99); err == nil {
+		t.Error("insert work item with unknown project_id succeeded, want error")
 	}
 
 	if _, err := s.db.Exec(
@@ -158,18 +158,18 @@ func TestForeignKeys(t *testing.T) {
 	); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.Exec(feature, 1); err != nil {
+	if _, err := s.db.Exec(item, 1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.db.Exec("DELETE FROM project WHERE id = 1"); err != nil {
 		t.Fatal(err)
 	}
 	var n int
-	if err := s.db.QueryRow("SELECT count(*) FROM feature").Scan(&n); err != nil {
+	if err := s.db.QueryRow("SELECT count(*) FROM work_item").Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	if n != 0 {
-		t.Errorf("features after project delete = %d, want 0", n)
+		t.Errorf("work items after project delete = %d, want 0", n)
 	}
 }
 
@@ -207,13 +207,13 @@ func TestWriteErrNamesMissingParent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	feature := int64(7)
+	parentID := int64(7)
 	_, err = s.db.Exec(
-		"INSERT INTO task (project_id, feature_id, title, created_at, updated_at) "+
-			"VALUES (?, ?, 't', '2026-10-13T00:00:00Z', '2026-10-13T00:00:00Z')", p.ID, feature)
-	err = s.writeErr(ctx, "insert task", err, ErrInvalid,
-		parent{table: "project", id: &p.ID}, parent{table: "feature", id: &feature})
-	if want := "invalid: unknown feature 7"; err == nil || err.Error() != want {
+		"INSERT INTO work_item (project_id, parent_id, title, created_at) "+
+			"VALUES (?, ?, 't', '2026-10-13T00:00:00Z')", p.ID, parentID)
+	err = s.writeErr(ctx, "insert work item", err, ErrInvalid,
+		parent{table: "project", id: &p.ID}, parent{table: "work_item", id: &parentID})
+	if want := "invalid: unknown work item 7"; err == nil || err.Error() != want {
 		t.Errorf("writeErr = %v, want %q", err, want)
 	}
 }

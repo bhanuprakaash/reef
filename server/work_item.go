@@ -15,62 +15,67 @@ import (
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
-func (s *server) featureRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /features", s.listFeatures)
-	mux.HandleFunc("POST /features", s.createFeature)
-	mux.HandleFunc("/features", methodNotAllowed)
-	mux.HandleFunc("GET /features/{id}", s.getFeature)
-	mux.HandleFunc("PUT /features/{id}", s.updateFeature)
-	mux.HandleFunc("DELETE /features/{id}", s.deleteFeature)
-	mux.HandleFunc("/features/{id}", methodNotAllowed)
-	mux.HandleFunc("POST /features/{id}/close", s.closeFeature)
-	mux.HandleFunc("/features/{id}/close", methodNotAllowed)
-	mux.HandleFunc("POST /features/{id}/reopen", s.reopenFeature)
-	mux.HandleFunc("/features/{id}/reopen", methodNotAllowed)
-	mux.HandleFunc("GET /features/{id}/brief", s.getBrief)
-	mux.HandleFunc("PUT /features/{id}/brief", s.putBrief)
-	mux.HandleFunc("/features/{id}/brief", methodNotAllowed)
-	mux.HandleFunc("GET /features/{id}/brief/versions", s.listBriefVersions)
-	mux.HandleFunc("/features/{id}/brief/versions", methodNotAllowed)
-	mux.HandleFunc("GET /features/{id}/notes/{role}", s.getRoleNotes)
-	mux.HandleFunc("PUT /features/{id}/notes/{role}", s.putRoleNotes)
-	mux.HandleFunc("DELETE /features/{id}/notes/{role}", s.deleteRoleNotes)
-	mux.HandleFunc("/features/{id}/notes/{role}", methodNotAllowed)
-	mux.HandleFunc("GET /features/{id}/worktree", s.getFeatureWorktree)
-	mux.HandleFunc("POST /features/{id}/worktree", s.ensureFeatureWorktree)
-	mux.HandleFunc("/features/{id}/worktree", methodNotAllowed)
-	mux.HandleFunc("GET /features/{id}/diff", s.getFeatureDiff)
-	mux.HandleFunc("/features/{id}/diff", methodNotAllowed)
-	mux.HandleFunc("GET /features/{id}/pr", s.getFeaturePR)
-	mux.HandleFunc("/features/{id}/pr", methodNotAllowed)
-	mux.HandleFunc("POST /features/{id}/pr/merge", s.mergeFeaturePR)
-	mux.HandleFunc("/features/{id}/pr/merge", methodNotAllowed)
+func (s *server) workItemRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /work-items", s.listWorkItems)
+	mux.HandleFunc("POST /work-items", s.createWorkItem)
+	mux.HandleFunc("/work-items", methodNotAllowed)
+	mux.HandleFunc("GET /work-items/{id}", s.getWorkItem)
+	mux.HandleFunc("PUT /work-items/{id}", s.updateWorkItem)
+	mux.HandleFunc("DELETE /work-items/{id}", s.deleteWorkItem)
+	mux.HandleFunc("/work-items/{id}", methodNotAllowed)
+	mux.HandleFunc("POST /work-items/{id}/close", s.closeWorkItem)
+	mux.HandleFunc("/work-items/{id}/close", methodNotAllowed)
+	mux.HandleFunc("POST /work-items/{id}/reopen", s.reopenWorkItem)
+	mux.HandleFunc("/work-items/{id}/reopen", methodNotAllowed)
+	mux.HandleFunc("GET /work-items/{id}/brief", s.getBrief)
+	mux.HandleFunc("PUT /work-items/{id}/brief", s.putBrief)
+	mux.HandleFunc("/work-items/{id}/brief", methodNotAllowed)
+	mux.HandleFunc("GET /work-items/{id}/brief/versions", s.listBriefVersions)
+	mux.HandleFunc("/work-items/{id}/brief/versions", methodNotAllowed)
+	mux.HandleFunc("GET /work-items/{id}/notes/{role}", s.getRoleNotes)
+	mux.HandleFunc("PUT /work-items/{id}/notes/{role}", s.putRoleNotes)
+	mux.HandleFunc("DELETE /work-items/{id}/notes/{role}", s.deleteRoleNotes)
+	mux.HandleFunc("/work-items/{id}/notes/{role}", methodNotAllowed)
+	mux.HandleFunc("GET /work-items/{id}/worktree", s.getWorkItemWorktree)
+	mux.HandleFunc("POST /work-items/{id}/worktree", s.ensureWorkItemWorktree)
+	mux.HandleFunc("/work-items/{id}/worktree", methodNotAllowed)
+	mux.HandleFunc("GET /work-items/{id}/diff", s.getWorkItemDiff)
+	mux.HandleFunc("/work-items/{id}/diff", methodNotAllowed)
+	mux.HandleFunc("GET /work-items/{id}/pr", s.getWorkItemPR)
+	mux.HandleFunc("/work-items/{id}/pr", methodNotAllowed)
+	mux.HandleFunc("POST /work-items/{id}/pr/merge", s.mergeWorkItemPR)
+	mux.HandleFunc("/work-items/{id}/pr/merge", methodNotAllowed)
 }
 
-func (s *server) listFeatures(w http.ResponseWriter, r *http.Request) {
-	projectID, err := queryID(r, "project")
+func (s *server) listWorkItems(w http.ResponseWriter, r *http.Request) {
+	f := store.WorkItemFilter{Status: r.URL.Query().Get("status"), Type: r.URL.Query().Get("type")}
+	var err error
+	if f.ProjectID, err = queryID(r, "project"); err != nil {
+		writeError(w, err)
+		return
+	}
+	if f.ParentID, err = queryID(r, "parent"); err != nil {
+		writeError(w, err)
+		return
+	}
+	ws, err := s.st.WorkItems(r.Context(), f)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	fs, err := s.st.Features(r.Context(), projectID)
-	if err != nil {
-		writeError(w, err)
-		return
+	if ws == nil {
+		ws = []store.WorkItem{}
 	}
-	if fs == nil {
-		fs = []store.Feature{}
-	}
-	writeJSON(w, http.StatusOK, fs)
+	writeJSON(w, http.StatusOK, ws)
 }
 
-func (s *server) createFeature(w http.ResponseWriter, r *http.Request) {
-	var in store.Feature
+func (s *server) createWorkItem(w http.ResponseWriter, r *http.Request) {
+	var in store.WorkItem
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
-	f, err := s.st.CreateFeature(r.Context(), in)
+	f, err := s.st.CreateWorkItem(r.Context(), in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -78,13 +83,13 @@ func (s *server) createFeature(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, f)
 }
 
-func (s *server) getFeature(w http.ResponseWriter, r *http.Request) {
+func (s *server) getWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	f, err := s.st.Feature(r.Context(), id)
+	f, err := s.st.WorkItem(r.Context(), id)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -92,19 +97,19 @@ func (s *server) getFeature(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, f)
 }
 
-func (s *server) updateFeature(w http.ResponseWriter, r *http.Request) {
+func (s *server) updateWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	var in store.Feature
+	var in store.WorkItem
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
 	in.ID = id
-	f, err := s.st.UpdateFeature(r.Context(), in)
+	f, err := s.st.UpdateWorkItem(r.Context(), in)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -112,15 +117,15 @@ func (s *server) updateFeature(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, f)
 }
 
-// closeFeature closes the feature and all its Spaces, and stops their agents. A Space with
+// closeWorkItem closes the work item and all its Spaces, and stops their agents. A Space with
 // a turn running is 409 and nothing is closed.
-func (s *server) closeFeature(w http.ResponseWriter, r *http.Request) {
+func (s *server) closeWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	cs, err := s.st.Spaces(r.Context(), store.SpaceFilter{FeatureID: &id})
+	cs, err := s.st.Spaces(r.Context(), store.SpaceFilter{WorkItemID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -136,52 +141,52 @@ func (s *server) closeFeature(w http.ResponseWriter, r *http.Request) {
 			}
 		}
 	}
-	lift, err := s.stopSpaces(r.Context(), store.SpaceFilter{FeatureID: &id})
+	lift, err := s.stopSpaces(r.Context(), store.SpaceFilter{WorkItemID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	defer lift()
-	if err := s.st.CloseFeature(r.Context(), id); err != nil {
+	if err := s.st.CloseWorkItem(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (s *server) reopenFeature(w http.ResponseWriter, r *http.Request) {
+func (s *server) reopenWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if err := s.st.ReopenFeature(r.Context(), id); err != nil {
+	if err := s.st.ReopenWorkItem(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// deleteFeature deletes the feature, its worktree and the checkpoint refs of its turns. The
-// branch is kept. A running turn of its Spaces is stopped first, as for a Space delete.
+// deleteWorkItem deletes the work item, its sub-items, its worktree and the checkpoint refs of
+// its turns, and retires the memory items of the item and its sub-items. The branch is kept. A running turn of its Spaces is stopped first, as for a Space delete.
 // A worktree with uncommitted changes is 409 and nothing is removed; so is a Space with a
 // turn running elsewhere, or open in reef chat. The worktree goes first: it is the step that
 // can refuse or fail, and the next wake makes it again. The refs go last, after the rows that
 // name them. A project folder that is gone is not git cleaned up: its worktree folder, if
 // any, is just removed.
-func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
+func (s *server) deleteWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	lift, err := s.stopSpaces(r.Context(), store.SpaceFilter{FeatureID: &id})
+	lift, err := s.stopSpaces(r.Context(), store.SpaceFilter{WorkItemID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	defer lift()
-	f, err := s.st.Feature(r.Context(), id)
+	f, err := s.st.WorkItem(r.Context(), id)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -191,34 +196,41 @@ func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if err := s.spacesInUse(r.Context(), store.SpaceFilter{FeatureID: &id}); err != nil {
+	if err := s.spacesInUse(r.Context(), store.SpaceFilter{WorkItemID: &id}); err != nil {
 		writeError(w, err)
 		return
 	}
-	refs, err := s.checkpointRefs(r.Context(), store.SpaceFilter{FeatureID: &id})
+	refs, err := s.checkpointRefs(r.Context(), store.SpaceFilter{WorkItemID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	gone := projectGone(p.Path)
-	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
 	if gone {
 		err = os.RemoveAll(dir)
 	} else {
-		err = s.removeFeatureTree(r.Context(), p, f)
+		err = s.removeWorkItemTree(r.Context(), p, f)
 	}
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if err := s.st.DeleteFeature(r.Context(), id); err != nil {
+	subs, err := s.st.WorkItems(r.Context(), store.WorkItemFilter{ParentID: &id})
+	if err != nil {
 		writeError(w, err)
 		return
 	}
-	scope := memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(id, 10)}
-	if err := s.ms.RetireScope(r.Context(), scope); err != nil {
+	if err := s.st.DeleteWorkItem(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
+	}
+	for _, gone := range append(subs, f) {
+		scope := memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(gone.ID, 10)}
+		if err := s.ms.RetireScope(r.Context(), scope); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	if !gone {
 		if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), p.Path, refs); err != nil {
@@ -281,36 +293,36 @@ func (s *server) checkpointRefs(ctx context.Context, f store.SpaceFilter) ([]str
 	return refs, nil
 }
 
-// checkFeatureTree is 409 when the worktree of feature f of project p has uncommitted changes.
-func (s *server) checkFeatureTree(ctx context.Context, p store.Project, f store.Feature) error {
-	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+// checkWorkItemTree is 409 when the worktree of work item f of project p has uncommitted changes.
+func (s *server) checkWorkItemTree(ctx context.Context, p store.Project, f store.WorkItem) error {
+	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
 	return treeConflict(f, dir, worktree.Clean(ctx, dir))
 }
 
-// removeFeatureTree removes the worktree of feature f of project p; 409 when it has
+// removeWorkItemTree removes the worktree of work item f of project p; 409 when it has
 // uncommitted changes.
-func (s *server) removeFeatureTree(ctx context.Context, p store.Project, f store.Feature) error {
-	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+func (s *server) removeWorkItemTree(ctx context.Context, p store.Project, f store.WorkItem) error {
+	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
 	return treeConflict(f, dir, worktree.Remove(ctx, p.Path, dir))
 }
 
-func treeConflict(f store.Feature, dir string, err error) error {
+func treeConflict(f store.WorkItem, dir string, err error) error {
 	if errors.Is(err, worktree.ErrDirty) {
-		return fmt.Errorf("%w: feature %s has uncommitted changes in %s; commit or discard them first",
-			store.ErrConflict, f.Slug, dir)
+		return fmt.Errorf("%w: work item %d has uncommitted changes in %s; commit or discard them first",
+			store.ErrConflict, f.ID, dir)
 	}
 	return err
 }
 
-// getFeatureWorktree returns the path of the feature's worktree, or an empty path when it
+// getWorkItemWorktree returns the path of the work item's worktree, or an empty path when it
 // has none yet. It never makes one.
-func (s *server) getFeatureWorktree(w http.ResponseWriter, r *http.Request) {
+func (s *server) getWorkItemWorktree(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	f, err := s.st.Feature(r.Context(), id)
+	f, err := s.st.WorkItem(r.Context(), id)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -320,23 +332,23 @@ func (s *server) getFeatureWorktree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		dir = ""
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"path": dir})
 }
 
-// ensureFeatureWorktree makes the feature's worktree, the same way the first wake of one of
+// ensureWorkItemWorktree makes the work item's worktree, the same way the first wake of one of
 // its Spaces would, and returns its path. A worktree or branch that already exists is
 // reused.
-func (s *server) ensureFeatureWorktree(w http.ResponseWriter, r *http.Request) {
+func (s *server) ensureWorkItemWorktree(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	f, err := s.st.Feature(r.Context(), id)
+	f, err := s.st.WorkItem(r.Context(), id)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -346,24 +358,24 @@ func (s *server) ensureFeatureWorktree(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
-	if err := space.EnsureWorktree(r.Context(), s.trees, p, dir, f.Slug); err != nil {
+	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
+	if err := space.EnsureWorktree(r.Context(), s.trees, p, dir, f.TreeKey()); err != nil {
 		writeError(w, err)
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"path": dir})
 }
 
-// getFeatureDiff returns the feature worktree's changes, uncommitted and untracked files
+// getWorkItemDiff returns the work item worktree's changes, uncommitted and untracked files
 // included, against the commit its branch and the project's base branch last shared, or against
-// the worktree's own HEAD with ?scope=current. A feature with no worktree yet has no changes.
-func (s *server) getFeatureDiff(w http.ResponseWriter, r *http.Request) {
+// the worktree's own HEAD with ?scope=current. A work item with no worktree yet has no changes.
+func (s *server) getWorkItemDiff(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	f, err := s.st.Feature(r.Context(), id)
+	f, err := s.st.WorkItem(r.Context(), id)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -373,7 +385,7 @@ func (s *server) getFeatureDiff(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	dir := worktree.Path(s.dataDir, p.ID, f.Slug)
+	dir := worktree.Path(s.dataDir, p.ID, f.TreeKey())
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		writeJSON(w, http.StatusOK, []worktree.FileDiff{})
 		return
@@ -422,7 +434,7 @@ func (s *server) putBrief(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	in.FeatureID = id
+	in.WorkItemID = id
 	b, err := s.st.PutBrief(r.Context(), in)
 	if err != nil {
 		writeError(w, err)
@@ -473,7 +485,7 @@ func (s *server) putRoleNotes(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	in.FeatureID, in.Role = id, r.PathValue("role")
+	in.WorkItemID, in.Role = id, r.PathValue("role")
 	n, err := s.st.PutRoleNotes(r.Context(), in)
 	if err != nil {
 		writeError(w, err)

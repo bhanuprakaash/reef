@@ -147,11 +147,11 @@ func chatFixture(t *testing.T) (*store.Store, store.Space) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f, err := st.CreateFeature(ctx, store.Feature{ProjectID: p.ID, Slug: "login", Name: "Login"})
+	f, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: p.ID, Title: "Login"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: p.ID, FeatureID: &f.ID, Name: "chat"})
+	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: p.ID, WorkItemID: &f.ID, Name: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -438,9 +438,9 @@ func TestRun_ChatBackendTypoLeavesNoSpace(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(t.TempDir())
 	mustReef(t, dir, "project", "add")
-	mustReef(t, dir, "feature", "add", "login", "Login")
+	mustReef(t, dir, "work-item", "add", "Login")
 
-	_, err := reef(t, dir, "chat", "login", "--role", "developer", "--backend", "nope")
+	_, err := reef(t, dir, "chat", "1", "--role", "developer", "--backend", "nope")
 	if err == nil || err.Error() != `invalid: unknown backend "nope"` {
 		t.Errorf("chat error = %v, want unknown backend", err)
 	}

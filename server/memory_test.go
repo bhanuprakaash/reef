@@ -24,11 +24,11 @@ func TestMemoryRoundTrip(t *testing.T) {
 		t.Fatalf("create = %d %s", status, body)
 	}
 	do(t, http.MethodPost, ts.URL+"/memory", `{"kind":"convention","body":"tabs","scope":"work_item:1"}`)
-	do(t, http.MethodPost, ts.URL+"/memory", `{"kind":"fact","body":"other feature","scope":"work_item:2"}`)
+	do(t, http.MethodPost, ts.URL+"/memory", `{"kind":"fact","body":"other work item","scope":"work_item:2"}`)
 
 	status, body = do(t, http.MethodGet, ts.URL+"/memory?scope=work_item:1", "")
 	newest, oldest := strings.Index(body, `"body":"tabs"`), strings.Index(body, `"body":"sessions, not JWT"`)
-	if status != 200 || newest < 0 || oldest < newest || strings.Contains(body, "other feature") ||
+	if status != 200 || newest < 0 || oldest < newest || strings.Contains(body, "other work item") ||
 		strings.Contains(body, `"links"`) {
 		t.Fatalf("list = %d %s", status, body)
 	}
@@ -131,11 +131,11 @@ func TestApproveRouteReturnsTheWarnings(t *testing.T) {
 	if _, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	f, err := st.CreateFeature(ctx, store.Feature{ProjectID: 1, Slug: "auth", Name: "Auth"})
+	f, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: 1, Title: "Auth"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, FeatureID: &f.ID, Name: "c"}); err != nil {
+	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, WorkItemID: &f.ID, Name: "c"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateProposal(ctx, store.Proposal{

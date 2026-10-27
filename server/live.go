@@ -499,7 +499,7 @@ func (s *server) checkSpace(
 	if ch.ClosedAt != nil {
 		return "", fmt.Errorf("space %d is closed: %w", ch.ID, store.ErrConflict)
 	}
-	if kind == _wrap && ch.FeatureID == nil {
+	if kind == _wrap && ch.WorkItemID == nil {
 		return "", fmt.Errorf("%w: Space %d is a quick session, promote it before wrapping up",
 			store.ErrInvalid, ch.ID)
 	}

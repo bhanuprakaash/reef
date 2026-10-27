@@ -58,7 +58,7 @@ func TestRunner_Send(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -153,7 +153,7 @@ func TestRunner_ReplyStaysInThread(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -191,7 +191,7 @@ func TestRunner_BackgroundAnswerIsRoleMessage(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -247,7 +247,7 @@ func TestRunner_PostedTurnKeepsReplyOnTurn(t *testing.T) {
 			ctx := context.Background()
 			st, f := openStore(t)
 			ch, err := st.CreateSpace(ctx, store.Space{
-				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -288,7 +288,7 @@ func TestRunner_PostedDirectTurnStillAnswersSender(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -319,7 +319,7 @@ func TestRunner_DirectReplyStopsAfterOneResponse(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -358,7 +358,7 @@ func TestRunner_FailedDirectTurnKeepsPartialAttempt(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -393,7 +393,7 @@ func TestRunner_StoppedTurnKeepsReplyInThread(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(bg, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -479,7 +479,7 @@ func TestRunner_SendFailedTurn(t *testing.T) {
 			bg := context.Background()
 			st, f := openStore(t)
 			ch, err := st.CreateSpace(bg, store.Space{
-				ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -562,7 +562,7 @@ func TestRunner_SendCancelledAfterMessageStoresTurn(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(bg, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -594,7 +594,7 @@ func TestRunner_RunCancelledBeforeSend(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(bg, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -626,7 +626,7 @@ func TestRunner_SendCancelledKeepsStoppedUsage(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(bg, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -655,7 +655,7 @@ func TestRunner_RecordsModelCostPromptAndToolCalls(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(bg, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -698,7 +698,7 @@ func TestRunner_RecordsSubagentToolCallParent(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(bg, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -734,7 +734,7 @@ func TestRunner_ResumedSessionStoresTurnOwnCost(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(bg, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -772,7 +772,7 @@ func TestRunner_ResumedSessionStoresTurnOwnUsage(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(bg, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -822,7 +822,7 @@ func TestRunner_LegacySessionStoresTurnOwnCost(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(bg, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -870,7 +870,7 @@ func TestRunner_FailedTurnStoresCost(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(bg, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -901,7 +901,7 @@ func TestRunner_CodexTurnHasModelNoCost(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(bg, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -933,7 +933,7 @@ func TestRunner_SendRunsAnyNumberOfToolCalls(t *testing.T) {
 	bg := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(bg, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -968,7 +968,7 @@ func TestRunner_CompactionWhileAbortingMakesTheNextTurnSendTheFirstPrompt(t *tes
 	bg := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(bg, store.Space{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat",
 	})
 	if err != nil {
 		t.Fatal(err)

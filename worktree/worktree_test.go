@@ -106,7 +106,7 @@ func TestEnsure_ReusesBranch(t *testing.T) {
 func TestEnsure_NotARepo(t *testing.T) {
 	repo := t.TempDir()
 	err := Ensure(context.Background(), repo, filepath.Join(t.TempDir(), "w"), "feature/login", "")
-	want := "features need the project folder to be a git repo with a commit: " + repo + ": "
+	want := "work items need the project folder to be a git repo with a commit: " + repo + ": "
 	if err == nil || !strings.HasPrefix(err.Error(), want) || !strings.Contains(err.Error(), "not a git repository") {
 		t.Errorf("Ensure error = %v, want %q then git's error", err, want)
 	}
@@ -116,7 +116,7 @@ func TestEnsure_NoCommit(t *testing.T) {
 	repo := t.TempDir()
 	run(t, repo, "init", "-b", "main")
 	err := Ensure(context.Background(), repo, filepath.Join(t.TempDir(), "w"), "feature/login", "")
-	want := "features need the project folder to be a git repo with a commit: " + repo + ": "
+	want := "work items need the project folder to be a git repo with a commit: " + repo + ": "
 	if err == nil || !strings.HasPrefix(err.Error(), want) {
 		t.Errorf("Ensure error = %v, want one starting %q", err, want)
 	}

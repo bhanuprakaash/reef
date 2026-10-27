@@ -18,13 +18,10 @@ import (
 const (
 	_cliAuthor     = "user"
 	_projectUsage  = "usage: reef project add [--name N] [--data DIR]"
-	_featureUsage  = "usage: reef feature add <slug> <name> [--goal G] [--data DIR]"
-	_briefUsage    = "usage: reef brief <feature> [--data DIR]"
-	_decideUsage   = `usage: reef decide <feature> "<body>" [--why W] [--data DIR]`
-	_taskUsage     = "usage: reef task add|list [<feature>] [--data DIR]"
-	_taskAddUsage  = `usage: reef task add [<feature>] "<title>" [--data DIR]`
-	_taskListUsage = "usage: reef task list [<feature>] [--status S] [--data DIR]"
-	_contextUsage  = "usage: reef context <feature> --role R [--data DIR]"
+	_workItemUsage = `usage: reef work-item add "<title>" [--type T] [--description D] [--data DIR]`
+	_briefUsage    = "usage: reef brief <work-item> [--data DIR]"
+	_decideUsage   = `usage: reef decide <work-item> "<body>" [--why W] [--data DIR]`
+	_contextUsage  = "usage: reef context <work-item> --role R [--data DIR]"
 )
 
 type command struct {
@@ -111,12 +108,13 @@ func projectCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	return err
 }
 
-func featureCmd(ctx context.Context, args []string, stdout io.Writer) error {
+func workItemCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	if len(args) == 0 || args[0] != "add" {
-		return errors.New(_featureUsage)
+		return errors.New(_workItemUsage)
 	}
-	c := newCommand("reef feature add", _featureUsage, 2, 2)
-	goal := c.fs.String("goal", "", "")
+	c := newCommand("reef work-item add", _workItemUsage, 1, 1)
+	typ := c.fs.String("type", "", "")
+	description := c.fs.String("description", "", "")
 	st, pos, err := c.open(args[1:])
 	if err != nil {
 		return err
@@ -127,14 +125,23 @@ func featureCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	if err != nil {
 		return err
 	}
-	f, err := st.CreateFeature(ctx, store.Feature{
-		ProjectID: p.ID, Slug: pos[0], Name: pos[1], Goal: *goal,
+	w, err := st.CreateWorkItem(ctx, store.WorkItem{
+		ProjectID: p.ID, Type: *typ, Title: pos[0], Description: *description,
 	})
 	if err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(stdout, "%d  %s  %s\n", f.ID, f.Slug, f.Name)
+	_, err = fmt.Fprintf(stdout, "%d  %s  %s\n", w.ID, w.Type, w.Title)
 	return err
+}
+
+// workItemArg is the work item whose id is ref.
+func workItemArg(ctx context.Context, st *store.Store, ref string) (store.WorkItem, error) {
+	id, err := strconv.ParseInt(ref, 10, 64)
+	if err != nil {
+		return store.WorkItem{}, fmt.Errorf("work item %q is not an id", ref)
+	}
+	return st.WorkItem(ctx, id)
 }
 
 func briefCmd(ctx context.Context, args []string, stdout io.Writer) error {
@@ -145,13 +152,13 @@ func briefCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	}
 	defer func() { _ = st.Close() }()
 
-	f, err := st.FeatureByRef(ctx, pos[0])
+	f, err := workItemArg(ctx, st, pos[0])
 	if err != nil {
 		return err
 	}
 	b, err := st.Brief(ctx, f.ID)
 	if errors.Is(err, store.ErrNotFound) {
-		return fmt.Errorf("feature %s has no brief yet", pos[0])
+		return fmt.Errorf("work item %s has no brief yet", pos[0])
 	}
 	if err != nil {
 		return err
@@ -169,7 +176,7 @@ func decideCmd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	}
 	defer func() { _ = st.Close() }()
 
-	f, err := st.FeatureByRef(ctx, pos[0])
+	f, err := workItemArg(ctx, st, pos[0])
 	if err != nil {
 		return err
 	}
@@ -192,84 +199,6 @@ func decideCmd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	return reportRemembered(ctx, st, res, stdout, stderr)
 }
 
-func taskCmd(ctx context.Context, args []string, stdout io.Writer) error {
-	if len(args) == 0 {
-		return errors.New(_taskUsage)
-	}
-	switch args[0] {
-	case "add":
-		return taskAdd(ctx, args[1:], stdout)
-	case "list":
-		return taskList(ctx, args[1:], stdout)
-	}
-	return errors.New(_taskUsage)
-}
-
-func taskAdd(ctx context.Context, args []string, stdout io.Writer) error {
-	c := newCommand("reef task add", _taskAddUsage, 1, 2)
-	st, pos, err := c.open(args)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = st.Close() }()
-
-	t := store.Task{Title: pos[len(pos)-1]}
-	if len(pos) == 2 {
-		f, err := st.FeatureByRef(ctx, pos[0])
-		if err != nil {
-			return err
-		}
-		t.ProjectID, t.FeatureID = f.ProjectID, &f.ID
-	} else {
-		p, err := cwdProject(ctx, st)
-		if err != nil {
-			return err
-		}
-		t.ProjectID = p.ID
-	}
-	t, err = st.CreateTask(ctx, t)
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprintf(stdout, "%d  %s  %s\n", t.ID, t.Status, t.Title)
-	return err
-}
-
-func taskList(ctx context.Context, args []string, stdout io.Writer) error {
-	c := newCommand("reef task list", _taskListUsage, 0, 1)
-	status := c.fs.String("status", "", "")
-	st, pos, err := c.open(args)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = st.Close() }()
-
-	filter := store.TaskFilter{Status: *status}
-	if len(pos) == 1 {
-		f, err := st.FeatureByRef(ctx, pos[0])
-		if err != nil {
-			return err
-		}
-		filter.FeatureID = &f.ID
-	} else {
-		p, err := cwdProject(ctx, st)
-		if err != nil {
-			return err
-		}
-		filter.ProjectID = &p.ID
-	}
-	tasks, err := st.Tasks(ctx, filter)
-	if err != nil {
-		return err
-	}
-	for _, t := range tasks {
-		if _, err := fmt.Fprintf(stdout, "%d  %s  %s\n", t.ID, t.Status, t.Title); err != nil {
-			return err
-		}
-	}
-	return nil
-}
-
 func contextCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	c := newCommand("reef context", _contextUsage, 1, 1)
 	role := c.fs.String("role", "", "")
@@ -282,7 +211,7 @@ func contextCmd(ctx context.Context, args []string, stdout io.Writer) error {
 	if *role == "" {
 		return errors.New(_contextUsage)
 	}
-	f, err := st.FeatureByRef(ctx, pos[0])
+	f, err := workItemArg(ctx, st, pos[0])
 	if err != nil {
 		return err
 	}
