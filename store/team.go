@@ -229,10 +229,15 @@ func (s *Store) TeamByID(ctx context.Context, id int64) (Team, error) {
 	return s.Team(ctx, name)
 }
 
-// _stopWords are left out of a SuggestTeam match: they say nothing about who owns the work.
-var _stopWords = []string{
-	"a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "it", "its", "of",
-	"on", "or", "that", "the", "this", "to", "was", "with",
+// isStopWord is true for the words left out of a SuggestTeam match: they say nothing about who
+// owns the work.
+func isStopWord(w string) bool {
+	switch w {
+	case "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "it", "its",
+		"of", "on", "or", "that", "the", "this", "to", "was", "with":
+		return true
+	}
+	return false
 }
 
 // SuggestTeam returns the Team whose responsibility text best matches any word of text, or
@@ -242,7 +247,7 @@ func (s *Store) SuggestTeam(ctx context.Context, text string) (Team, error) {
 	for _, w := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
 		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
 	}) {
-		if !slices.Contains(_stopWords, w) {
+		if !isStopWord(w) {
 			words = append(words, `"`+w+`"`)
 		}
 	}

@@ -2,8 +2,8 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"slices"
 )
 
 // Who moves a Work item. Each may make only the moves MoveWorkItem allows it.
@@ -25,7 +25,13 @@ const (
 	_dropped    = "dropped"
 )
 
-var _movers = []string{ByUser, ByQueue, ByLead, BySpace, BySubmit}
+func validMover(by string) bool {
+	switch by {
+	case ByUser, ByQueue, ByLead, BySpace, BySubmit:
+		return true
+	}
+	return false
+}
 
 // MoveWorkItem sets the status of the item to to, if by may make that move, and returns the
 // item. A refused move is ErrInvalid and names the rule. The rules:
@@ -107,9 +113,9 @@ func (s *Store) MoveWorkItem(ctx context.Context, id int64, to, by string) (Work
 
 func checkMove(from, to, by string, sub bool) error {
 	switch {
-	case !slices.Contains(_statuses, to):
+	case !validStatus(to):
 		return fmt.Errorf("unknown status %q", to)
-	case !slices.Contains(_movers, by):
+	case !validMover(by):
 		return fmt.Errorf("unknown mover %q", by)
 	case from == to:
 		return fmt.Errorf("already %s", from)
@@ -124,7 +130,7 @@ func checkMove(from, to, by string, sub bool) error {
 			from == _review && to == _done && !sub:
 			return nil
 		case from == _review && to == _done:
-			return fmt.Errorf("only the lead sets a sub-item done")
+			return errors.New("only the lead sets a sub-item done")
 		}
 	case ByQueue:
 		if from == _queued && to == _inProgress {
@@ -140,7 +146,7 @@ func checkMove(from, to, by string, sub bool) error {
 		}
 	case ByLead:
 		if !sub {
-			return fmt.Errorf("the lead moves sub-items only; the user sets a top-level item done")
+			return errors.New("the lead moves sub-items only; the user sets a top-level item done")
 		}
 		if from != _done && from != _dropped {
 			return nil

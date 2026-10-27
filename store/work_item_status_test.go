@@ -35,11 +35,13 @@ func TestCheckMove(t *testing.T) {
 			"review>backlog", "review>queued", "review>in_progress", "review>needs_you", "review>done", "review>dropped",
 		},
 	}
-	for _, by := range _movers {
+	movers := []string{ByUser, ByQueue, ByLead, BySpace, BySubmit}
+	statuses := []string{_backlog, _queued, _inProgress, _needsYou, _review, _done, _dropped}
+	for _, by := range movers {
 		for _, kind := range []string{"top", "sub"} {
 			want := allowed[by+" "+kind]
-			for _, from := range _statuses {
-				for _, to := range _statuses {
+			for _, from := range statuses {
+				for _, to := range statuses {
 					move := from + ">" + to
 					err := checkMove(from, to, by, kind == "sub")
 					if got := err == nil; got != slices.Contains(want, move) {

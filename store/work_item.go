@@ -6,7 +6,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"slices"
 	"strconv"
 	"time"
 )
@@ -18,10 +17,21 @@ const (
 		"proposed_by, suggested_team_id, queue_position, token_budget, created_at, closed_at"
 )
 
-var (
-	_types    = []string{"feature", "bug", "incident", "investigation", "task", "improvement"}
-	_statuses = []string{"backlog", "queued", "in_progress", "needs_you", "review", "done", "dropped"}
-)
+func validType(t string) bool {
+	switch t {
+	case "feature", "bug", "incident", "investigation", "task", "improvement":
+		return true
+	}
+	return false
+}
+
+func validStatus(s string) bool {
+	switch s {
+	case _backlog, _queued, _inProgress, _needsYou, _review, _done, _dropped:
+		return true
+	}
+	return false
+}
 
 // AcceptanceLine is one thing that must hold for a Work item to be done. Position counts
 // from 1 and is set by the order of the lines written.
@@ -167,10 +177,10 @@ func (s *Store) WorkItem(ctx context.Context, id int64) (WorkItem, error) {
 
 // WorkItems lists items by id, narrowed by f.
 func (s *Store) WorkItems(ctx context.Context, f WorkItemFilter) ([]WorkItem, error) {
-	if f.Status != "" && !slices.Contains(_statuses, f.Status) {
+	if f.Status != "" && !validStatus(f.Status) {
 		return nil, fmt.Errorf("%w: unknown status %q", ErrInvalid, f.Status)
 	}
-	if f.Type != "" && !slices.Contains(_types, f.Type) {
+	if f.Type != "" && !validType(f.Type) {
 		return nil, fmt.Errorf("%w: unknown type %q", ErrInvalid, f.Type)
 	}
 	q, args := "SELECT "+_workItemCols+" FROM work_item WHERE 1 = 1", []any{}
@@ -349,10 +359,10 @@ func (w *WorkItem) validate() error {
 		return fmt.Errorf("%w: work item title is required", ErrInvalid)
 	}
 	w.Type, w.Status = cmp.Or(w.Type, _defaultType), cmp.Or(w.Status, _defaultStatus)
-	if !slices.Contains(_types, w.Type) {
+	if !validType(w.Type) {
 		return fmt.Errorf("%w: unknown type %q", ErrInvalid, w.Type)
 	}
-	if !slices.Contains(_statuses, w.Status) {
+	if !validStatus(w.Status) {
 		return fmt.Errorf("%w: unknown status %q", ErrInvalid, w.Status)
 	}
 	for i, l := range w.AcceptanceLines {

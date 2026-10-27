@@ -1,4 +1,4 @@
-// Package Space builds what a teammate is told at the start of a Space.
+// Package space builds what a teammate is told at the start of a Space.
 package space
 
 import (
