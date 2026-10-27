@@ -107,8 +107,8 @@ printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude"}],"gat
 
 Teams, no server needed (data folder `teams`):
 
-- **Apply and list.** `$H reef --data-name teams -- team apply $E/duo.json` prints `applied team duo: lead*(claude) architect(claude)`. `$H reef -- team list` prints `duo  lead*(claude) architect(claude)` and `solo  lead*(claude)`. `$H sql "select team.name, role.name, lead from role join team on team.id = team_id order by team.name, role.id"` shows `duo|lead|1`, `duo|architect|0`, `solo|lead|1`.
-- **Apply again.** `$H reef -- team apply $E/duo2.json` prints the same line. `$H sql "select count(*) from team"` is still `2`, and `$H sql "select skills from role where name = 'architect'"` is `["very-short-plans"]`. Put the original back with `$H reef -- team apply $E/duo.json`.
+- **Apply and list.** `$H reef --data-name teams -- team apply $E/duo.json` prints `applied team duo: lead*(claude) architect(claude)`. `$H reef -- team list` prints `duo  lead*(claude) architect(claude)` and `solo  lead*(claude)`. `$H sql "select team.name, member.name, lead from team_member member join team on team.id = team_id order by team.name, member.id"` shows `duo|lead|1`, `duo|architect|0`, `solo|lead|1`.
+- **Apply again.** `$H reef -- team apply $E/duo2.json` prints the same line. `$H sql "select count(*) from team"` is still `2`, and `$H sql "select skills from teammate where name = 'duo-architect'"` is `["very-short-plans"]`. Put the original back with `$H reef -- team apply $E/duo.json`.
 - **Errors.** Each `$H reef -- team apply $E/<file>` ends `exit: 1` and `$H sql "select count(*) from team"` stays `2`:
   - `nolead.json`: `reef: invalid: team bad needs exactly one lead role, has 0`
   - `twolead.json`: `reef: invalid: team bad needs exactly one lead role, has 2`
@@ -119,7 +119,7 @@ Teams, no server needed (data folder `teams`):
   - `badgate.json`: `reef: invalid: gate a to ghost names a role team bad does not have`
   - `$H reef -- team apply /nonexistent.json`: `reef: read team file: open /nonexistent.json: no such file or directory`
   - `$H reef -- team`: `reef: usage: reef team apply FILE.json | list [--data DIR]`
-- **Three more teams.** `$H reef -- team apply $E/pingpong.json`, `$H reef -- team apply $E/gated.json` and `$H reef -- team apply $E/keys.json` print `applied team ...`. `$H sql "select count(*) from role where mcp_servers like '%sk-verify-5521%'"` is `1`: the env is stored for the agent.
+- **Three more teams.** `$H reef -- team apply $E/pingpong.json`, `$H reef -- team apply $E/gated.json` and `$H reef -- team apply $E/keys.json` print `applied team ...`. `$H sql "select count(*) from team_member where mcp_servers like '%sk-verify-5521%'"` is `1`: the env is stored for the agent.
 
 Server (the same folder): `ANTHROPIC_MODEL=sonnet $H serve-start --data-name teams`, then `A=$(cat $S/serve.addr)`.
 

@@ -1850,7 +1850,7 @@ async function workshop() {
     throw new Error('apply the team full first (teams/full.json, see features/teams.md)');
   }
   const mcpBefore = '[{"command":"true","env":{"API_KEY":"sk-verify-9911"}}]';
-  sql(`update role set mcp_servers = '${mcpBefore}', skills = '["ghost-skill"]', tools = '["Read","Grep","Glob","Edit","Write","Bash"]' where team_id = (select id from team where name = 'full') and name = 'developer'`, true);
+  sql(`update team_member set mcp_servers = '${mcpBefore}', tools = '["Read","Grep","Glob","Edit","Write","Bash"]' where team_id = (select id from team where name = 'full') and name = 'developer'; update teammate set skills = '["ghost-skill"]' where id = (select teammate_id from team_member where team_id = (select id from team where name = 'full') and name = 'developer')`, true);
   mkdirSync(path.join(projectDir, '.claude/skills/workshop-skill'), { recursive: true });
   writeFileSync(path.join(projectDir, '.claude/skills/workshop-skill/SKILL.md'), '---\nname: workshop-skill\ndescription: Picked in the workshop scenario.\n---\n');
 
@@ -1872,15 +1872,15 @@ async function workshop() {
   await page.getByText('Saved').waitFor();
   await shot('persona-saved');
   check(
-    sql(`select persona from role where team_id = (select id from team where name = 'full') and name = 'developer'`) === persona,
-    "saving the developer's persona in the window updates its role row",
+    sql(`select teammate.persona from team_member m join teammate on teammate.id = m.teammate_id where m.team_id = (select id from team where name = 'full') and m.name = 'developer'`) === persona,
+    "saving the developer's persona in the window updates its teammate row",
   );
   check(
-    sql(`select face from role where team_id = (select id from team where name = 'full') and name = 'developer'`) === 'otter',
-    "picking a creature for the developer in the window saves it to its role row",
+    sql(`select teammate.face from team_member m join teammate on teammate.id = m.teammate_id where m.team_id = (select id from team where name = 'full') and m.name = 'developer'`) === 'otter',
+    "picking a creature for the developer in the window saves it to its teammate row",
   );
   check(
-    sql(`select mcp_servers from role where team_id = (select id from team where name = 'full') and name = 'developer'`) === mcpBefore,
+    sql(`select m.mcp_servers from team_member m join teammate on teammate.id = m.teammate_id where m.team_id = (select id from team where name = 'full') and m.name = 'developer'`) === mcpBefore,
     "the developer's mcpServers, left out of the window, are unchanged",
   );
 
@@ -1907,7 +1907,7 @@ async function workshop() {
   await page.getByText('Saved').waitFor();
 
   // Skills and allowed tools are picked in the window and save; removing an MCP server removes it.
-  const row = (col) => sql(`select ${col} from role where team_id = (select id from team where name = 'full') and name = 'developer'`);
+  const row = (col) => sql(`select ${col} from team_member m join teammate on teammate.id = m.teammate_id where m.team_id = (select id from team where name = 'full') and m.name = 'developer'`);
   await main.getByRole('button', { name: /^developer/ }).click();
   const ghost = main.getByText('ghost-skill').locator('..');
   check((await ghost.innerText()).includes('missing'), 'a picked skill that is not on disk shows as missing', await ghost.innerText());
@@ -1935,9 +1935,9 @@ async function workshop() {
   await main.getByRole('button', { name: 'Remove mcp1 · true' }).click();
   await main.getByRole('button', { name: 'Save' }).click();
   await page.getByText('Saved').waitFor();
-  check(row('skills') === '["workshop-skill"]', "saving the developer's skills updates its role row", row('skills'));
-  check(row('tools').includes('Bash(git log:*)') && row('tools').includes('"WebFetch"') && !row('tools').includes('"Write"'), "picking and unpicking allowed tools saves them to the role row", row('tools'));
-  check(row('mcp_servers') === '[]', "removing the developer's MCP server in the window removes it from its role row", row('mcp_servers'));
+  check(row('teammate.skills') === '["workshop-skill"]', "saving the developer's skills updates its teammate row", row('teammate.skills'));
+  check(row('m.tools').includes('Bash(git log:*)') && row('m.tools').includes('"WebFetch"') && !row('m.tools').includes('"Write"'), "picking and unpicking allowed tools saves them to the team member row", row('m.tools'));
+  check(row('m.mcp_servers') === '[]', "removing the developer's MCP server in the window removes it from its team member row", row('m.mcp_servers'));
 
   // Duplicate makes a new team `reef team list` (the same store) shows.
   const copyName = `workshop-copy-${Date.now().toString(36)}`;

@@ -93,7 +93,7 @@ case $apply_full in *"applied team full: lead*(claude) architect(claude) develop
 case $team_list in *"full  lead*(claude) architect(claude) developer(claude) tester(claude)"*) ;; *) apply_ok=0 ;; esac
 check full-apply "$apply_ok" "team apply full printed the roster; team list has the full line"
 
-wc_out=$("$H" sql "select team.name, role.name, lead, write from role join team on team.id = team_id order by team.name, role.id")
+wc_out=$("$H" sql "select team.name, member.name, lead, write from team_member member join team on team.id = team_id order by team.name, member.id")
 wc_ok=1
 for row in "crew|lead|1|0" "crew|developer|0|1" "crew|tester|0|0" "full|lead|1|0" "full|architect|0|0" "full|developer|0|1" "full|tester|0|0" "relay|lead|1|0" "relay|tester|0|0" "solo|lead|1|1"; do
 	echo "$wc_out" | grep -qF "$row" || wc_ok=0

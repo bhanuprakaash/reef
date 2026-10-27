@@ -126,7 +126,7 @@ EOF
 Teams, no server needed (data folder `full`):
 
 - **Apply full.** `$H reef --data-name full -- team apply $PWD/teams/full.json` prints `applied team full: lead*(claude) architect(claude) developer(claude) tester(claude)`. Then `$H reef -- team apply $E/crew.json`, `$H reef -- team apply $E/cx.json`, `$H reef -- team apply $E/relay.json`. `$H reef -- team list` has the line `full  lead*(claude) architect(claude) developer(claude) tester(claude)` (`full-apply`).
-- **Write column.** `$H sql "select team.name, role.name, lead, write from role join team on team.id = team_id order by team.name, role.id"` has `crew|lead|1|0`, `crew|developer|0|1`, `crew|tester|0|0`, `full|lead|1|0`, `full|architect|0|0`, `full|developer|0|1`, `full|tester|0|0`, `relay|lead|1|0`, `relay|tester|0|0` and `solo|lead|1|1`: files with no `write` field load `0` (`write-default`).
+- **Write column.** `$H sql "select team.name, member.name, lead, write from team_member member join team on team.id = team_id order by team.name, member.id"` has `crew|lead|1|0`, `crew|developer|0|1`, `crew|tester|0|0`, `full|lead|1|0`, `full|architect|0|0`, `full|developer|0|1`, `full|tester|0|0`, `relay|lead|1|0`, `relay|tester|0|0` and `solo|lead|1|1`: files with no `write` field load `0` (`write-default`).
 
 Server (the same folder): `ANTHROPIC_MODEL=sonnet $H serve-start --data-name full`, set `A`.
 

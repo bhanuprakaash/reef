@@ -148,7 +148,7 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 [`001_init.sql`](../store/migrations/001_init.sql), migration 2
 [`002_token.sql`](../store/migrations/002_token.sql) (`token`), migration 3
 [`003_proposal.sql`](../store/migrations/003_proposal.sql) (`proposal`), migration 6
-[`006_team.sql`](../store/migrations/006_team.sql) (`team`, `role`, `space.team_id`),
+[`006_team.sql`](../store/migrations/006_team.sql) (`team`, `space.team_id`),
 migration 7 [`007_thread.sql`](../store/migrations/007_thread.sql) (`message.parent_id`) and
 migration 8 [`008_approval.sql`](../store/migrations/008_approval.sql) (`gate`, `approval`) and
 migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql) (`approval.kind`) and
@@ -363,7 +363,29 @@ through the same validation. Migration 6 seeds the team `solo`, with one role, `
 | `roles` | array | [roles](#role), the lead first, then the others in the order of the file |
 | `gates` | array | [gates](#gate); left out when the team lists none |
 
+### teammate
+
+One persistent agent that can sit in several teams. Migration 41
+([`041_teammate.sql`](../store/migrations/041_teammate.sql)) drops the `role` table and
+adds `teammate` and `team_member`; nothing is migrated except the seed: one default teammate `lead`
+(`claude`, `write`), the lead of `solo`.
+
+| Field | JSON | Notes |
+| --- | --- | --- |
+| `id` | integer | the memory `teammate` scope id will be this |
+| `name` | string | required; unique; same rule as a role name |
+| `persona`, `skills`, `backend`, `model`, `provider`, `face` | | as a [role](#role) |
+| `tools`, `mcpServers`, `write`, `permissionMode` | | default access rules. Joining a team copies them into a `team_member` row; editing them later does not change any membership. REST shows `mcp` (name and label) instead of `mcpServers` |
+
+A teammate that sits in a team cannot be deleted: the error is `invalid:` and names the team. A team has at
+most one lead; a second one is `invalid`. `solo` keeps its one lead and takes no member changes.
+A team member row holds the name the team calls the teammate (`name`, unique in the team; the role name below),
+`lead`, and its own `tools`, `mcpServers`, `write` and `permissionMode`. The rest of a role is read from the teammate.
+`reef team apply` and `PUT /teams/{name}` write the teammate behind each role: the one already behind that
+role name in the team, else a new one called `<team>-<role>`.
+
 ### role
+
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -518,10 +540,18 @@ tool calls.
 | `GET /skills?project={id}` | `project` is required | 200 `{"claude":[...],"codex":[...]}`, each a list of `{name, description}` read from disk, never stored. claude: `~/.claude/skills`, the project's `.claude/skills` and the skills of the plugins in `~/.claude/plugins/installed_plugins.json` installed for the user or for the project path, named `plugin:skill`. codex: `~/.agents/skills` and the project's `.agents/skills`. A name found twice is listed once; each list is ordered by name. A skill whose name is not letters, digits, `:`, `_` or `-`, or whose file cannot be read, is left out, and a malformed `installed_plugins.json` gives no plugin skills; each is logged and the rest are listed | 400 `project` missing or not a number, 404 |
 | `GET /providers` | | 200 the detected `claude` and `codex` (those found on `PATH`), then the added ones oldest first, each `{name, kind, detected, folder, path, version, createdAt}`. `detected` is `true` for the ones on `PATH`, which have no `folder` or `createdAt`. `path` is the binary that would run (left out when an added install's binary is gone). `version` is the trimmed output of `path --version`, run for all of them at once with a 3 s limit, and left out when it fails or is late. Models and login state are not listed | |
 | `POST /providers` | `name`, `kind`, `folder` | 201 the added provider, in the shape `GET` gives | 400 bad name, `kind` not `claude` or `codex`, `folder` not an absolute path to a folder, or no executable of that kind in it; 409 `name` is taken, or is `claude` or `codex` |
-| `DELETE /providers/{name}` | | 204 | 400 `claude` or `codex` (the ones on `PATH` cannot be removed), 404, 409 a role of some team still names it (the error names the role and team; change that role first) |
+| `DELETE /providers/{name}` | | 204 | 400 `claude` or `codex` (the ones on `PATH` cannot be removed), 404, 409 a teammate still names it (the error names the teammate; change that teammate first) |
 | `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
 | `GET /teams/{name}` | | 200, with `mcp` instead of `mcpServers` as above; each role shows `write` | 404 |
 | `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; a role may also list `mcpRemove`, the `{name, label}` of each stored MCP server to drop, as `GET` showed it; servers it does not list are kept); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones, minus those in its `mcpRemove`; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists, or a server in `mcpRemove` no longer matches a stored one by name and label (the team changed since it was loaded; nothing is applied) |
+| `GET /teammates` | | 200 every teammate by name, each `{id, name, persona, skills, backend, model, provider, face, tools, mcp, write, permissionMode}` | |
+| `POST /teammates` | the teammate fields above, `mcpServers` instead of `mcp` | 201 the teammate | 400 the same `invalid: ...` text a role gets, 409 name taken |
+| `GET /teammates/{id}` | | 200 | 404 |
+| `PUT /teammates/{id}` | every field; `mcpServers` left out keeps the stored ones, `[]` clears them | 200 | 400, 404, 409 name taken |
+| `DELETE /teammates/{id}` | | 204 | 400 the teammate is in a team (names it), 404 |
+| `POST /teams/{name}/members` | `teammateId`, `lead` | 201 the role as `GET /teams/{name}` shows it, with the teammate's default access copied | 400 unknown teammate, a second lead, or `solo`; 404 team; 409 already a member |
+| `PUT /teams/{name}/members/{id}` | `lead`, `tools`, `mcpServers` (left out keeps the stored ones), `write`, `permissionMode` | 200 the role | 400 as `PUT /teams`, a second lead; 404 |
+| `DELETE /teams/{name}/members/{id}` | | 204 | 400 `solo`; 404 |
 | `GET /spaces` | `?project=ID`, `?feature=ID` | 200 each Space also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
 | `POST /spaces` | `projectId`, `featureId`, `name`, `team` (a team name; default `solo`), `backend` (`claude` or `codex`; default the team lead's), `permissionMode` (`""`; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`; default the lead's when `backend` is the lead's), `role` (empty or `lead`; the Space's `role` becomes the name of the team's lead role). A `name` is required; one that is the new-space form's default, `<backend or team> <hh:mm>` (`claude 14:32`, `claude 02:32 PM`), marks the Space as waiting for a provider name, see [Space names](#space-names) | 201 | 400 unknown project, feature or team, feature of another project, bad backend or permission mode, a role other than `lead` |
 | `GET /spaces/{id}` | | 200 | 404 |
