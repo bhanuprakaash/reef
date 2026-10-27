@@ -305,7 +305,7 @@ no `No brief yet.` and no `none`. A section with no part left is left out.
      `post_to_space` and @mentions are shared (decisions, blockers, user questions and outcomes
      belong there), while `send_to_role` coordinates in detail with one teammate and gets one
      automatic direct response, and that an `Asked together:` line names every role one message
-     woke. A public message that wakes you starts with `[space N, message N]` or `[Space N,
+     woke. A public message that wakes you starts with `[Space N, message N]` or `[Space N,
      message N, thread N]`; your plain reply goes where the header says (a top-level reply starts
      your own thread), and `post_to_space` takes the header's `thread` as its `parent` when there
      is one. After the header, a wake may carry `reef wrote: ...` lines: what `reef` posted in the
@@ -430,7 +430,7 @@ its first turn: a first message that goes to a specialist starts no lead.
   The wake text then holds what changed since the session's
   previous turn: the newest turn of that role, Space and session that sent its prompt, by its
   start time. A turn that failed before it sent told the agent nothing, so it does not count.
-  The text goes right after the wake's `[space N, message N]` header line, before any
+  The text goes right after the wake's `[Space N, message N]` header line, before any
   `reef wrote:` lines, or at the top when the turn has no header (wrap-up, promote). It has two
   parts.
   Under `### Changed since your last turn`: one index line, as in the first prompt

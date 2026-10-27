@@ -73,7 +73,7 @@ REEF_VERIFY_CLAUDE=real ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run -- --
 
 In `fake` mode the binary reads one stdin line (one turn) at a time: it picks a scenario from
 the role (read off the first prompt, `You are the <role> on feature` / `in project`) and the
-newest message of the prompt's last wake block (after its `[space N, message N]` header, reef's
+newest message of the prompt's last wake block (after its `[Space N, message N]` header, reef's
 notes, `Asked together:` and the `New in the Space:` list: `<role> wrote: <body>` or the
 user's text), by a table of name/role/regexp in
 `fake/scenario.go`, matched in order, and replays `fake/recordings/<name>.jsonl`: a header line

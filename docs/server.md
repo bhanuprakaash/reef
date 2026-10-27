@@ -432,7 +432,7 @@ A wake that waits at a gate. The SQL table is `approval`.
 | `to` | string | the role that would run |
 | `messageId` | number | the message that woke it; `0` for a direct wake |
 | `directMessageId` | number? | the direct message that woke it, when the wake is direct |
-| `text` | string | the wake as it was routed, for example `[space 5, message 28]\nlead wrote: @architect design a form`; the turn's own text is built when it runs |
+| `text` | string | the wake as it was routed, for example `[Space 5, message 28]\nlead wrote: @architect design a form`; the turn's own text is built when it runs |
 | `status` | string | `pending`, `approved` or `rejected`. Decided once |
 | `createdAt` | string | |
 
@@ -761,7 +761,7 @@ architect with no lead turn. `POST /messages` stores a message and wakes nobody.
 and promote turns are not routed (see below).
 
 A wake is a turn of the woken role. Routing gives it the text it was routed with: a line
-`[space 3, message 12]` for a top-level message, or `[space 3, message 12, thread 9]` for a
+`[Space 3, message 12]` for a top-level message, or `[Space 3, message 12, thread 9]` for a
 reply (the Space, the waking message and, for a reply, its thread root), then the user's
 text as it is, or `<author> wrote: <body>` for an agent's message. That text is what a gate
 shows and what the wake keeps if it never starts. The wake also carries its scopes, the threads

@@ -41,7 +41,7 @@ function check(ok, label, detail) {
 
 const chrome = process.env.REEF_VERIFY_CHROME;
 const browser = await chromium.launch(
-  chrome ? { executablePath: chrome, args: ['--no-sandbox'], headless: true } : { space: 'chrome', headless: true },
+  chrome ? { executablePath: chrome, args: ['--no-sandbox'], headless: true } : { channel: 'chrome', headless: true },
 );
 const page = await browser.newPage({ viewport: { width: 1200, height: 1000 } });
 const main = page.getByRole('main');

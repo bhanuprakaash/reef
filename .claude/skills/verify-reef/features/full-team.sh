@@ -769,7 +769,7 @@ check google-login "$google_ok" "${google_bad:+failed at full-team.sh lines$goog
 section_fu() {
 ### Gates, notes, retry and rollback rules, folder fu
 
-prompt() { grep -h '"type":"user"' "$HOME"/.claude/projects/*/"$1".jsonl 2>/dev/null | grep -o '"content":"\[space[^"]*' | tail -1; }
+prompt() { grep -h '"type":"user"' "$HOME"/.claude/projects/*/"$1".jsonl 2>/dev/null | grep -o '"content":"\[Space[^"]*' | tail -1; }
 
 python3 -I -c 'import json,sys
 t=json.load(open(sys.argv[1]))
