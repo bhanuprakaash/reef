@@ -382,6 +382,14 @@ func (s *server) addSpaceMember(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	if ch, err := s.st.Space(r.Context(), id); err == nil && ch.Kind == store.KindConversation {
+		if err := s.moveConversation(r.Context(), ch, in.TeammateID); err != nil {
+			writeError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
 	role, err := s.st.AddSpaceMember(r.Context(), id, in.TeammateID)
 	if err != nil {
 		writeError(w, err)

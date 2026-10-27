@@ -293,6 +293,7 @@ scope `teammate`. Their routes still read and write them.
 | `team` | string | the name of the Team the Space's members were copied from. `solo` when none is given. Empty for a Space made from one Teammate. Set on create, never changes. The Space keeps its own member list (`space_member`: the Teammate, its lead flag and its access rules), so editing the Team later does not change a running Space |
 | `createdAt` | string | |
 | `closedAt` | string? | `null` while the Space is open. Set when its wrap-up is approved and when its work item is closed, cleared by `POST /spaces/{id}/reopen`. A closed Space takes no turn (409) |
+| `movedTo` | number? | `null` unless the Space is a conversation that [moved](#spaces-live) to the Space with the id. A moved conversation takes no turn (409) |
 
 ### message
 
@@ -573,7 +574,7 @@ tool calls.
 | `POST /spaces/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no work item); 404, 409 and 503 as send |
 | `POST /spaces/{id}/attach` | `workItemId` (required) | 200 the Space | 400 no `workItemId`, Space already has a work item or is a conversation, work item of another project, project not a git repo with a commit; 404; 409 a turn running, or the work item already has an active Space |
 | `GET /spaces/{id}/members` | | 200 the Space's members, lead first: the role fields of a [team](#team) role | 404 |
-| `POST /spaces/{id}/members` | `teammateId` (required) | 201 the member, a copy of the Teammate's default access rules | 400 unknown Teammate or a conversation, 404, 409 already a member or its name is taken |
+| `POST /spaces/{id}/members` | `teammateId` (required) | 201 the member, a copy of the Teammate's default access rules. On a conversation: 202, the same as the user writing `@name` at the start of a line (see [Spaces live](#spaces-live)) | 400 unknown Teammate, or the conversation's own; 404; 409 already a member or its name is taken, or a turn is running |
 | `GET /spaces/{id}/proposal` | | 200 the Space's pending proposal | 404 none pending |
 | `POST /proposals/{id}/approve` | no body needed | 200 the proposal, `itemsAdded` and `warnings` (a line for each saved item that looks like a stored one or has no vector; left out when none); a wrap closes the proposal's Space and stops its agent, a brief proposal does neither | 400 already decided, 404 |
 | `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |
@@ -616,6 +617,11 @@ a message wakes them.
   in the request. The text `/wrap` runs the wrap-up turn (400 on a Space with no work item, before any
   agent turn). Every other text is a plain message. A send with `parent` stores the message as a reply in that
   thread.
+- In a direct conversation, `@name` of another Teammate at the start of a line (the first one that names a
+  Teammate) moves it: the lead writes a summary for that Teammate in a turn of the conversation, then the
+  conversation gets `movedTo` and a new free Space starts with the lead and that Teammate, no Team and each
+  one's default access rules. The summary is the new Space's first message, from the lead, starting `@name`, and
+  wakes the Teammate; the conversation's own messages never reach it. An `@name` inside a line moves nothing.
 - Each role of the team has its own agent session, its own `reef mcp` token, its own turns and
   its own session id. The role's backend, permission mode, tools and MCP servers are set up
   for it (the lead uses the Space's backend and permission mode). Its first prompt starts with `## You`,

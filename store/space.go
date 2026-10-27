@@ -47,7 +47,7 @@ const _spaceCols = "space.id, space.project_id, space.work_item_id, space.name, 
 	"COALESCE((SELECT root.token_budget FROM work_item item JOIN work_item root " +
 	"ON root.id = COALESCE(item.parent_id, item.id) WHERE item.id = space.work_item_id), " +
 	"space.token_budget), space.created_at, space.closed_at, space.active_turn, " +
-	"COALESCE((SELECT name FROM team WHERE id = space.team_id), ''), space.kind"
+	"COALESCE((SELECT name FROM team WHERE id = space.team_id), ''), space.kind, space.moved_to"
 
 // Space with a nil WorkItemID is a free Space or a direct conversation. Team is empty for a
 // Space made from one Teammate. Who is in the Space is its space_member list, copied when the
@@ -66,6 +66,9 @@ type Space struct {
 	Team           string     `json:"team"`
 	CreatedAt      time.Time  `json:"createdAt"`
 	ClosedAt       *time.Time `json:"closedAt"`
+	// MovedTo is the Space a direct conversation became when a Teammate was added: the
+	// conversation is read-only from then on.
+	MovedTo *int64 `json:"movedTo"`
 	// ActiveTurn is the kind of turn currently running on the Space ("message" or
 	// "wrap", or "" when idle). It is a live-state hint for processes that
 	// cannot see the server's in-memory chain, such as reef mcp; it is not client data.
@@ -514,7 +517,7 @@ func scanSpacePreview(r interface{ Scan(...any) error }) (SpacePreview, error) {
 	// exposing it: the Space JSON omits it.
 	if err := r.Scan(&p.ID, &p.ProjectID, &p.WorkItemID, &p.Name, &p.Role, &p.Backend,
 		&p.PermissionMode, &p.Paused, &p.TokenBudget, &created, &closed, &p.ActiveTurn, &p.Team,
-		&p.Kind,
+		&p.Kind, &p.MovedTo,
 		&author, &body, &lastCreated); err != nil {
 		return SpacePreview{}, err
 	}
@@ -543,7 +546,7 @@ func scanSpace(r interface{ Scan(...any) error }) (Space, error) {
 	var closed sql.NullString
 	if err := r.Scan(&c.ID, &c.ProjectID, &c.WorkItemID, &c.Name, &c.Role, &c.Backend,
 		&c.PermissionMode, &c.Paused, &c.TokenBudget, &created, &closed, &c.ActiveTurn, &c.Team,
-		&c.Kind); err != nil {
+		&c.Kind, &c.MovedTo); err != nil {
 		return Space{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -216,5 +217,55 @@ func TestAttachSpace(t *testing.T) {
 	spaces, err := s.Spaces(ctx, SpaceFilter{WorkItemID: &w.ID})
 	if err != nil || len(spaces) != 2 {
 		t.Errorf("Spaces of the item = %+v, %v, want 2", spaces, err)
+	}
+}
+
+func TestMoveConversation_FreeSpaceWithBothTeammatesAndTheConversationMarked(t *testing.T) {
+	ctx := context.Background()
+	s := spaceMemberStore(t)
+	sam, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude", Tools: []string{"Read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	kim, err := s.CreateTeammate(ctx, Teammate{Name: "kim", Backend: "claude", Write: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	conv, err := s.CreateTeammateSpace(ctx,
+		Space{ProjectID: 1, Name: "talk", Kind: KindConversation, Role: "sam", Backend: "claude"}, sam.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := s.MoveConversation(ctx, conv.ID, sam.ID); !errors.Is(err, ErrInvalid) {
+		t.Errorf("move to its own Teammate = %v, want ErrInvalid", err)
+	}
+	if _, err := s.MoveConversation(ctx, conv.ID, 99); !errors.Is(err, ErrInvalid) {
+		t.Errorf("move to an unknown Teammate = %v, want ErrInvalid", err)
+	}
+	moved, err := s.MoveConversation(ctx, conv.ID, kim.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved.Kind != KindFree || moved.Team != "" || moved.Role != "sam" || moved.Name != "talk" {
+		t.Errorf("new Space = %+v, want a free Space named talk led by sam with no Team", moved)
+	}
+	team, err := s.SpaceTeam(ctx, moved.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, r := range team.Roles {
+		got = append(got, fmt.Sprintf("%s lead=%v write=%v tools=%v", r.Name, r.Lead, r.Write, r.Tools))
+	}
+	want := []string{"sam lead=true write=false tools=[Read]", "kim lead=false write=true tools=[]"}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("members = %v, want %v", got, want)
+	}
+	if c, err := s.Space(ctx, conv.ID); err != nil || c.MovedTo == nil || *c.MovedTo != moved.ID {
+		t.Errorf("conversation = %+v, %v, want moved to Space %d", c, err, moved.ID)
+	}
+	if _, err := s.MoveConversation(ctx, conv.ID, kim.ID); !errors.Is(err, ErrConflict) {
+		t.Errorf("second move = %v, want ErrConflict", err)
 	}
 }

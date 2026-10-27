@@ -76,6 +76,7 @@ const (
 	_noTurn turnKind = iota
 	_message
 	_wrap
+	_move
 )
 
 type liveState int
@@ -127,11 +128,13 @@ type retry struct {
 
 // userTurn is a turn that starts with a user message: text, a reply in the thread of parent
 // when it is set. A message turn runs for the role the message is routed to, and its reply
-// goes in the same thread; a wrap turn runs for the lead.
+// goes in the same thread; a wrap turn runs for the lead; a move turn runs for the lead too, and
+// moves the conversation to a Space with the Teammate to.
 type userTurn struct {
 	kind   turnKind
 	text   string
 	parent *int64
+	to     store.Teammate
 }
 
 // chain is the claim on an idle Space to run a chain of turns. It ends with start, which
@@ -251,8 +254,16 @@ func (s *server) send(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	t := userTurn{kind: _message, text: in.Text, parent: in.Parent}
-	if in.Text == space.WrapCommand {
+	to, moves, err := s.moveTarget(r.Context(), id, in.Text)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	switch {
+	case in.Text == space.WrapCommand:
 		t.kind = _wrap
+	case moves:
+		t.kind, t.to = _move, to
 	}
 	if err := s.startUserTurn(r.Context(), id, t); err != nil {
 		writeError(w, err)
@@ -359,10 +370,13 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 		s.nameSpace(ctx, id, ch.Backend, t.text)
 	}
 	queue := []wake{{from: _userAuthor, role: role, text: t.text, parent: t.parent}}
-	if t.kind == _message {
+	switch t.kind {
+	case _message:
 		if queue, err = s.route(ctx, id, []store.Message{msg}, _userAuthor); err != nil {
 			return c.release(err)
 		}
+	case _move:
+		queue[0].text, queue[0].messageID, queue[0].moveTo = movePrompt(t.to.Name, t.text), msg.ID, t.to.ID
 	}
 	return c.start(ctx, sess, t.kind, queue, msg.ID)
 }
@@ -458,6 +472,10 @@ func (s *server) runOne(
 	switch kind {
 	case _wrap:
 		_, err = sess.Wrap(ctx, onEvent)
+	case _move:
+		if err = sess.RunAs(ctx, w.role, w.text, nil, onEvent); err == nil {
+			err = s.finishMove(ctx, id, w)
+		}
 	default:
 		if w.direct != nil {
 			err = sess.RunDirectAs(ctx, w.role, w.text, *w.direct, onEvent)
@@ -506,6 +524,9 @@ func (s *server) checkSpace(
 ) (string, error) {
 	if ch.ClosedAt != nil {
 		return "", fmt.Errorf("space %d is closed: %w", ch.ID, store.ErrConflict)
+	}
+	if ch.MovedTo != nil {
+		return "", fmt.Errorf("conversation %d moved to Space %d: %w", ch.ID, *ch.MovedTo, store.ErrConflict)
 	}
 	if kind == _wrap && ch.WorkItemID == nil {
 		return "", fmt.Errorf("%w: Space %d has no work item, attach it to one before wrapping up",

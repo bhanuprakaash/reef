@@ -59,6 +59,51 @@ func (s *Store) AddSpaceMember(ctx context.Context, id, teammateID int64) (Role,
 	return Role{}, fmt.Errorf("teammate %d in Space %d: %w", teammateID, id, ErrNotFound)
 }
 
+// MoveConversation turns the direct conversation id into a free Space with no Team: the
+// conversation's Teammate leads it and the Teammate teammateID joins, each with its default
+// access rules. The conversation is marked moved to the new Space, which it returns, in the
+// same transaction.
+func (s *Store) MoveConversation(ctx context.Context, id, teammateID int64) (Space, error) {
+	conv, err := s.Space(ctx, id)
+	if err != nil {
+		return Space{}, err
+	}
+	switch {
+	case conv.Kind != KindConversation:
+		return Space{}, fmt.Errorf("%w: Space %d is not a direct conversation", ErrInvalid, id)
+	case conv.MovedTo != nil:
+		return Space{}, fmt.Errorf("%w: conversation %d already moved to Space %d",
+			ErrConflict, id, *conv.MovedTo)
+	}
+	leadID, err := s.SpaceMemberTeammateID(ctx, id, conv.Role)
+	if err != nil {
+		return Space{}, err
+	}
+	moved := Space{ProjectID: conv.ProjectID, Name: conv.Name, Role: conv.Role, Backend: conv.Backend,
+		PermissionMode: conv.PermissionMode, Kind: KindFree}
+	return s.insertSpace(ctx, moved, nil, func(tx *sql.Tx, newID int64) error {
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO space_member (space_id, teammate_id, name, lead, tools, mcp_servers, write, "+
+				"permission_mode) SELECT ?, id, name, id = ?, tools, mcp_servers, write, "+
+				"permission_mode FROM teammate WHERE id IN (?, ?)", newID, leadID, leadID, teammateID)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err == nil && n < 2 {
+			return fmt.Errorf("%w: teammate %d is unknown or leads the conversation", ErrInvalid, teammateID)
+		}
+		res, err = tx.ExecContext(ctx,
+			"UPDATE space SET moved_to = ? WHERE id = ? AND moved_to IS NULL", newID, id)
+		if err != nil {
+			return err
+		}
+		if n, err := res.RowsAffected(); err == nil && n == 0 {
+			return fmt.Errorf("%w: conversation %d already moved", ErrConflict, id)
+		}
+		return nil
+	})
+}
+
 // SpaceMemberTeammateID returns the id of the Teammate that holds role in Space id, or
 // ErrNotFound.
 func (s *Store) SpaceMemberTeammateID(ctx context.Context, id int64, role string) (int64, error) {

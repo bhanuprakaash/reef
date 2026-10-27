@@ -49,6 +49,9 @@ type wake struct {
 	scopes store.Scopes
 	// hold is the id of the cap hold a wake was released by, when it was.
 	hold int64
+	// moveTo is the id of the Teammate a move turn adds: text asks the lead for the summary it
+	// starts from, and messageID is the user's message that asked.
+	moveTo int64
 }
 
 func (s *server) directWakes(
