@@ -244,5 +244,5 @@ Settled 2026-10-26 (the recommended options).
 
 ## After this
 
-1. **Design the context assembler:** the first message from memory, with fixed counts per section (R24), the section order, the delta on later wakes and size tests. See [memory-and-retrieval.md](memory-and-retrieval.md) "Still open".
+1. **Design the context assembler:** done, R31–R36 in [decisions.md](decisions.md). It reads today's tables; memory plugs in during step 4.
 2. **Step 4, memory wiring:** the MCP tools `remember`, `recall` and `read_memory` (R23), and the assembler wired into channels. Its own slice.

@@ -39,3 +39,17 @@ Settled in discussion, 2026-10-23. Numbered R1… so they do not collide with `d
 | R28 | Gemini (`gemini-embedding-001`, 768 dimensions, no task type) is a third embedding provider beside OpenAI and Voyage. Each provider has its own cosine floor: Gemini 0.6, OpenAI and Voyage 0.3 (not yet measured) | Google gives a free tier, so meaning search costs nothing to try. Measured on the eval: related 0.69 to 0.76, unrelated at most 0.57; a task type raised every score without widening the gap. The 0.92 lookalike threshold holds for Gemini: near-copies 0.98, reworded notes 0.84 to 0.87, unrelated 0.52 |
 | R29 | A convention by an architect, lead or the user is accepted on write; other roles' conventions are candidates. Any writer may ask for approval (`needs_approval`), which makes the item a candidate whatever the role. Amends R21 | Architect and lead own how the team works; they can still put a rule they are unsure of in front of the user |
 | R30 | The background pass that fills missing vectors (R20) waits for server wiring; until then a failed embed is reported on write and `reef memory embed <provider>` retries. `Backfill` waits out one 429 per item (its `Retry-After`, 1 to 60 seconds); writes and recall never wait | Nothing long-lived runs before the server calls `memory/`; a silent failure would leave items out of meaning search unseen |
+
+## Context assembler (settled 2026-10-27)
+
+Built on today's tables (feature, brief, role notes, project memory, decisions, tasks, channels). The memory slice swaps the sources; the shape stays. These move to `docs/product.md` when built.
+
+| # | Decision | Why |
+| --- | --- | --- |
+| R31 | One assembler builds every first prompt, a feature channel's and a quick session's, in three sections in this order: `## You` (persona, skills, role, feature, project, the user, goal, stage, base branch), `## How to work` (team rules, then one line on the tools), `## What we know` (brief, project memory, your notes, live decisions, tasks in progress, one count line) | Instructions before knowledge, one header per kind of content; `projectContext` goes away |
+| R32 | An empty part is left out: no "No brief yet.", "No notes yet." or "none" | Those lines tell the agent nothing |
+| R33 | Tasks: only those in `doing` are listed. Open tasks and channels are one count line each with the tool to use: `23 open tasks (list_tasks). 3 earlier channels (search_sessions).` | A task has no owner and the wake names the work; the agent only needs to know more exists |
+| R34 | A resumed role's wake starts with what changed since its session's previous turn: decisions added by others or retired, as index lines, and the brief in full when a newer version exists. Tasks are not in it | A role otherwise never learns of a new decision or brief during its session |
+| R35 | A Go test builds the first prompt for a feature with 60 decisions, 40 tasks and 15 channels: no section twice, each limit holds, under 8,000 characters without the persona. Another checks the delta holds only the new items. `turn.prompt` stays the only record of what was sent | Size is checked by a test, not by eye; no new storage |
+| R36 | The team rules keep their wording in this run | The channel evals tested that exact text; a rewrite needs its own eval run |
+
