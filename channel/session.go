@@ -305,10 +305,31 @@ func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
 		}
 	}
 	m.run.Scopes = sent
+	delta, err := s.delta(ctx, m)
+	if err != nil {
+		return s.failTurn(ctx, m.run.role, m.run.backend, in, err)
+	}
+	m.run.Delta = delta
 	if in.direct != nil {
 		return m.run.RunDirect(ctx, text, *in.direct, in.onEvent)
 	}
 	return m.run.Run(ctx, text, parent, in.onEvent)
+}
+
+// delta is what changed in the channel's feature since m's session was last sent a prompt. It
+// is empty for a channel without a feature and for a session that has been sent none. A turn
+// that failed before it sent told the agent nothing, so it does not move the point.
+func (s *Session) delta(ctx context.Context, m *member) (string, error) {
+	ctx = context.WithoutCancel(ctx)
+	ch, err := s.st.Channel(ctx, s.ch.ID)
+	if err != nil || ch.FeatureID == nil || m.run.sessionID == "" {
+		return "", err
+	}
+	since, ok, err := s.st.LastSentAt(ctx, ch.ID, m.run.role, m.run.sessionID)
+	if err != nil || !ok {
+		return "", err
+	}
+	return changedSince(ctx, s.st, *ch.FeatureID, m.run.role, since)
 }
 
 // failTurn stores a failed turn of role for a turn that never started and returns cause

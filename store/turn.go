@@ -158,6 +158,28 @@ func (s *Store) Turns(ctx context.Context, f TurnFilter) ([]Turn, error) {
 	return scanAll(rows, scanTurn)
 }
 
+// LastSentAt is when the newest turn of role in the session of channelID that sent its prompt
+// started. It is false when no turn of the session sent one.
+func (s *Store) LastSentAt(
+	ctx context.Context, channelID int64, role, sessionID string,
+) (time.Time, bool, error) {
+	var started string
+	err := s.db.QueryRowContext(ctx,
+		"SELECT started_at FROM turn WHERE channel_id = ? AND role = ? AND session_id = ? "+
+			"AND sent = 1 ORDER BY id DESC LIMIT 1", channelID, role, sessionID).Scan(&started)
+	if errors.Is(err, sql.ErrNoRows) {
+		return time.Time{}, false, nil
+	}
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("last sent turn: %w", err)
+	}
+	t, err := time.Parse(time.RFC3339Nano, started)
+	if err != nil {
+		return time.Time{}, false, fmt.Errorf("bad started_at: %w", err)
+	}
+	return t, true, nil
+}
+
 // SessionCostBefore is the running cost of the session with the id when its turns before turn
 // beforeID ended: the total the latest of them reported. A session with only turns stored before
 // totals were kept has the largest cost, a running total, plus the costs stored after it, which

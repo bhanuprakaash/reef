@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/bhanuprakaash/reef/store"
 )
@@ -125,8 +126,7 @@ func featureKnow(
 	var live, doing, counts []string
 	for _, d := range decisions {
 		if d.RetiredAt == nil {
-			live = append(live, fmt.Sprintf("decision %d: %s (%s, %s)",
-				d.ID, firstLine(d.Body), d.Author, d.CreatedAt.Format(_dateLayout)))
+			live = append(live, decisionLine(d))
 		}
 	}
 	open := 0
@@ -166,6 +166,51 @@ func featureKnow(
 	parts = appendPart(parts, "Decisions", strings.Join(live, "\n"))
 	parts = appendPart(parts, "Doing", strings.Join(doing, "\n"))
 	return appendPart(parts, "On demand", strings.Join(counts, " ")), nil
+}
+
+func decisionLine(d store.Decision) string {
+	return fmt.Sprintf("decision %d: %s (%s, %s)",
+		d.ID, firstLine(d.Body), d.Author, d.CreatedAt.Format(_dateLayout))
+}
+
+// changedSince is what the feature gained after since that a role whose session was told of
+// everything before it has not seen: the decisions others added, the decisions anyone retired
+// and the brief in full when a version is newer. It is empty when nothing changed. Tasks are
+// left out.
+func changedSince(
+	ctx context.Context, st *store.Store, featureID int64, role string, since time.Time,
+) (string, error) {
+	decisions, err := st.Decisions(ctx, featureID)
+	if err != nil {
+		return "", err
+	}
+	var lines []string
+	for _, d := range decisions {
+		if d.CreatedAt.After(since) && d.Author != role {
+			lines = append(lines, decisionLine(d))
+		}
+	}
+	for _, d := range decisions {
+		if d.RetiredAt == nil || !d.RetiredAt.After(since) {
+			continue
+		}
+		line := fmt.Sprintf("decision %d is retired", d.ID)
+		if d.ReplacedBy != nil {
+			line += fmt.Sprintf(", replaced by decision %d", *d.ReplacedBy)
+		}
+		lines = append(lines, line+".")
+	}
+	brief, err := st.Brief(ctx, featureID)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
+	if !brief.CreatedAt.After(since) {
+		brief.Body = ""
+	}
+	var parts []string
+	parts = appendPart(parts, "Changed since your last turn", strings.Join(lines, "\n"))
+	parts = appendPart(parts, "New brief", brief.Body)
+	return strings.Join(parts, ""), nil
 }
 
 func plural(n int, noun string) string {

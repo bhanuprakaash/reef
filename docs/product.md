@@ -249,6 +249,8 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 | 86 | An empty part of the first prompt is left out: no "No brief yet.", "No notes yet." or "none"; a section with no part left is left out too | Those lines tell the agent nothing |
 | 87 | The first prompt lists only the tasks in `doing`. Open tasks and earlier channels are one count line with the tool to use: `23 open tasks (list_tasks). 3 earlier channels (search_sessions).` | A task has no owner and the wake names the work; the agent only needs to know that more exists |
 | 88 | The team rules keep their wording; only their `## Team` header goes, under `## How to work`. Amends 85 | The channel evals tested that exact text; a rewrite needs its own eval run |
+| 89 | A resumed role's wake starts with what changed since its session's previous turn: decisions added by others or retired, as index lines, and the brief in full when a newer version exists. Tasks are not in it | A role otherwise never learns of a new decision or brief during its session |
+| 90 | A Go test builds the first prompt for a feature with 60 decisions, 40 tasks and 15 channels and checks its size; another checks the delta holds only the new items. `turn.prompt` stays the only record of what was sent | Size is checked by a test, not by eye; no new storage |
 
 ## Open questions
 

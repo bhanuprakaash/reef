@@ -37,6 +37,9 @@ type Runner struct {
 	// Scopes, when set, are the scopes of the wake the next turn sends, each with its newest
 	// message, and are stored on the turn so a later turn of the session skips them.
 	Scopes store.Scopes
+	// Delta, when set, is put before the wake of the next turn only: what changed in the
+	// feature since the session's previous turn. The stored wake text does not hold it.
+	Delta string
 	// OnNote, when set, is called after the watch posts a message, so a window shows it.
 	OnNote func()
 
@@ -86,6 +89,8 @@ func (r *Runner) Run(
 	ctx context.Context, text string, parent *int64, onEvent func(agent.Event),
 ) error {
 	r.endWatch()
+	delta := r.Delta
+	r.Delta = ""
 	// The turn is recorded even when ctx is cancelled.
 	wctx := context.WithoutCancel(ctx)
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
@@ -122,6 +127,9 @@ func (r *Runner) Run(
 	prompt, err := r.withNotes(wctx, turn, text)
 	if err != nil {
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
+	}
+	if delta != "" {
+		prompt = delta + "\n" + prompt
 	}
 	if r.preamble != "" {
 		prompt = r.preamble + "\n\n" + prompt
