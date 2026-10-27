@@ -171,6 +171,28 @@ func (s *Store) ClaimSendBack(ctx context.Context, id int64) (spaceID int64, not
 	return spaceID, note, n > 0, nil
 }
 
+// UnwrappedSpaces returns the open Spaces of items in review whose wrap-up no one has started,
+// as when the server quit right after the submit.
+func (s *Store) UnwrappedSpaces(ctx context.Context) ([]int64, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT proof.space_id FROM proof JOIN work_item w ON w.id = proof.work_item_id "+
+			"JOIN space ON space.id = proof.space_id "+
+			"WHERE proof.wrap_started = 0 AND w.status = ? AND space.closed_at IS NULL", _review)
+	if err != nil {
+		return nil, fmt.Errorf("list Spaces without a wrap-up: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	var ids []int64
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			return nil, fmt.Errorf("scan Space without a wrap-up: %w", err)
+		}
+		ids = append(ids, id)
+	}
+	return ids, rows.Err()
+}
+
 // ClaimWrap reports whether Space id submitted its Work item for review and no one has started
 // its wrap-up yet, and marks the wrap-up started: only the first caller gets true.
 func (s *Store) ClaimWrap(ctx context.Context, spaceID int64) (bool, error) {

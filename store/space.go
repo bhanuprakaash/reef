@@ -456,6 +456,25 @@ func (s *Store) ContinueSpace(ctx context.Context, id, budget int64) error {
 	return s.moveSpaceItem(ctx, id, _needsYou, _inProgress)
 }
 
+// CloseSpace sets closed_at on the Space and gives the direct requests waiting in it a stopped
+// response, in one transaction.
+func (s *Store) CloseSpace(ctx context.Context, id int64) error {
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin close Space: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	if _, err := tx.ExecContext(ctx,
+		"UPDATE space SET closed_at = COALESCE(closed_at, ?) WHERE id = ?",
+		time.Now().UTC().Format(time.RFC3339Nano), id); err != nil {
+		return fmt.Errorf("close Space: %w", err)
+	}
+	if err := s.stopWaitingDirects(ctx, tx, "space_id = ?", id); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
 // ReopenSpace clears the Space's closed_at. It is ErrConflict when the Space's work item has
 // another active Space.
 func (s *Store) ReopenSpace(ctx context.Context, id int64) error {
@@ -499,8 +518,18 @@ func (s *Store) setSpace(ctx context.Context, id int64, set string, args ...any)
 	return nil
 }
 
-// DeleteSpace removes the Space and, by cascade, its messages and turns.
+// DeleteSpace removes the Space and, by cascade, its messages and turns. A Space its Work item
+// was submitted from, while the item is in review, is ErrConflict: the proof goes with it.
 func (s *Store) DeleteSpace(ctx context.Context, id int64) error {
+	var reviewing bool
+	if err := s.db.QueryRowContext(ctx,
+		"SELECT EXISTS (SELECT 1 FROM proof JOIN work_item w ON w.id = proof.work_item_id "+
+			"WHERE proof.space_id = ? AND w.status = ?)", id, _review).Scan(&reviewing); err != nil {
+		return fmt.Errorf("read proof of Space: %w", err)
+	}
+	if reviewing {
+		return fmt.Errorf("%w: space %d is the proof of a work item in review", ErrConflict, id)
+	}
 	res, err := s.db.ExecContext(ctx, "DELETE FROM space WHERE id = ?", id)
 	if err != nil {
 		return fmt.Errorf("delete Space: %w", err)

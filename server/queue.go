@@ -13,7 +13,8 @@ import (
 )
 
 // startQueue starts the first queued item of every free Team and opens what it started, in the
-// background, so a queued item waits no longer than a restart.
+// background, so a queued item waits no longer than a restart. It also starts the wrap-up of
+// each submitted item the server quit before wrapping up.
 func (s *server) startQueue() {
 	if !s.begin() {
 		return
@@ -24,6 +25,13 @@ func (s *server) startQueue() {
 			log.Printf("start queues: %v", err)
 		}
 		s.openStarted(s.ctx)
+		ids, err := s.st.UnwrappedSpaces(s.ctx)
+		if err != nil {
+			log.Printf("list unwrapped Spaces: %v", err)
+		}
+		for _, id := range ids {
+			s.startSubmitted(id)
+		}
 	}()
 }
 

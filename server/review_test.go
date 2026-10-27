@@ -97,3 +97,86 @@ func TestSendBackReachesTheLeadWithTheNote(t *testing.T) {
 		t.Error("the wrap-up proposal is still pending after send back, want rejected")
 	}
 }
+
+// submittedUnwrappedEnv has item 1 in review from Space 2 as after a quit: no wrap-up started.
+func submittedUnwrappedEnv(t *testing.T) *liveEnv {
+	t.Helper()
+	env := newLiveEnv(t)
+	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login","teamId":1}`)
+	do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"queued"}`)
+	deadline := time.Now().Add(5 * time.Second)
+	for env.h.s.lookup(2) == nil {
+		if time.Now().After(deadline) {
+			t.Fatal("item 1 was not opened")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	env.waitIdle(t, 2)
+	if _, err := env.st.SubmitForReview(context.Background(), 1, nil, store.Proof{SpaceID: 2}); err != nil {
+		t.Fatal(err)
+	}
+	return env
+}
+
+func TestDeleteSpaceInReviewIsRefused(t *testing.T) {
+	env := submittedEnv(t)
+
+	status, body := do(t, http.MethodDelete, env.url+"/spaces/2", "")
+	if status != 409 || !strings.Contains(body, "in review") {
+		t.Errorf("delete the submitting Space = %d %s, want 409 naming review", status, body)
+	}
+	if status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"done"}`); status != 200 {
+		t.Errorf("Done after the refused delete = %d %s, want 200", status, body)
+	}
+}
+
+func TestDoneWithoutWrapUpClosesTheSpace(t *testing.T) {
+	env := submittedUnwrappedEnv(t)
+	brief, err := env.st.CreateProposal(context.Background(),
+		store.Proposal{SpaceID: 2, Kind: store.ProposalBrief, Role: "lead", Brief: "mid-run brief"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"done"}`); status != 200 {
+		t.Fatalf("Done = %d %s, want 200", status, body)
+	}
+	if got, err := env.st.Proposal(context.Background(), brief.ID); err != nil || got.Status != store.ProposalPending {
+		t.Errorf("brief proposal after Done = %+v, %v, want still pending", got, err)
+	}
+	if _, body := do(t, http.MethodGet, env.url+"/spaces/2", ""); !strings.Contains(body, `"closedAt":"`) {
+		t.Errorf("Space 2 after Done = %s, want closed", body)
+	}
+}
+
+func TestWrapUpRunsAfterRestart(t *testing.T) {
+	env := submittedUnwrappedEnv(t)
+	env.fake.onRun = func(_, text string, _ *int64) {
+		if text != space.WrapCommand {
+			return
+		}
+		_, err := env.st.CreateProposal(context.Background(), store.Proposal{SpaceID: 2, Role: "lead", Brief: "login done"})
+		if err != nil {
+			t.Error(err)
+		}
+	}
+	env.restart(t)
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		if _, err := env.st.PendingProposal(context.Background(), 2); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("no wrap-up proposal after the restart")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	env.waitIdle(t, 2)
+	if status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"done"}`); status != 200 {
+		t.Fatalf("Done = %d %s, want 200", status, body)
+	}
+	if _, body := do(t, http.MethodGet, env.url+"/spaces/2", ""); !strings.Contains(body, `"closedAt":"`) {
+		t.Errorf("Space 2 after Done = %s, want closed", body)
+	}
+}

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 
 	"github.com/bhanuprakaash/reef/memory"
@@ -163,14 +164,18 @@ func (s *server) moveWorkItem(w http.ResponseWriter, r *http.Request) {
 }
 
 // decideReview moves the top-level item in review as the user. Done approves the wrap-up the
-// lead proposed when it submitted. Queued sends the item back with note, which reaches the lead
-// when the Team restarts the item. A wrap-up still running is 409, so the user decides on what
-// the lead finished.
+// lead proposed when it submitted, or closes the Space when there is none. Queued sends the item
+// back with note, which reaches the lead when the Team restarts the item. A wrap-up still
+// running is 409, so the user decides on what the lead finished. An item with no proof has no
+// Space to wrap up or wake: it is only moved.
 func (s *server) decideReview(ctx context.Context, item store.WorkItem, to, note string) (store.WorkItem, error) {
 	if to != "done" && to != "queued" {
 		return s.st.MoveWorkItem(ctx, item.ID, to, store.ByUser)
 	}
 	proof, err := s.st.Proof(ctx, item.ID)
+	if errors.Is(err, store.ErrNotFound) {
+		return s.st.MoveWorkItem(ctx, item.ID, to, store.ByUser)
+	}
 	if err != nil {
 		return store.WorkItem{}, err
 	}
@@ -186,12 +191,23 @@ func (s *server) decideReview(ctx context.Context, item store.WorkItem, to, note
 	if to == "queued" {
 		return s.st.SendBack(ctx, item.ID, note)
 	}
-	p, err := s.st.PendingProposal(ctx, proof.SpaceID)
-	if err == nil {
-		_, err = s.approve(ctx, p.ID)
-	}
-	if err != nil && !errors.Is(err, store.ErrNotFound) {
+	pending, err := s.st.PendingProposals(ctx, &item.ID, nil)
+	if err != nil {
 		return store.WorkItem{}, err
+	}
+	if i := slices.IndexFunc(pending, func(p store.Proposal) bool {
+		return p.Kind == store.ProposalWrap && p.SpaceID == proof.SpaceID
+	}); i >= 0 {
+		if _, err := s.approve(ctx, pending[i].ID); err != nil {
+			return store.WorkItem{}, err
+		}
+	} else {
+		if err := s.st.CloseSpace(ctx, proof.SpaceID); err != nil {
+			return store.WorkItem{}, err
+		}
+		if l := s.lookup(proof.SpaceID); l != nil {
+			s.stopLive(l)
+		}
 	}
 	return s.st.MoveWorkItem(ctx, item.ID, to, store.ByUser)
 }
