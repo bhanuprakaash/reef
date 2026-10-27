@@ -63,9 +63,11 @@ export type ChannelPreview = Channel & {
   lastMessage: { author: string; body: string; createdAt: string } | null;
 };
 
-export type ProposedDecision = {
+export type ProposedItem = {
+  kind: string;
   body: string;
-  why: string;
+  why?: string;
+  scope: string;
   replaces?: number[];
 };
 
@@ -75,8 +77,7 @@ export type Proposal = {
   role: string;
   kind: 'wrap' | 'brief';
   brief: string;
-  notes: string;
-  decisions: ProposedDecision[];
+  items: ProposedItem[];
   retire: number[];
   status: string;
   createdAt: string;

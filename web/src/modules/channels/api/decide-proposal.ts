@@ -4,7 +4,7 @@ import { briefsKey, memoryKey } from '@/lib/query-keys';
 import type { Proposal } from '@/types/api';
 
 type Decision = { proposal: Proposal; action: 'approve' | 'reject' };
-type Decided = Proposal & { decisionsAdded?: number };
+type Decided = Proposal & { itemsAdded?: number };
 
 export function useDecideProposal(channelId: number, featureId: number | null) {
   const queryClient = useQueryClient();

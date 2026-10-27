@@ -268,7 +268,7 @@ async function promote() {
     `channel row: ${sql(`select id,feature_id from channel where id=${cid}`)}`,
   );
   await panel.getByRole('button', { name: 'Approve' }).click();
-  await page.getByText(/approved: \d+ decisions added/).waitFor();
+  await page.getByText(/approved: \d+ items saved/).waitFor();
   await shot('approved');
   await section.getByRole('link', { name: 'Search', exact: true }).click();
   await page.getByText('Version 1 by').waitFor();
@@ -1562,7 +1562,7 @@ async function wrap() {
   await working();
   await panel.waitFor({ timeout: 240000 });
   await panel.getByRole('button', { name: 'Approve' }).click();
-  await page.getByText(/approved: \d+ decisions added/).waitFor();
+  await page.getByText(/approved: \d+ items saved/).waitFor();
   await shot('approved');
   await section.getByRole('link', { name: 'Login', exact: true }).click();
   await page.getByText('Version 1 by').waitFor();
