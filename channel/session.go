@@ -405,11 +405,12 @@ func (s *Session) closeMembers() error {
 
 // member returns the agent session of role, starting or resuming it from the role's own
 // newest turn with a session id on the role's backend. A new session reads the team from the
-// store, so a team applied since the channel opened is the one it gets. An agent that fails
-// to start, for any reason, leaves a failed turn for the role that keeps the wake it was
-// starting for, and so does a ctx cancelled before it starts: the turn is interrupted. The
-// store is read even then, as Run stores its turn. A role the team no longer has leaves one
-// too, on the channel's backend.
+// store, so a team applied since the channel opened is the one it gets, and its first prompt
+// reads the team and the role again when it is built. An agent that fails to start, for any
+// reason, leaves a failed turn for the role that keeps the wake it was starting for, and so
+// does a ctx cancelled before it starts: the turn is interrupted. The store is read even
+// then, as Run stores its turn. A role the team no longer has leaves one too, on the
+// channel's backend.
 func (s *Session) member(ctx context.Context, role string, in runInput) (_ *member, err error) {
 	wctx := context.WithoutCancel(ctx)
 	team, err := s.st.Team(wctx, s.ch.Team)
@@ -432,8 +433,8 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		_, err := os.Stat(m.dir)
 		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone &&
 			sameAccess(m.cfg, roleConfig(r, m.dir)) {
-			// Before its first turn, m's preamble already carries the current intro, set
-			// when it was started or resumed; nothing has been sent yet to compare against.
+			// Before its first turn m has no session id and nothing sent to compare against: its
+			// first prompt is built with the role as it is when the turn runs.
 			if intro := roleIntro(r); intro != "" && m.run.sessionID != "" {
 				sent, err := introSent(wctx, s.st, s.ch.ID, role, r.Backend, m.run.sessionID)
 				if err != nil {
@@ -518,8 +519,16 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
 	m.run.sessionID = last.SessionID
 	if last.SessionID == "" {
-		m.run.Start = func(ctx context.Context) (string, error) {
+		m.run.FirstPrompt = func(ctx context.Context) (string, error) {
 			ch, err := s.st.Channel(ctx, s.ch.ID)
+			if err != nil {
+				return "", err
+			}
+			team, err := s.st.Team(ctx, s.ch.Team)
+			if err != nil {
+				return "", err
+			}
+			r, err := s.roleSetup(team, role)
 			if err != nil {
 				return "", err
 			}

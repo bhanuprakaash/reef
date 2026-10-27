@@ -42,14 +42,14 @@ Settled in discussion, 2026-10-23. Numbered R1… so they do not collide with `d
 
 ## Context assembler (settled 2026-10-27)
 
-Built on today's tables (feature, brief, role notes, project memory, decisions, tasks, channels). The memory slice swaps the sources; the shape stays. These move to `docs/product.md` when built.
+Built on today's tables (feature, brief, role notes, project memory, decisions, tasks, channels). The memory slice swaps the sources; the shape stays. Moved to `docs/product.md` decisions 85–89; the rows below are the original wording.
 
 | # | Decision | Why |
 | --- | --- | --- |
 | R31 | One assembler builds every first prompt, a feature channel's and a quick session's, in three sections in this order: `## You` (persona, skills, role, feature, project, the user, goal, stage, base branch), `## How to work` (team rules, then one line on the tools), `## What we know` (brief, project memory, your notes, live decisions, tasks in progress, one count line) | Instructions before knowledge, one header per kind of content; `projectContext` goes away |
 | R32 | An empty part is left out: no "No brief yet.", "No notes yet." or "none" | Those lines tell the agent nothing |
 | R33 | Tasks: only those in `doing` are listed. Open tasks and channels are one count line each with the tool to use: `23 open tasks (list_tasks). 3 earlier channels (search_sessions).` | A task has no owner and the wake names the work; the agent only needs to know more exists |
-| R34 | A resumed role's wake starts with what changed since its session's previous turn: decisions added (by any author: an author is only a role name, shared across channels) or retired, as index lines right after the wake header, and the brief in full when a newer version exists. Tasks are not in it. Amended in review 2026-10-27 | A role otherwise never learns of a new decision or brief during its session |
+| R34 | A resumed role's wake starts with what changed since its session's previous turn: decisions added (by any author: an author is only a role name, shared across channels) or retired, as index lines right after the wake header, before any `reef wrote:` lines, and the brief in full when a newer version exists. A decision added and retired since is named as retired only. Tasks are not in it. Amended in review 2026-10-27 | A role otherwise never learns of a new decision or brief during its session |
 | R35 | A Go test builds the first prompt for a feature with 60 decisions, 40 tasks and 15 channels: no section twice, each limit holds, under 8,000 characters without the persona. Another checks the delta holds only the new items. `turn.prompt` stays the only record of what was sent | Size is checked by a test, not by eye; no new storage |
 | R36 | The team rules keep their wording in this run | The channel evals tested that exact text; a rewrite needs its own eval run |
 

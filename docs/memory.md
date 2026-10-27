@@ -408,19 +408,22 @@ its first turn: a first message that goes to a specialist starts no lead.
   On a channel with a feature, the wake text then holds what changed since the session's
   previous turn: the newest turn of that role, channel and session that sent its prompt, by its
   start time. A turn that failed before it sent told the agent nothing, so it does not count.
-  The text goes right after the wake's `[channel N, message N]` header line, as the `reef wrote:`
-  lines do, or at the top when the turn has no header (wrap-up, promote). It has two parts.
+  The text goes right after the wake's `[channel N, message N]` header line, before any
+  `reef wrote:` lines, or at the top when the turn has no header (wrap-up, promote). It has two
+  parts.
   Under `### Changed since your last turn`: one `decision N: ...` index line for each decision
   added since, whatever its author (the author is only a role name, which every channel's lead
   shares), and `decision N is retired, replaced by decision M.` for each one retired since. A
-  decision added and retired since is in neither list. Under `### New brief`: the latest brief,
+  decision added and retired since is named as retired only: the role may have seen it in its
+  previous turn. Under `### New brief`: the latest brief,
   in full, when a version is newer; the next turn does not repeat it. A wake with no change has
   neither part, tasks are never in it, and a change alone starts no turn. Nothing is stored for
   it: the turn's `prompt` holds the text. It is built after the turn's start is stamped, so what
   is written while the turn waits for its tree is in it or in the next one, never in neither.
 - Without one, the agent starts a new session and the context prompt goes before the
   first message, in the same prompt: the three sections above, for a channel on a feature
-  and for a quick session alike. It is built after the turn's start is stamped.
+  and for a quick session alike. It is built after the turn's start is stamped, from the team
+  and the role as they are then, so a retry of a failed first send has any edit made since.
 
 New channel (`<feature> --role R --backend B`): it makes a channel named `N` (default
 `<role> chat`) on the feature, with the role, backend and `--permission-mode`, then opens

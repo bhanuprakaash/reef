@@ -11,8 +11,6 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-const _dayLayout = "2006-01-02"
-
 func lastPrompt(e *wakeEnv) string {
 	a := e.agents[len(e.agents)-1]
 	return a.prompts[len(a.prompts)-1]
@@ -33,13 +31,13 @@ func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 	ctx := context.Background()
 	e := newWakeEnv(t)
 	fid := *e.ch.FeatureID
-	day := time.Now().UTC().Format(_dayLayout)
+	day := time.Now().UTC().Format(_dateLayout)
 	say := func(body string) store.Scope {
 		return store.Scope{Read: e.say("user", body, nil)}
 	}
 	check := func(step, want string) {
 		t.Helper()
-		if time.Now().UTC().Format(_dayLayout) != day {
+		if time.Now().UTC().Format(_dateLayout) != day {
 			t.Skip("test ran across midnight UTC")
 		}
 		if got := lastPrompt(e); got != want {
@@ -100,34 +98,119 @@ func TestWakeAs_ChangedSinceLastTurn(t *testing.T) {
 			"New in the channel:\nuser: six\n\nseven")
 }
 
-func TestWakeAs_DecisionAddedAndRetiredSinceIsInNeitherList(t *testing.T) {
+func TestWakeAs_DecisionAddedAndRetiredSinceShowsOnlyAsRetired(t *testing.T) {
 	e := newWakeEnv(t)
 	e.wake("developer", "one", nil, store.Scope{Read: e.say("user", "one", nil)})
 	d1 := decide(t, e, "lead", "Use CSV")
 	decide(t, e, "lead", "Use JSON", d1.ID)
-	day := time.Now().UTC().Format(_dayLayout)
+	day := time.Now().UTC().Format(_dateLayout)
 
 	e.wake("developer", "two", nil, store.Scope{Read: e.say("user", "two", nil)})
 
 	want := "[channel 1, message 3]\n" +
 		"### Changed since your last turn\n" +
-		"decision 2: Use JSON (lead, " + day + ")\n\n" +
+		"decision 2: Use JSON (lead, " + day + ")\n" +
+		"decision 1 is retired, replaced by decision 2.\n\n" +
 		"two"
+	if time.Now().UTC().Format(_dateLayout) != day {
+		t.Skip("test ran across midnight UTC")
+	}
 	if got := lastPrompt(e); got != want {
 		t.Errorf("prompt =\n%q\nwant\n%q", got, want)
 	}
 }
 
-func TestWakeAs_DecisionWrittenBeforeTheFirstTurnStartsIsInItsFirstPrompt(t *testing.T) {
+func TestWakeAs_DecisionRecordedDuringTheTurnThenReplacedIsNamedAsRetired(t *testing.T) {
 	e := newWakeEnv(t)
-	e.onStart = func() { decide(t, e, "lead", "Use WAL") }
-	day := time.Now().UTC().Format(_dayLayout)
-
+	var d1 store.Decision
+	e.onSend = func() { d1 = decide(t, e, "developer", "Use CSV") }
 	e.wake("developer", "one", nil, store.Scope{Read: e.say("user", "one", nil)})
+	e.onSend = nil
+	decide(t, e, "lead", "Use JSON", d1.ID)
+	day := time.Now().UTC().Format(_dateLayout)
+
+	e.wake("developer", "two", nil, store.Scope{Read: e.say("user", "two", nil)})
+
+	want := "[channel 1, message 3]\n" +
+		"### Changed since your last turn\n" +
+		"decision 2: Use JSON (lead, " + day + ")\n" +
+		"decision 1 is retired, replaced by decision 2.\n\n" +
+		"two"
+	if time.Now().UTC().Format(_dateLayout) != day {
+		t.Skip("test ran across midnight UTC")
+	}
+	if got := lastPrompt(e); got != want {
+		t.Errorf("prompt =\n%q\nwant\n%q", got, want)
+	}
+}
+
+func TestWakeAs_DecisionWrittenWhileAWriterHoldsTheTreeIsInTheFirstPrompt(t *testing.T) {
+	ctx := context.Background()
+	e := newWakeEnv(t)
+	if _, err := e.st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Backend: "claude", Write: true},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	dir, _, err := WorkDir(ctx, e.st, e.s.dataDir, e.ch.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unlock, err := e.s.trees.Lock(ctx, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unlock()
+	started := make(chan struct{})
+	e.onStart = func() { close(started) }
+	scopes := store.Scopes{{Read: e.say("user", "one", nil)}}
+	done := make(chan error, 1)
+	go func() { done <- e.s.WakeAs(ctx, "developer", "one", scopes, nil, discard) }()
+
+	select {
+	case <-started:
+	case err := <-done:
+		t.Fatalf("wake ended before its agent started: %v", err)
+	}
+	decide(t, e, "lead", "Use WAL")
+	day := time.Now().UTC().Format(_dateLayout)
+	unlock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
 
 	want := "### Decisions\ndecision 1: Use WAL (lead, " + day + ")\n"
+	if time.Now().UTC().Format(_dateLayout) != day {
+		t.Skip("test ran across midnight UTC")
+	}
 	if got := lastPrompt(e); !strings.Contains(got, want) {
 		t.Errorf("first prompt =\n%q\nwant it to contain %q", got, want)
+	}
+}
+
+func TestWakeAs_TeamEditedBetweenAFailedFirstSendAndItsRetryIsInTheRetriedPrompt(t *testing.T) {
+	ctx := context.Background()
+	e := newWakeEnv(t)
+	scopes := store.Scopes{{Read: e.say("user", "one", nil)}}
+	e.sendErr = errors.New("write prompt: broken pipe")
+	if err := e.s.WakeAs(ctx, "lead", "one", scopes, nil, discard); err == nil {
+		t.Fatal("wake with a failing send succeeded")
+	}
+	e.sendErr = nil
+	if _, err := e.st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+		{Name: "developer", Backend: "claude"},
+		{Name: "tester", Backend: "claude"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+
+	e.wake("lead", "one", nil, scopes...)
+
+	want := "Your team: @lead, @developer, @tester. Use post_to_channel"
+	if got := lastPrompt(e); !strings.Contains(got, want) {
+		t.Errorf("retried first prompt =\n%q\nwant it to contain %q", got, want)
 	}
 }
 
@@ -148,7 +231,7 @@ func TestRunner_FailedPromptBuildOfDirectTurnLeavesFailedResponse(t *testing.T) 
 	}
 	ag := &fakeAgent{events: make(chan agent.Event, 8)}
 	r := NewRunner(st, ag, ch.ID, "architect", "claude", "")
-	r.Start = func(context.Context) (string, error) { return "", errors.New("build broke") }
+	r.FirstPrompt = func(context.Context) (string, error) { return "", errors.New("build broke") }
 
 	if err := r.RunDirect(ctx, "plan it", req, func(agent.Event) {}); err == nil {
 		t.Fatal("RunDirect succeeded, want the build error")

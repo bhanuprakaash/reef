@@ -19,6 +19,7 @@ type wakeAgent struct {
 	prompts []string
 	events  chan agent.Event
 	onStart func()
+	onSend  func()
 }
 
 func (a *wakeAgent) Start(context.Context, agent.Config) error {
@@ -38,6 +39,9 @@ func (a *wakeAgent) Interrupt() error           { return nil }
 
 func (a *wakeAgent) Send(_ context.Context, prompt string) error {
 	a.prompts = append(a.prompts, prompt)
+	if a.onSend != nil {
+		a.onSend()
+	}
 	if *a.sendErr != nil {
 		return *a.sendErr
 	}
@@ -62,6 +66,7 @@ type wakeEnv struct {
 	sendErr error
 	mkErr   error
 	onStart func()
+	onSend  func()
 }
 
 func newWakeEnv(t *testing.T) *wakeEnv {
@@ -90,7 +95,7 @@ func newWakeEnv(t *testing.T) *wakeEnv {
 		e.started++
 		a := &wakeAgent{
 			session: "s" + strconv.Itoa(e.started), fail: e.fail, sendErr: &e.sendErr, events: make(chan agent.Event, 8),
-			onStart: e.onStart,
+			onStart: e.onStart, onSend: e.onSend,
 		}
 		e.agents = append(e.agents, a)
 		return a, nil
