@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"errors"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 
@@ -36,6 +37,8 @@ type Runner struct {
 	// Scopes, when set, are the scopes of the wake the next turn sends, each with its newest
 	// message, and are stored on the turn so a later turn of the session skips them.
 	Scopes store.Scopes
+	// OnNote, when set, is called after the watch posts a message, so a window shows it.
+	OnNote func()
 
 	st        *store.Store
 	ag        agent.Agent
@@ -48,6 +51,15 @@ type Runner struct {
 	direct    *store.DirectMessage
 
 	sessionGone bool
+
+	// watching is closed to stop the watch that Watch started; watched is closed when it has.
+	// The rest is what the watch read that the next turn needs: endWatch applies the session,
+	// and the next turn counts the usage and reports the error if its prompt cannot be sent.
+	watching    chan struct{}
+	watched     chan struct{}
+	idleUsage   agent.Usage
+	idleSession agent.Event
+	idleErr     string
 }
 
 type replyState uint8
@@ -73,6 +85,7 @@ func NewRunner(
 func (r *Runner) Run(
 	ctx context.Context, text string, parent *int64, onEvent func(agent.Event),
 ) error {
+	r.endWatch()
 	// The turn is recorded even when ctx is cancelled.
 	wctx := context.WithoutCancel(ctx)
 	turn, err := r.st.CreateTurn(wctx, store.Turn{
@@ -84,6 +97,10 @@ func (r *Runner) Run(
 		return err
 	}
 	turn.Model = r.model
+	turn.Usage.Add(r.idleUsage)
+	r.idleUsage = agent.Usage{}
+	idleErr := r.idleErr
+	r.idleErr = ""
 
 	if err := ctx.Err(); err != nil {
 		return errors.Join(err, r.fail(wctx, turn, "interrupted", "", parent))
@@ -114,6 +131,10 @@ func (r *Runner) Run(
 		r.OnPrompt(prompt)
 	}
 	if err := r.ag.Send(ctx, prompt); err != nil {
+		if idleErr != "" {
+			err = fmt.Errorf("%w: %s", err, idleErr)
+		}
+		r.sessionGone = sessionMissing(err.Error())
 		return errors.Join(err, r.fail(wctx, turn, err.Error(), "", parent))
 	}
 	r.preamble = ""
@@ -137,20 +158,15 @@ func (r *Runner) Run(
 			onEvent(ev)
 			switch ev.Kind {
 			case agent.KindSession:
-				r.sessionID, turn.SessionID = ev.SessionID, ev.SessionID
-				if ev.Model != "" {
-					r.model, turn.Model = ev.Model, ev.Model
-				}
+				r.keepSession(ev)
+				turn.SessionID, turn.Model = r.sessionID, r.model
 				if _, err := r.st.SetTurnSession(wctx, turn.ID, ev.SessionID); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
 			case agent.KindText:
 				reply.WriteString(ev.Text)
 			case agent.KindBackground:
-				_, err := r.st.CreateMessage(wctx, store.Message{
-					ChannelID: r.channelID, Author: r.role, Body: ev.Text,
-				})
-				if err != nil {
+				if err := r.keepBackground(wctx, ev.Text); err != nil {
 					return r.abort(wctx, turn, err, err.Error(), reply.String(), parent)
 				}
 			case agent.KindToolCall:
@@ -203,6 +219,72 @@ func (r *Runner) Run(
 			}
 		}
 	}
+}
+
+// Watch reads the agent's events while no turn runs and posts the answer of each background
+// task as the role's message, so one that ends between turns is not held for the next. Run
+// ends the watch before it sends, so a turn is the only reader of Events while it runs.
+func (r *Runner) Watch() {
+	r.endWatch()
+	stop, done := make(chan struct{}), make(chan struct{})
+	r.watching, r.watched = stop, done
+	go func() {
+		defer close(done)
+		for {
+			select {
+			case <-stop:
+				return
+			case ev, ok := <-r.ag.Events():
+				if !ok {
+					return
+				}
+				switch {
+				case ev.Kind == agent.KindSession:
+					r.idleSession = ev
+				case ev.Kind == agent.KindError:
+					r.idleErr = ev.Text
+				case ev.Kind == agent.KindUsage && ev.Usage != nil:
+					r.idleUsage.Add(*ev.Usage)
+				case ev.Kind == agent.KindBackground:
+					if err := r.keepBackground(context.Background(), ev.Text); err != nil {
+						log.Printf("post background answer of %s in channel %d: %v",
+							r.role, r.channelID, err)
+					} else if r.OnNote != nil {
+						r.OnNote()
+					}
+				}
+			}
+		}
+	}()
+}
+
+// endWatch stops the watch, if any, and waits until it has.
+func (r *Runner) endWatch() {
+	if r.watching == nil {
+		return
+	}
+	close(r.watching)
+	<-r.watched
+	r.watching, r.watched = nil, nil
+	if r.idleSession.SessionID != "" {
+		r.keepSession(r.idleSession)
+		r.idleSession = agent.Event{}
+	}
+	if r.idleErr != "" {
+		r.sessionGone = sessionMissing(r.idleErr)
+	}
+}
+
+func (r *Runner) keepSession(ev agent.Event) {
+	r.sessionID = ev.SessionID
+	if ev.Model != "" {
+		r.model = ev.Model
+	}
+}
+
+func (r *Runner) keepBackground(ctx context.Context, text string) error {
+	_, err := r.st.CreateMessage(ctx, store.Message{ChannelID: r.channelID, Author: r.role, Body: text})
+	return err
 }
 
 // RunDirect runs a turn woken by dm. A request keeps the ordinary reply as its one direct

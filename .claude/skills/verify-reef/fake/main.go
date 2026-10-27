@@ -33,6 +33,8 @@ func main() {
 
 // cliArgs is the subset of claude's flags the fake reads from argv.
 type cliArgs struct {
+	// mcpConfig is the --mcp-config file's content, read at start-up as claude does: reef
+	// removes the file at claude's first output line.
 	mcpConfig string
 	resume    string
 }
@@ -44,7 +46,8 @@ func parseArgs(args []string) cliArgs {
 		case "--mcp-config":
 			if i+1 < len(args) {
 				i++
-				c.mcpConfig = args[i]
+				b, _ := os.ReadFile(args[i])
+				c.mcpConfig = string(b)
 			}
 		case "--resume":
 			if i+1 < len(args) {

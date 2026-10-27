@@ -6,6 +6,7 @@ const _tailKeep = 4 << 10
 // Its zero value is ready to use.
 type Tail struct{ b []byte }
 
+// Write appends p and drops the oldest bytes beyond 4 KB. It always returns len(p) and a nil error.
 func (t *Tail) Write(p []byte) (int, error) {
 	t.b = append(t.b, p...)
 	if len(t.b) > _tailKeep {

@@ -34,10 +34,11 @@ type fakeSession struct {
 	// agent stores while it works.
 	onRun func(role, text string, parent *int64)
 
-	mu   sync.Mutex
-	ran  []string
-	woke []store.Scopes
-	say  func()
+	mu     sync.Mutex
+	ran    []string
+	woke   []store.Scopes
+	say    func()
+	onNote func()
 
 	// directStart receives a signal each time a direct turn starts, so tests can
 	// synchronize on direct-turn execution without sleeping. It is buffered so a start
@@ -70,6 +71,9 @@ func (f *fakeSession) RunAs(
 	f.mu.Unlock()
 	if f.onRun != nil {
 		f.onRun(role, text, parent)
+	}
+	if strings.HasSuffix(text, "fail") {
+		return errors.New("boom")
 	}
 	if !strings.HasSuffix(text, "block") {
 		onEvent(agent.Event{Kind: agent.KindText, Text: "hi"})
@@ -157,6 +161,12 @@ func (f *fakeSession) Promote(_ context.Context, onEvent func(agent.Event)) (sto
 	f.promoted.Add(1)
 	onEvent(agent.Event{Kind: agent.KindText, Text: "promoted"})
 	return store.Proposal{}, nil
+}
+
+func (f *fakeSession) SetOnNote(fn func()) {
+	f.mu.Lock()
+	f.onNote = fn
+	f.mu.Unlock()
 }
 
 func (f *fakeSession) Close() error {
@@ -454,6 +464,24 @@ func TestSend_Streams(t *testing.T) {
 	if got := env.opened.Load(); got != 1 {
 		t.Errorf("sessions opened = %d, want 1: the agent stays alive between turns", got)
 	}
+}
+
+func TestSend_IdlePostNotifiesTheStream(t *testing.T) {
+	env := newLiveEnv(t)
+	sub := subscribe(t, env.url)
+	env.send(t, "hello")
+	sub.want(t,
+		_idleFrame,
+		`turn {"role":"lead","status":"running"}`,
+		`agent {"kind":"text","text":"hi"}`,
+		`turn {"role":"lead","status":"done"}`,
+	)
+
+	env.fake.mu.Lock()
+	note := env.fake.onNote
+	env.fake.mu.Unlock()
+	note()
+	sub.want(t, `note {}`)
 }
 
 func TestSend_Parent(t *testing.T) {
@@ -901,6 +929,70 @@ func TestSend_WhileWakeChainRuns(t *testing.T) {
 	}
 	if got := env.ranTexts(); !slices.Equal(got, want) {
 		t.Errorf("ran = %q, want %q", got, want)
+	}
+}
+
+// wantMessages checks the author and body of every message of channel id, in order.
+func (e *liveEnv) wantMessages(t *testing.T, id int, want ...string) {
+	t.Helper()
+	msgs, err := e.st.Messages(context.Background(), int64(id), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make([]string, len(msgs))
+	for i, m := range msgs {
+		got[i] = m.Author + ": " + m.Body
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("messages = %q, want %q", got, want)
+	}
+}
+
+const _droppedNote = "reef: Wakes for architect did not run: the turn before them was stopped or failed. " +
+	"Send a message to ask again."
+
+func TestSend_AfterStopNotesTheWakeStopDropped(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	env.sendTo(t, id, "block")
+	<-env.fake.started
+	if status, _ := env.sendTo(t, id, "@architect design it"); status != 202 {
+		t.Fatalf("send while busy = %d, want 202", status)
+	}
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	if status, _ := env.sendTo(t, id, "again"); status != 202 {
+		t.Fatalf("send after stop = %d, want 202", status)
+	}
+	env.waitIdle(t, id)
+	env.wantMessages(t, id, "user: block", "user: @architect design it", "user: again", _droppedNote)
+}
+
+func TestSend_AfterStopNamesARoleOnceForTwoWakes(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	env.sendTo(t, id, "block")
+	<-env.fake.started
+	env.sendTo(t, id, "@architect design it")
+	env.sendTo(t, id, "@architect and test it")
+	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	env.sendTo(t, id, "again")
+	env.waitIdle(t, id)
+	env.wantMessages(t, id, "user: block", "user: @architect design it", "user: @architect and test it",
+		"user: again", _droppedNote)
+}
+
+func TestSend_AfterFailedTurnNotesTheLeftoverWakes(t *testing.T) {
+	env := newLiveEnv(t)
+	id, _ := env.teamChannel(t)
+	env.sendTo(t, id, "@lead @architect fail")
+	env.waitIdle(t, id)
+	if status, _ := env.sendTo(t, id, "again"); status != 202 {
+		t.Fatalf("send after the failed turn = %d, want 202", status)
+	}
+	env.waitIdle(t, id)
+	env.wantMessages(t, id, "user: @lead @architect fail", "user: again", _droppedNote)
+	if got := len(env.ranTexts()); got != 2 {
+		t.Errorf("turns run = %d, want 2: the failed lead turn and again", got)
 	}
 }
 
@@ -1570,6 +1662,8 @@ func TestSend_StoreErrorBeforeNextWakePausesAndContinueRunsHeldWakes(t *testing.
 	}) {
 		t.Errorf("ran = %q, want the architect to run the wake held by the store error", got)
 	}
+	env.waitIdle(t, id)
+	env.wantMessages(t, id, "user: go", "lead: @architect plan it")
 }
 
 func TestSend_DirectReadFailureKeepsDirectRequestForContinue(t *testing.T) {

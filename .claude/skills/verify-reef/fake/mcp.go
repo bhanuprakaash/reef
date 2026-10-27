@@ -21,15 +21,8 @@ type mcpConfigFile struct {
 // or the server is missing: a tool call recorded against a server the current run has none
 // of is not a side effect this run can reproduce.
 func callMCPTool(mcpConfig, server, tool string, input json.RawMessage) {
-	if mcpConfig == "" {
-		return
-	}
-	b, err := os.ReadFile(mcpConfig)
-	if err != nil {
-		return
-	}
 	var cfg mcpConfigFile
-	if json.Unmarshal(b, &cfg) != nil {
+	if json.Unmarshal([]byte(mcpConfig), &cfg) != nil {
 		return
 	}
 	entry, ok := cfg.MCPServers[server]

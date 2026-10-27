@@ -113,16 +113,18 @@ teams with multiple roles; use the Reef window (`reef serve`) for those teams.
 `teams/full.json` in the repo is a four-role team: `lead`, `architect`, `developer` (the only
 role with `write`) and `tester`, all on `claude`, with the default gates. Each persona names
 the one teammate it hands work to (lead to architect, architect to developer, developer to
-tester, tester to developer on a failure or else to lead) and says to @mention no one else,
-because every `@name` wakes that teammate. The tester runs only `go test`, `npm test` and
-read-only `git` commands. Apply it with `reef team apply teams/full.json`.
+tester, tester to developer on a failure or else to lead) and says to hand off by starting a
+line with `@name` and to write no other `@name`, because only an `@name` at the start of a
+line wakes a teammate (decision 80). The tester runs `go test`, `npm test` and
+read-only `git` commands. Under decision 83 `go test` and `npm test` make it a writer, with
+the single-writer lock and a checkpoint. Apply it with `reef team apply teams/full.json`.
 
 ```json
 {
   "name": "duo",
   "roles": [
     {"name": "lead", "lead": true, "backend": "claude",
-     "persona": "You are the lead. Answer the user. Hand design work to @architect."},
+     "persona": "You are the lead. Answer the user. Hand design work over: start a line with @architect."},
     {"name": "architect", "backend": "claude", "permissionMode": "default",
      "persona": "You are the architect. Reply with a short plan.",
      "skills": ["writing-plans"],
@@ -251,8 +253,9 @@ answer: <error>`.
 
 `post_to_channel` is how a teammate speaks in the channel besides its reply. When a turn
 posts, its plain reply stays on the turn and is not a second message. `reef serve`
-routes the message when the poster's turn ends: every `@role` in the body wakes that teammate,
-and a post that names nobody wakes no one (see [server.md](server.md#routing)). Plain Claude
+routes the message when the poster's turn ends: every `@role` at the start of a line of the body
+(and each `@role` of an unbroken run there) wakes that teammate, and a post that hands off to
+nobody wakes no one (see [server.md](server.md#routing)). Plain Claude
 Code and `reef chat` have no router, so a post there is only stored.
 
 `send_to_role` starts a private request/response chain under the current channel. The named

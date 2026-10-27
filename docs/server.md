@@ -294,9 +294,9 @@ One agent run in a channel.
 | `retried` | boolean | `true` once a retry of this failed turn has started. Set by `retry`, never on create |
 | `checkpoint` | string? | the git ref of the snapshot taken before the turn, `refs/reef/checkpoints/<data folder>/<turn id>`. `null` for a turn of a role without `write` and without a file-changing shell command in its `tools` (see [Channels live](#channels-live)), for a turn in a folder that is not a git checkout or has no commit, and for a turn from before checkpoints. Set by the server, never by a request |
 | `model` | string | default `""`; the backend's model name, set from the agent's first event once the turn ends |
-| `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one. A failed turn gets one too, when claude reported one. The turn's own cost: the session's running total the turn reported minus the total the session's previous turn reported. A session stored before totals were kept (all its turns have `sessionCostUsd` null) is taken to have cost, so far, the largest `costUsd` among its turns, which then held running totals |
+| `costUsd` | number? | `null` until the turn ends with a cost; codex turns never get one. A failed turn gets one too, when claude reported one. The turn's own cost: the session's running total the turn reported minus the total the session's previous turn reported. A session stored before totals were kept (all its turns have `sessionCostUsd` null) is taken to have cost, so far, its largest `costUsd` plus the `costUsd` of the turns stored after it: a resumed process held a running total, a long-lived one stored its first total and then each turn's own share |
 | `sessionCostUsd`, `sessionUsage` | number?, object? | not in the turn's own JSON; the running totals of the turn's whole session as claude reported them when the turn ended (`sessionUsage` has the four token counts). `null` for a turn from before migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql), for a turn that ended with no report (a stopped or crashed turn) and for every codex turn. The SQL columns are `session_cost_usd`, `session_input_tokens`, `session_output_tokens`, `session_cache_read_tokens`, `session_cache_write_tokens`. A turn's usage is its total minus the latest total before it plus the `usage` of the stopped turns after that one, so a stopped turn's tokens are not counted twice |
-| `prompt` | string | not in the turn's own JSON (`GET /turns`, `GET /turns/{id}`); the full text sent to the agent (context preamble and notes included), set once the turn ends. `GET /channels/{id}/inspector` has its own view of it |
+| `prompt` | string | not in the turn's own JSON (`GET /turns`, `GET /turns/{id}`); the full text sent to the agent (context preamble and notes included), stored when it is sent, so a running turn has it; a turn whose send fails stores it when it ends. Empty for a turn that failed before its prompt was built. `GET /channels/{id}/inspector` has its own view of it |
 | `reply` | string | not in the turn's own JSON; the plain reply of a done turn that already posted with `post_to_channel`, kept here and not stored as a message (see [Routing](#routing)). `""` for every other turn. `GET /channels/{id}/inspector` has its own view of it |
 
 ### tool_call
@@ -362,7 +362,7 @@ through the same validation. Migration 6 seeds the team `solo`, with one role, `
 | --- | --- | --- |
 | `name` | string | required; unique within the team; letters, digits, `_` and `-` only, and not `user`. It is the `author` of what the role posts, and the name an `@mention` uses |
 | `lead` | boolean | exactly one role of a team is the lead. The lead answers a message that nobody else owns |
-| `write` | boolean | default `false`. Only a role with `write` may change files; it gets a checkpoint and the tree's write lock. claude: without it the role never gets `Edit`, `Write`, `MultiEdit` or `NotebookEdit` (they are dropped from `tools` and passed as `--disallowedTools`, so an allow rule in the user's or project's `.claude/settings.json` cannot grant them) and runs in the `default` permission mode, so `Bash` runs only as `tools` lists it. A claude role without `write` cannot list plain `Bash`, `Bash(*)` or `Bash(:*)` in `tools`: it would still change files through the shell, so applying the team is `invalid`; list patterns such as `Bash(go test:*)` instead. A role saved before this check existed has it dropped from `tools` at session start too, the same as the edit tools. `Bash` patterns are trusted as given: `Bash(git diff:*)` also lets `git diff --output=file` write a file. With it the role keeps its `tools` and permission mode (it still needs `acceptEdits`, or `Edit` in `tools`, to edit unasked) and also gets `Task`. codex: without it the sandbox is `read-only`; with it `workspace-write` unless the role's `permissionMode` is set. The seeded `solo` lead has `write` |
+| `write` | boolean | default `false`. Only a role with `write` may change files; it gets a checkpoint and the tree's write lock. claude: without it the role never gets `Edit`, `Write`, `MultiEdit` or `NotebookEdit` (they are dropped from `tools` and passed as `--disallowedTools`, so an allow rule in the user's or project's `.claude/settings.json` cannot grant them) and runs in the `default` permission mode, so `Bash` runs only as `tools` lists it. A claude role without `write` cannot list plain `Bash`, `Bash(*)` or `Bash(:*)` in `tools`: it would still change files through the shell, so applying the team is `invalid`; list patterns such as `Bash(go test:*)` instead. A role saved before this check existed has it dropped from `tools` at session start too, the same as the edit tools. `Bash` patterns are trusted as given, so `Bash(git diff:*)` also lets `git diff --output=file` write a file: such a role counts as a writer (see the write lock below). With it the role keeps its `tools` and permission mode (it still needs `acceptEdits`, or `Edit` in `tools`, to edit unasked) and also gets `Task`. codex: without it the sandbox is `read-only`; with it `workspace-write` unless the role's `permissionMode` is set. The seeded `solo` lead has `write` |
 | `backend` | string | required; `claude` or `codex` |
 | `permissionMode` | string | `""` is the backend default; claude: `default` or `acceptEdits`; codex: `read-only` or `workspace-write`. The same rule as a channel's `permissionMode` |
 | `model` | string | optional; the model the role runs on, passed to the backend when its agent starts or resumes: claude `--model NAME` (`opus`, `sonnet`, `haiku` or a full model id), codex the thread `model`. Left out or `""` is the backend default |
@@ -626,10 +626,11 @@ a message wakes them.
   the write turn that runs on its tree, then runs. Its turn row is created when it starts, so
   `startedAt` is after the other turn's `endedAt`. A stop ends the wait, and the turn is
   stored `failed` as `interrupted`. A claude role without `write` whose tools allow a shell
-  command outside a short list of reading commands (`git log`, `git diff`, `git show`,
-  `git status`, `git blame`, `ls`, `cat`, `head`, `tail`, `grep`, `wc`, `pwd`) counts
+  command outside a short list of reading commands (`git status`, `ls`, `cat`, `head`,
+  `tail`, `grep`, `wc`, `pwd`) counts
   as a writer: it takes the lock and gets a checkpoint, as `Bash(git commit:*)` or `Bash(rm:*)`
-  could change files. `rg` is not a reading command: `rg --pre` runs a program. Only the
+  could change files. `rg` is not a reading command: `rg --pre` runs a program. Neither are
+  `git log`, `git diff`, `git show` and `git blame`: `--output=<file>` makes them write a file. Only the
   tools the role keeps count: a plain `Bash` or `Bash(*)` is dropped from a role without `write`,
   so it does not make the role a writer. A role without `write` and with only reading commands is not held: it runs beside a
   write turn, and counts as a reader of the tree for its turn, which only a rollback
@@ -675,12 +676,16 @@ a message wakes them.
   failure rule as a feature delete. Branches are kept.
 - The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
-  resumes its session.
+  resumes its session. A background task a specialist started ends with its agent, and its
+  answer is not posted. While no turn runs, the lead's events are read, so the answer of its
+  background task is posted as its message when it arrives (decision 84).
 - The server holds `chat-<id>.lock` while the channel has a live session, so `reef chat
   --channel ID` fails with `channel 1 is open elsewhere: conflict`. A send to a channel a
   `reef chat` holds is 409 too.
 - `stop` interrupts a running turn (stored `failed`, `interrupted`), drops the wakes still
-  waiting, then stops every agent of the channel, deletes their tokens and releases the lock.
+  waiting (so does a turn that fails: its chain ends and the wakes behind it do not run; the
+  next send starts a chain that posts a message from reef naming the roles of those wakes, and
+  a restart before that send holds them instead), then stops every agent of the channel, deletes their tokens and releases the lock.
   It also works while the send is still checking the caps or starting an agent: the send then
   answers 409 `channel 1 was stopped`, and no turn runs. Once the send has changed something
   (a promote's change) or stored the user message, it does not give up: it answers 202 as
@@ -957,9 +962,9 @@ its turn is stored `failed`, `interrupted`.
 Two caps pause a channel. All are constants in the code, not settings.
 
 - Tokens per channel: the input, output and cache write tokens of all the channel's turns,
-  of every role, cache reads not counted, against `tokenBudget` (1,000,000). A turn only
-  counts once it has ended. A send, or a wake in a chain, that finds the sum at or over the
-  budget pauses the channel with `token budget of 1000000 used: 1000312 tokens`. The budget is
+  of every role, cache reads not counted, against `tokenBudget` (1,000,000). A running turn
+  counts the usage it has streamed so far. A send, or a wake in a chain, that finds the sum at or
+  over the budget pauses the channel with `token budget of 1000000 used: 1000312 tokens`. The budget is
   checked only between turns: a turn that crosses it runs to its end.
 - Agent hops: a hop is a turn that an agent's message woke. The turn that answers the user's
   message is not a hop. The server counts hops per channel since the last user message. The

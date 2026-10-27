@@ -5,7 +5,6 @@ export function handoffBody(wake: string): string {
   const last = wake.split(header).at(-1) ?? wake;
   return last
     .replace(/^Asked together: [^\n]*\n/, '')
-    .replace(/^Thread so far:\n[\s\S]*?\n\n(?=\S+ wrote: )/, '')
     .replace(/^\S+ wrote(?: privately)?: /, '')
     .trim();
 }

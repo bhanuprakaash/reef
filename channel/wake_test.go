@@ -15,6 +15,7 @@ import (
 type wakeAgent struct {
 	session string
 	fail    string
+	sendErr *error
 	prompts []string
 	events  chan agent.Event
 }
@@ -31,6 +32,9 @@ func (a *wakeAgent) Interrupt() error           { return nil }
 
 func (a *wakeAgent) Send(_ context.Context, prompt string) error {
 	a.prompts = append(a.prompts, prompt)
+	if *a.sendErr != nil {
+		return *a.sendErr
+	}
 	if a.fail != "" {
 		a.events <- agent.Event{Kind: agent.KindError, Text: a.fail}
 		return nil
@@ -49,6 +53,7 @@ type wakeEnv struct {
 	started int
 	agents  []*wakeAgent
 	fail    string
+	sendErr error
 	mkErr   error
 }
 
@@ -77,7 +82,7 @@ func newWakeEnv(t *testing.T) *wakeEnv {
 		}
 		e.started++
 		a := &wakeAgent{
-			session: "s" + strconv.Itoa(e.started), fail: e.fail, events: make(chan agent.Event, 8),
+			session: "s" + strconv.Itoa(e.started), fail: e.fail, sendErr: &e.sendErr, events: make(chan agent.Event, 8),
 		}
 		e.agents = append(e.agents, a)
 		return a, nil
@@ -303,5 +308,68 @@ func TestWakeAs_NewSessionShowsOnlyTheLastTwentyMessages(t *testing.T) {
 	want := "[channel 1, message 27]\nm26"
 	if got := e.wake("developer", want, nil, store.Scope{}); got != want {
 		t.Errorf("next wake = %q, want %q: a session that has read is not capped", got, want)
+	}
+}
+
+func TestWakeAs_ReplyGoesWhereTheFirstSentBlockSays(t *testing.T) {
+	e := newWakeEnv(t)
+	root := e.say("user", "root", nil)
+	e.say("lead", "@developer plan", &root)
+	e.wake("developer", "[channel 1, message 2, thread 1]\nlead wrote: @developer plan", &root,
+		store.Scope{Thread: root})
+
+	e.say("lead", "@developer top", nil)
+	routed := "[channel 1, message 2, thread 1]\nlead wrote: @developer plan\n\n" +
+		"[channel 1, message 4]\nlead wrote: @developer top"
+	want := "[channel 1, message 4]\nlead wrote: @developer top"
+	if got := e.wake("developer", routed, &root, store.Scope{Thread: root}, store.Scope{}); got != want {
+		t.Fatalf("wake =\n%q\nwant\n%q: the thread was all read", got, want)
+	}
+	msgs, err := e.st.Messages(context.Background(), e.ch.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reply := msgs[len(msgs)-1]
+	if reply.Author != "developer" || reply.ParentID != nil {
+		t.Errorf("reply = %+v, want the developer's at the top level, as its header says", reply)
+	}
+}
+
+func TestWakeAs_MissingSessionFoundOnWriteIsNotResumedAgain(t *testing.T) {
+	tests := []struct {
+		role string
+		want string
+	}{
+		{"developer", "s3"}, // stopped after each turn: s2 resumed s1, s3 is new
+		{"lead", "s2"},      // kept running until its write fails: s2 is new
+	}
+	for _, tt := range tests {
+		role := tt.role
+		t.Run(role, func(t *testing.T) {
+			e := newWakeEnv(t)
+			e.say("user", "first", nil)
+			e.wake(role, "[channel 1, message 1]\nfirst", nil, store.Scope{})
+
+			e.sendErr = errors.New("write prompt: write |1: broken pipe: " +
+				"No conversation found with session ID: s1")
+			e.say("user", "second", nil)
+			err := e.s.WakeAs(context.Background(), role, "[channel 1, message 2]\nsecond",
+				store.Scopes{{}}, nil, discard)
+			if err == nil {
+				t.Fatal("wake in the lost session succeeded, want an error")
+			}
+
+			e.sendErr = nil
+			e.say("user", "third", nil)
+			e.wake(role, "[channel 1, message 3]\nthird", nil, store.Scope{})
+			if got := e.agents[len(e.agents)-1].session; got != tt.want {
+				t.Errorf("session = %q, want the new %s: s1 is gone", got, tt.want)
+			}
+			e.say("user", "fourth", nil)
+			e.wake(role, "[channel 1, message 4]\nfourth", nil, store.Scope{})
+			if got := e.agents[len(e.agents)-1].session; got != tt.want {
+				t.Errorf("session = %q, want %s, not the dead s1", got, tt.want)
+			}
+		})
 	}
 }

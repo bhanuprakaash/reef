@@ -52,20 +52,33 @@ describe('Markdown', () => {
 });
 
 describe('Markdown mentions', () => {
-  it('wraps each @mention in a mention span, but not emails, code or links', () => {
+  it('wraps an @mention that starts a line in a mention span, but not emails, code or links', () => {
     const html = renderToStaticMarkup(
       <Markdown>
-        {'@architect and **@dev-1** mail me@x.io `@code` [@l](https://e.co)\n@tester'}
+        {
+          '@architect, @dev-1 do it, @late **@bold** mail me@x.io `@code` [@l](https://e.co)\n@tester'
+        }
       </Markdown>,
     );
 
-    expect(html).toContain('<span class="mention">@architect</span> and');
-    expect(html).toContain('<strong><span class="mention">@dev-1</span></strong>');
+    expect(html).toContain(
+      '<span class="mention">@architect</span>, <span class="mention">@dev-1</span> do it',
+    );
     expect(html).toContain('<br/>\n<span class="mention">@tester</span>');
+    expect(html).not.toContain('mention">@late');
+    expect(html).not.toContain('mention">@bold');
     expect(html).toContain('me@x.io');
     expect(html).toContain('<code>@code</code>');
     expect(html).not.toContain('mention">@l');
     expect(html).not.toContain('mention">@x');
+  });
+
+  it('does not highlight an @name after other text or an inline node', () => {
+    const html = renderToStaticMarkup(
+      <Markdown>{'looks good, @developer please fix\n\n**done** @tester\n\n- @lead'}</Markdown>,
+    );
+
+    expect(html).not.toContain('class="mention"');
   });
 });
 
@@ -74,7 +87,7 @@ describe('Markdown mention cards', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter>
         <MentionCards.Provider value={(name) => (name === 'lead' ? <p>card</p> : null)}>
-          <Markdown>{'@lead then @nobody'}</Markdown>
+          <Markdown>{'@lead, @nobody'}</Markdown>
         </MentionCards.Provider>
       </MemoryRouter>,
     );

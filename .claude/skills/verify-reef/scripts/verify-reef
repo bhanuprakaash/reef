@@ -49,13 +49,20 @@ load_run() {
 
 # fake_claude_setup: in fake or record mode (REEF_VERIFY_CLAUDE, default fake), put the
 # fake claude first on PATH and point it at its recordings and log, for a command that may
-# start claude. Real mode leaves PATH alone.
+# start claude. Real mode leaves PATH alone. Real and record mode run claude's side calls
+# (the session title) and subagents on sonnet: they do not use ANTHROPIC_MODEL, and default
+# to haiku.
 fake_claude_setup() {
 	case "${REEF_VERIFY_CLAUDE:-fake}" in
 	fake | record)
 		export PATH="$SCR/fake:$PATH"
 		export REEF_FAKE_RECORDINGS="$REPO/.claude/skills/verify-reef/fake/recordings"
 		export REEF_FAKE_LOG="$EV/fake-claude.log"
+		;;
+	esac
+	case "${REEF_VERIFY_CLAUDE:-fake}" in
+	real | record)
+		export ANTHROPIC_SMALL_FAST_MODEL=sonnet ANTHROPIC_DEFAULT_HAIKU_MODEL=sonnet CLAUDE_CODE_SUBAGENT_MODEL=sonnet
 		;;
 	esac
 }

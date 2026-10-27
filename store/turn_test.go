@@ -412,7 +412,8 @@ func TestEndTurn_InspectFields(t *testing.T) {
 
 // A session's earlier totals are the latest one a turn reported, plus the usage of the turns
 // after it that reported none. Turns stored before totals were kept hold a running total as
-// their cost, and their usage adds up.
+// their cost, except a long-lived process's, which stored its first total and then its own shares;
+// their usage adds up.
 func TestSessionBefore(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
@@ -458,6 +459,12 @@ func TestSessionBefore(t *testing.T) {
 	cost, usage := before("s1", last+1)
 	if want := (agent.Usage{InputTokens: 30, OutputTokens: 3}); cost != 1.10 || usage != want {
 		t.Errorf("old turns only: cost %v, usage %+v, want 1.10, %+v", cost, usage, want)
+	}
+	end("lead", Turn{CostUSD: f(0.75)})
+	end("lead", Turn{CostUSD: f(0.25)})
+	next := end("lead", Turn{CostUSD: f(0.5)})
+	if cost, _ := before("lead", next+1); cost != 1.5 {
+		t.Errorf("long-lived process: cost %v, want 1.5", cost)
 	}
 	if cost, usage := before("s1", 1); cost != 0 || usage != (agent.Usage{}) {
 		t.Errorf("before its first turn: cost %v, usage %+v, want none", cost, usage)

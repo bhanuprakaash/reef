@@ -540,6 +540,22 @@ func TestFailedResume(t *testing.T) {
 	}
 }
 
+func TestSendAfterFailedResumeNamesTheReason(t *testing.T) {
+	a := fakeClaude(t, "badresume")
+	if err := a.Resume(context.Background(), agent.Config{Cwd: t.TempDir()}, "x"); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	for deadline := time.Now().Add(10 * time.Second); err == nil && time.Now().Before(deadline); {
+		time.Sleep(10 * time.Millisecond)
+		err = a.Send(context.Background(), "hi")
+	}
+	if err == nil || !strings.HasPrefix(err.Error(), "write prompt: ") ||
+		!strings.HasSuffix(err.Error(), ": No conversation found") {
+		t.Errorf("Send error = %v, want a failed write that ends in the reason claude gave", err)
+	}
+}
+
 func TestResumeAfterBackgroundTask(t *testing.T) {
 	a := fakeClaude(t, "resumebg")
 	if err := a.Resume(context.Background(), agent.Config{Cwd: t.TempDir()}, "d6c291c5"); err != nil {
@@ -574,6 +590,18 @@ func TestMCPServersNotPreApproved(t *testing.T) {
 	if len(got) != 1 || !strings.HasSuffix(got[0].Output, " --allowedTools mcp__reef__*") ||
 		strings.Contains(got[0].Output, "mcp__mcp1__") {
 		t.Errorf("events = %+v", got)
+	}
+}
+
+func TestMCPConfigRemovedAtFirstLine(t *testing.T) {
+	a := fakeClaude(t, "hang")
+	cfg := agent.Config{Cwd: t.TempDir(), MCPServers: map[string]agent.MCPServer{"reef": {Command: "r"}}}
+	if err := a.Start(context.Background(), cfg); err != nil {
+		t.Fatal(err)
+	}
+	<-a.Events()
+	if _, err := os.Stat(a.mcpPath); !os.IsNotExist(err) {
+		t.Errorf("stat %s while claude runs: %v, want not exist", a.mcpPath, err)
 	}
 }
 

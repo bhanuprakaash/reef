@@ -31,6 +31,7 @@ type Session struct {
 	mk       func(backend string) (agent.Agent, error)
 	lock     *os.File
 	onPrompt func(prompt string)
+	onNote   func()
 	members  map[string]*member
 	trees    *Trees
 }
@@ -132,6 +133,12 @@ func Open(
 func (s *Session) Start(ctx context.Context) error {
 	_, err := s.member(ctx, s.ch.Role, runInput{})
 	return err
+}
+
+// SetOnNote sets a hook called after the lead posts a background answer between turns. Set it
+// before the first turn.
+func (s *Session) SetOnNote(f func()) {
+	s.onNote = f
 }
 
 // SetOnPrompt sets a hook that sees every prompt before it is sent to an agent.
@@ -253,6 +260,9 @@ func (s *Session) RunDirectAs(
 // run runs a turn of m, holding m's tree when it writes and counting as a reader of it when
 // it does not. A ctx cancelled while it waits leaves an interrupted turn.
 func (s *Session) run(ctx context.Context, m *member, in runInput) error {
+	if m.run.role == s.ch.Role {
+		defer m.run.Watch()
+	}
 	if !m.write {
 		defer s.trees.Read(m.dir)()
 		return s.turn(ctx, m, in)
@@ -278,7 +288,7 @@ func (s *Session) run(ctx context.Context, m *member, in runInput) error {
 // session has not been sent; a wake with none runs no turn. A failure to build it leaves a
 // failed turn, as the agent got nothing.
 func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
-	text, sent := in.text, store.Scopes(nil)
+	text, sent, parent := in.text, store.Scopes(nil), in.parent
 	if in.direct == nil && len(in.scopes) > 0 {
 		var err error
 		text, sent, err = wakeText(
@@ -289,12 +299,16 @@ func (s *Session) turn(ctx context.Context, m *member, in runInput) error {
 		if text == "" {
 			return nil
 		}
+		parent = nil
+		if thread := sent[0].Thread; thread != 0 {
+			parent = &thread
+		}
 	}
 	m.run.Scopes = sent
 	if in.direct != nil {
 		return m.run.RunDirect(ctx, text, *in.direct, in.onEvent)
 	}
-	return m.run.Run(ctx, text, in.parent, in.onEvent)
+	return m.run.Run(ctx, text, parent, in.onEvent)
 }
 
 // failTurn stores a failed turn of role for a turn that never started and returns cause
@@ -414,6 +428,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	}
 	backend = r.Backend
 	if m, ok := s.members[role]; ok {
+		m.run.endWatch()
 		_, err := os.Stat(m.dir)
 		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone &&
 			sameAccess(m.cfg, roleConfig(r, m.dir)) {
@@ -510,6 +525,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		m.run.CheckpointDir = cwd
 		m.run.DataDir = s.dataDir
 	}
+	m.run.OnNote = s.onNote
 	s.members[role] = m
 	return m, nil
 }
@@ -596,8 +612,9 @@ func claudeSkills(r store.Role, dir string) []string {
 	return names
 }
 
+// git log, diff, show and blame are not here: --output=<file> makes them write a file.
 var _readCommands = []string{
-	"git log", "git diff", "git show", "git status", "git blame",
+	"git status",
 	"ls", "cat", "head", "tail", "grep", "wc", "pwd",
 }
 
@@ -719,6 +736,9 @@ func (s *Session) directExchanges(ctx context.Context) (string, error) {
 }
 
 func (m *member) close(st *store.Store) error {
+	if m.run != nil {
+		m.run.endWatch()
+	}
 	errs := []error{m.ag.Interrupt()}
 	if m.token != "" {
 		errs = append(errs, st.DeleteToken(context.Background(), m.token))

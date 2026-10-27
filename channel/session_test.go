@@ -3,6 +3,7 @@ package channel
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -25,6 +26,12 @@ type recordingAgent struct {
 	closeErr  error
 	sendError string
 	session   string
+	// handshake, when set, is the session event the agent sends at Start, as codex does, and
+	// Send then sends none.
+	handshake *agent.Event
+	// exitText, when set, makes Resume leave it as an error event and close Events, and Send
+	// fail with it as claude's does.
+	exitText string
 
 	cfg     agent.Config
 	started bool
@@ -40,11 +47,18 @@ func newRecordingAgent() *recordingAgent {
 
 func (a *recordingAgent) Start(_ context.Context, cfg agent.Config) error {
 	a.cfg, a.started = cfg, true
+	if a.handshake != nil {
+		a.events <- *a.handshake
+	}
 	return a.startErr
 }
 
 func (a *recordingAgent) Resume(_ context.Context, cfg agent.Config, sessionID string) error {
 	a.cfg, a.resumed = cfg, sessionID
+	if a.exitText != "" {
+		a.events <- agent.Event{Kind: agent.KindError, Text: a.exitText}
+		close(a.events)
+	}
 	return a.resumeErr
 }
 
@@ -53,6 +67,15 @@ func (a *recordingAgent) Interrupt() error           { a.closed = true; return a
 
 func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 	a.prompts = append(a.prompts, prompt)
+	if a.exitText != "" {
+		err := errors.New("write prompt: broken pipe")
+		for ev := range a.events {
+			if ev.Kind == agent.KindError {
+				return fmt.Errorf("%w: %s", err, ev.Text)
+			}
+		}
+		return err
+	}
 	if strings.Contains(prompt, "propose_wrap") && a.propose {
 		_, err := a.st.CreateProposal(ctx, store.Proposal{
 			ChannelID: a.channelID, Role: "architect", Kind: a.kind, Brief: "new brief",
@@ -70,7 +93,9 @@ func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 	if id == "" {
 		id = "s1"
 	}
-	a.events <- agent.Event{Kind: agent.KindSession, SessionID: id}
+	if a.handshake == nil {
+		a.events <- agent.Event{Kind: agent.KindSession, SessionID: id}
+	}
 	a.events <- agent.Event{Kind: agent.KindText, Text: "ok"}
 	a.events <- agent.Event{Kind: agent.KindTurnEnd}
 	return nil
@@ -460,6 +485,9 @@ func TestSession_MissingSessionStartsNewOne(t *testing.T) {
 		{"claude reports it on the first turn", func(ag *recordingAgent) {
 			ag.sendError = "No conversation found with session ID: s1"
 		}},
+		{"claude exits on the resume and says why before the first turn", func(ag *recordingAgent) {
+			ag.exitText = "No conversation found with session ID: s1"
+		}},
 		{"codex refuses the resume", func(ag *recordingAgent) {
 			ag.resumeErr = errors.New("thread/resume: no rollout found for thread id s1")
 		}},
@@ -537,6 +565,45 @@ func TestSession_MissingSessionStartsNewOne(t *testing.T) {
 			}
 			if len(ags) != 4 || ags[3].resumed != "s2" || ags[3].started {
 				t.Errorf("agents = %d, last resumed %q; want 4 and the new session s2", len(ags), ags[3].resumed)
+			}
+		})
+	}
+}
+
+func TestSession_LeadSessionFromStartIsStored(t *testing.T) {
+	tests := []struct {
+		name  string
+		start bool
+	}{
+		{"start then run", true},
+		{"run alone", false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			ctx := context.Background()
+			st, f := openStore(t)
+			ch := sessionChannel(t, st, f, false)
+			ag := newRecordingAgent()
+			ag.handshake = &agent.Event{Kind: agent.KindSession, SessionID: "c1", Model: "gpt-5"}
+			s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = s.Close() }()
+			if tt.start {
+				if err := s.Start(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := s.Run(ctx, "go", nil, discard); err != nil {
+				t.Fatal(err)
+			}
+			turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if len(turns) != 1 || turns[0].SessionID != "c1" || turns[0].Model != "gpt-5" {
+				t.Errorf("turns = %+v, want one with session c1 and model gpt-5", turns)
 			}
 		})
 	}
@@ -1622,5 +1689,76 @@ func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
 	if len(ags) != 1 || ags[0].resumed != "s1" || !slices.Equal(ags[0].prompts, []string{"build more"}) {
 		t.Errorf("resumed developer: resumed = %q, prompts = %q, want s1 and [build more]",
 			ags[0].resumed, ags[0].prompts)
+	}
+}
+
+func TestSession_IdleLeadPostsBackgroundAnswer(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionChannel(t, st, f, false)
+	ag := newRecordingAgent()
+	s, err := Open(ctx, st, t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	noted := make(chan struct{}, 1)
+	s.SetOnNote(func() { noted <- struct{}{} })
+	if err := s.Run(ctx, "go", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+
+	idle := agent.Usage{InputTokens: 7, OutputTokens: 9}
+	ag.events <- agent.Event{Kind: agent.KindUsage, Usage: &idle}
+	ag.events <- agent.Event{Kind: agent.KindBackground, Text: "The background command printed bgdone."}
+	var got []string
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); {
+		msgs, err := st.Messages(ctx, ch.ID, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		got = got[:0]
+		for _, m := range msgs {
+			got = append(got, m.Author+": "+m.Body)
+		}
+		if len(got) == 2 {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	want := []string{"architect: ok", "architect: The background command printed bgdone."}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("messages = %q, want %q", got, want)
+	}
+	select {
+	case <-noted:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no note hook call after the background answer was posted")
+	}
+
+	if err := s.Run(ctx, "again", nil, discard); err != nil {
+		t.Fatal(err)
+	}
+	turns, err := st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(turns) != 2 {
+		t.Fatalf("turns = %d, want 2", len(turns))
+	}
+	for _, turn := range turns {
+		if turn.Status != "done" {
+			t.Errorf("turn %d status = %q, want done", turn.ID, turn.Status)
+		}
+	}
+	if u := turns[1].Usage; u != idle {
+		t.Errorf("second turn usage = %+v, want the idle usage %+v", u, idle)
+	}
+	msgs, err := st.Messages(ctx, ch.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := len(msgs); n != 3 || msgs[2].Body != "ok" {
+		t.Errorf("messages after the second turn = %+v, want its reply \"ok\" as the third", msgs)
 	}
 }

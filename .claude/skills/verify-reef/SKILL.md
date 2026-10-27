@@ -59,7 +59,11 @@ helper puts `<scratch>/fake` first on `PATH` for `run`, `interrupt`, `serve-star
 the system `claude` runs for real; use it (or `record`) only for claude's own behaviour, on
 `ANTHROPIC_MODEL=sonnet`: a read-only role's edit refused, `--disallowedTools` holds, parallel
 tool-call event order (see `features/full-team.md`'s `write-claude-refused`, `write-settings` and
-`agent/claude`'s own fixtures), and when `agent/claude` changes.
+`agent/claude`'s own fixtures), and when `agent/claude` changes. In `real` and `record` mode the
+helper also sets `ANTHROPIC_SMALL_FAST_MODEL`, `ANTHROPIC_DEFAULT_HAIKU_MODEL` and
+`CLAUDE_CODE_SUBAGENT_MODEL` to `sonnet`: claude's session-title call and its subagents do not
+follow `ANTHROPIC_MODEL` and would run on haiku. The `result` line's `modelUsage` then names only
+sonnet.
 
 ```sh
 REEF_VERIFY_RUN=<id> $H run -- --backend claude "Say hi, reply with one word."       # fake, default
@@ -69,13 +73,19 @@ REEF_VERIFY_CLAUDE=real ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H run -- --
 
 In `fake` mode the binary reads one stdin line (one turn) at a time: it picks a scenario from
 the role (read off the first prompt, `You are the <role> on feature` / `in project`) and the
-prompt's text (after its last `[channel N, message N]` header), by a table of name/role/regexp in
+newest message of the prompt's last wake block (after its `[channel N, message N]` header, reef's
+notes, `Asked together:` and the `New in the channel:` list: `<role> wrote: <body>` or the
+user's text), by a table of name/role/regexp in
 `fake/scenario.go`, matched in order, and replays `fake/recordings/<name>.jsonl`: a header line
 (`cwd`, `session`, `role`, `prompt`, `args`), then `{"t":seconds,"out":"<raw claude stdout
 line>"}` lines, cwd and session swapped to the run's, sleeping the recorded gaps (capped at 1s).
+A `result` line's `total_cost_usd` and `modelUsage` become the session's running totals, as real
+claude reports them, also after a `--resume`: the recording's numbers plus the session's earlier
+ones, kept in `<sid>.totals` beside the session file.
 It runs the side effects itself: a `Write`, `Edit`, `MultiEdit` or `Bash` tool call whose recorded
 `tool_result` was not an error, writes or runs for real in the turn's cwd; an `mcp__<server>__<tool>`
-call starts that server from the current `--mcp-config` file and makes one real `tools/call`. A
+call starts that server from the `--mcp-config` it read at start-up (Reef removes the file at
+claude's first output line) and makes one real `tools/call`. A
 prompt with no scenario, or a scenario with no recording, answers `is_error:true` naming the role
 and prompt (or the scenario and the missing file) on stderr and in the result, and the turn keeps
 going. `--resume` of a missing session answers `No conversation found` and exits 1, the way real
@@ -423,7 +433,7 @@ ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H feature full-team
 ## Real-claude set
 
 `REEF_VERIFY_RUN=<id> $H real` forces real `claude` (`REEF_VERIFY_CLAUDE=real`,
-`ANTHROPIC_MODEL=sonnet`), drives its own data folders and server, prints one
+`ANTHROPIC_MODEL=sonnet`, and sonnet for the side calls and subagents, see Fake claude), drives its own data folders and server, prints one
 `PASS <id>: ...` or `FAIL <id>: ...` per id, tees to `~/.reef-verify/<id>/real.log`, and exits
 1 on any `FAIL`. It is the set of lines that test claude's own behavior, not Reef's: a tester
 without `write` is refused Write then Bash, with `--permission-mode default` and
