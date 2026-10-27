@@ -98,7 +98,7 @@ func firstPrompt(
 	how := teamIntro(team, r)
 	if featureID == nil {
 		fmt.Fprintf(&b, "You are the %s in project %q (%s).\n"+
-			"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n",
+			"This is a quick session: it has no feature yet, so there is no brief or feature items.\n",
 			r.Name, p.Name, p.Path)
 		b.WriteString(who)
 		if know, err = itemParts(ctx, ms, nil, ch, r.Name); err != nil {

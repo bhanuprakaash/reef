@@ -246,7 +246,7 @@ func TestFirstPrompt_QuickSession(t *testing.T) {
 	}
 	want := `## You
 You are the lead in project "shop" (` + p.Path + `).
-This is a quick session: it has no feature yet, so there is no brief, notes or decisions.
+This is a quick session: it has no feature yet, so there is no brief or feature items.
 `
 	if got != want {
 		t.Errorf("quick session with no memory =\n%s\nwant\n%s", got, want)
@@ -268,7 +268,7 @@ This is a quick session: it has no feature yet, so there is no brief, notes or d
 	}
 	for _, want := range []string{
 		"## You\nYou are the lead in project \"shop\" (" + p.Path + ").\nThis is a quick session: " +
-			"it has no feature yet, so there is no brief, notes or decisions.\nYou work with Ada.\n" +
+			"it has no feature yet, so there is no brief or feature items.\nYou work with Ada.\n" +
 			"Base branch: dev. A pull request you open targets it.\n\n## How to work\nYour team: @lead, @architect. ",
 		"\n\n## What we know\n### Project\nfact 1: Use Go, not Python. (user, " + day + ")\n" +
 			"1 of 1; recall(..., scope=project)\n\n" +

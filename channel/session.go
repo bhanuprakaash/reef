@@ -82,7 +82,7 @@ const (
 	_maxDirectRunes = 1000
 
 	_directIntro = "Direct exchanges in this channel, private between two teammates:\n"
-	_directAsk   = "Propose the decisions made in these exchanges that are not recorded yet, " +
+	_directAsk   = "Propose as items what these exchanges decided or found that is not saved yet, " +
 		"and a brief that reflects the direct work that is complete.\n\n"
 
 	_promotePrompt = "This quick session is now feature %q (%s). Call the propose_wrap tool " +

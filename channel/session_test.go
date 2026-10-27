@@ -202,7 +202,7 @@ func TestOpen_QuickSession(t *testing.T) {
 		t.Errorf("Cwd = %q, want the project path %q", ag.cfg.Cwd, p.Path)
 	}
 	want := "## You\nYou are the architect in project \"shop\" (" + p.Path + ").\n" +
-		"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n" +
+		"This is a quick session: it has no feature yet, so there is no brief or feature items.\n" +
 		"\n\nhi"
 	if len(ag.prompts) != 1 || ag.prompts[0] != want {
 		t.Errorf("prompts = %q, want [%q]", ag.prompts, want)
@@ -1150,8 +1150,8 @@ func TestSession_WrapIncludesDirectExchanges(t *testing.T) {
 		"[direct 1] developer -> tester: use the sqlite fixture\n" +
 		"[direct 1] tester -> developer (failed): half an answer\n" +
 		"[direct 1] tester -> developer: fixture works\n" +
-		"Propose the decisions made in these exchanges that are not recorded yet, and a brief " +
-		"that reflects the direct work that is complete.\n\n" + _wrapPrompt
+		"Propose as items what these exchanges decided or found that is not saved yet, and a " +
+		"brief that reflects the direct work that is complete.\n\n" + _wrapPrompt
 	if !strings.HasSuffix(ag.prompts[0], want) {
 		t.Errorf("prompt = %q, want it to end with %q", ag.prompts[0], want)
 	}
