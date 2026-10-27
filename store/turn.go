@@ -83,10 +83,8 @@ type Turn struct {
 	// the newest message it sent, so a later turn of the session skips what it read. Nil for
 	// a turn that is not a routed wake, and for one from before scopes: it read nothing.
 	// Hidden from Turn's own JSON.
-	Scopes Scopes `json:"-"`
-	// Compacted is set when the backend compacted the session's history during the turn.
-	// Hidden from Turn's own JSON.
-	Compacted bool `json:"-"`
+	Scopes    Scopes `json:"-"`
+	Compacted bool   `json:"-"`
 }
 
 // TurnFilter narrows Turns. A nil ChannelID or empty Status matches everything. Retryable
@@ -183,9 +181,8 @@ func (s *Store) LastSentAt(
 	return t, true, nil
 }
 
-// SessionCompacted reports whether the newest turn of role in the session of channelID that
-// sent its prompt saw the backend compact the session. It is false when no turn of the session
-// sent one.
+// SessionCompacted reports whether the backend compacted the session during or after the
+// newest turn of role in the session of channelID that sent its prompt.
 func (s *Store) SessionCompacted(
 	ctx context.Context, channelID int64, role, sessionID string,
 ) (bool, error) {
@@ -199,8 +196,8 @@ func (s *Store) SessionCompacted(
 	return compacted, nil
 }
 
-// SetTurnCompacted marks the newest turn of role in the session of channelID that sent its
-// prompt as having seen the backend compact the session. Nothing changes when no turn sent one.
+// SetTurnCompacted records that the backend compacted the session after the newest turn of
+// role in the session of channelID that sent its prompt.
 func (s *Store) SetTurnCompacted(
 	ctx context.Context, channelID int64, role, sessionID string,
 ) error {

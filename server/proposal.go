@@ -188,9 +188,6 @@ func ApproveProposal(
 	return a, err
 }
 
-// saveItems remembers the items of p that its scopes do not hold yet and returns how many,
-// and a warning for each one that looks like a stored item or has no vector. An id an item
-// replaces that is no longer live is dropped, so a stale proposal still saves.
 func saveItems(
 	ctx context.Context, ms *memory.Store, scopes []memory.Ref, p store.Proposal,
 ) (int, []string, error) {

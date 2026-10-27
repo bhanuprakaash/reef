@@ -198,9 +198,8 @@ func featureKnow(
 	return appendPart(parts, "On demand", strings.Join(counts, " ")), nil
 }
 
-// itemParts adds the parts that read memory items to parts, one shelf of Scopes at a time. Only
-// accepted items are read, the newest first. A part with a limit ends with how many of how many
-// it shows.
+// itemParts adds a part for each shelf of Scopes: its newest accepted items, and for a part
+// with a limit, how many of how many it shows.
 func itemParts(
 	ctx context.Context, ms *memory.Store, parts []string, ch store.Channel, role string,
 ) ([]string, error) {
@@ -229,11 +228,9 @@ func itemLine(it memory.Item) string {
 		it.Kind, it.ID, firstLine(it.Body), it.Author, it.CreatedAt.Format(_dateLayout))
 }
 
-// changedSince is what the feature gained after since that a role whose session was told of
-// everything before it has not seen: the accepted memory items added in the scopes the role
-// reads, the items retired in them and the brief in full when a version is newer. An item added
-// and retired since is named as retired only, as the role may have seen it in its previous
-// turn. It is empty when nothing changed. Tasks are left out.
+// changedSince is what changed in the role's Scopes after since: items accepted, items retired
+// and a newer brief in full. An item added and retired since is named as retired only, as the
+// role may have seen it in its previous turn.
 func changedSince(
 	ctx context.Context, st *store.Store, ms *memory.Store, ch store.Channel, role string,
 	since time.Time,

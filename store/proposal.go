@@ -35,10 +35,8 @@ type ProposedItem struct {
 	Replaces []int64 `json:"replaces,omitempty"`
 }
 
-// Proposal is what a role suggests: at wrap-up the new brief and the memory items it
-// noticed. Retire lists memory item ids that are stale or duplicate. A brief proposal has
-// only the brief. The store only holds the items and retired ids: saving them needs the
-// memory store, so the caller does it before ApproveProposal.
+// Proposal is what a role suggests: at wrap-up the new brief, the memory items it noticed and
+// the ids of those to retire; a brief proposal has only the brief.
 type Proposal struct {
 	ID        int64          `json:"id"`
 	ChannelID int64          `json:"channelId"`
@@ -138,8 +136,6 @@ func (s *Store) CreateProposal(ctx context.Context, p Proposal) (Proposal, error
 	return p, nil
 }
 
-// dedupeRetired makes the memory ids p retires unique, so each is retired once. The first
-// claim wins: an item's Replaces in order, then Retire.
 func dedupeRetired(p *Proposal) {
 	seen := map[int64]bool{}
 	claim := func(ids []int64) []int64 {
@@ -215,10 +211,9 @@ func (s *Store) PendingProposals(
 	return ps, nil
 }
 
-// ApproveProposal applies the pending proposal in one transaction: a new brief version
-// authored by the proposal's role, the channel closed and the proposal marked approved. A
-// brief proposal does not close the channel, and is refused once the channel is closed. It
-// does not touch the memory items or retired ids of a wrap: the caller saves them first.
+// ApproveProposal saves the pending proposal's brief, closes the channel of a wrap and marks
+// the proposal approved, in one transaction. A brief proposal is refused once the channel is
+// closed.
 func (s *Store) ApproveProposal(ctx context.Context, id int64) (Proposal, error) {
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {

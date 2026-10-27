@@ -5,7 +5,6 @@ import (
 	"fmt"
 )
 
-// ValidKind reports whether kind is one of the item kinds.
 func ValidKind(kind string) bool { return _kinds[kind] }
 
 // Saved reports whether scope holds an accepted or candidate item whose body is exactly body.

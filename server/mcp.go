@@ -414,7 +414,6 @@ func (m *mcpServer) readMemory(
 	return nil, toItemOut(it), nil
 }
 
-// readable reads an item; it is not found when its scope is not one of scopes.
 func (m *mcpServer) readable(ctx context.Context, scopes []memory.Ref, id int64) (memory.Item, error) {
 	it, err := m.ms.Read(ctx, id)
 	if err != nil {
@@ -425,35 +424,6 @@ func (m *mcpServer) readable(ctx context.Context, scopes []memory.Ref, id int64)
 	}
 	return it, nil
 }
-
-func toItemOut(it memory.Item) itemOut {
-	links := make([]linkOut, 0, len(it.Links))
-	for _, l := range it.Links {
-		links = append(links, linkOut{Rel: l.Rel, To: l.ToKind + ":" + l.ToID})
-	}
-	return itemOut{
-		ID: it.ID, Kind: it.Kind, Body: it.Body, Why: it.Why, Scope: refString(it.Scope),
-		Author: it.Author, Role: it.Role, Status: it.Status, RetiredAt: it.RetiredAt,
-		ReplacedBy: it.ReplacedBy, CreatedAt: it.CreatedAt, Links: links,
-	}
-}
-
-func toSimilarOut(similar []memory.Similar) []similarOut {
-	var out []similarOut
-	for _, s := range similar {
-		out = append(out, similarOut{ID: s.ID, Body: s.Body})
-	}
-	return out
-}
-
-func embedMessage(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
-}
-
-func refString(r memory.Ref) string { return r.Kind + ":" + r.ID }
 
 func (m *mcpServer) addTask(
 	ctx context.Context, _ *mcp.CallToolRequest, in taskIn,
@@ -720,7 +690,6 @@ func (m *mcpServer) proposeWrap(
 	return nil, wrapOut{ID: p.ID, Message: "proposal saved; the user will approve it"}, nil
 }
 
-// requireLead fails unless the token's role leads team.
 func (m *mcpServer) requireLead(ctx context.Context, team string) error {
 	t, err := m.st.Team(ctx, team)
 	if err != nil {
@@ -728,25 +697,6 @@ func (m *mcpServer) requireLead(ctx context.Context, team string) error {
 	}
 	if !slices.ContainsFunc(t.Roles, func(r store.Role) bool { return r.Lead && r.Name == m.tok.Role }) {
 		return fmt.Errorf("%w: only the lead of team %q can propose team items", store.ErrInvalid, team)
-	}
-	return nil
-}
-
-// requireLive fails with ErrInvalid unless every id is an accepted item in one of scopes.
-func requireLive(ctx context.Context, ms *memory.Store, scopes []memory.Ref, ids []int64) error {
-	for _, id := range ids {
-		it, err := ms.Read(ctx, id)
-		if err != nil && !errors.Is(err, memory.ErrNotFound) {
-			return err
-		}
-		if err != nil || it.Status != memory.StatusAccepted || !slices.Contains(scopes, it.Scope) {
-			names := make([]string, len(scopes))
-			for i, r := range scopes {
-				names[i] = refString(r)
-			}
-			return fmt.Errorf("%w: memory %d is not a live item in %s",
-				store.ErrInvalid, id, strings.Join(names, ", "))
-		}
 	}
 	return nil
 }
@@ -828,4 +778,51 @@ func (m *mcpServer) browserNetwork(
 	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
 ) (*mcp.CallToolResult, browserTextOut, error) {
 	return m.browserText(ctx, "network", nil)
+}
+
+func toItemOut(it memory.Item) itemOut {
+	links := make([]linkOut, 0, len(it.Links))
+	for _, l := range it.Links {
+		links = append(links, linkOut{Rel: l.Rel, To: l.ToKind + ":" + l.ToID})
+	}
+	return itemOut{
+		ID: it.ID, Kind: it.Kind, Body: it.Body, Why: it.Why, Scope: refString(it.Scope),
+		Author: it.Author, Role: it.Role, Status: it.Status, RetiredAt: it.RetiredAt,
+		ReplacedBy: it.ReplacedBy, CreatedAt: it.CreatedAt, Links: links,
+	}
+}
+
+func toSimilarOut(similar []memory.Similar) []similarOut {
+	var out []similarOut
+	for _, s := range similar {
+		out = append(out, similarOut{ID: s.ID, Body: s.Body})
+	}
+	return out
+}
+
+func embedMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
+}
+
+func refString(r memory.Ref) string { return r.Kind + ":" + r.ID }
+
+func requireLive(ctx context.Context, ms *memory.Store, scopes []memory.Ref, ids []int64) error {
+	for _, id := range ids {
+		it, err := ms.Read(ctx, id)
+		if err != nil && !errors.Is(err, memory.ErrNotFound) {
+			return err
+		}
+		if err != nil || it.Status != memory.StatusAccepted || !slices.Contains(scopes, it.Scope) {
+			names := make([]string, len(scopes))
+			for i, r := range scopes {
+				names[i] = refString(r)
+			}
+			return fmt.Errorf("%w: memory %d is not a live item in %s",
+				store.ErrInvalid, id, strings.Join(names, ", "))
+		}
+	}
+	return nil
 }

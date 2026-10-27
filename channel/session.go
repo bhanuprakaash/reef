@@ -529,7 +529,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		if err != nil {
 			return nil, err
 		}
-		m.run.snapshotSent = !compacted
+		m.run.firstPromptSent = !compacted
 	}
 	m.run.FirstPrompt = func(ctx context.Context) (string, error) {
 		ch, err := s.st.Channel(ctx, s.ch.ID)
