@@ -452,8 +452,11 @@ done) with `H`, `REEF_VERIFY_RUN`, `E` and `S` exported, tees its output to
 | `full-team.sh` | every line of `full-team.md` |
 | `github.sh` | every line of `github.md` |
 
-`work-item-flow` runs on the fake `claude` only: its recordings are the `flow-*` ones in
-`fake/recordings/`. Its three sections (`flow`, `conv`, `caps`) run at the same time, each as its
+`work-item-flow` runs on the fake `claude`: its `flow-*`, `work-*` and `talk-*` recordings in
+`fake/recordings/` come from one `REEF_VERIFY_CLAUDE=record` run of it on real claude (sonnet),
+whose team personas and prompts name every answer and tool call. Record it again the same way
+after a change to those prompts, then `git checkout` the recordings it also overwrote that other
+recipes own (`queue-lead`, `wrap-propose`, `sam-*`, `kit-takeover`). Its three sections (`flow`, `conv`, `caps`) run at the same time, each as its
 own run `<id>/<section>` (`build`, `doctor`, its own scratch folder and server), so the run takes
 about a minute. Name sections after it to run only those (`$H feature work-item-flow conv`); an
 unknown section name exits 2. Each section's output is in `~/.reef-verify/<id>/<section>/work-item-flow.log`.
