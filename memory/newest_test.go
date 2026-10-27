@@ -74,3 +74,28 @@ func TestNewest_AcceptedItemsOfTheScopeLatestAcceptedFirst(t *testing.T) {
 		})
 	}
 }
+
+func TestNewest_OrdersFractionsOfOneSecondByValue(t *testing.T) {
+	s, db := openTest(t)
+	ctx := context.Background()
+	w := writer()
+	for _, at := range []string{
+		"2026-10-27T10:00:00.123Z", "2026-10-27T10:00:00.12Z", "2026-10-27T10:00:00Z",
+	} {
+		r, err := s.Remember(ctx, w, Note{Kind: KindFact, Body: at})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(`UPDATE memory SET accepted_at = ? WHERE id = ?`, at, r.Item.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, _, err := s.Newest(ctx, w.Scope, nil, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].Body != "2026-10-27T10:00:00.123Z" {
+		t.Fatalf("Newest(limit 1) = %v, want the item accepted at 10:00:00.123Z", got)
+	}
+}

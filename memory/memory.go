@@ -340,6 +340,11 @@ func (s *Store) Pending(ctx context.Context) ([]Item, error) {
 	return items, nil
 }
 
+// _acceptedOrder sorts accepted_at newest first. The stored text drops trailing zeros of the
+// fraction, so the fraction is padded to nine digits; julianday would round it to milliseconds.
+const _acceptedOrder = `substr(accepted_at, 1, 19) DESC,
+	substr(rtrim(substr(accepted_at, 21), 'Z') || '000000000', 1, 9) DESC, id DESC`
+
 // Newest returns the most recently accepted items in scope, of any of kinds (any kind when
 // empty), latest first, and how many accepted items match in all. A limit of 0 or less returns every
 // match. The items carry no links.
@@ -363,7 +368,7 @@ func (s *Store) Newest(
 		limit = -1
 	}
 	rows, err := s.db.QueryContext(ctx,
-		_selectItem+where+` ORDER BY accepted_at DESC, id DESC LIMIT ?`, append(args, limit)...)
+		_selectItem+where+` ORDER BY `+_acceptedOrder+` LIMIT ?`, append(args, limit)...)
 	if err != nil {
 		return nil, 0, fmt.Errorf("query newest: %w", err)
 	}
