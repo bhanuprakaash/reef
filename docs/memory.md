@@ -85,7 +85,7 @@ Rules for every command:
 | `reef memory approve <id>` | Moves a candidate to `accepted` and retires each item it replaces (one already retired is skipped). Any other item fails with `invalid: memory 3 is not a candidate` | `12  accepted` |
 | `reef memory embed` | Prints the embedding provider: `none`, `openai`, `voyage` or `gemini`. The key is stored in `reef.db` and never printed | `openai`; `none` when unset |
 | `reef memory embed <provider> [--key K]` | Sets the embedding provider and stores its key in `reef.db`; the key is never printed. Storing a key makes `reef.db` and its `-wal` and `-shm` files readable only by the owner (mode 0600). `openai`, `voyage` and `gemini` need `--key` unless the stored provider is the same one, else `invalid: embedding provider voyage needs --key`; `none` clears the key. Changing the provider clears every stored vector. Each `openai`, `voyage` or `gemini` call then embeds every item that has no vector; a failure there exits 1 after the setting is saved, and running the command again retries | `embedding provider openai; embedded 12 items` (`embedded 0 items` when none was missing), or `embedding provider none` |
-| `reef team apply FILE.json` | Creates a team from a file, or replaces the roles and gates of the team with that name (see Teams) | `applied team duo: lead*(claude) architect(claude)` |
+| `reef team apply FILE.json` | Creates a team from a file, or replaces the roles of the team with that name (see Teams) | `applied team duo: lead*(claude) architect(claude)` |
 | `reef team list` | Lists the teams by name, each with its roles | `duo  lead*(claude) architect(claude)`: the lead has a `*` |
 | `reef context <work-item> --role R` | Prints the context prompt for role `R` (see below) | the prompt |
 | `reef token <work-item> --role R` | Makes a Space and a token for role `R` (see Tokens) | a `claude mcp add` command |
@@ -98,7 +98,7 @@ Rules for every command:
 
 ## Teams
 
-A team is a set of roles, one of them the lead, and the gates between them. It is a JSON
+A team is a set of roles, one of them the lead. It is a JSON
 file. `reef team apply FILE.json` stores it, and a Space picks it by name (`team` in `POST
 /spaces`, see [server.md](server.md#team)). Migration 6 seeds a team `solo`, with one role,
 `lead` on `claude`, and every Space without a team is in it. A new Space created by
@@ -106,7 +106,7 @@ file. `reef team apply FILE.json` stores it, and a Space picks it by name (`team
 teams with multiple roles; use the Reef window (`reef serve`) for those teams.
 
 `teams/full.json` in the repo is a four-role team: `lead`, `architect`, `developer` (the only
-role with `write`) and `tester`, all on `claude`, with the default gates. Each persona names
+role with `write`) and `tester`, all on `claude`. Each persona names
 the one teammate it hands work to (lead to architect, architect to developer, developer to
 tester, tester to developer on a failure or else to lead) and says to hand off by starting a
 line with `@name` and to write no other `@name`, because only an `@name` at the start of a
@@ -125,8 +125,7 @@ the single-writer lock and a checkpoint. Apply it with `reef team apply teams/fu
      "skills": ["writing-plans"],
      "tools": ["Read", "Grep"],
      "mcpServers": [{"command": "my-mcp", "args": ["--stdio"]}]}
-  ],
-  "gates": [{"from": "lead", "to": "architect", "on": true}]
+  ]
 }
 ```
 
@@ -135,18 +134,14 @@ the single-writer lock and a checkpoint. Apply it with `reef team apply teams/fu
   `skills`, `face`, `tools` and `mcpServers`. What each does is in [server.md](server.md#role).
   Exactly one role has `"lead": true`. A role name can appear once, uses only letters, digits,
   `_` and `-` (so an `@mention` can name it), and is not `user`.
-- `gates` is optional. A gate `{"from","to","on"}` names two roles of the team. An edge the
-  file does not list uses the default: on for `architect` to `developer` and `developer` to
-  `tester`, off for the rest (see [server.md](server.md#gate)).
 - The file is read strictly: an unknown field is an error.
-- Applying a name that exists replaces its roles and gates in one transaction, and the
+- Applying a name that exists replaces its roles in one transaction, and the
   team keeps its Spaces. One failed check changes nothing. A new persona or skills
   reaches the role's next wake, whether that starts a session or resumes one (see below).
   A role applied with a new `backend` starts a new session; it does not resume the old one.
 - Errors print `reef: <message>` and exit 1: `reef: invalid: team bad needs exactly one
   lead role, has 0` (or `has 2`), `reef: role a: invalid: backend must be claude or codex`,
   `reef: invalid: role name "two words" must be letters, digits, _ or -, and not user or reef`,
-  `reef: invalid: gate a to ghost names a role team bad does not have`,
   `reef: invalid: role tester has no write, so it cannot have unrestricted Bash; list command
   patterns such as Bash(go test:*)`, `reef: parse
   team.json: json: unknown field "color"`.

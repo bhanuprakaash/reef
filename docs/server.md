@@ -71,9 +71,9 @@ logged in and on `PATH`.
   Open on GitHub; Merge asks to confirm, then does `POST /work-items/{id}/pr/merge`. The running turn names its
   teammate. Teammates' direct messages (`GET /spaces/{id}/direct-messages`) are never bubbles: each conversation
   between two roles (from one public source message, or from none) is one compact item at the time of its
-  first message, saying working, waiting approval, paused, failed, stopped, rejected or completed (the state of
-  its newest chain) with its message count; a direct wake's approval shows there, not as a Space row; it opens a Coordination panel with the exchange, the running direct turn's text and tool calls as they stream, a link to
-  the public message it began from, and Approve or Reject, Continue or Retry for its state. A wake held at a gate shows Approve and Reject; a pause from the hop cap shows in
+  first message, saying working, paused, failed, stopped or completed (the state of
+  its newest chain) with its message count; it opens a Coordination panel with the exchange, the running direct turn's text and tool calls as they stream, a link to
+  the public message it began from, and Continue or Retry for its state. A pause from the hop cap shows in
   the cap banner. A Space with rollbackable turns (`GET /turns?space=ID&rollbackable=1`)
   lists Checkpoints; Roll back on a row asks to confirm, then does `POST /turns/{id}/rollback`.
   A role whose newest ended turn has a tool call that claude refused for lack of permission (the
@@ -95,16 +95,14 @@ logged in and on `PATH`.
   the action of each item (Approve or Reject, Continue, Retry, Open). The window asks once,
   on a click, to show desktop notifications and then shows one for each item that is new
   since the page loaded.
-- Teams (`/teams`): lists teams and edits one's roles, faces and gates, saving with
-  `PUT /teams/{name}`. Each gate has a switch, on or off: the list shows the team's own gates and
-  the [default gates](#gate) between its roles, and switching a default one saves a gate with
-  that `on`. An opened role shows its persona, skills, allowed tools, permission
+- Teams (`/teams`): lists teams and edits one's roles and faces, saving with
+  `PUT /teams/{name}`. An opened role shows its persona, skills, allowed tools, permission
   mode and MCP servers. Skills are picked from the current project's `GET /skills` list for the
   role's backend; a picked name that is not on disk shows as missing. Allowed tools are
   checkboxes (`Read`, `Grep`, `Glob`, `Edit`, `Write`, `Bash`, `WebFetch`, `WebSearch`, and
   `mcp__<name>__*` for each MCP server) plus a field for patterns such as `Bash(git log:*)`,
   and are hidden on a Codex role. A server can be removed there, not added (use `reef team apply`).
-  Duplicate applies the same roles, gates and MCP servers under a new name with `?from=`,
+  Duplicate applies the same roles and MCP servers under a new name with `?from=`,
   rejected if that name is taken. "New team" asks for a name and a team to start from and
   sends the same `?from=` request. The hop and token caps are not team fields, so the
   page has no Caps section.
@@ -150,7 +148,7 @@ A type with `?` may be `null`. The headings below are the SQL tables in
 [`003_proposal.sql`](../store/migrations/003_proposal.sql) (`proposal`), migration 6
 [`006_team.sql`](../store/migrations/006_team.sql) (`team`, `space.team_id`),
 migration 7 [`007_thread.sql`](../store/migrations/007_thread.sql) (`message.parent_id`) and
-migration 8 [`008_approval.sql`](../store/migrations/008_approval.sql) (`gate`, `approval`) and
+migration 8 [`008_approval.sql`](../store/migrations/008_approval.sql) (`gate`, `approval`; the `gate` table is dropped again by migration 43) and
 migration 9 [`009_approval_kind.sql`](../store/migrations/009_approval_kind.sql) (`approval.kind`) and
 migration 10 [`010_role_write.sql`](../store/migrations/010_role_write.sql) (`role.write`) and
 migration 11 [`011_turn_wake.sql`](../store/migrations/011_turn_wake.sql) (`turn.wake_text`, `turn.wake_parent`, `turn.retried`) and
@@ -161,7 +159,8 @@ migration 33 [`033_space_name_auto.sql`](../store/migrations/033_space_name_auto
 migration 36 [`036_turn_scopes.sql`](../store/migrations/036_turn_scopes.sql) (`turn.scopes`, `approval.scopes`) and
 migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql) (`turn.session_cost_usd`, `turn.session_input_tokens` and the other three token counts) and
 migration 38 [`038_proposal_items.sql`](../store/migrations/038_proposal_items.sql) (`proposal.items`; drops `proposal.notes` and `proposal.decisions`, clears `proposal.retire` and rejects the wrap proposals still pending) and
-migration 39 [`039_turn_compacted.sql`](../store/migrations/039_turn_compacted.sql) (`turn.compacted`).
+migration 39 [`039_turn_compacted.sql`](../store/migrations/039_turn_compacted.sql) (`turn.compacted`) and
+migration 43 [`043_drop_gates.sql`](../store/migrations/043_drop_gates.sql) (drops `gate`; deletes the `approval` rows of kind `gate`).
 Migrations 4 and 5 add columns to `space` (see [Space](#space)).
 
 ### project
@@ -347,16 +346,15 @@ memory item of kind `decision` (`remember`, `reef decide`, `POST /memory`). Its 
 
 ### team
 
-A named set of roles and the gates between them. A team has exactly one lead role. `reef
+A named set of roles. A team has exactly one lead role. `reef
 team apply` (see [memory.md](memory.md#teams)) and `PUT /teams/{name}` both write a team,
 through the same validation. Migration 6 seeds the team `solo`, with one role, `lead` on
 `claude`, and points every Space that exists at it.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
-| `name` | string | required; unique; letters, digits, `_` and `-` only. Applying a name that exists replaces that team's roles and gates in one transaction |
+| `name` | string | required; unique; letters, digits, `_` and `-` only. Applying a name that exists replaces that team's roles in one transaction |
 | `roles` | array | [roles](#role), the lead first, then the others in the order of the file |
-| `gates` | array | [gates](#gate); left out when the team lists none |
 
 ### teammate
 
@@ -423,23 +421,9 @@ is a `failed` turn whose `error` says why, for example `role developer: no claud
 /opt/work`; nothing falls back to the `PATH` binary, as that would run a different one than the
 user picked. A role with no `provider` is unchanged. A provider a role names cannot be removed.
 
-### gate
-
-A switch for the wakes one role sends another: a wake from role `from` to role `to`.
-
-| Field | JSON | Notes |
-| --- | --- | --- |
-| `from` | string | required; a role of the team |
-| `to` | string | required; a role of the team |
-| `on` | boolean | `true`: the wake waits for the user's approval. `false`: it runs at once |
-
-An edge the team does not list uses the default: `lead` to `developer`, `architect` to
-`developer`, `developer` to `tester` and `tester` to `developer` are on, every other edge is
-off. A team file can list an edge with `on: false` to switch a default off.
-
 ### approval
 
-A wake that waits at a gate. The SQL table is `approval`.
+A wake that a pause holds. The SQL table is `approval`; its rows have kind `hold`.
 
 | Field | JSON | Notes |
 | --- | --- | --- |
@@ -450,11 +434,11 @@ A wake that waits at a gate. The SQL table is `approval`.
 | `messageId` | number | the message that woke it; `0` for a direct wake |
 | `directMessageId` | number? | the direct message that woke it, when the wake is direct |
 | `text` | string | the wake as it was routed, for example `[Space 5, message 28]\nlead wrote: @architect design a form`; the turn's own text is built when it runs |
-| `status` | string | `pending`, `approved` or `rejected`. Decided once |
+| `status` | string | `pending`, or `approved` once `continue` has claimed it, or `rejected` once a user message dropped it |
 | `createdAt` | string | |
 
-The table also keeps the wakes a pause holds, see [Caps](#caps): a row of kind `hold` is never
-listed, approved or rejected through the API. Deleting the Space deletes its approvals.
+A hold is never listed or decided through the API, see [Caps](#caps). Deleting the Space
+deletes its approvals.
 
 ### token
 
@@ -536,7 +520,7 @@ tool calls.
 | `GET /providers` | | 200 the detected `claude` and `codex` (those found on `PATH`), then the added ones oldest first, each `{name, kind, detected, folder, path, version, createdAt}`. `detected` is `true` for the ones on `PATH`, which have no `folder` or `createdAt`. `path` is the binary that would run (left out when an added install's binary is gone). `version` is the trimmed output of `path --version`, run for all of them at once with a 3 s limit, and left out when it fails or is late. Models and login state are not listed | |
 | `POST /providers` | `name`, `kind`, `folder` | 201 the added provider, in the shape `GET` gives | 400 bad name, `kind` not `claude` or `codex`, `folder` not an absolute path to a folder, or no executable of that kind in it; 409 `name` is taken, or is `claude` or `codex` |
 | `DELETE /providers/{name}` | | 204 | 400 `claude` or `codex` (the ones on `PATH` cannot be removed), 404, 409 a teammate still names it (the error names the teammate; change that teammate first) |
-| `GET /teams` | | 200 all teams by name, each with its roles and gates; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
+| `GET /teams` | | 200 all teams by name, each with its roles; a role has `mcp`, the name and label of each MCP server, not `mcpServers`, whose `args`, `env` and `url` may hold API keys | |
 | `GET /teams/{name}` | | 200, with `mcp` instead of `mcpServers` as above; each role shows `write` | 404 |
 | `PUT /teams/{name}` | the team JSON `reef team apply` takes (`name`, when given, must match the path; a role may also list `mcpRemove`, the `{name, label}` of each stored MCP server to drop, as `GET` showed it; servers it does not list are kept); applies it the same way, with the same validation. `?from=<source>` instead copies `source`: a role's body that omits `mcpServers` takes `source`'s role of the same name, and `name` must not exist yet, checked and inserted in one statement so two concurrent copies to the same name cannot both win | 200 the applied team, as `GET /teams/{name}` | 400 the same `invalid: ...` text `reef team apply` gives, or a body name that does not match the path; a role's body that omits `mcpServers` keeps the role's stored ones, minus those in its `mcpRemove`; 404 `?from=` names a team that does not exist; 409 `?from=` names a team that already exists, or a server in `mcpRemove` no longer matches a stored one by name and label (the team changed since it was loaded; nothing is applied) |
 | `GET /teammates` | | 200 every teammate by name, each `{id, name, persona, skills, backend, model, provider, face, tools, mcp, write, permissionMode}` | |
@@ -560,8 +544,6 @@ tool calls.
 | `POST /spaces/{id}/reopen` | no body needed | 204; clears `closedAt` | 404 |
 | `POST /spaces/{id}/stop` | no body needed | 204, also when the Space is not live or does not exist | |
 | `POST /spaces/{id}/continue` | no body needed | 204, no body | 404, 409 not paused or a turn running |
-| `GET /spaces/{id}/approvals` | | 200 the Space's pending gate approvals, oldest first; `[]` when none | 404 |
-| `POST /spaces/{id}/approvals/{aid}` | `approve` (required: `true` runs the held wake, `false` drops it) | 204, no body; approve while a chain starts or runs queues the wake behind the current turn | 400 no `approve`, 404 no such approval in this Space, 409 not pending, or approve while the Space is paused (it stays pending), 503 |
 | `POST /spaces/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no work item); 404, 409 and 503 as send |
 | `POST /spaces/{id}/promote` | `title` for a new work item, or `workItemId` for an existing one; exactly one form | 202 the Space | 400 bad body, Space already has a work item, work item of another project; 404; 409 as send; 503 |
 | `GET /spaces/{id}/proposal` | | 200 the Space's pending proposal | 404 none pending |
@@ -683,9 +665,8 @@ a message wakes them.
   to before turn N.` in the Space. The agent's session is not rewound. When a turn of
   a role that has run before in the Space is sent, its prompt gets the lines `reef wrote: ...`
   that `reef` posted since that role's last turn began, after the header line, so the role
-  learns of the rollback (and of a restart failure note) even when its wake was held at a gate
-  or is a retry; a role that never ran gets none. The wake kept as `wakeText` and shown in an
-  approval does not have them.
+  learns of the rollback (and of a restart failure note) even when its wake is a retry; a role
+  that never ran gets none. The wake kept as `wakeText` does not have them.
 - `DELETE /work-items/{id}` cleans what Reef made for the work item. It stops the agents of the
   work item's Spaces first (a running turn is stopped, as when a Space is deleted). A
   worktree with uncommitted changes (untracked files count) is 409 with `work item <id> has
@@ -783,8 +764,7 @@ and promote turns are not routed (see below).
 A wake is a turn of the woken role. Routing gives it the text it was routed with: a line
 `[Space 3, message 12]` for a top-level message, or `[Space 3, message 12, thread 9]` for a
 reply (the Space, the waking message and, for a reply, its thread root), then the user's
-text as it is, or `<author> wrote: <body>` for an agent's message. That text is what a gate
-shows and what the wake keeps if it never starts. The wake also carries its scopes, the threads
+text as it is, or `<author> wrote: <body>` for an agent's message. That text is what the wake keeps if it never starts. The wake also carries its scopes, the threads
 (0 for the top level) of the messages it was routed with, as data from routing, never read back
 from message text, so a message that quotes a header changes nothing. The turn's own text is built
 when the turn starts, not when the message is routed, from what the role has not been sent in its session:
@@ -802,8 +782,7 @@ nothing read, a new session's first wake, shows only its last 20 unread messages
 saying the older ones are in `read_thread`. A wake that finds nothing unread runs no turn and starts no agent: an earlier turn
 already sent what woke it. One routing pass wakes a role once: when several messages,
 top-level or in any thread, wake the same role, for example two `post_to_space` calls of
-one turn that name `@architect`, they are one wake, so a gate holds one approval for
-them, and its text has one block for each thread, with its `Asked together` line. The woken
+one turn that name `@architect`, they are one wake, and its text has one block for each thread, with its `Asked together` line. The woken
 role's reply is stored in the thread the header of the first message names (`parentId` is the
 thread root). When a top-level message woke the role, the reply is top-level too: it is the
 root of a thread the role owns, and the user's reply in it goes to the role.
@@ -811,22 +790,19 @@ root of a thread the role owns, and the user's reply in it goes to the role.
 The first turn and the wakes after it are one chain. They run one at a time, in the order
 the messages were stored, and the messages each turn stores are routed in turn and queued at
 the end. The Space has a turn running until the chain is done, so a `wrap`, a `promote`, a
-`continue`, a `rollback` or a `close` during the chain is 409. A `send` during a message chain,
-or an approve while any chain starts or runs, is accepted: the message is stored, and its wakes, or the approved
-wake, join the end of the chain's queue and run after the current turn and the wakes it
+`continue`, a `rollback` or a `close` during the chain is 409. A `send` during a message chain
+is accepted: the message is stored, and its wakes join the end of the chain's queue and run after the current turn and the wakes it
 queued. A `send` that finds a message chain starting waits until it runs, so the message is stored
 after the one the chain starts with and ids follow the order of the sends; if the chain never
 starts, the send starts a chain of its own. A `send` while a wrap, a promote, a `continue` or a
 `rollback` starts is 409. Turns still run one at a time. If the chain ends first (a failed turn, a stop, a
-routing failure), a queued approval is pending again and a queued message's wakes are held,
-not run. When the hop cap or the token budget stops the next wake, an approved wake is held
-with the others and `continue` runs it (see [Caps](#caps)). A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
+routing failure), a queued message's wakes are held, not run. When the hop cap or the token
+budget stops the next wake, it is held and `continue` runs it (see [Caps](#caps)). A turn that fails ends the chain; the wakes still waiting are dropped. An example chain: the user asks the lead; the
 lead's reply says `@architect ...`; the architect runs and posts a plan, a new thread it
 owns; the chain ends because the plan names no one. The lead gets no turn after the plan.
 
 `send_to_role` stores a direct request outside the public `message` table. When its sender's
-turn ends, only the named role wakes. A direct wake is gated the same way a public one is:
-a gate that is on holds it as a pending approval, and rejection wakes nobody. Reaching the
+turn ends, only the named role wakes. Reaching the
 hop or token cap pauses the chain with the held direct wakes. Direct and public wakes share
 the Space's hop count, so switching between them never resets it. Its prompt starts `[Space N, direct message N, chain
 N, source: direct request]`, names the sender, and carries the body. The recipient's ordinary
@@ -836,9 +812,9 @@ not stored or routed. A further exchange requires an explicit `send_to_role`. Th
 all direct records with `GET /spaces/{id}/direct-messages`; an MCP token reads only records
 whose `from` or `to` is its role. `GET /search` finds public and direct messages together for
 the user; the MCP `search_sessions` returns a direct hit only to its sender or recipient.
-Rejecting the approval of a direct wake, a stop that sheds a queued direct wake, and a user
+A stop that sheds a queued direct wake, and a user
 message that drops a held direct wake after a hop cap pause, each give the request a `failed`
-response with body `rejected`, `stopped` or `dropped`, so the window tells them from a delivery that failed.
+response with body `stopped` or `dropped`, so the window tells them from a delivery that failed.
 A request its sender sent in a turn that ends stopped or failed, or that a restart cuts, gets a `failed`
 response with body `stopped` or `failed` (a restart gives `failed`). Wrap-up and promote prompts list the
 Space's direct messages, marking a `failed` attempt `(failed)`. Partial output from a failed recipient turn is appended as
@@ -849,18 +825,6 @@ response wakes the sender. `sourceMessageId` is the public message whose wake th
 source of that wake, and a request sent from a turn with no public wake has `null`. `send_to_role` is
 refused with `invalid:` unless its sender has a running turn. A response keeps the source of
 its request. Public `GET /messages` history is unchanged.
-
-### Gates
-
-A wake from a role to another is checked against the team's gates (see [gate](#gate)). A
-wake across a gate that is on does not run. The server stores an [approval](#approval) with
-the prompt it would have run and goes on with the rest of the chain. `GET
-/spaces/{id}/approvals` lists the pending ones. `POST /spaces/{id}/approvals/{aid}` with
-`{"approve":true}` runs the wake as a new chain (it needs an idle Space that is not
-paused, else 409 and the approval stays pending), or queues it on the chain that is starting or
-running, a wrap or promote one included. An approved wake resets the hop count to 0, so it runs at 6 hops. With `{"approve":false}` it only marks the
-approval `rejected`; for a direct wake it also records the `rejected` failed response. A decided approval is 409. Pending approvals are stored, so they survive a
-restart.
 
 ### Space names
 
@@ -890,14 +854,11 @@ is not live: it waits. A `: keepalive` comment comes every 15 seconds. Seven kin
 - `agent`: one [agent event](agents.md) as JSON, as it comes, from the turn that is running.
 - `pause`: `{"reason":"..."}` when a cap pauses the Space: when a send finds the
   token budget used, or when the hop cap holds a wake. `{"reason":""}` when `continue`, or a user message after a hop cap pause, clears the pause.
-- `approval`: an [approval](#approval) as JSON, `pending` when a gate holds a wake, and again
-  with `approved` or `rejected` when it is decided, and `pending` again when a chain ends
-  without running a wake that was approved and queued.
 - `note`: `{}`, sent when a message is posted outside a turn, such as a [GitHub
   poll](#github-poll) note, so a subscriber knows to re-read `GET /messages`.
 - `name`: `{}`, sent when the provider's name replaces a Space's default name, so a subscriber knows to re-read `GET /spaces`.
 - `direct`: `{}`, sent when a chain ends without running a queued direct wake and gives it a
-  `failed` response after the last `turn` event, and when a rejected approval of a direct wake does the same, so a subscriber knows to re-read `GET /spaces/{id}/direct-messages`. Every
+  `failed` response after the last `turn` event, so a subscriber knows to re-read `GET /spaces/{id}/direct-messages`. Every
   other change to a direct message happens before a `turn` event that ends its turn.
 
 A subscriber is brought up to date when it connects, so a reconnect needs no other
@@ -905,7 +866,7 @@ request to know the state. The server keeps the events of the running chain in m
 subscriber that connects during a chain first gets `turn` running and every `agent` event
 of the chain so far, then the live ones. One that connects between chains first gets
 `turn` idle. Either gets `pause` with the reason when the Space is paused. It does not get
-the pending approvals: read them with `GET /spaces/{id}/approvals`. The stored messages
+The stored messages
 (`GET /messages`) are the history. A slow subscriber only lags; it never holds
 up the agent. When the server stops, a subscriber gets the last frames before the
 stream ends.
@@ -920,9 +881,6 @@ data: {"kind":"tool_call","toolId":"t1","toolName":"Bash","input":{"command":"ls
 event: agent
 data: {"kind":"text","text":"@architect design the form"}
 
-event: approval
-data: {"id":1,"spaceId":5,"from":"lead","to":"architect","messageId":28,"text":"[Space 5, message 28]\nlead wrote: @architect design the form","status":"pending","createdAt":"2026-10-13T09:00:10.123456Z"}
-
 event: turn
 data: {"role":"lead","status":"done"}
 ```
@@ -930,34 +888,32 @@ data: {"role":"lead","status":"done"}
 ### Inbox
 
 `GET /inbox` lists what waits on the user in every Space. It is read from the rows of
-approvals, Spaces, turns and messages, so it has no table and a restart keeps it. Each
+Spaces, turns and messages, so it has no table and a restart keeps it. Each
 item has `kind`, `spaceId`, `workItemId` (null for a quick session), `text` and `at`, and the
 id to act with:
 
 | `kind` | Listed while | `text` | Also has | Cleared by |
 | --- | --- | --- | --- | --- |
-| `approval` | a gate holds a wake: a pending [approval](#approval) | `lead wants to wake architect` | `approvalId` | approve or reject |
 | `paused` | the Space's `paused` is not empty | the reason: hop cap, token budget or a routing or store failure | | `continue`, or a user message after a hop cap pause |
 | `failed` | a turn is retryable (see [Spaces live](#spaces-live)) and its error is not `interrupted`: a turn the user stopped is a decision, not an item | `architect failed: server restarted` | `turnId` | `retry`, or any later turn of that role, so of several failed turns only the newest shows |
-| `waiting` | the Space's newest message is from an agent (not `user` or `reef`) and woke nobody: no wake held at a gate for it, no turn running, no other item for the Space, and the Space's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | `messageId` | any new message, such as a send; or `POST /spaces/{id}/dismiss` with the item's `messageId`, which hides it until a newer message arrives |
+| `waiting` | the Space's newest message is from an agent (not `user` or `reef`) and woke nobody: no turn running, no other item for the Space, and the Space's newest turn was not stopped (the part of a reply a stop kept is not waiting) | the first 200 characters of that message | `messageId` | any new message, such as a send; or `POST /spaces/{id}/dismiss` with the item's `messageId`, which hides it until a newer message arrives |
 
-`at` is the time of the approval, of the failed turn's end, of the message, and for `paused`
+`at` is the time of the failed turn's end, of the message, and for `paused`
 the end of the Space's newest turn. A Space that has a chain running lists no `waiting`,
-`paused` or `failed` item, since the chain is not over and `continue` or `retry` would be 409. Rejecting a gate is a decision, so the message it held is
-not `waiting`. A hold of a pause is not an item of its own: its Space is `paused`.
+`paused` or `failed` item, since the chain is not over and `continue` or `retry` would be 409. A hold of a pause is not an item of its own: its Space is `paused`.
 
 `GET /inbox/events` is one Server-Sent Events stream for all Spaces, with a
 `: keepalive` every 15 seconds. Its only event is `inbox`, whose data is the whole list as
 `GET /inbox` returns it. The first one comes when the stream connects; after that one comes each
 time the list differs from the last one sent. The list is read again after every event of every
-Space (turn, agent, pause, approval), when a chain ends, and after every request that is not a
-`GET`, since a reject, a delete or a `POST /messages` can change it with no Space event. A change
+Space (turn, agent, pause), when a chain ends, and after every request that is not a
+`GET`, since a delete or a `POST /messages` can change it with no Space event. A change
 a `reef` process makes straight in the database shows at the next keepalive tick at the latest.
 When the server stops, a stream sends the last list and ends.
 
 ```
 event: inbox
-data: [{"kind":"approval","spaceId":5,"workItemId":2,"text":"lead wants to wake architect","at":"2026-10-14T09:00:10.123456Z","approvalId":1}]
+data: [{"kind":"waiting","spaceId":5,"workItemId":2,"text":"Plan: add the form and a test.","at":"2026-10-14T09:00:10.123456Z","messageId":28}]
 ```
 
 ## Wrap-up and promotion
@@ -1022,14 +978,12 @@ hop count to 0 and runs them in order as a new chain, with `pause` `{"reason":""
 chain starts. If the chain cannot start, the Space stays paused and keeps the holds. That
 chain can reach the hop cap again, and then pauses again. Sending a user message resets the
 hop count to 0 too, and drops the holds; a dropped direct request gets a `failed` response with
-body `dropped`. Approving a gated wake resets it too, so that wake runs even at
-6 hops; wakes no one approved still count, so 6 hops with no approval pause the Space. The holds are stored, so
+body `dropped`. The holds are stored, so
 they survive a restart; the hop count is not, so a chain that runs after a restart counts from 0.
 
-The same pause holds work when the server cannot store an approval for a gated wake, or cannot
+The same pause holds work when the server cannot
 read the messages or the direct messages a turn stored to route them, or when a store error
-stops the check before the next wake. The Space pauses with the error as the reason, and
-nothing runs ungated. These wakes are held in memory only, since the database failed, until the server stops and stores them. `continue` stores the approval again, or does the routing read again from
+stops the check before the next wake. The Space pauses with the error as the reason. These wakes are held in memory only, since the database failed, until the server stops and stores them. `continue` does the routing read again from
 the message and the direct message before the turn's reply, and runs what that wakes. If it fails again the Space
 stays paused.
 
@@ -1076,8 +1030,7 @@ lines of `gh run view <run id> --log-failed` for each run whose id can be read f
 whose team has no `developer` role gets the note only. The wake text, including any log
 fetch, is built before the Space is claimed, so a user send that arrives during the fetch
 finds the Space still idle and is not refused. The wake runs as its own chain, the way a
-retried turn does (decision 39), attributed to author `reef` rather than `user`: no gate holds
-it, since no role sent it, but it counts as a hop like any agent-originated wake, so a run of
+retried turn does (decision 39), attributed to author `reef` rather than `user`: it counts as a hop like any agent-originated wake, so a run of
 failing checks still pauses at the hop cap instead of resetting the count every time; the
 Space's other caps (pause, token budget) also still apply. A Space with a turn running, or
 paused (including by the hop cap), cannot take the wake on that poll; the note still posts,
@@ -1134,7 +1087,7 @@ wakes were waiting to run` unless it is paused already. The pause shows in the i
 `continue` runs the holds. A routing read that failed before the stop is done again then, and what it
 wakes is held too; if it fails again, the Space gets a message from `reef` saying which messages woke
 nobody. Only the hop count is lost: a chain that runs after a restart counts
-from 0. A pause is stored with its holds, and a pending approval is stored, so both survive too.
+from 0. A pause is stored with its holds, so both survive too.
 A direct request that did not run still gets its `failed` response.
 
 ## Try it
