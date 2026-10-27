@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|work-item-review|first-run BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|work-item-review|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -2949,6 +2949,98 @@ async function teammates() {
     check(await noOverflow(), `${route} has no horizontal scroll at 390x844`, `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
     await shot(`phone-${route.replace(/\W+/g, '-').replace(/^-|-$/g, '')}`);
   }
+}
+
+async function creatures() {
+  const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const call = async (method, route, body) => {
+    const res = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`${method} ${route}: ${res.status} ${await res.text()}`);
+    return res.json();
+  };
+  const suffix = Date.now().toString(36);
+  const [teamA, teamB, teamC] = ['alpha', 'beta', 'gamma'].map((n) => `${n}-${suffix}`);
+  const look = (t) => JSON.stringify({ face: t.face, colour: t.colour });
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await addProject();
+
+  const sam =await call('POST', '/teammates', { name: `sam-${suffix}`, backend: 'claude', face: 'otter', colour: 'violet' });
+  check(look(await getJson(`/teammates/${sam.id}`)) === '{"face":"otter","colour":"violet"}', 'POST then GET /teammates/{id} returns the creature and colour', look(sam));
+  check(look((await getJson('/teammates')).find((t) => t.id === sam.id)) === '{"face":"otter","colour":"violet"}', 'GET /teammates lists them');
+  const put = await call('PUT', `/teammates/${sam.id}`, { name: sam.name, backend: 'claude', face: 'turtle', colour: 'teal' });
+  check(look(put) === '{"face":"turtle","colour":"teal"}' && look(await getJson(`/teammates/${sam.id}`)) === '{"face":"turtle","colour":"teal"}', 'PUT /teammates/{id} changes them and GET returns the change', look(put));
+  await call('PUT', `/teammates/${sam.id}`, { name: sam.name, backend: 'claude', face: 'otter', colour: 'violet' });
+  const bad = await fetch(base + '/teammates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: `bad-${suffix}`, backend: 'claude', colour: 'mauve' }) });
+  check(bad.status === 400, 'an unknown colour is refused', `${bad.status}`);
+
+  const ada = await call('POST', '/teammates', { name: `ada-${suffix}`, backend: 'claude', face: 'whale' });
+  const plain = await call('POST', '/teammates', { name: `plain-${suffix}`, backend: 'claude' });
+  const role = (teammate, name, extra) => ({ teammateId: teammate.id, name, backend: 'claude', ...extra });
+  await call('POST', '/teams', { name: teamA, roles: [role(sam, 'lead', { lead: true })] });
+  await call('POST', '/teams', { name: teamB, roles: [role(ada, 'lead', { lead: true }), role(sam, 'developer')] });
+  await call('POST', '/teams', { name: teamC, roles: [role(plain, 'architect', { lead: true })] });
+
+  await page.goto(`${base}/teammates`);
+  await main.getByRole('heading', { name: 'Teammates', level: 1 }).waitFor();
+  const row = main.getByRole('region', { name: 'All teammates' }).getByRole('button', { name: new RegExp(`^${sam.name}`) });
+  await row.waitFor();
+  const samFace = await row.locator('svg').first().innerHTML();
+  check((await row.locator('svg').count()) === 1, 'Sam is one creature on the Teammates page');
+  check(await row.getByText(`lead · ${teamA}`, { exact: true }).isVisible(), `Sam's role in ${teamA} is a text badge`);
+  check(await row.getByText(`developer · ${teamB}`, { exact: true }).isVisible(), `Sam's role in ${teamB} is a text badge`);
+  check(samFace.includes('#8B5CF6') && !samFace.includes('#C08A5B'), "Sam's otter is drawn in violet, not the otter's own brown");
+  await shot('teammates-1280x800');
+
+  const faceIn = async (team, roleName) => {
+    await page.goto(`${base}/teams?team=${team}`);
+    const button = main.getByRole('region', { name: 'Roles' }).getByRole('button', { name: new RegExp(`^${roleName}`) });
+    await button.waitFor();
+    return button.locator('svg').first().innerHTML();
+  };
+  const inA = await faceIn(teamA, 'lead');
+  await shot('team-a-1280x800');
+  const inB = await faceIn(teamB, 'developer');
+  await shot('team-b-1280x800');
+  check(inA === samFace && inB === samFace, 'Sam as lead in one Team and developer in the other is the same creature in both Teams and on the Teammates page');
+  check((await faceIn(teamB, 'lead')) !== samFace, "another Teammate in that Team keeps its own creature");
+
+  const pebble = await faceIn(teamC, 'architect');
+  check(pebble.includes('#8E8E93') && !pebble.includes('#8B5CF6'), 'a Teammate with no creature, in a role named architect, is a pebble, not a whale');
+
+  await page.goto(`${base}/teammates`);
+  await main.getByRole('button', { name: 'New teammate' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New teammate' });
+  const kit = `kit-${suffix}`;
+  await dialog.getByLabel('Teammate name').fill(kit);
+  await dialog.getByRole('button', { name: /^Change creature/ }).click();
+  await dialog.getByRole('button', { name: 'Penguin', exact: true }).click();
+  await dialog.getByRole('button', { name: /^Change creature/ }).click();
+  await shot('picker-1280x800');
+  await dialog.getByRole('button', { name: 'Pink colour', exact: true }).click();
+  await dialog.getByRole('button', { name: 'Create teammate' }).click();
+  await page.waitForURL((url) => url.searchParams.has('teammate'));
+  const made = (await getJson('/teammates')).find((t) => t.name === kit);
+  check(look(made) === '{"face":"penguin","colour":"pink"}', 'the New teammate dialog saves the creature and colour picked', look(made));
+
+  await main.getByRole('button', { name: /^Change creature/ }).click();
+  await main.getByRole('button', { name: 'Shark', exact: true }).click();
+  await main.getByRole('button', { name: /^Change creature/ }).click();
+  await main.getByRole('button', { name: 'Blue colour', exact: true }).click();
+  await main.getByRole('button', { name: 'Save teammate' }).click();
+  await main.getByText('Saved').waitFor();
+  check(look(await getJson(`/teammates/${made.id}`)) === '{"face":"shark","colour":"blue"}', 'the Teammate panel saves a new creature and colour', look(await getJson(`/teammates/${made.id}`)));
+
+  for (const route of ['/teammates', `/teams?team=${teamB}`]) {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(base + route);
+    await main.getByRole('heading', { level: 1 }).waitFor();
+    check(await noOverflow(), `${route} has no horizontal scroll at 390x844`, `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
+    await shot(`phone-${route.replace(/\W+/g, '-').replace(/^-|-$/g, '')}`);
+  }
+  await page.goto(`${base}/teammates`);
+  await main.getByRole('button', { name: 'New teammate' }).click();
+  await page.getByRole('dialog', { name: 'New teammate' }).getByRole('button', { name: /^Change creature/ }).click();
+  await shot('phone-picker');
 }
 
 async function board() {
