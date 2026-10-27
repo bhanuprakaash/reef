@@ -69,8 +69,9 @@ type (
 		Body string `json:"body"`
 	}
 	rememberOut struct {
-		Item    itemOut      `json:"item"`
-		Similar []similarOut `json:"similar,omitempty"`
+		Item       itemOut      `json:"item"`
+		Similar    []similarOut `json:"similar,omitempty"`
+		EmbedError string       `json:"embedError,omitempty"`
 	}
 	hitOut struct {
 		ID     int64  `json:"id"`
@@ -355,11 +356,9 @@ func (m *mcpServer) remember(
 	if err != nil {
 		return nil, rememberOut{}, err
 	}
-	out := rememberOut{Item: toItemOut(res.Item)}
-	for _, s := range res.Similar {
-		out.Similar = append(out.Similar, similarOut{ID: s.ID, Body: s.Body})
-	}
-	return nil, out, nil
+	return nil, rememberOut{
+		Item: toItemOut(res.Item), Similar: toSimilarOut(res.Similar), EmbedError: embedMessage(res.EmbedErr),
+	}, nil
 }
 
 func (m *mcpServer) recall(
@@ -431,6 +430,21 @@ func toItemOut(it memory.Item) itemOut {
 		Author: it.Author, Role: it.Role, Status: it.Status, RetiredAt: it.RetiredAt,
 		ReplacedBy: it.ReplacedBy, CreatedAt: it.CreatedAt, Links: links,
 	}
+}
+
+func toSimilarOut(similar []memory.Similar) []similarOut {
+	var out []similarOut
+	for _, s := range similar {
+		out = append(out, similarOut{ID: s.ID, Body: s.Body})
+	}
+	return out
+}
+
+func embedMessage(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 func refString(r memory.Ref) string { return r.Kind + ":" + r.ID }

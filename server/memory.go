@@ -68,7 +68,11 @@ func (s *server) createMemory(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, toItemOut(res.Item))
+	writeJSON(w, http.StatusCreated, struct {
+		itemOut
+		Similar    []similarOut `json:"similar,omitempty"`
+		EmbedError string       `json:"embedError,omitempty"`
+	}{toItemOut(res.Item), toSimilarOut(res.Similar), embedMessage(res.EmbedErr)})
 }
 
 func (s *server) retireMemory(w http.ResponseWriter, r *http.Request) {

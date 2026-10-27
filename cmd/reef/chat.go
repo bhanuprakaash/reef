@@ -15,6 +15,7 @@ import (
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/server"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -247,7 +248,7 @@ func decideWrap(
 		return true, err
 	}
 	if a := strings.ToLower(answer); a == "y" || a == "yes" {
-		p, added, err := approveProposal(ctx, st, p.ID)
+		a, err := approveProposal(ctx, st, p.ID)
 		if err != nil {
 			if errors.Is(err, store.ErrInvalid) {
 				_, err = fmt.Fprintf(stdout, "reef: %s\n\n", strings.TrimPrefix(err.Error(), "invalid: "))
@@ -255,7 +256,7 @@ func decideWrap(
 			}
 			return false, err
 		}
-		_, err = fmt.Fprintf(stdout, "%s\n\n", approvedText(p, added))
+		_, err = fmt.Fprintf(stdout, "%s\n\n", approvedText(a))
 		return false, err
 	}
 	if _, err := st.RejectProposal(ctx, p.ID); err != nil {
@@ -280,11 +281,15 @@ func proposalTitle(p store.Proposal) string {
 	return fmt.Sprintf("proposal %d from %s", p.ID, p.Role)
 }
 
-func approvedText(p store.Proposal, added int) string {
-	if p.Kind == store.ProposalBrief {
-		return "approved: brief saved"
+func approvedText(a server.Approval) string {
+	text := "approved: brief saved"
+	if a.Proposal.Kind != store.ProposalBrief {
+		text = fmt.Sprintf("approved: brief and %d items saved", a.Added)
 	}
-	return fmt.Sprintf("approved: brief and %d items saved", added)
+	for _, w := range a.Warnings {
+		text += "\nwarning: " + w
+	}
+	return text
 }
 
 func proposalBodyText(p store.Proposal) string {

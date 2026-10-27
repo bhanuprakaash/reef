@@ -126,3 +126,38 @@ func TestCLI_Wrap(t *testing.T) {
 		t.Errorf("approve rejected error = %v", err)
 	}
 }
+
+func TestCLI_WrapApprovePrintsAWarningForEachLookalike(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := st.CreateProject(ctx, store.Project{Name: "shop", Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f, err := st.CreateFeature(ctx, store.Feature{ProjectID: p.ID, Slug: "login", Name: "login"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateChannel(ctx, store.Channel{ProjectID: p.ID, FeatureID: &f.ID, Name: "chat"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateProposal(ctx, store.Proposal{
+		ChannelID: 1, Role: "architect", Brief: "sign in",
+		Items: []store.ProposedItem{{Kind: "decision", Body: "use sessions for login.", Scope: "work_item"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.Close(); err != nil {
+		t.Fatal(err)
+	}
+	mustReef(t, dir, "memory", "add", "decision", "use sessions for login", "--scope", "work_item:1")
+
+	got := mustReef(t, dir, "wrap", "approve", "1")
+	if want := "approved: brief and 1 items saved\nwarning: memory 2 looks like memory 1\n"; got != want {
+		t.Errorf("wrap approve = %q, want %q", got, want)
+	}
+}

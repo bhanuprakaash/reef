@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/bhanuprakaash/reef/memory"
@@ -41,12 +43,12 @@ func TestApproveProposalSavesItemsAndRetires(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	p, added, err := ApproveProposal(ctx, st, ms, 1)
+	a, err := ApproveProposal(ctx, st, ms, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Status != store.ProposalApproved || added != 3 {
-		t.Errorf("approve = status %q, added %d, want approved and 3", p.Status, added)
+	if a.Proposal.Status != store.ProposalApproved || a.Added != 3 {
+		t.Errorf("approve = status %q, added %d, want approved and 3", a.Proposal.Status, a.Added)
 	}
 	want := map[int64]struct {
 		scope  memory.Ref
@@ -115,8 +117,8 @@ func TestApproveProposalLeadTeamLessonIsCandidate(t *testing.T) {
 	}
 
 	ms := openMemory(t, st)
-	if _, added, err := ApproveProposal(ctx, st, ms, 1); err != nil || added != 1 {
-		t.Fatalf("approve = %d, %v, want 1 added", added, err)
+	if a, err := ApproveProposal(ctx, st, ms, 1); err != nil || a.Added != 1 {
+		t.Fatalf("approve = %d, %v, want 1 added", a.Added, err)
 	}
 	pending, err := ms.Pending(ctx)
 	if err != nil {
@@ -164,7 +166,7 @@ func TestApproveProposalRetryAfterFailureSavesEachItemOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if _, _, err := ApproveProposal(ctx, st, ms, 1); err == nil {
+	if _, err := ApproveProposal(ctx, st, ms, 1); err == nil {
 		t.Fatal("approve succeeded, want it to fail on the second item")
 	}
 	if n := countMemory(t, st); n != 1 {
@@ -180,12 +182,12 @@ func TestApproveProposalRetryAfterFailureSavesEachItemOnce(t *testing.T) {
 		t.Errorf("brief = %q, %v, want it unchanged", b.Body, err)
 	}
 
-	p, added, err := ApproveProposal(context.Background(), st, ms, 1)
+	a, err := ApproveProposal(context.Background(), st, ms, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if p.Status != store.ProposalApproved || added != 2 {
-		t.Errorf("second approve = status %q, added %d, want approved and 2", p.Status, added)
+	if a.Proposal.Status != store.ProposalApproved || a.Added != 2 {
+		t.Errorf("second approve = status %q, added %d, want approved and 2", a.Proposal.Status, a.Added)
 	}
 	if n := countMemory(t, st); n != 3 {
 		t.Errorf("memory rows after the second approve = %d, want 3", n)
@@ -212,11 +214,45 @@ func TestApproveProposalSkipsItemAlreadySaved(t *testing.T) {
 		t.Fatalf("propose_wrap = %q", got)
 	}
 
-	_, added, err := ApproveProposal(ctx, st, openMemory(t, st), 1)
+	a, err := ApproveProposal(ctx, st, openMemory(t, st), 1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if n := countMemory(t, st); added != 1 || n != 3 {
-		t.Errorf("added = %d, memory rows = %d, want 1 added (the same body in project) and 3 rows", added, n)
+	if n := countMemory(t, st); a.Added != 1 || n != 3 {
+		t.Errorf("added = %d, memory rows = %d, want 1 added (the same body in project) and 3 rows", a.Added, n)
+	}
+}
+
+type failEmbedder struct{}
+
+func (failEmbedder) Embed(context.Context, string) ([]float32, error) {
+	return nil, errors.New("provider down")
+}
+
+func (failEmbedder) MinCosine() float64 { return 0 }
+
+func TestApproveProposalReportsLookalikesAndEmbedErrors(t *testing.T) {
+	ctx := context.Background()
+	st, tok := mcpFixture(t)
+	call := callTool(t, st, tok)
+	call("remember", map[string]any{"kind": "decision", "body": "use sessions for login"})
+	if got, isErr := call("propose_wrap", map[string]any{
+		"brief": "v2",
+		"items": []any{map[string]any{"kind": "decision", "body": "use sessions for login."}},
+	}); isErr {
+		t.Fatalf("propose_wrap = %q", got)
+	}
+	ms, err := memory.Open(st.DB(), failEmbedder{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	a, err := ApproveProposal(ctx, st, ms, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"memory 2 looks like memory 1", "memory 2: vector not stored: provider down"}
+	if !reflect.DeepEqual(a.Warnings, want) {
+		t.Errorf("warnings = %q, want %q", a.Warnings, want)
 	}
 }

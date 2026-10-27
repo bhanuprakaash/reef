@@ -97,11 +97,11 @@ func wrapDecide(ctx context.Context, verb string, args []string, stdout io.Write
 			proposalTitle(p), p.Status, proposalBodyText(p))
 		return err
 	case "approve":
-		p, added, err := approveProposal(ctx, st, id)
+		a, err := approveProposal(ctx, st, id)
 		if err != nil {
 			return err
 		}
-		_, err = fmt.Fprintln(stdout, approvedText(p, added))
+		_, err = fmt.Fprintln(stdout, approvedText(a))
 		return err
 	}
 	if _, err := st.RejectProposal(ctx, id); err != nil {
@@ -111,10 +111,10 @@ func wrapDecide(ctx context.Context, verb string, args []string, stdout io.Write
 	return err
 }
 
-func approveProposal(ctx context.Context, st *store.Store, id int64) (store.Proposal, int, error) {
+func approveProposal(ctx context.Context, st *store.Store, id int64) (server.Approval, error) {
 	ms, err := openMemory(ctx, st)
 	if err != nil {
-		return store.Proposal{}, 0, err
+		return server.Approval{}, err
 	}
 	return server.ApproveProposal(ctx, st, ms, id)
 }

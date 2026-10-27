@@ -1,9 +1,12 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"strings"
 	"testing"
+
+	"github.com/bhanuprakaash/reef/store"
 )
 
 func TestMemoryRoundTrip(t *testing.T) {
@@ -106,5 +109,43 @@ func TestMemoryRetireTwice(t *testing.T) {
 	status, body := do(t, http.MethodPost, ts.URL+"/memory/1/retire", "")
 	if status != 400 || body != `{"error":"invalid: memory 1 is already retired"}` {
 		t.Fatalf("second retire = %d %s", status, body)
+	}
+}
+
+func TestMemoryCreateReportsLookalikesAndEmbedErrors(t *testing.T) {
+	ts, _ := newEmbedServer(t, failEmbedder{})
+	do(t, http.MethodPost, ts.URL+"/memory", `{"kind":"decision","body":"use sessions for login","scope":"work_item:1"}`)
+
+	status, body := do(t, http.MethodPost, ts.URL+"/memory",
+		`{"kind":"decision","body":"use sessions for login.","scope":"work_item:1"}`)
+	if status != 201 || !strings.HasSuffix(body,
+		`"links":[],"similar":[{"id":1,"body":"use sessions for login"}],"embedError":"provider down"}`) {
+		t.Errorf("create = %d %s, want 201 with similar and embedError", status, body)
+	}
+}
+
+func TestApproveRouteReturnsTheWarnings(t *testing.T) {
+	ctx := context.Background()
+	ts, st := newEmbedServer(t, failEmbedder{})
+	if _, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := st.CreateFeature(ctx, store.Feature{ProjectID: 1, Slug: "auth", Name: "Auth"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateChannel(ctx, store.Channel{ProjectID: 1, FeatureID: &f.ID, Name: "c"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateProposal(ctx, store.Proposal{
+		ChannelID: 1, Role: "lead", Brief: "v2",
+		Items: []store.ProposedItem{{Kind: "decision", Body: "use sessions", Scope: "work_item"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	status, body := do(t, http.MethodPost, ts.URL+"/proposals/1/approve", "")
+	if status != 200 || !strings.Contains(body, `"itemsAdded":1,"warnings":["memory 1: vector not stored: provider down"]`) {
+		t.Errorf("approve = %d %s, want 1 item added and the embed warning", status, body)
 	}
 }

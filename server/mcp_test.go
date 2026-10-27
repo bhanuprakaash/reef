@@ -97,9 +97,16 @@ func callToolResult(
 	t *testing.T, st *store.Store, tok store.Token, dataDir string,
 ) func(string, map[string]any) (string, bool) {
 	t.Helper()
+	return callToolMemory(t, st, openMemory(t, st), tok, dataDir)
+}
+
+func callToolMemory(
+	t *testing.T, st *store.Store, ms *memory.Store, tok store.Token, dataDir string,
+) func(string, map[string]any) (string, bool) {
+	t.Helper()
 	ctx := context.Background()
 	ct, st2 := mcp.NewInMemoryTransports()
-	ss, err := NewMCP(st, openMemory(t, st), tok, dataDir).Connect(ctx, st2, nil)
+	ss, err := NewMCP(st, ms, tok, dataDir).Connect(ctx, st2, nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -400,6 +407,25 @@ func TestMCPRemember(t *testing.T) {
 				t.Errorf("remember = %q (error %v), want %q (error %v)", got, isErr, tt.want, tt.wantErr)
 			}
 		})
+	}
+}
+
+func TestMCPRememberReportsLookalikesAndEmbedErrors(t *testing.T) {
+	st, tok := mcpFixture(t)
+	ms, err := memory.Open(st.DB(), failEmbedder{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	call := callToolMemory(t, st, ms, tok, t.TempDir())
+	call("remember", map[string]any{"kind": "decision", "body": "use sessions for login"})
+
+	got, isErr := call("remember", map[string]any{"kind": "decision", "body": "use sessions for login."})
+	want := `{"embedError":"provider down","item":{"author":"architect","body":"use sessions for login.",` +
+		`"createdAt":"T","id":2,"kind":"decision","links":[],"replacedBy":null,"retiredAt":null,` +
+		`"role":"architect","scope":"work_item:1","status":"accepted","why":""},` +
+		`"similar":[{"body":"use sessions for login","id":1}]}`
+	if got != want || isErr {
+		t.Errorf("remember = %q (error %v), want %q", got, isErr, want)
 	}
 }
 
