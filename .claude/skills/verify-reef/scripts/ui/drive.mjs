@@ -702,6 +702,7 @@ async function phone() {
   await page.waitForURL('**/review');
   const files = main.getByRole('navigation', { name: 'Files' });
   await files.getByText('auth.go').waitFor({ timeout: 15000 });
+  await files.waitFor();
   check(!(await tabs.isVisible()), 'the tab bar is hidden on the review page');
   const fb = await box(files);
   const sideBySide = await files.evaluate((el) => getComputedStyle(el).flexDirection);
