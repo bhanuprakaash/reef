@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, teammate };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, teammate, 'team-page': teamPage };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -3358,6 +3358,95 @@ async function board() {
   });
   check(o.page <= 0 && o.main <= 0, 'the board has no horizontal scroll at 390 px', `page ${o.page}, main ${o.main}`);
   check(await page.getByRole('navigation', { name: 'Tabs' }).getByRole('link', { name: 'Board' }).isVisible(), 'the phone tab bar has a Board tab');
+}
+
+async function teamPage() {
+  const section = await addProject();
+  const name = (await section.getAttribute('aria-label')) ?? '';
+  const pid = Number(sql(`select id from project where name='${name}'`));
+  const call = async (method, route, body) => {
+    const res = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (!res.ok) throw new Error(`${method} ${route}: ${res.status} ${await res.text()}`);
+    return res.json();
+  };
+  const suffix = Date.now().toString(36);
+  const makeTeam = async (prefix, responsibility) => {
+    const mate = await call('POST', '/teammates', { name: `${prefix}-lead-${suffix}`, backend: 'claude' });
+    return call('POST', '/teams', { name: `${prefix}-${suffix}`, responsibility, roles: [{ teammateId: mate.id, name: 'lead', lead: true, backend: 'claude' }] });
+  };
+  const crew = await makeTeam('crew', 'Owns the login flow');
+  const idle = await makeTeam('idle', 'Waits for work');
+  const items = async () => (await getJson('/work-items')).filter((i) => i.teamId === crew.id);
+  const eventually = async (ok) => {
+    const end = Date.now() + 15000;
+    while (!(await ok()) && Date.now() < end) await page.waitForTimeout(200);
+    return ok();
+  };
+
+  // The first item queued starts at once: its Space opens and the scripted lead answers.
+  const make = (title) => call('POST', '/work-items', { projectId: pid, title, teamId: crew.id });
+  const first = await make('login form');
+  await call('PATCH', `/work-items/${first.id}`, { status: 'queued' });
+  check(await eventually(async () => (await items()).some((i) => i.id === first.id && i.status === 'in_progress')), 'the first queued item starts at once');
+  for (const t of ['logout', 'signup', 'archive']) {
+    const w = await make(t);
+    await call('PATCH', `/work-items/${w.id}`, { status: 'queued' });
+  }
+  const spaceOf = async () => (await getJson('/spaces')).filter((s) => s.workItemId === first.id && s.closedAt === null);
+  check(await eventually(async () => (await spaceOf()).length === 1), 'it has one open Space');
+  const space = (await spaceOf())[0];
+
+  const queuedTitles = () => main.getByRole('region', { name: 'Queued', exact: true }).getByRole('link').allInnerTexts().then((ts) => ts.map((t) => t.split('\n').filter((l) => !/^\d+$/.test(l))[0]));
+  const order = async () => (await items()).filter((i) => i.status === 'queued').sort((a, b) => a.queuePosition - b.queuePosition).map((i) => `${i.queuePosition}:${i.title}`).join(', ');
+
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto(`${base}/teams/${crew.name}`);
+  await main.getByRole('heading', { name: crew.name, level: 1 }).waitFor();
+  await main.getByRole('region', { name: 'Queued', exact: true }).getByRole('link', { name: 'logout' }).waitFor();
+  check((await main.innerText()).includes('Owns the login flow'), 'the page shows the responsibility text');
+  const roster = main.getByRole('region', { name: 'Roster', exact: true });
+  const rosterText = await roster.innerText();
+  check(/lead/.test(rosterText) && /answers by default/.test(rosterText), 'the roster lists the lead with its role badge', rosterText.replace(/\s+/g, ' '));
+  const now = main.getByRole('region', { name: 'Now', exact: true });
+  const nowText = (await now.innerText()).replace(/\s+/g, ' ');
+  check(/^In progress/.test(nowText) && nowText.includes('login form'), 'the item in progress is shown as In progress', nowText);
+  const href = await now.getByRole('link', { name: /login form/ }).getAttribute('href');
+  check(href === `/spaces/${space.id}`, 'the item in progress links to its Space (REST)', `${href} vs /spaces/${space.id}`);
+  check((await queuedTitles()).join(', ') === 'logout, signup, archive', 'the queue lists items in order', (await queuedTitles()).join(', '));
+  await shot('1280x800');
+
+  await main.getByRole('link', { name: 'archive' }).dragTo(main.getByRole('link', { name: 'logout' }));
+  check(await eventually(async () => (await order()) === '1:archive, 2:logout, 3:signup'), 'dragging an item to the top changes its queue position (REST)', await order());
+  await page.waitForFunction(() => [...document.querySelectorAll('section[aria-label="Queued"] li a')].map((a) => a.textContent).join('|').startsWith('1archive'));
+  check((await queuedTitles()).join(', ') === 'archive, logout, signup', 'the page shows the new order', (await queuedTitles()).join(', '));
+  await shot('reordered');
+
+  await now.getByRole('link', { name: /login form/ }).click();
+  await page.waitForURL(`**/spaces/${space.id}`);
+  check(true, 'clicking the item in progress opens its Space', page.url());
+
+  await page.goto(`${base}/teams/${idle.name}`);
+  await main.getByRole('heading', { name: idle.name, level: 1 }).waitFor();
+  const idleText = (await main.getByRole('region', { name: 'Now', exact: true }).innerText()).replace(/\s+/g, ' ');
+  const queueless = (await getJson('/work-items')).filter((i) => i.teamId === idle.id && ['queued', 'in_progress', 'needs_you'].includes(i.status));
+  check(queueless.length === 0 && /^Idle/.test(idleText), 'a Team with an empty queue shows as idle (REST: no queued or running item)', idleText);
+  check((await main.getByRole('region', { name: 'Queued', exact: true }).innerText()).includes('Nothing is queued.'), 'its queue says nothing is queued');
+  await shot('idle');
+
+  await page.goto(`${base}/teams?team=${crew.name}`);
+  await page.getByRole('link', { name: 'Queue', exact: true }).click();
+  await page.waitForURL(`**/teams/${crew.name}`);
+  check(true, 'the team editor links to the Team page', page.url());
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`${base}/teams/${crew.name}`);
+  await main.getByRole('heading', { name: crew.name, level: 1 }).waitFor();
+  await shot('390x844');
+  const o = await page.evaluate(() => {
+    const m = document.querySelector('main');
+    return { page: document.documentElement.scrollWidth - innerWidth, main: m.scrollWidth - m.clientWidth };
+  });
+  check(o.page <= 0 && o.main <= 0, 'the Team page has no horizontal scroll at 390 px', `page ${o.page}, main ${o.main}`);
 }
 
 async function workItem() {

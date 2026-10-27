@@ -341,6 +341,7 @@ REEF_VERIFY_RUN=<id> $H ui teammate  # a Teammate's profile page: the Teams it s
 REEF_VERIFY_RUN=<id> $H ui board     # /board: each status in its column, the type and Team filters, drag Backlog <-> Queued, reorder Queued (REST positions), a drop into Review or Done is refused, no horizontal scroll at 390x844
 REEF_VERIFY_RUN=<id> $H ui work-item # a work item's page: acceptance lines and a sub-item added from the page match REST, the Team chip, brief, proof (a row inserted in SQLite, there is no REST write) shown read-only; a sub-item's page has no brief, sub-items or proof and links to its parent; 1280x800 and 390x844
 REEF_VERIFY_RUN=<id> $H ui work-item-review # a top-level item in review: Review panel with proof and wrap-up proposal; Send back with a note wakes the lead with it; Done saves the memory items and sets Done in one click; a sub-item in review is not offered Done; 1280x800 and 390x844
+REEF_VERIFY_RUN=<id> $H ui team-page # /teams/<name>: responsibility and roster with role badges, the item in progress links to its Space (REST), the queue in order and a drag to the top changes queue_position (REST), an empty queue shows the Team as idle, the editor links to the page, no horizontal scroll at 390x844
 REEF_VERIFY_RUN=<id> $H ui pr        # the header PR chip opens the PR panel: checks, Merge disabled while not mergeable, confirm dialog, merged state (fake gh, see features/window.md)
 ```
 
@@ -538,7 +539,7 @@ claude, above).
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|attach\|cap\|pages\|stop\|wrap\|teams\|team-management\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers\|work-item\|work-item-review\|teammate` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|attach\|cap\|pages\|stop\|wrap\|teams\|team-management\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers\|work-item\|work-item-review\|teammate|team-page` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |
