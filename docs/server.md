@@ -238,10 +238,10 @@ One row per Work item. A Work item has a `type` that is only a label; it never c
 | `queuePosition` | number? | `null` when not queued |
 | `tokenBudget` | number | default 1,000,000; a `PUT` with 0 keeps the old one |
 | `createdAt` | string | |
-| `closedAt` | string? | `null` while the item is open. Set by `POST /work-items/{id}/close`, cleared by `/reopen`; never set by a client |
+| `closedAt` | string? | `null` while the item is open. Set when a top-level item is dropped; never set by a client |
 | `acceptanceLines` | array | `{position, text, checked, note}` in order, `position` counting from 1. On create and `PUT`, the array replaces all lines (`position` is the index in it); a `PUT` without `acceptanceLines` keeps them. A line with no `text` is `invalid` |
 
-A `PUT` replaces every editable field: `title`, `description`, `type`, `status`, `teamId`, `suggestedTeamId`, `tokenBudget`, `acceptanceLines`. A field left out clears `teamId` and `suggestedTeamId`, so send the whole item back. `queuePosition` is the queue's: a `PUT` keeps it.
+A `PUT` replaces every editable field: `title`, `description`, `type`, `status`, `teamId`, `suggestedTeamId`, `tokenBudget`, `acceptanceLines`. A field left out clears `teamId` and `suggestedTeamId`, so send the whole item back. `queuePosition` is the queue's: a `PUT` keeps it. A `PUT` that changes `teamId` is `400` unless the item is in `backlog`, `done` or `dropped`.
 
 #### Team queue
 
@@ -313,7 +313,7 @@ scope `teammate`. Their routes still read and write them.
 | `tokensUsed` | number | only in `GET /spaces/{id}`: the tokens counted against `tokenBudget` (see [Caps](#caps)) |
 | `team` | string | the name of the Team the Space's members were copied from. `solo` when none is given. Empty for a Space made from one Teammate. Set on create, never changes. The Space keeps its own member list (`space_member`: the Teammate, its lead flag and its access rules), so editing the Team later does not change a running Space |
 | `createdAt` | string | |
-| `closedAt` | string? | `null` while the Space is open. Set when its wrap-up is approved and when its work item is closed, cleared by `POST /spaces/{id}/reopen`. A closed Space takes no turn (409) |
+| `closedAt` | string? | `null` while the Space is open. Set when its wrap-up is approved and when its work item is dropped, cleared by `POST /spaces/{id}/reopen`. A closed Space takes no turn (409) |
 | `movedTo` | number? | `null` unless the Space is a conversation that [moved](#spaces-live) to the Space with the id. A moved conversation takes no turn (409) |
 
 ### message
@@ -550,14 +550,12 @@ tool calls.
 | `GET /profile` | | 200 | 404 no name set yet |
 | `PUT /profile` | `name`, `occupation`, `style`; replaces the old profile | 200 | 400 empty name or a line break in a field |
 | `GET /work-items` | `?project=ID`, `?parent=ID`, `?status=S`, `?type=T` | 200, with each item's `acceptanceLines` | 400 bad id, status or type |
-| `POST /work-items` | `projectId`, `parentId`, `type`, `title`, `description`, `status`, `acceptanceLines` and the other fields above | 201 | 400 unknown project, unknown parent, a parent that is a sub-item, bad type or status |
+| `POST /work-items` | `projectId`, `parentId`, `type`, `title`, `description`, `acceptanceLines` and the other fields above; `status` and `queuePosition` are ignored: a new item is in `backlog`, `PATCH` moves it | 201 | 400 unknown project, unknown parent, a parent that is a sub-item, bad type |
 | `GET /work-items/{id}` | | 200 | 404 |
-| `PUT /work-items/{id}` | the editable fields above; `status` is ignored, `PATCH` moves it | 200 | 400, 404 |
-| `PATCH /work-items/{id}` | `status`, and `note` to send back; the user moves the item: backlog and queued both ways, review to done (top-level) or back to queued, any status to dropped. Review to done approves the Space's pending wrap-up first (R44). Review to queued needs a `note`: it rejects that wrap-up, and the lead gets the note as a user message when the Team restarts the item. Either is 409 while a turn runs in the Space. The Team queue starts the next queued item when the Team is free (see Team queue). The queue, the Space's pause and continue, `submit_for_review` and the lead move it by their own rules (R10, R41, R47) | 200 | 400 `invalid: work item N: <rule>` for a move the user may not make, or a parent to review while a sub-item is open; 404 |
+| `PUT /work-items/{id}` | the editable fields above; `status` is ignored, `PATCH` moves it | 200 | 400 (`teamId` changed while the item is queued, in progress, needing you or in review), 404 |
+| `PATCH /work-items/{id}` | `status`, and `note` to send back; the user moves the item: backlog and queued both ways, review to done (top-level) or back to queued, any status to dropped (a top-level item that drops stops its running turns, closes its Spaces and sets its `closedAt`; a closed Space or one of a dropped item takes no turn, 409). Review to done approves the Space's pending wrap-up first (R44). Review to queued needs a `note`: it rejects that wrap-up, and the lead gets the note as a user message when the Team restarts the item. Either is 409 while a turn runs in the Space. The Team queue starts the next queued item when the Team is free (see Team queue). The queue, the Space's pause and continue, `submit_for_review` and the lead move it by their own rules (R10, R41, R47) | 200 | 400 `invalid: work item N: <rule>` for a move the user may not make, or a parent to review while a sub-item is open; 404 |
 | `PUT /work-items/{id}/queue-position` | `position`, 1 to the number of items queued for its Team; the item takes that position and the items between shift by one | 200 the item | 400 the item is a sub-item or not queued, has no Team, or `position` is outside the queue; 404 |
-| `POST /work-items/{id}/close` | no body needed | 204; sets `closedAt` on the work item and on each of its Spaces, and stops their agents | 404, 409 a Space has a turn running (nothing is closed) |
-| `POST /work-items/{id}/reopen` | no body needed | 204; clears the work item's `closedAt` only, its Spaces stay closed | 404 |
-| `DELETE /work-items/{id}` | | 204; the work item's worktree and the checkpoint refs of its turns are removed, its branch is kept | 404, 409 the worktree has uncommitted changes (nothing is removed) |
+| `DELETE /work-items/{id}` | | 204; the work item's worktree and the checkpoint refs of its turns are removed, its branch is kept; a Team the item held is freed and starts its next queued item | 404, 409 the worktree has uncommitted changes (nothing is removed) |
 | `GET /work-items/{id}/brief` | | 200 latest version | 404 no work item, or no brief yet |
 | `PUT /work-items/{id}/brief` | `body`, `author` | 201 new version | 400, 404 |
 | `GET /work-items/{id}/brief/versions` | | 200 oldest first | 404 |

@@ -56,6 +56,15 @@ func (s *Store) startNext(ctx context.Context, teamID int64) error {
 	return nil
 }
 
+// startAfter starts the next queued item of w's Team when w, now in status to (or deleted), has
+// freed the Team or joined the queue. It is the one place a Team's turn is handed on.
+func (s *Store) startAfter(ctx context.Context, w WorkItem, to string) error {
+	if w.ParentID != nil || w.TeamID == nil || to != _queued && !(holdsTeam(w.Status) && !holdsTeam(to)) {
+		return nil
+	}
+	return s.startNext(ctx, *w.TeamID)
+}
+
 // requeue keeps the queue positions of the Team of item w as 1, 2, 3 after w moved to to: an
 // item that joins the queue goes last, one sent back from review goes first, and one that
 // leaves the queue closes its gap.
@@ -89,18 +98,18 @@ func requeue(ctx context.Context, tx *sql.Tx, w WorkItem, to string) error {
 // MoveInQueue puts the queued item at position in the queue of its Team and shifts the items
 // between. The item must be a top-level queued item with a Team, and position within 1..n.
 func (s *Store) MoveInQueue(ctx context.Context, id, position int64) (WorkItem, error) {
-	w, err := s.WorkItem(ctx, id)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorkItem{}, fmt.Errorf("begin move in queue: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	w, err := txWorkItem(ctx, tx, id)
 	if err != nil {
 		return WorkItem{}, err
 	}
 	if w.ParentID != nil || w.Status != _queued || w.TeamID == nil || w.QueuePosition == nil {
 		return WorkItem{}, fmt.Errorf("%w: work item %d is not in a Team queue", ErrInvalid, id)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return WorkItem{}, fmt.Errorf("begin move in queue: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
 	var n int64
 	if err := tx.QueryRowContext(ctx,
 		"SELECT COUNT(*) FROM work_item WHERE "+_queueOf, *w.TeamID).Scan(&n); err != nil {

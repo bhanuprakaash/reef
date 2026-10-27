@@ -352,7 +352,7 @@ func TestApproveBriefProposalOnClosedSpace(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CloseWorkItem(ctx, 1); err != nil {
+	if _, err := s.MoveWorkItem(ctx, 1, "dropped", ByUser); err != nil {
 		t.Fatal(err)
 	}
 

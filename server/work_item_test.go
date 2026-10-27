@@ -40,12 +40,20 @@ func TestWorkItemStatus(t *testing.T) {
 			wantBody:   `{"error":"invalid: unknown type \"epic\""}`,
 		},
 		{
-			name:       "unknown status",
+			name:       "queued status on create",
 			method:     http.MethodPost,
 			path:       "/work-items",
-			give:       `{"projectId":1,"title":"A","status":"open"}`,
-			wantStatus: 400,
-			wantBody:   `{"error":"invalid: unknown status \"open\""}`,
+			give:       `{"projectId":1,"title":"A","teamId":1,"status":"queued","queuePosition":3}`,
+			wantStatus: 201,
+			wantBody:   `"status":"backlog","teamId":1,"proposedBy":"","suggestedTeamId":null,"queuePosition":null`,
+		},
+		{
+			name:       "review status on create",
+			method:     http.MethodPost,
+			path:       "/work-items",
+			give:       `{"projectId":1,"title":"A","status":"review"}`,
+			wantStatus: 201,
+			wantBody:   `"status":"backlog"`,
 		},
 		{
 			name:       "unknown parent",
@@ -184,7 +192,8 @@ func TestWorkItemBugWithLinesAndSubItems(t *testing.T) {
 		t.Fatalf("create bug = %d %s", status, body)
 	}
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"type":"task","title":"Reproduce"}`)
-	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"type":"task","title":"Fix it","status":"queued"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"parentId":1,"type":"task","title":"Fix it","status":"review","queuePosition":4}`)
+	do(t, http.MethodPatch, ts.URL+"/work-items/3", `{"status":"queued"}`)
 
 	status, body = do(t, http.MethodGet, ts.URL+"/work-items?parent=1", "")
 	if status != 200 || strings.Count(body, `"parentId":1`) != 2 ||

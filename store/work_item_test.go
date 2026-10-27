@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-func TestCloseWorkItemClosesItsSpacesAndReopenKeepsThemClosed(t *testing.T) {
+func TestDroppingAWorkItemClosesItAndItsSpaces(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
-	if err := s.CloseWorkItem(ctx, 1); err != nil {
+	if _, err := s.MoveWorkItem(ctx, 1, "dropped", ByUser); err != nil {
 		t.Fatal(err)
 	}
 
@@ -24,19 +24,6 @@ func TestCloseWorkItemClosesItsSpacesAndReopenKeepsThemClosed(t *testing.T) {
 	}
 	if q, err := s.Space(ctx, 2); err != nil || q.ClosedAt != nil {
 		t.Errorf("quick session closedAt = %v, err = %v, want nil", q.ClosedAt, err)
-	}
-
-	if err := s.ReopenWorkItem(ctx, 1); err != nil {
-		t.Fatal(err)
-	}
-	if w, err = s.WorkItem(ctx, 1); err != nil || w.ClosedAt != nil {
-		t.Errorf("work item 1 closedAt after reopen = %v, err = %v, want nil", w.ClosedAt, err)
-	}
-	if c, err = s.Space(ctx, 1); err != nil || c.ClosedAt == nil {
-		t.Errorf("space 1 closedAt after reopen = %v, err = %v, want still set", c.ClosedAt, err)
-	}
-	if err := s.CloseWorkItem(ctx, 99); !errors.Is(err, ErrNotFound) {
-		t.Errorf("close work item 99 = %v, want ErrNotFound", err)
 	}
 }
 

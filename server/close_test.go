@@ -81,31 +81,16 @@ func TestApproveBriefProposal_KeepsSpaceAndItsAgent(t *testing.T) {
 	}
 }
 
-func TestCloseWorkItem_ClosesSpacesAndRefusesARunningTurn(t *testing.T) {
+func TestDropWorkItem_StopsARunningTurnAndClosesSpaces(t *testing.T) {
 	env := newLiveEnv(t)
 	id := env.workItemSpace(t)
-	sub := subscribeTo(t, env.url, id)
 	env.sendTo(t, id, "block")
 	<-env.fake.started
 
-	status, body := do(t, http.MethodPost, env.url+"/work-items/1/close", "")
-	if want := `{"error":"space 2 has a turn running: conflict"}`; status != 409 || body != want {
-		t.Errorf("close while running = %d %s, want 409 %s", status, body, want)
-	}
-	if _, body := do(t, http.MethodGet, env.url+"/work-items/1", ""); !strings.Contains(body, `"closedAt":null`) {
-		t.Errorf("work item after refused close = %s, want closedAt null", body)
+	if status, body := do(t, http.MethodPatch, env.url+"/work-items/1", `{"status":"dropped"}`); status != 200 {
+		t.Fatalf("drop = %d %s, want 200", status, body)
 	}
 
-	env.fake.release <- struct{}{}
-	sub.want(t, _idleFrame, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`,
-		`agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
-	if status, body := do(t, http.MethodPost, env.url+"/work-items/1/close", ""); status != 204 {
-		t.Fatalf("close = %d %s, want 204", status, body)
-	}
-
-	if got := env.fake.closed.Load(); got != 1 {
-		t.Errorf("session closes = %d, want 1", got)
-	}
 	for _, path := range []string{"/work-items/1", "/spaces/2"} {
 		if _, body := do(t, http.MethodGet, env.url+path, ""); !strings.Contains(body, `"closedAt":"`) {
 			t.Errorf("GET %s = %s, want closedAt set", path, body)
@@ -114,16 +99,6 @@ func TestCloseWorkItem_ClosesSpacesAndRefusesARunningTurn(t *testing.T) {
 	if status, body := env.sendTo(t, id, "again"); status != 409 ||
 		body != `{"error":"space 2 is closed: conflict"}` {
 		t.Errorf("send = %d %s, want 409 closed", status, body)
-	}
-
-	if status, _ := do(t, http.MethodPost, env.url+"/work-items/1/reopen", ""); status != 204 {
-		t.Fatalf("reopen = %d, want 204", status)
-	}
-	if _, body := do(t, http.MethodGet, env.url+"/work-items/1", ""); !strings.Contains(body, `"closedAt":null`) {
-		t.Errorf("work item after reopen = %s, want closedAt null", body)
-	}
-	if _, body := do(t, http.MethodGet, env.url+"/spaces/2", ""); !strings.Contains(body, `"closedAt":"`) {
-		t.Errorf("space after work item reopen = %s, want closedAt still set", body)
 	}
 }
 

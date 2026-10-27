@@ -517,8 +517,8 @@ func (s *server) runOne(
 	return end, err == nil
 }
 
-// checkSpace refuses a turn the Space may not run: any turn on a closed Space, a wrap
-// on a Space with no work item or while a wrap-up waits for approval, and any turn while the
+// checkSpace refuses a turn the Space may not run: any turn on a closed or moved Space or one
+// whose work item is dropped, a wrap on a Space with no work item or while a wrap-up waits for approval, and any turn while the
 // Space is paused or over its token budget. It returns the Space's lead role, the role a wrap
 // runs for.
 func (s *server) checkSpace(
@@ -526,6 +526,15 @@ func (s *server) checkSpace(
 ) (string, error) {
 	if err := ch.Writable(); err != nil {
 		return "", err
+	}
+	if ch.WorkItemID != nil {
+		w, err := s.st.WorkItem(ctx, *ch.WorkItemID)
+		if err != nil {
+			return "", err
+		}
+		if w.Status == "dropped" {
+			return "", fmt.Errorf("work item %d is dropped: %w", w.ID, store.ErrConflict)
+		}
 	}
 	if kind == _wrap && ch.WorkItemID == nil {
 		return "", fmt.Errorf("%w: Space %d has no work item, attach it to one before wrapping up",

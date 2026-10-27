@@ -26,10 +26,6 @@ func (s *server) workItemRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/work-items/{id}", methodNotAllowed)
 	mux.HandleFunc("PUT /work-items/{id}/queue-position", s.moveInQueue)
 	mux.HandleFunc("/work-items/{id}/queue-position", methodNotAllowed)
-	mux.HandleFunc("POST /work-items/{id}/close", s.closeWorkItem)
-	mux.HandleFunc("/work-items/{id}/close", methodNotAllowed)
-	mux.HandleFunc("POST /work-items/{id}/reopen", s.reopenWorkItem)
-	mux.HandleFunc("/work-items/{id}/reopen", methodNotAllowed)
 	mux.HandleFunc("GET /work-items/{id}/brief", s.getBrief)
 	mux.HandleFunc("PUT /work-items/{id}/brief", s.putBrief)
 	mux.HandleFunc("/work-items/{id}/brief", methodNotAllowed)
@@ -80,6 +76,7 @@ func (s *server) createWorkItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	in.Status, in.QueuePosition = "", nil
 	f, err := s.st.CreateWorkItem(r.Context(), in)
 	if err != nil {
 		writeError(w, err)
@@ -142,6 +139,14 @@ func (s *server) moveWorkItem(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, err)
 		return
+	}
+	if in.Status == "dropped" && item.ParentID == nil {
+		lift, err := s.stopSpaces(r.Context(), store.SpaceFilter{WorkItemID: &id})
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		defer lift()
 	}
 	var f store.WorkItem
 	if item.Status == "review" && item.ParentID == nil {
@@ -214,62 +219,13 @@ func (s *server) moveInQueue(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, f)
 }
 
-// closeWorkItem closes the work item and all its Spaces, and stops their agents. A Space with
-// a turn running is 409 and nothing is closed.
-func (s *server) closeWorkItem(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	cs, err := s.st.Spaces(r.Context(), store.SpaceFilter{WorkItemID: &id})
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	for _, c := range cs {
-		if l := s.lookup(c.ID); l != nil {
-			l.mu.Lock()
-			busy := l.state != _idle
-			l.mu.Unlock()
-			if busy {
-				writeError(w, fmt.Errorf("space %d has a turn running: %w", c.ID, store.ErrConflict))
-				return
-			}
-		}
-	}
-	lift, err := s.stopSpaces(r.Context(), store.SpaceFilter{WorkItemID: &id})
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	defer lift()
-	if err := s.st.CloseWorkItem(r.Context(), id); err != nil {
-		writeError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (s *server) reopenWorkItem(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	if err := s.st.ReopenWorkItem(r.Context(), id); err != nil {
-		writeError(w, err)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
 // deleteWorkItem deletes the work item, its sub-items, its worktree and the checkpoint refs of
 // its turns, and retires the memory items of the item and its sub-items. The branch is kept. A running turn of its Spaces is stopped first, as for a Space delete.
 // A worktree with uncommitted changes is 409 and nothing is removed; so is a Space with a
 // turn running elsewhere, or open in reef chat. The worktree goes first: it is the step that
-// can refuse or fail, and the next wake makes it again. The refs go last, after the rows that
-// name them. A project folder that is gone is not git cleaned up: its worktree folder, if
+// can refuse or fail, and the next wake makes it again. The memory items are retired before the
+// row goes, so a failure leaves the item to delete again. The refs go last, after the rows that
+// name them. The Team's next queued item starts. A project folder that is gone is not git cleaned up: its worktree folder, if
 // any, is just removed.
 func (s *server) deleteWorkItem(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
@@ -319,10 +275,6 @@ func (s *server) deleteWorkItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	if err := s.st.DeleteWorkItem(r.Context(), id); err != nil {
-		writeError(w, err)
-		return
-	}
 	for _, gone := range append(subs, f) {
 		scope := memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(gone.ID, 10)}
 		if err := s.ms.RetireScope(r.Context(), scope); err != nil {
@@ -330,6 +282,11 @@ func (s *server) deleteWorkItem(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	if err := s.st.DeleteWorkItem(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	s.openStarted(r.Context())
 	if !gone {
 		if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), p.Path, refs); err != nil {
 			writeError(w, err)

@@ -6,6 +6,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"time"
 )
@@ -215,28 +216,33 @@ func (s *Store) WorkItems(ctx context.Context, f WorkItemFilter) ([]WorkItem, er
 // UpdateWorkItem sets the editable fields of w.ID. An empty Type or a zero TokenBudget keeps the
 // old one, and nil AcceptanceLines keep the old lines; any other lines replace them. An item
 // never changes project, parent, proposer, status or queue position: MoveWorkItem moves the
-// status and the queue.
+// status and the queue. The Team changes only while the item is in backlog, done or dropped:
+// otherwise it holds, or waits for, its Team's turn.
 func (s *Store) UpdateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error) {
-	old, err := s.WorkItem(ctx, w.ID)
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorkItem{}, fmt.Errorf("begin update work item: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	old, err := txWorkItem(ctx, tx, w.ID)
 	if err != nil {
 		return WorkItem{}, err
 	}
-	w.Type, w.Status = cmp.Or(w.Type, old.Type), old.Status
+	w.Type = cmp.Or(w.Type, old.Type)
 	if w.TokenBudget == 0 {
 		w.TokenBudget = old.TokenBudget
 	}
 	if err := w.validate(); err != nil {
 		return WorkItem{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return WorkItem{}, fmt.Errorf("begin update work item: %w", err)
+	changesTeam := (w.TeamID == nil) != (old.TeamID == nil) || w.TeamID != nil && *w.TeamID != *old.TeamID
+	if changesTeam && !slices.Contains([]string{_backlog, _done, _dropped}, old.Status) {
+		return WorkItem{}, fmt.Errorf("%w: work item %d is %s and keeps its team", ErrInvalid, w.ID, old.Status)
 	}
-	defer func() { _ = tx.Rollback() }()
 	_, err = tx.ExecContext(ctx,
-		"UPDATE work_item SET type = ?, title = ?, description = ?, status = ?, team_id = ?, "+
+		"UPDATE work_item SET type = ?, title = ?, description = ?, team_id = ?, "+
 			"suggested_team_id = ?, token_budget = ? WHERE id = ?",
-		w.Type, w.Title, w.Description, w.Status, w.TeamID, w.SuggestedTeamID,
+		w.Type, w.Title, w.Description, w.TeamID, w.SuggestedTeamID,
 		w.TokenBudget, w.ID)
 	if err != nil {
 		return WorkItem{}, s.writeErr(ctx, "update work item", err, ErrInvalid,
@@ -257,68 +263,55 @@ func (s *Store) UpdateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error
 	return s.WorkItem(ctx, w.ID)
 }
 
-// CloseWorkItem sets closed_at on the item and on each of its Spaces still open, and gives the
-// direct requests waiting in its Spaces a stopped response, in one transaction.
-func (s *Store) CloseWorkItem(ctx context.Context, id int64) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return fmt.Errorf("begin close work item: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
+// closeInTx sets closed_at on the item and on each of its Spaces still open, and gives the
+// direct requests waiting in its Spaces a stopped response.
+func (s *Store) closeInTx(ctx context.Context, tx *sql.Tx, id int64) error {
 	at := time.Now().UTC().Format(time.RFC3339Nano)
-	res, err := tx.ExecContext(ctx, "UPDATE work_item SET closed_at = ? WHERE id = ?", at, id)
-	if err != nil {
+	if _, err := tx.ExecContext(ctx, "UPDATE work_item SET closed_at = ? WHERE id = ?", at, id); err != nil {
 		return fmt.Errorf("close work item: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("close work item: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("work item %d: %w", id, ErrNotFound)
 	}
 	if _, err := tx.ExecContext(ctx,
 		"UPDATE space SET closed_at = ? WHERE work_item_id = ? AND closed_at IS NULL", at, id); err != nil {
 		return fmt.Errorf("close Spaces: %w", err)
 	}
-	if err := s.stopWaitingDirects(ctx, tx,
-		"space_id IN (SELECT id FROM space WHERE work_item_id = ?)", id); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
-// ReopenWorkItem clears the item's closed_at; its Spaces stay as they are.
-func (s *Store) ReopenWorkItem(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, "UPDATE work_item SET closed_at = NULL WHERE id = ?", id)
-	if err != nil {
-		return fmt.Errorf("reopen work item: %w", err)
-	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("reopen work item: %w", err)
-	}
-	if n == 0 {
-		return fmt.Errorf("work item %d: %w", id, ErrNotFound)
-	}
-	return nil
+	return s.stopWaitingDirects(ctx, tx,
+		"space_id IN (SELECT id FROM space WHERE work_item_id = ?)", id)
 }
 
 // DeleteWorkItem removes the item and, by cascade, its sub-items, acceptance lines, briefs,
-// notes, decisions and Spaces.
+// notes, decisions and Spaces. A top-level item that held its Team's turn frees it: the Team's
+// next queued item starts. One that waited in the queue closes its gap.
 func (s *Store) DeleteWorkItem(ctx context.Context, id int64) error {
-	res, err := s.db.ExecContext(ctx, "DELETE FROM work_item WHERE id = ?", id)
+	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
+		return fmt.Errorf("begin delete work item: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	w, err := txWorkItem(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if w.ParentID == nil && w.TeamID != nil {
+		if err := requeue(ctx, tx, w, _dropped); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM work_item WHERE id = ?", id); err != nil {
 		return fmt.Errorf("delete work item: %w", err)
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return fmt.Errorf("delete work item: %w", err)
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete work item: %w", err)
 	}
-	if n == 0 {
-		return fmt.Errorf("work item %d: %w", id, ErrNotFound)
+	return s.startAfter(ctx, w, _dropped)
+}
+
+// txWorkItem reads the item inside tx, without its acceptance lines.
+func txWorkItem(ctx context.Context, tx *sql.Tx, id int64) (WorkItem, error) {
+	w, err := scanWorkItem(tx.QueryRowContext(ctx, "SELECT "+_workItemCols+" FROM work_item WHERE id = ?", id))
+	if errors.Is(err, sql.ErrNoRows) {
+		return WorkItem{}, fmt.Errorf("work item %d: %w", id, ErrNotFound)
 	}
-	return nil
+	return w, err
 }
 
 func putLines(ctx context.Context, tx *sql.Tx, id int64, lines []AcceptanceLine) error {

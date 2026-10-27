@@ -132,6 +132,67 @@ func TestMoveInQueue(t *testing.T) {
 	}
 }
 
+func TestDeleteAndUpdateKeepTheQueueRight(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.ApplyTeam(ctx, Team{Name: "core", Roles: []Role{
+		{Name: "lead", Lead: true, Backend: "claude"}}}); err != nil {
+		t.Fatal(err)
+	}
+	solo, core := int64(1), int64(2)
+	for i := 1; i <= 4; i++ {
+		if _, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: 1, Title: fmt.Sprint("item ", i), TeamID: &solo}); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := s.MoveWorkItem(ctx, int64(i), _queued, ByUser); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, want := queueState(t, s, 1, 2, 3, 4), "1:in_progress:- 2:queued:1 3:queued:2 4:queued:3"; got != want {
+		t.Fatalf("state = %q, want %q", got, want)
+	}
+
+	if _, err := s.UpdateWorkItem(ctx, WorkItem{ID: 2, Title: "renamed", TeamID: &core}); !errors.Is(err, ErrInvalid) {
+		t.Errorf("team change of a queued item = %v, want ErrInvalid", err)
+	}
+	if _, err := s.UpdateWorkItem(ctx, WorkItem{ID: 2, Title: "renamed", TeamID: &solo}); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := queueState(t, s, 1, 2, 3, 4), "1:in_progress:- 2:queued:1 3:queued:2 4:queued:3"; got != want {
+		t.Errorf("after update = %q, want %q", got, want)
+	}
+
+	if err := s.DeleteWorkItem(ctx, 3); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := queueState(t, s, 1, 2, 4), "1:in_progress:- 2:queued:1 4:queued:2"; got != want {
+		t.Errorf("after deleting a queued item = %q, want %q", got, want)
+	}
+	if err := s.DeleteWorkItem(ctx, 1); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := queueState(t, s, 2, 4), "2:in_progress:- 4:queued:1"; got != want {
+		t.Errorf("after deleting the item in progress = %q, want %q", got, want)
+	}
+
+	if _, err := s.MoveWorkItem(ctx, 2, _dropped, ByUser); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := queueState(t, s, 2, 4), "2:dropped:- 4:in_progress:-"; got != want {
+		t.Errorf("after dropping the item in progress = %q, want %q", got, want)
+	}
+	if w, err := s.WorkItem(ctx, 2); err != nil || w.ClosedAt == nil {
+		t.Errorf("dropped item closedAt = %v, %v, want set", w.ClosedAt, err)
+	}
+}
+
 func TestStartQueuesAfterRestart(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())

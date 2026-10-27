@@ -84,7 +84,10 @@ func TestDirectRequestState(t *testing.T) {
 func TestClosingASpaceStopsItsWaitingDirectRequests(t *testing.T) {
 	ctx := context.Background()
 	closers := map[string]func(*Store) error{
-		"work item closed": func(s *Store) error { return s.CloseWorkItem(ctx, 1) },
+		"work item dropped": func(s *Store) error {
+			_, err := s.MoveWorkItem(ctx, 1, "dropped", ByUser)
+			return err
+		},
 		"wrap approved": func(s *Store) error {
 			_, err := s.ApproveProposal(ctx, 1)
 			return err
