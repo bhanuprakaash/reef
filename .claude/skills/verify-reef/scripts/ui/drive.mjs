@@ -1,5 +1,5 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|first-run BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|first-run BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, diff, memory, inspector, review, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, 'first-run': firstRun };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, diff, memory, inspector, review, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, hovercard, mention, providers, teammates, 'first-run': firstRun };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|first-run BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|diff|memory|inspector|review|board|workshop|capture|theme|phone|fixes|pr|coordination|team|denials|subagent|composer|naming|conversation|hovercard|mention|providers|teammates|first-run BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -2761,6 +2761,73 @@ async function providers() {
   await page.goto(`${base}/teams?team=${teamName}`);
   await main.getByRole('button', { name: /^lead/ }).click();
   check((await page.getByRole('combobox', { name: 'lead provider', exact: true }).innerText()).trim() === name, 'a role keeps the name of a removed provider, as the server does');
+}
+
+async function teammates() {
+  const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
+  const suffix = Date.now().toString(36);
+  const mate = `sam-${suffix}`;
+  const teamName = `crew-${suffix}`;
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await addProject();
+  await page.goto(`${base}/teammates`);
+  await main.getByRole('heading', { name: 'Teammates', level: 1 }).waitFor();
+
+  await main.getByRole('button', { name: 'New teammate' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New teammate' });
+  await dialog.getByLabel('Teammate name').fill(mate);
+  await dialog.getByRole('button', { name: 'Create teammate' }).click();
+  await page.waitForURL((url) => url.searchParams.has('teammate'));
+  const id = Number(new URL(page.url()).searchParams.get('teammate'));
+  const persona = `Checks the release notes of ${suffix}.`;
+  await main.getByLabel(`${mate} persona`).fill(persona);
+  await pick(`${mate} model`, 'Sonnet', main);
+  await shot('teammates-1280x800');
+  await main.getByRole('button', { name: 'Save teammate' }).click();
+  await main.getByText('Saved').waitFor();
+  let teammate = await getJson(`/teammates/${id}`);
+  check(
+    teammate.name === mate && teammate.persona === persona && teammate.model === 'sonnet' && teammate.write === false,
+    'the window creates a Teammate and saves its persona and model through REST',
+    JSON.stringify({ name: teammate.name, model: teammate.model, write: teammate.write }),
+  );
+  check((await main.getByRole('region', { name: 'All teammates' }).innerText()).includes(mate), 'the Teammates page lists the new Teammate');
+
+  await page.goto(`${base}/teams`);
+  await main.getByRole('button', { name: 'New team' }).click();
+  const newTeam = page.getByRole('dialog', { name: 'New team' });
+  await newTeam.getByLabel('Name', { exact: true }).fill(teamName);
+  await newTeam.getByRole('button', { name: 'Create team' }).click();
+  await page.waitForURL((url) => url.searchParams.get('team') === teamName);
+  await main.getByLabel('Team name').waitFor();
+  await main.getByRole('button', { name: 'Add a teammate' }).click();
+  const picker = page.getByRole('dialog', { name: 'Add a teammate' });
+  await picker.getByRole('button', { name: new RegExp(`^${mate}`) }).click();
+  const writeSwitch = main.getByRole('switch', { name: `${mate} write` });
+  await writeSwitch.waitFor();
+  let member = (await getJson(`/teams/${teamName}`)).roles.find((r) => r.teammateId === id);
+  check(member && member.write === false && !member.lead, 'adding a Teammate from the picker puts it in the Team with its default access', JSON.stringify(member && { name: member.name, write: member.write, lead: member.lead }));
+  check(
+    (await main.getByLabel(`${mate} persona`).count()) === 0 && (await main.getByRole('link', { name: 'Teammates page' }).count()) === 1,
+    "the membership panel leaves the persona to the Teammates page",
+  );
+
+  await writeSwitch.click();
+  await main.getByRole('button', { name: 'Save team' }).click();
+  await main.getByText('Saved').waitFor();
+  member = (await getJson(`/teams/${teamName}`)).roles.find((r) => r.teammateId === id);
+  teammate = await getJson(`/teammates/${id}`);
+  check(member?.write === true, "changing write access in the team editor changes the Teammate's membership", `member write ${member?.write}`);
+  check(teammate.write === false, "the Teammate's default access stays unchanged", `teammate write ${teammate.write}`);
+  await shot('team-editor-1280x800');
+
+  for (const route of ['/teammates', `/teams?team=${teamName}`, `/teammates?teammate=${id}`, `/teams?team=${teamName}&role=${mate}`]) {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(base + route);
+    await main.getByRole('heading', { level: 1 }).or(main.getByRole('region', { name: 'Roles' })).first().waitFor();
+    check(await noOverflow(), `${route} has no horizontal scroll at 390x844`, `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
+    await shot(`phone-${route.replace(/\W+/g, '-').replace(/^-|-$/g, '')}`);
+  }
 }
 
 try {

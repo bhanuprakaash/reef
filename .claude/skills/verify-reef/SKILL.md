@@ -333,6 +333,7 @@ REEF_VERIFY_RUN=<id> $H ui conversation # two conversations with a Teammate (`sa
 REEF_VERIFY_RUN=<id> $H ui hovercard # sidebar Space hovercard: delay, branch, changes and roles against REST, dismiss on leave, Escape, click and navigation, keyboard focus, light and dark, none at 390 px (needs the team `full`)
 REEF_VERIFY_RUN=<id> $H ui mention # hovercard on an @mention of a teammate in a Space: role, backend and model, persona, state, access and tools against REST, Edit opens the team page with the role selected, unknown @word has no card, dismiss on leave, Escape, click, back, keyboard focus, flip at the right edge, light and dark, none at 390 px (needs the team `full`)
 REEF_VERIFY_RUN=<id> $H ui providers # Settings Providers lists the detected installs with path and version, adds the fake claude folder as a second install (bad folder, wrong kind, taken name show the server error inline), a role picks it in the role panel and the team round-trips, Remove, at 1280x800 and 390x844 in dark and light
+REEF_VERIFY_RUN=<id> $H ui teammates # create a Teammate on the Teammates page, add it to a Team from the team editor, change its write access in that Team only (REST: Teammate default unchanged), no horizontal scroll at 390x844
 REEF_VERIFY_RUN=<id> $H ui pr        # the header PR chip opens the PR panel: checks, Merge disabled while not mergeable, confirm dialog, merged state (fake gh, see features/window.md)
 ```
 

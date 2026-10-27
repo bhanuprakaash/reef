@@ -1,39 +1,24 @@
 import { useState } from 'react';
 import { useDeleteTeam } from '@/modules/teams/api/delete-team';
 import { useUpdateTeam } from '@/modules/teams/api/update-team';
-import { AddRoleRow } from '@/modules/teams/components/add-role-row';
+import { AddMemberRow } from '@/modules/teams/components/add-member-row';
 import { RolePanel } from '@/modules/teams/components/role-panel';
-import type { Provider, Role, Skills, Team } from '@/types/api';
-import { backendLabel } from '@/modules/teams/utils/backend-label';
+import { RoleRow } from '@/modules/teams/components/role-row';
+import type { Role, Team } from '@/types/api';
 import { Button } from '@/components/button';
-import { Creature } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { TextArea } from '@/components/text-area';
 import { TextField } from '@/components/text-field';
 
-const badge = 'inline-flex h-[30px] items-center rounded-pill border px-3 text-xs';
-
 type Props = {
   team: Team;
   openRole?: string;
-  skills?: Skills;
-  providers?: Provider[];
-  noProject?: boolean;
   onSaved: (name: string) => void;
   onDeleted: () => void;
   onDuplicate: () => void;
 };
 
-export function TeamEditor({
-  team,
-  openRole,
-  skills,
-  providers,
-  noProject,
-  onSaved,
-  onDeleted,
-  onDuplicate,
-}: Props) {
+export function TeamEditor({ team, openRole, onSaved, onDeleted, onDuplicate }: Props) {
   const [loaded, setLoaded] = useState(team);
   const [responsibility, setResponsibility] = useState(team.responsibility);
   const [roles, setRoles] = useState<Role[]>(team.roles);
@@ -130,39 +115,19 @@ export function TeamEditor({
         <section aria-label="Roles" className="space-y-1.5">
           <h2 className="mb-2.5 text-[11px] uppercase tracking-[0.08em] text-muted">Roles</h2>
           {roles.map((role, i) => (
-            <button
+            <RoleRow
               key={keys[i]}
-              type="button"
-              aria-pressed={selected === i}
-              onClick={() => setSelected(i)}
-              className={`flex w-full flex-wrap items-center gap-3.5 rounded-xl border p-3 text-left outline-none focus-visible:ring-3 focus-visible:ring-ring ${selected === i ? 'border-line bg-bubble' : 'border-transparent hover:bg-card'}`}
-            >
-              <Creature role={role.name} face={role.face} size={40} animate />
-              <span className="min-w-0 flex-1 basis-40">
-                <span className="flex items-center gap-2">
-                  <span>{role.name || 'role'}</span>
-                  {role.lead && (
-                    <span className="rounded-pill bg-lead px-2 text-[11px] leading-5 text-mark-ink">
-                      answers by default
-                    </span>
-                  )}
-                </span>
-                <span className="block truncate text-[12.5px] text-muted">{role.persona}</span>
-              </span>
-              <span className={`${badge} border-line text-soft`}>{backendLabel(role.backend)}</span>
-              <span
-                className={`${badge} ${role.write ? 'border-transparent bg-developer/15 text-developer' : 'border-line text-muted'}`}
-              >
-                {role.write ? 'edits code' : 'read-only'}
-              </span>
-              {role.backend === 'claude' && (
-                <span className={`${badge} border-line text-muted`}>{role.tools.length} tools</span>
-              )}
-            </button>
+              role={role}
+              selected={selected === i}
+              onSelect={() => setSelected(i)}
+            />
           ))}
-          <AddRoleRow
-            onAdd={(role) => {
+          <AddMemberRow
+            team={team.name}
+            members={roles}
+            onAdded={(role) => {
               setRoles([...roles, role]);
+              setLoaded({ ...loaded, roles: [...loaded.roles, role] });
               setKeys([...keys, Math.max(-1, ...keys) + 1]);
               setSelected(roles.length);
             }}
@@ -173,14 +138,20 @@ export function TeamEditor({
       {current && selected !== null && (
         <RolePanel
           key={keys[selected]}
+          scope="member"
           role={current}
-          skills={skills}
-          providers={providers}
-          noProject={noProject}
           onChange={(r) => updateRole(selected, r)}
-          onRemove={() => removeRole(selected)}
           onClose={() => setSelected(null)}
-        />
+        >
+          <Button
+            variant="ghost"
+            type="button"
+            className="text-danger!"
+            onClick={() => removeRole(selected)}
+          >
+            Remove from team
+          </Button>
+        </RolePanel>
       )}
       <Dialog
         open={confirmDelete}

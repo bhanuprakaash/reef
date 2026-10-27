@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router';
 import { describe, expect, it, vi } from 'vitest';
 import type { Role, Team } from '@/types/api';
 import { RolePanel } from './role-panel';
@@ -10,6 +11,10 @@ const { useDeleteTeam, useUpdateTeam } = vi.hoisted(() => ({
 }));
 
 vi.mock('@/modules/teams/api/delete-team', () => ({ useDeleteTeam }));
+vi.mock('@/modules/teams/api/add-member', () => ({
+  useAddMember: () => ({ isPending: false, isError: false }),
+}));
+vi.mock('@/lib/api/get-teammates', () => ({ useTeammates: () => ({ data: [] }) }));
 vi.mock('@/modules/teams/api/update-team', () => ({ useUpdateTeam }));
 
 const role: Role = {
@@ -27,7 +32,9 @@ const role: Role = {
 describe('RolePanel', () => {
   it('shows the persona, the tool count and a close button for a claude role', () => {
     const markup = renderToStaticMarkup(
-      <RolePanel role={role} onChange={() => {}} onRemove={() => {}} onClose={() => {}} />,
+      <RolePanel scope="teammate" role={role} onChange={() => {}} onClose={() => {}}>
+        {null}
+      </RolePanel>,
     );
 
     expect(markup).toContain('Builds what the architect sketched.');
@@ -40,12 +47,14 @@ describe('RolePanel', () => {
     const render = (r: Role) =>
       renderToStaticMarkup(
         <RolePanel
+          scope="teammate"
           role={r}
           providers={providers}
           onChange={() => {}}
-          onRemove={() => {}}
           onClose={() => {}}
-        />,
+        >
+          {null}
+        </RolePanel>,
       );
 
     expect(render(role)).toContain('Default (PATH)');
@@ -57,14 +66,31 @@ describe('RolePanel', () => {
   it('hides the tools of a codex role', () => {
     const markup = renderToStaticMarkup(
       <RolePanel
+        scope="teammate"
         role={{ ...role, backend: 'codex' }}
         onChange={() => {}}
-        onRemove={() => {}}
         onClose={() => {}}
-      />,
+      >
+        {null}
+      </RolePanel>,
     );
 
     expect(markup).not.toContain('Tools');
+  });
+
+  it('leaves the persona and the model to the teammate when it shows a team membership', () => {
+    const markup = renderToStaticMarkup(
+      <MemoryRouter>
+        <RolePanel scope="member" role={role} onChange={() => {}} onClose={() => {}}>
+          {null}
+        </RolePanel>
+      </MemoryRouter>,
+    );
+
+    expect(markup).not.toContain('Builds what the architect sketched.');
+    expect(markup).not.toContain('developer model');
+    expect(markup).toContain('aria-label="developer lead"');
+    expect(markup).toContain('2 allowed');
   });
 });
 
@@ -74,7 +100,9 @@ describe('TeamEditor', () => {
     const team: Team = { name: 'solo', responsibility: '', roles: [role] };
 
     const markup = renderToStaticMarkup(
-      <TeamEditor team={team} onSaved={() => {}} onDeleted={() => {}} onDuplicate={() => {}} />,
+      <MemoryRouter>
+        <TeamEditor team={team} onSaved={() => {}} onDeleted={() => {}} onDuplicate={() => {}} />
+      </MemoryRouter>,
     );
 
     expect(markup).toContain('2 tools');
@@ -90,13 +118,15 @@ describe('TeamEditor', () => {
     };
     const render = (openRole: string) =>
       renderToStaticMarkup(
-        <TeamEditor
-          team={team}
-          openRole={openRole}
-          onSaved={() => {}}
-          onDeleted={() => {}}
-          onDuplicate={() => {}}
-        />,
+        <MemoryRouter>
+          <TeamEditor
+            team={team}
+            openRole={openRole}
+            onSaved={() => {}}
+            onDeleted={() => {}}
+            onDuplicate={() => {}}
+          />
+        </MemoryRouter>,
       );
 
     expect(render('developer')).toContain('aria-label="developer name"');

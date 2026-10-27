@@ -72,6 +72,10 @@ export function TabBar() {
         <circle cx="17" cy="11" r="3" />
         <path d="M2 20c.8-3.5 3.6-5 7-5s6.2 1.5 7 5" />
       </Tab>
+      <Tab to="/teammates" label="Teammates">
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21c.8-4.2 4-6 8-6s7.2 1.8 8 6" />
+      </Tab>
     </nav>
   );
 }

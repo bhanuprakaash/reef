@@ -129,6 +129,7 @@ export type Turn = {
 };
 
 export type Role = {
+  teammateId?: number;
   name: string;
   lead: boolean;
   write: boolean;
@@ -158,12 +159,7 @@ export type SkillInfo = { name: string; description: string };
 
 export type Skills = { claude: SkillInfo[]; codex: SkillInfo[] };
 
-export type Teammate = {
-  id: number;
-  name: string;
-  backend: string;
-  face?: string;
-};
+export type Teammate = Omit<Role, 'lead' | 'teammateId' | 'mcpRemove'> & { id: number };
 
 export type Team = {
   name: string;

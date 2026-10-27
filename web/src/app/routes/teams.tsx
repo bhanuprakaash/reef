@@ -1,10 +1,6 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router';
-import { useProviders } from '@/lib/api/get-providers';
-import { useSkills } from '@/lib/api/get-skills';
 import { useTeams } from '@/lib/api/get-teams';
-import { useCurrentProject } from '@/lib/current-project';
-import { useProjects } from '@/modules/projects/api/get-projects';
 import { NewTeamDialog } from '@/modules/teams/components/new-team-dialog';
 import { TeamEditor } from '@/modules/teams/components/team-editor';
 import { TeamList } from '@/modules/teams/components/team-list';
@@ -13,10 +9,6 @@ import { Button } from '@/components/button';
 export function TeamsPage() {
   const [params, setParams] = useSearchParams();
   const teams = useTeams();
-  const projects = useProjects();
-  const [project] = useCurrentProject(projects.data);
-  const skills = useSkills(project?.id);
-  const providers = useProviders();
   const [creating, setCreating] = useState<{ from?: string } | null>(null);
   const name = params.get('team') || (teams.data?.[0]?.name ?? '');
   const team = teams.data?.find((t) => t.name === name);
@@ -63,9 +55,6 @@ export function TeamsPage() {
             key={team.name}
             team={team}
             openRole={params.get('role') ?? undefined}
-            skills={skills.data}
-            providers={providers.data}
-            noProject={!project}
             onSaved={(n) => setParams({ team: n })}
             onDeleted={() => setParams({ team: 'solo' })}
             onDuplicate={() => setCreating({ from: team.name })}
