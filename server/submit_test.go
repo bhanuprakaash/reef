@@ -42,7 +42,7 @@ func TestSubmitStartsTheNextItemAndTheWrapUp(t *testing.T) {
 	for {
 		env.fake.mu.Lock()
 		started := slices.ContainsFunc(env.fake.ran, func(p string) bool {
-			return strings.HasSuffix(p, "Work item 2: Logout\nDescription: none\nAcceptance lines: none\nBrief: none")
+			return strings.HasSuffix(p, "Work item 2: Logout\nDescription: none\nBrief: none")
 		})
 		env.fake.mu.Unlock()
 		if started && wraps.Load() == 1 {

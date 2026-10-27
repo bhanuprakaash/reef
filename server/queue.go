@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 
 	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
@@ -142,15 +141,6 @@ func (s *server) wakeSentBack(ctx context.Context, id int64) {
 
 // queuePrompt is what the lead is told when its Team starts the item.
 func queuePrompt(w store.WorkItem, brief string) string {
-	var b strings.Builder
-	fmt.Fprintf(&b, "Work item %d: %s\nDescription: %s\nAcceptance lines:", w.ID, w.Title,
-		cmp.Or(w.Description, "none"))
-	for _, l := range w.AcceptanceLines {
-		fmt.Fprintf(&b, "\n%d. %s", l.Position, l.Text)
-	}
-	if len(w.AcceptanceLines) == 0 {
-		b.WriteString(" none")
-	}
-	fmt.Fprintf(&b, "\nBrief: %s", cmp.Or(brief, "none"))
-	return b.String()
+	return fmt.Sprintf("Work item %d: %s\nDescription: %s\nBrief: %s", w.ID, w.Title,
+		cmp.Or(w.Description, "none"), cmp.Or(brief, "none"))
 }

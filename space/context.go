@@ -27,7 +27,8 @@ const (
 		"read_thread and search_sessions. Record decisions with remember. When the " +
 		"user and the team agree on the goal, scope or plan, call propose_brief."
 	_quickToolsLine = "Details are on demand through the reef MCP tools recall and read_memory. " +
-		"Save what holds across the project or for you with remember, scope project or teammate."
+		"remember saves to this %s by default; use scope project or teammate for what holds " +
+		"across the project or for you."
 )
 
 var _findingKinds = []string{
@@ -165,10 +166,14 @@ func firstPrompt(
 	var know []string
 	how := teamIntro(team, r)
 	if workItemID == nil {
+		kind, scope := "a free Space", "Space"
+		if ch.Kind == store.KindConversation {
+			kind, scope = "a direct conversation with the user", "conversation"
+		}
 		fmt.Fprintf(&b, "You are the %s in project %q (%s).\n"+
-			"This is a quick session: it has no work item yet, so there is no brief or work item items.\n",
-			r.Name, p.Name, p.Path)
-		how += _quickToolsLine + "\n"
+			"This is %s: it has no work item, so there is no brief or work item items.\n",
+			r.Name, p.Name, p.Path, kind)
+		how += fmt.Sprintf(_quickToolsLine, scope) + "\n"
 		b.WriteString(who)
 		if know, err = itemParts(ctx, st, ms, nil, ch, r.Name); err != nil {
 			return "", err
@@ -184,6 +189,16 @@ func firstPrompt(
 		b.WriteString(who)
 		if f.Description != "" {
 			fmt.Fprintf(&b, "Description: %s\n", f.Description)
+		}
+		if len(f.AcceptanceLines) > 0 {
+			b.WriteString("Acceptance lines:\n")
+			for _, l := range f.AcceptanceLines {
+				tick := " "
+				if l.Checked {
+					tick = "x"
+				}
+				fmt.Fprintf(&b, "%d. [%s] %s\n", l.Position, tick, l.Text)
+			}
 		}
 		if know, err = workItemKnow(ctx, st, ms, f, ch, r.Name); err != nil {
 			return "", err

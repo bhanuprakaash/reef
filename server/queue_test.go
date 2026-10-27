@@ -36,8 +36,7 @@ func TestQueuedItemStartsWithItsFirstPrompt(t *testing.T) {
 	}
 	env.waitIdle(t, 2)
 
-	want := "Work item 1: Login\nDescription: email and password\nAcceptance lines:\n" +
-		"1. wrong password is refused\n2. session lasts a day\nBrief: sessions, not JWT"
+	want := "Work item 1: Login\nDescription: email and password\nBrief: sessions, not JWT"
 	if got := env.lastRan(t); !strings.HasSuffix(got, want) {
 		t.Errorf("first prompt = %q, want it to end with %q", got, want)
 	}

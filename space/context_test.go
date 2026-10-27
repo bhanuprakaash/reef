@@ -175,6 +175,29 @@ Details are on demand through the reef MCP tools recall, read_memory, read_threa
 	}
 }
 
+func TestContext_AcceptanceLines(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	g, err := st.CreateWorkItem(ctx, store.WorkItem{
+		ProjectID: f.ProjectID, Title: "Logout", Description: "end the session",
+		AcceptanceLines: []store.AcceptanceLine{
+			{Text: "cookie is cleared", Checked: true}, {Text: "login page shows"},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := Context(ctx, st, testMemory(t, st), g.ID, "architect")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := "Description: end the session\nAcceptance lines:\n1. [x] cookie is cleared\n2. [ ] login page shows\n"
+	if !strings.Contains(got, want) {
+		t.Errorf("Context =\n%s\nwant it to contain %q", got, want)
+	}
+}
+
 func TestContext_OmitsDirectMessages(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
@@ -214,10 +237,10 @@ func TestFirstPrompt_QuickSession(t *testing.T) {
 	}
 	want := `## You
 You are the lead in project "shop" (` + p.Path + `).
-This is a quick session: it has no work item yet, so there is no brief or work item items.
+This is a free Space: it has no work item, so there is no brief or work item items.
 
 ## How to work
-Details are on demand through the reef MCP tools recall and read_memory. Save what holds across the project or for you with remember, scope project or teammate.
+Details are on demand through the reef MCP tools recall and read_memory. remember saves to this Space by default; use scope project or teammate for what holds across the project or for you.
 `
 	if got != want {
 		t.Errorf("quick session with no memory =\n%s\nwant\n%s", got, want)
@@ -238,8 +261,8 @@ Details are on demand through the reef MCP tools recall and read_memory. Save wh
 		t.Fatal(err)
 	}
 	for _, want := range []string{
-		"## You\nYou are the lead in project \"shop\" (" + p.Path + ").\nThis is a quick session: " +
-			"it has no work item yet, so there is no brief or work item items.\nYou work with Ada.\n" +
+		"## You\nYou are the lead in project \"shop\" (" + p.Path + ").\nThis is a free Space: " +
+			"it has no work item, so there is no brief or work item items.\nYou work with Ada.\n" +
 			"Base branch: dev. A pull request you open targets it.\n\n## How to work\nYour team: @lead, @architect. ",
 		"\n\n## What we know\n### Project\nfact 1: Use Go, not Python. (user, " + day + ")\n" +
 			"1 of 1; recall(..., scope=project)\n\n" +
@@ -250,7 +273,7 @@ Details are on demand through the reef MCP tools recall and read_memory. Save wh
 			t.Errorf("quick session =\n%s\nwant it to contain %q", got, want)
 		}
 	}
-	for _, want := range []string{"recall", "read_memory", "remember, scope project or teammate"} {
+	for _, want := range []string{"recall", "read_memory", "remember saves to this Space by default"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("quick session =\n%s\nwant it to name %q", got, want)
 		}

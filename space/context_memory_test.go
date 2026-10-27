@@ -212,6 +212,11 @@ func TestFirstPrompt_FreeSpaceAndConversationShelves(t *testing.T) {
 		if !strings.Contains(got, "### Your items\nlesson 6: a lead lesson (") {
 			t.Errorf("conversation %d =\n%s\nwant the Teammate's items", c.ID, got)
 		}
+		for _, want := range []string{"This is a direct conversation with the user", "saves to this conversation by default"} {
+			if !strings.Contains(got, want) {
+				t.Errorf("conversation %d =\n%s\nwant it to contain %q", c.ID, got, want)
+			}
+		}
 		for _, gone := range []string{"### Space", "### Project", "### Team", "conversation fact"} {
 			if strings.Contains(got, gone) {
 				t.Errorf("conversation %d contains %q:\n%s", c.ID, gone, got)

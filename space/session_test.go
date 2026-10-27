@@ -220,10 +220,11 @@ func TestOpen_QuickSession(t *testing.T) {
 		t.Errorf("Cwd = %q, want the project path %q", ag.cfg.Cwd, p.Path)
 	}
 	want := "## You\nYou are the architect in project \"shop\" (" + p.Path + ").\n" +
-		"This is a quick session: it has no work item yet, so there is no brief or work item items.\n" +
+		"This is a free Space: it has no work item, so there is no brief or work item items.\n" +
 		"\n## How to work\n" +
 		"Details are on demand through the reef MCP tools recall and read_memory. " +
-		"Save what holds across the project or for you with remember, scope project or teammate.\n" +
+		"remember saves to this Space by default; use scope project or teammate for what holds " +
+		"across the project or for you.\n" +
 		"\n\nhi"
 	if len(ag.prompts) != 1 || ag.prompts[0] != want {
 		t.Errorf("prompts = %q, want [%q]", ag.prompts, want)
