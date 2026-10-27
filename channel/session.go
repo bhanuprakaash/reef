@@ -763,7 +763,7 @@ func startPrompt(
 	if err != nil {
 		return "", err
 	}
-	return firstPrompt(ctx, st, ch.ProjectID, ch.FeatureID, team, r)
+	return firstPrompt(ctx, st, ch.ProjectID, ch.FeatureID, ch.ID, team, r)
 }
 
 func failStaleTurns(ctx context.Context, st *store.Store, channelID int64) error {

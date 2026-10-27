@@ -43,7 +43,7 @@ task 2: job 2
 task 3: job 3
 
 ### On demand
-23 open tasks (list_tasks). 1 earlier channels (search_sessions).
+23 open tasks (list_tasks). 1 earlier channel (search_sessions).
 `
 	if !strings.HasSuffix(got, want) {
 		t.Errorf("Context =\n%s\nwant it to end with\n%s", got, want)
@@ -89,7 +89,7 @@ func TestFirstPrompt_Size(t *testing.T) {
 	lead := store.Role{Name: "lead", Lead: true}
 	team := store.Team{Name: "core", Roles: []store.Role{lead, {Name: "developer"}}}
 
-	got, err := firstPrompt(ctx, st, f.ProjectID, &f.ID, team, lead)
+	got, err := firstPrompt(ctx, st, f.ProjectID, &f.ID, 0, team, lead)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,5 +120,32 @@ func TestFirstPrompt_Size(t *testing.T) {
 	}
 	if len(got) >= 8000 {
 		t.Errorf("prompt = %d characters, want under 8000", len(got))
+	}
+}
+
+func TestFirstPrompt_OnDemandSingular(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	if _, err := st.CreateTask(ctx, store.Task{ProjectID: f.ProjectID, FeatureID: &f.ID, Title: "job"}); err != nil {
+		t.Fatal(err)
+	}
+	var channels []store.Channel
+	for _, name := range []string{"spike", "build"} {
+		c, err := st.CreateChannel(ctx, store.Channel{ProjectID: f.ProjectID, FeatureID: &f.ID, Name: name})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := st.CreateMessage(ctx, store.Message{ChannelID: c.ID, Author: "user", Body: "hi"}); err != nil {
+			t.Fatal(err)
+		}
+		channels = append(channels, c)
+	}
+
+	got, err := firstPrompt(ctx, st, f.ProjectID, &f.ID, channels[1].ID, store.Team{}, store.Role{Name: "lead"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if want := "### On demand\n1 open task (list_tasks). 1 earlier channel (search_sessions).\n"; !strings.HasSuffix(got, want) {
+		t.Errorf("prompt does not end with %q:\n%s", want, got)
 	}
 }

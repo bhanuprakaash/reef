@@ -315,8 +315,9 @@ no `No brief yet.`, no `No notes yet.` and no `none`. A section with no part lef
      the memory that carries over. The lead gets one more line: do not summarize or repeat a
      specialist's post back to the user, because they see it. `reef context` has no team and
      prints none of this.
-   - One line that names the tools for details (`read_decision`, `read_thread`, `list_tasks`,
-     `search_sessions`), `record_decision` and `propose_brief`.
+   - On a feature, one line that names the tools for details (`read_decision`, `read_thread`,
+     `list_tasks`, `search_sessions`), `record_decision` and `propose_brief`. Those tools need a
+     feature, so a quick session gets no such line, and with a team of one the section is left out.
 3. `## What we know`, each part under a `###` label and only when it has content:
    - `### Brief`: the latest brief.
    - `### Project memory`: the project's memory (see [server.md](server.md#project_memory)). A
@@ -327,8 +328,9 @@ no `No brief yet.`, no `No notes yet.` and no `none`. A section with no part lef
    - `### Doing`: one line `task N: title` for each task in status `doing`.
    - `### On demand`: one line that counts what the role can look up:
      `23 open tasks (list_tasks). 3 earlier channels (search_sessions).` Open tasks are those not
-     `done`; earlier channels are the feature's channels that have messages. A zero count is
-     left out of the line, and the part is left out when both are zero.
+     `done`; earlier channels are the feature's channels that have messages, not counting the
+     channel the prompt is for. A count of one reads `1 open task` and `1 earlier channel`. A zero
+     count is left out of the line, and the part is left out when both are zero.
 
 Example, for a feature with one approved wrap-up, asked by the developer of a team of two:
 
@@ -363,7 +365,7 @@ decision 1: Lock an account after 5 failed logins. (developer, 2026-10-13)
 task 2: Build the login form
 
 ### On demand
-3 open tasks (list_tasks). 1 earlier channels (search_sessions).
+3 open tasks (list_tasks). 1 earlier channel (search_sessions).
 ```
 
 ## reef chat

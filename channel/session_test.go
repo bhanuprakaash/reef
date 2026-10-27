@@ -203,7 +203,7 @@ func TestOpen_QuickSession(t *testing.T) {
 	}
 	want := "## You\nYou are the architect in project \"shop\" (" + p.Path + ").\n" +
 		"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n" +
-		"\n## How to work\n" + _toolsLine + "\n\n\nhi"
+		"\n\nhi"
 	if len(ag.prompts) != 1 || ag.prompts[0] != want {
 		t.Errorf("prompts = %q, want [%q]", ag.prompts, want)
 	}

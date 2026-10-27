@@ -226,16 +226,13 @@ func TestFirstPrompt_QuickSession(t *testing.T) {
 	lead := store.Role{Name: "lead", Lead: true}
 	team := store.Team{Name: "core", Roles: []store.Role{lead, {Name: "architect"}}}
 
-	got, err := firstPrompt(ctx, st, p.ID, nil, store.Team{}, lead)
+	got, err := firstPrompt(ctx, st, p.ID, nil, 0, store.Team{}, lead)
 	if err != nil {
 		t.Fatal(err)
 	}
 	want := `## You
 You are the lead in project "shop" (` + p.Path + `).
 This is a quick session: it has no feature yet, so there is no brief, notes or decisions.
-
-## How to work
-Details are on demand through the reef MCP tools read_decision, read_thread, list_tasks and search_sessions. Record decisions with record_decision. When the user and the team agree on the goal, scope or plan, call propose_brief.
 `
 	if got != want {
 		t.Errorf("quick session with no memory =\n%s\nwant\n%s", got, want)
@@ -252,7 +249,7 @@ Details are on demand through the reef MCP tools read_decision, read_thread, lis
 	if _, err := st.UpdateProject(ctx, p); err != nil {
 		t.Fatal(err)
 	}
-	got, err = firstPrompt(ctx, st, p.ID, nil, team, lead)
+	got, err = firstPrompt(ctx, st, p.ID, nil, 0, team, lead)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -265,6 +262,9 @@ Details are on demand through the reef MCP tools read_decision, read_thread, lis
 		if !strings.Contains(got, want) {
 			t.Errorf("quick session =\n%s\nwant it to contain %q", got, want)
 		}
+	}
+	if strings.Contains(got, "list_tasks") {
+		t.Errorf("quick session =\n%s\nwant no tools line", got)
 	}
 }
 

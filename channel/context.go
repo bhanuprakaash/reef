@@ -26,15 +26,16 @@ func Context(ctx context.Context, st *store.Store, featureID int64, role string)
 	if err != nil {
 		return "", err
 	}
-	return firstPrompt(ctx, st, f.ProjectID, &f.ID, store.Team{}, store.Role{Name: role})
+	return firstPrompt(ctx, st, f.ProjectID, &f.ID, 0, store.Team{}, store.Role{Name: role})
 }
 
 // firstPrompt is the first prompt of a role in three sections: You, How to work and What we
 // know. A part with nothing to say is left out, and so is a section with no part left. A quick
-// session has no featureID.
+// session has no featureID. channelID is the channel the prompt is for, or 0 for none; it is not
+// counted as an earlier channel.
 func firstPrompt(
-	ctx context.Context, st *store.Store, projectID int64, featureID *int64, team store.Team,
-	r store.Role,
+	ctx context.Context, st *store.Store, projectID int64, featureID *int64, channelID int64,
+	team store.Team, r store.Role,
 ) (string, error) {
 	p, err := st.Project(ctx, projectID)
 	if err != nil {
@@ -52,6 +53,7 @@ func firstPrompt(
 	var b strings.Builder
 	b.WriteString(_youHeader + roleIntro(r))
 	var know []string
+	how := teamIntro(team, r)
 	if featureID == nil {
 		fmt.Fprintf(&b, "You are the %s in project %q (%s).\n"+
 			"This is a quick session: it has no feature yet, so there is no brief, notes or decisions.\n",
@@ -65,6 +67,7 @@ func firstPrompt(
 		}
 		fmt.Fprintf(&b, "You are the %s on feature %q (%s) in project %q.\n",
 			r.Name, f.Name, f.Slug, p.Name)
+		how += _toolsLine + "\n"
 		b.WriteString(who)
 		if f.Goal != "" {
 			fmt.Fprintf(&b, "Goal: %s\n", f.Goal)
@@ -76,7 +79,7 @@ func firstPrompt(
 			fmt.Fprintf(&b, "Stages in order: %s. Call set_stage when the work moves to the next one.\n",
 				strings.Join(store.Stages(), ", "))
 		}
-		if know, err = featureKnow(ctx, st, f, r.Name, mem.Body); err != nil {
+		if know, err = featureKnow(ctx, st, f, channelID, r.Name, mem.Body); err != nil {
 			return "", err
 		}
 	}
@@ -84,7 +87,9 @@ func firstPrompt(
 		fmt.Fprintf(&b, "Base branch: %s. A pull request you open targets it.\n", p.BaseBranch)
 	}
 
-	b.WriteString("\n## How to work\n" + teamIntro(team, r) + _toolsLine + "\n")
+	if how != "" {
+		b.WriteString("\n## How to work\n" + how)
+	}
 	if len(know) > 0 {
 		b.WriteString("\n## What we know\n" + strings.Join(know, "\n"))
 	}
@@ -92,9 +97,9 @@ func firstPrompt(
 }
 
 // featureKnow is the parts of What we know for a role on f. Open tasks and channels with
-// messages are only counted: the role looks them up with tools.
+// messages, other than channelID, are only counted: the role looks them up with tools.
 func featureKnow(
-	ctx context.Context, st *store.Store, f store.Feature, role, memory string,
+	ctx context.Context, st *store.Store, f store.Feature, channelID int64, role, memory string,
 ) ([]string, error) {
 	brief, err := st.Brief(ctx, f.ID)
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
@@ -135,10 +140,13 @@ func featureKnow(
 		}
 	}
 	if open > 0 {
-		counts = append(counts, fmt.Sprintf("%d open tasks (list_tasks).", open))
+		counts = append(counts, fmt.Sprintf("%d open %s (list_tasks).", open, plural(open, "task")))
 	}
 	earlier := 0
 	for _, c := range channels {
+		if c.ID == channelID {
+			continue
+		}
 		n, err := st.CountMessages(ctx, c.ID)
 		if err != nil {
 			return nil, err
@@ -148,7 +156,7 @@ func featureKnow(
 		}
 	}
 	if earlier > 0 {
-		counts = append(counts, fmt.Sprintf("%d earlier channels (search_sessions).", earlier))
+		counts = append(counts, fmt.Sprintf("%d earlier %s (search_sessions).", earlier, plural(earlier, "channel")))
 	}
 
 	var parts []string
@@ -158,6 +166,13 @@ func featureKnow(
 	parts = appendPart(parts, "Decisions", strings.Join(live, "\n"))
 	parts = appendPart(parts, "Doing", strings.Join(doing, "\n"))
 	return appendPart(parts, "On demand", strings.Join(counts, " ")), nil
+}
+
+func plural(n int, noun string) string {
+	if n == 1 {
+		return noun
+	}
+	return noun + "s"
 }
 
 // roleIntro is the role's persona and skills, when it has any, to put before its context.
