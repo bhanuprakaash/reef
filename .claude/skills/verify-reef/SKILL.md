@@ -229,7 +229,7 @@ feature file first.
 ```sh
 REEF_VERIFY_RUN=<id> $H reef --data-name cli -- project add
 REEF_VERIFY_RUN=<id> $H reef -- decide login "Use sessions, not JWT"
-REEF_TOKEN=<token> REEF_VERIFY_RUN=<id> $H mcp-call record_decision '{"body":"Rate limit by IP"}'
+REEF_TOKEN=<token> REEF_VERIFY_RUN=<id> $H mcp-call remember '{"kind":"decision","body":"Rate limit by IP"}'
 ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H reef --stdin ~/.reef-verify/<id>/chat-in.txt --answer y \
   --timeout 300 -- chat login --role developer --backend claude
 ```
@@ -313,7 +313,7 @@ REEF_VERIFY_RUN=<id> $H ui retry     # Stop mid-turn, Retry on the failed turn r
 REEF_VERIFY_RUN=<id> $H ui rollback  # a turn writes a file, a commit is made, Rollback restores the tree
 REEF_VERIFY_RUN=<id> $H ui inbox     # gated approval shows in the inbox, one notification, Approve from the list, item opens its channel
 REEF_VERIFY_RUN=<id> $H ui diff      # a turn writes a file, the review page lists it as A with its line; the channel Diff side panel scrolls a 400-line file and a 35-file list at 1280x800; the feature page's header meta line and the panel's expand button lead there; the file list opens flat, Tree view merges web/src/modules/deep with folders first, folder rows collapse, a tree file opens its diff, the diff still scrolls, the mode survives a reload and carries to the review page, phone keeps the full-path chips without the toggle
-REEF_VERIFY_RUN=<id> $H ui memory    # project page editor saves a project's memory, stored in the database and surviving a reload; New feature and New quick session work from the page
+REEF_VERIFY_RUN=<id> $H ui memory    # project page lists, adds and retires the project's memory items, stored in the database and surviving a reload; New feature and New quick session work from the page
 REEF_VERIFY_RUN=<id> $H ui inspector # full team: lead then developer turns, Inspector panel role blocks match the API, a developer turn expands to its prompt and a tool call
 REEF_VERIFY_RUN=<id> $H ui review    # review page: A/M/D list, struck-through deletion, No text changes, drafts sent as one message to the developer's latest thread
 REEF_VERIFY_RUN=<id> $H ui board      # tasks page board view, drag a card between columns, project and feature filters apply

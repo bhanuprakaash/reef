@@ -598,7 +598,7 @@ async function theme() {
   const fid = sql('select id from feature order by id desc limit 1');
   const pid = sql(`select project_id from feature where id=${fid}`);
   await fetch(`${base}/tasks`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectId: Number(pid), featureId: Number(fid), title: 'Wire the login form' }) });
-  await fetch(`${base}/decisions`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ featureId: Number(fid), body: 'Sessions, not JWT', why: 'one server', author: 'user' }) });
+  await fetch(`${base}/memory`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ kind: 'decision', body: 'Sessions, not JWT', why: 'one server', scope: `work_item:${fid}` }) });
   await newTeamChannel('gated', 'theme room');
   await send('DESIGN a short plan for a login form.');
   await main.getByRole('button', { name: 'Approve' }).waitFor({ timeout: 240000 });

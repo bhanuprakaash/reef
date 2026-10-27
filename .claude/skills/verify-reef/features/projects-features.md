@@ -2,7 +2,9 @@
 
 A user keeps projects (a name and a repo folder) and, inside a project, features. A
 feature has a slug, a name, a goal and a stage, a brief that grows by versions, and one
-set of notes per role. Deleting a project deletes its features.
+set of notes per role. Since memory items (`docs/product.md` decision 91) nothing reads the notes:
+a role's own items are in scope `teammate`. Their routes still work. Deleting a project deletes
+its features.
 
 ## Sub-features
 
