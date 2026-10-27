@@ -15,7 +15,7 @@ live, Wrap-up and attach, Caps).
 - `live-wrap` `POST /spaces/{id}/wrap` on a feature Space ends with a pending proposal (`GET /spaces/{id}/proposal`); on a quick session it is 400 before any agent starts.
 - `live-attach` `POST /spaces/{id}/attach {"workItemId":N}` on a free Space sets the Space's work item and kind and posts a `reef` note with the worktree path; no agent turn runs; a Space that has a work item is 400, a work item with an active Space is 409, a turn running is 409.
 - `live-decide` `POST /proposals/{id}/approve` adds a brief version and returns `itemsAdded`; `reject` changes nothing; deciding twice is 400.
-- `live-caps` a Space paused by the token budget refuses a send with 409 and the reason; a hop-cap pause (`hop cap: 6 agent hops without a user message`) does not: a user send clears it, answers 202 and runs the turn. `POST /spaces/{id}/continue` clears a pause (409 when not paused or while a turn runs), also runs held wakes (see `teams.md`), and sets a used-up token budget to the tokens used plus 1000000.
+- `live-caps` a Space paused by the token budget refuses a send with 409 and the reason; a hop-cap pause (`hop cap: 6 agent hops without a user message`) does not: a user send clears it, answers 202 and runs the turn. `POST /spaces/{id}/continue` clears a pause (409 when not paused or while a turn runs), also runs held wakes (see `teams.md`), and sets a used-up token budget (the work item's, shared by all its Spaces) to the tokens used plus 1000000.
 - `live-delete` `DELETE /spaces/{id}` on a live Space stops its agent first.
 
 ## How to get to it (user POV)

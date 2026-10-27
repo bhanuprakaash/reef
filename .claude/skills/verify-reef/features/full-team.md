@@ -211,7 +211,7 @@ When done: `$H cleanup`, then remove claude's state for the worktrees and for `g
 
 - The model decides the words, so check structure: `turn.role`, `turn.checkpoint`, git state and files. The `crew` personas keep turns short and tool-free unless asked.
 - Only an `@name` at the start of a message or of a line wakes that teammate (decision 80); "I'll hand it to @developer" in a sentence wakes nobody. `teams/full.json` tells each role to start a line with `@` only for the teammate it hands work to; if a run still takes another path, start again on a fresh repo and folder.
-- The Google flow uses 4 agent hops (architect, developer, tester, lead) of the 6 the cap allows. A longer back and forth reaches the hop cap and pauses the Space with hold rows.
+- The Google flow uses 4 agent hops (architect, developer, tester, lead) of the 6 the cap allows. Turns that call a tool other than Reef's own reset the count, so a longer back and forth of working roles does not pause; one that only posts to the Space reaches the hop cap and pauses it with hold rows.
 - The single-writer lock and the checkpoints are per process. `pgrep -P $(cat $S/serve.pid) -x claude` lists only this server's agents.
 - `serve-stop --kill` is a real crash: the running claude is a child in its own process group and is ended by `cleanup` if it outlives the server.
 - A plain `Bash` in a role's `tools` lets a role change files through the shell (`echo x > f` works), so `reef team apply` rejects it for a claude role without `write`. The `crew` tester lists only `Bash(ls:*)`.
