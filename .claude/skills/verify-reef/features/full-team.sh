@@ -735,9 +735,11 @@ A=$(cat "$S/serve.addr")
 api_call POST /projects '{"name":"main","path":"'"$S"'/cwd"}'
 api_call POST /work-items '{"projectId":1,"title":"FA"}'
 api_call POST /work-items '{"projectId":1,"title":"FB"}'
+api_call POST /work-items '{"projectId":1,"title":"FC"}'
 api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"fa1","team":"pair"}'
 api_call POST /spaces '{"projectId":1,"workItemId":1,"name":"fa2","team":"pair"}'
 api_call POST /spaces '{"projectId":1,"workItemId":2,"name":"fb1","team":"full"}'
+api_call POST /spaces '{"projectId":1,"workItemId":3,"name":"fc1","team":"full"}'
 WA="$S/fu/worktrees/1/1"
 P='Reply with exactly one line and nothing else: an at sign immediately followed by the word developer, then a space, then the words: reply with one word, use no tools.'
 
