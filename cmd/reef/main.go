@@ -157,7 +157,11 @@ func serve(ctx context.Context, args []string, logOut io.Writer) error {
 	if err != nil {
 		return fmt.Errorf("open web ui: %w", err)
 	}
-	api := server.New(st, data, exe)
+	ms, err := openMemory(ctx, st)
+	if err != nil {
+		return fmt.Errorf("open memory: %w", err)
+	}
+	api := server.New(st, ms, data, exe)
 	defer api.Close()
 	srv := &http.Server{
 		Handler:           web.Handler(ui, api),

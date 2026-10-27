@@ -198,7 +198,7 @@ func TestTurnHasNoPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)

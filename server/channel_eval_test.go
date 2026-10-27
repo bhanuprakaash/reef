@@ -99,7 +99,7 @@ func (e *evalEnv) store() *store.Store {
 func (e *evalEnv) serve() {
 	st := e.store()
 	trees := channel.NewTrees(e.dir)
-	e.h = newHandler(st, e.dir, trees, func(ctx context.Context, id int64) (session, error) {
+	e.h = newHandler(st, nil, e.dir, trees, func(ctx context.Context, id int64) (session, error) {
 		return channel.Open(ctx, st, e.dir, "reef", id, trees,
 			func(string) (agent.Agent, error) {
 				size := 8

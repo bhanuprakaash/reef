@@ -67,7 +67,7 @@ func TestStartGitHubPoll_PollsOnceAtStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	h1 := New(st, dataDir, "/bin/reef")
+	h1 := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	ts := httptest.NewServer(h1)
 
 	repo := t.TempDir()
@@ -92,7 +92,7 @@ func TestStartGitHubPoll_PollsOnceAtStart(t *testing.T) {
 
 	// REEF_GH_INTERVAL is left at its 60s default: the note below must appear without the
 	// test waiting anywhere near that long.
-	h2 := New(st, dataDir, "/bin/reef")
+	h2 := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	t.Cleanup(h2.Close)
 	var msgs []store.Message
 	for end := time.Now().Add(5 * time.Second); time.Now().Before(end); time.Sleep(5 * time.Millisecond) {
@@ -125,7 +125,7 @@ func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
 	writeIn(t, repo, "a.txt", "a")
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
-	h := New(st, dataDir, "/bin/reef")
+	h := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
@@ -144,7 +144,7 @@ func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
 	t.Setenv("PATH", binDir+string(os.PathListSeparator)+os.Getenv("PATH"))
 
 	start := time.Now()
-	h2 := New(st, dataDir, "/bin/reef")
+	h2 := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	t.Cleanup(h2.Close)
 	if elapsed := time.Since(start); elapsed > time.Second {
 		t.Fatalf("New() took %v, want under 1s: it must not wait on the slow gh", elapsed)
@@ -170,7 +170,7 @@ func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := New(st, dataDir, "/bin/reef")
+	h := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 
@@ -236,7 +236,7 @@ func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st2.Close() })
-	h2 := New(st2, dataDir, "/bin/reef")
+	h2 := New(st2, testMemory(t, st2), dataDir, "/bin/reef")
 	t.Cleanup(h2.Close)
 	h2.s.pollGitHub(context.Background())
 	if msgs, _ = st2.Messages(context.Background(), 1, 0); len(msgs) != 2 {
@@ -254,7 +254,7 @@ func TestPollGitHub_NoteNotLostBeforeFeatureHasChannel(t *testing.T) {
 		t.Fatal(err)
 	}
 	dataDir := t.TempDir()
-	h := New(st, dataDir, "/bin/reef")
+	h := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 
@@ -308,7 +308,7 @@ func TestPollGitHub_NotePublishesToOpenChannel(t *testing.T) {
 		t.Fatal(err)
 	}
 	dataDir := t.TempDir()
-	h := New(st, dataDir, "/bin/reef")
+	h := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 
@@ -343,7 +343,7 @@ func TestPollGitHub_NoGhOnPathLogsOnce(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	t.Cleanup(h.Close)
 	t.Setenv("PATH", t.TempDir()) // no gh anywhere on it
 
@@ -365,7 +365,7 @@ func TestPollGitHub_NewCheckRunNotesAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	dataDir := t.TempDir()
-	h := New(st, dataDir, "/bin/reef")
+	h := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 
@@ -422,7 +422,7 @@ func TestPollGitHub_TwoRunsSameNameBothNoted(t *testing.T) {
 		t.Fatal(err)
 	}
 	dataDir := t.TempDir()
-	h := New(st, dataDir, "/bin/reef")
+	h := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 
@@ -472,7 +472,7 @@ func TestPollGitHub_TimedOutAndStartupFailureCountAsFailed(t *testing.T) {
 				t.Fatal(err)
 			}
 			dataDir := t.TempDir()
-			h := New(st, dataDir, "/bin/reef")
+			h := New(st, testMemory(t, st), dataDir, "/bin/reef")
 			ts := httptest.NewServer(h)
 			t.Cleanup(ts.Close)
 
@@ -513,7 +513,7 @@ func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	t.Cleanup(h.Close)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
@@ -587,7 +587,7 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
-	h := newHandler(st, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+	h := newHandler(st, nil, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
 		fake.channelID.Store(id)
 		return fake, nil
 	})
@@ -649,7 +649,7 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st2.Close() })
 	fake2 := &fakeSession{st: st2, started: make(chan struct{}, 1), release: make(chan struct{})}
-	h2 := newHandler(st2, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+	h2 := newHandler(st2, nil, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
 		fake2.channelID.Store(id)
 		return fake2, nil
 	})
@@ -682,7 +682,7 @@ func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
-	h := newHandler(st, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+	h := newHandler(st, nil, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
 		fake.channelID.Store(id)
 		return fake, nil
 	})
@@ -751,7 +751,7 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenChannelBusy(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
-	h := newHandler(st, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+	h := newHandler(st, nil, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
 		fake.channelID.Store(id)
 		return fake, nil
 	})
@@ -835,7 +835,7 @@ func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	dataDir := t.TempDir()
-	h := New(st, dataDir, "/bin/reef")
+	h := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	repo := ghFeatureSetup(t, ts.URL, store.SoloTeam)
@@ -881,7 +881,7 @@ func TestPollGitHub_TwoFailedChecksOneWake(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
-	h := newHandler(st, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+	h := newHandler(st, nil, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
 		fake.channelID.Store(id)
 		return fake, nil
 	})
@@ -967,7 +967,7 @@ func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
-	h := newHandler(st, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+	h := newHandler(st, nil, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
 		fake.channelID.Store(id)
 		return fake, nil
 	})

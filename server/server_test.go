@@ -10,8 +10,18 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 )
+
+func testMemory(t *testing.T, st *store.Store) *memory.Store {
+	t.Helper()
+	ms, err := memory.Open(st.DB(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return ms
+}
 
 func newTestServer(t *testing.T) *httptest.Server {
 	t.Helper()
@@ -20,7 +30,7 @@ func newTestServer(t *testing.T) *httptest.Server {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)

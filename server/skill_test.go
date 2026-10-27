@@ -39,7 +39,7 @@ func TestGetSkills(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)

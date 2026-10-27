@@ -31,7 +31,7 @@ func TestProviders(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(other, "claude"), []byte("#!/bin/sh\necho 1.2.3\n"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)

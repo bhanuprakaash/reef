@@ -56,7 +56,7 @@ func TestFeaturePR(t *testing.T) {
 		}
 	}
 
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	t.Cleanup(h.Close)
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)

@@ -18,7 +18,7 @@ func TestGetFeatureDiff_UncommittedFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	h := New(st, dataDir, "/bin/reef")
+	h := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
@@ -53,7 +53,7 @@ func TestGetFeatureDiff_ScopeCurrent(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	h := New(st, dataDir, "/bin/reef")
+	h := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)

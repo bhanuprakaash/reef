@@ -27,7 +27,7 @@ func TestTeamsOmitMCPServers(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
@@ -58,7 +58,7 @@ func TestTeamsReturnFace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
@@ -75,7 +75,7 @@ func TestPutTeamModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
@@ -111,7 +111,7 @@ func TestChannelTeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
@@ -172,7 +172,7 @@ func TestPutTeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
@@ -256,7 +256,7 @@ func TestPutTeamRemoveMCP(t *testing.T) {
 		}
 		return got.Roles[0].MCPServers
 	}
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
@@ -338,7 +338,7 @@ func TestPutTeamCopyFrom(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
@@ -388,7 +388,7 @@ func TestPutTeamCopyFrom_Concurrent(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
@@ -445,7 +445,7 @@ func TestPutTeamSkills(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	h := New(st, t.TempDir(), "/bin/reef")
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
