@@ -157,6 +157,69 @@ func TestOpen_UpgradesVersion8Database(t *testing.T) {
 	}
 }
 
+func TestOpen_ProposalItemsMigrationRejectsPendingWrapsOnly(t *testing.T) {
+	ctx := context.Background()
+	dir := t.TempDir()
+	db, err := sql.Open("sqlite", "file:"+filepath.Join(dir, "reef.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for n := 1; n <= 37; n++ {
+		files, err := fs.Glob(_migrations, fmt.Sprintf("migrations/%03d_*.sql", n))
+		if err != nil || len(files) != 1 {
+			t.Fatalf("migration %d: %v, %v", n, files, err)
+		}
+		body, err := _migrations.ReadFile(files[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := db.Exec(string(body)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for _, stmt := range []string{
+		"INSERT INTO project (name, path, created_at) VALUES ('shop', '/work/shop', '2026-01-02T03:04:05Z')",
+		"INSERT INTO channel (project_id, name, created_at, team_id) " +
+			"VALUES (1, 'c', '2026-01-02T03:04:05Z', 1)",
+		"INSERT INTO proposal (channel_id, role, kind, brief, notes, decisions, status, created_at) " +
+			"VALUES (1, 'lead', 'wrap', 'wrap', '', '[]', 'pending', '2026-01-02T03:04:05Z')",
+		"INSERT INTO proposal (channel_id, role, kind, brief, notes, decisions, status, created_at) " +
+			"VALUES (1, 'lead', 'brief', 'brief', '', '[]', 'pending', '2026-01-02T03:04:06Z')",
+		"INSERT INTO proposal (channel_id, role, kind, brief, notes, decisions, status, created_at, decided_at) " +
+			"VALUES (1, 'lead', 'wrap', 'old wrap', '', '[]', 'approved', '2026-01-02T03:04:07Z', '2026-01-02T03:04:08Z')",
+		"PRAGMA user_version = 37",
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := db.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	wrap, err := s.Proposal(ctx, 1)
+	if err != nil || wrap.Status != ProposalRejected || wrap.DecidedAt == nil ||
+		time.Since(*wrap.DecidedAt) > time.Minute || time.Until(*wrap.DecidedAt) > time.Minute {
+		t.Errorf("pending wrap = %+v, %v, want rejected just now", wrap, err)
+	}
+	brief, err := s.Proposal(ctx, 2)
+	if err != nil || brief.Status != ProposalPending || brief.DecidedAt != nil {
+		t.Errorf("pending brief = %+v, %v, want still pending", brief, err)
+	}
+	approved, err := s.Proposal(ctx, 3)
+	want := time.Date(2026, time.January, 2, 3, 4, 8, 0, time.UTC)
+	if err != nil || approved.Status != ProposalApproved || approved.DecidedAt == nil ||
+		!approved.DecidedAt.Equal(want) {
+		t.Errorf("approved wrap = %+v, %v, want approved at %v", approved, err, want)
+	}
+}
+
 func TestOpen_UpgradeLeavesChannelNamesUserSet(t *testing.T) {
 	dir := t.TempDir()
 	fixture, err := os.ReadFile(filepath.Join("testdata", "v1.db"))
