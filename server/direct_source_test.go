@@ -11,7 +11,7 @@ import (
 )
 
 // TestDirectSourceMessage records the public message a sender was answering on the direct
-// request it sends, keeps it through a direct wake, and leaves it empty without one.
+// request it sends, and keeps it through a direct wake.
 func TestDirectSourceMessage(t *testing.T) {
 	ctx := context.Background()
 	st, _ := mcpFixture(t)
@@ -51,7 +51,6 @@ func TestDirectSourceMessage(t *testing.T) {
 		}
 	}
 
-	send("lead", "developer")
 	wake := fmt.Sprintf("[Space %d, message %d]\nbuild it", ch.ID, public.ID)
 	turn, err := st.CreateTurn(ctx, store.Turn{SpaceID: ch.ID, Role: "lead", Backend: "claude", WakeText: wake})
 	if err != nil {
@@ -61,23 +60,20 @@ func TestDirectSourceMessage(t *testing.T) {
 	endTurn(turn)
 
 	direct, err := st.DirectMessages(ctx, ch.ID, 0)
-	if err != nil || len(direct) != 2 {
-		t.Fatalf("direct = %+v, %v, want 2", direct, err)
+	if err != nil || len(direct) != 1 {
+		t.Fatalf("direct = %+v, %v, want 1", direct, err)
 	}
-	if direct[0].SourceMessageID != nil {
-		t.Errorf("request sent outside a turn has source %d, want none", *direct[0].SourceMessageID)
-	}
-	if got := direct[1].SourceMessageID; got == nil || *got != public.ID {
+	if got := direct[0].SourceMessageID; got == nil || *got != public.ID {
 		t.Errorf("request sent while answering message %d has source %v", public.ID, got)
 	}
 
-	answer, err := st.CreateDirectResponse(ctx, direct[1].ID, "tester", "ok")
+	answer, err := st.CreateDirectResponse(ctx, direct[0].ID, "tester", "ok")
 	if err != nil {
 		t.Fatal(err)
 	}
 	turn, err = st.CreateTurn(ctx, store.Turn{
 		SpaceID: ch.ID, Role: "lead", Backend: "claude",
-		WakeText: "[Space 1, direct message 3, chain 2, source: direct response]", DirectMessageID: answer.IDRef(),
+		WakeText: "[Space 1, direct message 2, chain 1, source: direct response]", DirectMessageID: answer.IDRef(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -85,10 +81,10 @@ func TestDirectSourceMessage(t *testing.T) {
 	send("lead", "developer")
 	endTurn(turn)
 	direct, err = st.DirectMessages(ctx, ch.ID, 0)
-	if err != nil || len(direct) != 4 {
-		t.Fatalf("direct = %+v, %v, want 4", direct, err)
+	if err != nil || len(direct) != 3 {
+		t.Fatalf("direct = %+v, %v, want 3", direct, err)
 	}
-	if got := direct[3].SourceMessageID; got == nil || *got != public.ID {
+	if got := direct[2].SourceMessageID; got == nil || *got != public.ID {
 		t.Errorf("request sent from a direct wake has source %v, want %d", got, public.ID)
 	}
 }

@@ -848,13 +848,16 @@ whose `from` or `to` is its role. `GET /search` finds public and direct messages
 the user; the MCP `search_sessions` returns a direct hit only to its sender or recipient.
 Rejecting the approval of a direct wake, a stop that sheds a queued direct wake, and a user
 message that drops a held direct wake after a hop cap pause, each give the request a `failed`
-response with body `rejected`, `stopped` or `dropped`, so the window tells them from a delivery that failed. Wrap-up and promote prompts list the
+response with body `rejected`, `stopped` or `dropped`, so the window tells them from a delivery that failed.
+A request its sender sent in a turn that ends stopped or failed, or that a restart cuts, gets a `failed`
+response with body `stopped` or `failed` (a restart gives `failed`). Wrap-up and promote prompts list the
 Space's direct messages, marking a `failed` attempt `(failed)`. Partial output from a failed recipient turn is appended as
 a `failed` response attempt: it is inspectable but never routed. Retry appends a `done`
 response; a partial unique index allows only one `done` response per request, and only that
 response wakes the sender. `sourceMessageId` is the public message whose wake the sender was answering when it called
 `send_to_role`, read from the sender's running turn; a request sent from a direct wake keeps the
-source of that wake, and a request sent outside a turn has `null`. A response keeps the source of
+source of that wake, and a request sent from a turn with no public wake has `null`. `send_to_role` is
+refused with `invalid:` unless its sender has a running turn. A response keeps the source of
 its request. Public `GET /messages` history is unchanged.
 
 ### Gates

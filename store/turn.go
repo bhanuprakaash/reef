@@ -474,6 +474,9 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(spaceID int64) b
 				}
 			}
 		}
+		if err := s.failSentRequests(ctx, tx, *t); err != nil {
+			return nil, fmt.Errorf("fail running turns: %w", err)
+		}
 		label := "turn"
 		if len(names) == 0 {
 			label = "Turn"
@@ -495,6 +498,46 @@ func (s *Store) FailRunningTurns(ctx context.Context, keep func(spaceID int64) b
 		return nil, fmt.Errorf("fail running turns: %w", err)
 	}
 	return turns, nil
+}
+
+// failSentRequests gives every unanswered request the role of turn t sent since the turn
+// started a failed response with body "failed", so its sender is not left waiting.
+func (s *Store) failSentRequests(ctx context.Context, tx *sql.Tx, t Turn) error {
+	rows, err := tx.QueryContext(ctx,
+		`SELECT id, to_role, created_at FROM direct_message d
+		WHERE space_id = ? AND from_role = ? AND reply_to_id IS NULL
+		AND NOT EXISTS (SELECT 1 FROM direct_message r WHERE r.reply_to_id = d.id) ORDER BY id`,
+		t.SpaceID, t.Role)
+	if err != nil {
+		return fmt.Errorf("list sent requests: %w", err)
+	}
+	type sent struct {
+		id      int64
+		to      string
+		created time.Time
+	}
+	sents, err := scanAll(rows, func(r interface{ Scan(...any) error }) (sent, error) {
+		var m sent
+		var created string
+		if err := r.Scan(&m.id, &m.to, &created); err != nil {
+			return sent{}, err
+		}
+		var perr error
+		m.created, perr = time.Parse(time.RFC3339Nano, created)
+		return m, perr
+	})
+	if err != nil {
+		return err
+	}
+	for _, m := range sents {
+		if m.created.Before(t.StartedAt) {
+			continue
+		}
+		if _, err := s.CreateFailedDirectResponseTx(ctx, tx, m.id, m.to, "failed"); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) notRunning(ctx context.Context, id int64) error {

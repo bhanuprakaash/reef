@@ -590,6 +590,7 @@ func (m *mcpServer) sendToRole(
 		return nil, store.DirectMessage{}, err
 	}
 	var source *int64
+	sending := false
 	for _, t := range running {
 		if t.WakeText == "" {
 			return nil, store.DirectMessage{}, fmt.Errorf("space %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
@@ -597,6 +598,7 @@ func (m *mcpServer) sendToRole(
 		if t.Role != m.tok.Role {
 			continue
 		}
+		sending = true
 		if t.DirectMessageID == nil {
 			source = wakeSource(t.WakeText)
 			continue
@@ -606,6 +608,9 @@ func (m *mcpServer) sendToRole(
 			return nil, store.DirectMessage{}, err
 		}
 		source = woken.SourceMessageID
+	}
+	if !sending {
+		return nil, store.DirectMessage{}, fmt.Errorf("%w: %s has no running turn to send from", store.ErrInvalid, m.tok.Role)
 	}
 	team, err := m.st.Team(ctx, ch.Team)
 	if err != nil {

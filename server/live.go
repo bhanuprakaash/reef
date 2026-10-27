@@ -816,6 +816,30 @@ func (s *server) failDirect(ctx context.Context, spaceID int64, a store.Approval
 	s.notify(spaceID, "direct")
 }
 
+// failSent gives every request role sent after direct message after, during the turn that
+// just ended unrun by a stop or a failure, a failed response with body "stopped" or "failed".
+func (s *server) failSent(ctx context.Context, spaceID int64, role string, after int64, stopped bool) {
+	body := "failed"
+	if stopped {
+		body = "stopped"
+	}
+	msgs, err := s.st.DirectMessages(ctx, spaceID, after)
+	if err != nil {
+		log.Printf("list direct messages of Space %d: %v", spaceID, err)
+		return
+	}
+	for _, m := range msgs {
+		if m.From != role || m.ReplyToID != nil {
+			continue
+		}
+		if err := recordFailedDirect(ctx, s.st, m.ID, m.To, body); err != nil {
+			log.Printf("direct response for %d: %v", m.ID, err)
+			continue
+		}
+		s.notify(spaceID, "direct")
+	}
+}
+
 func (s *server) stop(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -1278,6 +1302,9 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 		var w wake
 		w, queue = queue[0], queue[1:]
 		end, ok := s.runOne(c.ctx, c.id, l, sess, kind, w)
+		if !ok || c.ctx.Err() != nil {
+			s.failSent(context.WithoutCancel(c.ctx), c.id, w.role, afterDirect, c.ctx.Err() != nil)
+		}
 		var stall error
 		var again *retry
 		if ok && kind == _message && c.ctx.Err() == nil {

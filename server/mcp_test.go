@@ -740,6 +740,15 @@ func TestMCPDirectMessages(t *testing.T) {
 	}
 	callLead := callTool(t, st, lead)
 	got, isErr := callLead("send_to_role", map[string]any{"to": "developer", "body": "build it"})
+	if want := "invalid: lead has no running turn to send from"; got != want || !isErr {
+		t.Fatalf("send_to_role without a turn = %q (error %v), want %q", got, isErr, want)
+	}
+	if _, err := st.CreateTurn(ctx, store.Turn{
+		SpaceID: ch.ID, Role: "lead", Backend: "claude", WakeText: "go",
+	}); err != nil {
+		t.Fatal(err)
+	}
+	got, isErr = callLead("send_to_role", map[string]any{"to": "developer", "body": "build it"})
 	if want := `{"body":"build it","chainId":1,"createdAt":"T","from":"lead",` +
 		`"id":1,"replyToId":null,"sourceMessageId":null,"spaceId":5,"status":"sent","to":"developer"}`; got != want || isErr {
 		t.Fatalf("send_to_role = %q (error %v), want %q", got, isErr, want)
