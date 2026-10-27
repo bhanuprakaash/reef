@@ -140,7 +140,7 @@ func Open(db *sql.DB, e Embedder) (*Store, error) {
 }
 
 // Remember writes one item with its links, all or nothing. Each id in n.Replaces must be a
-// live item. When the new item is accepted they are retired and point at it; when it is a
+// live item in the same scope as the new one. When the new item is accepted they are retired and point at it; when it is a
 // candidate they stay live until Accept. Lookalikes are reported in Result.Similar but
 // never block the write.
 func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) {
@@ -195,9 +195,11 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 		}
 	}
 	for _, old := range n.Replaces {
-		if status == StatusCandidate {
+		switch err = checkShelf(ctx, tx, old, w.Scope); {
+		case err != nil:
+		case status == StatusCandidate:
 			err = checkLive(ctx, tx, old)
-		} else {
+		default:
 			err = retire(ctx, tx, old, &id, now)
 		}
 		if err != nil {
@@ -459,6 +461,24 @@ func retire(ctx context.Context, q querier, id int64, replacedBy *int64, now str
 		return nil
 	}
 	return checkLive(ctx, q, id)
+}
+
+// checkShelf fails unless id is an item in scope.
+func checkShelf(ctx context.Context, q querier, id int64, scope Ref) error {
+	var got Ref
+	err := q.QueryRowContext(ctx, `SELECT scope_kind, scope_id FROM memory WHERE id = ?`, id).
+		Scan(&got.Kind, &got.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return fmt.Errorf("memory %d: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return fmt.Errorf("check %d: %w", id, err)
+	}
+	if got != scope {
+		return fmt.Errorf("%w: memory %d is in scope %s:%s, not %s:%s",
+			ErrInvalid, id, got.Kind, got.ID, scope.Kind, scope.ID)
+	}
+	return nil
 }
 
 // checkLive fails unless id is an accepted item.

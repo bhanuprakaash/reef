@@ -457,6 +457,13 @@ func TestMCPMemoryScopes(t *testing.T) {
 			want:    "memory 2: not found",
 			wantErr: true,
 		},
+		{
+			name:    "replace an item of another shelf of this channel",
+			tool:    "remember",
+			give:    map[string]any{"kind": "decision", "body": "x", "replaces": []int{3}},
+			want:    "replace 3: invalid: memory 3 is in scope project:1, not work_item:1",
+			wantErr: true,
+		},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -569,8 +576,12 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 	call := callTool(t, st, tok)
 	call("remember", map[string]any{"kind": "fact", "body": "live item"})
 	call("remember", map[string]any{"kind": "fact", "body": "stale item", "replaces": []any{2}})
+	call("remember", map[string]any{"kind": "fact", "body": "project item", "scope": "project"})
 
-	const notLive = "invalid: memory %d is not a live item in this channel's scopes"
+	const (
+		notLive       = "invalid: memory %d is not a live item in work_item:1, project:1, teammate:architect"
+		notOnTheShelf = "invalid: memory %d is not a live item in work_item:1"
+	)
 	tests := []struct {
 		name string
 		give map[string]any
@@ -582,7 +593,12 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 		{
 			"replace unknown id",
 			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "replaces": []any{9}}}},
-			fmt.Sprintf(notLive, 9),
+			fmt.Sprintf(notOnTheShelf, 9),
+		},
+		{
+			"replace an item of the project shelf from a feature item",
+			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "replaces": []any{4}}}},
+			fmt.Sprintf(notOnTheShelf, 4),
 		},
 		{
 			"unknown kind",

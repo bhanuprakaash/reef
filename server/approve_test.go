@@ -24,12 +24,13 @@ func TestApproveProposalSavesItemsAndRetires(t *testing.T) {
 	call := callTool(t, st, tok)
 	call("remember", map[string]any{"kind": "fact", "body": "old one"})
 	call("remember", map[string]any{"kind": "fact", "body": "old two"})
+	call("remember", map[string]any{"kind": "fact", "body": "old project", "scope": "project"})
 	got, isErr := call("propose_wrap", map[string]any{
 		"brief": "v2",
 		"items": []any{
 			map[string]any{"kind": "decision", "body": "use sessions", "why": "simple"},
 			map[string]any{"kind": "lesson", "body": "reply short", "scope": "teammate"},
-			map[string]any{"kind": "fact", "body": "login at /in", "scope": "project", "replaces": []any{2}},
+			map[string]any{"kind": "fact", "body": "login at /in", "scope": "project", "replaces": []any{3}},
 		},
 		"retire": []any{1},
 	})
@@ -52,10 +53,11 @@ func TestApproveProposalSavesItemsAndRetires(t *testing.T) {
 		status string
 	}{
 		1: {memory.Ref{Kind: "work_item", ID: "1"}, memory.StatusRetired},
-		2: {memory.Ref{Kind: "work_item", ID: "1"}, memory.StatusRetired},
-		3: {memory.Ref{Kind: "work_item", ID: "1"}, memory.StatusAccepted},
-		4: {memory.Ref{Kind: "teammate", ID: "architect"}, memory.StatusAccepted},
-		5: {memory.Ref{Kind: "project", ID: "1"}, memory.StatusAccepted},
+		2: {memory.Ref{Kind: "work_item", ID: "1"}, memory.StatusAccepted},
+		3: {memory.Ref{Kind: "project", ID: "1"}, memory.StatusRetired},
+		4: {memory.Ref{Kind: "work_item", ID: "1"}, memory.StatusAccepted},
+		5: {memory.Ref{Kind: "teammate", ID: "architect"}, memory.StatusAccepted},
+		6: {memory.Ref{Kind: "project", ID: "1"}, memory.StatusAccepted},
 	}
 	for id, w := range want {
 		it, err := ms.Read(ctx, id)
@@ -66,8 +68,8 @@ func TestApproveProposalSavesItemsAndRetires(t *testing.T) {
 			t.Errorf("memory %d = %v %s, want %v %s", id, it.Scope, it.Status, w.scope, w.status)
 		}
 	}
-	if it, _ := ms.Read(ctx, 3); it.Author != "architect" || it.Kind != "decision" || it.Why != "simple" {
-		t.Errorf("memory 3 = %+v, want architect's decision \"simple\"", it)
+	if it, _ := ms.Read(ctx, 4); it.Author != "architect" || it.Kind != "decision" || it.Why != "simple" {
+		t.Errorf("memory 4 = %+v, want architect's decision \"simple\"", it)
 	}
 	if b, err := st.Brief(ctx, 1); err != nil || b.Body != "v2" {
 		t.Errorf("brief = %q, %v, want v2", b.Body, err)

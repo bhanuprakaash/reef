@@ -267,6 +267,33 @@ func TestRemember_ReplacesRetiredFailsAndWritesNothing(t *testing.T) {
 	}
 }
 
+func TestRemember_ReplacesOnlyItemsOfItsOwnScope(t *testing.T) {
+	s, db := openTest(t)
+	ctx := context.Background()
+	other := writer()
+	other.Scope = Ref{Kind: ScopeProject, ID: "1"}
+	elsewhere, err := s.Remember(ctx, other, Note{Kind: KindFact, Body: "on the project shelf"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	items := count(t, db, `SELECT count(*) FROM memory`)
+
+	_, err = s.Remember(ctx, writer(), Note{
+		Kind: KindFact, Body: "on the feature shelf", Replaces: []int64{elsewhere.Item.ID},
+	})
+	if want := "invalid: memory 1 is in scope project:1, not work_item:7"; err == nil ||
+		!errors.Is(err, ErrInvalid) || !strings.Contains(err.Error(), want) {
+		t.Fatalf("err = %v, want %q", err, want)
+	}
+	if n := count(t, db, `SELECT count(*) FROM memory`); n != items {
+		t.Errorf("items = %d, want %d", n, items)
+	}
+	got, err := s.Read(ctx, elsewhere.Item.ID)
+	if err != nil || got.Status != StatusAccepted {
+		t.Errorf("item on the other shelf = %+v, %v, want still accepted", got, err)
+	}
+}
+
 func TestRetire_NothingReplacing(t *testing.T) {
 	s, _ := openTest(t)
 	ctx := context.Background()

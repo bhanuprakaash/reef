@@ -662,7 +662,6 @@ func (m *mcpServer) proposeWrap(
 		return nil, wrapOut{}, err
 	}
 	scopes := channel.Scopes(c, m.tok.Role)
-	ids := slices.Clone(in.Retire)
 	for i := range in.Items {
 		it := &in.Items[i]
 		if it.Scope == "" {
@@ -671,10 +670,11 @@ func (m *mcpServer) proposeWrap(
 		if !memory.ValidKind(it.Kind) {
 			return nil, wrapOut{}, fmt.Errorf("%w: unknown item kind %q", store.ErrInvalid, it.Kind)
 		}
-		if !slices.ContainsFunc(scopes, func(r memory.Ref) bool { return r.Kind == it.Scope }) {
+		at := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == it.Scope })
+		if at < 0 {
 			kinds := make([]string, len(scopes))
-			for i, r := range scopes {
-				kinds[i] = r.Kind
+			for j, r := range scopes {
+				kinds[j] = r.Kind
 			}
 			return nil, wrapOut{}, fmt.Errorf("%w: scope %q is not one of %s",
 				store.ErrInvalid, it.Scope, strings.Join(kinds, ", "))
@@ -684,9 +684,11 @@ func (m *mcpServer) proposeWrap(
 				return nil, wrapOut{}, err
 			}
 		}
-		ids = append(ids, it.Replaces...)
+		if err := requireLive(ctx, m.ms, scopes[at:at+1], it.Replaces); err != nil {
+			return nil, wrapOut{}, err
+		}
 	}
-	if err := requireLive(ctx, m.ms, scopes, ids); err != nil {
+	if err := requireLive(ctx, m.ms, scopes, in.Retire); err != nil {
 		return nil, wrapOut{}, err
 	}
 	p, err := m.st.CreateProposal(ctx, store.Proposal{
@@ -718,8 +720,12 @@ func requireLive(ctx context.Context, ms *memory.Store, scopes []memory.Ref, ids
 			return err
 		}
 		if err != nil || it.Status != memory.StatusAccepted || !slices.Contains(scopes, it.Scope) {
-			return fmt.Errorf("%w: memory %d is not a live item in this channel's scopes",
-				store.ErrInvalid, id)
+			names := make([]string, len(scopes))
+			for i, r := range scopes {
+				names[i] = refString(r)
+			}
+			return fmt.Errorf("%w: memory %d is not a live item in %s",
+				store.ErrInvalid, id, strings.Join(names, ", "))
 		}
 	}
 	return nil
