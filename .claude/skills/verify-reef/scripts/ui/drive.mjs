@@ -2028,6 +2028,30 @@ async function coordination() {
   check((await panel.getByRole('button', { name: 'Retry' }).count()) === 0, 'it no longer offers Retry');
   await shot('phone-stopped-later');
   await panel.getByRole('button', { name: 'Close coordination' }).click();
+
+  // The lead answers every ping and the architect pings again, until the hop cap holds the architect's wake for an answer.
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const looped = page.getByRole('button', { name: /^architect and lead (are coordinating|coordinated) · \d+ messages?/i });
+  await send('COORDINATE the endless review.');
+  check(await until(looped, 'paused', 90000), 'an answered request whose response wake is held by the hop cap says paused', (await looped.allInnerTexts()).join(' | '));
+  await looped.click();
+  await panel.waitFor();
+  check((await panel.getByRole('button', { name: 'Continue' }).count()) === 1, 'the panel offers Continue');
+  await shot('desktop-4-paused');
+  const pings = (await direct()).filter((m) => m.replyToId === null && m.from === 'architect');
+  check(pings.length === 3 && pings.at(-1).state === 'answered', 'the held request is stored answered', pings.map((m) => m.state).join(','));
+  await panel.getByRole('button', { name: 'Close coordination' }).click();
+
+  // A user message drops the held wake: the request fails, and the item never reads completed.
+  await send('Say ok in one word.');
+  const seen = new Set();
+  for (const end = Date.now() + 30000; Date.now() < end && !seen.has('failed'); await page.waitForTimeout(100)) seen.add(await stateOf(looped));
+  check(seen.has('failed') && !seen.has('completed'), 'the dropped response wake reads failed and never completed', [...seen].join(','));
+  check((await direct()).filter((m) => m.replyToId === null && m.from === 'architect').at(-1).state === 'failed', 'the dropped request is stored failed');
+  await looped.click();
+  await panel.waitFor();
+  check((await panel.getByRole('button', { name: 'Retry' }).count()) === 0, 'it offers no Retry: no turn failed');
+  await shot('desktop-4-dropped');
 }
 
 async function team() {
