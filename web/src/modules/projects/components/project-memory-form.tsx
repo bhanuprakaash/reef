@@ -72,6 +72,14 @@ export function ProjectMemoryForm({ projectId }: { projectId: number }) {
           value={body}
           onChange={(e) => setBody(e.target.value)}
         />
+        {add.data?.similar?.map((s) => (
+          <p key={s.id} className="text-sm text-muted">
+            Looks like an existing item ({s.id}): {s.body}
+          </p>
+        ))}
+        {add.data?.embedError && (
+          <p className="text-sm text-muted">Saved without a vector: {add.data.embedError}</p>
+        )}
         <div className="flex items-center gap-2.5">
           <Select aria-label="Kind" value={kind} onChange={setKind} options={KINDS} />
           <Button

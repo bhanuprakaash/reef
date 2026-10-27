@@ -61,4 +61,16 @@ describe('ProposalPanel', () => {
 
     expect(markup).toContain('approved: 3 items saved');
   });
+
+  it('shows each warning line under the approved line', () => {
+    const markup = render(undefined, {
+      ...proposal,
+      status: 'approved',
+      itemsAdded: 1,
+      warnings: ['fact: login lives at /login looks like #9: login is at /login'],
+    });
+
+    expect(markup).toContain('approved: 1 items saved');
+    expect(markup).toContain('fact: login lives at /login looks like #9: login is at /login');
+  });
 });
