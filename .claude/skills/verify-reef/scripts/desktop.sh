@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Launch the Reef app (desktop/) with a scratch HOME and drive it: the window, every browser
-# tool through reef mcp, the terminal pane on a feature, and quit. Called by
+# tool through reef mcp, the terminal pane on a Work item, and quit. Called by
 # `verify-reef desktop`, which exports H, REEF_VERIFY_RUN, E, S and runs it from the repo root.
 # See ../SKILL.md (Desktop) and ../features/desktop.md.
 set -u
@@ -117,7 +117,7 @@ trap stop_all EXIT
 electron=$(cd desktop && node -p "require('electron')" | tail -n 1)
 echo "build: web/dist, desktop/bin/reef, electron $electron"
 
-# --- setup: a feature on the scratch cwd (a git repo, for its worktree) and a token for it ---
+# --- setup: a Work item on the scratch cwd (a git repo, for its worktree) and a token for it ---
 git -C "$S/cwd" rev-parse -q --verify HEAD >/dev/null 2>&1 || {
 	git -C "$S/cwd" init -q -b main &&
 		git -C "$S/cwd" -c user.name=v -c user.email=v@example.com commit -q --allow-empty -m init
@@ -129,7 +129,7 @@ row=$("$H" sql "select id || ' ' || project_id from work_item where title = 'Ter
 fid=${row% *} proj=${row#* }
 tok=$("$H" reef -- token "$fid" --role developer 2>/dev/null | sed -n 's/.*REEF_TOKEN=\([0-9a-f]*\).*/\1/p')
 bare=$("$H" sql "select id from work_item where title = 'Bare'" | tail -n 1)
-[ -n "$tok" ] && [ -n "$fid" ] || { echo "FAIL desktop-setup: no feature or token; see $E/reef.log"; exit 1; }
+[ -n "$tok" ] && [ -n "$fid" ] || { echo "FAIL desktop-setup: no Work item or token; see $E/reef.log"; exit 1; }
 WT="$DATA/worktrees/$proj/$fid"
 
 # The app reads PATH from the login shell; with HOME scratch, these rc files are the user's.
@@ -313,13 +313,13 @@ mainjs 'w.setContentSize(1200, 800)' >/dev/null
 pane_bounds "back to 1200x800, zoom 1"
 check browser-bounds "$bounds_ok" "$(grep -c '^ok' "$D/pane-bounds.txt") of $(wc -l <"$D/pane-bounds.txt" | tr -d ' ') steps put the view within 1 px of the pane ($D/pane-bounds.txt)"
 
-# --- terminal pane on the feature's worktree ---
+# --- terminal pane on the Work item's worktree ---
 js_wt=$(python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$WT")
 # xterm paints only while the pane is on screen, so scroll it into view before each read.
 rows='(document.querySelector(".xterm")?.scrollIntoView(),
   [...document.querySelectorAll(".xterm-rows > div")].map((r) => r.textContent.trimEnd()).join("\n").trim())'
 cdp "history.pushState({}, '', '/work-items/$fid'); dispatchEvent(new PopStateEvent('popstate')); location.pathname" >/dev/null
-# Neither viewing a feature nor the Terminal toggle makes a worktree; the pane's Open terminal button does.
+# Neither viewing a Work item nor the Terminal toggle makes a worktree; the pane's Open terminal button does.
 opened=""
 for _ in $(seq 25); do
 	opened=$(cdp "(() => { const b = document.querySelector('button[aria-label=Terminal]'); if (!b) return 'no button'; if (b.ariaPressed !== 'true') b.click(); const o = [...document.querySelectorAll('button')].find((x) => x.textContent === 'Open terminal'); if (o) { o.click(); return 'opened'; } return document.querySelector('.xterm') ? 'opened' : 'waiting'; })()" 2>&1)
@@ -345,9 +345,9 @@ python3 -I -c 'import json, sys; print(json.loads(sys.argv[1]))' "$text" >"$D/te
 cwd=$([ -n "$shell" ] && proc_cwd "$shell")
 sd=$(shot terminal)
 # A long path wraps across rows, so match on the rows joined without line breaks.
-check terminal-feature "$([ -n "$shell" ] && [ "$cwd" = "$WT" ] && ! grep -q "work-item/$fid" <<<"$before" &&
+check terminal-work-item "$([ -n "$shell" ] && [ "$cwd" = "$WT" ] && ! grep -q "work-item/$fid" <<<"$before" &&
 	tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}work-item/$fid" && echo 1)" \
-	"shell pid ${shell:-none} (child of the app) cwd ${cwd:-none}; after pwd; git branch --show-current the pane shows $(tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}work-item/$fid" || echo 'no ')$WT then feature/term ($D/terminal.txt, $D/terminal.png std dev $sd)"
+	"shell pid ${shell:-none} (child of the app) cwd ${cwd:-none}; after pwd; git branch --show-current the pane shows $(tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}work-item/$fid" || echo 'no ')$WT then work-item/$fid ($D/terminal.txt, $D/terminal.png std dev $sd)"
 
 # --- terminal app: Settings > Terminal sends the toggle to `open -a <app> <worktree>` ---
 # The real open binary is never run: main's execFile is swapped for one that records its call.
@@ -417,8 +417,8 @@ spa "/work-items/$bare"
 click_toggle
 sleep 1.5
 bare_text=$(cdp "document.querySelector('section[aria-label=Terminal]')?.textContent ?? ''")
-check terminal-app-no-worktree "$([ "$(opened_count)" = 2 ] && [ ! -e "$DATA/worktrees/$proj/bare" ] && case $bare_text in *'No worktree yet'*) echo 1 ;; esac)" \
-	"on a feature with no worktree the toggle shows $bare_text, runs no open ($(opened_count) in all) and makes no $DATA/worktrees/$proj/$bare"
+check terminal-app-no-worktree "$([ "$(opened_count)" = 2 ] && [ ! -e "$DATA/worktrees/$proj/$bare" ] && case $bare_text in *'No worktree yet'*) echo 1 ;; esac)" \
+	"on a Work item with no worktree the toggle shows $bare_text, runs no open ($(opened_count) in all) and makes no $DATA/worktrees/$proj/$bare"
 
 stub_open "(cb) => setTimeout(() => cb(null, '', ''), 1000)"
 spa "/work-items/$fid"
@@ -440,7 +440,7 @@ spa "/work-items/$bare"
 spa "/work-items/$fid"
 sleep 1.5
 check terminal-app-error "$([ "$(opened_count)" = 4 ] && [ "$(cdp "document.querySelector('button[aria-label=Terminal]').ariaPressed")" = '"false"' ] && case $err in *'Unable to find application named FakeTerm'*) echo 1 ;; esac)" \
-	"a failed open shows $err in the pane; moving to another feature and back runs no open again ($(opened_count) in all) and the toggle is off"
+	"a failed open shows $err in the pane; moving to another Work item and back runs no open again ($(opened_count) in all) and the toggle is off"
 
 spa '/settings?section=terminal'
 for _ in $(seq 25); do
@@ -454,7 +454,7 @@ for _ in $(seq 25); do
 	sleep 0.2
 done
 check terminal-builtin "$([ "$(cdp "localStorage.getItem('reef.terminalApp')")" = null ] && [ "$(cdp "!!document.querySelector('.xterm')")" = true ] && [ "$(opened_count)" = 4 ] && echo 1)" \
-	"choosing Built-in pane clears reef.terminalApp and the feature page shows the xterm pane again, with no further open call ($(opened_count) in all)"
+	"choosing Built-in pane clears reef.terminalApp and the Work item page shows the xterm pane again, with no further open call ($(opened_count) in all)"
 mainjs "(() => { const cp = process.mainModule.require('node:child_process'); cp.execFile = globalThis.__realExecFile; process.mainModule.require('node:module').syncBuiltinESMExports(); return 1; })()" >/dev/null
 
 # --- quick capture: the global shortcut and the sidebar button open the same window ---
@@ -510,9 +510,9 @@ xdo key Return
 closed=$(wait_capture_closed && echo 1 || echo 0)
 row=$("$H" sql "select title, type from work_item where title = 'login fails'" | tail -n 1)
 check capture-enter "$([ "$closed" = 1 ] && [ "$row" = "login fails|bug" ] && echo 1)" \
-	"typed 'login fails' and Return via xdotool; window closed=$closed; task row: ${row:-none} ($E/sql.log)"
+	"typed 'login fails' and Return via xdotool; window closed=$closed; work_item row: ${row:-none} ($E/sql.log)"
 
-# Escape closes the window without a task
+# Escape closes the window without a Work item
 cdp "(() => { const a = [...document.querySelectorAll('a')].find((a) => a.textContent.trim() === 'Capture'); a && a.click(); })()" >/dev/null
 wait_capture >/dev/null
 before=$("$H" sql "select count(*) from work_item" | tail -n 1)
@@ -520,7 +520,7 @@ xdo key Escape
 closed=$(wait_capture_closed && echo 1 || echo 0)
 after=$("$H" sql "select count(*) from work_item" | tail -n 1)
 check capture-escape "$([ "$closed" = 1 ] && [ "$before" = "$after" ] && echo 1)" \
-	"Escape via xdotool closed the window=$closed; task count $before before, $after after"
+	"Escape via xdotool closed the window=$closed; work_item count $before before, $after after"
 
 # --- quit: SIGTERM is a quit request; nothing the app started may outlive it ---
 descendants "$app" >"$D/procs-before-quit.txt"

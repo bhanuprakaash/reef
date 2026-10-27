@@ -4,7 +4,7 @@ A user opens the Reef app. It starts its own `reef serve` on `127.0.0.1:7700` (`
 window. An agent drives the shared browser pane through `reef mcp`: it opens a page, takes a
 screenshot, reads the page with refs, types and clicks by ref, and reads the console and network
 logs. The user can take the browser over, and the agent's calls are refused until they hand it
-back. A feature page has a terminal pane, a shell in the feature's worktree. Quitting the app
+back. A Work item page has a terminal pane, a shell in the item's worktree. Quitting the app
 stops everything it started. Contract: `docs/desktop.md`.
 
 ## Sub-features
@@ -21,38 +21,38 @@ stops everything it started. Contract: `docs/desktop.md`.
 - `browser-take-over` with `window.reef.setTakeOver(true)` (what Take over does) `browser_snapshot` fails with `the user has the browser`; after `setTakeOver(false)` it works again.
 - `browser-stale-ref` after a new navigation, `browser_click` on a ref of the old snapshot fails with `ref eM is not on the page; take a new snapshot`.
 - `browser-bounds` the native view's bounds (read from the main process over `--inspect`) equal the pane container's rect times the page zoom, within 1 px, at start, after the window is resized to 1000x700, at page zoom 1.25 (the view's bounds are window pixels, the page's are zoomed CSS pixels), and back at 1200x800.
-- `terminal-feature` opening `/features/<id>` and turning on the window's Terminal toggle shows "No worktree yet" (neither viewing the page nor the toggle makes a worktree), and its Open terminal button starts a login shell, a child of the app, whose cwd is the feature's worktree `<data>/worktrees/<project id>/term`; after `pwd; git branch --show-current` the pane shows that path then `feature/term`.
+- `terminal-work-item` opening `/work-items/<id>` and turning on the window's Terminal toggle shows "No worktree yet" (neither viewing the page nor the toggle makes a worktree), and its Open terminal button starts a login shell, a child of the app, whose cwd is the item's worktree `<data>/worktrees/<project id>/<id>`; after `pwd; git branch --show-current` the pane shows that path then `work-item/<id>`.
 - `terminal-app-settings` Settings > Terminal lists Built-in pane, then each of Ghostty, iTerm, Terminal and Warp that is installed (an `<Name>.app` in `/Applications`, `~/Applications` or `/System/Applications/Utilities`), then Custom; choosing Custom and typing `FakeTerm` stores `reef.terminalApp`.
-- `terminal-app-launch` with that app chosen, the Terminal toggle on the feature page makes main run `open -a FakeTerm <worktree>` (main's `execFile` is swapped for a recorder over `--inspect`, so no real app starts) and no xterm pane opens.
+- `terminal-app-launch` with that app chosen, the Terminal toggle on the Work item page makes main run `open -a FakeTerm <worktree>` (main's `execFile` is swapped for a recorder over `--inspect`, so no real app starts) and no xterm pane opens.
 - `terminal-app-reload` after a reload the choice is still stored and the toggle runs `open` again, once (each count waits 1.5 s for a late second call, so a launch run twice by React StrictMode fails it; run `desktop` with `NODE_ENV=development` for React's development build, where StrictMode is on).
-- `terminal-app-no-worktree` on a second feature with no worktree the toggle shows "No worktree yet", runs no `open` and makes no worktree.
+- `terminal-app-no-worktree` on a second Work item with no worktree the toggle shows "No worktree yet", runs no `open` and makes no worktree.
 - `terminal-app-twice` with `open` answering after 1 s, the toggle turned on then off at once runs `open` once and stays off.
-- `terminal-app-error` with `open` failing, the toggle shows its error in the pane; moving to another feature and back runs no `open` again and the toggle is off.
-- `terminal-builtin` choosing Built-in pane clears the choice and the feature page shows the xterm pane again, with no further `open`.
+- `terminal-app-error` with `open` failing, the toggle shows its error in the pane; moving to another Work item and back runs no `open` again and the toggle is off.
+- `terminal-builtin` choosing Built-in pane clears the choice and the Work item page shows the xterm pane again, with no further `open`.
 - `desktop-quit` after SIGTERM to the app, xvfb-run, the app and every process it had (Electron helpers, `reef serve`, the shell) are gone, and so is `browser.sock`.
 - `browser-unavailable` with the app closed, `browser_snapshot` fails with `browser unavailable: the Reef app is not open`.
 - `capture-shortcut` `CommandOrControl+Shift+Space`, sent for real with `xdotool key`, opens the capture window (a screenshot of it is not blank). Skipped on a Mac (user check) or noted when `xdotool` is not installed.
 - `capture-button` the sidebar's Capture link opens the same capture window (for environments and tests without the global shortcut).
-- `capture-enter` with a project and kind set and `login fails` typed and Return pressed (also real `xdotool` keys), the window closes and `task` gets a row `bug: login fails` with no feature.
-- `capture-escape` reopening the window and pressing Escape closes it with no new task row.
+- `capture-enter` with a project and kind set and `login fails` typed and Return pressed (also real `xdotool` keys), the window closes and `work_item` gets a row `login fails` of type `bug`.
+- `capture-escape` reopening the window and pressing Escape closes it with no new `work_item` row.
 
 Acceptance lines of the slice's verify-reef ticket: "starts the app, screenshots the window, and stops it with no process
 left" is `desktop-start`, `desktop-window`, `desktop-quit`; "drives each browser tool and the
-terminal pane" is the `browser-*` ids and `terminal-feature`; "runs on the scripted claude for
+terminal pane" is the `browser-*` ids and `terminal-work-item`; "runs on the scripted claude for
 any Space turn" is `desktop-fake-claude` (the run makes no Space turn). Not driven here: the
-Take over button's own click and label, the address bar, a quick session's terminal, the
+Take over button's own click and label, the address bar, a free Space's terminal, the
 packaged `.deb` and the Mac app (open those by hand).
 
 Acceptance lines of the quick capture ticket: "the shortcut opens the capture window" is
-`capture-shortcut`; "typing ... and Enter makes a task row ... with no feature" is `capture-enter`;
-"Escape closes the window without a task" is `capture-escape`; the sidebar button is `capture-button`.
+`capture-shortcut`; typing and Enter making a Work item is `capture-enter`;
+Escape closing the window without one is `capture-escape`; the sidebar button is `capture-button`.
 
 ## How to get to it (user POV)
 
 - Open the app (`cd desktop && npm start`, the `.deb`'s `reef-desktop`, or Reef.app).
 - An agent in a Space calls the `mcp__reef__browser_*` tools; the pane on the right follows.
 - Take over / Hand back is the button in the banner under the address bar while an agent drives, else next to it. The Browser toggle at the window's top right shows or hides the pane, and the pane's own close button hides it; Back, Forward and Reload sit left of the address bar.
-- On a Space or feature page the Terminal toggle at the window's top right shows the Terminal section (bottom of the page on a feature).
+- On a Space or Work item page the Terminal toggle at the window's top right shows the Terminal section (bottom of the page on a Work item).
 - `CommandOrControl+Shift+Space`, or the sidebar's Capture link, opens the quick capture window.
 - Quit from the menu, Cmd+Q, closing the window, or a signal.
 
