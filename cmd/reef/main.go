@@ -32,7 +32,6 @@ commands:
   decide <feature> "<body>" [--why W]
   task add [<feature>] "<title>"
   task list [<feature>] [--status S]
-  memory show [--project P] | memory set FILE|- [--project P]
   memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval]
   memory recall "<q>" [--scope S] [--limit N]
   memory show <id> | retire <id> | approve <id> | reject <id> | pending
@@ -73,13 +72,13 @@ func run(ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.
 	case "brief":
 		return briefCmd(ctx, args[1:], stdout)
 	case "decide":
-		return decideCmd(ctx, args[1:], stdout)
+		return decideCmd(ctx, args[1:], stdout, stderr)
 	case "team":
 		return teamCmd(ctx, args[1:], stdout)
 	case "task":
 		return taskCmd(ctx, args[1:], stdout)
 	case "memory":
-		return memoryCmd(ctx, args[1:], stdin, stdout, stderr)
+		return memoryCmd(ctx, args[1:], stdout, stderr)
 	case "context":
 		return contextCmd(ctx, args[1:], stdout)
 	case "wrap":

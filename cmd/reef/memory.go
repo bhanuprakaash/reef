@@ -16,13 +16,11 @@ import (
 )
 
 const (
-	_memoryUsage = `usage: reef memory [--project P] [show|set FILE|-] [--data DIR]
-       reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval]
+	_memoryUsage = `usage: reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval]
        reef memory recall "<q>" [--scope S] [--limit N]
        reef memory show <id> | retire <id> | approve <id> | reject <id> | pending
        reef memory embed [none|openai|voyage|gemini [--key K]]`
-	_memoryShowUsage    = "usage: reef memory [--project P] show [<id>] [--data DIR]"
-	_memorySetUsage     = "usage: reef memory [--project P] set FILE|- [--data DIR]"
+	_memoryShowUsage    = "usage: reef memory show <id> [--data DIR]"
 	_memoryAddUsage     = `usage: reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval] [--data DIR]`
 	_memoryRecallUsage  = `usage: reef memory recall "<q>" [--scope S] [--limit N] [--data DIR]`
 	_memoryRetireUsage  = "usage: reef memory retire <id> [--data DIR]"
@@ -46,15 +44,11 @@ func (l *listFlag) Set(v string) error {
 	return nil
 }
 
-func memoryCmd(
-	ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer,
-) error {
+func memoryCmd(ctx context.Context, args []string, stdout, stderr io.Writer) error {
 	sub, rest := memorySub(args)
 	switch sub {
 	case "show":
 		return memoryShow(ctx, rest, stdout)
-	case "set":
-		return memorySet(ctx, rest, stdin, stdout)
 	case "add":
 		return memoryAdd(ctx, rest, stdout, stderr)
 	case "recall":
@@ -73,86 +67,28 @@ func memoryCmd(
 	return errors.New(_memoryUsage)
 }
 
-// memorySub splits the subcommand word off args; only --project and --data may come before
-// it. With no word the subcommand is show.
+// memorySub splits the subcommand word off args; only --data may come before it.
 func memorySub(args []string) (string, []string) {
 	for i := 0; i < len(args); i++ {
 		if !strings.HasPrefix(args[i], "-") {
 			return args[i], slices.Concat(args[:i], args[i+1:])
 		}
-		name := strings.TrimLeft(args[i], "-")
-		if (name == "project" || name == "data") && i+1 < len(args) {
+		if strings.TrimLeft(args[i], "-") == "data" && i+1 < len(args) {
 			i++
 		}
 	}
-	return "show", args
+	return "", args
 }
 
 func memoryShow(ctx context.Context, args []string, stdout io.Writer) error {
-	c := newCommand("reef memory show", _memoryShowUsage, 0, 1)
-	project := c.fs.String("project", "", "")
+	c := newCommand("reef memory show", _memoryShowUsage, 1, 1)
 	st, pos, err := c.open(args)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = st.Close() }()
 
-	if len(pos) == 1 {
-		return memoryItem(ctx, st, pos[0], stdout)
-	}
-	p, err := memoryProject(ctx, st, *project)
-	if err != nil {
-		return err
-	}
-	m, err := st.ProjectMemory(ctx, p.ID)
-	if err != nil {
-		return err
-	}
-	_, err = fmt.Fprint(stdout, m.Body)
-	return err
-}
-
-func memorySet(ctx context.Context, args []string, stdin io.Reader, stdout io.Writer) error {
-	c := newCommand("reef memory set", _memorySetUsage, 1, 1)
-	project := c.fs.String("project", "", "")
-	st, pos, err := c.open(args)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = st.Close() }()
-
-	p, err := memoryProject(ctx, st, *project)
-	if err != nil {
-		return err
-	}
-	var body []byte
-	if pos[0] == "-" {
-		body, err = io.ReadAll(stdin)
-	} else {
-		body, err = os.ReadFile(pos[0])
-	}
-	if err != nil {
-		return fmt.Errorf("read memory: %w", err)
-	}
-	if _, err := st.PutProjectMemory(ctx,
-		store.ProjectMemory{ProjectID: p.ID, Body: string(body)}); err != nil {
-		return err
-	}
-	_, err = fmt.Fprintf(stdout, "saved memory for project %s\n", p.Name)
-	return err
-}
-
-// memoryProject is the project named by ref (its id), or the project of the current folder
-// when ref is empty.
-func memoryProject(ctx context.Context, st *store.Store, ref string) (store.Project, error) {
-	if ref == "" {
-		return cwdProject(ctx, st)
-	}
-	id, err := strconv.ParseInt(ref, 10, 64)
-	if err != nil {
-		return store.Project{}, fmt.Errorf("%w: --project %q is not a project id", store.ErrInvalid, ref)
-	}
-	return st.Project(ctx, id)
+	return memoryItem(ctx, st, pos[0], stdout)
 }
 
 func memoryAdd(ctx context.Context, args []string, stdout, stderr io.Writer) error {
@@ -203,21 +139,28 @@ func memoryAdd(ctx context.Context, args []string, stdout, stderr io.Writer) err
 	if _, err := fmt.Fprintln(stdout, memoryRow(res.Item)); err != nil {
 		return err
 	}
+	return reportRemembered(ctx, st, res, stdout, stderr)
+}
+
+// reportRemembered says what looks like the item just written and why it has no vector.
+func reportRemembered(
+	ctx context.Context, st *store.Store, res memory.Result, stdout, stderr io.Writer,
+) error {
 	for _, s := range res.Similar {
 		if _, err := fmt.Fprintf(stdout, "%d  similar  %s\n", s.ID, s.Body); err != nil {
 			return err
 		}
 	}
-	if res.EmbedErr != nil {
-		provider, err := st.Setting(ctx, _settingEmbeddingProvider)
-		if err != nil {
-			return err
-		}
-		_, err = fmt.Fprintf(stderr, "vector not stored: %v; run reef memory embed %s to retry\n",
-			res.EmbedErr, provider)
+	if res.EmbedErr == nil {
+		return nil
+	}
+	provider, err := st.Setting(ctx, _settingEmbeddingProvider)
+	if err != nil {
 		return err
 	}
-	return nil
+	_, err = fmt.Fprintf(stderr, "vector not stored: %v; run reef memory embed %s to retry\n",
+		res.EmbedErr, provider)
+	return err
 }
 
 func memoryRecall(ctx context.Context, args []string, stdout io.Writer) error {

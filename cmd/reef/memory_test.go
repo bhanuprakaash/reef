@@ -18,49 +18,6 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
-func TestCLI_Memory(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(t.TempDir())
-	mustReef(t, dir, "project", "add", "--name", "shop")
-
-	file := filepath.Join(t.TempDir(), "memory.md")
-	if err := os.WriteFile(file, []byte("Use Go, not Python.\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got, want := mustReef(t, dir, "memory", "set", file),
-		"saved memory for project shop\n"; got != want {
-		t.Fatalf("memory set = %q, want %q", got, want)
-	}
-	if got, want := mustReef(t, dir, "memory", "show"), "Use Go, not Python.\n"; got != want {
-		t.Fatalf("memory show = %q, want %q", got, want)
-	}
-	if got, want := mustReef(t, dir, "memory"), "Use Go, not Python.\n"; got != want {
-		t.Fatalf("bare memory = %q, want %q", got, want)
-	}
-
-	var out bytes.Buffer
-	err := run(context.Background(), []string{"memory", "set", "-", "--data", dir},
-		strings.NewReader("from stdin"), &out, &syncBuffer{})
-	if err != nil {
-		t.Fatalf("memory set -: %v", err)
-	}
-	if got, want := mustReef(t, dir, "memory", "show"), "from stdin"; got != want {
-		t.Fatalf("memory show after stdin set = %q, want %q", got, want)
-	}
-	if got, want := mustReef(t, dir, "memory", "--project", "1", "show"), "from stdin"; got != want {
-		t.Fatalf("memory --project 1 show = %q, want %q", got, want)
-	}
-
-	if _, err := reef(t, dir, "memory", "show", "--project", "9"); err == nil ||
-		err.Error() != "project 9: not found" {
-		t.Errorf("memory show --project 9: error = %v, want project 9: not found", err)
-	}
-	if _, err := reef(t, dir, "memory", "show", "--project", "x"); err == nil ||
-		err.Error() != `invalid: --project "x" is not a project id` {
-		t.Errorf("memory show --project x: error = %v", err)
-	}
-}
-
 func TestCLI_MemoryItems(t *testing.T) {
 	dir := t.TempDir()
 
@@ -146,8 +103,7 @@ func TestCLI_MemoryEachCommandHasItsOwnFlags(t *testing.T) {
 		approve   = "usage: reef memory approve <id> [--data DIR]"
 		reject    = "usage: reef memory reject <id> [--data DIR]"
 		pending   = "usage: reef memory pending [--data DIR]"
-		show      = "usage: reef memory [--project P] show [<id>] [--data DIR]"
-		set       = "usage: reef memory [--project P] set FILE|- [--data DIR]"
+		show      = "usage: reef memory show <id> [--data DIR]"
 		add       = `usage: reef memory add <kind> "<body>" --scope S [--as ROLE] [--about X]... [--replaces ID]... [--why W] [--needs-approval] [--data DIR]`
 		recall    = `usage: reef memory recall "<q>" [--scope S] [--limit N] [--data DIR]`
 		embed     = "usage: reef memory embed [none|openai|voyage|gemini [--key K]] [--data DIR]"
@@ -168,8 +124,9 @@ func TestCLI_MemoryEachCommandHasItsOwnFlags(t *testing.T) {
 			undefined + "limit\n" + pending},
 		{"show with --scope", []string{"memory", "show", "--scope", "project:1"},
 			undefined + "scope\n" + show},
-		{"set with --key", []string{"memory", "set", "-", "--key", "k"},
-			undefined + "key\n" + set},
+		{"show without an id", []string{"memory", "show"}, show},
+		{"--project is gone", []string{"memory", "--project", "1", "show", "1"}, _memoryUsage},
+		{"set is gone", []string{"memory", "set", "-"}, _memoryUsage},
 		{"add with --limit",
 			[]string{"memory", "add", "fact", "x", "--scope", "project:1", "--limit", "3"},
 			undefined + "limit\n" + add},
@@ -183,8 +140,8 @@ func TestCLI_MemoryEachCommandHasItsOwnFlags(t *testing.T) {
 		{"embed with --scope", []string{"memory", "embed", "openai", "--scope", "project:1"},
 			undefined + "scope\n" + embed},
 		{"embed --key without a provider", []string{"memory", "embed", "--key", "k"}, embed},
-		{"bare with a stray flag", []string{"memory", "--scope=project:1"},
-			undefined + "scope\n" + show},
+		{"bare", []string{"memory"}, _memoryUsage},
+		{"bare with a stray flag", []string{"memory", "--scope=project:1"}, _memoryUsage},
 		{"unknown word", []string{"memory", "forget", "1"}, _memoryUsage},
 	}
 	dir := t.TempDir()
