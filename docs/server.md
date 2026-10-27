@@ -677,12 +677,17 @@ a message wakes them.
   failure there leaves refs that no turn points to, and the delete is 500. The branch
   `feature/<slug>` is kept: it is the user's work. A feature with no worktree folder (no agent
   ever started) only has its rows deleted. Deleting a channel keeps worktrees and refs.
+  Right after the rows go, the memory items of the feature's `work_item:<id>` scope are
+  closed: pending candidates are rejected and accepted items retired, so nothing of it is left
+  in `reef memory pending`. Retired and rejected items are kept and still read.
 - `DELETE /projects/{id}` does the same for every feature of the project, and deletes the
   checkpoint refs of the turns of every channel of the project, quick sessions included (their
   refs are taken in the project folder). It checks every worktree first: one with uncommitted
   changes is 409 for that feature, and nothing is removed. Then it removes all worktrees,
   deletes the project rows, and last deletes the refs, in the same order and with the same
-  failure rule as a feature delete. Branches are kept.
+  failure rule as a feature delete. Branches are kept. Its memory items are closed the same
+  way, in the project's `project:<id>` scope and in the `work_item:<id>` scope of each of its
+  features.
 - The lead stays alive between turns, until `POST /channels/{id}/stop` or the server stops. A
   specialist's agent is stopped, and its token deleted, when its turn ends. Its next wake
   resumes its session. A background task a specialist started ends with its agent, and its

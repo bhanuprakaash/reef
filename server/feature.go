@@ -7,8 +7,10 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
 	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -210,6 +212,11 @@ func (s *server) deleteFeature(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := s.st.DeleteFeature(r.Context(), id); err != nil {
+		writeError(w, err)
+		return
+	}
+	scope := memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(id, 10)}
+	if err := s.ms.RetireScope(r.Context(), scope); err != nil {
 		writeError(w, err)
 		return
 	}

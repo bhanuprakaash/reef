@@ -6,7 +6,9 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 
+	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -211,6 +213,16 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 	if err := s.st.DeleteProject(r.Context(), id); err != nil {
 		writeError(w, err)
 		return
+	}
+	scopes := []memory.Ref{{Kind: memory.ScopeProject, ID: strconv.FormatInt(id, 10)}}
+	for _, f := range fs {
+		scopes = append(scopes, memory.Ref{Kind: memory.ScopeWorkItem, ID: strconv.FormatInt(f.ID, 10)})
+	}
+	for _, scope := range scopes {
+		if err := s.ms.RetireScope(r.Context(), scope); err != nil {
+			writeError(w, err)
+			return
+		}
 	}
 	if !gone {
 		if err := worktree.DeleteRefs(context.WithoutCancel(r.Context()), p.Path, refs); err != nil {

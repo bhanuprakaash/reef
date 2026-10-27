@@ -8,7 +8,42 @@ import (
 	"strings"
 	"syscall"
 	"testing"
+
+	"github.com/bhanuprakaash/reef/memory"
 )
+
+// seedMemory saves two accepted items and one candidate in scope through the server and
+// returns their ids, candidate last.
+func seedMemory(t *testing.T, env *liveEnv, scope string) []int64 {
+	t.Helper()
+	for _, body := range []string{"sessions, not JWT", "tabs"} {
+		if status, out := do(t, http.MethodPost, env.url+"/memory",
+			`{"kind":"fact","body":"`+body+`","scope":"`+scope+`"}`); status != 201 {
+			t.Fatalf("create %q = %d %s", body, status, out)
+		}
+	}
+	kind, id, _ := strings.Cut(scope, ":")
+	res, err := env.h.s.ms.Remember(context.Background(),
+		memory.Writer{Author: "ada", Role: "developer", Scope: memory.Ref{Kind: kind, ID: id}},
+		memory.Note{Kind: memory.KindFact, Body: "use sqlite", NeedsApproval: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return []int64{res.Item.ID - 2, res.Item.ID - 1, res.Item.ID}
+}
+
+func wantStatuses(t *testing.T, env *liveEnv, ids []int64, want ...string) {
+	t.Helper()
+	for i, id := range ids {
+		it, err := env.h.s.ms.Read(context.Background(), id)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if it.Status != want[i] {
+			t.Errorf("item %d (%s) status = %q, want %q", id, it.Body, it.Status, want[i])
+		}
+	}
+}
 
 func TestDeleteFeature_RemovesWorktreeAndCheckpointRefs(t *testing.T) {
 	env, tree := rollbackEnv(t)
@@ -30,6 +65,25 @@ func TestDeleteFeature_RemovesWorktreeAndCheckpointRefs(t *testing.T) {
 	gitIn(t, repo, "rev-parse", "--verify", "refs/heads/feature/login")
 	if status, _ := do(t, http.MethodGet, env.url+"/features/1", ""); status != 404 {
 		t.Errorf("GET feature after delete = %d, want 404", status)
+	}
+}
+
+func TestDeleteFeature_RetiresItsMemoryItems(t *testing.T) {
+	env, tree := rollbackEnv(t)
+	gitIn(t, tree, "add", ".")
+	gitIn(t, tree, "commit", "-m", "work")
+	mine := seedMemory(t, env, "work_item:1")
+	other := seedMemory(t, env, "work_item:2")
+
+	if status, body := do(t, http.MethodDelete, env.url+"/features/1", ""); status != 204 || body != "" {
+		t.Fatalf("delete = %d %q, want 204", status, body)
+	}
+
+	wantStatuses(t, env, mine, "retired", "retired", "rejected")
+	wantStatuses(t, env, other, "accepted", "accepted", "candidate")
+	pending, err := env.h.s.ms.Pending(context.Background())
+	if err != nil || len(pending) != 1 || pending[0].ID != other[2] {
+		t.Errorf("pending = %+v, %v; want only item %d", pending, err, other[2])
 	}
 }
 

@@ -243,6 +243,20 @@ func (s *Store) Retire(ctx context.Context, id int64) error {
 	return retire(ctx, s.db, id, nil, time.Now().UTC().Format(time.RFC3339Nano))
 }
 
+// RetireScope rejects the pending candidates and retires the accepted items of one scope,
+// all or nothing. Items already retired or rejected are left as they are.
+func (s *Store) RetireScope(ctx context.Context, scope Ref) error {
+	_, err := s.db.ExecContext(ctx,
+		`UPDATE memory SET status = CASE status WHEN ? THEN ? ELSE ? END, retired_at = ?
+		 WHERE scope_kind = ? AND scope_id = ? AND status IN (?, ?)`,
+		StatusCandidate, StatusRejected, StatusRetired, time.Now().UTC().Format(time.RFC3339Nano),
+		scope.Kind, scope.ID, StatusCandidate, StatusAccepted)
+	if err != nil {
+		return fmt.Errorf("retire scope %s:%s: %w", scope.Kind, scope.ID, err)
+	}
+	return nil
+}
+
 // Accept moves a candidate to accepted and retires the items it replaces, skipping any
 // already retired.
 func (s *Store) Accept(ctx context.Context, id int64) error {
