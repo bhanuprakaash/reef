@@ -963,3 +963,39 @@ func TestRunner_SendRunsAnyNumberOfToolCalls(t *testing.T) {
 		t.Errorf("turns = %+v, want one done turn", turns)
 	}
 }
+
+func TestRunner_CompactionWhileAbortingMakesTheNextTurnSendTheFirstPrompt(t *testing.T) {
+	bg := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateChannel(bg, store.Channel{
+		ProjectID: f.ProjectID, FeatureID: &f.ID, Name: "chat",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sa := &scriptAgent{
+		events:      make(chan agent.Event, 8),
+		script:      []agent.Event{{Kind: agent.KindText, Text: "par"}},
+		onInterrupt: agent.Event{Kind: agent.KindCompacted},
+	}
+	r := NewRunner(st, sa, ch.ID, "architect", "claude", "")
+	r.FirstPrompt = func(context.Context) (string, error) { return "FIRST PROMPT", nil }
+	ctx, cancel := context.WithCancel(bg)
+	defer cancel()
+
+	_ = sendAs(ctx, st, ch.ID, r.Run, "one", func(agent.Event) { cancel() })
+	sa.script, sa.onInterrupt = []agent.Event{{Kind: agent.KindTurnEnd}}, agent.Event{}
+	if err := sendAs(bg, st, ch.ID, r.Run, "two", func(agent.Event) {}); err != nil {
+		t.Fatal(err)
+	}
+
+	turns, err := st.Turns(bg, store.TurnFilter{ChannelID: &ch.ID})
+	if err != nil || len(turns) != 2 {
+		t.Fatalf("turns = %d, %v, want 2", len(turns), err)
+	}
+	for _, tr := range turns {
+		if !strings.HasPrefix(tr.Prompt, "FIRST PROMPT\n\n") {
+			t.Errorf("turn %d prompt = %q, want it to start with the first prompt", tr.ID, tr.Prompt)
+		}
+	}
+}

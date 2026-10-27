@@ -384,7 +384,8 @@ func (r *Runner) checkpointRef(turnID int64) (string, error) {
 
 // abort interrupts the agent and stores turn as failed with reason, keeping the reply
 // streamed so far in the thread of parent. It returns cause joined with the errors of those
-// steps. Usage the agent left in Events while stopping counts to the turn.
+// steps. Usage the agent left in Events while stopping counts to the turn, and a compaction
+// there is kept like one during the turn.
 func (r *Runner) abort(
 	ctx context.Context, turn store.Turn, cause error, reason, reply string, parent *int64,
 ) error {
@@ -396,8 +397,11 @@ drain:
 			if !ok {
 				break drain
 			}
-			if ev.Kind == agent.KindUsage && ev.Usage != nil {
+			switch {
+			case ev.Kind == agent.KindUsage && ev.Usage != nil:
 				turn.Usage.Add(*ev.Usage)
+			case ev.Kind == agent.KindCompacted:
+				turn.Compacted, r.firstPromptSent = true, false
 			}
 		default:
 			break drain
