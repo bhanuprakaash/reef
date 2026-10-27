@@ -210,7 +210,7 @@ One row per Work item. A Work item has a `type` that is only a label; it never c
 | `type` | string | `work item` (default), `bug`, `incident`, `investigation`, `task` or `improvement`, else `invalid`. A `PUT` without `type` keeps the old one |
 | `title` | string | required |
 | `description` | string | default `""` |
-| `status` | string | `backlog` (default), `queued`, `in_progress`, `needs_you`, `review`, `done` or `dropped`, else `invalid`. The store only keeps it; the rules for who may move it where are not enforced yet. A `PUT` without `status` keeps the old one |
+| `status` | string | `backlog` (default), `queued`, `in_progress`, `needs_you`, `review`, `done` or `dropped`, else `invalid`. `PATCH` moves it by the rules in `PATCH /work-items/{id}`. A `PUT` without `status` keeps the old one |
 | `teamId` | number? | the Team that works on it |
 | `proposedBy` | string | default `""`; set on create only |
 | `suggestedTeamId` | number? | |
@@ -220,7 +220,11 @@ One row per Work item. A Work item has a `type` that is only a label; it never c
 | `closedAt` | string? | `null` while the item is open. Set by `POST /work-items/{id}/close`, cleared by `/reopen`; never set by a client |
 | `acceptanceLines` | array | `{position, text, checked, note}` in order, `position` counting from 1. On create and `PUT`, the array replaces all lines (`position` is the index in it); a `PUT` without `acceptanceLines` keeps them. A line with no `text` is `invalid` |
 
-A `PUT` replaces every editable field: `title`, `description`, `type`, `status`, `teamId`, `suggestedTeamId`, `queuePosition`, `tokenBudget`, `acceptanceLines`. A field left out clears `teamId`, `suggestedTeamId` and `queuePosition`, so send the whole item back.
+A `PUT` replaces every editable field: `title`, `description`, `type`, `status`, `teamId`, `suggestedTeamId`, `tokenBudget`, `acceptanceLines`. A field left out clears `teamId` and `suggestedTeamId`, so send the whole item back. `queuePosition` is the queue's: a `PUT` keeps it.
+
+#### Team queue
+
+A Team works one top-level item at a time: one with status `in_progress` or `needs_you` (a unique index on `team_id` holds this). Moving an item to `queued` puts it last in its Team's queue, `queuePosition` 1, 2, 3; moving it from `review` back to `queued` puts it first. When the Team has no item in progress or needing the user, its first queued item moves to `in_progress` by itself: at once on a queue, after a move that frees the Team (to `review`, `done` or `dropped`), and at boot for a queued item of a free Team. The server then opens an active Space for a started item that has none, with the Team's lead, and sends the lead one message: `Work item N: <title>`, `Description:`, the numbered `Acceptance lines:` and `Brief:`, each `none` when empty, one line each. A `reef` note `Started from the queue.` follows in the Space. A sent-back item keeps its Space and gets no new prompt. A first turn that cannot run leaves a note saying so instead.
 
 ### work_item_github
 
@@ -503,7 +507,7 @@ tool calls.
 | `POST /work-items` | `projectId`, `parentId`, `type`, `title`, `description`, `status`, `acceptanceLines` and the other fields above | 201 | 400 unknown project, unknown parent, a parent that is a sub-item, bad type or status |
 | `GET /work-items/{id}` | | 200 | 404 |
 | `PUT /work-items/{id}` | the editable fields above; `status` is ignored, `PATCH` moves it | 200 | 400, 404 |
-| `PATCH /work-items/{id}` | `status`; the user moves the item: backlog and queued both ways, review to done (top-level) or back to queued, any status to dropped. The queue, the Space's pause and continue, `submit_for_review` and the lead move it by their own rules (R10, R41, R47) | 200 | 400 `invalid: work item N: <rule>` for a move the user may not make, or a parent to review while a sub-item is open; 404 |
+| `PATCH /work-items/{id}` | `status`; the user moves the item: backlog and queued both ways, review to done (top-level) or back to queued, any status to dropped. The Team queue starts the next queued item when the Team is free (see Team queue). The queue, the Space's pause and continue, `submit_for_review` and the lead move it by their own rules (R10, R41, R47) | 200 | 400 `invalid: work item N: <rule>` for a move the user may not make, or a parent to review while a sub-item is open; 404 |
 | `POST /work-items/{id}/close` | no body needed | 204; sets `closedAt` on the work item and on each of its Spaces, and stops their agents | 404, 409 a Space has a turn running (nothing is closed) |
 | `POST /work-items/{id}/reopen` | no body needed | 204; clears the work item's `closedAt` only, its Spaces stay closed | 404 |
 | `DELETE /work-items/{id}` | | 204; the work item's worktree and the checkpoint refs of its turns are removed, its branch is kept | 404, 409 the worktree has uncommitted changes (nothing is removed) |

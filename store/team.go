@@ -183,6 +183,19 @@ func (s *Store) Team(ctx context.Context, name string) (Team, error) {
 	return Team{Name: name, Roles: roles}, nil
 }
 
+// TeamByID returns the team with the id, lead first, or ErrNotFound.
+func (s *Store) TeamByID(ctx context.Context, id int64) (Team, error) {
+	var name string
+	switch err := s.db.QueryRowContext(ctx, "SELECT name FROM team WHERE id = ?", id).
+		Scan(&name); {
+	case errors.Is(err, sql.ErrNoRows):
+		return Team{}, fmt.Errorf("team %d: %w", id, ErrNotFound)
+	case err != nil:
+		return Team{}, fmt.Errorf("read team %d: %w", id, err)
+	}
+	return s.Team(ctx, name)
+}
+
 // roles lists the members in table (team_member or space_member) whose key column is id, lead
 // first, with the Teammate's persona, skills, backend and face. The access rules are the
 // member's own.

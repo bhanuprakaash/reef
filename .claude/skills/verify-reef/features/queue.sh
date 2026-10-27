@@ -1,0 +1,126 @@
+#!/usr/bin/env bash
+# Drives every line of queue.md and prints one PASS/FAIL line per sub-feature id.
+# Called by `verify-reef feature queue`, which exports H, REEF_VERIFY_RUN, E and S and runs
+# from the repo root. See ../SKILL.md and queue.md (the recipe).
+set -u
+: "${H:?}" "${REEF_VERIFY_RUN:?}" "${E:?}" "${S:?}"
+export REEF_VERIFY_RUN
+
+failed=0
+check() { # check ID OK DETAIL
+	if [ "$2" = 1 ]; then echo "PASS $1: $3"; else echo "FAIL $1: $3"; failed=1; fi
+}
+
+api_call() { # api_call METHOD PATH [JSON]: sets STATUS and BODY from one $H api call.
+	local out
+	out=$("$H" api "$@")
+	STATUS=$(printf '%s\n' "$out" | head -1 | cut -d' ' -f2)
+	BODY=$(printf '%s\n' "$out" | tail -n +2)
+}
+
+wait_done() { for i in $(seq 40); do [ "$(curl -s "http://$A/turns?space=$1&status=done" | grep -o '"id"' | wc -l | tr -d ' ')" = "$2" ] && return 0; sleep 1; done; echo "timeout: Space $1 never had $2 done turns" >&2; return 1; }
+wait_for() { for i in $(seq 40); do curl -s "http://$A$1" | grep -q "$2" && return 0; sleep 1; done; echo "timeout: $1 never had $2" >&2; return 1; }
+item() { "$H" sql "select status || ':' || coalesce(queue_position, '-') from work_item where id = $1" | tail -1; } # item ID -> status:position
+spaces() { "$H" sql "select count(*) from space where work_item_id = $1" | tail -1; } # spaces ITEM -> count
+start_server() { ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name queue >/dev/null; A=$(cat "$S/serve.addr"); }
+
+### Project (a git repo with one commit), the solo team (id 1) and three work items
+
+git -C "$S/cwd" init -q -b main
+echo one >"$S/cwd/a.txt"
+git -C "$S/cwd" add a.txt
+git -C "$S/cwd" -c user.name=v -c user.email=v@example.com commit -qm init
+
+start_server
+api_call POST /projects '{"name":"app","path":"'"$S"'/cwd"}'
+api_call POST /work-items '{"projectId":1,"title":"Login","description":"email and password","teamId":1,"acceptanceLines":[{"text":"wrong password is refused"},{"text":"session lasts a day"}]}'
+api_call POST /work-items '{"projectId":1,"title":"Logout","teamId":1}'
+api_call POST /work-items '{"projectId":1,"title":"Signup","teamId":1}'
+api_call PUT /work-items/1/brief '{"body":"sessions, not JWT","author":"user"}'
+
+### Queue the first item: it starts at once, with its Space and its first prompt
+
+api_call PATCH /work-items/1 '{"status":"queued"}'
+first_ok=1
+[ "$STATUS" = 200 ] || first_ok=0
+echo "$BODY" | grep -q '"status":"in_progress"' || first_ok=0
+wait_done 1 1 || first_ok=0
+first_ok_log=$(grep -c 'scenario=queue-lead' "$E/fake-claude.log")
+[ "$first_ok_log" = 1 ] || first_ok=0
+check queue-first-starts "$first_ok" "PATCH queued: $STATUS $BODY; Spaces of item 1: $(spaces 1); queue-lead replays: $first_ok_log"
+
+prompt=$("$H" sql "select body from message where space_id = 1 and author = 'user'" | tail -n +2)
+prompt_ok=1
+for want in "Work item 1: Login" "Description: email and password" "1. wrong password is refused" "2. session lasts a day" "Brief: sessions, not JWT"; do
+	echo "$prompt" | grep -qxF "$want" || prompt_ok=0
+done
+check queue-prompt "$prompt_ok" "first message of Space 1: $(echo "$prompt" | tr '\n' '|')"
+
+### The second item waits while the first runs
+
+api_call PATCH /work-items/2 '{"status":"queued"}'
+second_ok=1
+echo "$BODY" | grep -q '"status":"queued"' || second_ok=0
+echo "$BODY" | grep -q '"queuePosition":1' || second_ok=0
+[ "$(item 2)" = "queued:1" ] || second_ok=0
+[ "$(spaces 2)" = 0 ] || second_ok=0
+check queue-second-waits "$second_ok" "item 1 $(item 1), item 2 $(item 2), Spaces of item 2: $(spaces 2)"
+
+### Needs you keeps the Team busy: a cap pause on item 1 does not start item 2
+
+"$H" sql --write "update space set token_budget = 1 where id = 1" >/dev/null
+api_call POST /spaces/1/send '{"text":"hello"}'
+send_status=$STATUS
+needs_ok=1
+[ "$send_status" = 409 ] || needs_ok=0
+[ "$(item 1)" = "needs_you:-" ] || needs_ok=0
+[ "$(item 2)" = "queued:1" ] || needs_ok=0
+[ "$(spaces 2)" = 0 ] || needs_ok=0
+paused_detail="send over budget $send_status; item 1 $(item 1), item 2 $(item 2), Spaces of item 2: $(spaces 2)"
+api_call POST /spaces/1/continue
+[ "$STATUS" = 204 ] || needs_ok=0
+[ "$(item 1)" = "in_progress:-" ] || needs_ok=0
+[ "$(item 2)" = "queued:1" ] || needs_ok=0
+check queue-needs-you-holds "$needs_ok" "$paused_detail; after continue item 1 $(item 1), item 2 $(item 2)"
+
+### Item 1 reaches Review while the server is down; the restart starts item 2
+
+"$H" serve-stop
+"$H" sql --write "update work_item set status = 'review' where id = 1" >/dev/null
+before=$(item 2)
+start_server
+restart_ok=1
+wait_for "/spaces?workItem=2" '"workItemId":2' || restart_ok=0
+wait_done 2 1 || restart_ok=0
+[ "$before" = "queued:1" ] || restart_ok=0
+[ "$(item 1)" = "review:-" ] || restart_ok=0
+[ "$(item 2)" = "in_progress:-" ] || restart_ok=0
+note=$("$H" sql "select count(*) from message where space_id = 2 and author = 'reef' and body = 'Started from the queue.'" | tail -1)
+[ "$note" = 1 ] || restart_ok=0
+check queue-restart-starts "$restart_ok" "before restart item 2 $before; after: item 1 $(item 1), item 2 $(item 2), Spaces of item 2: $(spaces 2), started notes: $note"
+
+### Send item 1 back: it goes to position 1, ahead of an item queued earlier, and starts next
+
+api_call PATCH /work-items/3 '{"status":"queued"}'
+c_pos=$(item 3)
+api_call PATCH /work-items/1 '{"status":"queued"}'
+back_ok=1
+[ "$STATUS" = 200 ] || back_ok=0
+[ "$c_pos" = "queued:1" ] || back_ok=0
+[ "$(item 1)" = "queued:1" ] || back_ok=0
+[ "$(item 3)" = "queued:2" ] || back_ok=0
+[ "$(item 2)" = "in_progress:-" ] || back_ok=0
+check queue-send-back-first "$back_ok" "item 3 queued alone: $c_pos; after send back item 1 $(item 1), item 3 $(item 3), item 2 $(item 2)"
+
+api_call PATCH /work-items/2 '{"status":"dropped"}'
+next_ok=1
+[ "$STATUS" = 200 ] || next_ok=0
+[ "$(item 2)" = "dropped:-" ] || next_ok=0
+[ "$(item 1)" = "in_progress:-" ] || next_ok=0
+[ "$(item 3)" = "queued:1" ] || next_ok=0
+[ "$(spaces 1)" = 1 ] || next_ok=0
+check queue-send-back-starts "$next_ok" "after item 2 dropped: item 1 $(item 1), item 3 $(item 3), Spaces of item 1: $(spaces 1)"
+
+"$H" serve-stop
+
+exit $failed

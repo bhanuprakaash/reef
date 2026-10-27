@@ -118,6 +118,7 @@ func newHandler(
 	s.turnRoutes(mux)
 	s.inboxRoutes(mux)
 	s.startGitHubPoll()
+	s.startQueue()
 	return &Handler{h: guard(s.notifyInbox(mux)), s: s}
 }
 

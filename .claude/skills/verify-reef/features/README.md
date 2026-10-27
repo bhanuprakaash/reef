@@ -79,6 +79,8 @@ Drive these with `$H serve-start`, `$H api`, `$H sql`; each assumes a fresh data
 - [Direct conversations](./conversations.md): start a conversation with a Teammate, two conversations with their own sessions, the list newest first, continue an old one by resume, the Teammate's default access, the sidebar. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start`.
 - [GitHub poll](./github.md): a fake `gh` on `PATH`, a PR note and its dedupe, a finished check's note, a failed check's note and developer wake keyed by run, a restart, a solo-team Space (note only) and no `gh` on `PATH`. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
 
+- [Team queue](./queue.md): queue work items on a Team; the first starts at once with its Space and first prompt, the next only when the Team is free, Needs you keeps the Team busy, send back goes to position 1, a restart starts a queued item. Needs `ANTHROPIC_MODEL=sonnet` on `serve-start` and a git repo as the scratch cwd.
+
 ### Memory loop
 
 Drive these with `$H reef`, `$H mcp-call` and `$H sql`; no server needed. Each names its

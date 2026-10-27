@@ -204,7 +204,8 @@ func (s *Store) WorkItems(ctx context.Context, f WorkItemFilter) ([]WorkItem, er
 
 // UpdateWorkItem sets the editable fields of w.ID. An empty Type or a zero TokenBudget keeps the
 // old one, and nil AcceptanceLines keep the old lines; any other lines replace them. An item
-// never changes project, parent, proposer or status: MoveWorkItem moves the status.
+// never changes project, parent, proposer, status or queue position: MoveWorkItem moves the
+// status and the queue.
 func (s *Store) UpdateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error) {
 	old, err := s.WorkItem(ctx, w.ID)
 	if err != nil {
@@ -224,8 +225,8 @@ func (s *Store) UpdateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error
 	defer func() { _ = tx.Rollback() }()
 	_, err = tx.ExecContext(ctx,
 		"UPDATE work_item SET type = ?, title = ?, description = ?, status = ?, team_id = ?, "+
-			"suggested_team_id = ?, queue_position = ?, token_budget = ? WHERE id = ?",
-		w.Type, w.Title, w.Description, w.Status, w.TeamID, w.SuggestedTeamID, w.QueuePosition,
+			"suggested_team_id = ?, token_budget = ? WHERE id = ?",
+		w.Type, w.Title, w.Description, w.Status, w.TeamID, w.SuggestedTeamID,
 		w.TokenBudget, w.ID)
 	if err != nil {
 		return WorkItem{}, s.writeErr(ctx, "update work item", err, ErrInvalid,

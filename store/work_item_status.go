@@ -36,6 +36,10 @@ var _movers = []string{ByUser, ByQueue, ByLead, BySpace, BySubmit}
 //   - in_progress to review: submit, and only when every sub-item is done or dropped.
 //   - review to done: the user, on a top-level item. Review to queued, to send it back: the user.
 //   - any status but dropped to dropped: the user.
+//   - a top-level item with a Team: a Team has one item in progress or needing the user at a
+//     time. When one leaves those statuses, or an item joins the queue, the Team's first queued
+//     item moves to in_progress, if the Team is free. An item joining the queue goes last; one
+//     sent back from review goes first.
 //   - a sub-item: the lead moves it to any other status while it is not done or dropped, and
 //     is the one that sets it done.
 func (s *Store) MoveWorkItem(ctx context.Context, id int64, to, by string) (WorkItem, error) {
@@ -59,8 +63,16 @@ func (s *Store) MoveWorkItem(ctx context.Context, id int64, to, by string) (Work
 			}
 		}
 	}
-	res, err := s.db.ExecContext(ctx,
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return WorkItem{}, fmt.Errorf("begin move work item: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	res, err := tx.ExecContext(ctx,
 		"UPDATE work_item SET status = ? WHERE id = ? AND status = ?", to, id, w.Status)
+	if isUnique(err) {
+		return WorkItem{}, fmt.Errorf("%w: team %d is busy with another work item", ErrConflict, *w.TeamID)
+	}
 	if err != nil {
 		return WorkItem{}, fmt.Errorf("move work item: %w", err)
 	}
@@ -70,6 +82,20 @@ func (s *Store) MoveWorkItem(ctx context.Context, id int64, to, by string) (Work
 	}
 	if n == 0 {
 		return WorkItem{}, fmt.Errorf("work item %d changed status meanwhile: %w", id, ErrConflict)
+	}
+	teamed := w.ParentID == nil && w.TeamID != nil
+	if teamed {
+		if err := requeue(ctx, tx, w, to); err != nil {
+			return WorkItem{}, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return WorkItem{}, fmt.Errorf("commit move work item: %w", err)
+	}
+	if teamed && (to == _queued || holdsTeam(w.Status) && !holdsTeam(to)) {
+		if err := s.startNext(ctx, *w.TeamID); err != nil {
+			return WorkItem{}, err
+		}
 	}
 	return s.WorkItem(ctx, id)
 }

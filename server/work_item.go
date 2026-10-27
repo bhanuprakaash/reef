@@ -137,6 +137,7 @@ func (s *server) moveWorkItem(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
+	s.openStarted(r.Context())
 	writeJSON(w, http.StatusOK, f)
 }
 
