@@ -11,7 +11,7 @@ Five user surfaces exist so far:
   `Event` per line. Contract: `docs/agents.md`.
 - `reef serve` (`cmd/reef`) keeps Reef's data in one SQLite file and serves it as a JSON
   REST API. It also runs a Space's team: it routes messages between teammates, holds
-  gated wakes and caps hops. Contract: `docs/server.md`.
+  caps hops. Contract: `docs/server.md`.
 - The memory loop (`cmd/reef`): the CLI (`reef project`, `work-item`, `brief`, `decide`,
   `team`, `context`, `token`), `reef mcp` (stdio MCP tools for one teammate) and `reef
   chat` (one role in one space, in the terminal). Contract: `docs/memory.md`.
@@ -310,32 +310,32 @@ REEF_VERIFY_RUN=<id> $H ui cap       # token_budget=1, banner with reason, Conti
 REEF_VERIFY_RUN=<id> $H ui pages     # bad project path error, a work item added from the sidebar
 REEF_VERIFY_RUN=<id> $H ui stop      # Stop mid-turn shows Failed: interrupted, next message resumes
 REEF_VERIFY_RUN=<id> $H ui wrap      # Wrap up, Reject, /wrap, Approve, brief version 1, Wrapped + Reopen, Close feature
-REEF_VERIFY_RUN=<id> $H ui teams     # team picker, lead then architect, Thread pane reply, gate Approve
+REEF_VERIFY_RUN=<id> $H ui teams     # team picker, lead then architect, Thread pane reply, lead hands off to the developer with no approval
 REEF_VERIFY_RUN=<id> $H ui retry     # Stop mid-turn, Retry on the failed turn row, new turn ends done
 REEF_VERIFY_RUN=<id> $H ui rollback  # a turn writes a file, a commit is made, Rollback restores the tree
-REEF_VERIFY_RUN=<id> $H ui inbox     # gated approval shows in the inbox, one notification, Approve from the list, item opens its Space
+REEF_VERIFY_RUN=<id> $H ui inbox     # a waiting item shows in the inbox, one notification, Dismiss, item opens its Space
 REEF_VERIFY_RUN=<id> $H ui diff      # a turn writes a file, the review page lists it as A with its line; the Space Diff side panel scrolls a 400-line file and a 35-file list at 1280x800; the feature page's header meta line and the panel's expand button lead there; the file list opens flat, Tree view merges web/src/modules/deep with folders first, folder rows collapse, a tree file opens its diff, the diff still scrolls, the mode survives a reload and carries to the review page, phone keeps the full-path chips without the toggle
 REEF_VERIFY_RUN=<id> $H ui memory    # project page lists, adds and retires the project's memory items, stored in the database and surviving a reload; New feature and New quick session work from the page
 REEF_VERIFY_RUN=<id> $H ui inspector # full team: lead then developer turns, Inspector panel role blocks match the API, a developer turn expands to its prompt and a tool call
 REEF_VERIFY_RUN=<id> $H ui review    # review page: A/M/D list, struck-through deletion, No text changes, drafts sent as one message to the developer's latest thread
 REEF_VERIFY_RUN=<id> $H ui workshop  # /teams page edits a role's persona, keeps its mcpServers, shows reef team apply's errors, copies a team, next developer wake uses the new persona
 REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, types, Enter shows Captured and clears the box, a task work item is stored; a failing request shows its error
-REEF_VERIFY_RUN=<id> $H ui coordination # direct messages show as one item (waiting approval, working, completed, stopped, rejected, Retry) with a Coordination panel and a source-message link, at 1280x800 and 390x844 (needs `gated`)
+REEF_VERIFY_RUN=<id> $H ui coordination # direct messages show as one item (working, completed, stopped, failed, Retry) with a Coordination panel and a source-message link, at 1280x800 and 390x844 (needs `duo`)
 REEF_VERIFY_RUN=<id> $H ui team      # full team: header avatars ring the working role; Team opens a popover without changing Space width; Escape, outside click and X close it (needs `full`)
 REEF_VERIFY_RUN=<id> $H ui denials # a refused tool call shows a card with Add to role: the role row gets the pattern, its next start has it in --allowedTools; write-needing and codex roles get no Add (fake claude only)
 REEF_VERIFY_RUN=<id> $H ui subagent  # a claude Agent call shows as a subagent row with its nested tool calls, collapsed once it is done, and the same in the inspector (fake claude replay of `subagent-read`)
 REEF_VERIFY_RUN=<id> $H ui composer  # message box: one corner radius from 1 line to the height cap, no wrap of the placeholder, dropped or pasted files insert their path (stub desktop bridge) or their name, the clipboard chip, resize 1280 to 390
 REEF_VERIFY_RUN=<id> $H ui naming  # a Space started with its default name is renamed by the provider after the first message, in the sidebar and header; a typed name, a rename, a failed proposal keep theirs (needs `name-login`, `name-fail` fake scenarios)
 REEF_VERIFY_RUN=<id> $H ui hovercard # sidebar Space hovercard: delay, branch, changes and roles against REST, dismiss on leave, Escape, click and navigation, keyboard focus, light and dark, none at 390 px (needs the team `full`)
-REEF_VERIFY_RUN=<id> $H ui mention # hovercard on an @mention of a teammate in a Space: role, backend and model, persona, state, access, tools and gates against REST, Edit opens the team page with the role selected, unknown @word has no card, dismiss on leave, Escape, click, back, keyboard focus, flip at the right edge, light and dark, none at 390 px (needs the team `full`)
+REEF_VERIFY_RUN=<id> $H ui mention # hovercard on an @mention of a teammate in a Space: role, backend and model, persona, state, access and tools against REST, Edit opens the team page with the role selected, unknown @word has no card, dismiss on leave, Escape, click, back, keyboard focus, flip at the right edge, light and dark, none at 390 px (needs the team `full`)
 REEF_VERIFY_RUN=<id> $H ui providers # Settings Providers lists the detected installs with path and version, adds the fake claude folder as a second install (bad folder, wrong kind, taken name show the server error inline), a role picks it in the role panel and the team round-trips, Remove, at 1280x800 and 390x844 in dark and light
 REEF_VERIFY_RUN=<id> $H ui pr        # the header PR chip opens the PR panel: checks, Merge disabled while not mergeable, confirm dialog, merged state (fake gh, see features/window.md)
 ```
 
-`teams` needs the teams `duo` and `gated` (and `inbox` needs `gated`) applied to the `ui` folder first: run
+`teams` needs the teams `duo` and `full` (and `inbox`, `theme`, `phone`, `coordination` need `duo`) applied to the `ui` folder first: run
 `$H reef --data-name ui -- team apply FILE.json` for each before `serve-start --data-name ui` (the
 files are in `features/teams.md`). `inbox` counts every item of the server, so run it first, or
-on a folder of its own (`--data-name inbox`, with `gated` applied). `inspector`, `review` and `workshop`
+on a folder of its own (`--data-name inbox`, with `duo` applied). `inspector`, `review` and `workshop`
 need the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"`.
 
 Each scenario adds a project on the scratch cwd and makes it a git repo with one commit when it
