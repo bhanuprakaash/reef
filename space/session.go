@@ -428,6 +428,9 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	if err != nil {
 		return nil, err
 	}
+	if in.fork && r.Backend != "claude" {
+		last = store.Turn{} // only claude can resume a copy of a session
+	}
 	tok, err := s.st.CreateToken(wctx, s.ch.ID, role)
 	if err != nil {
 		return nil, err
@@ -678,20 +681,16 @@ func (s *Session) propose(
 	if err != nil {
 		return store.Proposal{}, err
 	}
-	// The prompt holds every pair's direct messages, so on claude the turn runs in a copy of
-	// the lead's session: the lead's own session never sees them.
-	fork := s.ch.Backend == "claude"
-	m, err := s.member(ctx, s.ch.Role, runInput{fork: fork})
+	// The prompt holds every pair's direct messages, so the turn runs in a copy of the lead's
+	// session on claude, and in a fresh thread on codex: the lead's own session never sees them.
+	m, err := s.member(ctx, s.ch.Role, runInput{fork: true})
 	if err != nil {
 		return store.Proposal{}, err
 	}
 	m.run.NoWake = true
 	defer func() {
-		m.run.NoWake = false
-		if fork {
-			if err := m.close(s.st); err != nil {
-				log.Printf("close wrap-up copy of %s of Space %d: %v", s.ch.Role, s.ch.ID, err)
-			}
+		if err := m.close(s.st); err != nil {
+			log.Printf("close wrap-up copy of %s of Space %d: %v", s.ch.Role, s.ch.ID, err)
 		}
 	}()
 	if err := s.run(ctx, m, runInput{text: direct + prompt, onEvent: onEvent}); err != nil {
@@ -782,10 +781,10 @@ func newestSessionTurn(
 	for _, t := range turns {
 		switch {
 		case t.Role != role || t.Backend != backend:
-		case t.WakeText == "":
-			// A wrap-up turn keeps no wake and runs in a copy of the session: it is not the one to resume.
 		case sessionMissing(t.Error):
 			last = store.Turn{}
+		case t.WakeText == "":
+			// A wrap-up turn keeps no wake and runs in a copy of the session: it is not the one to resume.
 		case t.SessionID != "":
 			last = t
 		}

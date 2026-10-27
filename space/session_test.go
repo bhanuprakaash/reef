@@ -1264,6 +1264,73 @@ func TestSession_WrapRunsInACopyOfTheLeadsSession(t *testing.T) {
 	}
 }
 
+func TestSession_CodexWrapRunsInAFreshThread(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch, err := st.CreateSpace(ctx, store.Space{
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "architect", Backend: "codex",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn, err := st.CreateTurn(ctx, store.Turn{
+		SpaceID: ch.ID, Role: "architect", Backend: "codex", SessionID: "thread-lead", WakeText: "go",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	turn.Status = "done"
+	if _, err := st.EndTurn(ctx, turn); err != nil {
+		t.Fatal(err)
+	}
+	ag := newRecordingAgent()
+	ag.st, ag.spaceID, ag.propose, ag.session = st, ch.ID, true, "thread-wrap"
+	s, err := Open(ctx, st, testMemory(t, st), t.TempDir(), "/bin/reef", ch.ID, NewTrees(t.TempDir()), ag.factory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if _, err := s.Wrap(ctx, discard); err != nil {
+		t.Fatal(err)
+	}
+	if !ag.started || ag.resumed != "" || !ag.closed || len(s.members) != 0 {
+		t.Errorf("started = %v, resumed = %q, closed = %v, members = %d, want a closed fresh thread",
+			ag.started, ag.resumed, ag.closed, len(s.members))
+	}
+	last, err := newestSessionTurn(ctx, st, ch.ID, "architect", "codex")
+	if err != nil || last.SessionID != "thread-lead" {
+		t.Errorf("thread to resume = %q, %v, want thread-lead, not the wrap-up's thread-wrap", last.SessionID, err)
+	}
+}
+
+func TestNewestSessionTurn_MissingSessionOnAWrapTurnResets(t *testing.T) {
+	ctx := context.Background()
+	st, f := openStore(t)
+	ch := sessionSpace(t, st, f, false)
+	for _, turn := range []store.Turn{
+		{SpaceID: ch.ID, Role: "architect", Backend: "claude", SessionID: "sess-lead", WakeText: "go"},
+		{SpaceID: ch.ID, Role: "architect", Backend: "claude", Status: "failed", Error: "No conversation found with session ID: sess-lead"},
+	} {
+		created, err := st.CreateTurn(ctx, turn)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if turn.Status == "" {
+			turn.Status = "done"
+		}
+		created.Status, created.Error = turn.Status, turn.Error
+		if _, err := st.EndTurn(ctx, created); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	last, err := newestSessionTurn(ctx, st, ch.ID, "architect", "claude")
+	if err != nil || last.SessionID != "" {
+		t.Errorf("session to resume = %q, %v, want none", last.SessionID, err)
+	}
+}
+
 func TestSession_WrapIgnoresBriefProposal(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
