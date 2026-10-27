@@ -831,7 +831,8 @@ lead's reply says `@architect ...`; the architect runs and posts a plan, a new t
 owns; the chain ends because the plan names no one. The lead gets no turn after the plan.
 
 `send_to_role` stores a direct request outside the public `message` table. When its sender's
-turn ends, only the named role wakes. Reaching the
+turn ends, only the named role wakes, and a turn that also handed off in its reply wakes both
+in the order the messages were stored. Reaching the
 hop or token cap pauses the chain with the held direct wakes. Direct and public wakes share
 the Space's hop count, so switching between them never resets it. Its prompt starts `[Space N, direct message N, chain
 N, source: direct request]`, names the sender, and carries the body. The recipient's ordinary
@@ -845,7 +846,10 @@ A stop that sheds a queued direct wake, and a user
 message that drops a held direct wake after a hop cap pause, each give the request a `failed`
 response with body `stopped` or `dropped`, so the window tells them from a delivery that failed.
 A request its sender sent in a turn that ends stopped or failed, or that a restart cuts, gets a `failed`
-response with body `stopped` or `failed` (a restart gives `failed`). Wrap-up prompts list the
+response with body `stopped` or `failed` (a restart gives `failed`). Closing a Space, by approving its
+wrap-up or closing its work item, gives each request still `waiting` in it a `stopped` response. The
+sender's next prompt carries a line `reef wrote: Your direct request to <role> failed: <first line>` for each of
+its `failed` requests whose failed response came after the sender's last sent turn. Wrap-up prompts list the
 Space's direct messages, marking a `failed` attempt `(failed)`. Partial output from a failed recipient turn is appended as
 a `failed` response attempt: it is inspectable but never routed. Retry appends a `done`
 response; a partial unique index allows only one `done` response per request, and only that
