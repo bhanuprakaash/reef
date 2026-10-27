@@ -240,6 +240,9 @@ func (s *Store) UpdateWorkItem(ctx context.Context, w WorkItem) (WorkItem, error
 	if changesTeam && !slices.Contains([]string{_backlog, _done, _dropped}, old.Status) {
 		return WorkItem{}, fmt.Errorf("%w: work item %d is %s and keeps its team", ErrInvalid, w.ID, old.Status)
 	}
+	if old.AcceptanceLines, err = readLines(ctx, tx, w.ID); err != nil {
+		return WorkItem{}, err
+	}
 	sameText := func(a, b AcceptanceLine) bool { return a.Text == b.Text }
 	if (old.Status == _review || old.Status == _done) && w.AcceptanceLines != nil &&
 		!slices.EqualFunc(old.AcceptanceLines, w.AcceptanceLines, sameText) {
@@ -348,24 +351,35 @@ func putLines(ctx context.Context, tx *sql.Tx, id int64, lines []AcceptanceLine)
 }
 
 func (s *Store) withLines(ctx context.Context, w WorkItem) (WorkItem, error) {
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT position, text, checked, note FROM acceptance_line WHERE work_item_id = ? "+
-			"ORDER BY position", w.ID)
+	lines, err := readLines(ctx, s.db, w.ID)
 	if err != nil {
-		return WorkItem{}, fmt.Errorf("read acceptance lines: %w", err)
+		return WorkItem{}, err
 	}
-	w.AcceptanceLines, err = scanAll(rows, func(r interface{ Scan(...any) error }) (AcceptanceLine, error) {
+	w.AcceptanceLines = lines
+	return w, nil
+}
+
+func readLines(ctx context.Context, q interface {
+	QueryContext(context.Context, string, ...any) (*sql.Rows, error)
+}, id int64) ([]AcceptanceLine, error) {
+	rows, err := q.QueryContext(ctx,
+		"SELECT position, text, checked, note FROM acceptance_line WHERE work_item_id = ? "+
+			"ORDER BY position", id)
+	if err != nil {
+		return nil, fmt.Errorf("read acceptance lines: %w", err)
+	}
+	lines, err := scanAll(rows, func(r interface{ Scan(...any) error }) (AcceptanceLine, error) {
 		var l AcceptanceLine
 		err := r.Scan(&l.Position, &l.Text, &l.Checked, &l.Note)
 		return l, err
 	})
 	if err != nil {
-		return WorkItem{}, fmt.Errorf("read acceptance lines: %w", err)
+		return nil, fmt.Errorf("read acceptance lines: %w", err)
 	}
-	if w.AcceptanceLines == nil {
-		w.AcceptanceLines = []AcceptanceLine{}
+	if lines == nil {
+		lines = []AcceptanceLine{}
 	}
-	return w, nil
+	return lines, nil
 }
 
 // validate also fills the default type and status.
