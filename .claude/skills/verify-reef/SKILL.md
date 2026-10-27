@@ -533,4 +533,4 @@ claude, above).
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |
 | `cleanup` | stops the server, kills only this run's pids, removes scratch, keeps evidence |
-| `cleanup-all` | `cleanup` for every run under the scratch root that no live process drives (a driver has `REEF_VERIFY_RUN=<id>` in its environment); a run with a live driver is left alone |
+| `cleanup-all` | `cleanup` for every run under the scratch root that no live process drives (a driver has `REEF_VERIFY_RUN=<id>` in its environment); a run with a live driver is left alone; a run between two Bash calls has no live driver, so run it only when no other agent is mid-run |
