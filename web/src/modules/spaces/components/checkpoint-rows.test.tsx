@@ -1,15 +1,24 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Turn } from '@/types/api';
 import { CheckpointRows } from './checkpoint-rows';
 
-const { useTurns, useRollbackTurn } = vi.hoisted(() => ({
-  useTurns: vi.fn(),
+const { useRollbackTurn } = vi.hoisted(() => ({
   useRollbackTurn: vi.fn(),
 }));
 
-const turn = { id: 7, spaceId: 2, role: 'developer', status: 'done', checkpoint: 'refs/c/7' };
+const turn: Turn = {
+  id: 7,
+  spaceId: 2,
+  role: 'developer',
+  status: 'done',
+  error: '',
+  wakeText: '',
+  retried: false,
+  checkpoint: 'refs/c/7',
+  startedAt: '2026-10-18T10:02:00Z',
+};
 
-vi.mock('@/modules/spaces/api/get-turns', () => ({ useTurns }));
 vi.mock('@/modules/spaces/api/rollback-turn', () => ({ useRollbackTurn }));
 
 describe('CheckpointRows', () => {
@@ -18,11 +27,13 @@ describe('CheckpointRows', () => {
   });
 
   it('folds several checkpoints into one row with one Roll back… button', () => {
-    useTurns.mockReturnValue({
-      data: [turn, { ...turn, id: 9 }, { ...turn, id: 12 }],
-    });
-
-    const markup = renderToStaticMarkup(<CheckpointRows spaceId={2} running={false} />);
+    const markup = renderToStaticMarkup(
+      <CheckpointRows
+        spaceId={2}
+        running={false}
+        turns={[turn, { ...turn, id: 9 }, { ...turn, id: 12 }]}
+      />,
+    );
 
     expect(markup).toContain('Checkpoints');
     expect(markup).toContain('3 checkpoints');
@@ -32,25 +43,23 @@ describe('CheckpointRows', () => {
   });
 
   it('names the checkpoint when there is only one', () => {
-    useTurns.mockReturnValue({ data: [turn] });
-
-    const markup = renderToStaticMarkup(<CheckpointRows spaceId={2} running={false} />);
+    const markup = renderToStaticMarkup(
+      <CheckpointRows spaceId={2} running={false} turns={[turn]} />,
+    );
 
     expect(markup).toContain('Checkpoint before turn 7 by developer');
     expect(markup).not.toContain('checkpoints');
   });
 
   it('disables Roll back… while a turn runs', () => {
-    useTurns.mockReturnValue({ data: [turn] });
-
-    const markup = renderToStaticMarkup(<CheckpointRows spaceId={2} running />);
+    const markup = renderToStaticMarkup(<CheckpointRows spaceId={2} running turns={[turn]} />);
 
     expect(markup).toContain('disabled');
   });
 
-  it('shows nothing when no turn is rollbackable', () => {
-    useTurns.mockReturnValue({ data: [] });
-
-    expect(renderToStaticMarkup(<CheckpointRows spaceId={2} running={false} />)).toBe('');
+  it('shows nothing when no checkpoint anchored to a bubble', () => {
+    expect(renderToStaticMarkup(<CheckpointRows spaceId={2} running={false} turns={[]} />)).toBe(
+      '',
+    );
   });
 });
