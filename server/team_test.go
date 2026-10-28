@@ -45,6 +45,39 @@ func TestTeamsOmitMCPServers(t *testing.T) {
 	}
 }
 
+func TestSpaceMembersOmitMCPServers(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	ctx := context.Background()
+	_, err = st.ApplyTeam(ctx, store.Team{Name: "keys", Roles: []store.Role{{
+		Name: "lead", Lead: true, Backend: "claude", MCPServers: []agent.MCPServer{
+			{Command: "my-mcp", Env: map[string]string{"API_KEY": "sk-secret-123"}},
+		},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, Name: "talk", Team: "keys", Backend: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	status, body := do(t, http.MethodGet, ts.URL+"/spaces/1/members", "")
+	if status != 200 || !strings.Contains(body, `"mcp":[{"name":"mcp1","label":"my-mcp"}]`) ||
+		strings.Contains(body, "mcpServers") || strings.Contains(body, "sk-secret-123") {
+		t.Errorf("GET members = %d %s, want the lead with an mcp label and no env", status, body)
+	}
+}
+
 func TestTeamsReturnFace(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -66,6 +99,90 @@ func TestTeamsReturnFace(t *testing.T) {
 	_, body := do(t, http.MethodGet, ts.URL+"/teams/crew", "")
 	if !strings.Contains(body, `"face":"otter"`) || strings.Count(body, `"face"`) != 1 {
 		t.Errorf("GET /teams/crew = %s, want face otter on the lead only", body)
+	}
+}
+
+func TestCreateUpdateAndDeleteTeam(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	developer, err := st.CreateTeammate(context.Background(), store.Teammate{
+		Name: "developer", Backend: "claude", Write: true,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if developer.ID != 2 {
+		t.Fatalf("developer id = %d, want 2", developer.ID)
+	}
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+
+	status, body := do(t, http.MethodPost, ts.URL+"/teams", `{
+		"name":"release","responsibility":"Ship Reef safely.",
+		"roles":[{"teammateId":1,"name":"lead","lead":true,"backend":"claude"},
+		{"teammateId":2,"name":"developer","backend":"claude","write":true}]}`)
+	if status != http.StatusCreated || !strings.Contains(body, `"responsibility":"Ship Reef safely."`) {
+		t.Fatalf("POST /teams = %d %s, want 201 with responsibility", status, body)
+	}
+	status, body = do(t, http.MethodPut, ts.URL+"/teams/release", `{
+		"responsibility":"Own releases and rollback.",
+		"roles":[{"teammateId":1,"name":"lead","lead":true,"backend":"claude"},
+		{"teammateId":2,"name":"developer","backend":"claude","write":true}]}`)
+	if status != http.StatusOK || !strings.Contains(body, `"responsibility":"Own releases and rollback."`) {
+		t.Fatalf("PUT /teams/release = %d %s, want 200 with updated responsibility", status, body)
+	}
+	status, body = do(t, http.MethodGet, ts.URL+"/teams/release", "")
+	if status != http.StatusOK || !strings.Contains(body, `"responsibility":"Own releases and rollback."`) {
+		t.Errorf("GET /teams/release = %d %s, want updated responsibility", status, body)
+	}
+	status, body = do(t, http.MethodDelete, ts.URL+"/teams/release", "")
+	if status != http.StatusNoContent || body != "" {
+		t.Errorf("DELETE /teams/release = %d %s, want 204", status, body)
+	}
+}
+
+func TestDeleteTeam_QueuedWorkItem(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	if _, err := st.CreateTeam(ctx, store.Team{Name: "release", Roles: []store.Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	project, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var teamID int64
+	if err := st.DB().QueryRowContext(ctx, "SELECT id FROM team WHERE name = 'release'").
+		Scan(&teamID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := st.CreateWorkItem(ctx, store.WorkItem{
+		ProjectID: project.ID,
+		Title:     "Ship desktop updater",
+		Status:    "queued",
+		TeamID:    &teamID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodDelete, "/teams/release", nil)
+	req.SetPathValue("name", "release")
+	res := httptest.NewRecorder()
+	(&server{st: st}).deleteTeam(res, req)
+	status, body := res.Code, strings.TrimSpace(res.Body.String())
+	want := `{"error":"conflict: team release has work item \"Ship desktop updater\" in queued"}`
+	if status != http.StatusConflict || body != want {
+		t.Errorf("DELETE /teams/release = %d %s, want 409 %s", status, body, want)
 	}
 }
 
@@ -92,7 +209,7 @@ func TestPutTeamModel(t *testing.T) {
 	}
 }
 
-func TestChannelTeam(t *testing.T) {
+func TestSpaceTeam(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -129,25 +246,25 @@ func TestChannelTeam(t *testing.T) {
 			`"backend":"codex","permissionMode":"read-only","paused":"","tokenBudget":1000000,"team":"core"`},
 		{"request overrides lead", `{"projectId":1,"name":"c","team":"core","backend":"claude"}`, 201,
 			`"backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"team":"core"`},
-		{"lead role names the channel", `{"projectId":1,"name":"e","team":"crew"}`, 201,
+		{"lead role names the space", `{"projectId":1,"name":"e","team":"crew"}`, 201,
 			`"name":"e","role":"boss"`},
 		{"unknown team", `{"projectId":1,"name":"d","team":"nope"}`, 400,
 			`{"error":"invalid: unknown team nope"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			status, body := do(t, http.MethodPost, ts.URL+"/channels", tt.give)
+			status, body := do(t, http.MethodPost, ts.URL+"/spaces", tt.give)
 			if status != tt.wantStatus || !strings.Contains(body, tt.wantIn) {
-				t.Errorf("POST /channels = %d %s, want %d containing %s",
+				t.Errorf("POST /spaces = %d %s, want %d containing %s",
 					status, body, tt.wantStatus, tt.wantIn)
 			}
 		})
 	}
 
 	status, body := do(t, http.MethodGet, ts.URL+"/teams/core", "")
-	want := `{"name":"core","roles":[{"name":"lead","lead":true,"write":false,"backend":"codex",` +
+	want := `{"id":2,"name":"core","responsibility":"","roles":[{"teammateId":2,"name":"lead","lead":true,"write":false,"backend":"codex",` +
 		`"permissionMode":"read-only","persona":"","skills":[],"tools":[],"mcp":[]},` +
-		`{"name":"architect","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"",` +
+		`{"teammateId":3,"name":"architect","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"",` +
 		`"skills":[],"tools":[],"mcp":[]}]}`
 	if status != 200 || body != want {
 		t.Errorf("GET /teams/core = %d %s, want %s", status, body, want)
@@ -177,7 +294,7 @@ func TestPutTeam(t *testing.T) {
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
 
-	// A body that omits mcpServers keeps the lead's stored one and updates the persona.
+	// A body that omits mcpServers keeps the lead's stored one, and a persona in it does not rewrite the Teammate.
 	body := `{"name":"crew","roles":[` +
 		`{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"","persona":"new persona","skills":[],"tools":[]},` +
 		`{"name":"developer","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"","skills":[],"tools":[]}]}`
@@ -189,8 +306,8 @@ func TestPutTeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Roles[0].Persona != "new persona" {
-		t.Errorf("lead persona = %q, want %q", got.Roles[0].Persona, "new persona")
+	if got.Roles[0].Persona != "old persona" {
+		t.Errorf("lead persona = %q, want %q", got.Roles[0].Persona, "old persona")
 	}
 	if len(got.Roles[0].MCPServers) != 1 || got.Roles[0].MCPServers[0].Args[1] != "sk-secret-456" {
 		t.Errorf("lead mcpServers = %+v, want the stored one kept", got.Roles[0].MCPServers)

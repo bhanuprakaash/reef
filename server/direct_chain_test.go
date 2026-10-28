@@ -18,11 +18,11 @@ import (
 
 // TestDirectQueueOrderAndSingleConcurrency runs two direct wakes created during one lead
 // turn, in stored order, and proves a direct turn never overlaps another (max concurrency 1)
-// using deterministic channels instead of sleeps.
+// using deterministic Spaces instead of sleeps.
 func TestDirectQueueOrderAndSingleConcurrency(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	env.fake.directRelease = make(chan struct{})
 	var directsCreated atomic.Bool
 	var started sync.Mutex
@@ -30,12 +30,12 @@ func TestDirectQueueOrderAndSingleConcurrency(t *testing.T) {
 	env.fake.onRun = func(role, text string, parent *int64) {
 		if role == "lead" && directsCreated.CompareAndSwap(false, true) {
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				ChannelID: int64(id), From: "lead", To: "architect", Body: "first",
+				SpaceID: int64(id), From: "lead", To: "architect", Body: "first",
 			}); err != nil {
 				t.Error(err)
 			}
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				ChannelID: int64(id), From: "lead", To: "architect", Body: "second",
+				SpaceID: int64(id), From: "lead", To: "architect", Body: "second",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -137,19 +137,19 @@ func directRanOrder(env *liveEnv, a, b string) bool {
 	return ia >= 0 && ib >= 0 && ia < ib
 }
 
-// TestDirectStopWhileQueuedRecipientStopped stops a channel while a direct wake is queued:
+// TestDirectStopWhileQueuedRecipientStopped stops a Space while a direct wake is queued:
 // the recipient is interrupted, never completes, and the sender sees a failed response while
 // the request stays sent (terminal).
 func TestDirectStopWhileQueuedRecipientStopped(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.directRelease = make(chan struct{})
 	env.fake.onRun = func(role, text string, parent *int64) {
 		if role == "lead" {
 			post("lead", "@architect plan", nil)
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				ChannelID: int64(id), From: "lead", To: "architect", Body: "queued direct",
+				SpaceID: int64(id), From: "lead", To: "architect", Body: "queued direct",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -163,7 +163,7 @@ func TestDirectStopWhileQueuedRecipientStopped(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("direct wake did not start")
 	}
-	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/stop", env.url, id), "")
 	// The interrupted direct turn leaves a failed response; the request stays sent.
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -187,63 +187,13 @@ func TestDirectStopWhileQueuedRecipientStopped(t *testing.T) {
 	sub.want(t, _idleFrame)
 }
 
-// TestDirectRejectedApprovalRecordsFailedResponse rejects a gated direct wake: nobody runs,
-// and the request gets a failed response with body "rejected" so it reads differently from a
-// completed exchange.
-func TestDirectRejectedApprovalRecordsFailedResponse(t *testing.T) {
-	ctx := context.Background()
-	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
-	roles := []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"},
-	}
-	if _, err := env.st.ApplyTeam(ctx, store.Team{Name: "core", Roles: roles,
-		Gates: []store.Gate{{From: "lead", To: "architect", On: true}}}); err != nil {
-		t.Fatal(err)
-	}
-	env.fake.onRun = func(role, text string, parent *int64) {
-		if role == "lead" {
-			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				ChannelID: int64(id), From: "lead", To: "architect", Body: "private ask",
-			}); err != nil {
-				t.Error(err)
-			}
-		}
-	}
-	sub := subscribeTo(t, env.url, id)
-	env.sendTo(t, id, "go")
-	var held []store.Approval
-	for deadline := time.Now().Add(5 * time.Second); len(held) == 0 && time.Now().Before(deadline); {
-		held, _ = env.st.PendingApprovals(ctx, int64(id))
-		time.Sleep(10 * time.Millisecond)
-	}
-	if len(held) != 1 || held[0].DirectMessageID == nil {
-		t.Fatalf("approvals = %+v, want one holding the direct request", held)
-	}
-	status, _ := do(t, http.MethodPost,
-		fmt.Sprintf("%s/channels/%d/approvals/%d", env.url, id, held[0].ID), `{"approve":false}`)
-	if status != 204 {
-		t.Fatalf("reject = %d, want 204", status)
-	}
-	for f := sub.next(t); f != "direct {}"; f = sub.next(t) {
-	}
-	direct, err := env.st.DirectMessages(ctx, int64(id), 0)
-	if err != nil || len(direct) != 2 {
-		t.Fatalf("direct = %+v, %v", direct, err)
-	}
-	if got := direct[1]; got.Status != store.DirectFailed || got.Body != "rejected" ||
-		got.From != "architect" || got.To != "lead" {
-		t.Errorf("response = %+v, want failed architect->lead with body rejected", got)
-	}
-}
-
-// waitHolds is the channel's hold count once it has any: a cap pause is stored just before
+// waitHolds is the Space's hold count once it has any: a cap pause is stored just before
 // its holds, both under the chain's lock.
-func waitHolds(t *testing.T, dir string, channelID int64) int {
+func waitHolds(t *testing.T, dir string, spaceID int64) int {
 	t.Helper()
 	n := 0
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if n = countHolds(t, dir, channelID); n != 0 {
+		if n = countHolds(t, dir, spaceID); n != 0 {
 			break
 		}
 	}
@@ -251,16 +201,16 @@ func waitHolds(t *testing.T, dir string, channelID int64) int {
 }
 
 // TestDirectHopCapHoldThenContinue drives direct exchanges until the shared hop cap pauses
-// the channel with exactly one hold, then Continue runs the pending direct wake and preserves
+// the Space with exactly one hold, then Continue runs the pending direct wake and preserves
 // private identity (a direct response, not a public message).
 func TestDirectHopCapHoldThenContinue(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	env.fake.onRun = func(role, text string, parent *int64) {
 		if role == "lead" {
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				ChannelID: int64(id), From: "lead", To: "architect", Body: "ping",
+				SpaceID: int64(id), From: "lead", To: "architect", Body: "ping",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -270,13 +220,13 @@ func TestDirectHopCapHoldThenContinue(t *testing.T) {
 	env.sendTo(t, id, "go")
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		ch, _ := env.st.Channel(ctx, int64(id))
+		ch, _ := env.st.Space(ctx, int64(id))
 		if ch.Paused != "" {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	ch, err := env.st.Channel(ctx, int64(id))
+	ch, err := env.st.Space(ctx, int64(id))
 	if err != nil || !strings.HasPrefix(ch.Paused, _hopReasonPrefix) {
 		t.Fatalf("paused = %q, %v, want hop cap", ch.Paused, err)
 	}
@@ -285,7 +235,7 @@ func TestDirectHopCapHoldThenContinue(t *testing.T) {
 	}
 	// Block the held direct wake so we can prove Continue started it.
 	env.fake.directRelease = make(chan struct{})
-	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
 	select {
@@ -330,13 +280,13 @@ func TestDirectHopCapHoldThenContinue(t *testing.T) {
 func TestDirectUserMessageFailsHeldWake(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	var ping atomic.Bool
 	ping.Store(true)
 	env.fake.onRun = func(role, _ string, _ *int64) {
 		if role == "lead" && ping.Load() {
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				ChannelID: int64(id), From: "lead", To: "architect", Body: "ping",
+				SpaceID: int64(id), From: "lead", To: "architect", Body: "ping",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -344,7 +294,7 @@ func TestDirectUserMessageFailsHeldWake(t *testing.T) {
 	}
 	env.sendTo(t, id, "go")
 	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
-		if ch, _ := env.st.Channel(ctx, int64(id)); ch.Paused != "" {
+		if ch, _ := env.st.Space(ctx, int64(id)); ch.Paused != "" {
 			break
 		}
 	}
@@ -385,19 +335,19 @@ func TestDirectUserMessageFailsHeldWake(t *testing.T) {
 func TestDirectTokenCapHoldThenContinue(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	env.fake.directRelease = make(chan struct{})
 	exhausted := false
 	env.fake.onRun = func(role, text string, parent *int64) {
 		if role == "lead" && !exhausted {
 			exhausted = true
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				ChannelID: int64(id), From: "lead", To: "architect", Body: "ping",
+				SpaceID: int64(id), From: "lead", To: "architect", Body: "ping",
 			}); err != nil {
 				t.Error(err)
 			}
 			turn, err := env.st.CreateTurn(ctx, store.Turn{
-				ChannelID: int64(id), Role: "lead", Backend: "claude",
+				SpaceID: int64(id), Role: "lead", Backend: "claude",
 			})
 			if err != nil {
 				t.Error(err)
@@ -414,20 +364,20 @@ func TestDirectTokenCapHoldThenContinue(t *testing.T) {
 	env.sendTo(t, id, "go")
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		ch, _ := env.st.Channel(ctx, int64(id))
+		ch, _ := env.st.Space(ctx, int64(id))
 		if ch.Paused != "" {
 			break
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	ch, err := env.st.Channel(ctx, int64(id))
+	ch, err := env.st.Space(ctx, int64(id))
 	if err != nil || !strings.HasPrefix(ch.Paused, "token budget") {
 		t.Fatalf("paused = %q, %v, want token budget pause", ch.Paused, err)
 	}
 	if nHold := waitHolds(t, env.dir, int64(id)); nHold != 1 {
 		t.Fatalf("holds = %d, want exactly one", nHold)
 	}
-	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/continue", env.url, id), ""); status != 204 {
+	if status, _ := do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/continue", env.url, id), ""); status != 204 {
 		t.Fatalf("continue = %d, want 204", status)
 	}
 	select {
@@ -459,8 +409,8 @@ func TestDirectTokenCapHoldThenContinue(t *testing.T) {
 }
 
 // countHolds opens a separate read connection to the live store's database file and counts
-// the channel's pending holds (approval rows of kind "hold").
-func countHolds(t *testing.T, dir string, channelID int64) int {
+// the Space's pending holds.
+func countHolds(t *testing.T, dir string, spaceID int64) int {
 	t.Helper()
 	db, err := sql.Open("sqlite", "file:"+dir+"/reef.db?_pragma=busy_timeout(5000)")
 	if err != nil {
@@ -469,8 +419,8 @@ func countHolds(t *testing.T, dir string, channelID int64) int {
 	defer func() { _ = db.Close() }()
 	var n int
 	if err := db.QueryRowContext(context.Background(),
-		"SELECT COUNT(*) FROM approval WHERE channel_id = ? AND kind = ?",
-		channelID, store.ApprovalHold).Scan(&n); err != nil {
+		"SELECT COUNT(*) FROM approval WHERE space_id = ? AND kind = ?",
+		spaceID, "hold").Scan(&n); err != nil {
 		t.Fatal(err)
 	}
 	return n
@@ -481,13 +431,13 @@ func countHolds(t *testing.T, dir string, channelID int64) int {
 func TestDirectRecipientStartFailure(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	env.fake.directFail = errors.New("recipient failed to start")
 	env.fake.onRun = func(role, text string, parent *int64) {
 		if role == "lead" {
 			post("lead", "@architect plan", nil)
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				ChannelID: int64(id), From: "lead", To: "architect", Body: "do it",
+				SpaceID: int64(id), From: "lead", To: "architect", Body: "do it",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -523,14 +473,14 @@ func TestDirectRecipientStartFailure(t *testing.T) {
 func TestDirectTurnFailureMarksQueuedWakesFailed(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	env.fake.directFail = errors.New("recipient failed")
 	var directsCreated atomic.Bool
 	env.fake.onRun = func(role, text string, parent *int64) {
 		if role == "lead" && directsCreated.CompareAndSwap(false, true) {
 			for _, body := range []string{"first", "second"} {
 				if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-					ChannelID: int64(id), From: "lead", To: "architect", Body: body,
+					SpaceID: int64(id), From: "lead", To: "architect", Body: body,
 				}); err != nil {
 					t.Error(err)
 				}
@@ -570,13 +520,13 @@ func TestDirectTurnFailureMarksQueuedWakesFailed(t *testing.T) {
 func TestDirectChainEndClearsActiveTurn(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	env.fake.directRelease = make(chan struct{})
 	var directsCreated atomic.Bool
 	env.fake.onRun = func(role, text string, parent *int64) {
 		if role == "lead" && directsCreated.CompareAndSwap(false, true) {
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				ChannelID: int64(id), From: "lead", To: "architect", Body: "design it",
+				SpaceID: int64(id), From: "lead", To: "architect", Body: "design it",
 			}); err != nil {
 				t.Error(err)
 			}
@@ -589,20 +539,20 @@ func TestDirectChainEndClearsActiveTurn(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("direct turn did not start")
 	}
-	if ch, err := env.st.Channel(ctx, int64(id)); err != nil || ch.ActiveTurn != store.ActiveTurnMessage {
+	if ch, err := env.st.Space(ctx, int64(id)); err != nil || ch.ActiveTurn != store.ActiveTurnMessage {
 		t.Fatalf("active turn while the chain runs = %q, %v, want message", ch.ActiveTurn, err)
 	}
 	close(env.fake.directRelease)
 	sub.want(t, _idleFrame)
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
-		ch, _ := env.st.Channel(ctx, int64(id))
+		ch, _ := env.st.Space(ctx, int64(id))
 		if ch.ActiveTurn == "" {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	ch, err := env.st.Channel(ctx, int64(id))
+	ch, err := env.st.Space(ctx, int64(id))
 	t.Fatalf("active turn after the chain ends = %q, %v, want empty", ch.ActiveTurn, err)
 }
 
@@ -612,15 +562,15 @@ func TestDirectChainEndClearsActiveTurn(t *testing.T) {
 func TestDirectRestartRecovery(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	req, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-		ChannelID: int64(id), From: "lead", To: "architect", Body: "do",
+		SpaceID: int64(id), From: "lead", To: "architect", Body: "do",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := env.st.CreateTurn(ctx, store.Turn{
-		ChannelID: int64(id), Role: "architect", Backend: "claude",
+		SpaceID: int64(id), Role: "architect", Backend: "claude",
 		WakeText: "do", DirectMessageID: req.IDRef(),
 	}); err != nil {
 		t.Fatal(err)
@@ -637,7 +587,7 @@ func TestDirectRestartRecovery(t *testing.T) {
 	defer func() { _ = db.Close() }()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, err := db.ExecContext(ctx,
-		"INSERT INTO turn (channel_id, role, backend, status, started_at, wake_text, direct_message_id) "+
+		"INSERT INTO turn (space_id, role, backend, status, started_at, wake_text, direct_message_id) "+
 			"VALUES (?, ?, ?, ?, ?, ?, ?)",
 		int64(id), "architect", "claude", "running", now, "gone", 999999); err != nil {
 		t.Fatal(err)
@@ -649,7 +599,7 @@ func TestDirectRestartRecovery(t *testing.T) {
 	if err != nil || tr.Status != "failed" || tr.Error != "server restarted" {
 		t.Fatalf("direct turn = %+v, %v, want failed server restarted", tr, err)
 	}
-	ch, err := env.st.Channel(ctx, int64(id))
+	ch, err := env.st.Space(ctx, int64(id))
 	if err != nil || ch.ActiveTurn != "" {
 		t.Fatalf("active_turn = %q, want cleared", ch.ActiveTurn)
 	}
@@ -686,19 +636,7 @@ func TestDirectRejectSendDuringWrap(t *testing.T) {
 	}
 }
 
-// TestDirectRejectSendDuringPromote rejects send_to_role while promoting.
-func TestDirectRejectSendDuringPromote(t *testing.T) {
-	st, tok := mcpFixture(t)
-	if err := st.SetActiveTurn(context.Background(), 1, store.ActiveTurnPromote); err != nil {
-		t.Fatal(err)
-	}
-	got, isErr := callTool(t, st, tok)("send_to_role", map[string]any{"to": "developer", "body": "hi"})
-	if !isErr || !strings.Contains(got, "promoting") {
-		t.Fatalf("send during promote = %q (error %v), want promoting error", got, isErr)
-	}
-}
-
-// TestDirectCloseRejectsSend rejects send_to_role on a closed channel.
+// TestDirectCloseRejectsSend rejects send_to_role on a closed Space.
 func TestDirectCloseRejectsSend(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
@@ -711,7 +649,7 @@ func TestDirectCloseRejectsSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	one := int64(1)
-	if _, err := st.CreateFeature(ctx, store.Feature{ProjectID: 1, Slug: "auth", Name: "Auth"}); err != nil {
+	if _, err := st.CreateWorkItem(ctx, store.WorkItem{ProjectID: 1, Title: "Auth"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core", Roles: []store.Role{
@@ -720,7 +658,8 @@ func TestDirectCloseRejectsSend(t *testing.T) {
 	}}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := st.CreateChannel(ctx, store.Channel{ProjectID: 1, FeatureID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude"})
+	closeSpace(t, st, 1)
+	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -733,7 +672,7 @@ func TestDirectCloseRejectsSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = db.Close() }()
-	if _, err := db.ExecContext(ctx, "UPDATE channel SET closed_at = ? WHERE id = ?",
+	if _, err := db.ExecContext(ctx, "UPDATE space SET closed_at = ? WHERE id = ?",
 		time.Now().UTC().Format(time.RFC3339Nano), ch.ID); err != nil {
 		t.Fatal(err)
 	}
@@ -752,98 +691,96 @@ func TestDirectSelfLoopPrevented(t *testing.T) {
 	}
 }
 
-// TestDirectDeveloperTesterRepeatedExchanges drives developer<->tester direct exchanges
-// through required gate approvals past the hop cap, since each approval resets the count.
-func TestDirectDeveloperTesterRepeatedExchanges(t *testing.T) {
-	ctx := context.Background()
-	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
-	roles := []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-		{Name: "developer", Write: true, Backend: "claude"},
-		{Name: "tester", Backend: "claude"},
-	}
-	if _, err := env.st.ApplyTeam(ctx, store.Team{Name: "core", Roles: roles,
-		Gates: []store.Gate{
-			{From: "developer", To: "tester", On: true},
-			{From: "tester", To: "developer", On: true},
-		}}); err != nil {
+// requestStates maps the id of each direct request in the Space to its state.
+func requestStates(t *testing.T, env *liveEnv, id int) map[int64]string {
+	t.Helper()
+	direct, err := env.st.DirectMessages(context.Background(), int64(id), 0)
+	if err != nil {
 		t.Fatal(err)
 	}
-	env.fake.onRun = func(role, text string, parent *int64) {
-		// Only the developer initiates direct exchanges; each one needs a gate approval.
-		// The tester's automatic reply wakes the developer back, which drives the next
-		// exchange, so the chain repeats until the shared hop cap.
-		if role == "developer" {
+	states := map[int64]string{}
+	for _, m := range direct {
+		if m.ReplyToID == nil {
+			states[m.ID] = m.State
+		}
+	}
+	return states
+}
+
+// TestDirectResponseWakeDroppedFailsRequest holds the response wake of an answered request at
+// the hop cap. The request reads answered while it is held and failed once a user message
+// drops the wake.
+func TestDirectResponseWakeDroppedFailsRequest(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, post := env.teamSpace(t)
+	var led atomic.Bool
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		switch {
+		case role == "lead" && !led.Swap(true):
+			post("lead", "@architect go", nil)
+		case role == "architect":
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				ChannelID: int64(id), From: "developer", To: "tester", Body: "ping",
+				SpaceID: int64(id), From: "architect", To: "lead", Body: "ping",
 			}); err != nil {
 				t.Error(err)
 			}
 		}
 	}
-	sub := subscribeTo(t, env.url, id)
-	// Wake the developer directly; its direct to the tester is held for approval.
-	if status, _ := env.sendTo(t, id, "@developer go"); status != 202 {
-		t.Fatalf("send = %d, want 202", status)
-	}
-	// Wait for the first held approval to appear.
-	deadline := time.Now().Add(5 * time.Second)
-	var firstID int64
-	for time.Now().Before(deadline) {
-		as, err := env.st.PendingApprovals(ctx, int64(id))
-		if err == nil && len(as) == 1 {
-			firstID = as[0].ID
+	env.sendTo(t, id, "go")
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		if ch, _ := env.st.Space(ctx, int64(id)); ch.Paused != "" {
 			break
 		}
-		time.Sleep(10 * time.Millisecond)
 	}
-	if firstID == 0 {
-		t.Fatal("no approval held for the developer's direct to the tester")
+	env.waitIdle(t, id)
+	if n := countHolds(t, env.dir, int64(id)); n != 1 {
+		t.Fatalf("holds = %d, want the one response wake", n)
 	}
-	approveNext := func() (int, int64) {
-		t.Helper()
-		as, err := env.st.PendingApprovals(ctx, int64(id))
-		if err != nil || len(as) != 1 {
-			t.Fatalf("pending approvals = %d, %v, want exactly one", len(as), err)
+	direct, err := env.st.DirectMessages(ctx, int64(id), 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	held := direct[len(direct)-1]
+	if held.ReplyToID == nil || held.Status != store.DirectDone || held.To != "architect" {
+		t.Fatalf("last direct message = %+v, want the done response held for the architect", held)
+	}
+	if got := requestStates(t, env, id)[*held.ReplyToID]; got != store.DirectAnswered {
+		t.Errorf("request state while its response wake is held = %q, want answered", got)
+	}
+
+	if status, _ := env.sendTo(t, id, "more"); status != 202 {
+		t.Fatalf("send while hop paused = %d, want 202", status)
+	}
+	env.waitIdle(t, id)
+	if got := requestStates(t, env, id)[*held.ReplyToID]; got != store.DirectFailed {
+		t.Errorf("request state after its response wake was dropped = %q, want failed", got)
+	}
+}
+
+// TestDirectResponseWakeFailureFailsRequest fails the turn the response of a request wakes.
+func TestDirectResponseWakeFailureFailsRequest(t *testing.T) {
+	ctx := context.Background()
+	env := newLiveEnv(t)
+	id, _ := env.teamSpace(t)
+	var runs atomic.Int32
+	env.fake.onRun = func(role, _ string, _ *int64) {
+		if role != "lead" {
+			return
 		}
-		status, _ := do(t, http.MethodPost,
-			fmt.Sprintf("%s/channels/%d/approvals/%d", env.url, id, as[0].ID), `{"approve":true}`)
-		if status != 204 && status != 409 {
-			t.Fatalf("approve = %d, want 204 or 409", status)
-		}
-		return status, as[0].ID
-	}
-	waitNext := func(prev int64) {
-		t.Helper()
-		deadline := time.Now().Add(5 * time.Second)
-		for time.Now().Before(deadline) {
-			as, err := env.st.PendingApprovals(ctx, int64(id))
-			if err == nil && len(as) == 1 && as[0].ID != prev {
-				return
+		if runs.Add(1) == 1 {
+			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
+				SpaceID: int64(id), From: "lead", To: "architect", Body: "ping",
+			}); err != nil {
+				t.Error(err)
 			}
-			time.Sleep(10 * time.Millisecond)
+			return
 		}
-		t.Fatal("no next approval after the exchange completed")
+		env.fake.directFail = errors.New("boom")
 	}
-	// Each approval runs a developer<->tester exchange (tester replies, which wakes the
-	// developer to send again). An approved wake resets the hop count, so the exchanges go on
-	// past the cap and the channel never pauses.
-	var lastID int64
-	for i := 0; i < 8; i++ {
-		status, aid := approveNext()
-		if status != 204 {
-			t.Fatalf("approve %d = %d, want 204", i+1, status)
-		}
-		lastID = aid
-		waitNext(lastID)
+	env.sendTo(t, id, "go")
+	env.waitIdle(t, id)
+	if got := requestStates(t, env, id); len(got) != 1 || got[1] != store.DirectFailed {
+		t.Errorf("request states = %v, want the one request failed", got)
 	}
-	ch, err := env.st.Channel(ctx, int64(id))
-	if err != nil || ch.Paused != "" {
-		t.Fatalf("paused = %q, %v, want not paused", ch.Paused, err)
-	}
-	if got := len(env.ranTexts()); got < 8 {
-		t.Fatalf("turns ran = %d, want repeated exchanges", got)
-	}
-	sub.want(t, _idleFrame)
 }

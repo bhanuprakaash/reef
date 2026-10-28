@@ -44,14 +44,14 @@ func (s *Scopes) Scan(src any) error {
 	return nil
 }
 
-// SentScopes lists the scopes of the turns of role in the session of channelID that sent
-// their prompt, oldest first. It reads no prompt, so it stays cheap as the channel grows.
+// SentScopes lists the scopes of the turns of role in the session of spaceID that sent
+// their prompt, oldest first. It reads no prompt, so it stays cheap as the Space grows.
 func (s *Store) SentScopes(
-	ctx context.Context, channelID int64, role, sessionID string,
+	ctx context.Context, spaceID int64, role, sessionID string,
 ) (Scopes, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT scopes FROM turn WHERE channel_id = ? AND role = ? AND session_id = ? "+
-			"AND sent = 1 AND scopes IS NOT NULL ORDER BY id", channelID, role, sessionID)
+		"SELECT scopes FROM turn WHERE space_id = ? AND role = ? AND session_id = ? "+
+			"AND sent = 1 AND scopes IS NOT NULL ORDER BY id", spaceID, role, sessionID)
 	if err != nil {
 		return nil, fmt.Errorf("list sent scopes: %w", err)
 	}

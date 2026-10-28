@@ -12,7 +12,7 @@ check() { # check ID OK DETAIL
 	if [ "$2" = 1 ]; then echo "PASS $1: $3"; else echo "FAIL $1: $3"; failed=1; fi
 }
 
-wait_done() { for i in $(seq 60); do [ "$(curl -s "http://$A/turns?channel=$1&status=done" | grep -o '"id"' | wc -l)" = "$2" ] && { sleep 1; return 0; }; sleep 3; done; echo "timeout: channel $1 never had $2 done turns" >&2; return 1; }
+wait_done() { for i in $(seq 60); do [ "$(curl -s "http://$A/turns?space=$1&status=done" | grep -o '"id"' | wc -l)" = "$2" ] && { sleep 1; return 0; }; sleep 3; done; echo "timeout: Space $1 never had $2 done turns" >&2; return 1; }
 
 # --- turn-permission: turn.md, allowed tools run, denied tools give isError ---
 printf 'reef-read-ok' >"$S/cwd/real-note.txt"
@@ -132,13 +132,13 @@ git -C "$S/real-proj" rev-parse --verify HEAD >/dev/null 2>&1 || {
 "$H" serve-start --data-name real
 A=$(cat "$S/serve.addr")
 "$H" api POST /projects '{"name":"real","path":"'"$S"'/real-proj"}' >/dev/null
-"$H" api POST /channels '{"projectId":1,"name":"real1","team":"realteam"}' >/dev/null
-"$H" api POST /channels '{"projectId":1,"name":"real2","team":"realteam"}' >/dev/null
+"$H" api POST /spaces '{"projectId":1,"name":"real1","team":"realteam"}' >/dev/null
+"$H" api POST /spaces '{"projectId":1,"name":"real2","team":"realteam"}' >/dev/null
 
 git -C "$S/real-proj" status --porcelain >"$S/real-status-before.txt"
-"$H" api POST /channels/1/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}' >/dev/null
+"$H" api POST /spaces/1/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}' >/dev/null
 sleep 1
-"$H" api POST /channels/2/send '{"text":"@tester Use the Write tool to create the file rtwrite.txt containing the word nope. If that is refused, try once with Bash. Say what happened."}' >/dev/null
+"$H" api POST /spaces/2/send '{"text":"@tester Use the Write tool to create the file rtwrite.txt containing the word nope. If that is refused, try once with Bash. Say what happened."}' >/dev/null
 sleep 4
 
 dev_line="" tester_line=""
@@ -161,7 +161,7 @@ case $tester_line in *--disallowedTools\ Edit,Write,MultiEdit,NotebookEdit*) ;; 
 [ -e "$S/real-proj/rtwrite.txt" ] && refused_ok=0
 git -C "$S/real-proj" status --porcelain | diff -q "$S/real-status-before.txt" - >/dev/null || refused_ok=0
 
-tester_session=$("$H" sql "select session_id from turn where channel_id = 2 order by id desc limit 1" | tail -1)
+tester_session=$("$H" sql "select session_id from turn where space_id = 2 order by id desc limit 1" | tail -1)
 tester_file=$(ls ~/.claude/projects/*/"$tester_session".jsonl 2>/dev/null | head -1)
 if [ -n "$tester_file" ]; then
 	errs=$(grep -c '"is_error":true' "$tester_file")
@@ -187,15 +187,15 @@ git -C "$S/real-settings" rev-parse --verify HEAD >/dev/null 2>&1 || {
 printf '{"permissions":{"allow":["Edit","Write","Edit(*)","Write(*)"]}}' >"$S/real-settings/.claude/settings.json"
 
 "$H" api POST /projects '{"name":"realsettings","path":"'"$S"'/real-settings"}' >/dev/null
-"$H" api POST /channels '{"projectId":2,"name":"real3","team":"realteam"}' >/dev/null
-"$H" api POST /channels/3/send '{"text":"@tester Use the Edit tool to replace the word one with nope in a.txt. Say what happened."}' >/dev/null
+"$H" api POST /spaces '{"projectId":2,"name":"real3","team":"realteam"}' >/dev/null
+"$H" api POST /spaces/3/send '{"text":"@tester Use the Edit tool to replace the word one with nope in a.txt. Say what happened."}' >/dev/null
 settings_ok=1
 wait_done 3 1 || settings_ok=0
 [ "$(cat "$S/real-settings/a.txt")" = one ] || settings_ok=0
 [ "$(git -C "$S/real-settings" status --porcelain)" = "?? .claude/" ] || settings_ok=0
-settings_session=$("$H" sql "select session_id from turn where channel_id = 3 order by id desc limit 1" | tail -1)
+settings_session=$("$H" sql "select session_id from turn where space_id = 3 order by id desc limit 1" | tail -1)
 settings_file=$(ls ~/.claude/projects/*/"$settings_session".jsonl 2>/dev/null | head -1)
-settings_reply=$("$H" sql "select body from message where channel_id = 3 and author = 'tester'" | tail -n +2)
+settings_reply=$("$H" sql "select body from message where space_id = 3 and author = 'tester'" | tail -n +2)
 refusal=$(python3 -I -c '
 import json, re, sys
 said = re.compile(r"\b(edit|write)\b.{0,80}\b(unavailable|not available|isn.t available|disabled|not allowed|disallowed|denied|blocked|refused|not permitted)|\bno\s+(edit|write)\b.{0,20}\btools?\b", re.I | re.S)

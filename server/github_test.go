@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -76,9 +76,9 @@ func TestStartGitHubPoll_PollsOnceAtStart(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 	ts.Close()
 	h1.Close()
 
@@ -129,9 +129,9 @@ func TestStartGitHubPoll_ConstructionDoesNotBlockOnSlowGh(t *testing.T) {
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 	ts.Close()
 	h.Close()
 
@@ -180,11 +180,11 @@ func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-	if status, body := do(t, http.MethodPost, ts.URL+"/channels",
-		`{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`); status != 201 {
-		t.Fatalf("create channel = %d %s", status, body)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	if status, body := do(t, http.MethodPost, ts.URL+"/spaces",
+		`{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`); status != 201 {
+		t.Fatalf("create Space = %d %s", status, body)
 	}
 
 	binDir := t.TempDir()
@@ -244,11 +244,11 @@ func TestPollGitHub_PRAndCheckNotesDedupeAndSurviveRestart(t *testing.T) {
 	}
 }
 
-// TestPollGitHub_NoteNotLostBeforeFeatureHasChannel covers a PR and a finished check that
-// appear while the feature has a worktree but no channel yet: noteFeature cannot post, so
-// neither must be recorded as posted, or the note is lost for good. Once the first channel
+// TestPollGitHub_NoteNotLostBeforeWorkItemHasSpace covers a PR and a finished check that
+// appear while the work item has a worktree but no Space yet: noteWorkItem cannot post, so
+// neither must be recorded as posted, or the note is lost for good. Once the first Space
 // exists, the next poll posts both notes, once.
-func TestPollGitHub_NoteNotLostBeforeFeatureHasChannel(t *testing.T) {
+func TestPollGitHub_NoteNotLostBeforeWorkItemHasSpace(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -264,9 +264,9 @@ func TestPollGitHub_NoteNotLostBeforeFeatureHasChannel(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-	// No channel yet: the feature's worktree exists, but noteFeature has nowhere to post.
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	// No Space yet: the work item's worktree exists, but noteWorkItem has nowhere to post.
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -278,11 +278,11 @@ func TestPollGitHub_NoteNotLostBeforeFeatureHasChannel(t *testing.T) {
 		`"conclusion":"SUCCESS","detailsUrl":"https://github.com/x/y/actions/runs/1/job/1"}]}`)
 
 	h.s.pollGitHub(context.Background())
-	if _, ok, err := st.FeatureGitHub(context.Background(), 1); err != nil || ok {
-		t.Fatalf("feature github stored with no channel yet: ok=%v, err=%v, want not stored, so it is retried", ok, err)
+	if _, ok, err := st.WorkItemGitHub(context.Background(), 1); err != nil || ok {
+		t.Fatalf("work item github stored with no Space yet: ok=%v, err=%v, want not stored, so it is retried", ok, err)
 	}
 
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 	h.s.pollGitHub(context.Background())
 	msgs, err := st.Messages(context.Background(), 1, 0)
 	if err != nil {
@@ -290,7 +290,7 @@ func TestPollGitHub_NoteNotLostBeforeFeatureHasChannel(t *testing.T) {
 	}
 	if len(msgs) != 2 || msgs[0].Body != "PR #12 open: https://github.com/x/y/pull/12" ||
 		msgs[1].Body != "build succeeded" {
-		t.Fatalf("messages once the first channel exists = %+v, want the PR note and the check note, once", msgs)
+		t.Fatalf("messages once the first Space exists = %+v, want the PR note and the check note, once", msgs)
 	}
 
 	h.s.pollGitHub(context.Background()) // repeat poll: neither note repeats
@@ -299,10 +299,10 @@ func TestPollGitHub_NoteNotLostBeforeFeatureHasChannel(t *testing.T) {
 	}
 }
 
-// TestPollGitHub_NotePublishesToOpenChannel covers a window already subscribed to the
-// channel: the poll's note must tell its stream a message arrived, so it refreshes without a
+// TestPollGitHub_NotePublishesToOpenSpace covers a window already subscribed to the
+// Space: the poll's note must tell its stream a message arrived, so it refreshes without a
 // reload.
-func TestPollGitHub_NotePublishesToOpenChannel(t *testing.T) {
+func TestPollGitHub_NotePublishesToOpenSpace(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -318,9 +318,9 @@ func TestPollGitHub_NotePublishesToOpenChannel(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -375,9 +375,9 @@ func TestPollGitHub_NewCheckRunNotesAgain(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -415,7 +415,7 @@ func TestPollGitHub_NewCheckRunNotesAgain(t *testing.T) {
 
 // TestPollGitHub_TwoRunsSameNameBothNoted covers a rollup that lists two check runs under the
 // same name, such as a matrix job or two workflows: each run is its own row, keyed by
-// (feature, name, run key), so both are noted once and neither is re-noted on a repeat poll.
+// (work item, name, run key), so both are noted once and neither is re-noted on a repeat poll.
 func TestPollGitHub_TwoRunsSameNameBothNoted(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -432,9 +432,9 @@ func TestPollGitHub_TwoRunsSameNameBothNoted(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -482,9 +482,9 @@ func TestPollGitHub_TimedOutAndStartupFailureCountAsFailed(t *testing.T) {
 			gitIn(t, repo, "add", ".")
 			gitIn(t, repo, "commit", "-m", "first")
 			do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-			do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-			do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
-			do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"featureId":1,"name":"main","backend":"claude"}`)
+			do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+			do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
+			do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"main","backend":"claude"}`)
 
 			binDir := t.TempDir()
 			writeFakeGh(t, binDir, repo)
@@ -524,8 +524,8 @@ func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, ts.URL+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, ts.URL+"/features/1/worktree", "")
+	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, ts.URL+"/work-items/1/worktree", "")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -536,7 +536,7 @@ func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
 	log.SetOutput(&buf)
 	t.Cleanup(func() { log.SetOutput(os.Stderr) })
 
-	t.Setenv("GH_FAKE_ERR", "no pull requests found for branch \"feature/demo\"")
+	t.Setenv("GH_FAKE_ERR", "no pull requests found for branch \"work-item/1\"")
 	h.s.pollGitHub(context.Background())
 	h.s.pollGitHub(context.Background())
 	if got := strings.Count(buf.String(), "no pull requests found"); got != 1 {
@@ -551,9 +551,9 @@ func TestPollGitHub_ErrorLoggedOncePerCause(t *testing.T) {
 	}
 }
 
-// ghFeatureSetup creates a git repo project, a feature with a worktree, and a channel of
+// ghWorkItemSetup creates a git repo project, a work item with a worktree, and a Space of
 // team on it, via h. It returns the repo path.
-func ghFeatureSetup(t *testing.T, url, team string) string {
+func ghWorkItemSetup(t *testing.T, url, team string) string {
 	t.Helper()
 	repo := t.TempDir()
 	gitIn(t, repo, "init", "-b", "main")
@@ -561,10 +561,10 @@ func ghFeatureSetup(t *testing.T, url, team string) string {
 	gitIn(t, repo, "add", ".")
 	gitIn(t, repo, "commit", "-m", "first")
 	do(t, http.MethodPost, url+"/projects", `{"name":"app","path":"`+repo+`"}`)
-	do(t, http.MethodPost, url+"/features", `{"projectId":1,"slug":"demo","name":"Demo"}`)
-	do(t, http.MethodPost, url+"/features/1/worktree", "")
-	do(t, http.MethodPost, url+"/channels",
-		`{"projectId":1,"featureId":1,"name":"main","team":"`+team+`","backend":"claude"}`)
+	do(t, http.MethodPost, url+"/work-items", `{"projectId":1,"title":"Demo"}`)
+	do(t, http.MethodPost, url+"/work-items/1/worktree", "")
+	do(t, http.MethodPost, url+"/spaces",
+		`{"projectId":1,"workItemId":1,"name":"main","team":"`+team+`","backend":"claude"}`)
 	return repo
 }
 
@@ -587,13 +587,13 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
-	h := newHandler(st, nil, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
-		fake.channelID.Store(id)
+	h := newHandler(st, nil, dir, space.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+		fake.spaceID.Store(id)
 		return fake, nil
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghFeatureSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -649,8 +649,8 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st2.Close() })
 	fake2 := &fakeSession{st: st2, started: make(chan struct{}, 1), release: make(chan struct{})}
-	h2 := newHandler(st2, nil, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
-		fake2.channelID.Store(id)
+	h2 := newHandler(st2, nil, dir, space.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+		fake2.spaceID.Store(id)
 		return fake2, nil
 	})
 	t.Cleanup(h2.Close)
@@ -664,8 +664,8 @@ func TestPollGitHub_FailedCheckWakesDeveloper(t *testing.T) {
 }
 
 // TestPollGitHub_SendNotRefusedDuringLogFetch covers the wake text, including its log fetch,
-// being built before the channel is claimed: a user send that arrives while a slow `gh run
-// view --log-failed` is still running finds the channel idle, not claimed, and so is not
+// being built before the Space is claimed: a user send that arrives while a slow `gh run
+// view --log-failed` is still running finds the Space idle, not claimed, and so is not
 // refused.
 func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
 	ctx := context.Background()
@@ -682,13 +682,13 @@ func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
-	h := newHandler(st, nil, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
-		fake.channelID.Store(id)
+	h := newHandler(st, nil, dir, space.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+		fake.spaceID.Store(id)
 		return fake, nil
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghFeatureSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -721,7 +721,7 @@ func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
 		t.Fatal("gh run view --log-failed did not start in time")
 	}
 
-	status, body := do(t, http.MethodPost, ts.URL+"/channels/1/send", `{"text":"hello"}`)
+	status, body := do(t, http.MethodPost, ts.URL+"/spaces/1/send", `{"text":"hello"}`)
 	if status == http.StatusConflict {
 		t.Fatalf("send during the log fetch = %d %s, want not refused", status, body)
 	}
@@ -733,10 +733,10 @@ func TestPollGitHub_SendNotRefusedDuringLogFetch(t *testing.T) {
 		`agent {"kind":"text","text":"hi"}`, `turn {"role":"developer","status":"done"}`)
 }
 
-// TestPollGitHub_FailedCheckWakeRetriesWhenChannelBusy covers a wake that cannot run because
-// the channel has a turn running: the note still posts, the wake is not lost, and is retried
-// once the channel goes idle, without re-logging the busy cause on every poll.
-func TestPollGitHub_FailedCheckWakeRetriesWhenChannelBusy(t *testing.T) {
+// TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy covers a wake that cannot run because
+// the Space has a turn running: the note still posts, the wake is not lost, and is retried
+// once the Space goes idle, without re-logging the busy cause on every poll.
+func TestPollGitHub_FailedCheckWakeRetriesWhenSpaceBusy(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
 	st, err := store.Open(dir)
@@ -751,13 +751,13 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenChannelBusy(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
-	h := newHandler(st, nil, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
-		fake.channelID.Store(id)
+	h := newHandler(st, nil, dir, space.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+		fake.spaceID.Store(id)
 		return fake, nil
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghFeatureSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -772,13 +772,13 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenChannelBusy(t *testing.T) {
 
 	sub := subscribeTo(t, ts.URL, 1)
 	sub.want(t, _idleFrame)
-	if status, body := do(t, http.MethodPost, ts.URL+"/channels/1/send", `{"text":"block"}`); status != 202 {
+	if status, body := do(t, http.MethodPost, ts.URL+"/spaces/1/send", `{"text":"block"}`); status != 202 {
 		t.Fatalf("send block = %d %s, want 202", status, body)
 	}
 	<-fake.started
 	sub.want(t, `turn {"role":"lead","status":"running"}`, `agent {"kind":"text","text":"part1"}`)
 
-	// The channel is busy: the check is still noted, but the wake cannot run.
+	// The Space is busy: the check is still noted, but the wake cannot run.
 	h.s.pollGitHub(ctx)
 	h.s.pollGitHub(ctx)
 	sub.want(t, "note {}", "note {}")
@@ -796,10 +796,10 @@ func TestPollGitHub_FailedCheckWakeRetriesWhenChannelBusy(t *testing.T) {
 		t.Fatalf("turns run while busy = %d, want 1 (only the blocking turn)", ran)
 	}
 	if got := strings.Count(buf.String(), "has a turn running"); got != 1 {
-		t.Errorf("log lines for the busy channel = %d, want 1; log:\n%s", got, buf.String())
+		t.Errorf("log lines for the busy Space = %d, want 1; log:\n%s", got, buf.String())
 	}
 
-	// The channel goes idle: the next poll wakes the developer, exactly once.
+	// The Space goes idle: the next poll wakes the developer, exactly once.
 	fake.release <- struct{}{}
 	sub.want(t, `agent {"kind":"text","text":"part2"}`, `turn {"role":"lead","status":"done"}`)
 
@@ -838,7 +838,7 @@ func TestPollGitHub_SoloTeamFailedCheckNotesOnlyNoWake(t *testing.T) {
 	h := New(st, testMemory(t, st), dataDir, "/bin/reef")
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghFeatureSetup(t, ts.URL, store.SoloTeam)
+	repo := ghWorkItemSetup(t, ts.URL, store.SoloTeam)
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -881,13 +881,13 @@ func TestPollGitHub_TwoFailedChecksOneWake(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
-	h := newHandler(st, nil, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
-		fake.channelID.Store(id)
+	h := newHandler(st, nil, dir, space.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+		fake.spaceID.Store(id)
 		return fake, nil
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghFeatureSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -950,7 +950,7 @@ func failedCheckJSON(n int) string {
 // TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap covers the CI wake's hop accounting: it
 // is attributed to an author other than the user, so it counts toward the hop cap like any
 // agent-originated wake instead of resetting it, and a run of failing checks, the way a
-// developer pushing fixes into a broken build would produce, pauses the channel once the cap
+// developer pushing fixes into a broken build would produce, pauses the Space once the cap
 // is hit rather than waking the developer forever.
 func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
 	ctx := context.Background()
@@ -967,13 +967,13 @@ func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	fake := &fakeSession{st: st, started: make(chan struct{}, 1), release: make(chan struct{})}
-	h := newHandler(st, nil, dir, channel.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
-		fake.channelID.Store(id)
+	h := newHandler(st, nil, dir, space.NewTrees(dir), func(_ context.Context, id int64) (session, error) {
+		fake.spaceID.Store(id)
 		return fake, nil
 	})
 	ts := httptest.NewServer(h)
 	t.Cleanup(ts.Close)
-	repo := ghFeatureSetup(t, ts.URL, "crew")
+	repo := ghWorkItemSetup(t, ts.URL, "crew")
 
 	binDir := t.TempDir()
 	writeFakeGh(t, binDir, repo)
@@ -1007,7 +1007,7 @@ func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
 		t.Fatalf("turns run after %d failed checks = %d, want %d", store.HopCap, ran, store.HopCap)
 	}
 
-	// The next failed check is still noted, but the hop cap pauses the channel instead of
+	// The next failed check is still noted, but the hop cap pauses the Space instead of
 	// waking the developer again: were the wake still attributed to the user, it would reset
 	// the count instead of hitting the cap.
 	setGhResponse(t, respFile, failedCheckJSON(store.HopCap+1))
@@ -1020,7 +1020,7 @@ func TestPollGitHub_FailedChecksCountAsHopsAndPauseAtCap(t *testing.T) {
 	if ran != store.HopCap {
 		t.Fatalf("turns run after the capped check = %d, want still %d: no developer turn ran", ran, store.HopCap)
 	}
-	if ch, err := st.Channel(ctx, 1); err != nil || ch.Paused != _hopPause {
-		t.Fatalf("channel = %+v, %v, want paused with the hop cap reason", ch, err)
+	if ch, err := st.Space(ctx, 1); err != nil || ch.Paused != _hopPause {
+		t.Fatalf("space = %+v, %v, want paused with the hop cap reason", ch, err)
 	}
 }

@@ -16,7 +16,7 @@ func TestSentScopes(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "chat"})
+	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "chat"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -33,7 +33,7 @@ func TestSentScopes(t *testing.T) {
 		{"developer", "s1", nil, true},
 	} {
 		turn, err := s.CreateTurn(ctx, Turn{
-			ChannelID: ch.ID, Role: tt.role, Backend: "claude", SessionID: tt.session,
+			SpaceID: ch.ID, Role: tt.role, Backend: "claude", SessionID: tt.session,
 			Scopes: tt.scopes,
 		})
 		if err != nil {

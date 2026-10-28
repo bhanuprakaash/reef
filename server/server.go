@@ -15,8 +15,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 	"github.com/bhanuprakaash/reef/worktree"
 )
@@ -25,9 +25,9 @@ type server struct {
 	st      *store.Store
 	ms      *memory.Store
 	dataDir string
-	trees   *channel.Trees
-	open    func(ctx context.Context, channelID int64) (session, error)
-	// name proposes a channel name from its first message, with the channel's backend.
+	trees   *space.Trees
+	open    func(ctx context.Context, spaceID int64) (session, error)
+	// name proposes a Space name from its first message, with the Space's backend.
 	name func(ctx context.Context, backend, message string) (string, error)
 
 	ctx    context.Context
@@ -45,15 +45,15 @@ type server struct {
 	inboxMu   sync.Mutex
 	inboxWake chan struct{}
 
-	// ghMu guards ghNoGhLogged and ghFeatureErrLogged: the first github poll runs on its
+	// ghMu guards ghNoGhLogged and ghWorkItemErrLogged: the first github poll runs on its
 	// own goroutine and can overlap a caller that polls the server right after construction.
 	ghMu sync.Mutex
 	// ghNoGhLogged is set once the github poll has logged that gh is not on PATH, so it
 	// logs that once, not every poll.
 	ghNoGhLogged bool
-	// ghFeatureErrLogged is the last gh error logged for a feature, so the poll logs a
+	// ghWorkItemErrLogged is the last gh error logged for a work item, so the poll logs a
 	// cause once and logs again only when it changes.
-	ghFeatureErrLogged map[int64]string
+	ghWorkItemErrLogged map[int64]string
 }
 
 // Handler serves the API. Close it when done.
@@ -64,9 +64,9 @@ type Handler struct {
 
 // New returns the API over st.
 func New(st *store.Store, ms *memory.Store, dataDir, exe string) *Handler {
-	trees := channel.NewTrees(dataDir)
-	return newHandler(st, ms, dataDir, trees, func(ctx context.Context, channelID int64) (session, error) {
-		sess, err := channel.Open(ctx, st, ms, dataDir, exe, channelID, trees, channel.NewAgent)
+	trees := space.NewTrees(dataDir)
+	return newHandler(st, ms, dataDir, trees, func(ctx context.Context, spaceID int64) (session, error) {
+		sess, err := space.Open(ctx, st, ms, dataDir, exe, spaceID, trees, space.NewAgent)
 		if err != nil {
 			return nil, err
 		}
@@ -80,15 +80,15 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) { h.h.ServeH
 func (h *Handler) Close() { h.s.close() }
 
 func newHandler(
-	st *store.Store, ms *memory.Store, dataDir string, trees *channel.Trees,
-	open func(ctx context.Context, channelID int64) (session, error),
+	st *store.Store, ms *memory.Store, dataDir string, trees *space.Trees,
+	open func(ctx context.Context, spaceID int64) (session, error),
 ) *Handler {
 	ctx, cancel := context.WithCancel(context.Background())
 	s := &server{
-		st: st, ms: ms, dataDir: dataDir, trees: trees, open: open, name: channel.ProposeName,
+		st: st, ms: ms, dataDir: dataDir, trees: trees, open: open, name: space.ProposeName,
 		ctx: ctx, cancel: cancel,
 		quit: make(chan struct{}), lives: map[int64]*live{}, deleting: map[int64]int{},
-		inboxWake: make(chan struct{}), ghFeatureErrLogged: map[int64]string{},
+		inboxWake: make(chan struct{}), ghWorkItemErrLogged: map[int64]string{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, _ *http.Request) {
@@ -104,25 +104,26 @@ func newHandler(
 	mux.HandleFunc("/", notFound)
 	s.projectRoutes(mux)
 	s.profileRoutes(mux)
-	s.featureRoutes(mux)
-	s.channelRoutes(mux)
+	s.workItemRoutes(mux)
+	s.spaceRoutes(mux)
 	s.teamRoutes(mux)
+	s.teammateRoutes(mux)
 	s.providerRoutes(mux)
 	s.skillRoutes(mux)
 	s.liveRoutes(mux)
 	s.turnOpRoutes(mux)
 	s.proposalRoutes(mux)
-	s.taskRoutes(mux)
 	s.decisionRoutes(mux)
 	s.memoryRoutes(mux)
 	s.turnRoutes(mux)
 	s.inboxRoutes(mux)
 	s.startGitHubPoll()
+	s.startQueue()
 	return &Handler{h: guard(s.notifyInbox(mux)), s: s}
 }
 
 // notifyInbox tells the inbox streams after each request that may write: it can add, clear or
-// delete an item that no channel event reports, such as the rejection of an approval.
+// delete an item that no Space event reports, such as dismissing a waiting item.
 func (s *server) notifyInbox(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		next.ServeHTTP(w, r)

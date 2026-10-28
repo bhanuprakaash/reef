@@ -153,10 +153,10 @@ func (s *server) putProjectMemory(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, m)
 }
 
-// deleteProject deletes the project, the worktrees of its features and the checkpoint refs of
-// the turns of all its channels, quick sessions included. A worktree with uncommitted changes
-// is 409 and nothing is removed; so is a channel with a turn running elsewhere, or open in
-// reef chat. Branches are kept. A running turn is stopped first, as for a feature delete. A
+// deleteProject deletes the project, the worktrees of its work items and the checkpoint refs of
+// the turns of all its Spaces, quick sessions included. A worktree with uncommitted changes
+// is 409 and nothing is removed; so is a Space with a turn running elsewhere, or open in
+// reef chat. Branches are kept. A running turn is stopped first, as for a work item delete. A
 // project folder that is gone is not git cleaned up: worktree folders, if any, are just
 // removed.
 func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
@@ -170,22 +170,22 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	lift, err := s.stopChannels(r.Context(), store.ChannelFilter{ProjectID: &id})
+	lift, err := s.stopSpaces(r.Context(), store.SpaceFilter{ProjectID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
 	defer lift()
-	if err := s.channelsInUse(r.Context(), store.ChannelFilter{ProjectID: &id}); err != nil {
+	if err := s.spacesInUse(r.Context(), store.SpaceFilter{ProjectID: &id}); err != nil {
 		writeError(w, err)
 		return
 	}
-	fs, err := s.st.Features(r.Context(), &id)
+	fs, err := s.st.WorkItems(r.Context(), store.WorkItemFilter{ProjectID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	refs, err := s.checkpointRefs(r.Context(), store.ChannelFilter{ProjectID: &id})
+	refs, err := s.checkpointRefs(r.Context(), store.SpaceFilter{ProjectID: &id})
 	if err != nil {
 		writeError(w, err)
 		return
@@ -193,7 +193,7 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 	gone := projectGone(p.Path)
 	if !gone {
 		for _, f := range fs {
-			if err := s.checkFeatureTree(r.Context(), p, f); err != nil {
+			if err := s.checkWorkItemTree(r.Context(), p, f); err != nil {
 				writeError(w, err)
 				return
 			}
@@ -201,9 +201,9 @@ func (s *server) deleteProject(w http.ResponseWriter, r *http.Request) {
 	}
 	for _, f := range fs {
 		if gone {
-			err = os.RemoveAll(worktree.Path(s.dataDir, p.ID, f.Slug))
+			err = os.RemoveAll(worktree.Path(s.dataDir, p.ID, f.TreeKey()))
 		} else {
-			err = s.removeFeatureTree(r.Context(), p, f)
+			err = s.removeWorkItemTree(r.Context(), p, f)
 		}
 		if err != nil {
 			writeError(w, err)

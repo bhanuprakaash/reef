@@ -24,8 +24,8 @@ func TestGetInspector(t *testing.T) {
 	t.Cleanup(h.Close)
 
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"c","backend":"claude"}`)
-	if _, err := st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "architect", Backend: "claude"}); err != nil {
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"c","backend":"claude"}`)
+	if _, err := st.CreateTurn(ctx, store.Turn{SpaceID: 1, Role: "architect", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	cost := 0.05
@@ -43,7 +43,7 @@ func TestGetInspector(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	status, body := do(t, http.MethodGet, ts.URL+"/channels/1/inspector", "")
+	status, body := do(t, http.MethodGet, ts.URL+"/spaces/1/inspector", "")
 	if status != 200 {
 		t.Fatalf("status = %d, body = %s", status, body)
 	}
@@ -58,9 +58,9 @@ func TestGetInspector(t *testing.T) {
 		t.Errorf("body = %s, want it to contain %s and %s", body, wantRole, wantTurn)
 	}
 
-	status, body = do(t, http.MethodGet, ts.URL+"/channels/9/inspector", "")
+	status, body = do(t, http.MethodGet, ts.URL+"/spaces/9/inspector", "")
 	if status != 404 {
-		t.Errorf("unknown channel: status = %d, body = %s", status, body)
+		t.Errorf("unknown Space: status = %d, body = %s", status, body)
 	}
 }
 
@@ -77,8 +77,8 @@ func TestGetInspectorNestsSubagentToolCalls(t *testing.T) {
 	t.Cleanup(h.Close)
 
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"c","backend":"claude"}`)
-	if _, err := st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "developer", Backend: "claude"}); err != nil {
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"c","backend":"claude"}`)
+	if _, err := st.CreateTurn(ctx, store.Turn{SpaceID: 1, Role: "developer", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	agentCall, err := st.CreateToolCall(ctx, 1, 0, "Agent", `{"subagent_type":"comment-sicko"}`)
@@ -92,7 +92,7 @@ func TestGetInspectorNestsSubagentToolCalls(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	status, body := do(t, http.MethodGet, ts.URL+"/channels/1/inspector", "")
+	status, body := do(t, http.MethodGet, ts.URL+"/spaces/1/inspector", "")
 	if status != 200 {
 		t.Fatalf("status = %d, body = %s", status, body)
 	}
@@ -117,8 +117,8 @@ func TestGetInspectorNullCostForCodex(t *testing.T) {
 	t.Cleanup(h.Close)
 
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/channels", `{"projectId":1,"name":"c","backend":"codex"}`)
-	if _, err := st.CreateTurn(ctx, store.Turn{ChannelID: 1, Role: "developer", Backend: "codex"}); err != nil {
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"c","backend":"codex"}`)
+	if _, err := st.CreateTurn(ctx, store.Turn{SpaceID: 1, Role: "developer", Backend: "codex"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := st.EndTurn(ctx, store.Turn{
@@ -128,7 +128,7 @@ func TestGetInspectorNullCostForCodex(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	status, body := do(t, http.MethodGet, ts.URL+"/channels/1/inspector", "")
+	status, body := do(t, http.MethodGet, ts.URL+"/spaces/1/inspector", "")
 	if status != 200 {
 		t.Fatalf("status = %d, body = %s", status, body)
 	}

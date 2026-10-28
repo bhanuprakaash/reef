@@ -1,4 +1,4 @@
-// Package worktree runs the git commands behind a feature's worktree.
+// Package worktree runs the git commands behind a work item's worktree.
 package worktree
 
 import (
@@ -21,18 +21,18 @@ const _fetchTimeout = 30 * time.Second
 var ErrNoCommit = errors.New("no commit to snapshot")
 
 // ErrNoRepo is returned by Ensure when the project folder is not a git repo with a commit.
-var ErrNoRepo = errors.New("features need the project folder to be a git repo with a commit")
+var ErrNoRepo = errors.New("work items need the project folder to be a git repo with a commit")
 
 // ErrDirty is returned by Remove for a worktree with uncommitted changes.
 var ErrDirty = errors.New("uncommitted changes")
 
-// Path is where the worktree of the feature with slug in project projectID lives.
-func Path(dataDir string, projectID int64, slug string) string {
-	return filepath.Join(dataDir, "worktrees", strconv.FormatInt(projectID, 10), slug)
+// Path is where the worktree of the work item with tree key key in project projectID lives.
+func Path(dataDir string, projectID int64, key string) string {
+	return filepath.Join(dataDir, "worktrees", strconv.FormatInt(projectID, 10), key)
 }
 
-// Branch is the branch a feature works on.
-func Branch(slug string) string { return "feature/" + slug }
+// Branch is the branch a work item works on.
+func Branch(key string) string { return "work-item/" + key }
 
 // ValidBranch reports whether name can be a branch name. A leading dash is refused: name is
 // passed to git fetch as an argument.
@@ -94,7 +94,7 @@ func fetch(ctx context.Context, repo, branch string) {
 	}
 }
 
-// baseRef is the ref a feature branch starts from, so it does not inherit the commits of
+// baseRef is the ref a work item branch starts from, so it does not inherit the commits of
 // whatever branch repo has checked out: origin/branch when it exists, else the local branch.
 // An empty branch, or one that exists in neither form, gives the local branch origin/HEAD
 // names, else local main, else master, else HEAD.

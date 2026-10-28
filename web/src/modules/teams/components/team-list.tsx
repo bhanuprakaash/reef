@@ -13,7 +13,6 @@ export function TeamList({ teams, selected, onSelect }: Props) {
     >
       {teams.map((t) => {
         const current = t.name === selected;
-        const gates = t.gates?.length ?? 0;
         return (
           <div
             key={t.name}
@@ -32,13 +31,10 @@ export function TeamList({ teams, selected, onSelect }: Props) {
             </div>
             <div className="mt-2.5 flex">
               {t.roles.map((r) => (
-                <Creature key={r.name} role={r.name} face={r.face} size={26} animate />
+                <Creature key={r.name} look={r} size={26} animate />
               ))}
             </div>
-            <div className="mt-2 text-xs text-muted">
-              {plural(t.roles.length, 'role')}
-              {gates > 0 && ` · ${plural(gates, 'gate')}`}
-            </div>
+            <div className="mt-2 text-xs text-muted">{plural(t.roles.length, 'role')}</div>
           </div>
         );
       })}

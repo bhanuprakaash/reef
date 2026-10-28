@@ -3,12 +3,11 @@ package server
 import (
 	"context"
 	"fmt"
-	"regexp"
 	"slices"
-	"strconv"
 	"strings"
+	"time"
 
-	"github.com/bhanuprakaash/reef/channel"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -16,58 +15,44 @@ const (
 	_userAuthor = "user"
 )
 
-var _wakeHeader = regexp.MustCompile(`^\[channel \d+, message (\d+)[,\]]`)
-
-// wakeSource returns the id of the public message a wake text starts with, from the header
-// route writes, or nil when text is not a public wake.
-func wakeSource(text string) *int64 {
-	m := _wakeHeader.FindStringSubmatch(text)
-	if m == nil {
-		return nil
-	}
-	id, err := strconv.ParseInt(m[1], 10, 64)
-	if err != nil {
-		return nil
-	}
-	return &id
-}
-
 // wake is a turn to run: role answers text, and its reply goes in the thread of parent.
-// from is the author of the message messageID that woke it; gated is set when the team
-// holds wakes from that author to role for approval.
+// from is the author of the message messageID that woke it.
 type wake struct {
 	from      string
 	messageID int64
-	gated     bool
 	role      string
 	text      string
 	parent    *int64
 	direct    *store.DirectMessage
+	// stored is when the message that woke it, the first one for a role woken by several, was stored.
+	stored time.Time
 	// scopes are set on a wake routed from a message: text is what it was routed with, and the
 	// turn's own text is built from the unread messages of scopes when it starts.
 	scopes store.Scopes
-	// approval is the id of the approval a wake was released by, when it was.
-	approval int64
-	approved bool
+	// hold is the id of the cap hold a wake was released by, when it was.
+	hold int64
+	// moveTo is the id of the Teammate a move turn adds: text asks the lead for the summary it
+	// starts from, and messageID is the user's message that asked.
+	moveTo int64
+}
+
+// wakeMessage is the public message that woke w, nil for a direct wake.
+func (w wake) wakeMessage() *int64 {
+	if w.direct != nil || w.messageID == 0 {
+		return nil
+	}
+	return &w.messageID
 }
 
 func (s *server) directWakes(
-	ctx context.Context, channelID, after int64, author string,
+	ctx context.Context, spaceID, after int64, author string,
 ) ([]wake, int64, error) {
-	msgs, err := s.st.DirectMessages(ctx, channelID, after)
+	msgs, err := s.st.DirectMessages(ctx, spaceID, after)
 	if err != nil {
 		return nil, after, err
 	}
 	if len(msgs) > 0 {
 		after = msgs[len(msgs)-1].ID
-	}
-	ch, err := s.st.Channel(ctx, channelID)
-	if err != nil {
-		return nil, after, err
-	}
-	team, err := s.st.Team(ctx, ch.Team)
-	if err != nil {
-		return nil, after, err
 	}
 	ws := make([]wake, 0, len(msgs))
 	for i := range msgs {
@@ -82,18 +67,25 @@ func (s *server) directWakes(
 		if m.ReplyToID != nil {
 			source = "direct response"
 		}
-		text := fmt.Sprintf("[channel %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
-			channelID, m.ID, m.ChainID, source, m.From, m.Body)
-		gated := team.Gated(m.From, m.To)
+		text := fmt.Sprintf("[Space %d, direct message %d, chain %d, source: %s]\n%s wrote privately: %s",
+			spaceID, m.ID, m.ChainID, source, m.From, m.Body)
 		ws = append(ws, wake{
-			from: m.From, messageID: m.ID, gated: gated,
-			role: m.To, text: text, direct: &msgs[i],
+			from: m.From, messageID: m.ID,
+			role: m.To, text: text, direct: &msgs[i], stored: m.CreatedAt,
 		})
 	}
 	return ws, after, nil
 }
 
-// wakes routes the messages of channel id stored after the message with id after. It also
+// inStoredOrder is the wakes of one routing read, the public ones and the direct ones, in the
+// order their messages were stored.
+func inStoredOrder(public, direct []wake) []wake {
+	ws := append(public, direct...)
+	slices.SortStableFunc(ws, func(a, b wake) int { return a.stored.Compare(b.stored) })
+	return ws
+}
+
+// wakes routes the messages of Space id stored after the message with id after. It also
 // returns the id of the last message read, or after when there is none. See route.
 func (s *server) wakes(ctx context.Context, id, after int64, author string) ([]wake, int64, error) {
 	msgs, err := s.st.Messages(ctx, id, after)
@@ -107,18 +99,18 @@ func (s *server) wakes(ctx context.Context, id, after int64, author string) ([]w
 	return ws, after, err
 }
 
-// route routes msgs of channel id, in order, into the turns they wake. Only the messages
+// route routes msgs of Space id, in order, into the turns they wake. Only the messages
 // written by author are routed. A user message runs as its own text; an agent message as
-// "<author> wrote: <body>". Each starts with a line naming the channel and the message, and
+// "<author> wrote: <body>". Each starts with a line naming the Space and the message, and
 // its thread root when it is a reply. That text is what the wake was routed with: the turn's
 // own text is built when it starts, from the messages the role has not been sent. A role woken
 // by several messages gets one wake, their texts in id order; it replies where the first one did.
 func (s *server) route(ctx context.Context, id int64, msgs []store.Message, author string) ([]wake, error) {
-	ch, err := s.st.Channel(ctx, id)
+	ch, err := s.st.Space(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	team, err := s.st.Team(ctx, ch.Team)
+	team, err := s.st.SpaceTeam(ctx, ch.ID)
 	if err != nil {
 		return nil, err
 	}
@@ -140,7 +132,7 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 				return nil, err
 			}
 		}
-		woken := channel.Route(m, owner, roles, ch.Role)
+		woken := space.Route(m, owner, roles, ch.Role)
 		if len(woken) == 0 {
 			continue
 		}
@@ -148,11 +140,11 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 		if m.Author != _userAuthor {
 			text = m.Author + " wrote: " + m.Body
 		}
-		header := fmt.Sprintf("[channel %d, message %d]", id, m.ID)
+		header := fmt.Sprintf("[Space %d, message %d]", id, m.ID)
 		var thread int64
 		if m.ParentID != nil {
 			thread = *m.ParentID
-			header = fmt.Sprintf("[channel %d, message %d, thread %d]", id, m.ID, thread)
+			header = fmt.Sprintf("[Space %d, message %d, thread %d]", id, m.ID, thread)
 		}
 		var asked string
 		if len(woken) > 1 {
@@ -160,22 +152,20 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 			for i, role := range woken {
 				names[i] = "@" + role
 			}
-			asked = channel.AskedTogether + strings.Join(names, ", ")
+			asked = space.AskedTogether + strings.Join(names, ", ")
 			header += "\n" + asked
 		}
 		for _, role := range woken {
-			gated := team.Gated(m.Author, role)
 			if i := slices.IndexFunc(ws, func(w wake) bool { return w.role == role }); i >= 0 {
 				ws[i].text += "\n\n" + header + "\n" + text
 				ws[i].scopes = addScope(ws[i].scopes, thread, asked)
-				ws[i].gated = ws[i].gated || gated
 				ws[i].messageID = m.ID
 				continue
 			}
 			ws = append(ws, wake{
-				from: m.Author, messageID: m.ID, gated: gated,
+				from: m.Author, messageID: m.ID,
 				role: role, text: header + "\n" + text, parent: m.ParentID,
-				scopes: addScope(nil, thread, asked),
+				scopes: addScope(nil, thread, asked), stored: m.CreatedAt,
 			})
 		}
 	}

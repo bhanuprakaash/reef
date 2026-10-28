@@ -1,9 +1,8 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { useTeams } from '@/lib/api/get-teams';
-import { useRunningTurns } from '@/modules/channels/api/get-turns';
+import { useRunningTurns } from '@/modules/spaces/api/get-turns';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
-import { gateRows } from '@/modules/teams/utils/gates';
 import type { Role } from '@/types/api';
 import { Creature } from '@/components/creature';
 import { MentionCards } from '@/components/markdown';
@@ -19,25 +18,17 @@ function modelLabel(role: Role) {
 export function MentionCard({
   team,
   role,
-  gates,
   working,
 }: {
   team: string;
   role: Role;
-  gates: number;
   working: boolean;
 }) {
   const persona = role.persona.split('\n')[0];
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2.5">
-        <Creature
-          role={role.name}
-          face={role.face}
-          state={working ? 'working' : 'idle'}
-          size={36}
-          animate={working}
-        />
+        <Creature look={role} state={working ? 'working' : 'idle'} size={36} animate={working} />
         <div className="min-w-0 flex-1">
           <div className="truncate capitalize">{role.name}</div>
           <div className="truncate text-[13px] text-soft">
@@ -66,35 +57,29 @@ export function MentionCard({
             <dd>{role.tools.length}</dd>
           </>
         )}
-        <dt className="text-muted">Gates</dt>
-        <dd>{gates}</dd>
       </dl>
     </div>
   );
 }
 
 export function MentionCardsProvider({
-  channelId,
+  spaceId,
   team,
   children,
 }: {
-  channelId: number;
+  spaceId: number;
   team: string;
   children: ReactNode;
 }) {
   const teams = useTeams();
   const running = useRunningTurns();
   const found = teams.data?.find((t) => t.name === team);
-  const working = (running.data ?? []).filter((t) => t.channelId === channelId).map((t) => t.role);
+  const working = (running.data ?? []).filter((t) => t.spaceId === spaceId).map((t) => t.role);
 
   function card(name: string) {
     const role = found?.roles.find((r) => r.name === name);
     if (!found || !role) return null;
-    const gates = gateRows(
-      found.roles.map((r) => r.name),
-      found.gates ?? [],
-    ).filter(({ gate }) => gate.on && (gate.from === name || gate.to === name)).length;
-    return <MentionCard team={team} role={role} gates={gates} working={working.includes(name)} />;
+    return <MentionCard team={team} role={role} working={working.includes(name)} />;
   }
 
   return <MentionCards.Provider value={card}>{children}</MentionCards.Provider>;

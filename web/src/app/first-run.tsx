@@ -124,10 +124,10 @@ export function FirstRun() {
       <div className="app-drag fixed inset-x-0 top-0 h-8" />
       <div className="flex w-full max-w-[520px] flex-col items-center gap-[22px] text-center">
         <div className="flex items-end gap-2.5">
-          <Creature role="architect" size={44} animate delay={0.4} />
-          <Creature role="lead" size={72} animate />
-          <Creature role="developer" size={44} animate delay={1.1} />
-          <Creature role="tester" size={44} animate delay={1.8} />
+          <Creature look={{ face: 'whale' }} size={44} animate delay={0.4} />
+          <Creature look={{ face: 'jellyfish' }} size={72} animate />
+          <Creature look={{ face: 'penguin' }} size={44} animate delay={1.1} />
+          <Creature look={{ face: 'shark' }} size={44} animate delay={1.8} />
         </div>
         {twoSteps && <p className="text-[13px] text-muted">Step {askName ? 1 : 2} of 2</p>}
         <h1 className="text-4xl font-normal tracking-[-0.02em]">
@@ -136,7 +136,7 @@ export function FirstRun() {
         <p className="text-base text-muted">
           {askName
             ? 'Your team uses your name when they talk to you.'
-            : 'Point Reef at a repo. Every feature you start there keeps its own memory, and a team works on it with you.'}
+            : 'Point Reef at a repo. Every Work item you start there keeps its own memory, and a team works on it with you.'}
         </p>
         {askName ? <NameStep /> : <ProjectStep />}
         <p className="text-[13px] text-muted">

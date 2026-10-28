@@ -28,32 +28,60 @@ export type MemoryAdded = MemoryItem & {
   embedError?: string;
 };
 
-export type FeatureKind = 'journey' | 'fixes';
+export type WorkItemType =
+  'feature' | 'bug' | 'incident' | 'investigation' | 'task' | 'improvement';
 
-export type Feature = {
+export type WorkItemStatus =
+  'backlog' | 'queued' | 'in_progress' | 'needs_you' | 'review' | 'done' | 'dropped';
+
+export type AcceptanceLine = {
+  position: number;
+  text: string;
+  checked: boolean;
+  note: string;
+};
+
+export type WorkItem = {
   id: number;
   projectId: number;
-  slug: string;
-  name: string;
-  goal: string;
-  stage: string;
-  kind: FeatureKind;
+  parentId: number | null;
+  type: WorkItemType;
+  title: string;
+  description: string;
+  status: WorkItemStatus;
+  teamId: number | null;
+  proposedBy: string;
+  suggestedTeamId: number | null;
+  queuePosition: number | null;
+  tokenBudget: number;
   createdAt: string;
   closedAt: string | null;
+  acceptanceLines: AcceptanceLine[];
+};
+
+export type ProofCommand = { command: string; output: string };
+
+export type Proof = {
+  spaceId: number;
+  acceptanceLines: AcceptanceLine[];
+  commands: ProofCommand[];
+  screenshots: string[];
+  submittedAt: string;
 };
 
 export type Brief = {
   id: number;
-  featureId: number;
+  workItemId: number;
   body: string;
   author: string;
   createdAt: string;
 };
 
-export type Channel = {
+export type Space = {
   id: number;
+  kind: 'work_item' | 'free' | 'conversation';
   projectId: number;
-  featureId: number | null;
+  workItemId: number | null;
   name: string;
   team: string;
   role: string;
@@ -62,9 +90,12 @@ export type Channel = {
   paused: string;
   createdAt: string;
   closedAt: string | null;
+  movedTo: number | null;
 };
 
-export type ChannelPreview = Channel & {
+export type SpaceDetail = Space & { tokenBudget: number; tokensUsed: number };
+
+export type SpacePreview = Space & {
   lastMessage: { author: string; body: string; createdAt: string } | null;
 };
 
@@ -78,7 +109,7 @@ export type ProposedItem = {
 
 export type Proposal = {
   id: number;
-  channelId: number;
+  spaceId: number;
   role: string;
   kind: 'wrap' | 'brief';
   brief: string;
@@ -90,7 +121,7 @@ export type Proposal = {
 
 export type Message = {
   id: number;
-  channelId: number;
+  spaceId: number;
   parentId: number | null;
   author: string;
   body: string;
@@ -99,7 +130,7 @@ export type Message = {
 
 export type Turn = {
   id: number;
-  channelId: number;
+  spaceId: number;
   role: string;
   status: string;
   error: string;
@@ -111,6 +142,7 @@ export type Turn = {
 };
 
 export type Role = {
+  teammateId: number;
   name: string;
   lead: boolean;
   write: boolean;
@@ -120,6 +152,7 @@ export type Role = {
   persona: string;
   skills: string[];
   face?: string;
+  colour?: string;
   model?: string;
   tools: string[];
   mcp: { name: string; label: string }[];
@@ -140,29 +173,18 @@ export type SkillInfo = { name: string; description: string };
 
 export type Skills = { claude: SkillInfo[]; codex: SkillInfo[] };
 
-export type Gate = { from: string; to: string; on: boolean };
+export type Teammate = Omit<Role, 'lead' | 'teammateId' | 'mcpRemove'> & { id: number };
 
 export type Team = {
-  name: string;
-  roles: Role[];
-  gates?: Gate[];
-};
-
-export type Approval = {
   id: number;
-  channelId: number;
-  from: string;
-  to: string;
-  messageId: number;
-  directMessageId?: number;
-  text: string;
-  status: string;
-  createdAt: string;
+  name: string;
+  responsibility: string;
+  roles: Role[];
 };
 
 export type DirectMessage = {
   id: number;
-  channelId: number;
+  spaceId: number;
   chainId: number;
   replyToId: number | null;
   sourceMessageId: number | null;
@@ -170,18 +192,20 @@ export type DirectMessage = {
   to: string;
   body: string;
   status: 'sent' | 'done' | 'failed';
+  state?: 'waiting' | 'delivered' | 'answered' | 'failed' | 'stopped';
   createdAt: string;
 };
 
 export type InboxItem = {
-  kind: 'approval' | 'paused' | 'failed' | 'waiting';
-  channelId: number;
-  featureId: number | null;
+  kind: 'paused' | 'held' | 'failed' | 'review' | 'waiting' | 'sub_item' | 'proposed' | 'started';
+  group: 'needs_you' | 'review' | 'fyi';
+  spaceId: number;
+  workItemId: number | null;
   text: string;
   at: string;
-  approvalId?: number;
   turnId?: number;
   messageId?: number;
+  id?: number;
 };
 
 export type DiffLineKind = 'add' | 'del' | 'ctx';
@@ -242,7 +266,7 @@ export type Inspector = {
   turns: InspectorTurn[];
 };
 
-export type FeaturePR = {
+export type WorkItemPR = {
   number: number;
   title: string;
   state: 'OPEN' | 'MERGED' | 'CLOSED';
@@ -257,17 +281,4 @@ export type FeaturePR = {
   additions: number;
   deletions: number;
   files: { path: string; additions: number; deletions: number }[];
-};
-
-export type TaskStatus = 'todo' | 'doing' | 'done';
-
-export type Task = {
-  id: number;
-  projectId: number;
-  featureId: number | null;
-  title: string;
-  body: string;
-  status: TaskStatus;
-  createdAt: string;
-  updatedAt: string;
 };

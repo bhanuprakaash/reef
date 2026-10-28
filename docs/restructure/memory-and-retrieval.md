@@ -2,7 +2,7 @@
 
 [Back to restructuring index](index.md) · settled points are R15–R30 in [decisions.md](decisions.md)
 
-> Status: built as package `memory/` with the `reef memory` CLI; not yet called by agents (the MCP tools and context assembler wait, R27).
+> Status: done. Built as package `memory/` with the `reef memory` CLI, and called by agents through the MCP tools `remember`, `recall` and `read_memory` and by the context assembler (decisions 90 to 95 and 110 to 125 in [docs/product.md](../product.md#decisions)). This is history; [docs/memory.md](../memory.md) says what the code does now.
 
 ## In one paragraph
 

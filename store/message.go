@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-// ReefAuthor is the author of the notes Reef itself writes into a channel.
+// ReefAuthor is the author of the notes Reef itself writes into a Space.
 const ReefAuthor = "reef"
 
 // Message is append-only: there is no update or delete. A reply has the thread root as
 // ParentID; a top-level message has none.
 type Message struct {
 	ID        int64     `json:"id"`
-	ChannelID int64     `json:"channelId"`
+	SpaceID   int64     `json:"spaceId"`
 	ParentID  *int64    `json:"parentId"`
 	Author    string    `json:"author"`
 	Body      string    `json:"body"`
@@ -33,7 +33,7 @@ const (
 // MessageHit is one message that matched a search. A direct hit also names the two roles
 // and the chain, and its MessageID is the direct message id.
 type MessageHit struct {
-	ChannelID int64  `json:"channelId"`
+	SpaceID   int64  `json:"spaceId"`
 	MessageID int64  `json:"messageId"`
 	Kind      string `json:"kind"`
 	Author    string `json:"author"`
@@ -44,7 +44,7 @@ type MessageHit struct {
 	at        time.Time
 }
 
-// CreateMessage appends m to its channel.
+// CreateMessage appends m to its Space.
 func (s *Store) CreateMessage(ctx context.Context, m Message) (Message, error) {
 	if m.Author == "" {
 		return Message{}, fmt.Errorf("%w: message author is required", ErrInvalid)
@@ -55,25 +55,25 @@ func (s *Store) CreateMessage(ctx context.Context, m Message) (Message, error) {
 	if m.ParentID != nil {
 		var root bool
 		err := s.db.QueryRowContext(ctx,
-			"SELECT parent_id IS NULL FROM message WHERE id = ? AND channel_id = ?",
-			*m.ParentID, m.ChannelID).Scan(&root)
+			"SELECT parent_id IS NULL FROM message WHERE id = ? AND space_id = ?",
+			*m.ParentID, m.SpaceID).Scan(&root)
 		switch {
 		case errors.Is(err, sql.ErrNoRows), err == nil && !root:
 			return Message{}, fmt.Errorf(
-				"%w: parent %d is not a top-level message of channel %d",
-				ErrInvalid, *m.ParentID, m.ChannelID)
+				"%w: parent %d is not a top-level message of Space %d",
+				ErrInvalid, *m.ParentID, m.SpaceID)
 		case err != nil:
 			return Message{}, fmt.Errorf("check parent: %w", err)
 		}
 	}
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO message (channel_id, parent_id, author, body, created_at) "+
+		"INSERT INTO message (space_id, parent_id, author, body, created_at) "+
 			"VALUES (?, ?, ?, ?, ?)",
-		m.ChannelID, m.ParentID, m.Author, m.Body, now.Format(time.RFC3339Nano))
+		m.SpaceID, m.ParentID, m.Author, m.Body, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return Message{}, s.writeErr(ctx, "insert message", err, ErrInvalid,
-			parent{table: "channel", id: &m.ChannelID})
+			parent{table: "space", id: &m.SpaceID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -83,30 +83,30 @@ func (s *Store) CreateMessage(ctx context.Context, m Message) (Message, error) {
 	return m, nil
 }
 
-// Messages lists the channel's messages with id > after, oldest first.
-func (s *Store) Messages(ctx context.Context, channelID, after int64) ([]Message, error) {
-	if err := s.requireChannel(ctx, channelID); err != nil {
+// Messages lists the Space's messages with id > after, oldest first.
+func (s *Store) Messages(ctx context.Context, spaceID, after int64) ([]Message, error) {
+	if err := s.requireSpace(ctx, spaceID); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, channel_id, parent_id, author, body, created_at FROM message "+
-			"WHERE channel_id = ? AND id > ? ORDER BY id",
-		channelID, after)
+		"SELECT id, space_id, parent_id, author, body, created_at FROM message "+
+			"WHERE space_id = ? AND id > ? ORDER BY id",
+		spaceID, after)
 	if err != nil {
 		return nil, fmt.Errorf("list messages: %w", err)
 	}
 	return scanAll(rows, scanMessage)
 }
 
-// MessagesBy lists the messages of author in the channel that were stored after since,
+// MessagesBy lists the messages of author in the Space that were stored after since,
 // oldest first.
 func (s *Store) MessagesBy(
-	ctx context.Context, channelID int64, author string, since time.Time,
+	ctx context.Context, spaceID int64, author string, since time.Time,
 ) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, channel_id, parent_id, author, body, created_at FROM message "+
-			"WHERE channel_id = ? AND author = ? ORDER BY id",
-		channelID, author)
+		"SELECT id, space_id, parent_id, author, body, created_at FROM message "+
+			"WHERE space_id = ? AND author = ? ORDER BY id",
+		spaceID, author)
 	if err != nil {
 		return nil, fmt.Errorf("list messages by %s: %w", author, err)
 	}
@@ -123,23 +123,23 @@ func (s *Store) MessagesBy(
 	return msgs, nil
 }
 
-// LastMessageID returns the id of the channel's newest message, 0 when it has none.
-func (s *Store) LastMessageID(ctx context.Context, channelID int64) (int64, error) {
+// LastMessageID returns the id of the Space's newest message, 0 when it has none.
+func (s *Store) LastMessageID(ctx context.Context, spaceID int64) (int64, error) {
 	var id int64
 	err := s.db.QueryRowContext(ctx,
-		"SELECT COALESCE(MAX(id), 0) FROM message WHERE channel_id = ?", channelID).Scan(&id)
+		"SELECT COALESCE(MAX(id), 0) FROM message WHERE space_id = ?", spaceID).Scan(&id)
 	if err != nil {
 		return 0, fmt.Errorf("last message: %w", err)
 	}
 	return id, nil
 }
 
-// Thread lists the top-level message root of the channel and its replies, oldest first.
-func (s *Store) Thread(ctx context.Context, channelID, root int64) ([]Message, error) {
+// Thread lists the top-level message root of the Space and its replies, oldest first.
+func (s *Store) Thread(ctx context.Context, spaceID, root int64) ([]Message, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT id, channel_id, parent_id, author, body, created_at FROM message "+
-			"WHERE channel_id = ? AND (id = ? OR parent_id = ?) ORDER BY id",
-		channelID, root, root)
+		"SELECT id, space_id, parent_id, author, body, created_at FROM message "+
+			"WHERE space_id = ? AND (id = ? OR parent_id = ?) ORDER BY id",
+		spaceID, root, root)
 	if err != nil {
 		return nil, fmt.Errorf("list thread: %w", err)
 	}
@@ -168,41 +168,41 @@ func (s *Store) ThreadOwner(ctx context.Context, id int64) (string, error) {
 	return author, nil
 }
 
-// CountMessages returns how many messages the channel has.
-func (s *Store) CountMessages(ctx context.Context, channelID int64) (int, error) {
-	if err := s.requireChannel(ctx, channelID); err != nil {
+// CountMessages returns how many messages the Space has.
+func (s *Store) CountMessages(ctx context.Context, spaceID int64) (int, error) {
+	if err := s.requireSpace(ctx, spaceID); err != nil {
 		return 0, err
 	}
 	var n int
 	err := s.db.QueryRowContext(ctx,
-		"SELECT COUNT(*) FROM message WHERE channel_id = ?", channelID).Scan(&n)
+		"SELECT COUNT(*) FROM message WHERE space_id = ?", spaceID).Scan(&n)
 	if err != nil {
 		return 0, fmt.Errorf("count messages: %w", err)
 	}
 	return n, nil
 }
 
-// SearchMessages finds messages in the feature's channels whose body contains
+// SearchMessages finds messages in the item's Spaces whose body contains
 // query, ignoring ASCII case, newest first. A hit's snippet is about 120
 // characters of the body around the match.
 func (s *Store) SearchMessages(
-	ctx context.Context, featureID int64, query string, limit int,
+	ctx context.Context, workItemID int64, query string, limit int,
 ) ([]MessageHit, error) {
 	like := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT m.channel_id, m.id, m.author,
+		`SELECT m.space_id, m.id, m.author,
 		  substr(m.body, max(instr(lower(m.body), lower(?)) - 40, 1), 120), m.created_at
-		FROM message m JOIN channel c ON c.id = m.channel_id
-		WHERE c.feature_id = ? AND m.body LIKE '%' || ? || '%' ESCAPE '\'
+		FROM message m JOIN space c ON c.id = m.space_id
+		WHERE c.work_item_id = ? AND m.body LIKE '%' || ? || '%' ESCAPE '\'
 		ORDER BY m.id DESC LIMIT ?`,
-		query, featureID, like, limit)
+		query, workItemID, like, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search messages: %w", err)
 	}
 	return scanAll(rows, func(r interface{ Scan(...any) error }) (MessageHit, error) {
 		h := MessageHit{Kind: HitPublic}
 		var created string
-		if err := r.Scan(&h.ChannelID, &h.MessageID, &h.Author, &h.Snippet, &created); err != nil {
+		if err := r.Scan(&h.SpaceID, &h.MessageID, &h.Author, &h.Snippet, &created); err != nil {
 			return MessageHit{}, err
 		}
 		var err error
@@ -214,24 +214,24 @@ func (s *Store) SearchMessages(
 // SearchDirectMessages is SearchMessages over direct messages. A role other than "" sees
 // only the messages it sent or received.
 func (s *Store) SearchDirectMessages(
-	ctx context.Context, featureID int64, query string, limit int, role string,
+	ctx context.Context, workItemID int64, query string, limit int, role string,
 ) ([]MessageHit, error) {
 	like := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(query)
 	rows, err := s.db.QueryContext(ctx,
-		`SELECT d.channel_id, d.id, d.from_role, d.to_role, d.chain_id,
+		`SELECT d.space_id, d.id, d.from_role, d.to_role, d.chain_id,
 		  substr(d.body, max(instr(lower(d.body), lower(?)) - 40, 1), 120), d.created_at
-		FROM direct_message d JOIN channel c ON c.id = d.channel_id
-		WHERE c.feature_id = ? AND d.body LIKE '%' || ? || '%' ESCAPE '\'
+		FROM direct_message d JOIN space c ON c.id = d.space_id
+		WHERE c.work_item_id = ? AND d.body LIKE '%' || ? || '%' ESCAPE '\'
 		  AND (? = '' OR d.from_role = ? OR d.to_role = ?)
 		ORDER BY d.id DESC LIMIT ?`,
-		query, featureID, like, role, role, role, limit)
+		query, workItemID, like, role, role, role, limit)
 	if err != nil {
 		return nil, fmt.Errorf("search direct messages: %w", err)
 	}
 	return scanAll(rows, func(r interface{ Scan(...any) error }) (MessageHit, error) {
 		h := MessageHit{Kind: HitDirect}
 		var created string
-		if err := r.Scan(&h.ChannelID, &h.MessageID, &h.From, &h.To, &h.ChainID,
+		if err := r.Scan(&h.SpaceID, &h.MessageID, &h.From, &h.To, &h.ChainID,
 			&h.Snippet, &created); err != nil {
 			return MessageHit{}, err
 		}
@@ -244,13 +244,13 @@ func (s *Store) SearchDirectMessages(
 
 // SearchHistory merges SearchMessages and SearchDirectMessages, newest first, up to limit.
 func (s *Store) SearchHistory(
-	ctx context.Context, featureID int64, query string, limit int, role string,
+	ctx context.Context, workItemID int64, query string, limit int, role string,
 ) ([]MessageHit, error) {
-	hits, err := s.SearchMessages(ctx, featureID, query, limit)
+	hits, err := s.SearchMessages(ctx, workItemID, query, limit)
 	if err != nil {
 		return nil, err
 	}
-	direct, err := s.SearchDirectMessages(ctx, featureID, query, limit, role)
+	direct, err := s.SearchDirectMessages(ctx, workItemID, query, limit, role)
 	if err != nil {
 		return nil, err
 	}
@@ -265,7 +265,7 @@ func (s *Store) SearchHistory(
 func scanMessage(r interface{ Scan(...any) error }) (Message, error) {
 	var m Message
 	var created string
-	if err := r.Scan(&m.ID, &m.ChannelID, &m.ParentID, &m.Author, &m.Body, &created); err != nil {
+	if err := r.Scan(&m.ID, &m.SpaceID, &m.ParentID, &m.Author, &m.Body, &created); err != nil {
 		return Message{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

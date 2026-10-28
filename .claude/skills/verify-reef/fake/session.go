@@ -56,6 +56,18 @@ func writeRole(dir, sid, role string) {
 
 func sessionFilePath(dir, sid string) string { return filepath.Join(dir, sid+".jsonl") }
 
+// forkSession copies sid's session file, role and totals in dir to a new session id and returns
+// it, as claude --fork-session does: the copy starts with the history of sid and sid is left alone.
+func forkSession(dir, sid string) string {
+	forked := newUUID()
+	for _, ext := range []string{".jsonl", ".role", ".totals"} {
+		if b, err := os.ReadFile(filepath.Join(dir, sid+ext)); err == nil {
+			_ = os.WriteFile(filepath.Join(dir, forked+ext), b, 0o644)
+		}
+	}
+	return forked
+}
+
 func sessionFileExists(dir, sid string) bool {
 	_, err := os.Stat(sessionFilePath(dir, sid))
 	return err == nil
@@ -63,7 +75,7 @@ func sessionFileExists(dir, sid string) bool {
 
 // findSessionDir is the projects dir that already holds sid's session file, searching every
 // cwd's folder: a resumed session may have been started under a different cwd (reef moves a
-// role's session into its feature's worktree on promote).
+// role's session into its work item's worktree on attach).
 func findSessionDir(sid string) (string, bool) {
 	home, err := os.UserHomeDir()
 	if err != nil {

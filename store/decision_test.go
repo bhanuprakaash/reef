@@ -7,14 +7,14 @@ import (
 	"testing"
 )
 
-const _notLive9 = "invalid: decision 9 is not a live decision of feature 1"
+const _notLive9 = "invalid: decision 9 is not a live decision of work item 1"
 
 func TestCreateDecisionReplaces(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
 
 	d, err := s.CreateDecision(ctx, Decision{
-		FeatureID: 1, Body: "use rust", Author: "user", Replaces: []int64{1},
+		WorkItemID: 1, Body: "use rust", Author: "user", Replaces: []int64{1},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -32,9 +32,9 @@ func TestCreateDecisionReplaces(t *testing.T) {
 	}
 
 	_, err = s.CreateDecision(ctx, Decision{
-		FeatureID: 1, Body: "use zig", Author: "user", Replaces: []int64{1},
+		WorkItemID: 1, Body: "use zig", Author: "user", Replaces: []int64{1},
 	})
-	want := "invalid: decision 1 is not a live decision of feature 1"
+	want := "invalid: decision 1 is not a live decision of work item 1"
 	if !errors.Is(err, ErrInvalid) || err.Error() != want {
 		t.Errorf("replace a retired decision error = %v, want %s", err, want)
 	}
@@ -45,7 +45,7 @@ func TestCreateDecisionBadReplacesWritesNothing(t *testing.T) {
 	s := proposalFixture(t)
 
 	_, err := s.CreateDecision(ctx, Decision{
-		FeatureID: 1, Body: "use rust", Author: "user", Replaces: []int64{1, 9},
+		WorkItemID: 1, Body: "use rust", Author: "user", Replaces: []int64{1, 9},
 	})
 	if !errors.Is(err, ErrInvalid) || err.Error() != _notLive9 {
 		t.Errorf("error = %v, want %s", err, _notLive9)
@@ -64,9 +64,9 @@ func TestCreateDecisionCannotReplaceItself(t *testing.T) {
 	s := proposalFixture(t)
 
 	_, err := s.CreateDecision(ctx, Decision{
-		FeatureID: 1, Body: "use rust", Author: "user", Replaces: []int64{2},
+		WorkItemID: 1, Body: "use rust", Author: "user", Replaces: []int64{2},
 	})
-	if want := "invalid: decision 2 is not a live decision of feature 1"; err == nil || err.Error() != want {
+	if want := "invalid: decision 2 is not a live decision of work item 1"; err == nil || err.Error() != want {
 		t.Errorf("error = %v, want %s", err, want)
 	}
 	if ds, err := s.Decisions(ctx, 1); err != nil || len(ds) != 1 {
@@ -79,7 +79,7 @@ func TestCreateProposalDedupesRetiredIDs(t *testing.T) {
 	s := proposalFixture(t)
 
 	p, err := s.CreateProposal(ctx, Proposal{
-		ChannelID: 1, Role: "architect", Brief: "v3", Retire: []int64{1, 2, 3, 3},
+		SpaceID: 1, Role: "architect", Brief: "v3", Retire: []int64{1, 2, 3, 3},
 		Items: []ProposedItem{
 			{Kind: "decision", Body: "use postgres", Replaces: []int64{1, 2}},
 			{Kind: "decision", Body: "use yaml", Replaces: []int64{2, 3}},

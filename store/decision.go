@@ -9,9 +9,9 @@ import (
 )
 
 const _insertDecision = "INSERT INTO decision " +
-	"(feature_id, message_id, body, why, author, created_at) VALUES (?, ?, ?, ?, ?, ?)"
+	"(work_item_id, message_id, body, why, author, created_at) VALUES (?, ?, ?, ?, ?, ?)"
 
-const _decisionCols = "id, feature_id, message_id, body, why, author, created_at, " +
+const _decisionCols = "id, work_item_id, message_id, body, why, author, created_at, " +
 	"retired_at, replaced_by"
 
 // Decision is never edited or deleted, only retired: RetiredAt is set when it is stale or
@@ -19,7 +19,7 @@ const _decisionCols = "id, feature_id, message_id, body, why, author, created_at
 // to CreateDecision only: the live decisions the new one retires.
 type Decision struct {
 	ID         int64      `json:"id"`
-	FeatureID  int64      `json:"featureId"`
+	WorkItemID int64      `json:"workItemId"`
 	MessageID  *int64     `json:"messageId"`
 	Body       string     `json:"body"`
 	Why        string     `json:"why"`
@@ -31,8 +31,8 @@ type Decision struct {
 }
 
 // CreateDecision adds d and retires the decisions in d.Replaces, in one transaction. A set
-// MessageID must be a message in a channel of d.FeatureID; each Replaces id must be a live
-// decision of d.FeatureID, or nothing is written.
+// MessageID must be a message in a Space of d.WorkItemID; each Replaces id must be a live
+// decision of d.WorkItemID, or nothing is written.
 func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error) {
 	if d.Body == "" {
 		return Decision{}, fmt.Errorf("%w: decision body is required", ErrInvalid)
@@ -40,21 +40,21 @@ func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error
 	if d.Author == "" {
 		return Decision{}, fmt.Errorf("%w: decision author is required", ErrInvalid)
 	}
-	if d.FeatureID == 0 {
-		return Decision{}, fmt.Errorf("%w: feature is required", ErrInvalid)
+	if d.WorkItemID == 0 {
+		return Decision{}, fmt.Errorf("%w: work item is required", ErrInvalid)
 	}
 	if d.MessageID != nil {
 		var ok bool
 		err := s.db.QueryRowContext(ctx,
-			`SELECT EXISTS (SELECT 1 FROM message m JOIN channel c ON c.id = m.channel_id
-			 WHERE m.id = ? AND c.feature_id = ?)`,
-			*d.MessageID, d.FeatureID).Scan(&ok)
+			`SELECT EXISTS (SELECT 1 FROM message m JOIN space c ON c.id = m.space_id
+			 WHERE m.id = ? AND c.work_item_id = ?)`,
+			*d.MessageID, d.WorkItemID).Scan(&ok)
 		if err != nil {
 			return Decision{}, fmt.Errorf("check message: %w", err)
 		}
 		if !ok {
-			return Decision{}, fmt.Errorf("%w: message %d is not in a channel of feature %d",
-				ErrInvalid, *d.MessageID, d.FeatureID)
+			return Decision{}, fmt.Errorf("%w: message %d is not in a Space of work item %d",
+				ErrInvalid, *d.MessageID, d.WorkItemID)
 		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -62,22 +62,22 @@ func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error
 		return Decision{}, fmt.Errorf("begin decision: %w", err)
 	}
 	defer func() { _ = tx.Rollback() }()
-	if err := requireLiveDecisions(ctx, tx, d.FeatureID, d.Replaces); err != nil {
+	if err := requireLiveDecisions(ctx, tx, d.WorkItemID, d.Replaces); err != nil {
 		return Decision{}, err
 	}
 	now := time.Now().UTC()
 	at := now.Format(time.RFC3339Nano)
 	res, err := tx.ExecContext(ctx, _insertDecision,
-		d.FeatureID, d.MessageID, d.Body, d.Why, d.Author, at)
+		d.WorkItemID, d.MessageID, d.Body, d.Why, d.Author, at)
 	if err != nil {
 		return Decision{}, s.writeErr(ctx, "insert decision", err, ErrInvalid,
-			parent{table: "feature", id: &d.FeatureID}, parent{table: "message", id: d.MessageID})
+			parent{table: "work_item", id: &d.WorkItemID}, parent{table: "message", id: d.MessageID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
 		return Decision{}, fmt.Errorf("insert decision: %w", err)
 	}
-	if err := retireDecisions(ctx, tx, d.FeatureID, d.Replaces, &id, at); err != nil {
+	if err := retireDecisions(ctx, tx, d.WorkItemID, d.Replaces, &id, at); err != nil {
 		return Decision{}, err
 	}
 	if err := tx.Commit(); err != nil {
@@ -87,38 +87,38 @@ func (s *Store) CreateDecision(ctx context.Context, d Decision) (Decision, error
 	return d, nil
 }
 
-// requireLiveDecisions returns ErrInvalid for an id that is not a live decision of the feature.
+// requireLiveDecisions returns ErrInvalid for an id that is not a live decision of the work item.
 func requireLiveDecisions(
 	ctx context.Context, q interface {
 		QueryRowContext(context.Context, string, ...any) *sql.Row
-	}, featureID int64, ids []int64,
+	}, workItemID int64, ids []int64,
 ) error {
 	for _, id := range ids {
 		var ok bool
 		err := q.QueryRowContext(ctx,
-			"SELECT EXISTS (SELECT 1 FROM decision WHERE id = ? AND feature_id = ? AND retired_at IS NULL)",
-			id, featureID).Scan(&ok)
+			"SELECT EXISTS (SELECT 1 FROM decision WHERE id = ? AND work_item_id = ? AND retired_at IS NULL)",
+			id, workItemID).Scan(&ok)
 		if err != nil {
 			return fmt.Errorf("check decision %d: %w", id, err)
 		}
 		if !ok {
-			return fmt.Errorf("%w: decision %d is not a live decision of feature %d",
-				ErrInvalid, id, featureID)
+			return fmt.Errorf("%w: decision %d is not a live decision of work item %d",
+				ErrInvalid, id, workItemID)
 		}
 	}
 	return nil
 }
 
-// retireDecisions retires the live ones among ids and skips a decision of the feature that is
-// already retired. It returns ErrInvalid for an id that is not a decision of the feature.
+// retireDecisions retires the live ones among ids and skips a decision of the work item that is
+// already retired. It returns ErrInvalid for an id that is not a decision of the work item.
 func retireDecisions(
-	ctx context.Context, tx *sql.Tx, featureID int64, ids []int64, replacedBy *int64, at string,
+	ctx context.Context, tx *sql.Tx, workItemID int64, ids []int64, replacedBy *int64, at string,
 ) error {
 	for _, id := range ids {
 		res, err := tx.ExecContext(ctx,
 			"UPDATE decision SET retired_at = ?, replaced_by = ? "+
-				"WHERE id = ? AND feature_id = ? AND retired_at IS NULL",
-			at, replacedBy, id, featureID)
+				"WHERE id = ? AND work_item_id = ? AND retired_at IS NULL",
+			at, replacedBy, id, workItemID)
 		if err != nil {
 			return fmt.Errorf("retire decision %d: %w", id, err)
 		}
@@ -131,14 +131,14 @@ func retireDecisions(
 		}
 		var exists bool
 		err = tx.QueryRowContext(ctx,
-			"SELECT EXISTS (SELECT 1 FROM decision WHERE id = ? AND feature_id = ?)",
-			id, featureID).Scan(&exists)
+			"SELECT EXISTS (SELECT 1 FROM decision WHERE id = ? AND work_item_id = ?)",
+			id, workItemID).Scan(&exists)
 		if err != nil {
 			return fmt.Errorf("check decision %d: %w", id, err)
 		}
 		if !exists {
-			return fmt.Errorf("%w: decision %d is not a live decision of feature %d",
-				ErrInvalid, id, featureID)
+			return fmt.Errorf("%w: decision %d is not a live decision of work item %d",
+				ErrInvalid, id, workItemID)
 		}
 	}
 	return nil
@@ -155,14 +155,14 @@ func (s *Store) Decision(ctx context.Context, id int64) (Decision, error) {
 	return d, err
 }
 
-// Decisions lists the feature's decisions, oldest first.
-func (s *Store) Decisions(ctx context.Context, featureID int64) ([]Decision, error) {
-	if err := s.requireFeature(ctx, featureID); err != nil {
+// Decisions lists the item's decisions, oldest first.
+func (s *Store) Decisions(ctx context.Context, workItemID int64) ([]Decision, error) {
+	if err := s.requireWorkItem(ctx, workItemID); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT "+_decisionCols+" FROM decision WHERE feature_id = ? ORDER BY id",
-		featureID)
+		"SELECT "+_decisionCols+" FROM decision WHERE work_item_id = ? ORDER BY id",
+		workItemID)
 	if err != nil {
 		return nil, fmt.Errorf("list decisions: %w", err)
 	}
@@ -174,7 +174,7 @@ func scanDecision(r interface{ Scan(...any) error }) (Decision, error) {
 	var created string
 	var retired sql.NullString
 	if err := r.Scan(
-		&d.ID, &d.FeatureID, &d.MessageID, &d.Body, &d.Why, &d.Author, &created,
+		&d.ID, &d.WorkItemID, &d.MessageID, &d.Body, &d.Why, &d.Author, &created,
 		&retired, &d.ReplacedBy,
 	); err != nil {
 		return Decision{}, err

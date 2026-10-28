@@ -36,9 +36,9 @@ func turnRows(t *testing.T, s *Store) []turnRow {
 	return rows
 }
 
-func messageRows(t *testing.T, s *Store, channelID int64) []messageRow {
+func messageRows(t *testing.T, s *Store, spaceID int64) []messageRow {
 	t.Helper()
-	ms, err := s.Messages(context.Background(), channelID, 0)
+	ms, err := s.Messages(context.Background(), spaceID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,15 +61,15 @@ func TestFailRunningTurns(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, name := range []string{"a", "b", "c"} {
-		if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: name}); err != nil {
+		if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: name}); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, tr := range []Turn{
-		{ChannelID: 1, Role: "architect", Backend: "claude"},
-		{ChannelID: 2, Role: "developer", Backend: "codex"},
-		{ChannelID: 1, Role: "developer", Backend: "claude"},
-		{ChannelID: 3, Role: "tester", Backend: "claude"},
+		{SpaceID: 1, Role: "architect", Backend: "claude"},
+		{SpaceID: 2, Role: "developer", Backend: "codex"},
+		{SpaceID: 1, Role: "developer", Backend: "claude"},
+		{SpaceID: 3, Role: "tester", Backend: "claude"},
 	} {
 		if _, err := s.CreateTurn(ctx, tr); err != nil {
 			t.Fatal(err)
@@ -111,7 +111,7 @@ func TestFailRunningTurns(t *testing.T) {
 	}
 	for ch, want := range wantMessages {
 		if got := messageRows(t, s, ch); !reflect.DeepEqual(got, want) {
-			t.Errorf("channel %d messages = %v, want %v", ch, got, want)
+			t.Errorf("space %d messages = %v, want %v", ch, got, want)
 		}
 	}
 
@@ -124,7 +124,7 @@ func TestFailRunningTurns(t *testing.T) {
 	}
 	for ch, want := range wantMessages {
 		if got := messageRows(t, s, ch); !reflect.DeepEqual(got, want) {
-			t.Errorf("channel %d messages after second run = %v, want %v", ch, got, want)
+			t.Errorf("space %d messages after second run = %v, want %v", ch, got, want)
 		}
 	}
 }
@@ -140,7 +140,7 @@ func TestFailRunningTurns_MissingDirectMessageDoesNotBlock(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "c", Backend: "claude"})
+	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -154,7 +154,7 @@ func TestFailRunningTurns_MissingDirectMessageDoesNotBlock(t *testing.T) {
 	defer func() { _ = db2.Close() }()
 	now := time.Now().UTC().Format(time.RFC3339Nano)
 	if _, err := db2.ExecContext(ctx,
-		"INSERT INTO turn (channel_id, role, backend, status, started_at, wake_text, direct_message_id) "+
+		"INSERT INTO turn (space_id, role, backend, status, started_at, wake_text, direct_message_id) "+
 			"VALUES (?, ?, ?, ?, ?, ?, ?)",
 		ch.ID, "architect", "claude", "running", now, "do", 999999); err != nil {
 		t.Fatal(err)
@@ -182,15 +182,15 @@ func TestFailRunningTurns_ValidDirectRecovery(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "c", Backend: "claude"})
+	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	req, err := s.CreateDirectMessage(ctx, DirectMessage{ChannelID: ch.ID, From: "lead", To: "architect", Body: "do"})
+	req, err := s.CreateDirectMessage(ctx, DirectMessage{SpaceID: ch.ID, From: "lead", To: "architect", Body: "do"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTurn(ctx, Turn{ChannelID: ch.ID, Role: "architect", Backend: "claude",
+	if _, err := s.CreateTurn(ctx, Turn{SpaceID: ch.ID, Role: "architect", Backend: "claude",
 		WakeText: "do", DirectMessageID: req.IDRef()}); err != nil {
 		t.Fatal(err)
 	}
@@ -220,28 +220,28 @@ func TestClearStaleActiveTurns(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	stale, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "stale", Backend: "claude"})
+	stale, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "stale", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	kept, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "kept", Backend: "claude"})
+	kept, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "kept", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.db.ExecContext(ctx, "UPDATE channel SET active_turn = ? WHERE id IN (?, ?)",
+	if _, err := s.db.ExecContext(ctx, "UPDATE space SET active_turn = ? WHERE id IN (?, ?)",
 		ActiveTurnMessage, stale.ID, kept.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ClearStaleActiveTurns(ctx, func(channelID int64) bool {
-		return channelID == kept.ID
+	if err := s.ClearStaleActiveTurns(ctx, func(spaceID int64) bool {
+		return spaceID == kept.ID
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if c, err := s.Channel(ctx, stale.ID); err != nil || c.ActiveTurn != "" {
-		t.Fatalf("stale channel active_turn = %q, want cleared", c.ActiveTurn)
+	if c, err := s.Space(ctx, stale.ID); err != nil || c.ActiveTurn != "" {
+		t.Fatalf("stale Space active_turn = %q, want cleared", c.ActiveTurn)
 	}
-	if c, err := s.Channel(ctx, kept.ID); err != nil || c.ActiveTurn != ActiveTurnMessage {
-		t.Fatalf("kept channel active_turn = %q, want preserved", c.ActiveTurn)
+	if c, err := s.Space(ctx, kept.ID); err != nil || c.ActiveTurn != ActiveTurnMessage {
+		t.Fatalf("kept Space active_turn = %q, want preserved", c.ActiveTurn)
 	}
 }
 
@@ -257,7 +257,7 @@ func TestClearActiveTurnIf(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "c", Backend: "claude"})
+	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -274,7 +274,7 @@ func TestClearActiveTurnIf(t *testing.T) {
 	if err := s.ClearActiveTurnIf(ctx, ch.ID, ActiveTurnMessage); err != nil {
 		t.Fatal(err)
 	}
-	if c, err := s.Channel(ctx, ch.ID); err != nil || c.ActiveTurn != "" {
+	if c, err := s.Space(ctx, ch.ID); err != nil || c.ActiveTurn != "" {
 		t.Fatalf("active_turn = %q, %v, want cleared", c.ActiveTurn, err)
 	}
 	if err := s.SetActiveTurn(ctx, ch.ID, ActiveTurnStarting); err != nil {
@@ -283,7 +283,7 @@ func TestClearActiveTurnIf(t *testing.T) {
 	if err := s.ClearActiveTurnIf(ctx, ch.ID, ActiveTurnMessage); err != nil {
 		t.Fatal(err)
 	}
-	if c, err := s.Channel(ctx, ch.ID); err != nil || c.ActiveTurn != ActiveTurnStarting {
+	if c, err := s.Space(ctx, ch.ID); err != nil || c.ActiveTurn != ActiveTurnStarting {
 		t.Fatalf("active_turn = %q, %v, want another chain's starting preserved during clear", c.ActiveTurn, err)
 	}
 }
@@ -299,10 +299,10 @@ func TestSetTurnSession(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "a"}); err != nil {
+	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "a"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "architect", Backend: "claude"}); err != nil {
+	if _, err := s.CreateTurn(ctx, Turn{SpaceID: 1, Role: "architect", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.SetTurnSession(ctx, 1, "abc"); err != nil {
@@ -333,19 +333,19 @@ func TestSetTurnRetried(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "a"}); err != nil {
+	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "a"}); err != nil {
 		t.Fatal(err)
 	}
-	msg, err := s.CreateMessage(ctx, Message{ChannelID: 1, Author: "user", Body: "go"})
+	msg, err := s.CreateMessage(ctx, Message{SpaceID: 1, Author: "user", Body: "go"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateTurn(ctx, Turn{
-		ChannelID: 1, Role: "developer", Backend: "claude", WakeText: "build it", WakeParent: &msg.ID,
+		SpaceID: 1, Role: "developer", Backend: "claude", WakeText: "build it", WakeParent: &msg.ID,
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "tester", Backend: "claude"}); err != nil {
+	if _, err := s.CreateTurn(ctx, Turn{SpaceID: 1, Role: "tester", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.EndTurn(ctx, Turn{ID: 1, Status: "failed", Error: "boom"}); err != nil {
@@ -389,10 +389,10 @@ func TestEndTurn_InspectFields(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "a"}); err != nil {
+	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "a"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "architect", Backend: "claude"}); err != nil {
+	if _, err := s.CreateTurn(ctx, Turn{SpaceID: 1, Role: "architect", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	cost := 0.0123
@@ -424,12 +424,12 @@ func TestSessionBefore(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "a"}); err != nil {
+	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "a"}); err != nil {
 		t.Fatal(err)
 	}
 	end := func(session string, t0 Turn) int64 {
 		t.Helper()
-		tn, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "architect", Backend: "claude", SessionID: session})
+		tn, err := s.CreateTurn(ctx, Turn{SpaceID: 1, Role: "architect", Backend: "claude", SessionID: session})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -497,10 +497,10 @@ func TestToolCall(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "a"}); err != nil {
+	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "a"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "architect", Backend: "claude"}); err != nil {
+	if _, err := s.CreateTurn(ctx, Turn{SpaceID: 1, Role: "architect", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	tc, err := s.CreateToolCall(ctx, 1, 0, "Bash", `{"command":"ls"}`)
@@ -530,10 +530,10 @@ func TestCreateToolCall_CutsLongInput(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "a"}); err != nil {
+	if _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "a"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateTurn(ctx, Turn{ChannelID: 1, Role: "architect", Backend: "claude"}); err != nil {
+	if _, err := s.CreateTurn(ctx, Turn{SpaceID: 1, Role: "architect", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
 	long := strings.Repeat("a", 5000)

@@ -1,11 +1,11 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
 import { BackButton } from '@/components/back-button';
-import { useChannels } from '@/lib/api/get-channels';
+import { useSpaces } from '@/lib/api/get-spaces';
 import { useTeams } from '@/lib/api/get-teams';
-import { type DiffScope, useDiff } from '@/modules/features/api/get-diff';
-import { useFeature } from '@/modules/features/api/get-feature';
-import { DiffPanel } from '@/modules/features/components/diff-panel';
+import { type DiffScope, useDiff } from '@/modules/work-items/api/get-diff';
+import { useWorkItem } from '@/modules/work-items/api/get-work-item';
+import { DiffPanel } from '@/modules/work-items/components/diff-panel';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { roleFaces } from '@/utils/role-faces';
 
@@ -18,35 +18,37 @@ type Props = { id: number; onClose?: () => void; defaultScope?: DiffScope };
 
 export function ReviewDiff({ id, onClose, defaultScope = 'full' }: Props) {
   const [scope, setScope] = useState(defaultScope);
-  const feature = useFeature(id);
+  const workItem = useWorkItem(id);
   const diff = useDiff(id, scope);
-  const channels = useChannels();
+  const spaces = useSpaces();
   const teams = useTeams();
   const projects = useProjects();
 
-  const latestTeam = channels.data?.filter((c) => c.featureId === id).at(-1)?.team;
+  const latestTeam = spaces.data?.filter((c) => c.workItemId === id).at(-1)?.team;
 
-  if (feature.isPending || diff.isPending) return <p className="text-sm text-muted">Loading...</p>;
-  if (feature.isError) return <p className="text-sm text-danger">{feature.error.message}</p>;
+  if (workItem.isPending || diff.isPending) return <p className="text-sm text-muted">Loading...</p>;
+  if (workItem.isError) return <p className="text-sm text-danger">{workItem.error.message}</p>;
   if (diff.isError) return <p className="text-sm text-danger">{diff.error.message}</p>;
 
   return (
     <DiffPanel
       files={diff.data}
-      featureId={id}
-      featureName={feature.data.name}
-      branch={`feature/${feature.data.slug}`}
-      baseBranch={projects.data?.find((p) => p.id === feature.data.projectId)?.baseBranch || 'main'}
+      workItemId={id}
+      workItemName={workItem.data.title}
+      branch={`work-item/${id}`}
+      baseBranch={
+        projects.data?.find((p) => p.id === workItem.data.projectId)?.baseBranch || 'main'
+      }
       scope={scope}
       onScopeChange={setScope}
-      developerFace={roleFaces(teams.data, latestTeam).developer}
-      leading={!onClose && <BackButton fallback={`/features/${id}`} />}
+      developerLook={roleFaces(teams.data, latestTeam).developer}
+      leading={!onClose && <BackButton fallback={`/work-items/${id}`} />}
       actions={
         onClose &&
         ((drafts) => (
           <>
             <Link
-              to={`/features/${id}/review`}
+              to={`/work-items/${id}/review`}
               aria-label="Expand diff"
               className={iconButton}
               onClick={(e) => {

@@ -1,0 +1,7 @@
+CREATE TABLE inbox_fyi (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  kind TEXT NOT NULL,
+  work_item_id INTEGER NOT NULL REFERENCES work_item(id) ON DELETE CASCADE,
+  text TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);

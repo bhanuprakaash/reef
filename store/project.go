@@ -100,7 +100,7 @@ func (s *Store) UpdateProject(ctx context.Context, p Project) (Project, error) {
 	return s.Project(ctx, p.ID)
 }
 
-// DeleteProject removes the project and, by cascade, its features, channels
+// DeleteProject removes the project and, by cascade, its work items, Spaces
 // and tasks.
 func (s *Store) DeleteProject(ctx context.Context, id int64) error {
 	res, err := s.db.ExecContext(ctx, "DELETE FROM project WHERE id = ?", id)
@@ -117,7 +117,7 @@ func (s *Store) DeleteProject(ctx context.Context, id int64) error {
 	return nil
 }
 
-// ProjectMemory is the conventions and architecture notes shared by every feature and
+// ProjectMemory is the conventions and architecture notes shared by every work item and
 // quick session of a project. The user writes it; there is one body per project.
 type ProjectMemory struct {
 	ProjectID int64  `json:"projectId"`

@@ -16,16 +16,16 @@ func (s *server) decisionRoutes(mux *http.ServeMux) {
 }
 
 func (s *server) listDecisions(w http.ResponseWriter, r *http.Request) {
-	featureID, err := queryID(r, "feature")
+	workItemID, err := queryID(r, "workItem")
 	if err != nil {
 		writeError(w, err)
 		return
 	}
-	if featureID == nil {
-		writeError(w, fmt.Errorf("%w: feature is required", store.ErrInvalid))
+	if workItemID == nil {
+		writeError(w, fmt.Errorf("%w: work item is required", store.ErrInvalid))
 		return
 	}
-	ds, err := s.st.Decisions(r.Context(), *featureID)
+	ds, err := s.st.Decisions(r.Context(), *workItemID)
 	if err != nil {
 		writeError(w, err)
 		return

@@ -21,7 +21,7 @@ func (s *server) turnRoutes(mux *http.ServeMux) {
 func (s *server) listTurns(w http.ResponseWriter, r *http.Request) {
 	var f store.TurnFilter
 	var err error
-	if f.ChannelID, err = queryID(r, "channel"); err != nil {
+	if f.SpaceID, err = queryID(r, "space"); err != nil {
 		writeError(w, err)
 		return
 	}
@@ -33,11 +33,11 @@ func (s *server) listTurns(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if r.URL.Query().Get("rollbackable") == "1" {
-		if f.ChannelID == nil {
-			writeError(w, fmt.Errorf("%w: rollbackable needs a channel", store.ErrInvalid))
+		if f.SpaceID == nil {
+			writeError(w, fmt.Errorf("%w: rollbackable needs a space", store.ErrInvalid))
 			return
 		}
-		if ts, err = s.rollbackable(r.Context(), *f.ChannelID, ts); err != nil {
+		if ts, err = s.rollbackable(r.Context(), *f.SpaceID, ts); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -48,10 +48,10 @@ func (s *server) listTurns(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, ts)
 }
 
-// rollbackable keeps the turns of channel id that have a checkpoint taken in the tree the
-// channel runs in now. A checkpoint git cannot read is not rollbackable either.
+// rollbackable keeps the turns of Space id that have a checkpoint taken in the tree the
+// Space runs in now. A checkpoint git cannot read is not rollbackable either.
 func (s *server) rollbackable(ctx context.Context, id int64, ts []store.Turn) ([]store.Turn, error) {
-	ch, err := s.st.Channel(ctx, id)
+	ch, err := s.st.Space(ctx, id)
 	if err != nil {
 		return nil, err
 	}

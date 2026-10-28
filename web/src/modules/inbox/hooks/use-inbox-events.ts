@@ -1,8 +1,8 @@
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect, useRef } from 'react';
 import { useLocation } from 'react-router';
-import { kindLabels, newItems } from '@/modules/inbox/utils/new-items';
-import type { Channel, InboxItem } from '@/types/api';
+import { kindLabels, newItems, noticeKinds } from '@/modules/inbox/utils/new-items';
+import type { Space, InboxItem } from '@/types/api';
 
 export function useInboxEvents(onOpen: (item: InboxItem) => void) {
   const queryClient = useQueryClient();
@@ -22,17 +22,18 @@ export function useInboxEvents(onOpen: (item: InboxItem) => void) {
       queryClient.setQueryData(['inbox'], items);
       if (before && Notification.permission === 'granted') {
         for (const item of newItems(before, items)) {
+          if (noticeKinds.includes(item.kind)) continue;
           if (
             document.visibilityState === 'visible' &&
-            open.current === `/channels/${item.channelId}`
+            open.current === `/spaces/${item.spaceId}`
           ) {
             continue;
           }
           const name = queryClient
-            .getQueryData<Channel[]>(['channels'])
-            ?.find((c) => c.id === item.channelId)?.name;
+            .getQueryData<Space[]>(['spaces'])
+            ?.find((c) => c.id === item.spaceId)?.name;
           const n = new Notification(
-            `${kindLabels[item.kind]}: ${name ?? `channel ${item.channelId}`}`,
+            `${kindLabels[item.kind]}: ${name ?? (item.spaceId === 0 ? `Work item ${item.workItemId}` : `Space ${item.spaceId}`)}`,
             {
               body: item.text,
             },

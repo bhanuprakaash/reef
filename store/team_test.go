@@ -4,82 +4,122 @@ import (
 	"context"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
-func TestTeam_Gated(t *testing.T) {
-	team := Team{Gates: []Gate{
-		{From: "lead", To: "architect", On: true},
-		{From: "architect", To: "developer", On: false},
-	}}
-	tests := []struct {
-		name string
-		from string
-		to   string
-		want bool
-	}{
-		{"listed on", "lead", "architect", true},
-		{"listed off beats the default", "architect", "developer", false},
-		{"default on", "developer", "tester", true},
-		{"default off", "architect", "lead", false},
-		{"the user is never gated", "user", "lead", false},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := team.Gated(tt.from, tt.to); got != tt.want {
-				t.Errorf("Gated(%q, %q) = %v, want %v", tt.from, tt.to, got, tt.want)
-			}
-		})
-	}
-	if !(Team{}).Gated("architect", "developer") {
-		t.Error("a team with no gates should default architect to developer on")
-	}
-}
-
-func TestTeam_GatedLeadDefaults(t *testing.T) {
-	if !(Team{}).Gated("lead", "developer") {
-		t.Error("a team with no gates should default lead to developer on")
-	}
-	if (Team{}).Gated("lead", "architect") {
-		t.Error("a team with no gates should default lead to architect off")
-	}
-	off := Team{Gates: []Gate{{From: "lead", To: "developer", On: false}}}
-	if off.Gated("lead", "developer") {
-		t.Error("a team that lists lead to developer off should not gate it")
-	}
-}
-
-func TestTeam_GatedTesterDefaults(t *testing.T) {
-	if !(Team{}).Gated("tester", "developer") {
-		t.Error("a team with no gates should default tester to developer on")
-	}
-	off := Team{Gates: []Gate{{From: "tester", To: "developer", On: false}}}
-	if off.Gated("tester", "developer") {
-		t.Error("a team that lists tester to developer off should not gate it")
-	}
-}
-
-func TestApplyTeam_Gates(t *testing.T) {
+func TestTeam_Responsibility(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	roles := []Role{{Name: "lead", Lead: true, Backend: "claude"}, {Name: "architect", Backend: "claude"}}
 
-	got, err := s.ApplyTeam(ctx, Team{Name: "core", Roles: roles,
-		Gates: []Gate{{From: "lead", To: "architect", On: true}}})
-	if err != nil || !reflect.DeepEqual(got.Gates, []Gate{{From: "lead", To: "architect", On: true}}) {
-		t.Fatalf("ApplyTeam gates = %+v, %v, want lead to architect on", got.Gates, err)
+	created, err := s.CreateTeam(ctx, Team{
+		Name:           "release",
+		Responsibility: "Ships Reef safely.",
+		Roles:          []Role{{Name: "lead", Lead: true, Backend: "claude"}},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	if got, err = s.ApplyTeam(ctx, Team{Name: "core", Roles: roles}); err != nil || got.Gates != nil {
-		t.Errorf("ApplyTeam without gates = %+v, %v, want the old gates dropped", got.Gates, err)
+	if created.Responsibility != "Ships Reef safely." {
+		t.Errorf("created responsibility = %q, want %q", created.Responsibility, "Ships Reef safely.")
 	}
-	_, err = s.ApplyTeam(ctx, Team{Name: "core", Roles: roles,
-		Gates: []Gate{{From: "lead", To: "tester", On: true}}})
-	if !errors.Is(err, ErrInvalid) {
-		t.Errorf("ApplyTeam gate on an unknown role: err = %v, want ErrInvalid", err)
+
+	created.Responsibility = "Owns releases and rollback."
+	updated, err := s.ApplyTeam(ctx, created)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.Responsibility != "Owns releases and rollback." {
+		t.Errorf("updated responsibility = %q, want %q", updated.Responsibility,
+			"Owns releases and rollback.")
+	}
+}
+
+func TestCreateTeam_CopiesTeammateDefaults(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	teammate, err := s.CreateTeammate(ctx, Teammate{
+		Name: "sam", Backend: "claude", Tools: []string{"Read"}, PermissionMode: "default",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	team, err := s.CreateTeam(ctx, Team{Name: "release", Roles: []Role{{
+		TeammateID: teammate.ID, Name: "lead", Lead: true, Backend: "claude", Write: true,
+		PermissionMode: "acceptEdits", Tools: []string{"Edit"},
+	}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := team.Roles[0]
+	if got.TeammateID != teammate.ID || got.Write || got.PermissionMode != "default" ||
+		!reflect.DeepEqual(got.Tools, []string{"Read"}) {
+		t.Errorf("created membership = %+v, want teammate %d with defaults Read, default, no write",
+			got, teammate.ID)
+	}
+}
+
+func TestTeams_SkipsTeamWithoutRoles(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	if _, err := s.db.ExecContext(ctx, "INSERT INTO team (name) VALUES ('empty')"); err != nil {
+		t.Fatal(err)
+	}
+
+	teams, err := s.Teams(ctx)
+	if err != nil || len(teams) != 1 || teams[0].Name != SoloTeam {
+		t.Errorf("Teams = %+v, %v, want only solo", teams, err)
+	}
+}
+
+func TestDeleteTeam_QueuedWorkItem(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	team, err := s.CreateTeam(ctx, Team{Name: "release", Roles: []Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	project, err := s.CreateProject(ctx, Project{Name: "reef", Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var teamID int64
+	if err := s.db.QueryRowContext(ctx, "SELECT id FROM team WHERE name = ?", team.Name).
+		Scan(&teamID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateWorkItem(ctx, WorkItem{
+		ProjectID: project.ID,
+		Title:     "Ship desktop updater",
+		Status:    "queued",
+		TeamID:    &teamID,
+	}); err != nil {
+		t.Fatal(err)
+	}
+
+	err = s.DeleteTeam(ctx, "release")
+	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "Ship desktop updater") {
+		t.Errorf("DeleteTeam error = %v, want conflict naming Ship desktop updater", err)
 	}
 }
 
@@ -224,6 +264,30 @@ func TestApplyTeam_Write(t *testing.T) {
 	}
 }
 
+func TestApplyTeam_KeepsExistingTeammate(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	if _, err := s.ApplyTeam(ctx, Team{Name: "crew", Roles: []Role{
+		{Name: "lead", Lead: true, Backend: "claude", Persona: "Plans.", Face: "whale", Model: "opus"},
+	}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ApplyTeam(ctx, Team{Name: "crew", Roles: []Role{
+		{Name: "lead", Lead: true, Backend: "claude"},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r := got.Roles[0]; r.Persona != "Plans." || r.Face != "whale" || r.Model != "opus" {
+		t.Errorf("lead after a second apply = %+v, want persona Plans., face whale, model opus", r)
+	}
+}
+
 func TestApplyTeam_ReadOnlyClaudeBash(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
@@ -257,5 +321,54 @@ func TestApplyTeam_ReadOnlyClaudeBash(t *testing.T) {
 				t.Errorf("ApplyTeam error = %v, want %q", err, tt.want)
 			}
 		})
+	}
+}
+
+func TestSuggestTeam(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	for name, responsibility := range map[string]string{
+		"frontend": "React components, CSS and pages in the web UI.",
+		"infra":    "Deploys, CI pipelines, servers and cloud infrastructure.",
+		"quiet":    "",
+	} {
+		if _, err := s.CreateTeam(ctx, Team{
+			Name: name, Responsibility: responsibility,
+			Roles: []Role{{Name: "lead", Lead: true, Backend: "claude"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	tests := []struct{ text, want string }{
+		{"The production deploy is failing on every push", "infra"},
+		{"Button colours break on the settings page", "frontend"},
+		{"Rename the invoice export", SoloTeam},
+		{"", SoloTeam},
+	}
+	for _, tt := range tests {
+		got, err := s.SuggestTeam(ctx, tt.text)
+		if err != nil || got.Name != tt.want {
+			t.Errorf("SuggestTeam(%q) = %q, %v, want %q", tt.text, got.Name, err, tt.want)
+		}
+	}
+
+	infra, err := s.Team(ctx, "infra")
+	if err != nil {
+		t.Fatal(err)
+	}
+	infra.Responsibility = "Billing and invoices."
+	if _, err := s.ApplyTeam(ctx, infra); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := s.SuggestTeam(ctx, "The production deploy is failing"); err != nil || got.Name != SoloTeam {
+		t.Errorf("after the text changed, SuggestTeam(deploy) = %q, %v, want %q", got.Name, err, SoloTeam)
+	}
+	if got, err := s.SuggestTeam(ctx, "invoice totals are wrong"); err != nil || got.Name != "infra" {
+		t.Errorf("after the text changed, SuggestTeam(invoice) = %q, %v, want infra", got.Name, err)
 	}
 }

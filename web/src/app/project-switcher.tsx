@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Dialog } from '@/components/dialog';
 import { Menu, MenuItem, MenuSeparator } from '@/components/menu';
 import { useCurrentProject } from '@/lib/current-project';
+import { useDismiss } from '@/lib/use-dismiss';
 import { AddProjectForm } from '@/modules/projects/components/add-project-form';
 import type { Project } from '@/types/api';
 
@@ -13,21 +14,7 @@ export function ProjectSwitcher({ projects }: { projects: Project[] }) {
   const ref = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (!open) return;
-    const close = (e: Event) => {
-      if (
-        e instanceof KeyboardEvent ? e.key === 'Escape' : !ref.current?.contains(e.target as Node)
-      )
-        setOpen(false);
-    };
-    document.addEventListener('pointerdown', close);
-    document.addEventListener('keydown', close);
-    return () => {
-      document.removeEventListener('pointerdown', close);
-      document.removeEventListener('keydown', close);
-    };
-  }, [open]);
+  useDismiss(open, ref, () => setOpen(false));
 
   function pick(project: Project) {
     onPick(project);

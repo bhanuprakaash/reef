@@ -1,32 +1,30 @@
 package store
 
 import (
+	"cmp"
 	"context"
+	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"slices"
 	"strings"
+	"unicode"
 
 	"github.com/bhanuprakaash/reef/agent"
 	"github.com/bhanuprakaash/reef/skill"
 )
 
-// SoloTeam is the lead-only team a channel gets when none is named.
+// SoloTeam is the lead-only team a Space gets when none is named.
 const SoloTeam = "solo"
 
-// Team is a named set of roles, exactly one of them the lead, and the gates between them.
+// Team is a named set of roles, exactly one of them the lead.
 type Team struct {
-	Name  string `json:"name"`
-	Roles []Role `json:"roles"`
-	Gates []Gate `json:"gates,omitempty"`
-}
-
-// Gate switches approval on or off for the wakes one role sends another.
-type Gate struct {
-	From string `json:"from"`
-	To   string `json:"to"`
-	On   bool   `json:"on"`
+	ID             int64  `json:"id"`
+	Name           string `json:"name"`
+	Responsibility string `json:"responsibility"`
+	Roles          []Role `json:"roles"`
 }
 
 func faces() []string {
@@ -36,12 +34,17 @@ func faces() []string {
 	}
 }
 
-// Role is one teammate's setup. Face picks the creature the window draws for the role; empty
-// means the default for its name. Model names the model the backend runs the role on; empty is
+func colours() []string {
+	return []string{"orange", "red", "yellow", "green", "teal", "blue", "violet", "pink"}
+}
+
+// Role is one teammate's setup. Face picks the creature the window draws for the role and Colour
+// its body colour; empty Colour is the creature's own. Model names the model the backend runs the role on; empty is
 // the backend's default. Provider names an added install (see Provider) whose binary the role
 // runs; empty is the claude or codex found on PATH. Tools are the backend's allowed tools. Write says whether the
 // role may change files: without it the backend's tools and sandbox are held to read-only.
 type Role struct {
+	TeammateID     int64             `json:"teammateId,omitempty"`
 	Name           string            `json:"name"`
 	Lead           bool              `json:"lead"`
 	Write          bool              `json:"write"`
@@ -50,6 +53,7 @@ type Role struct {
 	Persona        string            `json:"persona"`
 	Skills         []string          `json:"skills"`
 	Face           string            `json:"face,omitempty"`
+	Colour         string            `json:"colour,omitempty"`
 	Model          string            `json:"model,omitempty"`
 	Provider       string            `json:"provider,omitempty"`
 	Tools          []string          `json:"tools"`
@@ -61,14 +65,6 @@ var _roleName = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
 // UnrestrictedBash reports whether a claude tool entry allows every shell command.
 func UnrestrictedBash(tool string) bool {
 	return slices.Contains([]string{"Bash", "Bash(*)", "Bash(:*)"}, strings.TrimSpace(tool))
-}
-
-// _defaultGates apply to an edge the team does not list.
-var _defaultGates = []Gate{
-	{From: "lead", To: "developer", On: true},
-	{From: "architect", To: "developer", On: true},
-	{From: "developer", To: "tester", On: true},
-	{From: "tester", To: "developer", On: true},
 }
 
 // ApplyTeam creates team t, or replaces the roles of the team with that name.
@@ -104,14 +100,17 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 	}
 	defer func() { _ = tx.Rollback() }()
 	if createOnly {
-		if _, err := tx.ExecContext(ctx, "INSERT INTO team (name) VALUES (?)", t.Name); err != nil {
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO team (name, responsibility) VALUES (?, ?)",
+			t.Name, t.Responsibility); err != nil {
 			if isUnique(err) {
 				return Team{}, fmt.Errorf("%w: a team named %q already exists", ErrConflict, t.Name)
 			}
 			return Team{}, fmt.Errorf("insert team: %w", err)
 		}
 	} else if _, err := tx.ExecContext(ctx,
-		"INSERT INTO team (name) VALUES (?) ON CONFLICT (name) DO NOTHING", t.Name); err != nil {
+		"INSERT INTO team (name, responsibility) VALUES (?, ?) ON CONFLICT (name) DO UPDATE "+
+			"SET responsibility = excluded.responsibility", t.Name, t.Responsibility); err != nil {
 		return Team{}, fmt.Errorf("insert team: %w", err)
 	}
 	var id int64
@@ -119,38 +118,51 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 		Scan(&id); err != nil {
 		return Team{}, fmt.Errorf("read team: %w", err)
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM role WHERE team_id = ?", id); err != nil {
-		return Team{}, fmt.Errorf("delete roles: %w", err)
+	behind, err := roleTeammates(ctx, tx, id)
+	if err != nil {
+		return Team{}, err
 	}
-	if _, err := tx.ExecContext(ctx, "DELETE FROM gate WHERE team_id = ?", id); err != nil {
-		return Team{}, fmt.Errorf("delete gates: %w", err)
-	}
-	for _, g := range t.Gates {
-		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO gate (team_id, from_role, to_role, enabled) VALUES (?, ?, ?, ?)",
-			id, g.From, g.To, g.On); err != nil {
-			return Team{}, fmt.Errorf("insert gate %s to %s: %w", g.From, g.To, err)
-		}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM team_member WHERE team_id = ?", id); err != nil {
+		return Team{}, fmt.Errorf("delete members: %w", err)
 	}
 	for _, r := range t.Roles {
-		tools, err := json.Marshal(nonNil(r.Tools))
+		skills, tools, servers, err := encodeLists(r.Skills, r.Tools, r.MCPServers)
 		if err != nil {
-			return Team{}, fmt.Errorf("encode tools: %w", err)
+			return Team{}, err
 		}
-		skills, err := json.Marshal(nonNil(r.Skills))
-		if err != nil {
-			return Team{}, fmt.Errorf("encode skills: %w", err)
+		if r.TeammateID != 0 {
+			query := "INSERT INTO team_member (team_id, teammate_id, name, lead, tools, mcp_servers, " +
+				"write, permission_mode) SELECT ?, id, ?, ?, ?, ?, ?, ? FROM teammate WHERE id = ?"
+			args := []any{id, r.Name, r.Lead, tools, servers, r.Write, r.PermissionMode, r.TeammateID}
+			if createOnly {
+				query = "INSERT INTO team_member (team_id, teammate_id, name, lead, tools, " +
+					"mcp_servers, write, permission_mode) SELECT ?, id, ?, ?, tools, mcp_servers, " +
+					"write, permission_mode FROM teammate WHERE id = ?"
+				args = []any{id, r.Name, r.Lead, r.TeammateID}
+			}
+			res, err := tx.ExecContext(ctx, query, args...)
+			if err != nil {
+				return Team{}, fmt.Errorf("insert member %s: %w", r.Name, err)
+			}
+			if n, err := res.RowsAffected(); err == nil && n == 0 {
+				return Team{}, fmt.Errorf("%w: unknown teammate %d", ErrInvalid, r.TeammateID)
+			}
+			continue
 		}
-		servers, err := json.Marshal(nonNil(r.MCPServers))
-		if err != nil {
-			return Team{}, fmt.Errorf("encode mcp servers: %w", err)
+		tm := cmp.Or(behind[r.Name], t.Name+"-"+r.Name)
+		if _, err := tx.ExecContext(ctx,
+			"INSERT INTO teammate (name, persona, skills, backend, model, provider, face, colour, "+
+				"tools, mcp_servers, write, permission_mode) "+
+				"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING",
+			tm, r.Persona, skills, r.Backend, r.Model, r.Provider, r.Face, r.Colour, tools,
+			servers, r.Write, r.PermissionMode); err != nil {
+			return Team{}, fmt.Errorf("insert teammate %s: %w", tm, err)
 		}
 		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO role (team_id, name, persona, skills, face, tools, mcp_servers, backend, "+
-				"permission_mode, lead, write, model, provider) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-			id, r.Name, r.Persona, string(skills), r.Face, string(tools), string(servers), r.Backend,
-			r.PermissionMode, r.Lead, r.Write, r.Model, r.Provider); err != nil {
-			return Team{}, fmt.Errorf("insert role %s: %w", r.Name, err)
+			"INSERT INTO team_member (team_id, teammate_id, name, lead, tools, mcp_servers, write, "+
+				"permission_mode) SELECT ?, id, ?, ?, ?, ?, ?, ? FROM teammate WHERE name = ?",
+			id, r.Name, r.Lead, tools, servers, r.Write, r.PermissionMode, tm); err != nil {
+			return Team{}, fmt.Errorf("insert member %s: %w", r.Name, err)
 		}
 	}
 	if err := tx.Commit(); err != nil {
@@ -159,36 +171,110 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 	return s.Team(ctx, t.Name)
 }
 
+// roleTeammates maps each role name of the team to the name of the Teammate behind it.
+func roleTeammates(ctx context.Context, tx *sql.Tx, teamID int64) (map[string]string, error) {
+	rows, err := tx.QueryContext(ctx,
+		"SELECT member.name, teammate.name FROM team_member member "+
+			"JOIN teammate ON teammate.id = member.teammate_id WHERE member.team_id = ?", teamID)
+	if err != nil {
+		return nil, fmt.Errorf("read members: %w", err)
+	}
+	defer func() { _ = rows.Close() }()
+	behind := make(map[string]string)
+	for rows.Next() {
+		var role, teammate string
+		if err := rows.Scan(&role, &teammate); err != nil {
+			return nil, fmt.Errorf("read members: %w", err)
+		}
+		behind[role] = teammate
+	}
+	return behind, rows.Err()
+}
+
 // Team returns the team with the name, lead first, or ErrNotFound.
 func (s *Store) Team(ctx context.Context, name string) (Team, error) {
-	rows, err := s.db.QueryContext(ctx,
-		"SELECT role.name, lead, write, backend, permission_mode, persona, skills, face, model, provider, tools, mcp_servers "+
-			"FROM role JOIN team ON team.id = team_id WHERE team.name = ? ORDER BY lead DESC, role.id",
-		name)
-	if err != nil {
+	var teamID int64
+	var responsibility string
+	switch err := s.db.QueryRowContext(ctx,
+		"SELECT id, responsibility FROM team WHERE name = ?", name).
+		Scan(&teamID, &responsibility); {
+	case errors.Is(err, sql.ErrNoRows):
+		return Team{}, fmt.Errorf("team %s: %w", name, ErrNotFound)
+	case err != nil:
 		return Team{}, fmt.Errorf("read team %s: %w", name, err)
 	}
-	roles, err := scanAll(rows, scanRole)
+	roles, err := s.roles(ctx, "team_member", "team_id", teamID)
 	if err != nil {
-		return Team{}, err
+		return Team{}, fmt.Errorf("read team %s: %w", name, err)
 	}
 	if len(roles) == 0 {
 		return Team{}, fmt.Errorf("team %s: %w", name, ErrNotFound)
 	}
-	rows, err = s.db.QueryContext(ctx,
-		"SELECT from_role, to_role, enabled FROM gate JOIN team ON team.id = team_id "+
-			"WHERE team.name = ? ORDER BY gate.id", name)
-	if err != nil {
-		return Team{}, fmt.Errorf("read gates of team %s: %w", name, err)
+	return Team{ID: teamID, Name: name, Responsibility: responsibility, Roles: roles}, nil
+}
+
+// TeamByID returns the team with the id, lead first, or ErrNotFound.
+func (s *Store) TeamByID(ctx context.Context, id int64) (Team, error) {
+	var name string
+	switch err := s.db.QueryRowContext(ctx, "SELECT name FROM team WHERE id = ?", id).
+		Scan(&name); {
+	case errors.Is(err, sql.ErrNoRows):
+		return Team{}, fmt.Errorf("team %d: %w", id, ErrNotFound)
+	case err != nil:
+		return Team{}, fmt.Errorf("read team %d: %w", id, err)
 	}
-	gates, err := scanAll(rows, func(r interface{ Scan(...any) error }) (Gate, error) {
-		var g Gate
-		return g, r.Scan(&g.From, &g.To, &g.On)
-	})
-	if err != nil {
-		return Team{}, err
+	return s.Team(ctx, name)
+}
+
+// isStopWord is true for the words left out of a SuggestTeam match: they say nothing about who
+// owns the work.
+func isStopWord(w string) bool {
+	switch w {
+	case "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "is", "it", "its",
+		"of", "on", "or", "that", "the", "this", "to", "was", "with":
+		return true
 	}
-	return Team{Name: name, Roles: roles, Gates: gates}, nil
+	return false
+}
+
+// SuggestTeam returns the Team whose responsibility text best matches any word of text, or
+// the default team, solo, when none does. It is ErrNotFound only when solo is gone too.
+func (s *Store) SuggestTeam(ctx context.Context, text string) (Team, error) {
+	var words []string
+	for _, w := range strings.FieldsFunc(strings.ToLower(text), func(r rune) bool {
+		return !unicode.IsLetter(r) && !unicode.IsDigit(r)
+	}) {
+		if !isStopWord(w) {
+			words = append(words, `"`+w+`"`)
+		}
+	}
+	name := SoloTeam
+	if len(words) > 0 {
+		err := s.db.QueryRowContext(ctx,
+			"SELECT team.name FROM team_fts JOIN team ON team.id = team_fts.rowid "+
+				"WHERE team_fts MATCH ? ORDER BY bm25(team_fts), team.id LIMIT 1",
+			strings.Join(words, " OR ")).Scan(&name)
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
+			return Team{}, fmt.Errorf("match teams: %w", err)
+		}
+	}
+	return s.Team(ctx, name)
+}
+
+// roles lists the members in table (team_member or space_member) whose key column is id, lead
+// first, with the Teammate's persona, skills, backend, face and colour. The access rules are the
+// member's own.
+func (s *Store) roles(ctx context.Context, table, key string, id int64) ([]Role, error) {
+	rows, err := s.db.QueryContext(ctx,
+		"SELECT teammate.id, member.name, member.lead, member.write, teammate.backend, "+
+			"member.permission_mode, teammate.persona, teammate.skills, teammate.face, teammate.colour, teammate.model, "+
+			"teammate.provider, member.tools, member.mcp_servers "+
+			"FROM "+table+" member JOIN teammate ON teammate.id = member.teammate_id "+
+			"WHERE member."+key+" = ? ORDER BY member.lead DESC, member.id", id)
+	if err != nil {
+		return nil, err
+	}
+	return scanAll(rows, scanRole)
 }
 
 // Teams lists all teams by name.
@@ -207,6 +293,9 @@ func (s *Store) Teams(ctx context.Context) ([]Team, error) {
 	teams := make([]Team, 0, len(names))
 	for _, n := range names {
 		t, err := s.Team(ctx, n)
+		if errors.Is(err, ErrNotFound) {
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
@@ -215,15 +304,47 @@ func (s *Store) Teams(ctx context.Context) ([]Team, error) {
 	return teams, nil
 }
 
-// Gated reports whether a wake from role from to role to waits for approval: the team's
-// gate for that edge when it lists one, else the default.
-func (t Team) Gated(from, to string) bool {
-	for _, g := range slices.Concat(t.Gates, _defaultGates) {
-		if g.From == from && g.To == to {
-			return g.On
-		}
+// DeleteTeam removes the named Team. A top-level Queued, In progress or Needs you Work item
+// keeps it in place and is named in the conflict. Existing Spaces keep their copied members.
+func (s *Store) DeleteTeam(ctx context.Context, name string) error {
+	if name == SoloTeam {
+		return fmt.Errorf("%w: team %s is the default team and cannot be deleted", ErrInvalid, SoloTeam)
 	}
-	return false
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("begin delete team: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var id int64
+	err = tx.QueryRowContext(ctx, "SELECT id FROM team WHERE name = ?", name).Scan(&id)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("team %s: %w", name, ErrNotFound)
+	case err != nil:
+		return fmt.Errorf("read team %s: %w", name, err)
+	}
+	var title, status string
+	err = tx.QueryRowContext(ctx,
+		"SELECT title, status FROM work_item WHERE team_id = ? AND parent_id IS NULL "+
+			"AND status IN ('in_progress', 'needs_you', 'queued') ORDER BY id LIMIT 1", id).
+		Scan(&title, &status)
+	switch {
+	case err == nil:
+		return fmt.Errorf("%w: team %s has work item %q in %s", ErrConflict, name, title,
+			strings.ReplaceAll(status, "_", " "))
+	case !errors.Is(err, sql.ErrNoRows):
+		return fmt.Errorf("read work of team %s: %w", name, err)
+	}
+	if _, err := tx.ExecContext(ctx, "UPDATE space SET team_id = NULL WHERE team_id = ?", id); err != nil {
+		return fmt.Errorf("detach Spaces from team %s: %w", name, err)
+	}
+	if _, err := tx.ExecContext(ctx, "DELETE FROM team WHERE id = ?", id); err != nil {
+		return fmt.Errorf("delete team %s: %w", name, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit delete team %s: %w", name, err)
+	}
+	return nil
 }
 
 func (t Team) validate() error {
@@ -239,41 +360,46 @@ func (t Team) validate() error {
 	}
 	leads, seen := 0, make(map[string]bool, len(t.Roles))
 	for _, r := range t.Roles {
-		if r.Name == "" {
-			return fmt.Errorf("%w: role name is required", ErrInvalid)
-		}
-		if r.Name == "user" || r.Name == ReefAuthor || !_roleName.MatchString(r.Name) {
-			return fmt.Errorf("%w: role name %q must be letters, digits, _ or -, and not user or reef",
-				ErrInvalid, r.Name)
+		if err := validateRole(r); err != nil {
+			return err
 		}
 		if seen[r.Name] {
 			return fmt.Errorf("%w: role %s appears twice", ErrInvalid, r.Name)
 		}
 		seen[r.Name] = true
-		if err := ValidateAgent(r.Backend, r.PermissionMode); err != nil {
-			return fmt.Errorf("role %s: %w", r.Name, err)
-		}
-		if r.Face != "" && !slices.Contains(faces(), r.Face) {
-			return fmt.Errorf("%w: role %s: face %q must be one of %s",
-				ErrInvalid, r.Name, r.Face, strings.Join(faces(), ", "))
-		}
-		if r.Backend == "claude" && !r.Write && slices.ContainsFunc(r.Tools, UnrestrictedBash) {
-			return fmt.Errorf("%w: role %s has no write, so it cannot have unrestricted Bash; "+
-				"list command patterns such as Bash(go test:*)", ErrInvalid, r.Name)
-		}
 		if r.Lead {
 			leads++
-		}
-	}
-	for _, g := range t.Gates {
-		if !seen[g.From] || !seen[g.To] {
-			return fmt.Errorf("%w: gate %s to %s names a role team %s does not have",
-				ErrInvalid, g.From, g.To, t.Name)
 		}
 	}
 	if leads != 1 {
 		return fmt.Errorf("%w: team %s needs exactly one lead role, has %d",
 			ErrInvalid, t.Name, leads)
+	}
+	return nil
+}
+
+func validateRole(r Role) error {
+	if r.Name == "" {
+		return fmt.Errorf("%w: role name is required", ErrInvalid)
+	}
+	if r.Name == "user" || r.Name == ReefAuthor || !_roleName.MatchString(r.Name) {
+		return fmt.Errorf("%w: role name %q must be letters, digits, _ or -, and not user or reef",
+			ErrInvalid, r.Name)
+	}
+	if err := ValidateAgent(r.Backend, r.PermissionMode); err != nil {
+		return fmt.Errorf("role %s: %w", r.Name, err)
+	}
+	if r.Face != "" && !slices.Contains(faces(), r.Face) {
+		return fmt.Errorf("%w: role %s: face %q must be one of %s",
+			ErrInvalid, r.Name, r.Face, strings.Join(faces(), ", "))
+	}
+	if r.Colour != "" && !slices.Contains(colours(), r.Colour) {
+		return fmt.Errorf("%w: role %s: colour %q must be one of %s",
+			ErrInvalid, r.Name, r.Colour, strings.Join(colours(), ", "))
+	}
+	if r.Backend == "claude" && !r.Write && slices.ContainsFunc(r.Tools, UnrestrictedBash) {
+		return fmt.Errorf("%w: role %s has no write, so it cannot have unrestricted Bash; "+
+			"list command patterns such as Bash(go test:*)", ErrInvalid, r.Name)
 	}
 	return nil
 }
@@ -317,8 +443,8 @@ func ValidateAgent(backend, permissionMode string) error {
 func scanRole(r interface{ Scan(...any) error }) (Role, error) {
 	var ro Role
 	var skills, tools, servers string
-	if err := r.Scan(&ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Persona,
-		&skills, &ro.Face, &ro.Model, &ro.Provider, &tools, &servers); err != nil {
+	if err := r.Scan(&ro.TeammateID, &ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Persona,
+		&skills, &ro.Face, &ro.Colour, &ro.Model, &ro.Provider, &tools, &servers); err != nil {
 		return Role{}, err
 	}
 	if err := json.Unmarshal([]byte(skills), &ro.Skills); err != nil {

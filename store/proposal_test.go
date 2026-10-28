@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// proposalFixture has feature 1 with channel 1, a brief "v1", architect notes
-// "old" and one decision; channel 2 is a quick session. Proposal 1 is pending.
+// proposalFixture has work item 1 with Space 1, a brief "v1", architect notes
+// "old" and one decision; Space 2 is a quick session. Proposal 1 is pending.
 func proposalFixture(t *testing.T, items ...ProposedItem) *Store {
 	t.Helper()
 	ctx := context.Background()
@@ -22,26 +22,26 @@ func proposalFixture(t *testing.T, items ...ProposedItem) *Store {
 	steps := []func() error{
 		func() error { _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); return err },
 		func() error {
-			_, err := s.CreateFeature(ctx, Feature{ProjectID: 1, Slug: "auth", Name: "Auth"})
+			_, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: 1, Title: "Auth"})
 			return err
 		},
 		func() error {
-			_, err := s.CreateChannel(ctx, Channel{ProjectID: 1, FeatureID: &one, Name: "architect"})
+			_, err := s.CreateSpace(ctx, Space{ProjectID: 1, WorkItemID: &one, Name: "architect"})
 			return err
 		},
-		func() error { _, err := s.CreateChannel(ctx, Channel{ProjectID: 1, Name: "quick"}); return err },
-		func() error { _, err := s.PutBrief(ctx, Brief{FeatureID: 1, Body: "v1", Author: "user"}); return err },
+		func() error { _, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "quick"}); return err },
+		func() error { _, err := s.PutBrief(ctx, Brief{WorkItemID: 1, Body: "v1", Author: "user"}); return err },
 		func() error {
-			_, err := s.PutRoleNotes(ctx, RoleNotes{FeatureID: 1, Role: "architect", Body: "old"})
+			_, err := s.PutRoleNotes(ctx, RoleNotes{WorkItemID: 1, Role: "architect", Body: "old"})
 			return err
 		},
 		func() error {
-			_, err := s.CreateDecision(ctx, Decision{FeatureID: 1, Body: "use go", Author: "user"})
+			_, err := s.CreateDecision(ctx, Decision{WorkItemID: 1, Body: "use go", Author: "user"})
 			return err
 		},
 		func() error {
 			_, err := s.CreateProposal(ctx, Proposal{
-				ChannelID: 1, Role: "architect", Brief: "v2", Items: items,
+				SpaceID: 1, Role: "architect", Brief: "v2", Items: items,
 			})
 			return err
 		},
@@ -77,7 +77,7 @@ func TestApproveBriefProposal(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateProposal(ctx, Proposal{
-		ChannelID: 1, Role: "lead", Kind: ProposalBrief, Brief: "v3",
+		SpaceID: 1, Role: "lead", Kind: ProposalBrief, Brief: "v3",
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -100,12 +100,12 @@ func TestApproveBriefProposal(t *testing.T) {
 	if b.Body != "v3" || b.Author != "lead" {
 		t.Errorf("Brief = %q by %q, want %q by lead", b.Body, b.Author, "v3")
 	}
-	c, err := s.Channel(ctx, 1)
+	c, err := s.Space(ctx, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if c.ClosedAt != nil {
-		t.Errorf("channel closedAt = %v, want nil", c.ClosedAt)
+		t.Errorf("space closedAt = %v, want nil", c.ClosedAt)
 	}
 }
 
@@ -117,7 +117,7 @@ func TestCreateBriefProposalRejectsOlderBriefProposals(t *testing.T) {
 	}
 	for _, brief := range []string{"v3", "v4"} {
 		if _, err := s.CreateProposal(ctx, Proposal{
-			ChannelID: 1, Role: "lead", Kind: ProposalBrief, Brief: brief,
+			SpaceID: 1, Role: "lead", Kind: ProposalBrief, Brief: brief,
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -158,21 +158,25 @@ func TestDecideProposalTwice(t *testing.T) {
 func TestPendingProposals(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
-	if _, err := s.CreateFeature(ctx, Feature{ProjectID: 1, Slug: "billing", Name: "Billing"}); err != nil {
+	if _, err := s.CreateWorkItem(ctx, WorkItem{ProjectID: 1, Title: "Billing"}); err != nil {
 		t.Fatal(err)
 	}
 	one, two := int64(1), int64(2)
-	for _, c := range []Channel{
-		{ProjectID: 1, FeatureID: &two, Name: "dev"},
-		{ProjectID: 1, FeatureID: &one, Name: "review"},
+	if _, err := s.db.ExecContext(ctx,
+		"UPDATE space SET closed_at = '2026-01-01T00:00:00Z' WHERE id = 1"); err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range []Space{
+		{ProjectID: 1, WorkItemID: &two, Name: "dev"},
+		{ProjectID: 1, WorkItemID: &one, Name: "review"},
 	} {
-		if _, err := s.CreateChannel(ctx, c); err != nil {
+		if _, err := s.CreateSpace(ctx, c); err != nil {
 			t.Fatal(err)
 		}
 	}
 	for _, p := range []Proposal{
-		{ChannelID: 3, Role: "developer", Brief: "b2"},
-		{ChannelID: 4, Role: "reviewer", Brief: "b3"},
+		{SpaceID: 3, Role: "developer", Brief: "b2"},
+		{SpaceID: 4, Role: "reviewer", Brief: "b3"},
 	} {
 		if _, err := s.CreateProposal(ctx, p); err != nil {
 			t.Fatal(err)
@@ -182,8 +186,8 @@ func TestPendingProposals(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	ids := func(featureID *int64) []int64 {
-		ps, err := s.PendingProposals(ctx, featureID, nil)
+	ids := func(workItemID *int64) []int64 {
+		ps, err := s.PendingProposals(ctx, workItemID, nil)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -197,10 +201,10 @@ func TestPendingProposals(t *testing.T) {
 		t.Errorf("all pending = %v, want %v", got, want)
 	}
 	if got, want := ids(&one), []int64{1}; !reflect.DeepEqual(got, want) {
-		t.Errorf("pending of feature 1 = %v, want %v", got, want)
+		t.Errorf("pending of work item 1 = %v, want %v", got, want)
 	}
 	if got, want := ids(&two), []int64{2}; !reflect.DeepEqual(got, want) {
-		t.Errorf("pending of feature 2 = %v, want %v", got, want)
+		t.Errorf("pending of work item 2 = %v, want %v", got, want)
 	}
 }
 
@@ -212,14 +216,14 @@ func TestCreateProposalInvalid(t *testing.T) {
 		give Proposal
 		want error
 	}{
-		{"quick session", Proposal{ChannelID: 2, Role: "architect", Brief: "b"}, ErrInvalid},
-		{"empty brief", Proposal{ChannelID: 1, Role: "architect"}, ErrInvalid},
+		{"quick session", Proposal{SpaceID: 2, Role: "architect", Brief: "b"}, ErrInvalid},
+		{"empty brief", Proposal{SpaceID: 1, Role: "architect"}, ErrInvalid},
 		{
 			"empty item body",
-			Proposal{ChannelID: 1, Role: "architect", Brief: "b", Items: []ProposedItem{{}}},
+			Proposal{SpaceID: 1, Role: "architect", Brief: "b", Items: []ProposedItem{{}}},
 			ErrInvalid,
 		},
-		{"unknown channel", Proposal{ChannelID: 9, Role: "architect", Brief: "b"}, ErrNotFound},
+		{"unknown space", Proposal{SpaceID: 9, Role: "architect", Brief: "b"}, ErrNotFound},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -230,29 +234,29 @@ func TestCreateProposalInvalid(t *testing.T) {
 	}
 }
 
-func TestApproveProposalClosesChannelAndReopenClearsIt(t *testing.T) {
+func TestApproveProposalClosesSpaceAndReopenClearsIt(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
 	if _, err := s.ApproveProposal(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
 
-	c, err := s.Channel(ctx, 1)
+	c, err := s.Space(ctx, 1)
 	if err != nil || c.ClosedAt == nil {
-		t.Fatalf("channel 1 closedAt after approve = %v, err = %v, want set", c.ClosedAt, err)
+		t.Fatalf("space 1 closedAt after approve = %v, err = %v, want set", c.ClosedAt, err)
 	}
-	if q, err := s.Channel(ctx, 2); err != nil || q.ClosedAt != nil {
-		t.Errorf("channel 2 closedAt = %v, err = %v, want nil", q.ClosedAt, err)
+	if q, err := s.Space(ctx, 2); err != nil || q.ClosedAt != nil {
+		t.Errorf("space 2 closedAt = %v, err = %v, want nil", q.ClosedAt, err)
 	}
 
-	if err := s.ReopenChannel(ctx, 1); err != nil {
+	if err := s.ReopenSpace(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
-	if c, err = s.Channel(ctx, 1); err != nil || c.ClosedAt != nil {
-		t.Errorf("channel 1 closedAt after reopen = %v, err = %v, want nil", c.ClosedAt, err)
+	if c, err = s.Space(ctx, 1); err != nil || c.ClosedAt != nil {
+		t.Errorf("space 1 closedAt after reopen = %v, err = %v, want nil", c.ClosedAt, err)
 	}
-	if err := s.ReopenChannel(ctx, 99); !errors.Is(err, ErrNotFound) {
-		t.Errorf("reopen channel 99 = %v, want ErrNotFound", err)
+	if err := s.ReopenSpace(ctx, 99); !errors.Is(err, ErrNotFound) {
+		t.Errorf("reopen Space 99 = %v, want ErrNotFound", err)
 	}
 }
 
@@ -261,9 +265,9 @@ func TestCreateBriefProposalRefusedWhileWrapPending(t *testing.T) {
 	s := proposalFixture(t)
 
 	_, err := s.CreateProposal(ctx, Proposal{
-		ChannelID: 1, Role: "lead", Kind: ProposalBrief, Brief: "v3",
+		SpaceID: 1, Role: "lead", Kind: ProposalBrief, Brief: "v3",
 	})
-	want := "invalid: channel 1 has a wrap-up waiting for approval"
+	want := "invalid: Space 1 has a wrap-up waiting for approval"
 	if !errors.Is(err, ErrInvalid) || err.Error() != want {
 		t.Errorf("CreateProposal brief = %v, want %s", err, want)
 	}
@@ -277,7 +281,7 @@ func TestCreateProposalUnknownKindMessage(t *testing.T) {
 	s := proposalFixture(t)
 
 	_, err := s.CreateProposal(context.Background(), Proposal{
-		ChannelID: 1, Role: "lead", Kind: "x", Brief: "b",
+		SpaceID: 1, Role: "lead", Kind: "x", Brief: "b",
 	})
 	if want := `invalid: unknown proposal kind "x"`; err == nil || err.Error() != want {
 		t.Errorf("error = %v, want %s", err, want)
@@ -291,8 +295,8 @@ func TestStaleBriefProposalCannotOverwriteWrap(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, p := range []Proposal{
-		{ChannelID: 1, Role: "lead", Kind: ProposalBrief, Brief: "stale"},
-		{ChannelID: 1, Role: "lead", Brief: "final"},
+		{SpaceID: 1, Role: "lead", Kind: ProposalBrief, Brief: "stale"},
+		{SpaceID: 1, Role: "lead", Brief: "final"},
 	} {
 		if _, err := s.CreateProposal(ctx, p); err != nil {
 			t.Fatal(err)
@@ -321,7 +325,7 @@ func TestStaleBriefProposalCannotOverwriteWrap(t *testing.T) {
 func TestCreateWrapProposalRejectsOlderPending(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
-	if _, err := s.CreateProposal(ctx, Proposal{ChannelID: 1, Role: "lead", Brief: "v3"}); err != nil {
+	if _, err := s.CreateProposal(ctx, Proposal{SpaceID: 1, Role: "lead", Brief: "v3"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -337,23 +341,23 @@ func TestCreateWrapProposalRejectsOlderPending(t *testing.T) {
 	}
 }
 
-func TestApproveBriefProposalOnClosedChannel(t *testing.T) {
+func TestApproveBriefProposalOnClosedSpace(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
 	if _, err := s.RejectProposal(ctx, 1); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := s.CreateProposal(ctx, Proposal{
-		ChannelID: 1, Role: "lead", Kind: ProposalBrief, Brief: "v3",
+		SpaceID: 1, Role: "lead", Kind: ProposalBrief, Brief: "v3",
 	}); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.CloseFeature(ctx, 1); err != nil {
+	if _, err := s.MoveWorkItem(ctx, 1, "dropped", ByUser); err != nil {
 		t.Fatal(err)
 	}
 
 	_, err := s.ApproveProposal(ctx, 2)
-	if want := "invalid: channel 1 is closed"; err == nil || err.Error() != want {
+	if want := "invalid: Space 1 is closed"; err == nil || err.Error() != want {
 		t.Errorf("approve = %v, want %s", err, want)
 	}
 	if b, err := s.Brief(ctx, 1); err != nil || b.Body != "v1" {
@@ -416,14 +420,14 @@ func TestRejectProposal(t *testing.T) {
 func TestApproveProposalFailureAppliesNothing(t *testing.T) {
 	ctx := context.Background()
 	s := proposalFixture(t)
-	if _, err := s.db.Exec(`CREATE TRIGGER channel_boom BEFORE UPDATE OF closed_at ON channel
+	if _, err := s.db.Exec(`CREATE TRIGGER space_boom BEFORE UPDATE OF closed_at ON space
 		BEGIN SELECT RAISE(ABORT, 'boom'); END`); err != nil {
 		t.Fatal(err)
 	}
 	before := countRows(t, s)
 
 	if _, err := s.ApproveProposal(ctx, 1); err == nil {
-		t.Fatal("ApproveProposal succeeded, want the channel close to fail")
+		t.Fatal("ApproveProposal succeeded, want the Space close to fail")
 	}
 	if after := countRows(t, s); after != before {
 		t.Errorf("counts after failed approve = %+v, want %+v", after, before)

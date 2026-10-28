@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "main": "main.js",
-  "description": "Reef: a personal app where every feature keeps its own memory, built by a team of AI agents.",
+  "description": "Reef: a personal app where every Work item keeps its own memory, built by a team of AI agents.",
   "homepage": "https://github.com/bhanuprakaash/reef",
   "author": {
     "name": "Bhanu Prakash Sai Potteri",

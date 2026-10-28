@@ -329,7 +329,7 @@ function TerminalSection() {
   return (
     <Section title="Terminal">
       <p className="text-[13px] text-muted">
-        Where the Terminal toggle opens a feature&apos;s worktree.
+        Where the Terminal toggle opens a Work item&apos;s worktree.
       </p>
       {installed && (
         <div role="radiogroup" aria-label="Terminal app" className="flex flex-col gap-2">

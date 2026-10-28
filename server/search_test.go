@@ -21,8 +21,9 @@ func TestSearchDirectVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	one := int64(1)
-	ch, err := st.CreateChannel(ctx, store.Channel{
-		ProjectID: 1, FeatureID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
+	closeSpace(t, st, 1)
+	ch, err := st.CreateSpace(ctx, store.Space{
+		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -37,7 +38,7 @@ func TestSearchDirectVisibility(t *testing.T) {
 	callLead, callDeveloper, callTester := callAs("lead"), callAs("developer"), callAs("tester")
 
 	req, err := st.CreateDirectMessage(ctx, store.DirectMessage{
-		ChannelID: ch.ID, From: "lead", To: "developer", Body: "build the handoff"})
+		SpaceID: ch.ID, From: "lead", To: "developer", Body: "build the handoff"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -45,17 +46,17 @@ func TestSearchDirectVisibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := st.CreateMessage(ctx, store.Message{
-		ChannelID: ch.ID, Author: "lead", Body: "handoff plan for @developer"}); err != nil {
+		SpaceID: ch.ID, Author: "lead", Body: "handoff plan for @developer"}); err != nil {
 		t.Fatal(err)
 	}
 
 	const (
-		public = `{"author":"lead","channelId":5,"kind":"public","messageId":5,` +
-			`"snippet":"handoff plan for @developer"}`
-		response = `{"author":"developer","chainId":1,"channelId":5,"from":"developer",` +
-			`"kind":"direct","messageId":2,"snippet":"handoff done","to":"lead"}`
-		request = `{"author":"lead","chainId":1,"channelId":5,"from":"lead","kind":"direct",` +
-			`"messageId":1,"snippet":"build the handoff","to":"developer"}`
+		public = `{"author":"lead","kind":"public","messageId":5,` +
+			`"snippet":"handoff plan for @developer","spaceId":5}`
+		response = `{"author":"developer","chainId":1,"from":"developer",` +
+			`"kind":"direct","messageId":2,"snippet":"handoff done","spaceId":5,"to":"lead"}`
+		request = `{"author":"lead","chainId":1,"from":"lead","kind":"direct",` +
+			`"messageId":1,"snippet":"build the handoff","spaceId":5,"to":"developer"}`
 	)
 	args := map[string]any{"query": "HANDOFF"}
 	both := `{"hits":[` + public + `,` + response + `,` + request + `]}`
@@ -76,7 +77,7 @@ func TestSearchDirectVisibility(t *testing.T) {
 	if got, _ := callTester("read_direct_messages", nil); got != `{"messages":[]}` {
 		t.Errorf("tester read_direct_messages = %q, want none", got)
 	}
-	got, _ := callTester("read_thread", map[string]any{"channelId": ch.ID})
+	got, _ := callTester("read_thread", map[string]any{"spaceId": ch.ID})
 	if strings.Contains(got, "build the handoff") || strings.Contains(got, "handoff done") {
 		t.Errorf("tester read_thread = %q, want no direct body", got)
 	}
@@ -95,21 +96,21 @@ func TestSearchDirectVisibility(t *testing.T) {
 		want       string
 	}{
 		{
-			name: "user sees both kinds", path: "/search?feature=1&q=handoff", wantStatus: 200,
-			want: `[{"channelId":5,"messageId":5,"kind":"public","author":"lead",` +
+			name: "user sees both kinds", path: "/search?workItem=1&q=handoff", wantStatus: 200,
+			want: `[{"spaceId":5,"messageId":5,"kind":"public","author":"lead",` +
 				`"snippet":"handoff plan for @developer"},` +
-				`{"channelId":5,"messageId":2,"kind":"direct","author":"developer",` +
+				`{"spaceId":5,"messageId":2,"kind":"direct","author":"developer",` +
 				`"from":"developer","to":"lead","chainId":1,"snippet":"handoff done"},` +
-				`{"channelId":5,"messageId":1,"kind":"direct","author":"lead",` +
+				`{"spaceId":5,"messageId":1,"kind":"direct","author":"lead",` +
 				`"from":"lead","to":"developer","chainId":1,"snippet":"build the handoff"}]`,
 		},
-		{name: "limit", path: "/search?feature=1&q=handoff&limit=1", wantStatus: 200,
-			want: `[{"channelId":5,"messageId":5,"kind":"public","author":"lead",` +
+		{name: "limit", path: "/search?workItem=1&q=handoff&limit=1", wantStatus: 200,
+			want: `[{"spaceId":5,"messageId":5,"kind":"public","author":"lead",` +
 				`"snippet":"handoff plan for @developer"}]`},
-		{name: "no match", path: "/search?feature=1&q=zebra", wantStatus: 200, want: `[]`},
-		{name: "feature is required", path: "/search?q=handoff", wantStatus: 400,
-			want: `{"error":"invalid: feature is required"}`},
-		{name: "query is required", path: "/search?feature=1", wantStatus: 400,
+		{name: "no match", path: "/search?workItem=1&q=zebra", wantStatus: 200, want: `[]`},
+		{name: "work item is required", path: "/search?q=handoff", wantStatus: 400,
+			want: `{"error":"invalid: work item is required"}`},
+		{name: "query is required", path: "/search?workItem=1", wantStatus: 400,
 			want: `{"error":"invalid: q is required"}`},
 	}
 	for _, tt := range tests {
@@ -120,7 +121,7 @@ func TestSearchDirectVisibility(t *testing.T) {
 			}
 		})
 	}
-	if status, _ := do(t, http.MethodPost, ts.URL+"/search?feature=1&q=handoff", ""); status != 405 {
+	if status, _ := do(t, http.MethodPost, ts.URL+"/search?workItem=1&q=handoff", ""); status != 405 {
 		t.Errorf("POST /search = %d, want 405", status)
 	}
 }

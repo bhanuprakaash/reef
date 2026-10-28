@@ -161,7 +161,9 @@ func writeRecording(name, role, prompt string, args []string, lines []recLine) e
 	buf.Write(marshalLine(hdr))
 	buf.WriteByte('\n')
 	for _, l := range lines {
-		l.Out = trimInit(l.Out)
+		if l.Out = trimInit(l.Out); l.Out == "" {
+			continue
+		}
 		buf.Write(marshalLine(l))
 		buf.WriteByte('\n')
 	}
@@ -186,11 +188,18 @@ func writeRecording(name, role, prompt string, args []string, lines []recLine) e
 	return os.Rename(tmp.Name(), filepath.Join(dir, name+".jsonl"))
 }
 
-// trimInit keeps only the fields of a system init line that the adapter reads: the rest
-// lists the recording machine's skills, plugins, agents and home paths, and the repo is public.
+// trimInit keeps only the fields of a system init line that the adapter reads, and drops a
+// system commands_changed line ("" out): the rest lists the recording machine's skills,
+// plugins, agents and home paths, and the repo is public.
 func trimInit(out string) string {
 	var l map[string]any
-	if json.Unmarshal([]byte(out), &l) != nil || l["type"] != "system" || l["subtype"] != "init" {
+	if json.Unmarshal([]byte(out), &l) != nil || l["type"] != "system" {
+		return out
+	}
+	if l["subtype"] == "commands_changed" {
+		return ""
+	}
+	if l["subtype"] != "init" {
 		return out
 	}
 	kept := map[string]any{}

@@ -105,9 +105,6 @@ func TestTeam_ApplyErrors(t *testing.T) {
 			"invalid: team a needs exactly one lead role, has 2"},
 		{"bad backend", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"gpt"}]}`,
 			"role x: invalid: backend must be claude or codex"},
-		{"gate on unknown role", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude"}],` +
-			`"gates":[{"from":"x","to":"y","on":true}]}`,
-			"gate x to y names a role team a does not have"},
 		{"unknown face", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude","face":"dragon"}]}`,
 			`role x: face "dragon" must be one of jellyfish, whale, penguin, shark, octopus, turtle, ` +
 				"seahorse, otter, clownfish, manta-ray, pebble"},

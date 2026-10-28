@@ -11,7 +11,7 @@ import (
 )
 
 // TestDirectSourceMessage records the public message a sender was answering on the direct
-// request it sends, keeps it through a direct wake, and leaves it empty without one.
+// request it sends, and keeps it through a direct wake.
 func TestDirectSourceMessage(t *testing.T) {
 	ctx := context.Background()
 	st, _ := mcpFixture(t)
@@ -23,13 +23,14 @@ func TestDirectSourceMessage(t *testing.T) {
 		t.Fatal(err)
 	}
 	one := int64(1)
-	ch, err := st.CreateChannel(ctx, store.Channel{
-		ProjectID: 1, FeatureID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
+	closeSpace(t, st, 1)
+	ch, err := st.CreateSpace(ctx, store.Space{
+		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
-	public, err := st.CreateMessage(ctx, store.Message{ChannelID: ch.ID, Author: "user", Body: "build it"})
+	public, err := st.CreateMessage(ctx, store.Message{SpaceID: ch.ID, Author: "user", Body: "build it"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -51,9 +52,10 @@ func TestDirectSourceMessage(t *testing.T) {
 		}
 	}
 
-	send("lead", "developer")
-	wake := fmt.Sprintf("[channel %d, message %d]\nbuild it", ch.ID, public.ID)
-	turn, err := st.CreateTurn(ctx, store.Turn{ChannelID: ch.ID, Role: "lead", Backend: "claude", WakeText: wake})
+	wake := fmt.Sprintf("[Space %d, message %d]\nbuild it", ch.ID, public.ID)
+	turn, err := st.CreateTurn(ctx, store.Turn{
+		SpaceID: ch.ID, Role: "lead", Backend: "claude", WakeText: wake, WakeMessageID: &public.ID,
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -61,23 +63,20 @@ func TestDirectSourceMessage(t *testing.T) {
 	endTurn(turn)
 
 	direct, err := st.DirectMessages(ctx, ch.ID, 0)
-	if err != nil || len(direct) != 2 {
-		t.Fatalf("direct = %+v, %v, want 2", direct, err)
+	if err != nil || len(direct) != 1 {
+		t.Fatalf("direct = %+v, %v, want 1", direct, err)
 	}
-	if direct[0].SourceMessageID != nil {
-		t.Errorf("request sent outside a turn has source %d, want none", *direct[0].SourceMessageID)
-	}
-	if got := direct[1].SourceMessageID; got == nil || *got != public.ID {
+	if got := direct[0].SourceMessageID; got == nil || *got != public.ID {
 		t.Errorf("request sent while answering message %d has source %v", public.ID, got)
 	}
 
-	answer, err := st.CreateDirectResponse(ctx, direct[1].ID, "tester", "ok")
+	answer, err := st.CreateDirectResponse(ctx, direct[0].ID, "tester", "ok")
 	if err != nil {
 		t.Fatal(err)
 	}
 	turn, err = st.CreateTurn(ctx, store.Turn{
-		ChannelID: ch.ID, Role: "lead", Backend: "claude",
-		WakeText: "[channel 1, direct message 3, chain 2, source: direct response]", DirectMessageID: answer.IDRef(),
+		SpaceID: ch.ID, Role: "lead", Backend: "claude",
+		WakeText: "[Space 1, direct message 2, chain 1, source: direct response]", DirectMessageID: answer.IDRef(),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -85,10 +84,10 @@ func TestDirectSourceMessage(t *testing.T) {
 	send("lead", "developer")
 	endTurn(turn)
 	direct, err = st.DirectMessages(ctx, ch.ID, 0)
-	if err != nil || len(direct) != 4 {
-		t.Fatalf("direct = %+v, %v, want 4", direct, err)
+	if err != nil || len(direct) != 3 {
+		t.Fatalf("direct = %+v, %v, want 3", direct, err)
 	}
-	if got := direct[3].SourceMessageID; got == nil || *got != public.ID {
+	if got := direct[2].SourceMessageID; got == nil || *got != public.ID {
 		t.Errorf("request sent from a direct wake has source %v, want %d", got, public.ID)
 	}
 }
@@ -98,7 +97,7 @@ func TestDirectSourceMessage(t *testing.T) {
 func TestDirectFrameAfterShedWake(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, _ := env.teamChannel(t)
+	id, _ := env.teamSpace(t)
 	env.fake.directRelease = make(chan struct{})
 	env.fake.onRun = func(role, text string, parent *int64) {
 		if role != "lead" {
@@ -106,7 +105,7 @@ func TestDirectFrameAfterShedWake(t *testing.T) {
 		}
 		for _, body := range []string{"first", "second"} {
 			if _, err := env.st.CreateDirectMessage(ctx, store.DirectMessage{
-				ChannelID: int64(id), From: "lead", To: "architect", Body: body,
+				SpaceID: int64(id), From: "lead", To: "architect", Body: body,
 			}); err != nil {
 				t.Error(err)
 			}
@@ -119,7 +118,7 @@ func TestDirectFrameAfterShedWake(t *testing.T) {
 	case <-time.After(5 * time.Second):
 		t.Fatal("direct wake did not start")
 	}
-	do(t, http.MethodPost, fmt.Sprintf("%s/channels/%d/stop", env.url, id), "")
+	do(t, http.MethodPost, fmt.Sprintf("%s/spaces/%d/stop", env.url, id), "")
 	for f := sub.next(t); f != "direct {}"; f = sub.next(t) {
 	}
 	direct, err := env.st.DirectMessages(ctx, int64(id), 0)

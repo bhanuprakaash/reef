@@ -105,10 +105,11 @@ func (s *Store) writeErr(
 		if ok {
 			continue
 		}
+		name := strings.ReplaceAll(p.table, "_", " ")
 		if kind == ErrNotFound {
-			return fmt.Errorf("%s %d: %w", p.table, *p.id, ErrNotFound)
+			return fmt.Errorf("%s %d: %w", name, *p.id, ErrNotFound)
 		}
-		return fmt.Errorf("%w: unknown %s %d", kind, p.table, *p.id)
+		return fmt.Errorf("%w: unknown %s %d", kind, name, *p.id)
 	}
 	return fmt.Errorf("%s: %w", op, err)
 }
@@ -122,43 +123,46 @@ func (s *Store) exists(ctx context.Context, table string, id int64) (bool, error
 	return ok, err
 }
 
-func (s *Store) requireFeature(ctx context.Context, id int64) error {
-	ok, err := s.exists(ctx, "feature", id)
+func (s *Store) requireWorkItem(ctx context.Context, id int64) error {
+	ok, err := s.exists(ctx, "work_item", id)
 	if err != nil {
-		return fmt.Errorf("check feature: %w", err)
+		return fmt.Errorf("check work item: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("feature %d: %w", id, ErrNotFound)
+		return fmt.Errorf("work item %d: %w", id, ErrNotFound)
 	}
 	return nil
 }
 
-func (s *Store) requireChannel(ctx context.Context, id int64) error {
-	ok, err := s.exists(ctx, "channel", id)
+func (s *Store) requireSpace(ctx context.Context, id int64) error {
+	ok, err := s.exists(ctx, "space", id)
 	if err != nil {
-		return fmt.Errorf("check channel: %w", err)
+		return fmt.Errorf("check Space: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("channel %d: %w", id, ErrNotFound)
+		return fmt.Errorf("space %d: %w", id, ErrNotFound)
 	}
 	return nil
 }
 
-func (s *Store) checkFeatureInProject(
-	ctx context.Context, featureID *int64, projectID int64,
+func (s *Store) checkWorkItemInProject(
+	ctx context.Context, workItemID *int64, projectID int64,
 ) error {
-	if featureID == nil {
+	if workItemID == nil {
 		return nil
 	}
-	f, err := s.Feature(ctx, *featureID)
+	f, err := s.WorkItem(ctx, *workItemID)
 	if errors.Is(err, ErrNotFound) {
-		return fmt.Errorf("%w: unknown feature %d", ErrInvalid, *featureID)
+		return fmt.Errorf("%w: unknown work item %d", ErrInvalid, *workItemID)
 	}
 	if err != nil {
-		return fmt.Errorf("check feature: %w", err)
+		return fmt.Errorf("check work item: %w", err)
 	}
 	if f.ProjectID != projectID {
-		return fmt.Errorf("%w: feature %d is not in project %d", ErrInvalid, f.ID, projectID)
+		return fmt.Errorf("%w: work item %d is not in project %d", ErrInvalid, f.ID, projectID)
+	}
+	if f.ParentID != nil {
+		return fmt.Errorf("%w: work item %d is a sub-item and shares its parent's Space", ErrInvalid, f.ID)
 	}
 	return nil
 }

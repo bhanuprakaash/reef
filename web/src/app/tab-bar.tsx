@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { NavLink, useMatch } from 'react-router';
 import { CountBadge } from '@/components/count-badge';
-import { useInbox } from '@/modules/inbox/api/get-inbox';
+import { useNeedsYou } from '@/modules/inbox/api/get-inbox';
 
 function Tab({
   to,
@@ -45,11 +45,11 @@ function Tab({
   );
 }
 
-export function TabBar() {
-  const inbox = useInbox();
-  const inChannel = useMatch('/channels/:id');
-  const inReview = useMatch('/features/:id/review');
-  if (inChannel || inReview) return null;
+export function TabBar({ onMenu }: { onMenu: () => void }) {
+  const inbox = useNeedsYou();
+  const inSpace = useMatch('/spaces/:id');
+  const inReview = useMatch('/work-items/:id/review');
+  if (inSpace || inReview) return null;
 
   return (
     <nav
@@ -60,22 +60,37 @@ export function TabBar() {
         <circle cx="12" cy="12" r="4" />
         <path d="M12 2v2M12 20v2M2 12h2M20 12h2" />
       </Tab>
-      <Tab to="/channels" label="Channels">
+      <Tab to="/board" label="Board">
+        <rect x="3" y="4" width="5" height="16" rx="1.5" />
+        <rect x="10" y="4" width="5" height="10" rx="1.5" />
+        <rect x="17" y="4" width="4" height="13" rx="1.5" />
+      </Tab>
+      <Tab to="/spaces" label="Spaces">
         <path d="M4 5h16v11H9l-5 4z" />
       </Tab>
       <Tab to="/inbox" label="Needs you" badge={inbox.data?.length}>
         <path d="M22 12h-6l-2 3h-4l-2-3H2" />
         <path d="M5.5 5h13L22 12v7H2v-7z" />
       </Tab>
-      <Tab to="/tasks" label="Tasks">
-        <path d="M9 11l3 3 8-8" />
-        <path d="M20 12v7a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9" />
-      </Tab>
-      <Tab to="/teams" label="Teams">
-        <circle cx="9" cy="9" r="4" />
-        <circle cx="17" cy="11" r="3" />
-        <path d="M2 20c.8-3.5 3.6-5 7-5s6.2 1.5 7 5" />
-      </Tab>
+      <button
+        type="button"
+        onClick={onMenu}
+        className="flex min-h-12 flex-col items-center justify-center gap-[3px] text-[10.5px] text-muted"
+      >
+        <svg
+          width="24"
+          height="24"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.7"
+          strokeLinecap="round"
+          aria-hidden="true"
+        >
+          <path d="M4 7h16M4 12h16M4 17h16" />
+        </svg>
+        Menu
+      </button>
     </nav>
   );
 }

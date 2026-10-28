@@ -16,36 +16,28 @@ func (s *server) inboxRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("/inbox", methodNotAllowed)
 	mux.HandleFunc("GET /inbox/events", s.inboxEvents)
 	mux.HandleFunc("/inbox/events", methodNotAllowed)
-	mux.HandleFunc("POST /channels/{id}/dismiss", s.dismissWaiting)
-	mux.HandleFunc("/channels/{id}/dismiss", methodNotAllowed)
+	mux.HandleFunc("POST /inbox/dismiss", s.dismissItem)
+	mux.HandleFunc("/inbox/dismiss", methodNotAllowed)
 }
 
-// dismissWaiting hides the waiting item whose message is messageId; a newer message brings it
-// back.
-func (s *server) dismissWaiting(w http.ResponseWriter, r *http.Request) {
-	id, err := pathID(r)
-	if err != nil {
-		writeError(w, err)
-		return
-	}
-	var in struct {
-		MessageID int64 `json:"messageId"`
-	}
+// dismissItem removes the FYI item in the body, which is an item as GET /inbox lists it.
+func (s *server) dismissItem(w http.ResponseWriter, r *http.Request) {
+	var in store.InboxItem
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
-	if err := s.st.DismissWaiting(r.Context(), id, in.MessageID); err != nil {
+	if err := s.st.DismissInbox(r.Context(), in); err != nil {
 		writeError(w, err)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// inbox lists the store's inbox without the waiting, paused and failed items of a channel with
+// inbox lists the store's inbox without the waiting, paused and failed items of a Space with
 // a chain running: between two turns its last message is an agent's and the role it wakes has
 // not started, and Continue or Retry is refused until the chain has ended.
-// The running channels are read before and after the store, so a chain that starts or ends
+// The running Spaces are read before and after the store, so a chain that starts or ends
 // during the read is not missed.
 func (s *server) inbox(ctx context.Context) ([]store.InboxItem, error) {
 	running := map[int64]bool{}
@@ -56,7 +48,7 @@ func (s *server) inbox(ctx context.Context) ([]store.InboxItem, error) {
 	}
 	s.markRunning(running)
 	items = slices.DeleteFunc(items, func(i store.InboxItem) bool {
-		return i.Kind != "approval" && running[i.ChannelID]
+		return running[i.SpaceID]
 	})
 	if items == nil {
 		items = []store.InboxItem{}
@@ -77,7 +69,7 @@ func (s *server) markRunning(running map[int64]bool) {
 }
 
 // inboxChanged tells the inbox streams that something that can change the inbox happened.
-// It never waits, so it may be called with a channel's lock held.
+// It never waits, so it may be called with a Space's lock held.
 func (s *server) inboxChanged() {
 	s.inboxMu.Lock()
 	close(s.inboxWake)

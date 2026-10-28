@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestStatus_CountsRunningChannels(t *testing.T) {
+func TestStatus_CountsRunningSpaces(t *testing.T) {
 	env := newLiveEnv(t)
 	if status, body := do(t, http.MethodGet, env.url+"/status", ""); status != 200 || body != `{"running":0}` {
 		t.Errorf("idle GET /status = %d %s, want 200 {\"running\":0}", status, body)

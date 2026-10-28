@@ -85,8 +85,8 @@ func TestApproveProposalSavesItemsAndRetires(t *testing.T) {
 	if b, err := st.Brief(ctx, 1); err != nil || b.Body != "v2" {
 		t.Errorf("brief = %q, %v, want v2", b.Body, err)
 	}
-	if c, err := st.Channel(ctx, 1); err != nil || c.ClosedAt == nil {
-		t.Errorf("channel = %+v, %v, want closed", c, err)
+	if c, err := st.Space(ctx, 1); err != nil || c.ClosedAt == nil {
+		t.Errorf("space = %+v, %v, want closed", c, err)
 	}
 }
 
@@ -100,8 +100,9 @@ func TestApproveProposalLeadTeamLessonIsCandidate(t *testing.T) {
 		t.Fatal(err)
 	}
 	one := int64(1)
-	ch, err := st.CreateChannel(ctx, store.Channel{
-		ProjectID: 1, FeatureID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
+	closeSpace(t, st, 1)
+	ch, err := st.CreateSpace(ctx, store.Space{
+		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -184,8 +185,8 @@ func TestApproveProposalRetryAfterFailureSavesEachItemOnce(t *testing.T) {
 	if p, err := st.PendingProposal(context.Background(), 1); err != nil || p.Status != store.ProposalPending {
 		t.Errorf("pending proposal = %+v, %v, want it still pending", p, err)
 	}
-	if c, err := st.Channel(context.Background(), 1); err != nil || c.ClosedAt != nil {
-		t.Errorf("channel = %+v, %v, want it open", c, err)
+	if c, err := st.Space(context.Background(), 1); err != nil || c.ClosedAt != nil {
+		t.Errorf("space = %+v, %v, want it open", c, err)
 	}
 	if b, err := st.Brief(context.Background(), 1); err != nil || b.Body != "Build login" {
 		t.Errorf("brief = %q, %v, want it unchanged", b.Body, err)

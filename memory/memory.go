@@ -266,6 +266,22 @@ func (s *Store) RetireScope(ctx context.Context, scope Ref) error {
 	return nil
 }
 
+// Rescope moves the pending candidates and accepted items of scope from to scope to, and
+// reports how many it moved. Items already retired or rejected stay where they are.
+func (s *Store) Rescope(ctx context.Context, from, to Ref) (int64, error) {
+	if !_scopeKinds[to.Kind] {
+		return 0, fmt.Errorf("%w: unknown scope kind %q", ErrInvalid, to.Kind)
+	}
+	res, err := s.db.ExecContext(ctx,
+		`UPDATE memory SET scope_kind = ?, scope_id = ?
+		 WHERE scope_kind = ? AND scope_id = ? AND status IN (?, ?)`,
+		to.Kind, to.ID, from.Kind, from.ID, StatusCandidate, StatusAccepted)
+	if err != nil {
+		return 0, fmt.Errorf("move scope %s:%s to %s:%s: %w", from.Kind, from.ID, to.Kind, to.ID, err)
+	}
+	return res.RowsAffected()
+}
+
 // Accept moves a candidate to accepted and retires the items it replaces, skipping any
 // already retired.
 func (s *Store) Accept(ctx context.Context, id int64) error {

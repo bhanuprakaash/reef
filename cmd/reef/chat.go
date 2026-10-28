@@ -14,17 +14,17 @@ import (
 	"syscall"
 
 	"github.com/bhanuprakaash/reef/agent"
-	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/memory"
 	"github.com/bhanuprakaash/reef/server"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
 const _continueCommand = "/continue"
 
-const _chatUsage = `usage: reef chat <feature> --role R --backend claude|codex [--name N]
+const _chatUsage = `usage: reef chat <work-item> --backend claude|codex [--role lead] [--name N]
   [--permission-mode M] [--debug] [--data DIR]
-       reef chat --channel ID [--debug] [--data DIR]`
+       reef chat --space ID [--debug] [--data DIR]`
 
 func chatCmd(
 	ctx context.Context, args []string, stdin io.Reader, stdout, stderr io.Writer,
@@ -38,17 +38,17 @@ func chatCmd(
 	name := c.fs.String("name", "", "")
 	permissionMode := c.fs.String("permission-mode", "", "")
 	debug := c.fs.Bool("debug", false, "")
-	channelID := c.fs.Int64("channel", 0, "")
+	spaceID := c.fs.Int64("space", 0, "")
 	st, pos, err := c.open(args)
 	if err != nil {
 		return err
 	}
 	defer func() { _ = st.Close() }()
 
-	resuming := *channelID != 0
+	resuming := *spaceID != 0
 	if resuming == (len(pos) == 1) ||
 		(resuming && (*role != "" || *backend != "" || *name != "" || *permissionMode != "")) ||
-		(!resuming && (*role == "" || *backend == "")) {
+		(!resuming && *backend == "") {
 		return errors.New(_chatUsage)
 	}
 	dir, err := dataDir(*c.data)
@@ -68,36 +68,46 @@ func chatCmd(
 	}
 
 	if !resuming {
-		f, err := st.FeatureByRef(ctx, pos[0])
+		f, err := spaceItemArg(ctx, st, pos[0])
 		if err != nil {
 			return err
+		}
+		solo, err := st.Team(ctx, store.SoloTeam)
+		if err != nil {
+			return err
+		}
+		if lead := solo.Roles[0].Name; *role == "" {
+			*role = lead
+		} else if *role != lead {
+			return fmt.Errorf("%w: reef chat runs the lead of team %s, %s: --role %s is not it",
+				store.ErrInvalid, store.SoloTeam, lead, *role)
 		}
 		if *name == "" {
 			*name = *role + " chat"
 		}
-		ch, err := st.CreateChannel(ctx, store.Channel{
-			ProjectID: f.ProjectID, FeatureID: &f.ID, Name: *name, Role: *role,
+		ch, err := st.CreateSpace(ctx, store.Space{
+			ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: *name, Role: *role,
 			Backend: *backend, PermissionMode: *permissionMode,
 		})
 		if err != nil {
 			return err
 		}
-		*channelID = ch.ID
+		*spaceID = ch.ID
 	} else {
-		ch, err := st.Channel(ctx, *channelID)
+		ch, err := st.Space(ctx, *spaceID)
 		if err != nil {
 			return err
 		}
-		team, err := st.Team(ctx, ch.Team)
+		team, err := st.SpaceTeam(ctx, ch.ID)
 		if err != nil {
 			return err
 		}
 		if len(team.Roles) > 1 {
-			return fmt.Errorf("channel %d belongs to team %q; use the Reef window for multi-role teams",
+			return fmt.Errorf("space %d belongs to team %q; use the Reef window for multi-role teams",
 				ch.ID, team.Name)
 		}
 	}
-	sess, err := channel.Open(ctx, st, ms, dir, exe, *channelID, channel.NewTrees(dir), channel.NewAgent)
+	sess, err := space.Open(ctx, st, ms, dir, exe, *spaceID, space.NewTrees(dir), space.NewAgent)
 	if err == nil {
 		if err = sess.Start(ctx); err != nil {
 			_ = sess.Close()
@@ -105,7 +115,7 @@ func chatCmd(
 	}
 	if err != nil {
 		if !resuming {
-			err = errors.Join(err, st.DeleteChannel(context.WithoutCancel(ctx), *channelID))
+			err = errors.Join(err, st.DeleteSpace(context.WithoutCancel(ctx), *spaceID))
 		}
 		return err
 	}
@@ -116,11 +126,11 @@ func chatCmd(
 			_, _ = fmt.Fprintf(stderr, "--- prompt ---\n%s\n---\n", prompt)
 		})
 	}
-	if err := converse(ctx, st, ms, *channelID, sess, readLines(stdin), stdout); err != nil {
+	if err := converse(ctx, st, ms, *spaceID, sess, readLines(stdin), stdout); err != nil {
 		return err
 	}
-	_, err = fmt.Fprintf(stdout, "\nchannel %d: resume with reef chat --channel %d\n",
-		*channelID, *channelID)
+	_, err = fmt.Fprintf(stdout, "\nspace %d: resume with reef chat --space %d\n",
+		*spaceID, *spaceID)
 	return err
 }
 
@@ -130,10 +140,10 @@ type chatSession interface {
 	Wrap(ctx context.Context, onEvent func(agent.Event)) (store.Proposal, error)
 }
 
-var _ chatSession = (*channel.Session)(nil)
+var _ chatSession = (*space.Session)(nil)
 
 func converse(
-	ctx context.Context, st *store.Store, ms *memory.Store, channelID int64, sess chatSession,
+	ctx context.Context, st *store.Store, ms *memory.Store, spaceID int64, sess chatSession,
 	in *lineReader, stdout io.Writer,
 ) error {
 	show := func(ev agent.Event) {
@@ -154,8 +164,8 @@ func converse(
 		}
 		if line == _continueCommand {
 			msg := "continued"
-			if err := channel.Continue(ctx, st, channelID); errors.Is(err, store.ErrConflict) {
-				msg = "the channel is not paused"
+			if err := space.Continue(ctx, st, spaceID); errors.Is(err, store.ErrConflict) {
+				msg = "the Space is not paused"
 			} else if err != nil {
 				return err
 			}
@@ -164,12 +174,12 @@ func converse(
 			}
 			continue
 		}
-		ch, err := st.Channel(ctx, channelID)
+		ch, err := st.Space(ctx, spaceID)
 		if err != nil {
 			return err
 		}
-		if _, err := channel.CheckCaps(ctx, st, &ch); errors.Is(err, store.ErrConflict) {
-			if _, err := fmt.Fprintf(stdout, "channel %d is paused: %s\n%s to go on\n\n> ",
+		if _, err := space.CheckCaps(ctx, st, &ch); errors.Is(err, store.ErrConflict) {
+			if _, err := fmt.Fprintf(stdout, "space %d is paused: %s\n%s to go on\n\n> ",
 				ch.ID, ch.Paused, _continueCommand); err != nil {
 				return err
 			}
@@ -181,14 +191,14 @@ func converse(
 			return err
 		}
 		var p store.Proposal
-		wrap := line == channel.WrapCommand
+		wrap := line == space.WrapCommand
 		_, err = sess.Say(ctx, line, nil)
 		if err == nil && wrap {
 			p, err = sess.Wrap(ctx, show)
 		} else if err == nil {
 			err = sess.Run(ctx, line, nil, show)
 		}
-		noProposal := errors.Is(err, channel.ErrNoProposal)
+		noProposal := errors.Is(err, space.ErrNoProposal)
 		if err != nil && !noProposal {
 			if ctx.Err() != nil {
 				return nil

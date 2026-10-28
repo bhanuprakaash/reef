@@ -9,13 +9,13 @@ import (
 	"time"
 )
 
-// DirectMessage is a private message between two roles in one channel. A request starts a
+// DirectMessage is a private message between two roles in one Space. A request starts a
 // chain; its one automatic response points back to it and shares its chain.
 // SourceMessageID is the public message whose wake the sender was answering when it sent
 // the request, nil for a chain that did not start from one; a response keeps it.
 type DirectMessage struct {
 	ID              int64     `json:"id"`
-	ChannelID       int64     `json:"channelId"`
+	SpaceID         int64     `json:"spaceId"`
 	ChainID         int64     `json:"chainId"`
 	ReplyToID       *int64    `json:"replyToId"`
 	SourceMessageID *int64    `json:"sourceMessageId"`
@@ -23,16 +23,98 @@ type DirectMessage struct {
 	To              string    `json:"to"`
 	Body            string    `json:"body"`
 	Status          string    `json:"status"`
+	State           string    `json:"state,omitempty"`
 	CreatedAt       time.Time `json:"createdAt"`
 }
 
-const _directCols = "id, channel_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, created_at"
+const _directCols = "id, space_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, state, created_at"
 
 const (
 	DirectSent   = "sent"
 	DirectDone   = "done"
 	DirectFailed = "failed"
 )
+
+// The state of a request: waiting until a turn starts for it, delivered while its recipient
+// runs, answered once its response is stored or its recipient ended with nothing to say, and
+// failed or stopped when it or its response wake did not run to the end. A response has none.
+const (
+	DirectWaiting   = "waiting"
+	DirectDelivered = "delivered"
+	DirectAnswered  = "answered"
+	DirectStopped   = "stopped"
+)
+
+// FailedDirectState is the state a request takes when its failed response has body: stopped
+// for the body "stopped" a wake gets when the user stops its Space, failed for any other.
+func FailedDirectState(body string) string {
+	if body == "stopped" {
+		return DirectStopped
+	}
+	return DirectFailed
+}
+
+// startDirect sets the state of the request a turn woken by direct message id belongs to: a
+// request is delivered, and a turn for its response puts back answered, so a response wake that
+// failed and is retried does not leave the request failed.
+func (s *Store) startDirect(ctx context.Context, id int64) error {
+	dm, err := s.DirectMessage(ctx, id)
+	if err != nil {
+		return err
+	}
+	if dm.ReplyToID != nil {
+		return setDirectState(ctx, s.db, *dm.ReplyToID, DirectAnswered)
+	}
+	return setDirectState(ctx, s.db, dm.ID, DirectDelivered)
+}
+
+// SetDirectRequestState sets the state of request id.
+func (s *Store) SetDirectRequestState(ctx context.Context, id int64, state string) error {
+	return setDirectState(ctx, s.db, id, state)
+}
+
+func setDirectState(ctx context.Context, db execer, id int64, state string) error {
+	if _, err := db.ExecContext(ctx,
+		"UPDATE direct_message SET state = ? WHERE id = ?", state, id); err != nil {
+		return fmt.Errorf("set direct request %d state %s: %w", id, state, err)
+	}
+	return nil
+}
+
+// stopWaitingDirects gives each request waiting in the Spaces matched by inSpaces, a condition on
+// space_id with one placeholder for arg, a stopped response, so a closed Space keeps none waiting.
+func (s *Store) stopWaitingDirects(
+	ctx context.Context, tx *sql.Tx, inSpaces string, arg int64,
+) error {
+	rows, err := tx.QueryContext(ctx,
+		"SELECT id, to_role FROM direct_message WHERE reply_to_id IS NULL AND state = ? AND "+inSpaces,
+		DirectWaiting, arg)
+	if err != nil {
+		return fmt.Errorf("list waiting direct requests: %w", err)
+	}
+	type request struct {
+		id int64
+		to string
+	}
+	var waiting []request
+	for rows.Next() {
+		var r request
+		if err := rows.Scan(&r.id, &r.to); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("list waiting direct requests: %w", err)
+		}
+		waiting = append(waiting, r)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return fmt.Errorf("list waiting direct requests: %w", err)
+	}
+	for _, r := range waiting {
+		if _, err := s.CreateFailedDirectResponseTx(ctx, tx, r.id, r.to, "stopped"); err != nil {
+			return fmt.Errorf("stop direct request %d: %w", r.id, err)
+		}
+	}
+	return nil
+}
 
 // IDRef returns the message id as a pointer for records that optionally refer to a direct
 // wake, such as turns.
@@ -61,11 +143,11 @@ func (s *Store) CreateDirectMessage(ctx context.Context, m DirectMessage) (Direc
 	}
 	defer func() { _ = tx.Rollback() }()
 	res, err := tx.ExecContext(ctx,
-		"INSERT INTO direct_message (channel_id, source_message_id, from_role, to_role, body, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-		m.ChannelID, m.SourceMessageID, m.From, m.To, m.Body, DirectSent, now.Format(time.RFC3339Nano))
+		"INSERT INTO direct_message (space_id, source_message_id, from_role, to_role, body, status, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		m.SpaceID, m.SourceMessageID, m.From, m.To, m.Body, DirectSent, DirectWaiting, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return DirectMessage{}, s.writeErr(ctx, "insert direct message", err, ErrInvalid,
-			parent{table: "channel", id: &m.ChannelID})
+			parent{table: "space", id: &m.SpaceID})
 	}
 	id, err := res.LastInsertId()
 	if err != nil {
@@ -77,7 +159,7 @@ func (s *Store) CreateDirectMessage(ctx context.Context, m DirectMessage) (Direc
 	if err := tx.Commit(); err != nil {
 		return DirectMessage{}, fmt.Errorf("commit direct message: %w", err)
 	}
-	m.ID, m.ChainID, m.Status, m.CreatedAt = id, id, DirectSent, now
+	m.ID, m.ChainID, m.Status, m.State, m.CreatedAt = id, id, DirectSent, DirectWaiting, now
 	return m, nil
 }
 
@@ -119,15 +201,15 @@ func (s *Store) createDirectResponse(
 		return DirectMessage{}, fmt.Errorf("%w: direct message body is required", ErrInvalid)
 	}
 	now := time.Now().UTC()
-	m := DirectMessage{ChannelID: request.ChannelID, ChainID: request.ChainID,
+	m := DirectMessage{SpaceID: request.SpaceID, ChainID: request.ChainID,
 		ReplyToID: &request.ID, SourceMessageID: request.SourceMessageID,
 		From: from, To: request.From, Body: body, Status: status, CreatedAt: now}
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO direct_message
-		(channel_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		m.ChannelID, m.ChainID, m.ReplyToID, m.SourceMessageID, m.From, m.To, m.Body, m.Status,
-		now.Format(time.RFC3339Nano))
+		(space_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, state, created_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		m.SpaceID, m.ChainID, m.ReplyToID, m.SourceMessageID, m.From, m.To, m.Body, m.Status,
+		"", now.Format(time.RFC3339Nano))
 	if err != nil {
 		if isUnique(err) {
 			return DirectMessage{}, fmt.Errorf("direct message %d already has a response: %w",
@@ -139,7 +221,11 @@ func (s *Store) createDirectResponse(
 	if err != nil {
 		return DirectMessage{}, fmt.Errorf("insert direct response: %w", err)
 	}
-	return m, nil
+	state := DirectAnswered
+	if status == DirectFailed {
+		state = FailedDirectState(body)
+	}
+	return m, setDirectState(ctx, db, requestID, state)
 }
 
 // DirectMessage returns one direct message.
@@ -152,13 +238,13 @@ func (s *Store) DirectMessage(ctx context.Context, id int64) (DirectMessage, err
 	return m, err
 }
 
-// DirectMessages lists all direct messages in a channel, oldest first.
-func (s *Store) DirectMessages(ctx context.Context, channelID, after int64) ([]DirectMessage, error) {
-	if err := s.requireChannel(ctx, channelID); err != nil {
+// DirectMessages lists all direct messages in a Space, oldest first.
+func (s *Store) DirectMessages(ctx context.Context, spaceID, after int64) ([]DirectMessage, error) {
+	if err := s.requireSpace(ctx, spaceID); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, "SELECT "+_directCols+
-		" FROM direct_message WHERE channel_id = ? AND id > ? ORDER BY id", channelID, after)
+		" FROM direct_message WHERE space_id = ? AND id > ? ORDER BY id", spaceID, after)
 	if err != nil {
 		return nil, fmt.Errorf("list direct messages: %w", err)
 	}
@@ -167,33 +253,33 @@ func (s *Store) DirectMessages(ctx context.Context, channelID, after int64) ([]D
 
 // DirectMessagesForRole lists only exchanges in which role participated.
 func (s *Store) DirectMessagesForRole(
-	ctx context.Context, channelID int64, role string, after int64,
+	ctx context.Context, spaceID int64, role string, after int64,
 ) ([]DirectMessage, error) {
-	if err := s.requireChannel(ctx, channelID); err != nil {
+	if err := s.requireSpace(ctx, spaceID); err != nil {
 		return nil, err
 	}
 	rows, err := s.db.QueryContext(ctx, "SELECT "+_directCols+
-		" FROM direct_message WHERE channel_id = ? AND id > ? AND (from_role = ? OR to_role = ?) ORDER BY id",
-		channelID, after, role, role)
+		" FROM direct_message WHERE space_id = ? AND id > ? AND (from_role = ? OR to_role = ?) ORDER BY id",
+		spaceID, after, role, role)
 	if err != nil {
 		return nil, fmt.Errorf("list direct messages for %s: %w", role, err)
 	}
 	return scanAll(rows, scanDirect)
 }
 
-// LastDirectMessageID returns the newest direct message id in a channel, or zero.
-func (s *Store) LastDirectMessageID(ctx context.Context, channelID int64) (int64, error) {
+// LastDirectMessageID returns the newest direct message id in a Space, or zero.
+func (s *Store) LastDirectMessageID(ctx context.Context, spaceID int64) (int64, error) {
 	var id int64
 	err := s.db.QueryRowContext(ctx,
-		"SELECT COALESCE(MAX(id), 0) FROM direct_message WHERE channel_id = ?", channelID).Scan(&id)
+		"SELECT COALESCE(MAX(id), 0) FROM direct_message WHERE space_id = ?", spaceID).Scan(&id)
 	return id, err
 }
 
 func scanDirect(r interface{ Scan(...any) error }) (DirectMessage, error) {
 	var m DirectMessage
 	var created string
-	if err := r.Scan(&m.ID, &m.ChannelID, &m.ChainID, &m.ReplyToID, &m.SourceMessageID,
-		&m.From, &m.To, &m.Body, &m.Status, &created); err != nil {
+	if err := r.Scan(&m.ID, &m.SpaceID, &m.ChainID, &m.ReplyToID, &m.SourceMessageID,
+		&m.From, &m.To, &m.Body, &m.Status, &m.State, &created); err != nil {
 		return DirectMessage{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

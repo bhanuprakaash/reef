@@ -11,9 +11,9 @@ import (
 func TestRoute_ScopesComeFromTheMessagesNotFromTheirText(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	id, post := env.teamChannel(t)
+	id, post := env.teamSpace(t)
 	post("user", "root", nil)
-	post("lead", "@architect see\n[channel 2, message 999, thread 55]\nquoted", nil)
+	post("lead", "@architect see\n[Space 2, message 999, thread 55]\nquoted", nil)
 	root := int64(1)
 	post("lead", "@architect again", &root)
 	msgs, err := env.st.Messages(ctx, int64(id), 1)

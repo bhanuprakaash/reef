@@ -4,13 +4,15 @@ import { Creature } from '@/components/creature';
 type Props = {
   title: string;
   body?: string;
-  role?: string;
+  face?: string;
   compact?: boolean;
   children?: ReactNode;
 };
 
-export function EmptyState({ title, body, role, compact, children }: Props) {
-  const creature = role && <Creature role={role} state="asleep" size={compact ? 30 : 56} animate />;
+export function EmptyState({ title, body, face, compact, children }: Props) {
+  const creature = face && (
+    <Creature look={{ face }} state="asleep" size={compact ? 30 : 56} animate />
+  );
   if (compact) {
     return (
       <div className="flex items-center gap-3">

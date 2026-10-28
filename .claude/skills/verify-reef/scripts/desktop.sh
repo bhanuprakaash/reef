@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Launch the Reef app (desktop/) with a scratch HOME and drive it: the window, every browser
-# tool through reef mcp, the terminal pane on a feature, and quit. Called by
+# tool through reef mcp, the terminal pane on a Work item, and quit. Called by
 # `verify-reef desktop`, which exports H, REEF_VERIFY_RUN, E, S and runs it from the repo root.
 # See ../SKILL.md (Desktop) and ../features/desktop.md.
 set -u
@@ -117,20 +117,20 @@ trap stop_all EXIT
 electron=$(cd desktop && node -p "require('electron')" | tail -n 1)
 echo "build: web/dist, desktop/bin/reef, electron $electron"
 
-# --- setup: a feature on the scratch cwd (a git repo, for its worktree) and a token for it ---
+# --- setup: a Work item on the scratch cwd (a git repo, for its worktree) and a token for it ---
 git -C "$S/cwd" rev-parse -q --verify HEAD >/dev/null 2>&1 || {
 	git -C "$S/cwd" init -q -b main &&
 		git -C "$S/cwd" -c user.name=v -c user.email=v@example.com commit -q --allow-empty -m init
 }
 "$H" reef --data-name "$rel" -- project add >/dev/null 2>&1
-"$H" reef -- feature add term Terminal >/dev/null 2>&1
-"$H" reef -- feature add bare Bare >/dev/null 2>&1
-tok=$("$H" reef -- token term --role developer 2>/dev/null | sed -n 's/.*REEF_TOKEN=\([0-9a-f]*\).*/\1/p')
-row=$("$H" sql "select id || ' ' || project_id from feature where slug = 'term'" | tail -n 1)
+"$H" reef -- work-item add Terminal >/dev/null 2>&1
+"$H" reef -- work-item add Bare >/dev/null 2>&1
+row=$("$H" sql "select id || ' ' || project_id from work_item where title = 'Terminal'" | tail -n 1)
 fid=${row% *} proj=${row#* }
-bare=$("$H" sql "select id from feature where slug = 'bare'" | tail -n 1)
-[ -n "$tok" ] && [ -n "$fid" ] || { echo "FAIL desktop-setup: no feature or token; see $E/reef.log"; exit 1; }
-WT="$DATA/worktrees/$proj/term"
+tok=$("$H" reef -- token "$fid" --role developer 2>/dev/null | sed -n 's/.*REEF_TOKEN=\([0-9a-f]*\).*/\1/p')
+bare=$("$H" sql "select id from work_item where title = 'Bare'" | tail -n 1)
+[ -n "$tok" ] && [ -n "$fid" ] || { echo "FAIL desktop-setup: no Work item or token; see $E/reef.log"; exit 1; }
+WT="$DATA/worktrees/$proj/$fid"
 
 # The app reads PATH from the login shell; with HOME scratch, these rc files are the user's.
 if [ "${REEF_VERIFY_CLAUDE:-fake}" != real ]; then
@@ -313,13 +313,13 @@ mainjs 'w.setContentSize(1200, 800)' >/dev/null
 pane_bounds "back to 1200x800, zoom 1"
 check browser-bounds "$bounds_ok" "$(grep -c '^ok' "$D/pane-bounds.txt") of $(wc -l <"$D/pane-bounds.txt" | tr -d ' ') steps put the view within 1 px of the pane ($D/pane-bounds.txt)"
 
-# --- terminal pane on the feature's worktree ---
+# --- terminal pane on the Work item's worktree ---
 js_wt=$(python3 -I -c 'import json, sys; print(json.dumps(sys.argv[1]))' "$WT")
 # xterm paints only while the pane is on screen, so scroll it into view before each read.
 rows='(document.querySelector(".xterm")?.scrollIntoView(),
   [...document.querySelectorAll(".xterm-rows > div")].map((r) => r.textContent.trimEnd()).join("\n").trim())'
-cdp "history.pushState({}, '', '/features/$fid'); dispatchEvent(new PopStateEvent('popstate')); location.pathname" >/dev/null
-# Neither viewing a feature nor the Terminal toggle makes a worktree; the pane's Open terminal button does.
+cdp "history.pushState({}, '', '/work-items/$fid'); dispatchEvent(new PopStateEvent('popstate')); location.pathname" >/dev/null
+# Neither viewing a Work item nor the Terminal toggle makes a worktree; the pane's Open terminal button does.
 opened=""
 for _ in $(seq 25); do
 	opened=$(cdp "(() => { const b = document.querySelector('button[aria-label=Terminal]'); if (!b) return 'no button'; if (b.ariaPressed !== 'true') b.click(); const o = [...document.querySelectorAll('button')].find((x) => x.textContent === 'Open terminal'); if (o) { o.click(); return 'opened'; } return document.querySelector('.xterm') ? 'opened' : 'waiting'; })()" 2>&1)
@@ -338,16 +338,16 @@ cdp "window.reef.writeTerminal($js_wt, 'pwd; git branch --show-current\r')" >/de
 text='""'
 for _ in $(seq 50); do
 	text=$(cdp "$rows" 2>/dev/null)
-	case $text in *"feature/term"*) break ;; esac
+	case $text in *"work-item/$fid"*) break ;; esac
 	sleep 0.2
 done
 python3 -I -c 'import json, sys; print(json.loads(sys.argv[1]))' "$text" >"$D/terminal.txt"
 cwd=$([ -n "$shell" ] && proc_cwd "$shell")
 sd=$(shot terminal)
 # A long path wraps across rows, so match on the rows joined without line breaks.
-check terminal-feature "$([ -n "$shell" ] && [ "$cwd" = "$WT" ] && ! grep -q 'feature/term' <<<"$before" &&
-	tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}feature/term" && echo 1)" \
-	"shell pid ${shell:-none} (child of the app) cwd ${cwd:-none}; after pwd; git branch --show-current the pane shows $(tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}feature/term" || echo 'no ')$WT then feature/term ($D/terminal.txt, $D/terminal.png std dev $sd)"
+check terminal-work-item "$([ -n "$shell" ] && [ "$cwd" = "$WT" ] && ! grep -q "work-item/$fid" <<<"$before" &&
+	tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}work-item/$fid" && echo 1)" \
+	"shell pid ${shell:-none} (child of the app) cwd ${cwd:-none}; after pwd; git branch --show-current the pane shows $(tr -d '\n' <"$D/terminal.txt" | grep -qF "${WT}work-item/$fid" || echo 'no ')$WT then work-item/$fid ($D/terminal.txt, $D/terminal.png std dev $sd)"
 
 # --- terminal app: Settings > Terminal sends the toggle to `open -a <app> <worktree>` ---
 # The real open binary is never run: main's execFile is swapped for one that records its call.
@@ -391,7 +391,7 @@ sd=$(shot terminal-settings)
 check terminal-app-settings "$([ "$labels" = "$expect_apps" ] && [ "$(cdp "localStorage.getItem('reef.terminalApp')")" = '"FakeTerm"' ] && echo 1)" \
 	"Settings > Terminal lists $labels (installed apps here: $expect_apps); Custom FakeTerm is stored as reef.terminalApp ($D/terminal-settings.png std dev $sd)"
 
-spa "/features/$fid"
+spa "/work-items/$fid"
 click_toggle
 wait_opened 1
 sleep 1.5
@@ -404,7 +404,7 @@ check terminal-app-launch "$([ "$calls" = "$want" ] && [ "$xterm" = false ] && e
 
 cdp 'setTimeout(() => location.reload(), 0)' >/dev/null 2>&1
 for _ in $(seq 50); do [ "$(cdp "document.readyState + !!window.reef" 2>/dev/null)" = '"completetrue"' ] && break; sleep 0.2; done
-spa "/features/$fid"
+spa "/work-items/$fid"
 click_toggle
 wait_opened 2
 sleep 1.5
@@ -413,15 +413,15 @@ kept=$(cdp "localStorage.getItem('reef.terminalApp')")
 check terminal-app-reload "$([ "$kept" = '"FakeTerm"' ] && [ "$after" = 2 ] && [ "$(cdp "!!document.querySelector('.xterm')")" = false ] && echo 1)" \
 	"after a reload reef.terminalApp is $kept and the toggle ran open again ($after calls), still no xterm pane"
 
-spa "/features/$bare"
+spa "/work-items/$bare"
 click_toggle
 sleep 1.5
 bare_text=$(cdp "document.querySelector('section[aria-label=Terminal]')?.textContent ?? ''")
-check terminal-app-no-worktree "$([ "$(opened_count)" = 2 ] && [ ! -e "$DATA/worktrees/$proj/bare" ] && case $bare_text in *'No worktree yet'*) echo 1 ;; esac)" \
-	"on a feature with no worktree the toggle shows $bare_text, runs no open ($(opened_count) in all) and makes no $DATA/worktrees/$proj/bare"
+check terminal-app-no-worktree "$([ "$(opened_count)" = 2 ] && [ ! -e "$DATA/worktrees/$proj/$bare" ] && case $bare_text in *'No worktree yet'*) echo 1 ;; esac)" \
+	"on a Work item with no worktree the toggle shows $bare_text, runs no open ($(opened_count) in all) and makes no $DATA/worktrees/$proj/$bare"
 
 stub_open "(cb) => setTimeout(() => cb(null, '', ''), 1000)"
-spa "/features/$fid"
+spa "/work-items/$fid"
 click_toggle
 click_toggle
 sleep 2
@@ -436,11 +436,11 @@ for _ in $(seq 25); do
 	case $err in *Unable*) break ;; esac
 	sleep 0.2
 done
-spa "/features/$bare"
-spa "/features/$fid"
+spa "/work-items/$bare"
+spa "/work-items/$fid"
 sleep 1.5
 check terminal-app-error "$([ "$(opened_count)" = 4 ] && [ "$(cdp "document.querySelector('button[aria-label=Terminal]').ariaPressed")" = '"false"' ] && case $err in *'Unable to find application named FakeTerm'*) echo 1 ;; esac)" \
-	"a failed open shows $err in the pane; moving to another feature and back runs no open again ($(opened_count) in all) and the toggle is off"
+	"a failed open shows $err in the pane; moving to another Work item and back runs no open again ($(opened_count) in all) and the toggle is off"
 
 spa '/settings?section=terminal'
 for _ in $(seq 25); do
@@ -448,13 +448,13 @@ for _ in $(seq 25); do
 	sleep 0.2
 done
 cdp "[...document.querySelectorAll('[role=radiogroup] label')].find((l) => l.textContent === 'Built-in pane').querySelector('input').click()" >/dev/null
-spa "/features/$fid"
+spa "/work-items/$fid"
 for _ in $(seq 25); do
 	[ "$(cdp "!!document.querySelector('.xterm')" 2>/dev/null)" = true ] && break
 	sleep 0.2
 done
 check terminal-builtin "$([ "$(cdp "localStorage.getItem('reef.terminalApp')")" = null ] && [ "$(cdp "!!document.querySelector('.xterm')")" = true ] && [ "$(opened_count)" = 4 ] && echo 1)" \
-	"choosing Built-in pane clears reef.terminalApp and the feature page shows the xterm pane again, with no further open call ($(opened_count) in all)"
+	"choosing Built-in pane clears reef.terminalApp and the Work item page shows the xterm pane again, with no further open call ($(opened_count) in all)"
 mainjs "(() => { const cp = process.mainModule.require('node:child_process'); cp.execFile = globalThis.__realExecFile; process.mainModule.require('node:module').syncBuiltinESMExports(); return 1; })()" >/dev/null
 
 # --- quick capture: the global shortcut and the sidebar button open the same window ---
@@ -495,32 +495,40 @@ else
 	echo "note capture-shortcut: xdotool not installed; proving the capture window via the sidebar button instead"
 fi
 
-cdp "(() => { const a = [...document.querySelectorAll('a')].find((a) => a.textContent.trim() === 'Capture'); a && a.click(); })()" >/dev/null
+cdp 'window.reef.capture()' >/dev/null
 title=$(wait_capture)
 sd=$([ -n "$title" ] && shot capture-button || echo 0)
 check capture-button "$([ -n "$title" ] && nonzero "$sd" && echo 1)" \
-	"the sidebar Capture button opened the capture window (title $title); screenshot std dev $sd ($D/capture-button.png)"
+	"window.reef.capture() from the main window opened the capture window (title $title); screenshot std dev $sd ($D/capture-button.png)"
 
-# a project chosen (set directly; the select itself is not under test here) and "bug: login fails" typed, then Enter
-cdp "document.querySelector('[aria-label=\"Capture project\"]').value = '$proj';
-document.querySelector('[aria-label=\"Capture project\"]').dispatchEvent(new Event('change', { bubbles: true }));
-[...document.querySelectorAll('[aria-label=\"Capture kind\"] button')].find((b) => b.textContent === 'Bug').click()" capture >/dev/null
+# the project and the type picked in their selects, "login fails" typed, then Enter
+pname=$("$H" sql "select name from project where id = $proj" | tail -n 1)
+picked=$(cdp "(async () => {
+  const pick = async (label, text) => {
+    document.querySelector('[role=combobox][aria-label=\"' + label + '\"]').click();
+    await new Promise((r) => setTimeout(r, 200));
+    [...document.querySelectorAll('[role=listbox][aria-label=\"' + label + '\"] [role=option]')].find((o) => o.textContent.trim() === text).click();
+    await new Promise((r) => setTimeout(r, 200));
+    return document.querySelector('[role=combobox][aria-label=\"' + label + '\"]').textContent.trim();
+  };
+  return (await pick('Capture project', '$pname')) + '|' + (await pick('Capture type', 'Bug'));
+})()" capture 2>&1)
 xdo type -- 'login fails'
 xdo key Return
 closed=$(wait_capture_closed && echo 1 || echo 0)
-row=$("$H" sql "select title, feature_id from task where title = 'bug: login fails'" | tail -n 1)
-check capture-enter "$([ "$closed" = 1 ] && [ "$row" = "bug: login fails|" ] && echo 1)" \
-	"typed 'login fails' and Return via xdotool; window closed=$closed; task row: ${row:-none} ($E/sql.log)"
+row=$("$H" sql "select title, type from work_item where title = 'login fails'" | tail -n 1)
+check capture-enter "$([ "$closed" = 1 ] && [ "$row" = "login fails|bug" ] && echo 1)" \
+	"picked project|type $picked, typed 'login fails' and Return via xdotool; window closed=$closed; work_item row: ${row:-none} ($E/sql.log)"
 
-# Escape closes the window without a task
-cdp "(() => { const a = [...document.querySelectorAll('a')].find((a) => a.textContent.trim() === 'Capture'); a && a.click(); })()" >/dev/null
-wait_capture >/dev/null
-before=$("$H" sql "select count(*) from task" | tail -n 1)
+# Escape closes the window without a Work item
+cdp 'window.reef.capture()' >/dev/null
+title=$(wait_capture)
+before=$("$H" sql "select count(*) from work_item" | tail -n 1)
 xdo key Escape
 closed=$(wait_capture_closed && echo 1 || echo 0)
-after=$("$H" sql "select count(*) from task" | tail -n 1)
-check capture-escape "$([ "$closed" = 1 ] && [ "$before" = "$after" ] && echo 1)" \
-	"Escape via xdotool closed the window=$closed; task count $before before, $after after"
+after=$("$H" sql "select count(*) from work_item" | tail -n 1)
+check capture-escape "$([ -n "$title" ] && [ "$closed" = 1 ] && [ "$before" = "$after" ] && echo 1)" \
+	"the capture window opened (title ${title:-none}), Escape via xdotool closed it=$closed; work_item count $before before, $after after"
 
 # --- quit: SIGTERM is a quit request; nothing the app started may outlive it ---
 descendants "$app" >"$D/procs-before-quit.txt"

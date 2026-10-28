@@ -1,21 +1,19 @@
 import { useState } from 'react';
 import { Link, useParams } from 'react-router';
-import { featureStage } from '@/app/feature-stage';
 import { BackButton } from '@/components/back-button';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
 import { GroupAvatar } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { EmptyState } from '@/components/empty-state';
-import { useChannels } from '@/lib/api/get-channels';
+import { useSpaces } from '@/lib/api/get-spaces';
 import { useTeams } from '@/lib/api/get-teams';
-import { NewChannelForm } from '@/modules/channels/components/new-channel-form';
-import { useFeatures } from '@/modules/features/api/get-features';
-import { AddFeatureForm } from '@/modules/features/components/add-feature-form';
+import { NewSpaceForm } from '@/modules/spaces/components/new-space-form';
+import { useWorkItems } from '@/modules/work-items/api/get-work-items';
+import { AddWorkItemForm } from '@/modules/work-items/components/add-work-item-form';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { ProjectBaseBranchForm } from '@/modules/projects/components/project-base-branch-form';
 import { ProjectMemoryForm } from '@/modules/projects/components/project-memory-form';
-import { useTasks } from '@/modules/tasks/api/get-tasks';
 import { roleFaces } from '@/utils/role-faces';
 import { rowTime } from '@/utils/row-time';
 
@@ -24,20 +22,19 @@ const rowClass = 'flex min-h-10 items-center gap-2.5 hover:text-fg';
 export function ProjectPage() {
   const id = Number(useParams().id);
   const projects = useProjects();
-  const features = useFeatures();
-  const channels = useChannels();
+  const workItems = useWorkItems();
+  const spaces = useSpaces();
   const teams = useTeams();
-  const tasks = useTasks();
-  const [dialog, setDialog] = useState<'feature' | 'session' | null>(null);
+  const [dialog, setDialog] = useState<'work-item' | 'space' | null>(null);
 
   if (projects.isPending) return <p className="text-sm text-muted">Loading...</p>;
   if (projects.isError) return <p className="text-sm text-danger">{projects.error.message}</p>;
   const project = projects.data.find((p) => p.id === id);
   if (!project) return <p className="text-sm text-danger">Project not found.</p>;
 
-  const projectChannels = channels.data?.filter((c) => c.projectId === id) ?? [];
-  const projectFeatures = features.data?.filter((f) => f.projectId === id) ?? [];
-  const quick = projectChannels.filter((c) => c.featureId === null);
+  const projectSpaces = spaces.data?.filter((c) => c.projectId === id) ?? [];
+  const projectWorkItems = workItems.data?.filter((f) => f.projectId === id) ?? [];
+  const freeSpaces = projectSpaces.filter((c) => c.workItemId === null);
 
   return (
     <div className="mx-auto w-full max-w-[820px] space-y-6 py-6">
@@ -49,11 +46,11 @@ export function ProjectPage() {
           </div>
           <h1 className="mt-1 text-[32px] font-normal tracking-[-0.02em]">{project.name}</h1>
         </div>
-        <Button type="button" onClick={() => setDialog('session')}>
-          New quick session
+        <Button type="button" onClick={() => setDialog('space')}>
+          New free Space
         </Button>
-        <Button variant="primary" type="button" onClick={() => setDialog('feature')}>
-          New feature
+        <Button variant="primary" type="button" onClick={() => setDialog('work-item')}>
+          New Work item
         </Button>
       </header>
 
@@ -63,47 +60,45 @@ export function ProjectPage() {
         </div>
         <div className="flex min-w-[300px] flex-1 flex-col gap-4">
           <ProjectBaseBranchForm project={project} />
-          <Card title="Features">
-            {features.isError && <p className="text-sm text-danger">{features.error.message}</p>}
-            {projectFeatures.length === 0 && (
+          <Card title="Work items">
+            {workItems.isError && <p className="text-sm text-danger">{workItems.error.message}</p>}
+            {projectWorkItems.length === 0 && (
               <EmptyState
-                title="No features yet"
-                body="Add one with New feature."
-                role="architect"
+                title="No Work items yet"
+                body="Add one with New Work item."
+                face="whale"
                 compact
               />
             )}
             <ul>
-              {projectFeatures.map((f) => (
+              {projectWorkItems.map((f) => (
                 <li key={f.id}>
-                  <Link to={`/features/${f.id}`} className={rowClass}>
-                    {f.name}
-                    {projectChannels.some((c) => c.featureId === f.id && c.paused) ? (
+                  <Link to={`/work-items/${f.id}`} className={rowClass}>
+                    {f.title}
+                    {projectSpaces.some((c) => c.workItemId === f.id && c.paused) ? (
                       <span className="ml-auto text-[12.5px] text-paused">paused</span>
                     ) : (
-                      <span className="ml-auto text-[12.5px] text-muted">
-                        {featureStage(f, tasks.data ?? []).label}
-                      </span>
+                      <span className="ml-auto text-[12.5px] text-muted">{f.status}</span>
                     )}
                   </Link>
                 </li>
               ))}
             </ul>
           </Card>
-          <Card title="Quick sessions">
-            {channels.isError && <p className="text-sm text-danger">{channels.error.message}</p>}
-            {quick.length === 0 && (
+          <Card title="Free Spaces">
+            {spaces.isError && <p className="text-sm text-danger">{spaces.error.message}</p>}
+            {freeSpaces.length === 0 && (
               <EmptyState
-                title="No quick sessions"
-                body="Start one for a chat outside a feature."
-                role="lead"
+                title="No free Spaces"
+                body="Start one for a chat outside a Work item."
+                face="jellyfish"
                 compact
               />
             )}
             <ul>
-              {quick.map((c) => (
+              {freeSpaces.map((c) => (
                 <li key={c.id}>
-                  <Link to={`/channels/${c.id}`} className={rowClass}>
+                  <Link to={`/spaces/${c.id}`} className={rowClass}>
                     <GroupAvatar roles={[c.role]} faces={roleFaces(teams.data, c.team)} size={22} />
                     {c.name}
                     <span className="ml-auto text-[12.5px] text-muted">
@@ -117,12 +112,14 @@ export function ProjectPage() {
         </div>
       </div>
 
-      <Dialog open={dialog === 'feature'} onClose={() => setDialog(null)} title="New feature">
-        {dialog === 'feature' && <AddFeatureForm projectId={id} onClose={() => setDialog(null)} />}
+      <Dialog open={dialog === 'work-item'} onClose={() => setDialog(null)} title="New Work item">
+        {dialog === 'work-item' && (
+          <AddWorkItemForm projectId={id} onClose={() => setDialog(null)} />
+        )}
       </Dialog>
-      <Dialog open={dialog === 'session'} onClose={() => setDialog(null)} title="New quick session">
-        {dialog === 'session' && (
-          <NewChannelForm projectId={id} featureId={null} onClose={() => setDialog(null)} />
+      <Dialog open={dialog === 'space'} onClose={() => setDialog(null)} title="New free Space">
+        {dialog === 'space' && (
+          <NewSpaceForm projectId={id} workItemId={null} onClose={() => setDialog(null)} />
         )}
       </Dialog>
     </div>

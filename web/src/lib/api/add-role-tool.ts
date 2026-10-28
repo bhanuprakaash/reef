@@ -1,30 +1,21 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import type { Team } from '@/types/api';
 
-type Add = { team: string; role: string; pattern: string; stopChannel?: number };
+type Add = { space: number; teammateId: number; pattern: string; stopSpace?: number };
 
 export function useAddRoleTool() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async ({ team, role, pattern, stopChannel }: Add) => {
-      const path = `/teams/${encodeURIComponent(team)}`;
-      const current = await api<Team>(path);
-      await api<Team>(path, {
-        method: 'PUT',
-        body: JSON.stringify({
-          ...current,
-          roles: current.roles.map((r) => ({
-            ...r,
-            mcp: undefined,
-            tools: r.name === role && !r.tools.includes(pattern) ? [...r.tools, pattern] : r.tools,
-          })),
-        }),
+    mutationFn: async ({ space, teammateId, pattern, stopSpace }: Add) => {
+      await api<void>(`/spaces/${space}/members/${teammateId}/tools`, {
+        method: 'POST',
+        body: JSON.stringify({ tool: pattern }),
       });
-      if (stopChannel !== undefined) {
-        await api<void>(`/channels/${stopChannel}/stop`, { method: 'POST', body: '{}' });
+      if (stopSpace !== undefined) {
+        await api<void>(`/spaces/${stopSpace}/stop`, { method: 'POST', body: '{}' });
       }
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey: ['teams'] }),
+    onSettled: (_data, _error, { space }) =>
+      queryClient.invalidateQueries({ queryKey: ['spaces', space, 'members'] }),
   });
 }

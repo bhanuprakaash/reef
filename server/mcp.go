@@ -1,10 +1,13 @@
 package server
 
 import (
+	"cmp"
 	"context"
 	"encoding/base64"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -12,8 +15,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/bhanuprakaash/reef/channel"
 	"github.com/bhanuprakaash/reef/memory"
+	"github.com/bhanuprakaash/reef/space"
 	"github.com/bhanuprakaash/reef/store"
 )
 
@@ -28,7 +31,7 @@ type mcpServer struct {
 
 type (
 	briefOut struct {
-		Brief string `json:"brief" jsonschema:"the feature brief, empty if none yet"`
+		Brief string `json:"brief" jsonschema:"the work item brief, empty if none yet"`
 	}
 	rememberIn struct {
 		Kind          string   `json:"kind" jsonschema:"decision, convention, finding, fact or lesson"`
@@ -36,13 +39,13 @@ type (
 		About         []string `json:"about,omitempty" jsonschema:"what it is about, each as kind:id, such as work_item:3"`
 		Replaces      []int64  `json:"replaces,omitempty" jsonschema:"ids of accepted items this one amends or replaces; they are retired"`
 		Why           string   `json:"why,omitempty" jsonschema:"the reason for it"`
-		Scope         string   `json:"scope,omitempty" jsonschema:"where it is kept: work_item (this feature, the default), project or teammate (you, on every feature)"`
+		Scope         string   `json:"scope,omitempty" jsonschema:"where it is kept: this work item, this Space (a free Space) or this conversation (a direct one), whichever you are in, by default; project, or teammate (you, on every work item)"`
 		NeedsApproval bool     `json:"needsApproval,omitempty" jsonschema:"ask the user to approve it before it counts"`
 	}
 	recallIn struct {
 		Query string `json:"query" jsonschema:"text to find"`
 		Limit int    `json:"limit,omitempty" jsonschema:"most hits to return, default 10"`
-		Scope string `json:"scope,omitempty" jsonschema:"only this scope: work_item, project, team or teammate; omit for all you can read"`
+		Scope string `json:"scope,omitempty" jsonschema:"only this scope: work_item, space, conversation, project, team or teammate; omit for all you can read"`
 	}
 	readMemoryIn struct {
 		ID int64 `json:"id" jsonschema:"memory id"`
@@ -85,25 +88,6 @@ type (
 	recallOut struct {
 		Hits []hitOut `json:"hits"`
 	}
-	taskIn struct {
-		Title string `json:"title" jsonschema:"short task title"`
-		Body  string `json:"body,omitempty" jsonschema:"details"`
-	}
-	listTasksIn struct {
-		Status string `json:"status,omitempty" jsonschema:"only tasks with this status: todo, doing or done; omit for all"`
-	}
-	listTasksOut struct {
-		Tasks []store.Task `json:"tasks"`
-	}
-	readTaskIn struct {
-		ID int64 `json:"id" jsonschema:"task id"`
-	}
-	updateTaskIn struct {
-		ID     int64   `json:"id" jsonschema:"task id"`
-		Title  *string `json:"title,omitempty" jsonschema:"new title; omit to keep it"`
-		Body   *string `json:"body,omitempty" jsonschema:"new body; omit to keep it"`
-		Status *string `json:"status,omitempty" jsonschema:"new status: todo, doing or done; omit to keep it"`
-	}
 	searchIn struct {
 		Query string `json:"query" jsonschema:"text to find"`
 		Limit int    `json:"limit,omitempty" jsonschema:"most hits to return, default 20"`
@@ -112,9 +96,9 @@ type (
 		Hits []store.MessageHit `json:"hits"`
 	}
 	threadIn struct {
-		ChannelID int64 `json:"channelId" jsonschema:"channel id, from search_sessions"`
-		After     int64 `json:"after,omitempty" jsonschema:"only messages with a larger id"`
-		Root      int64 `json:"root,omitempty" jsonschema:"id of a top-level message: read it and its replies instead; after is ignored"`
+		SpaceID int64 `json:"spaceId" jsonschema:"Space id, from search_sessions"`
+		After   int64 `json:"after,omitempty" jsonschema:"only messages with a larger id"`
+		Root    int64 `json:"root,omitempty" jsonschema:"id of a top-level message: read it and its replies instead; after is ignored"`
 	}
 	threadOut struct {
 		Messages []store.Message `json:"messages"`
@@ -122,9 +106,6 @@ type (
 	postIn struct {
 		Body   string `json:"body" jsonschema:"the message; start a line with @name to hand work over"`
 		Parent *int64 `json:"parent,omitempty" jsonschema:"id of a top-level message to reply to in its thread; omit to post at the top level"`
-	}
-	stageIn struct {
-		Stage string `json:"stage" jsonschema:"the stage the work has moved to: ideation, grill, plan, tickets, implement, testing, live-testing or post-release"`
 	}
 	directIn struct {
 		To   string `json:"to" jsonschema:"exactly one teammate role"`
@@ -138,7 +119,7 @@ type (
 	}
 	wrapIn struct {
 		Brief  string               `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
-		Items  []store.ProposedItem `json:"items,omitempty" jsonschema:"memory items made in this channel that are not saved with remember yet: kind (decision, finding, fact, lesson or convention), body, why, scope (work_item by default, project, teammate, or team for a team lead), replaces (ids of live items it replaces)"`
+		Items  []store.ProposedItem `json:"items,omitempty" jsonschema:"memory items made in this Space that are not saved with remember yet: kind (decision, finding, fact, lesson or convention), body, why, scope (work_item by default, project, teammate, or team for a team lead), replaces (ids of live items it replaces)"`
 		Retire []int64              `json:"retire,omitempty" jsonschema:"ids of live memory items that are stale or duplicate"`
 	}
 	briefIn struct {
@@ -147,6 +128,38 @@ type (
 	wrapOut struct {
 		ID      int64  `json:"id" jsonschema:"proposal id"`
 		Message string `json:"message"`
+	}
+	createSubItemIn struct {
+		Title       string `json:"title" jsonschema:"what the sub-item is, in one line"`
+		Description string `json:"description,omitempty" jsonschema:"what to do and how to tell it is done"`
+		Type        string `json:"type,omitempty" jsonschema:"a label: feature, bug, incident, investigation, task or improvement; default task"`
+	}
+	proposeWorkItemIn struct {
+		Type        string   `json:"type" jsonschema:"a label: feature, bug, incident, investigation, task or improvement"`
+		Title       string   `json:"title" jsonschema:"what the work item is, in one line"`
+		Description string   `json:"description" jsonschema:"what to do and why"`
+		Acceptance  []string `json:"acceptance,omitempty" jsonschema:"lines that must hold for it to be done"`
+	}
+	subItemIn struct {
+		ID int64 `json:"id" jsonschema:"sub-item id, from list_sub_items"`
+	}
+	setSubItemStatusIn struct {
+		ID     int64  `json:"id" jsonschema:"sub-item id, from list_sub_items"`
+		Status string `json:"status" jsonschema:"backlog, queued, in_progress, needs_you, review, done or dropped"`
+	}
+	subItemRow struct {
+		ID     int64  `json:"id"`
+		Type   string `json:"type"`
+		Title  string `json:"title"`
+		Status string `json:"status"`
+	}
+	listSubItemsOut struct {
+		SubItems []subItemRow `json:"subItems"`
+	}
+	submitForReviewIn struct {
+		Lines       []store.LineTick     `json:"lines,omitempty" jsonschema:"acceptance lines to tick, each a position (from 1), checked and a note on how you proved it or why it is not ticked; lines you leave out keep their tick and note"`
+		Commands    []store.ProofCommand `json:"commands,omitempty" jsonschema:"the commands you ran as proof, each with its output"`
+		Screenshots []string             `json:"screenshots,omitempty" jsonschema:"absolute paths of screenshot files under the Reef data folder"`
 	}
 	browserNavigateIn struct {
 		URL string `json:"url" jsonschema:"the URL to open in the browser pane"`
@@ -163,22 +176,23 @@ type (
 	}
 )
 
-// NewMCP returns the MCP server for one teammate: tok names the channel it
-// works in, the role it speaks as and, through the channel, the feature.
+// NewMCP returns the MCP server for one teammate: tok names the Space it
+// works in, the role it speaks as and, through the Space, the work item.
 // dataDir is the Reef data folder, where the Reef app's browser socket is.
 func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) *mcp.Server {
 	m := &mcpServer{st: st, ms: ms, tok: tok, dataDir: dataDir}
 	srv := mcp.NewServer(&mcp.Implementation{Name: "reef", Version: "v0.1.0"}, nil)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "get_brief",
-		Description: "Get this feature's brief. Call it first when you start work.",
+		Description: "Get this work item's brief. Call it first when you start work.",
 	}, m.getBrief)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "remember",
 		Description: "Remember something for later, with why. A decision is a choice about how " +
-			"the work goes, not progress, proof or a won't-fix list. Scope work_item (the " +
-			"default) keeps it on this feature, project on every feature of the project, " +
-			"teammate on you across features. Pass replaces when it amends or replaces " +
+			"the work goes, not progress, proof or a won't-fix list. The default scope keeps it " +
+			"on this work item, free Space or direct conversation, whichever you are in (a " +
+			"conversation item is found only with recall), project on every work item of the project, " +
+			"teammate on you across work items. Pass replaces when it amends or replaces " +
 			"earlier items: they are retired. A convention from a role other than architect " +
 			"or lead waits for the user's approval.",
 	}, m.remember)
@@ -192,56 +206,35 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 		Description: "Read one remembered item in full, with its links.",
 	}, m.readMemory)
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "add_task",
-		Description: "Add a task to this feature's project.",
-	}, m.addTask)
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "list_tasks",
-		Description: "List this feature's tasks by id, optionally only those with one status.",
-	}, m.listTasks)
-	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "read_task",
-		Description: "Read one task of this feature in full.",
-	}, m.readTask)
-	mcp.AddTool(srv, &mcp.Tool{
-		Name: "update_task",
-		Description: "Change the title, body or status of one of this feature's tasks; " +
-			"fields you omit stay as they are. Mark a task done with status done.",
-	}, m.updateTask)
-	mcp.AddTool(srv, &mcp.Tool{
 		Name: "search_sessions",
-		Description: "Search messages in all of this feature's channels, newest first. " +
-			"Returns channel and message ids; read more with read_thread.",
+		Description: "Search messages in all of this work item's Spaces, newest first. " +
+			"Returns Space and message ids; read more with read_thread.",
 	}, m.searchSessions)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "read_thread",
-		Description: "Read the messages of one of this feature's channels, oldest first. " +
+		Description: "Read the messages of one of this work item's Spaces, oldest first. " +
 			"Give root, a top-level message id, to read just that message and its replies.",
 	}, m.readThread)
 	mcp.AddTool(srv, &mcp.Tool{
-		Name: "post_to_channel",
-		Description: "Post a message to this channel as yourself. Start a line with @name to wake " +
+		Name: "post_to_space",
+		Description: "Post a message to this Space as yourself. Start a line with @name to wake " +
 			"that teammate when your turn ends; a post with no such line wakes no one.",
-	}, m.postToChannel)
-	mcp.AddTool(srv, &mcp.Tool{
-		Name: "set_stage",
-		Description: "Move this feature to the next journey stage when the work moves there. " +
-			"The channel sees a note; nothing needs approval.",
-	}, m.setStage)
+	}, m.postToSpace)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "send_to_role",
 		Description: "Send a private message to exactly one teammate. The teammate's ordinary " +
 			"reply comes back privately once; use send_to_role again to continue.",
 	}, m.sendToRole)
 	mcp.AddTool(srv, &mcp.Tool{
-		Name:        "read_direct_messages",
-		Description: "Read private messages in this channel that you sent or received.",
+		Name: "read_direct_messages",
+		Description: "Read private messages in this Space that you sent or received; " +
+			"the lead's wrap-up turn reads every pair's.",
 	}, m.readDirectMessages)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_wrap",
-		Description: "Propose how to wrap up this channel; the user approves it before " +
+		Description: "Propose how to wrap up this Space; the user approves it before " +
 			"anything is saved. brief is the full rewritten brief (goal, status, key " +
-			"decisions, open questions). items are memory items made in this channel that " +
+			"decisions, open questions). items are memory items made in this Space that " +
 			"are not saved with remember yet, each with a kind, body, why, a scope " +
 			"(work_item by default; project, teammate, or team when you are the team lead: " +
 			"team items wait for the user) and replaces for earlier items it replaces. " +
@@ -249,11 +242,45 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 	}, m.proposeWrap)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "propose_brief",
-		Description: "Propose a new brief for this feature when the user and the team agree " +
+		Description: "Propose a new brief for this work item when the user and the team agree " +
 			"on its goal, scope or plan; the user approves it before it is saved. brief is " +
-			"the full brief (goal, status, key decisions, open questions). The channel goes " +
+			"the full brief (goal, status, key decisions, open questions). The Space goes " +
 			"on; use propose_wrap only to end it.",
 	}, m.proposeBrief)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "create_sub_item",
+		Description: "Add a sub-item to this work item: a piece of its work, in the work item's " +
+			"worktree. Sub-items run one turn at a time. The work item goes to review only when " +
+			"every sub-item is done or dropped.",
+	}, m.createSubItem)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "propose_work_item",
+		Description: "Propose a new work item for this project when you find work that is not " +
+			"yours to do now. It lands in the Backlog as proposed by you, with the team whose " +
+			"responsibility fits it best suggested. The user decides whether and when to queue it; " +
+			"a proposal never starts work.",
+	}, m.proposeWorkItem)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "list_sub_items",
+		Description: "List this work item's sub-items with their status, oldest first.",
+	}, m.listSubItems)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name:        "read_sub_item",
+		Description: "Read one sub-item in full: description, status and acceptance lines.",
+	}, m.readSubItem)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "set_sub_item_status",
+		Description: "Set the status of a sub-item: backlog, queued, in_progress, needs_you, " +
+			"review, done or dropped. Only the lead may; the lead is the one that sets it done.",
+	}, m.setSubItemStatus)
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "submit_for_review",
+		Description: "Submit this work item for the user's review with your proof: tick its " +
+			"acceptance lines with a note each, add the commands you ran with their output and " +
+			"screenshot files. Only the lead may, and only while every sub-item is done or " +
+			"dropped. The work item goes to review, its team is free for the next queued item, " +
+			"and when your turn ends you are asked to wrap up this Space.",
+	}, m.submitForReview)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "browser_navigate",
 		Description: "Open a URL in the shared browser pane. The user watches it live.",
@@ -290,21 +317,21 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 	return srv
 }
 
-func (m *mcpServer) feature(ctx context.Context) (store.Feature, error) {
-	c, err := m.st.Channel(ctx, m.tok.ChannelID)
+func (m *mcpServer) workItem(ctx context.Context) (store.WorkItem, error) {
+	c, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
-		return store.Feature{}, err
+		return store.WorkItem{}, err
 	}
-	if c.FeatureID == nil {
-		return store.Feature{}, errors.New("this channel has no feature")
+	if c.WorkItemID == nil {
+		return store.WorkItem{}, errors.New("this Space has no work item")
 	}
-	return m.st.Feature(ctx, *c.FeatureID)
+	return m.st.WorkItem(ctx, *c.WorkItemID)
 }
 
 func (m *mcpServer) getBrief(
 	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
 ) (*mcp.CallToolResult, briefOut, error) {
-	f, err := m.feature(ctx)
+	f, err := m.workItem(ctx)
 	if err != nil {
 		return nil, briefOut{}, err
 	}
@@ -318,22 +345,30 @@ func (m *mcpServer) getBrief(
 func (m *mcpServer) remember(
 	ctx context.Context, _ *mcp.CallToolRequest, in rememberIn,
 ) (*mcp.CallToolResult, rememberOut, error) {
-	switch in.Scope {
-	case "":
-		in.Scope = memory.ScopeWorkItem
-	case memory.ScopeWorkItem, memory.ScopeProject, memory.ScopeTeammate:
-	default:
-		return nil, rememberOut{}, fmt.Errorf("%w: scope %q is not work_item, project or teammate",
-			store.ErrInvalid, in.Scope)
-	}
-	c, err := m.st.Channel(ctx, m.tok.ChannelID)
+	c, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, rememberOut{}, err
 	}
-	scopes := channel.Scopes(c, m.tok.Role)
+	scopes, err := space.Scopes(ctx, m.st, c, m.tok.Role)
+	if err != nil {
+		return nil, rememberOut{}, err
+	}
+	switch in.Scope {
+	case "":
+		in.Scope = scopes[0].Kind
+	case memory.ScopeWorkItem, memory.ScopeSpace, memory.ScopeConversation, memory.ScopeProject,
+		memory.ScopeTeammate:
+	default:
+		return nil, rememberOut{}, fmt.Errorf(
+			"%w: scope %q is not work_item, space, conversation, project or teammate",
+			store.ErrInvalid, in.Scope)
+	}
 	i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == in.Scope })
+	if i < 0 && in.Scope == memory.ScopeWorkItem {
+		return nil, rememberOut{}, errors.New("this Space has no work item")
+	}
 	if i < 0 {
-		return nil, rememberOut{}, errors.New("this channel has no feature")
+		return nil, rememberOut{}, fmt.Errorf("%w: you have no %q scope here", store.ErrInvalid, in.Scope)
 	}
 	about := make([]memory.Ref, 0, len(in.About))
 	for _, a := range in.About {
@@ -352,7 +387,7 @@ func (m *mcpServer) remember(
 		memory.Writer{
 			Author: m.tok.Role, Role: m.tok.Role, Scope: scopes[i],
 			Links: []memory.Link{{
-				Rel: memory.RelSource, ToKind: "channel", ToID: strconv.FormatInt(m.tok.ChannelID, 10),
+				Rel: memory.RelSource, ToKind: "space", ToID: strconv.FormatInt(m.tok.SpaceID, 10),
 			}},
 		},
 		memory.Note{
@@ -373,19 +408,21 @@ func (m *mcpServer) recall(
 	if in.Query == "" {
 		return nil, recallOut{}, errors.New("query is required")
 	}
-	c, err := m.st.Channel(ctx, m.tok.ChannelID)
+	c, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, recallOut{}, err
 	}
-	scopes := channel.Scopes(c, m.tok.Role)
-	q := memory.Query{Scopes: scopes, Text: in.Query, Limit: in.Limit}
+	scopes, err := space.ReadScopes(ctx, m.st, c, m.tok.Role)
+	if err != nil {
+		return nil, recallOut{}, err
+	}
 	if in.Scope != "" {
-		i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == in.Scope })
-		if i < 0 {
+		scopes = slices.DeleteFunc(scopes, func(r memory.Ref) bool { return r.Kind != in.Scope })
+		if len(scopes) == 0 {
 			return nil, recallOut{}, fmt.Errorf("%w: you have no %q scope here", store.ErrInvalid, in.Scope)
 		}
-		q.Scope = &scopes[i]
 	}
+	q := memory.Query{Scopes: scopes, Text: in.Query, Limit: in.Limit}
 	hits, err := m.ms.Recall(ctx, q)
 	if err != nil {
 		return nil, recallOut{}, err
@@ -402,11 +439,14 @@ func (m *mcpServer) recall(
 func (m *mcpServer) readMemory(
 	ctx context.Context, _ *mcp.CallToolRequest, in readMemoryIn,
 ) (*mcp.CallToolResult, itemOut, error) {
-	c, err := m.st.Channel(ctx, m.tok.ChannelID)
+	c, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, itemOut{}, err
 	}
-	scopes := channel.Scopes(c, m.tok.Role)
+	scopes, err := space.ReadScopes(ctx, m.st, c, m.tok.Role)
+	if err != nil {
+		return nil, itemOut{}, err
+	}
 	it, err := m.readable(ctx, scopes, in.ID)
 	if err != nil {
 		return nil, itemOut{}, err
@@ -425,82 +465,10 @@ func (m *mcpServer) readable(ctx context.Context, scopes []memory.Ref, id int64)
 	return it, nil
 }
 
-func (m *mcpServer) addTask(
-	ctx context.Context, _ *mcp.CallToolRequest, in taskIn,
-) (*mcp.CallToolResult, store.Task, error) {
-	f, err := m.feature(ctx)
-	if err != nil {
-		return nil, store.Task{}, err
-	}
-	t, err := m.st.CreateTask(ctx, store.Task{
-		ProjectID: f.ProjectID, FeatureID: &f.ID, Title: in.Title, Body: in.Body,
-	})
-	return nil, t, err
-}
-
-func (m *mcpServer) listTasks(
-	ctx context.Context, _ *mcp.CallToolRequest, in listTasksIn,
-) (*mcp.CallToolResult, listTasksOut, error) {
-	f, err := m.feature(ctx)
-	if err != nil {
-		return nil, listTasksOut{}, err
-	}
-	ts, err := m.st.Tasks(ctx, store.TaskFilter{FeatureID: &f.ID, Status: in.Status})
-	if err != nil {
-		return nil, listTasksOut{}, err
-	}
-	if ts == nil {
-		ts = []store.Task{}
-	}
-	return nil, listTasksOut{Tasks: ts}, nil
-}
-
-func (m *mcpServer) readTask(
-	ctx context.Context, _ *mcp.CallToolRequest, in readTaskIn,
-) (*mcp.CallToolResult, store.Task, error) {
-	t, err := m.featureTask(ctx, in.ID)
-	return nil, t, err
-}
-
-func (m *mcpServer) updateTask(
-	ctx context.Context, _ *mcp.CallToolRequest, in updateTaskIn,
-) (*mcp.CallToolResult, store.Task, error) {
-	t, err := m.featureTask(ctx, in.ID)
-	if err != nil {
-		return nil, store.Task{}, err
-	}
-	if in.Title != nil {
-		t.Title = *in.Title
-	}
-	if in.Body != nil {
-		t.Body = *in.Body
-	}
-	if in.Status != nil {
-		t.Status = *in.Status
-	}
-	t, err = m.st.UpdateTask(ctx, t)
-	return nil, t, err
-}
-
-func (m *mcpServer) featureTask(ctx context.Context, id int64) (store.Task, error) {
-	f, err := m.feature(ctx)
-	if err != nil {
-		return store.Task{}, err
-	}
-	t, err := m.st.Task(ctx, id)
-	if err != nil {
-		return store.Task{}, err
-	}
-	if t.FeatureID == nil || *t.FeatureID != f.ID {
-		return store.Task{}, fmt.Errorf("task %d: %w", id, store.ErrNotFound)
-	}
-	return t, nil
-}
-
 func (m *mcpServer) searchSessions(
 	ctx context.Context, _ *mcp.CallToolRequest, in searchIn,
 ) (*mcp.CallToolResult, searchOut, error) {
-	f, err := m.feature(ctx)
+	f, err := m.workItem(ctx)
 	if err != nil {
 		return nil, searchOut{}, err
 	}
@@ -517,17 +485,17 @@ func (m *mcpServer) searchSessions(
 func (m *mcpServer) readThread(
 	ctx context.Context, _ *mcp.CallToolRequest, in threadIn,
 ) (*mcp.CallToolResult, threadOut, error) {
-	c, err := m.st.Channel(ctx, in.ChannelID)
+	c, err := m.st.Space(ctx, in.SpaceID)
 	if err != nil {
 		return nil, threadOut{}, err
 	}
-	if c.ID != m.tok.ChannelID {
-		f, err := m.feature(ctx)
+	if c.ID != m.tok.SpaceID {
+		f, err := m.workItem(ctx)
 		if err != nil {
 			return nil, threadOut{}, err
 		}
-		if c.FeatureID == nil || *c.FeatureID != f.ID {
-			return nil, threadOut{}, fmt.Errorf("channel %d: %w", in.ChannelID, store.ErrNotFound)
+		if c.WorkItemID == nil || *c.WorkItemID != f.ID {
+			return nil, threadOut{}, fmt.Errorf("space %d: %w", in.SpaceID, store.ErrNotFound)
 		}
 	}
 	if in.Root != 0 {
@@ -538,32 +506,20 @@ func (m *mcpServer) readThread(
 	return nil, threadOut{Messages: msgs}, err
 }
 
-func (m *mcpServer) postToChannel(
+func (m *mcpServer) postToSpace(
 	ctx context.Context, _ *mcp.CallToolRequest, in postIn,
 ) (*mcp.CallToolResult, store.Message, error) {
+	ch, err := m.st.Space(ctx, m.tok.SpaceID)
+	if err != nil {
+		return nil, store.Message{}, err
+	}
+	if err := ch.Writable(); err != nil {
+		return nil, store.Message{}, err
+	}
 	msg, err := m.st.CreateMessage(ctx, store.Message{
-		ChannelID: m.tok.ChannelID, ParentID: in.Parent, Author: m.tok.Role, Body: in.Body,
+		SpaceID: m.tok.SpaceID, ParentID: in.Parent, Author: m.tok.Role, Body: in.Body,
 	})
 	return nil, msg, err
-}
-
-func (m *mcpServer) setStage(
-	ctx context.Context, _ *mcp.CallToolRequest, in stageIn,
-) (*mcp.CallToolResult, store.Feature, error) {
-	f, err := m.feature(ctx)
-	if err != nil {
-		return nil, store.Feature{}, err
-	}
-	was := f.Stage
-	f, err = m.st.SetFeatureStage(ctx, f.ID, in.Stage)
-	if err != nil || f.Stage == was {
-		return nil, f, err
-	}
-	_, err = m.st.CreateMessage(ctx, store.Message{
-		ChannelID: m.tok.ChannelID, Author: store.ReefAuthor,
-		Body: fmt.Sprintf("%s moved the stage to %s", m.tok.Role, f.Stage),
-	})
-	return nil, f, err
 }
 
 func (m *mcpServer) sendToRole(
@@ -572,33 +528,35 @@ func (m *mcpServer) sendToRole(
 	if in.To == m.tok.Role {
 		return nil, store.DirectMessage{}, fmt.Errorf("%w: cannot send a direct message to yourself", store.ErrInvalid)
 	}
-	ch, err := m.st.Channel(ctx, m.tok.ChannelID)
+	ch, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, store.DirectMessage{}, err
 	}
-	if ch.ClosedAt != nil {
-		return nil, store.DirectMessage{}, fmt.Errorf("channel %d is closed: %w", ch.ID, store.ErrConflict)
+	if err := ch.Writable(); err != nil {
+		return nil, store.DirectMessage{}, err
 	}
 	if ch.ActiveTurn == store.ActiveTurnStarting {
-		return nil, store.DirectMessage{}, fmt.Errorf("channel %d is starting: %w", ch.ID, store.ErrConflict)
+		return nil, store.DirectMessage{}, fmt.Errorf("space %d is starting: %w", ch.ID, store.ErrConflict)
 	}
-	if ch.ActiveTurn == store.ActiveTurnWrap || ch.ActiveTurn == store.ActiveTurnPromote {
-		return nil, store.DirectMessage{}, fmt.Errorf("channel %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
+	if ch.ActiveTurn == store.ActiveTurnWrap {
+		return nil, store.DirectMessage{}, fmt.Errorf("space %d is wrapping: %w", ch.ID, store.ErrConflict)
 	}
-	running, err := m.st.Turns(ctx, store.TurnFilter{ChannelID: &ch.ID, Status: "running"})
+	running, err := m.st.Turns(ctx, store.TurnFilter{SpaceID: &ch.ID, Status: "running"})
 	if err != nil {
 		return nil, store.DirectMessage{}, err
 	}
 	var source *int64
+	sending := false
 	for _, t := range running {
 		if t.WakeText == "" {
-			return nil, store.DirectMessage{}, fmt.Errorf("channel %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
+			return nil, store.DirectMessage{}, fmt.Errorf("space %d is wrapping or promoting: %w", ch.ID, store.ErrConflict)
 		}
 		if t.Role != m.tok.Role {
 			continue
 		}
+		sending = true
 		if t.DirectMessageID == nil {
-			source = wakeSource(t.WakeText)
+			source = t.WakeMessageID
 			continue
 		}
 		woken, err := m.st.DirectMessage(ctx, *t.DirectMessageID)
@@ -607,7 +565,10 @@ func (m *mcpServer) sendToRole(
 		}
 		source = woken.SourceMessageID
 	}
-	team, err := m.st.Team(ctx, ch.Team)
+	if !sending {
+		return nil, store.DirectMessage{}, fmt.Errorf("%w: %s has no running turn to send from", store.ErrInvalid, m.tok.Role)
+	}
+	team, err := m.st.SpaceTeam(ctx, ch.ID)
 	if err != nil {
 		return nil, store.DirectMessage{}, err
 	}
@@ -623,10 +584,10 @@ func (m *mcpServer) sendToRole(
 		}
 	}
 	if !found {
-		return nil, store.DirectMessage{}, fmt.Errorf("%w: role %q is not in this channel's team", store.ErrInvalid, in.To)
+		return nil, store.DirectMessage{}, fmt.Errorf("%w: role %q is not in this Space's team", store.ErrInvalid, in.To)
 	}
 	dm, err := m.st.CreateDirectMessage(ctx, store.DirectMessage{
-		ChannelID: m.tok.ChannelID, SourceMessageID: source, From: m.tok.Role, To: in.To, Body: in.Body,
+		SpaceID: m.tok.SpaceID, SourceMessageID: source, From: m.tok.Role, To: in.To, Body: in.Body,
 	})
 	return nil, dm, err
 }
@@ -634,7 +595,16 @@ func (m *mcpServer) sendToRole(
 func (m *mcpServer) readDirectMessages(
 	ctx context.Context, _ *mcp.CallToolRequest, in directListIn,
 ) (*mcp.CallToolResult, directListOut, error) {
-	msgs, err := m.st.DirectMessagesForRole(ctx, m.tok.ChannelID, m.tok.Role, in.After)
+	ch, err := m.st.Space(ctx, m.tok.SpaceID)
+	if err != nil {
+		return nil, directListOut{}, err
+	}
+	var msgs []store.DirectMessage
+	if ch.ActiveTurn == store.ActiveTurnWrap && m.tok.Role == ch.Role {
+		msgs, err = m.st.DirectMessages(ctx, ch.ID, in.After)
+	} else {
+		msgs, err = m.st.DirectMessagesForRole(ctx, ch.ID, m.tok.Role, in.After)
+	}
 	if msgs == nil {
 		msgs = []store.DirectMessage{}
 	}
@@ -644,14 +614,17 @@ func (m *mcpServer) readDirectMessages(
 func (m *mcpServer) proposeWrap(
 	ctx context.Context, _ *mcp.CallToolRequest, in wrapIn,
 ) (*mcp.CallToolResult, wrapOut, error) {
-	if _, err := m.feature(ctx); err != nil {
+	if _, err := m.workItem(ctx); err != nil {
 		return nil, wrapOut{}, err
 	}
-	c, err := m.st.Channel(ctx, m.tok.ChannelID)
+	c, err := m.st.Space(ctx, m.tok.SpaceID)
 	if err != nil {
 		return nil, wrapOut{}, err
 	}
-	scopes := channel.Scopes(c, m.tok.Role)
+	scopes, err := space.Scopes(ctx, m.st, c, m.tok.Role)
+	if err != nil {
+		return nil, wrapOut{}, err
+	}
 	for i := range in.Items {
 		it := &in.Items[i]
 		if it.Scope == "" {
@@ -670,7 +643,7 @@ func (m *mcpServer) proposeWrap(
 				store.ErrInvalid, it.Scope, strings.Join(kinds, ", "))
 		}
 		if it.Scope == memory.ScopeTeam {
-			if err := m.requireLead(ctx, c.Team); err != nil {
+			if err := m.requireLead(ctx, c); err != nil {
 				return nil, wrapOut{}, err
 			}
 		}
@@ -682,7 +655,7 @@ func (m *mcpServer) proposeWrap(
 		return nil, wrapOut{}, err
 	}
 	p, err := m.st.CreateProposal(ctx, store.Proposal{
-		ChannelID: m.tok.ChannelID, Role: m.tok.Role, Brief: in.Brief, Items: in.Items, Retire: in.Retire,
+		SpaceID: m.tok.SpaceID, Role: m.tok.Role, Brief: in.Brief, Items: in.Items, Retire: in.Retire,
 	})
 	if err != nil {
 		return nil, wrapOut{}, err
@@ -690,25 +663,187 @@ func (m *mcpServer) proposeWrap(
 	return nil, wrapOut{ID: p.ID, Message: "proposal saved; the user will approve it"}, nil
 }
 
-func (m *mcpServer) requireLead(ctx context.Context, team string) error {
-	t, err := m.st.Team(ctx, team)
+func (m *mcpServer) requireLead(ctx context.Context, c store.Space) error {
+	lead, err := m.isLead(ctx)
 	if err != nil {
 		return err
 	}
-	if !slices.ContainsFunc(t.Roles, func(r store.Role) bool { return r.Lead && r.Name == m.tok.Role }) {
-		return fmt.Errorf("%w: only the lead of team %q can propose team items", store.ErrInvalid, team)
+	if !lead {
+		return fmt.Errorf("%w: only the lead of team %q can propose team items", store.ErrInvalid, c.Team)
 	}
 	return nil
+}
+
+func (m *mcpServer) isLead(ctx context.Context) (bool, error) {
+	t, err := m.st.SpaceTeam(ctx, m.tok.SpaceID)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(t.Roles, func(r store.Role) bool {
+		return r.Lead && r.Name == m.tok.Role
+	}), nil
+}
+
+func (m *mcpServer) createSubItem(
+	ctx context.Context, _ *mcp.CallToolRequest, in createSubItemIn,
+) (*mcp.CallToolResult, store.WorkItem, error) {
+	f, err := m.workItem(ctx)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	w, err := m.st.CreateWorkItem(ctx, store.WorkItem{
+		ProjectID: f.ProjectID, ParentID: &f.ID, Type: cmp.Or(in.Type, "task"),
+		Title: in.Title, Description: in.Description,
+	})
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	text := fmt.Sprintf("%s added sub-item %d to work item %d: %s", m.tok.Role, w.ID, f.ID, w.Title)
+	if err := m.st.AddFYI(ctx, store.KindSubItem, w.ID, text); err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	return nil, w, nil
+}
+
+func (m *mcpServer) proposeWorkItem(
+	ctx context.Context, _ *mcp.CallToolRequest, in proposeWorkItemIn,
+) (*mcp.CallToolResult, store.WorkItem, error) {
+	c, err := m.st.Space(ctx, m.tok.SpaceID)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	w := store.WorkItem{
+		ProjectID: c.ProjectID, Type: in.Type, Title: in.Title, Description: in.Description,
+		ProposedBy: m.tok.Role,
+	}
+	for _, text := range in.Acceptance {
+		w.AcceptanceLines = append(w.AcceptanceLines, store.AcceptanceLine{Text: text})
+	}
+	team, err := m.st.SuggestTeam(ctx, in.Title+" "+in.Description)
+	switch {
+	case err == nil:
+		w.SuggestedTeamID = &team.ID
+	case !errors.Is(err, store.ErrNotFound):
+		return nil, store.WorkItem{}, err
+	}
+	w, err = m.st.CreateWorkItem(ctx, w)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	text := fmt.Sprintf("%s proposed work item %d: %s. It is in the Backlog until you queue it.",
+		m.tok.Role, w.ID, w.Title)
+	if team.Name != "" {
+		text += fmt.Sprintf(" Suggested team: %s.", team.Name)
+	}
+	if err := m.st.AddFYI(ctx, store.KindProposed, w.ID, text); err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	return nil, w, nil
+}
+
+func (m *mcpServer) listSubItems(
+	ctx context.Context, _ *mcp.CallToolRequest, _ struct{},
+) (*mcp.CallToolResult, listSubItemsOut, error) {
+	f, err := m.workItem(ctx)
+	if err != nil {
+		return nil, listSubItemsOut{}, err
+	}
+	subs, err := m.st.WorkItems(ctx, store.WorkItemFilter{ParentID: &f.ID})
+	if err != nil {
+		return nil, listSubItemsOut{}, err
+	}
+	out := listSubItemsOut{SubItems: make([]subItemRow, 0, len(subs))}
+	for _, w := range subs {
+		out.SubItems = append(out.SubItems, subItemRow{ID: w.ID, Type: w.Type, Title: w.Title, Status: w.Status})
+	}
+	return nil, out, nil
+}
+
+func (m *mcpServer) readSubItem(
+	ctx context.Context, _ *mcp.CallToolRequest, in subItemIn,
+) (*mcp.CallToolResult, store.WorkItem, error) {
+	w, err := m.subItem(ctx, in.ID)
+	return nil, w, err
+}
+
+func (m *mcpServer) setSubItemStatus(
+	ctx context.Context, _ *mcp.CallToolRequest, in setSubItemStatusIn,
+) (*mcp.CallToolResult, store.WorkItem, error) {
+	lead, err := m.isLead(ctx)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	if !lead {
+		return nil, store.WorkItem{}, fmt.Errorf("%w: only the lead sets a sub-item's status", store.ErrInvalid)
+	}
+	if _, err := m.subItem(ctx, in.ID); err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	w, err := m.st.MoveWorkItem(ctx, in.ID, in.Status, store.ByLead)
+	return nil, w, err
+}
+
+func (m *mcpServer) submitForReview(
+	ctx context.Context, _ *mcp.CallToolRequest, in submitForReviewIn,
+) (*mcp.CallToolResult, store.WorkItem, error) {
+	lead, err := m.isLead(ctx)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	if !lead {
+		return nil, store.WorkItem{}, fmt.Errorf("%w: only the lead submits a work item for review", store.ErrInvalid)
+	}
+	f, err := m.workItem(ctx)
+	if err != nil {
+		return nil, store.WorkItem{}, err
+	}
+	for _, p := range in.Screenshots {
+		if err := m.checkScreenshot(p); err != nil {
+			return nil, store.WorkItem{}, err
+		}
+	}
+	w, err := m.st.SubmitForReview(ctx, f.ID, in.Lines, store.Proof{
+		SpaceID: m.tok.SpaceID, Commands: in.Commands, Screenshots: in.Screenshots,
+	})
+	return nil, w, err
+}
+
+// checkScreenshot is ErrInvalid unless path is an existing file under the Reef data folder.
+func (m *mcpServer) checkScreenshot(path string) error {
+	rel, err := filepath.Rel(m.dataDir, path)
+	if err != nil || !filepath.IsAbs(path) || !filepath.IsLocal(rel) {
+		return fmt.Errorf("%w: screenshot %q is not under the data folder %s", store.ErrInvalid, path, m.dataDir)
+	}
+	if info, err := os.Stat(path); err != nil || !info.Mode().IsRegular() {
+		return fmt.Errorf("%w: screenshot %q is not a file", store.ErrInvalid, path)
+	}
+	return nil
+}
+
+// subItem is the sub-item id of this Space's work item; any other work item is not found.
+func (m *mcpServer) subItem(ctx context.Context, id int64) (store.WorkItem, error) {
+	f, err := m.workItem(ctx)
+	if err != nil {
+		return store.WorkItem{}, err
+	}
+	w, err := m.st.WorkItem(ctx, id)
+	if err != nil {
+		return store.WorkItem{}, err
+	}
+	if w.ParentID == nil || *w.ParentID != f.ID {
+		return store.WorkItem{}, fmt.Errorf("sub-item %d: %w", id, store.ErrNotFound)
+	}
+	return w, nil
 }
 
 func (m *mcpServer) proposeBrief(
 	ctx context.Context, _ *mcp.CallToolRequest, in briefIn,
 ) (*mcp.CallToolResult, wrapOut, error) {
-	if _, err := m.feature(ctx); err != nil {
+	if _, err := m.workItem(ctx); err != nil {
 		return nil, wrapOut{}, err
 	}
 	p, err := m.st.CreateProposal(ctx, store.Proposal{
-		ChannelID: m.tok.ChannelID, Role: m.tok.Role, Kind: store.ProposalBrief, Brief: in.Brief,
+		SpaceID: m.tok.SpaceID, Role: m.tok.Role, Kind: store.ProposalBrief, Brief: in.Brief,
 	})
 	if err != nil {
 		return nil, wrapOut{}, err
