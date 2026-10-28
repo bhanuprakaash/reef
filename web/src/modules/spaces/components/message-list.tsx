@@ -8,7 +8,7 @@ import { CheckpointButton } from '@/modules/spaces/components/checkpoint-button'
 import { CoordinationItem } from '@/modules/spaces/components/coordination-item';
 import { PullRequestIcon } from '@/modules/spaces/components/pull-request-icon';
 import { checkpointAnchor } from '@/modules/spaces/utils/checkpoint-anchor';
-import { showTimestamp, timestampLabel } from '@/modules/spaces/utils/message-time';
+import { messageTime, showTimestamp, timestampLabel } from '@/modules/spaces/utils/message-time';
 import { checkResult, pullRequestNote } from '@/modules/spaces/utils/pull-request';
 import { latestMessageAnchor } from '@/utils/anchors';
 import { Button } from '@/components/button';
@@ -176,7 +176,9 @@ export function MessageList({
                   <Bubble own={root.author === 'user'} ringed={root.id === openId}>
                     {root.body}
                   </Bubble>
-                  <div className="group/msg flex items-center gap-1.5">
+                  <div
+                    className={`flex items-center gap-1.5 ${replies.length === 0 ? `-mt-2.5 pt-2.5 ${root.id === openId ? '' : 'opacity-0 peer-hover:opacity-100 hover:opacity-100 focus-within:opacity-100 transition-opacity motion-reduce:transition-none'}` : ''}`}
+                  >
                     {replies.length > 0 && (
                       <Button
                         type="button"
@@ -189,29 +191,30 @@ export function MessageList({
                         {replies.length} {replies.length === 1 ? 'reply' : 'replies'} in thread
                       </Button>
                     )}
-                    {(anchor || replies.length === 0) && (
-                      <div
-                        className={`flex items-center gap-1 ${root.id === openId && replies.length === 0 ? '' : 'opacity-0 transition-opacity group-hover/msg:opacity-100 focus-within:opacity-100 motion-reduce:transition-none'}`}
-                      >
-                        {anchor && (
-                          <CheckpointButton spaceId={spaceId} turn={anchor} running={running} />
-                        )}
-                        {replies.length === 0 && (
-                          <button
-                            type="button"
-                            aria-label="Reply in thread"
-                            title="Reply in thread"
-                            className="flex size-7 items-center justify-center rounded-field text-soft hover:bg-card"
-                            onClick={() => onOpen(root.id)}
-                          >
-                            <svg {...icon}>
-                              <path d="M9 17l-5-5 5-5" />
-                              <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
-                            </svg>
-                          </button>
-                        )}
-                      </div>
-                    )}
+                    <div
+                      className={`flex items-center gap-1 ${replies.length > 0 ? 'opacity-0 peer-hover:opacity-100 hover:opacity-100 focus-within:opacity-100 transition-opacity motion-reduce:transition-none' : ''}`}
+                    >
+                      <span className="text-[13px] text-faint">
+                        {messageTime(root.createdAt, now)}
+                      </span>
+                      {replies.length === 0 && (
+                        <button
+                          type="button"
+                          aria-label="Reply in thread"
+                          title="Reply in thread"
+                          className="flex size-7 items-center justify-center rounded-field text-soft hover:bg-card"
+                          onClick={() => onOpen(root.id)}
+                        >
+                          <svg {...icon}>
+                            <path d="M9 17l-5-5 5-5" />
+                            <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
+                          </svg>
+                        </button>
+                      )}
+                      {anchor && (
+                        <CheckpointButton spaceId={spaceId} turn={anchor} running={running} />
+                      )}
+                    </div>
                   </div>
                 </>
               )}

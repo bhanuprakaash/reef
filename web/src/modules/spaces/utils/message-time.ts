@@ -16,3 +16,11 @@ export function timestampLabel(current: string, previous: string | undefined, no
       : at.toLocaleDateString([], { month: 'short', day: 'numeric' });
   return `${day} ${time}`;
 }
+
+// The hover time of one message: the clock time, with the day when it is not today.
+export function messageTime(current: string, now: Date): string {
+  const at = new Date(current);
+  const time = at.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  if (at.toDateString() === now.toDateString()) return time;
+  return `${at.toLocaleDateString([], { month: 'short', day: 'numeric' })} ${time}`;
+}
