@@ -706,7 +706,11 @@ async function phone() {
   await files.getByText('auth.go').waitFor({ timeout: 15000 });
   await files.waitFor();
   check(!(await tabs.isVisible()), 'the tab bar is hidden on the review page');
-  const fb = await box(files);
+  let fb = await box(files);
+  for (let i = 0; i < 50 && fb.right === fb.left; i++) {
+    await page.waitForTimeout(100);
+    fb = await box(files);
+  }
   const sideBySide = await files.evaluate((el) => getComputedStyle(el).flexDirection);
   check(sideBySide === 'row' && fb.right - fb.left === 390, 'the files show as chips above the diff, not a side list', `${sideBySide} ${JSON.stringify(fb)}`);
   await main.getByRole('region', { name: 'Diff' }).locator('[data-line="4"]').click();
@@ -1886,9 +1890,9 @@ async function pr() {
 
   const shotFile = path.join(data, 'shot-pr.png');
   writeFileSync(shotFile, Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/iZk9HQAAAABJRU5ErkJggg==', 'base64'));
-  sql(`insert into proof (work_item_id, space_id, commands, screenshots, submitted_at) values (${featureId}, ${cid}, '[]', '["${shotFile}"]', '2026-10-27T10:00:00Z')`, true);
-  sql(`update work_item set status='review' where id=${featureId}`, true);
-  await page.goto(`${base}/work-items/${featureId}`);
+  sql(`insert into proof (work_item_id, space_id, commands, screenshots, submitted_at) values (${itemId}, ${cid}, '[]', '["${shotFile}"]', '2026-10-27T10:00:00Z')`, true);
+  sql(`update work_item set status='review' where id=${itemId}`, true);
+  await page.goto(`${base}/work-items/${itemId}`);
   const proofCard = main.getByRole('region', { name: 'Proof' });
   const prLink = proofCard.getByRole('link', { name: '#12 Add the login page' });
   await prLink.waitFor({ timeout: 15000 });
