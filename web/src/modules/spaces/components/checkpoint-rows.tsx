@@ -1,19 +1,28 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import type { Turn } from '@/types/api';
 import { Menu, MenuItem } from '@/components/menu';
-import { useTurns } from '@/modules/spaces/api/get-turns';
 import { useRollbackTurn } from '@/modules/spaces/api/rollback-turn';
 import { checkpointItemLabel, checkpointSummary } from '@/modules/spaces/utils/checkpoint-label';
 import { confirmRollback } from '@/modules/spaces/utils/confirm-rollback';
 
 const GAP = 8;
 
-export function CheckpointRows({ spaceId, running }: { spaceId: number; running: boolean }) {
-  const turns = useTurns(spaceId);
+// The fallback for checkpoints whose turn left no bubble to hang the rollback
+// icon on; checkpoints anchored to a bubble show their icon on hover there.
+export function CheckpointRows({
+  spaceId,
+  running,
+  turns,
+}: {
+  spaceId: number;
+  running: boolean;
+  turns: Turn[];
+}) {
   const rollback = useRollbackTurn(spaceId);
   const trigger = useRef<HTMLButtonElement>(null);
   const popover = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
-  const checkpoints = turns.data ?? [];
+  const checkpoints = turns;
 
   useLayoutEffect(() => {
     const t = trigger.current;

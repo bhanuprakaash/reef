@@ -8,6 +8,7 @@ import { useDirectMessages } from '@/modules/spaces/api/get-direct-messages';
 import { useFailedTurns } from '@/modules/spaces/api/get-failed-turns';
 import { useMessages } from '@/lib/api/get-messages';
 import { useSpaceMembers } from '@/modules/spaces/api/get-space-members';
+import { useSpaceTurns, useTurns } from '@/modules/spaces/api/get-turns';
 import { useReopenSpace } from '@/modules/spaces/api/reopen-space';
 import { useProposal } from '@/modules/spaces/api/get-proposal';
 import { useWrapSpace } from '@/modules/spaces/api/wrap-space';
@@ -33,6 +34,7 @@ import { useScrollToHash } from '@/modules/spaces/hooks/use-scroll-to-hash';
 import { useStickToBottom } from '@/modules/spaces/hooks/use-stick-to-bottom';
 import { blocksUser } from '@/modules/spaces/utils/blocks-user';
 import { browserAction } from '@/modules/spaces/utils/browser-action';
+import { checkpointAnchor, unanchoredCheckpoints } from '@/modules/spaces/utils/checkpoint-anchor';
 import { groupChains } from '@/modules/spaces/utils/direct-chains';
 import { groupThreads } from '@/modules/spaces/utils/group-threads';
 import { latestPullRequest } from '@/modules/spaces/utils/pull-request';
@@ -108,6 +110,10 @@ export function SpaceView({
     paused: space.paused !== '',
     running: (running || turn.status === 'done') && turn.directMessageId ? turn.role : undefined,
   });
+  const turns = useSpaceTurns(space.id).data ?? [];
+  const rollbackable = useTurns(space.id).data ?? [];
+  const anchors = checkpointAnchor(turns, rollbackable, threads);
+  const unanchored = unanchoredCheckpoints(rollbackable, anchors);
   const chain = side?.kind === 'direct' ? chains.find((c) => c.id === side.chainId) : undefined;
   const liveDirect =
     running && chain?.messages.some((m) => m.id === turn.directMessageId) ? turn : undefined;
@@ -191,11 +197,15 @@ export function SpaceView({
               {messages.isError && <p className="text-sm text-danger">{messages.error.message}</p>}
               {messages.data && (
                 <MessageList
+                  spaceId={space.id}
                   threads={threads}
                   chains={chains}
                   faces={faces}
                   openId={thread?.root.id}
                   openChainId={chain?.id}
+                  running={running}
+                  turns={turns}
+                  checkpoints={rollbackable}
                   onOpen={(rootId) => openSide({ kind: 'thread', rootId })}
                   onOpenChain={(chainId) => openSide({ kind: 'direct', chainId })}
                 />
@@ -214,7 +224,7 @@ export function SpaceView({
                 running={running}
                 paused={space.paused !== ''}
               />
-              <CheckpointRows spaceId={space.id} running={running} />
+              <CheckpointRows spaceId={space.id} running={running} turns={unanchored} />
               <DeniedToolRows space={space} roles={roles} running={running} />
               <ProposalPanel spaceId={space.id} workItemId={space.workItemId} faces={faces} />
             </div>

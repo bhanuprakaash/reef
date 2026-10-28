@@ -9,6 +9,13 @@ export function useTurns(spaceId: number) {
   });
 }
 
+export function useSpaceTurns(spaceId: number) {
+  return useQuery({
+    queryKey: ['turns', spaceId],
+    queryFn: () => api<Turn[]>(`/turns?space=${spaceId}`),
+  });
+}
+
 export function useRunningTurns() {
   return useQuery({
     queryKey: ['turns', 'running'],
