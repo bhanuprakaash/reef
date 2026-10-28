@@ -455,6 +455,10 @@ done) with `H`, `REEF_VERIFY_RUN`, `E` and `S` exported, tees its output to
 | `full-team.sh` | every line of `full-team.md` |
 | `github.sh` | every line of `github.md` |
 
+Give each feature its own run id (`build`, `doctor`, `feature`, `cleanup`): two features
+chained in one run share its scratch cwd, so the second one's `work-item/1` branch is already
+checked out in the first one's worktree (`github` after `queue-and-review` fails that way).
+
 `work-item-flow` runs on the fake `claude`: its `flow-*`, `work-*` and `talk-*` recordings in
 `fake/recordings/` come from one `REEF_VERIFY_CLAUDE=record` run of it on real claude (sonnet),
 whose team personas and prompts name every answer and tool call. Record it again the same way

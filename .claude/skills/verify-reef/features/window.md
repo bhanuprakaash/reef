@@ -78,7 +78,7 @@ Preconditions:
 - `ui mention` needs the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.
 - `ui phone` needs `duo` applied to the `ui` folder, and reads the Needs you badge as `1`, so run it first or on its own folder, like `ui inbox`.
 
-Each scenario adds its own project through the form (`ui-<scenario>-<suffix>`, folder = the run's scratch cwd), so they run in any order on one server.
+Each scenario adds its own project through the form (`ui-<scenario>-<suffix>`, folder = the run's scratch cwd), so most run in any order on one server. These need a fresh data folder (a new `--data-name`, with its teams applied) when they follow the scenario named: `conversation` after `conversation-move`, `mention` after `workshop`, `work-item-review` after `wrap`; and `inbox-groups`, `inbox` and `phone` after any other.
 
 ```sh
 REEF_VERIFY_RUN=<id> $H ui live
