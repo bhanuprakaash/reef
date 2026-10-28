@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Creature, type Look } from '@/components/creature';
 import { ToolRow } from '@/modules/spaces/components/tool-row';
+import { activity, bubbleIds } from '@/modules/spaces/utils/activity';
 import type { LiveTurn as LiveTurnState } from '@/modules/spaces/utils/fold-events';
 import { recentTools, toolCount } from '@/modules/spaces/utils/turn-status';
 
@@ -30,22 +31,41 @@ export function LiveTurn({ turn, role, look, open, onOpen }: Props) {
 
   const running = turn.status === 'running';
   const tools = toolCount(turn);
-  const recent = turn.directMessageId ? [] : recentTools(turn, 3);
+  const direct = Boolean(turn.directMessageId);
+  const now = running && !direct ? activity(turn) : null;
+  const bubbles = direct ? [] : bubbleIds(turn, 3);
+  const recent = direct ? [] : recentTools(turn, 3);
   const last = turn.items.at(-1);
-  const text = running && !turn.directMessageId && last?.type === 'text' ? last.text : '';
+  const text = running && !direct && last?.type === 'text' ? last.text : '';
 
   return (
-    <div className="relative rounded-card border border-line bg-card hover:bg-hover [--creature-ring:var(--color-card)]">
+    <div className="relative [--creature-ring:var(--color-main)]">
       <button
         type="button"
         aria-expanded={open}
         onClick={onOpen}
-        className="flex w-full items-center gap-3 px-4 py-3 text-left after:absolute after:inset-0 after:rounded-card"
+        className="group flex w-full items-center gap-3 py-1.5 text-left after:absolute after:inset-0"
       >
-        <Creature look={look} size={24} state={running ? 'working' : 'failed'} />
+        <span className="relative shrink-0">
+          {running &&
+            bubbles.map((id, i) => (
+              <span key={id} className={`bubble bubble-${i}`} aria-hidden="true" />
+            ))}
+          <Creature
+            look={look}
+            size={24}
+            state={running ? 'working' : 'failed'}
+            animate={running}
+          />
+        </span>
         <span className="min-w-0 flex-1">
-          <span className="block text-[14.5px] capitalize">
-            {role} {running && <span className="normal-case">is working</span>}
+          <span className="block truncate text-[14.5px] capitalize">
+            {role}{' '}
+            {running && (
+              <span className="tide normal-case">
+                is working{now ? ` · ${now.verb} ${now.detail}` : ''}
+              </span>
+            )}
           </span>
           {!running && (
             <span className="block truncate text-[13px] text-danger">Failed: {turn.error}</span>
@@ -66,13 +86,13 @@ export function LiveTurn({ turn, role, look, open, onOpen }: Props) {
           strokeLinecap="round"
           strokeLinejoin="round"
           aria-hidden="true"
-          className="shrink-0 text-muted"
+          className="shrink-0 text-muted opacity-0 transition-opacity group-hover:opacity-100"
         >
           <path d="M9 5l7 7-7 7" />
         </svg>
       </button>
       {running && (
-        <div inert className="space-y-2 px-4 pb-3">
+        <div inert className="space-y-2 pb-1 pl-9">
           {recent.length > 0 && (
             <div className="max-h-24 space-y-1 overflow-hidden">
               {recent.map((tool) => (
@@ -81,7 +101,7 @@ export function LiveTurn({ turn, role, look, open, onOpen }: Props) {
             </div>
           )}
           {text && (
-            <p className="flex max-h-[3.75rem] flex-col justify-end overflow-hidden whitespace-pre-wrap text-[13px] leading-5 text-soft [mask-image:linear-gradient(to_bottom,transparent,black_1.25rem)]">
+            <p className="flex max-h-[3.75rem] flex-col justify-end overflow-hidden whitespace-pre-wrap text-[13px] leading-5 text-muted [mask-image:linear-gradient(to_bottom,transparent,black_1.25rem)]">
               {text}
             </p>
           )}

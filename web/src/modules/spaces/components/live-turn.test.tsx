@@ -13,12 +13,13 @@ const bash = {
 };
 
 describe('LiveTurn', () => {
-  it('shows the last three tools and the streaming reply inline', () => {
+  it('names the running tool and streams the reply inline', () => {
     const tools = ['Read', 'Grep', 'Bash', 'Edit'].map((name, i) => ({
       ...bash,
       id: `t${i}`,
       name,
       input: { command: `cmd-${name}` },
+      done: name !== 'Edit',
     }));
     const turn = {
       status: 'running' as const,
@@ -31,12 +32,37 @@ describe('LiveTurn', () => {
     const markup = renderToStaticMarkup(<LiveTurn turn={turn} role="lead" />);
 
     expect(markup).toContain('is working');
+    expect(markup).toContain('Editing');
     expect(markup).toContain('4 tools');
     expect(markup).not.toContain('Read');
     expect(markup).toContain('Grep');
     expect(markup).toContain('Bash');
     expect(markup).toContain('Edit');
     expect(markup).toContain('Once upon');
+  });
+
+  it('names no tool while the agent only thinks', () => {
+    const turn = {
+      status: 'running' as const,
+      items: [{ type: 'text' as const, text: 'Hey. What do you want to work on?' }],
+    };
+
+    const markup = renderToStaticMarkup(<LiveTurn turn={turn} role="lead" />);
+
+    expect(markup).toContain('is working');
+    expect(markup).toContain('0 tools');
+  });
+
+  it('floats one bubble per tool call', () => {
+    const tools = ['a', 'b'].map((id) => ({ ...bash, id }));
+    const turn = {
+      status: 'running' as const,
+      items: tools.map((tool) => ({ type: 'tool' as const, tool })),
+    };
+
+    const markup = renderToStaticMarkup(<LiveTurn turn={turn} role="lead" />);
+
+    expect(markup.match(/class="bubble/g)).toHaveLength(2);
   });
 
   it('shows a failed turn by its error only: the stored message has the text', () => {
