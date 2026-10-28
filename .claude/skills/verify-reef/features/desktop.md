@@ -32,9 +32,9 @@ stops everything it started. Contract: `docs/desktop.md`.
 - `desktop-quit` after SIGTERM to the app, xvfb-run, the app and every process it had (Electron helpers, `reef serve`, the shell) are gone, and so is `browser.sock`.
 - `browser-unavailable` with the app closed, `browser_snapshot` fails with `browser unavailable: the Reef app is not open`.
 - `capture-shortcut` `CommandOrControl+Shift+Space`, sent for real with `xdotool key`, opens the capture window (a screenshot of it is not blank). Skipped on a Mac (user check) or noted when `xdotool` is not installed.
-- `capture-button` the sidebar's Capture link opens the same capture window (for environments and tests without the global shortcut).
-- `capture-enter` with a project and kind set and `login fails` typed and Return pressed (also real `xdotool` keys), the window closes and `work_item` gets a row `login fails` of type `bug`.
-- `capture-escape` reopening the window and pressing Escape closes it with no new `work_item` row.
+- `capture-button` the preload's `window.reef.capture()`, called in the main window, opens the same capture window (for environments and tests without the global shortcut; the window itself has no capture button since the sidebar redesign).
+- `capture-enter` with the project and the type `Bug` picked in the `Capture project` and `Capture type` selects and `login fails` typed and Return pressed (also real `xdotool` keys), the window closes and `work_item` gets a row `login fails` of type `bug`.
+- `capture-escape` reopening the window (it must open) and pressing Escape closes it with no new `work_item` row.
 
 Acceptance lines of the slice's verify-reef ticket: "starts the app, screenshots the window, and stops it with no process
 left" is `desktop-start`, `desktop-window`, `desktop-quit`; "drives each browser tool and the
@@ -45,7 +45,7 @@ packaged `.deb` and the Mac app (open those by hand).
 
 Acceptance lines of the quick capture ticket: "the shortcut opens the capture window" is
 `capture-shortcut`; typing and Enter making a Work item is `capture-enter`;
-Escape closing the window without one is `capture-escape`; the sidebar button is `capture-button`.
+Escape closing the window without one is `capture-escape`; the preload's `capture()` is `capture-button`.
 
 ## How to get to it (user POV)
 
@@ -53,7 +53,7 @@ Escape closing the window without one is `capture-escape`; the sidebar button is
 - An agent in a Space calls the `mcp__reef__browser_*` tools; the pane on the right follows.
 - Take over / Hand back is the button in the banner under the address bar while an agent drives, else next to it. The Browser toggle at the window's top right shows or hides the pane, and the pane's own close button hides it; Back, Forward and Reload sit left of the address bar.
 - On a Space or Work item page the Terminal toggle at the window's top right shows the Terminal section (bottom of the page on a Work item).
-- `CommandOrControl+Shift+Space`, or the sidebar's Capture link, opens the quick capture window.
+- `CommandOrControl+Shift+Space` opens the quick capture window.
 - Quit from the menu, Cmd+Q, closing the window, or a signal.
 
 ## Driving it with verify-reef

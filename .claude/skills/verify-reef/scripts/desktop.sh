@@ -495,32 +495,40 @@ else
 	echo "note capture-shortcut: xdotool not installed; proving the capture window via the sidebar button instead"
 fi
 
-cdp "(() => { const a = [...document.querySelectorAll('a')].find((a) => a.textContent.trim() === 'Capture'); a && a.click(); })()" >/dev/null
+cdp 'window.reef.capture()' >/dev/null
 title=$(wait_capture)
 sd=$([ -n "$title" ] && shot capture-button || echo 0)
 check capture-button "$([ -n "$title" ] && nonzero "$sd" && echo 1)" \
-	"the sidebar Capture button opened the capture window (title $title); screenshot std dev $sd ($D/capture-button.png)"
+	"window.reef.capture() from the main window opened the capture window (title $title); screenshot std dev $sd ($D/capture-button.png)"
 
-# a project chosen (set directly; the select itself is not under test here) and "bug: login fails" typed, then Enter
-cdp "document.querySelector('[aria-label=\"Capture project\"]').value = '$proj';
-document.querySelector('[aria-label=\"Capture project\"]').dispatchEvent(new Event('change', { bubbles: true }));
-[...document.querySelectorAll('[aria-label=\"Capture kind\"] button')].find((b) => b.textContent === 'Bug').click()" capture >/dev/null
+# the project and the type picked in their selects, "login fails" typed, then Enter
+pname=$("$H" sql "select name from project where id = $proj" | tail -n 1)
+picked=$(cdp "(async () => {
+  const pick = async (label, text) => {
+    document.querySelector('[role=combobox][aria-label=\"' + label + '\"]').click();
+    await new Promise((r) => setTimeout(r, 200));
+    [...document.querySelectorAll('[role=listbox][aria-label=\"' + label + '\"] [role=option]')].find((o) => o.textContent.trim() === text).click();
+    await new Promise((r) => setTimeout(r, 200));
+    return document.querySelector('[role=combobox][aria-label=\"' + label + '\"]').textContent.trim();
+  };
+  return (await pick('Capture project', '$pname')) + '|' + (await pick('Capture type', 'Bug'));
+})()" capture 2>&1)
 xdo type -- 'login fails'
 xdo key Return
 closed=$(wait_capture_closed && echo 1 || echo 0)
 row=$("$H" sql "select title, type from work_item where title = 'login fails'" | tail -n 1)
 check capture-enter "$([ "$closed" = 1 ] && [ "$row" = "login fails|bug" ] && echo 1)" \
-	"typed 'login fails' and Return via xdotool; window closed=$closed; work_item row: ${row:-none} ($E/sql.log)"
+	"picked project|type $picked, typed 'login fails' and Return via xdotool; window closed=$closed; work_item row: ${row:-none} ($E/sql.log)"
 
 # Escape closes the window without a Work item
-cdp "(() => { const a = [...document.querySelectorAll('a')].find((a) => a.textContent.trim() === 'Capture'); a && a.click(); })()" >/dev/null
-wait_capture >/dev/null
+cdp 'window.reef.capture()' >/dev/null
+title=$(wait_capture)
 before=$("$H" sql "select count(*) from work_item" | tail -n 1)
 xdo key Escape
 closed=$(wait_capture_closed && echo 1 || echo 0)
 after=$("$H" sql "select count(*) from work_item" | tail -n 1)
-check capture-escape "$([ "$closed" = 1 ] && [ "$before" = "$after" ] && echo 1)" \
-	"Escape via xdotool closed the window=$closed; work_item count $before before, $after after"
+check capture-escape "$([ -n "$title" ] && [ "$closed" = 1 ] && [ "$before" = "$after" ] && echo 1)" \
+	"the capture window opened (title ${title:-none}), Escape via xdotool closed it=$closed; work_item count $before before, $after after"
 
 # --- quit: SIGTERM is a quit request; nothing the app started may outlive it ---
 descendants "$app" >"$D/procs-before-quit.txt"
