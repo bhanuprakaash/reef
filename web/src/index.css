@@ -241,6 +241,78 @@
   transform-box: fill-box;
 }
 
+/* One bubble per tool call: it rises off the creature and fades. */
+.bubble {
+  position: absolute;
+  bottom: 4px;
+  left: 7px;
+  width: 5px;
+  height: 5px;
+  border: 1.5px solid var(--color-asleep);
+  border-radius: var(--radius-pill);
+  opacity: 0;
+  animation: bubble-up 2.8s ease-out forwards;
+}
+.bubble-1 {
+  left: 13px;
+  width: 4px;
+  height: 4px;
+  animation-duration: 3.2s;
+}
+.bubble-2 {
+  left: 3px;
+  width: 6px;
+  height: 6px;
+  animation-duration: 2.4s;
+}
+@keyframes bubble-up {
+  0% {
+    transform: translateY(0) scale(0.4);
+    opacity: 0;
+  }
+  20% {
+    opacity: 0.8;
+  }
+  100% {
+    transform: translateY(-26px) scale(1);
+    opacity: 0;
+  }
+}
+
+/* The status word drifts like light on water. */
+.tide {
+  background: linear-gradient(
+    100deg,
+    var(--color-muted) 30%,
+    var(--color-fg) 50%,
+    var(--color-muted) 70%
+  );
+  background-size: 250% 100%;
+  background-clip: text;
+  -webkit-background-clip: text;
+  color: transparent;
+  animation: tide 2.6s ease-in-out infinite;
+}
+@keyframes tide {
+  from {
+    background-position: 140% 0;
+  }
+  to {
+    background-position: -40% 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bubble {
+    display: none;
+  }
+  .tide {
+    animation: none;
+    color: var(--color-muted);
+    background: none;
+  }
+}
+
 @keyframes c-bob {
   50% {
     transform: translateY(-3px);
