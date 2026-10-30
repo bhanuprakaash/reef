@@ -63,19 +63,19 @@ Preconditions:
 - Baseline from the README, plus `node` and a Chrome: `/Applications/Google Chrome.app` on macOS; on Linux Playwright's Chromium with `REEF_VERIFY_CHROME` set (see `SKILL.md`, Window). Check it like `doctor` would: `"$REEF_VERIFY_CHROME" --version` prints a version. `error while loading shared libraries` means the system libraries are missing: `npx playwright@1.64.0 install-deps chromium`.
 - The web app is built before `$H build`: `(cd web && npm ci && npm run build)`. The binary embeds `web/dist`; without it every page is 503 `UI not built`.
 - The server starts with the model set, because it starts the `claude` agents: `ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=<id> $H serve-start --data-name ui`.
-- `ui teams` also needs the teams `duo` and `full` applied to the `ui` folder: `$H reef --data-name ui -- team apply ...` before `serve-start` (files and commands in `bots.md`, Window).
-- `ui inbox` needs `duo` too, and reads the badge as `1`, so it fails on a server that already lists other items: run it first, or on its own folder (`$H reef --data-name inbox -- team apply $E/duo.json`, then `serve-start --data-name inbox`).
+- `ui teams` also needs the teams `duo` and `full` applied to the `ui` folder: `$H team-apply ...` after `serve-start --data-name ui` (files and commands in `bots.md`, Window).
+- `ui inbox` needs `duo` too, and reads the badge as `1`, so it fails on a server that already lists other items: run it first, or on its own folder (`serve-start --data-name inbox`, then `$H team-apply $E/duo.json`).
 - `ui first-run` needs a server with no profile and no project: run it on its own folder (`serve-start --data-name first-run`).
-- `ui inspector` needs the team `full` applied to the `ui` folder: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.
-- `ui review` needs the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.
+- `ui inspector` needs the team `full` applied to the `ui` folder: `$H team-apply "$PWD/teams/full.json"` after `serve-start --data-name ui`.
+- `ui review` needs the team `full` applied: `$H team-apply "$PWD/teams/full.json"` after `serve-start --data-name ui`.
 - `ui theme` needs the team `duo` applied (like `ui inbox`) and leaves a waiting item for the inbox screen.
-- `ui workshop` needs the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.
+- `ui workshop` needs the team `full` applied: `$H team-apply "$PWD/teams/full.json"` after `serve-start --data-name ui`.
 - `ui pr` needs a fake gh: serve-start with `REEF_FAKE_GH=<folder>`, `REEF_GH_INTERVAL=1s` and `scripts/ui/fake-gh` first on `PATH`, then `ui pr` with the same `REEF_FAKE_GH`; the fake keeps the PR in `<folder>/pr.json` and logs merges to `<folder>/merges.log`.
 - `ui coordination` needs `duo` and `full` applied to the `ui` folder (the lead's direct request runs the architect at once).
 - `ui subagent` commits a `sub.txt` to the run's folder (the Space runs in a worktree), asks the lead to read it through a subagent, and replays `fake/recordings/subagent-read.jsonl`, a real claude recording with `parent_tool_use_id` on the subagent's calls; it needs no team.
-- `ui denials` applies its own team `denials` (a lead and a read-only reviewer, both allowed only `Read`) through `PUT /teams/denials`, and reads the fake claude's args from `fake-claude.log`, so it only runs on the fake `claude`.
-- `ui hovercard` needs the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.
-- `ui mention` needs the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"` before `serve-start`.
+- `ui denials` applies its own team `denials` (a lead and a read-only reviewer, both allowed only `Read`) through `POST /bots` and `PUT /teams/denials`, and reads the fake claude's args from `fake-claude.log`, so it only runs on the fake `claude`.
+- `ui hovercard` needs the team `full` applied: `$H team-apply "$PWD/teams/full.json"` after `serve-start --data-name ui`.
+- `ui mention` needs the team `full` applied: `$H team-apply "$PWD/teams/full.json"` after `serve-start --data-name ui`.
 - `ui phone` needs `duo` applied to the `ui` folder, and reads the Needs you badge as `1`, so run it first or on its own folder, like `ui inbox`.
 
 Each scenario adds its own project through the form (`ui-<scenario>-<suffix>`, folder = the run's scratch cwd), so most run in any order on one server. These need a fresh data folder (a new `--data-name`, with its teams applied) when they follow the scenario named: `conversation` after `conversation-move`, `mention` after `workshop`, `work-item-review` after `wrap`; and `inbox-groups`, `inbox` and `phone` after any other.

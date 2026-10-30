@@ -373,7 +373,7 @@ async function capture() {
   const section = await addProject();
   const name = (await section.getAttribute('aria-label')) ?? '';
   const pid = sql(`select id from project where name='${name}'`);
-  const sam = await (await fetch(base + '/teammates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'sam', backend: 'claude' }) })).json();
+  const sam = await (await fetch(base + '/bots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'sam', backend: 'claude' }) })).json();
 
   await page.goto(base + '/capture');
   await pick('Capture project', name);
@@ -415,7 +415,7 @@ async function capture() {
     'a conversation opens with the text as its first message',
     JSON.stringify(messages.map((m) => [m.author, m.body])),
   );
-  const member = sql(`select teammate_id from space_member where space_id=${spaces[0]?.id}`);
+  const member = sql(`select bot_id from space_member where space_id=${spaces[0]?.id}`);
   check(member === String(sam.id), 'the conversation is with sam', member);
   check((await getJson(`/work-items?project=${pid}`)).length === 1, 'talking to a Teammate makes no Work item');
 
@@ -513,7 +513,7 @@ async function contrast(screen) {
 }
 
 async function theme() {
-  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teammates.md)');
+  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/bots.md)');
   const bodyBg = () => page.evaluate(() => getComputedStyle(document.body).backgroundColor);
   const cdp = await page.context().newCDPSession(page);
   const system = (value) => cdp.send('Emulation.setEmulatedMedia', { features: [{ name: 'prefers-color-scheme', value }] });
@@ -583,7 +583,7 @@ async function theme() {
 }
 
 async function phone() {
-  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teammates.md)');
+  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/bots.md)');
   const section = await addProject();
   const itemId = await addWorkItem('Login');
   const { id: cid } = await newTeamSpace('duo', 'phone room');
@@ -1233,7 +1233,7 @@ async function subagent() {
 
 async function review() {
   if ((await fetch(`${base}/teams/full`)).status !== 200) {
-    throw new Error('apply the team full first (teams/full.json, see features/teammates.md)');
+    throw new Error('apply the team full first (teams/full.json, see features/bots.md)');
   }
   ensureRepo();
   const section = await addProject();
@@ -1315,7 +1315,7 @@ async function review() {
 }
 
 async function inbox() {
-  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/teammates.md)');
+  if ((await fetch(`${base}/teams/duo`)).status !== 200) throw new Error('apply the team duo first (see features/bots.md)');
   // Headless Chromium denies notifications whatever is granted, so the window gets a stub
   // that is granted and records each one.
   await page.addInitScript(() => {
@@ -1603,7 +1603,7 @@ async function wrap() {
 async function teams() {
   const missing = [];
   for (const name of ['duo', 'full']) if ((await fetch(`${base}/teams/${name}`)).status !== 200) missing.push(name);
-  if (missing.length) throw new Error(`apply the teams first: missing ${missing.join(', ')} (see features/teammates.md)`);
+  if (missing.length) throw new Error(`apply the teams first: missing ${missing.join(', ')} (see features/bots.md)`);
   const section = await addProject();
   await addWorkItem('Login');
 
@@ -1680,21 +1680,21 @@ async function errorText(pattern, timeout = 15000) {
 
 async function workshop() {
   if ((await fetch(`${base}/teams/full`)).status !== 200) {
-    throw new Error('apply the team full first (teams/full.json, see features/teammates.md)');
+    throw new Error('apply the team full first (teams/full.json, see features/bots.md)');
   }
   const mcpBefore = '[{"command":"true","env":{"API_KEY":"sk-verify-9911"}}]';
-  sql(`update team_member set mcp_servers = '${mcpBefore}', tools = '["Read","Grep","Glob","Edit","Write","Bash"]' where team_id = (select id from team where name = 'full') and name = 'developer'; update teammate set skills = '["ghost-skill"]' where id = (select teammate_id from team_member where team_id = (select id from team where name = 'full') and name = 'developer')`, true);
+  sql(`update bot set mcp_servers = '${mcpBefore}', tools = '["Read","Grep","Glob","Edit","Write","Bash"]', skills = '["ghost-skill"]' where name = 'developer'`, true);
   mkdirSync(path.join(projectDir, '.claude/skills/workshop-skill'), { recursive: true });
   writeFileSync(path.join(projectDir, '.claude/skills/workshop-skill/SKILL.md'), '---\nname: workshop-skill\ndescription: Picked in the workshop scenario.\n---\n');
 
   const section = await addProject();
   const projectId = sql('select max(id) from project');
   await page.evaluate((id) => localStorage.setItem('reef.sidebar.projectId', id), projectId);
-  const row = (col) => sql(`select ${col} from team_member m join teammate on teammate.id = m.teammate_id where m.team_id = (select id from team where name = 'full') and m.name = 'developer'`);
+  const row = (col) => sql(`select ${col} from team_member m join bot on bot.id = m.bot_id where m.team_id = (select id from team where name = 'full') and bot.name = 'developer'`);
 
   // The developer's Teammate on the Teammates page: persona, creature, skills and backend.
-  const mate = row('teammate.name');
-  await page.goto(`${base}/teammates?teammate=${row('teammate.id')}`);
+  const mate = row('bot.name');
+  await page.goto(`${base}/bots?teammate=${row('bot.id')}`);
   const personaBox = main.getByLabel(`${mate} persona`);
   await personaBox.waitFor();
   const marker = `WORKSHOP-MARKER-${Date.now().toString(36)}`;
@@ -1723,10 +1723,10 @@ async function workshop() {
   await main.getByRole('button', { name: 'Save teammate' }).click();
   await page.getByText('Saved').waitFor();
   await shot('persona-saved');
-  check(row('teammate.persona') === persona, "saving the developer's persona on the Teammates page updates its teammate row");
-  check(row('teammate.face') === 'otter', "picking a creature for the developer saves it to its teammate row");
-  check(row('teammate.skills') === '["workshop-skill"]', "saving the developer's skills updates its teammate row", row('teammate.skills'));
-  check(row('m.mcp_servers') === mcpBefore, "the developer's mcpServers, left out of the Teammate panel, are unchanged");
+  check(row('bot.persona') === persona, "saving the developer's persona on the Teammates page updates its teammate row");
+  check(row('bot.face') === 'otter', "picking a creature for the developer saves it to its teammate row");
+  check(row('bot.skills') === '["workshop-skill"]', "saving the developer's skills updates its teammate row", row('bot.skills'));
+  check(row('bot.mcp_servers') === mcpBefore, "the developer's mcpServers, left out of the Teammate panel, are unchanged");
 
   // The developer's place in the Team: lead, tools and MCP servers in the team editor.
   await page.goto(`${base}/teams?team=full`);
@@ -1764,8 +1764,8 @@ async function workshop() {
   await main.getByRole('button', { name: 'Remove mcp1 · true' }).click();
   await main.getByRole('button', { name: 'Save team' }).click();
   await page.getByText('Saved').waitFor();
-  check(row('m.tools').includes('Bash(git log:*)') && row('m.tools').includes('"WebFetch"') && !row('m.tools').includes('"Write"'), "picking and unpicking allowed tools saves them to the team member row", row('m.tools'));
-  check(row('m.mcp_servers') === '[]', "removing the developer's MCP server in the window removes it from its team member row", row('m.mcp_servers'));
+  check(row('bot.tools').includes('Bash(git log:*)') && row('bot.tools').includes('"WebFetch"') && !row('bot.tools').includes('"Write"'), "picking and unpicking allowed tools saves them to the team member row", row('bot.tools'));
+  check(row('bot.mcp_servers') === '[]', "removing the developer's MCP server in the window removes it from its team member row", row('bot.mcp_servers'));
 
   // Duplicate makes a new team `reef team list` (the same store) shows.
   const copyName = `workshop-copy-${Date.now().toString(36)}`;
@@ -1911,7 +1911,7 @@ async function pr() {
 // lead's direct request runs the architect at once, and the fake architect answers slowly.
 async function coordination() {
   for (const team of ['duo', 'full']) {
-    if ((await fetch(`${base}/teams/${team}`)).status !== 200) throw new Error(`apply the team ${team} first (see features/teammates.md)`);
+    if ((await fetch(`${base}/teams/${team}`)).status !== 200) throw new Error(`apply the team ${team} first (see features/bots.md)`);
   }
   await page.setViewportSize({ width: 1280, height: 800 });
   const section = await addProject();
@@ -2176,11 +2176,20 @@ async function team() {
 
 async function denials() {
   const roles = [
-    { name: 'lead', lead: true, backend: 'claude', tools: ['Read'], persona: 'You are the lead. Do what the user asks with the tools you have, then answer in one short sentence.' },
-    { name: 'reviewer', backend: 'claude', tools: ['Read'], persona: 'You are the reviewer. Do what the user asks with the tools you have, then answer in one short sentence. Never @mention anyone.' },
+    { name: 'lead', lead: true, backend: 'claude', tools: ['Read'], description: 'You are the lead. Do what the user asks with the tools you have, then answer in one short sentence.' },
+    { name: 'reviewer', backend: 'claude', tools: ['Read'], description: 'You are the reviewer. Do what the user asks with the tools you have, then answer in one short sentence. Never @mention anyone.' },
   ];
-  const putTeam = (r) =>
-    fetch(`${base}/teams/denials`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: 'denials', roles: r }) });
+  const putTeam = async (r) => {
+    const json = { 'Content-Type': 'application/json' };
+    const bots = await getJson('/bots');
+    const members = [];
+    for (const { lead, ...profile } of r) {
+      const have = bots.find((b) => b.name === profile.name);
+      const saved = await (await fetch(base + (have ? `/bots/${have.id}` : '/bots'), { method: have ? 'PUT' : 'POST', headers: json, body: JSON.stringify(profile) })).json();
+      members.push({ botId: saved.id, lead: !!lead });
+    }
+    return fetch(`${base}/teams/denials`, { method: 'PUT', headers: json, body: JSON.stringify({ name: 'denials', roles: members }) });
+  };
   check((await putTeam(roles)).status === 200, 'the team denials is applied: a lead and a read-only reviewer, both allowed only Read');
   const toolsOf = async (role) => (await getJson(`/spaces/${cid}/members`)).find((r) => r.name === role).tools.join(',');
   const turnLines = (role) =>
@@ -2229,10 +2238,10 @@ async function denials() {
   check(text.includes('Reviewer was denied Write') && text.includes('Needs write access') && (await add.count()) === 0, 'a read-only role denied Write shows Needs write access and no Add', text);
   await shot('write-denied');
 
-  const reviewerId = (await getJson('/teams/denials')).roles.find((r) => r.name === 'reviewer').teammateId;
-  const { mcp, ...reviewer } = await getJson(`/teammates/${reviewerId}`);
+  const reviewerId = (await getJson('/teams/denials')).roles.find((r) => r.name === 'reviewer').botId;
+  const { mcp, ...reviewer } = await getJson(`/bots/${reviewerId}`);
   const putReviewer = (backend) =>
-    fetch(`${base}/teammates/${reviewerId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...reviewer, backend }) });
+    fetch(`${base}/bots/${reviewerId}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...reviewer, backend }) });
   check((await putReviewer('codex')).status === 200, 'the reviewer Teammate is switched to codex');
   await page.reload();
   await card.getByText('Codex ignores allowed tools').waitFor();
@@ -2455,7 +2464,7 @@ async function naming() {
   const project = (await getJson('/projects')).at(-1).id;
   const post = (method, route, body) =>
     fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const created = await (await post('POST', '/spaces', { projectId: project, name: 'claude 02:32 PM', backend: 'claude' })).json();
+  const created = await (await post('POST', '/spaces', { projectId: project, name: 'claude 02:32 PM' })).json();
   await post('POST', `/spaces/${created.id}/send`, { text: probe });
   const renamed = await post('PUT', `/spaces/${created.id}`, { name: 'mine' });
   for (let i = 0; i < 150 && sql(`select count(*) from message where space_id=${created.id} and author<>'user'`) === '0'; i++) await page.waitForTimeout(200);
@@ -2469,7 +2478,7 @@ async function conversation() {
   const project = (await getJson('/projects')).at(-1).id;
   const call = (method, route, body) =>
     fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const sam = await (await call('POST', '/teammates', { name: 'sam', backend: 'claude' })).json();
+  const sam = await (await call('POST', '/bots', { name: 'sam', backend: 'claude' })).json();
   const start = async () => {
     const was = page.url();
     await plus('New conversation');
@@ -2484,7 +2493,7 @@ async function conversation() {
   };
   const sidebarOrder = async () =>
     (await section.locator('a[href^="/spaces/"]').evaluateAll((as) => as.map((a) => a.getAttribute('href').split('/').pop())));
-  const restOrder = async () => (await getJson(`/teammates/${sam.id}/conversations`)).map((c) => String(c.id));
+  const restOrder = async () => (await getJson(`/bots/${sam.id}/conversations`)).map((c) => String(c.id));
   // The sidebar refreshes its Spaces every 5 seconds.
   const sidebarIs = async (ids) => {
     for (let i = 0; i < 40 && (await sidebarOrder()).join() !== ids.join(); i++) await page.waitForTimeout(250);
@@ -2502,7 +2511,7 @@ async function conversation() {
   const sessions = sql(`select space_id, session_id from turn where space_id in (${first}, ${second}) order by id`).split('\n');
   check(sessions.length === 2 && sessions[0].split('|')[1] !== sessions[1].split('|')[1], 'the two conversations have their own session', sessions.join(' ; '));
   check(await sidebarIs([second, first]), 'the sidebar lists the newer conversation first', (await sidebarOrder()).join());
-  check((await restOrder()).join() === [second, first].join(), 'GET /teammates/{id}/conversations lists the newer conversation first', (await restOrder()).join());
+  check((await restOrder()).join() === [second, first].join(), 'GET /bots/{id}/conversations lists the newer conversation first', (await restOrder()).join());
   await shot('desktop-two');
 
   await section.getByRole('link', { name: /codeword chat/ }).click();
@@ -2511,7 +2520,7 @@ async function conversation() {
   const own = sql(`select count(distinct session_id), count(*) from turn where space_id=${first}`);
   check(own === '1|2', 'continuing the older conversation resumes its one session', own);
   check(await sidebarIs([first, second]), 'the continued conversation moves to the top of the sidebar', (await sidebarOrder()).join());
-  check((await restOrder()).join() === [first, second].join(), 'GET /teammates/{id}/conversations puts it first too', (await restOrder()).join());
+  check((await restOrder()).join() === [first, second].join(), 'GET /bots/{id}/conversations puts it first too', (await restOrder()).join());
   await shot('desktop-continued');
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -2531,8 +2540,8 @@ async function conversationMove() {
   const section = await addProject();
   const call = (method, route, body) =>
     fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  await call('POST', '/teammates', { name: 'sam', backend: 'claude' });
-  await call('POST', '/teammates', { name: 'kit', backend: 'claude' });
+  await call('POST', '/bots', { name: 'sam', backend: 'claude' });
+  await call('POST', '/bots', { name: 'kit', backend: 'claude' });
   const start = async () => {
     const was = page.url();
     await plus('New conversation');
@@ -2779,7 +2788,7 @@ async function mention() {
     const backend = role.backend === 'claude' ? 'Claude Code' : 'Codex';
     const model = role.model ? ((role.backend === 'claude' && models[role.model]) || role.model) : 'default model';
     const tools = role.backend === 'claude' ? ` Tools ${role.tools.length}` : '';
-    return `${name} ${backend} · ${model} Edit ${role.persona.split('\n')[0]} State ${running.includes(name) ? 'Working' : 'Idle'} Access ${role.write ? 'Can write' : 'Read-only'}${tools}`;
+    return `${name} ${backend} · ${model} Edit ${role.description.split('\n')[0]} State ${running.includes(name) ? 'Working' : 'Idle'} Access ${role.write ? 'Can write' : 'Read-only'}${tools}`;
   };
   const sameCard = (shown, want) => shown.toLowerCase() === want.toLowerCase();
   const lead = at('@lead');
@@ -2959,12 +2968,12 @@ async function providers() {
   if (!fakeDir || !existsSync(path.join(fakeDir, 'claude'))) throw new Error('set REEF_UI_FAKE to the folder with the fake claude (verify-reef ui does)');
   const name = `work-${Date.now().toString(36)}`;
   const mate = `prov-${Date.now().toString(36)}`;
-  const res = await fetch(`${base}/teammates`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: mate, backend: 'claude', persona: 'You check providers.' }) });
-  check(res.status === 201, `the claude Teammate ${mate} is made through POST /teammates`, `${res.status}`);
+  const res = await fetch(`${base}/bots`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: mate, backend: 'claude', description: 'You check providers.' }) });
+  check(res.status === 201, `the claude Teammate ${mate} is made through POST /bots`, `${res.status}`);
   const mateId = (await res.json()).id;
-  const roleOf = () => getJson(`/teammates/${mateId}`);
+  const roleOf = () => getJson(`/bots/${mateId}`);
   const openMate = async () => {
-    await page.goto(`${base}/teammates?teammate=${mateId}`);
+    await page.goto(`${base}/bots?teammate=${mateId}`);
     await page.getByRole('combobox', { name: `${mate} provider`, exact: true }).waitFor();
   };
   const saveMate = async () => {
@@ -3029,7 +3038,7 @@ async function providers() {
   await page.getByRole('listbox', { name: `${mate} provider`, exact: true }).getByRole('option', { name, exact: true }).click();
   await shot('desktop-dark-role');
   await saveMate();
-  check((await roleOf()).provider === name, 'saving the Teammate stores the provider (GET /teammates/{id})', JSON.stringify((await roleOf()).provider));
+  check((await roleOf()).provider === name, 'saving the Teammate stores the provider (GET /bots/{id})', JSON.stringify((await roleOf()).provider));
   await openMate();
   check((await select.innerText()).trim() === name, 'after a reload the Teammate shows its provider');
 
@@ -3081,7 +3090,7 @@ async function teammates() {
   const teamName = `crew-${suffix}`;
   await page.setViewportSize({ width: 1280, height: 800 });
   await addProject();
-  await page.goto(`${base}/teammates`);
+  await page.goto(`${base}/bots`);
   await main.getByRole('heading', { name: 'Teammates', level: 1 }).waitFor();
 
   await main.getByRole('button', { name: 'New Teammate' }).click();
@@ -3096,9 +3105,9 @@ async function teammates() {
   await shot('teammates-1280x800');
   await main.getByRole('button', { name: 'Save teammate' }).click();
   await main.getByText('Saved').waitFor();
-  let teammate = await getJson(`/teammates/${id}`);
+  let teammate = await getJson(`/bots/${id}`);
   check(
-    teammate.name === mate && teammate.persona === persona && teammate.model === 'sonnet' && teammate.write === false,
+    teammate.name === mate && teammate.description === persona && teammate.model === 'sonnet' && teammate.write === false,
     'the window creates a Teammate and saves its persona and model through REST',
     JSON.stringify({ name: teammate.name, model: teammate.model, write: teammate.write }),
   );
@@ -3116,7 +3125,7 @@ async function teammates() {
   await picker.getByRole('button', { name: new RegExp(`^${mate}`) }).click();
   const writeSwitch = main.getByRole('switch', { name: `${mate} write` });
   await writeSwitch.waitFor();
-  let member = (await getJson(`/teams/${teamName}`)).roles.find((r) => r.teammateId === id);
+  let member = (await getJson(`/teams/${teamName}`)).roles.find((r) => r.botId === id);
   check(member && member.write === false && !member.lead, 'adding a Teammate from the picker puts it in the Team with its default access', JSON.stringify(member && { name: member.name, write: member.write, lead: member.lead }));
   check(
     (await main.getByLabel(`${mate} persona`).count()) === 0 && (await main.getByRole('link', { name: 'Teammates page' }).count()) === 1,
@@ -3126,13 +3135,13 @@ async function teammates() {
   await writeSwitch.click();
   await main.getByRole('button', { name: 'Save team' }).click();
   await main.getByText('Saved').waitFor();
-  member = (await getJson(`/teams/${teamName}`)).roles.find((r) => r.teammateId === id);
-  teammate = await getJson(`/teammates/${id}`);
+  member = (await getJson(`/teams/${teamName}`)).roles.find((r) => r.botId === id);
+  teammate = await getJson(`/bots/${id}`);
   check(member?.write === true, "changing write access in the team editor changes the Teammate's membership", `member write ${member?.write}`);
   check(teammate.write === false, "the Teammate's default access stays unchanged", `teammate write ${teammate.write}`);
   await shot('team-editor-1280x800');
 
-  for (const route of ['/teammates', `/teams?team=${teamName}`, `/teammates?teammate=${id}`, `/teams?team=${teamName}&role=${mate}`]) {
+  for (const route of ['/bots', `/teams?team=${teamName}`, `/bots?teammate=${id}`, `/teams?team=${teamName}&role=${mate}`]) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base + route);
     await main.getByRole('heading', { level: 1 }).or(main.getByRole('region', { name: 'Roles' })).first().waitFor();
@@ -3154,23 +3163,23 @@ async function creatures() {
   await page.setViewportSize({ width: 1280, height: 800 });
   await addProject();
 
-  const sam =await call('POST', '/teammates', { name: `sam-${suffix}`, backend: 'claude', face: 'otter', colour: 'violet' });
-  check(look(await getJson(`/teammates/${sam.id}`)) === '{"face":"otter","colour":"violet"}', 'POST then GET /teammates/{id} returns the creature and colour', look(sam));
-  check(look((await getJson('/teammates')).find((t) => t.id === sam.id)) === '{"face":"otter","colour":"violet"}', 'GET /teammates lists them');
-  const put = await call('PUT', `/teammates/${sam.id}`, { name: sam.name, backend: 'claude', face: 'turtle', colour: 'teal' });
-  check(look(put) === '{"face":"turtle","colour":"teal"}' && look(await getJson(`/teammates/${sam.id}`)) === '{"face":"turtle","colour":"teal"}', 'PUT /teammates/{id} changes them and GET returns the change', look(put));
-  await call('PUT', `/teammates/${sam.id}`, { name: sam.name, backend: 'claude', face: 'otter', colour: 'violet' });
-  const bad = await fetch(base + '/teammates', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: `bad-${suffix}`, backend: 'claude', colour: 'mauve' }) });
+  const sam =await call('POST', '/bots', { name: `sam-${suffix}`, backend: 'claude', face: 'otter', colour: 'violet' });
+  check(look(await getJson(`/bots/${sam.id}`)) === '{"face":"otter","colour":"violet"}', 'POST then GET /bots/{id} returns the creature and colour', look(sam));
+  check(look((await getJson('/bots')).find((t) => t.id === sam.id)) === '{"face":"otter","colour":"violet"}', 'GET /bots lists them');
+  const put = await call('PUT', `/bots/${sam.id}`, { name: sam.name, backend: 'claude', face: 'turtle', colour: 'teal' });
+  check(look(put) === '{"face":"turtle","colour":"teal"}' && look(await getJson(`/bots/${sam.id}`)) === '{"face":"turtle","colour":"teal"}', 'PUT /bots/{id} changes them and GET returns the change', look(put));
+  await call('PUT', `/bots/${sam.id}`, { name: sam.name, backend: 'claude', face: 'otter', colour: 'violet' });
+  const bad = await fetch(base + '/bots', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: `bad-${suffix}`, backend: 'claude', colour: 'mauve' }) });
   check(bad.status === 400, 'an unknown colour is refused', `${bad.status}`);
 
-  const ada = await call('POST', '/teammates', { name: `ada-${suffix}`, backend: 'claude', face: 'whale' });
-  const plain = await call('POST', '/teammates', { name: `plain-${suffix}`, backend: 'claude' });
-  const role = (teammate, name, extra) => ({ teammateId: teammate.id, name, backend: 'claude', ...extra });
+  const ada = await call('POST', '/bots', { name: `ada-${suffix}`, backend: 'claude', face: 'whale' });
+  const plain = await call('POST', '/bots', { name: `plain-${suffix}`, backend: 'claude' });
+  const role = (teammate, _name, extra) => ({ botId: teammate.id, ...extra });
   await call('POST', '/teams', { name: teamA, roles: [role(sam, 'lead', { lead: true })] });
   await call('POST', '/teams', { name: teamB, roles: [role(ada, 'lead', { lead: true }), role(sam, 'developer')] });
   await call('POST', '/teams', { name: teamC, roles: [role(plain, 'architect', { lead: true })] });
 
-  await page.goto(`${base}/teammates`);
+  await page.goto(`${base}/bots`);
   await main.getByRole('heading', { name: 'Teammates', level: 1 }).waitFor();
   const row = main.getByRole('region', { name: 'All teammates' }).getByRole('button', { name: new RegExp(`^${sam.name}`) });
   await row.waitFor();
@@ -3197,7 +3206,7 @@ async function creatures() {
   const pebble = await faceIn(teamC, 'architect');
   check(pebble.includes('#8E8E93') && !pebble.includes('#8B5CF6'), 'a Teammate with no creature, in a role named architect, is a pebble, not a whale');
 
-  await page.goto(`${base}/teammates`);
+  await page.goto(`${base}/bots`);
   await main.getByRole('button', { name: 'New Teammate' }).click();
   const dialog = page.getByRole('dialog', { name: 'New Teammate' });
   const kit = `kit-${suffix}`;
@@ -3209,7 +3218,7 @@ async function creatures() {
   await dialog.getByRole('button', { name: 'Pink colour', exact: true }).click();
   await dialog.getByRole('button', { name: 'Create teammate' }).click();
   await page.waitForURL((url) => url.searchParams.has('teammate'));
-  const made = (await getJson('/teammates')).find((t) => t.name === kit);
+  const made = (await getJson('/bots')).find((t) => t.name === kit);
   check(look(made) === '{"face":"penguin","colour":"pink"}', 'the New Teammate dialog saves the creature and colour picked', look(made));
 
   await main.getByRole('button', { name: /^Change creature/ }).click();
@@ -3218,16 +3227,16 @@ async function creatures() {
   await main.getByRole('button', { name: 'Blue colour', exact: true }).click();
   await main.getByRole('button', { name: 'Save teammate' }).click();
   await main.getByText('Saved').waitFor();
-  check(look(await getJson(`/teammates/${made.id}`)) === '{"face":"shark","colour":"blue"}', 'the Teammate panel saves a new creature and colour', look(await getJson(`/teammates/${made.id}`)));
+  check(look(await getJson(`/bots/${made.id}`)) === '{"face":"shark","colour":"blue"}', 'the Teammate panel saves a new creature and colour', look(await getJson(`/bots/${made.id}`)));
 
-  for (const route of ['/teammates', `/teams?team=${teamB}`]) {
+  for (const route of ['/bots', `/teams?team=${teamB}`]) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base + route);
     await main.getByRole('heading', { level: 1 }).waitFor();
     check(await noOverflow(), `${route} has no horizontal scroll at 390x844`, `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
     await shot(`phone-${route.replace(/\W+/g, '-').replace(/^-|-$/g, '')}`);
   }
-  await page.goto(`${base}/teammates`);
+  await page.goto(`${base}/bots`);
   await main.getByRole('button', { name: 'New Teammate' }).click();
   await page.getByRole('dialog', { name: 'New Teammate' }).getByRole('button', { name: /^Change creature/ }).click();
   await shot('phone-picker');
@@ -3239,7 +3248,7 @@ async function sidebar() {
   const project = (await getJson('/projects')).at(-1).id;
   const call = (method, route, body) =>
     fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
-  const sam = await (await call('POST', '/teammates', { name: 'sidebar-sam', backend: 'claude' })).json();
+  const sam = await (await call('POST', '/bots', { name: 'sidebar-sam', backend: 'claude' })).json();
   const urlPath = () => new URL(page.url()).pathname;
   const noScroll = () => page.evaluate(() => document.documentElement.scrollWidth <= innerWidth);
 
@@ -3267,7 +3276,7 @@ async function sidebar() {
     [link(/^Board/), '/board', 'Board'],
     [link('Spaces'), '/spaces', 'Spaces'],
     [link('Conversations'), '/conversations', 'Conversations'],
-    [link('Teammates'), '/teammates', 'Teammates'],
+    [link('Teammates'), '/bots', 'Teammates'],
     [link('Teams'), '/teams', 'Teams'],
     [link('Settings'), '/settings', 'Settings'],
   ];
@@ -3368,16 +3377,16 @@ async function teammate() {
   await addProject();
   const project = (await getJson('/projects')).at(-1).id;
 
-  const sam = await call('POST', '/teammates', { name: `sam-${suffix}`, persona: `Reviews the ${suffix} release notes.`, backend: 'claude', model: 'sonnet', face: 'otter', colour: 'violet' });
-  const ada = await call('POST', '/teammates', { name: `ada-${suffix}`, backend: 'claude' });
-  const loner = await call('POST', '/teammates', { name: `loner-${suffix}`, backend: 'claude' });
-  const member = (t, name, extra) => ({ teammateId: t.id, name, backend: 'claude', ...extra });
+  const sam = await call('POST', '/bots', { name: `sam-${suffix}`, description: `Reviews the ${suffix} release notes.`, backend: 'claude', model: 'sonnet', face: 'otter', colour: 'violet' });
+  const ada = await call('POST', '/bots', { name: `ada-${suffix}`, backend: 'claude' });
+  const loner = await call('POST', '/bots', { name: `loner-${suffix}`, backend: 'claude' });
+  const member = (t, _name, extra) => ({ botId: t.id, ...extra });
   await call('POST', '/teams', { name: teamA, roles: [member(ada, 'lead', { lead: true }), member(sam, 'developer')] });
   await call('POST', '/teams', { name: teamB, roles: [member(sam, 'reviewer', { lead: true })] });
   await call('PUT', `/teams/${teamA}/members/${sam.id}`, { lead: false, write: true, tools: [], permissionMode: 'acceptEdits' });
 
   const word = `note${suffix}`;
-  const scope = `teammate:${sam.id}`;
+  const scope = `bot:${sam.id}`;
   for (const body of [`${word} always run the linter first`, `${word} prefers small commits`, `${word} retired habit`]) {
     reef('add', 'fact', body, '--scope', scope, '--as', 'user');
   }
@@ -3385,19 +3394,19 @@ async function teammate() {
   reef('retire', String(retiredId));
   reef('add', 'fact', `${word} sits in the project scope`, '--scope', `project:${project}`, '--as', 'user');
 
-  await call('POST', '/spaces', { projectId: project, name: 'older chat', teammateId: sam.id, kind: 'conversation' });
-  await call('POST', '/spaces', { projectId: project, name: 'newer chat', teammateId: sam.id, kind: 'conversation' });
+  await call('POST', '/spaces', { projectId: project, name: 'older chat', botId: sam.id, kind: 'conversation' });
+  await call('POST', '/spaces', { projectId: project, name: 'newer chat', botId: sam.id, kind: 'conversation' });
 
-  await page.goto(`${base}/teammates?teammate=${sam.id}`);
+  await page.goto(`${base}/bots?teammate=${sam.id}`);
   await main.getByRole('link', { name: 'Open profile' }).click();
-  await page.waitForURL(`**/teammates/${sam.id}`);
+  await page.waitForURL(`**/bots/${sam.id}`);
   await main.getByRole('heading', { name: sam.name, level: 1 }).waitFor();
-  check(true, 'Open profile on the Teammates page panel opens /teammates/{id}');
+  check(true, 'Open profile on the Teammates page panel opens /bots/{id}');
   await main.getByRole('region', { name: 'Teams' }).getByRole('link').first().waitFor();
 
   const teamsCard = main.getByRole('region', { name: 'Teams' });
   const teamRows = (await teamsCard.getByRole('link').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
-  const rest = (await getJson('/teams')).flatMap((t) => t.roles.filter((r) => r.teammateId === sam.id).map((r) => ({ team: t.name, role: r.name, write: r.write })));
+  const rest = (await getJson('/teams')).flatMap((t) => t.roles.filter((r) => r.botId === sam.id).map((r) => ({ team: t.name, role: r.name, write: r.write })));
   const shown = (r) => teamRows.some((t) => t.startsWith(`${r.team} ${r.role}`) && t.endsWith(r.write ? 'edits code' : 'read-only'));
   check(rest.length === 2 && rest.every(shown), 'both Teams show with their own role and write access, and REST agrees', `${JSON.stringify(rest)} | ${JSON.stringify(teamRows)}`);
   check(rest.find((r) => r.team === teamA).write === true && rest.find((r) => r.team === teamB).write === false, 'the two Teams have different write access in REST');
@@ -3420,7 +3429,7 @@ async function teammate() {
   const convoCard = main.getByRole('region', { name: 'Conversations' });
   await convoCard.getByRole('link', { name: /newer chat/ }).waitFor();
   const order = async () => (await convoCard.getByRole('link').evaluateAll((as) => as.map((a) => a.getAttribute('href').split('/').pop())));
-  const restOrder = async () => (await getJson(`/teammates/${sam.id}/conversations`)).map((c) => String(c.id));
+  const restOrder = async () => (await getJson(`/bots/${sam.id}/conversations`)).map((c) => String(c.id));
   check((await order()).join() === (await restOrder()).join() && (await order()).length === 2, 'the conversations list matches REST, newest first', (await order()).join());
   check((await convoCard.getByRole('link').first().innerText()).includes('newer chat'), 'the newer conversation is first');
   await shot('desktop-1280x800');
@@ -3429,24 +3438,24 @@ async function teammate() {
   await page.waitForURL((u) => /\/spaces\/\d+$/.test(u.pathname));
   const spaceId = page.url().split('/').pop();
   const row = sql(`select kind, team_id is null from Space where id=${spaceId}`);
-  const members = sql(`select teammate_id from space_member where space_id=${spaceId}`);
+  const members = sql(`select bot_id from space_member where space_id=${spaceId}`);
   check(row === 'conversation|1' && members === String(sam.id), 'Start conversation opens a new conversation with the Teammate and no Team', `${row} members ${members}`);
   check(!(await restOrder()).slice(1).includes(spaceId) && (await restOrder())[0] === spaceId, 'REST lists it first', (await restOrder()).join());
-  await page.goto(`${base}/teammates/${sam.id}`);
+  await page.goto(`${base}/bots/${sam.id}`);
   await convoCard.getByRole('link').nth(2).waitFor();
   check((await order()).join() === (await restOrder()).join() && (await order())[0] === spaceId, 'the profile lists it first after a reload', (await order()).join());
 
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto(`${base}/teammates/${sam.id}`);
+  await page.goto(`${base}/bots/${sam.id}`);
   await main.getByRole('heading', { name: sam.name, level: 1 }).waitFor();
   await convoCard.getByRole('link').nth(2).waitFor();
   check(await noOverflow(), 'the profile has no horizontal scroll at 390x844', `${await page.evaluate(() => document.documentElement.scrollWidth)} px`);
   await shot('phone-390x844');
-  await page.goto(`${base}/teammates/${loner.id}`);
+  await page.goto(`${base}/bots/${loner.id}`);
   await main.getByRole('heading', { name: loner.name, level: 1 }).waitFor();
   check((await main.getByText('In no Team yet').count()) === 1 && (await main.getByText('No conversations yet').count()) === 1 && (await main.getByText('Nothing remembered yet').count()) === 1, 'a Teammate with no Team, conversation or memory shows three empty states');
   await shot('phone-empty-390x844');
-  await page.goto(`${base}/teammates/999999`);
+  await page.goto(`${base}/bots/999999`);
   await main.getByText('No teammate 999999').waitFor();
   check(true, 'an unknown Teammate shows an error, not a blank page');
 }
@@ -3462,8 +3471,8 @@ async function board() {
   };
   const suffix = Date.now().toString(36);
   const teamName = `crew-${suffix}`;
-  const mate = await call('POST', '/teammates', { name: `lead-${suffix}`, backend: 'claude' });
-  const crew = (await call('POST', '/teams', { name: teamName, roles: [{ teammateId: mate.id, name: 'lead', lead: true, backend: 'claude' }] })).id;
+  const mate = await call('POST', '/bots', { name: `lead-${suffix}`, backend: 'claude' });
+  const crew = (await call('POST', '/teams', { name: teamName, roles: [{ botId: mate.id, lead: true }] })).id;
   const make = async (title, { status, ...extra } = {}) => {
     const w = await call('POST', '/work-items', { projectId: pid, title, ...extra });
     if (status) sql(`update work_item set status='${status}' where id=${w.id}`, true);
@@ -3614,8 +3623,8 @@ async function teamPage() {
   };
   const suffix = Date.now().toString(36);
   const makeTeam = async (prefix, responsibility) => {
-    const mate = await call('POST', '/teammates', { name: `${prefix}-lead-${suffix}`, backend: 'claude' });
-    return call('POST', '/teams', { name: `${prefix}-${suffix}`, responsibility, roles: [{ teammateId: mate.id, name: 'lead', lead: true, backend: 'claude' }] });
+    const mate = await call('POST', '/bots', { name: `${prefix}-lead-${suffix}`, backend: 'claude' });
+    return call('POST', '/teams', { name: `${prefix}-${suffix}`, responsibility, roles: [{ botId: mate.id, lead: true }] });
   };
   const crew = await makeTeam('crew', 'Owns the login flow');
   const idle = await makeTeam('idle', 'Waits for work');
@@ -4028,13 +4037,13 @@ async function spaceHeader() {
     return res.json();
   };
   const suffix = Date.now().toString(36);
-  const sam = await call('POST', '/teammates', { name: `sam-${suffix}`, backend: 'claude', face: 'otter', colour: 'violet' });
-  const kit = await call('POST', '/teammates', { name: `kit-${suffix}`, backend: 'claude' });
+  const sam = await call('POST', '/bots', { name: `sam-${suffix}`, backend: 'claude', face: 'otter', colour: 'violet' });
+  const kit = await call('POST', '/bots', { name: `kit-${suffix}`, backend: 'claude' });
   const itemA = await call('POST', '/work-items', { projectId: pid, title: `Header item ${suffix}` });
   const itemB = await call('POST', '/work-items', { projectId: pid, title: `Attach target ${suffix}` });
   const workSpace = await call('POST', '/spaces', { projectId: pid, workItemId: itemA.id, name: `item-space-${suffix}` });
   const freeSpace = await call('POST', '/spaces', { projectId: pid, name: `free-space-${suffix}` });
-  const conversation = await call('POST', '/spaces', { projectId: pid, kind: 'conversation', teammateId: sam.id, name: `chat-${suffix}` });
+  const conversation = await call('POST', '/spaces', { projectId: pid, kind: 'conversation', botId: sam.id, name: `chat-${suffix}` });
   const turn = (space, input, output, read, write) =>
     sql(`insert into turn (space_id, role, backend, status, input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at) values (${space}, 'lead', 'claude', 'done', ${input}, ${output}, ${read}, ${write}, '2026-01-01T00:00:00Z')`, true);
   turn(workSpace.id, 1000, 100, 9999, 50);

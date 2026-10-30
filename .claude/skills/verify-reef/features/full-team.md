@@ -1,7 +1,7 @@
 # Full team
 
-A user applies `teams/full.json` (lead, architect, developer, tester) and asks the lead for a
-work item. Only a role with `write` changes files. Each work item works in its own git worktree on
+A user applies `teams/full.json` (a team of the Bots lead, architect, developer, tester) and asks the lead for a
+work item. Only a Bot with `write` changes files. Each work item works in its own git worktree on
 `work-item/<id>`, and one write turn at a time runs on a tree. Before each write turn the
 server takes a checkpoint, and the user can roll the tree back to it. A failed turn can be
 retried. Everything that waits on the user (a pause, a failed turn, an agent's
@@ -13,10 +13,10 @@ last word) shows in one inbox, live, in the server and in the window. Contract:
 One line per acceptance line of the full-team slice and its sub-issues.
 
 - `write-claude-refused` a tester without `write`, asked to create a file with Write and then Bash, is refused both; the tree is unchanged; its `claude` runs with `--permission-mode default`, without `Edit` and `Write` in `--allowedTools` and with `--disallowedTools Edit,Write,MultiEdit,NotebookEdit`; the developer's `claude` has no `--disallowedTools`.
-- `write-codex-readonly` on codex (test fixture), a role without `write` starts its thread with `"sandbox":"read-only"`, even when its `permissionMode` is `workspace-write`; a role with `write` gets `workspace-write`.
+- `write-codex-readonly` on codex (test fixture), a Bot without `write` starts its thread with `"sandbox":"read-only"`, even when its `permissionMode` is `workspace-write`; a Bot with `write` gets `workspace-write`.
 - `write-claude-allowed` a developer with `write`, asked the same, creates the file.
-- `write-default` a team file with no `write` field loads with `write: false` for every role; the seeded `solo` lead has `write`.
-- `full-apply` `reef team apply teams/full.json`, then `reef team list` shows 4 roles, lead starred.
+- `write-default` a role in a team file with no `write` field makes a Bot with `write: false`; the seeded `lead` Bot of `solo` has `write` before a file updates it.
+- `full-apply` `$H team-apply teams/full.json` makes the four Bots and `reef team apply` of their ids, then `reef team list` shows 4 roles, lead starred.
 - `full-rest` `GET /teams/full` shows developer `write: true`, the others `false`, and no `gates` key.
 - `tree-two-work-items` one wake on work item `1` and one on `2` make two worktrees on `work-item/1` and `work-item/2`; each bot's claude session has its own tree as `cwd`.
 - `tree-reuse` a second turn in work item `a`'s Space runs in the same tree: `git worktree list` is unchanged and a file put there before stays.
@@ -54,12 +54,12 @@ One line per acceptance line of the full-team slice and its sub-issues.
 - `attach-clean` attach on a clean main checkout: a `reef` note names the worktree path and branch, and nothing about uncommitted changes.
 - `space-active-one` a second Space for a work item that has an active Space is 409 `conflict: work item N already has an active Space`.
 - `space-attach-list` a free Space attached to a work item shows in `GET /spaces?workItem=` with kind `work_item`.
-- `space-members-frozen` editing a Team's roster does not change the members of a Space made from it: its member keeps the tools and `write` it was copied with, and a Space made after the edit has the new ones.
+- `space-members-live` a Space member is only its Bot's id and the lead flag: editing the Bot (`PUT /bots/{id}`) changes the tools and `write` that the running Space shows, and no copy keeps the old ones.
 - `write-settings` a project `.claude/settings.json` that allows `Edit`: the tester's edit is still refused and the file unchanged.
 
 ## How to get to it (user POV)
 
-- `reef team apply teams/full.json`, then in the window pick the team `full` in the New Space form of a work item. The project must be a git repo with a commit.
+- Make the four Bots and the team `full` (the window's Bots and Teams pages, or `$H team-apply teams/full.json`), then in the window pick the team `full` in the New Space form of a work item. The project must be a git repo with a commit.
 - Retry and Rollback are buttons on the failed turn row and under Checkpoints.
 - REST: `POST /turns/{id}/retry`, `POST /turns/{id}/rollback`, `GET /inbox`, `GET /inbox/events`.
 
@@ -72,13 +72,14 @@ Preconditions:
 - Baseline from the README. `ANTHROPIC_MODEL=sonnet` on every `serve-start`. Codex is not needed: the codex line uses the repo's test fixture, so `doctor` showing `FAIL codex-auth` does not matter here. Start a server that uses the fixture with `BASH_ENV=` set: a `BASH_ENV` that resets `PATH` hides the shim and the real codex runs.
 - In every Bash call set `H=.claude/skills/verify-reef/scripts/verify-reef`, `REEF_VERIFY_RUN=<id>`, `E=~/.reef-verify/<id>`, `S=$(cd /tmp && pwd -P)/reef-verify/<id>` and, once a server runs, `A=$(cat $S/serve.addr)`. Paste `wait_done` and `wait_for` from `bots.md`.
 - `$H reef` runs in the scratch cwd, so a repo file is named by its full path: `$PWD/teams/full.json`.
+- `$H team-apply FILE` needs a running server. Each role of FILE that has a profile (anything beyond `name` and `lead`) creates its Bot through `POST /bots`, or updates the Bot of that name with `PUT /bots/{id}`; a role with only `name` and `lead` names an existing Bot. It then runs `reef team apply` on the roster of Bot ids. Bots are global and a name is unique, so a later file's role replaces an earlier file's Bot of that name.
 - The scratch cwd is the project and must be a git repo with one commit:
 
 ```sh
 git -C $S/cwd init -q -b main && echo one > $S/cwd/a.txt && git -C $S/cwd add a.txt && git -C $S/cwd -c user.name=v -c user.email=v@example.com commit -qm init
 ```
 
-- Team files in `$E`. `crew` has a developer with `write` and a tester without it whose `tools` list `Edit` and `Write` and whose mode is `acceptEdits` (both must be dropped); `cx` puts both on codex; `relay` hands lead work to tester:
+- Team files in `$E`. `crew` has a developer with `write` and a tester without it whose `tools` list `Edit` and `Write` and whose mode is `acceptEdits` (both must be dropped); `cx` puts both on codex; `relay` is the Bots `lead` and `tester` only:
 
 ```sh
 cat > $E/crew.json <<'EOF'
@@ -110,21 +111,19 @@ cat > $E/relay.json <<'EOF'
 {
   "name": "relay",
   "roles": [
-    {"name": "lead", "lead": true, "backend": "claude",
-     "description": "You are the lead. Whatever you are told, reply with exactly one line: @tester check this"},
-    {"name": "tester", "backend": "claude",
-     "description": "You are the tester. Answer in one short sentence. Never @mention anyone."}
+    {"name": "lead", "lead": true},
+    {"name": "tester"}
   ]
 }
 EOF
 ```
 
-Teams, no server needed (data folder `full`):
+Teams (data folder `full`; start the server first, `$H team-apply` needs it):
 
-- **Apply full.** `$H reef --data-name full -- team apply $PWD/teams/full.json` prints `applied team full: lead*(claude) architect(claude) developer(claude) tester(claude)`. Then `$H reef -- team apply $E/crew.json`, `$H reef -- team apply $E/cx.json`, `$H reef -- team apply $E/relay.json`. `$H reef -- team list` has the line `full  lead*(claude) architect(claude) developer(claude) tester(claude)` (`full-apply`).
-- **Write column.** `$H sql "select team.name, member.name, lead, write from team_member member join team on team.id = team_id order by team.name, member.id"` has `crew|lead|1|0`, `crew|developer|0|1`, `crew|tester|0|0`, `full|lead|1|0`, `full|architect|0|0`, `full|developer|0|1`, `full|tester|0|0`, `relay|lead|1|0`, `relay|tester|0|0` and `solo|lead|1|1`: files with no `write` field load `0` (`write-default`).
+- **Apply full.** `ANTHROPIC_MODEL=sonnet $H serve-start --data-name full`, set `A`. `$H sql "select write from bot where name = 'lead'"` is `1`, the seed. `$H team-apply $PWD/teams/full.json` prints `applied team full: lead*(claude) architect(claude) developer(claude) tester(claude)`. Then `$H team-apply $E/crew.json` and `$H team-apply $E/relay.json` (not `cx.json`: its codex developer would replace this folder's developer Bot). `$H reef -- team list` has the line `full  lead*(claude) architect(claude) developer(claude) tester(claude)` (`full-apply`).
+- **Write column.** `$H sql "select team.name, bot.name, lead, write from team_member member join team on team.id = team_id join bot on bot.id = bot_id order by team.name, member.id"` has `crew|lead|1|0`, `crew|developer|0|1`, `crew|tester|0|0`, `full|lead|1|0`, `full|architect|0|0`, `full|developer|0|1`, `full|tester|0|0`, `relay|lead|1|0` and `relay|tester|0|0`: roles with no `write` field make a Bot with `0` (`write-default`).
 
-Server (the same folder): `ANTHROPIC_MODEL=sonnet $H serve-start --data-name full`, set `A`.
+The same server:
 
 - **REST.** `$H api GET /teams/full` is 200; its roles have `"write":false` for lead, architect and tester and `"write":true` for developer, and the body has no `gates` key (`full-rest`).
 - **Setup.** `mkdir -p $S/plain`. `$H api POST /projects '{"name":"full","path":"'$S'/cwd"}'` (id 1), `$H api POST /projects '{"name":"plain","path":"'$S'/plain"}'` (id 2, not a git repo). Work items: `{"projectId":1,"title":"A"}` (1), `{"projectId":1,"title":"B"}` (2), `{"projectId":2,"title":"No git"}` (3). Spaces: `{"projectId":1,"workItemId":1,"name":"a1","team":"crew"}` (1), `{"projectId":1,"name":"a2","team":"crew"}` (2, a free Space: a work item has one active Space), `{"projectId":1,"workItemId":2,"name":"b1","team":"crew"}` (3), `{"projectId":1,"name":"quick","team":"crew"}` (4, a quick session), `{"projectId":2,"workItemId":3,"name":"nogit"}` (5, `solo`). In every Space a first message `@developer ...` wakes only the developer: the lead never starts.
@@ -151,7 +150,7 @@ Quick session, file isolation and a project without git:
 - **Isolated.** `ls $S/full/worktrees/1/1/d.txt $S/full/worktrees/1/2/d.txt $S/cwd/d.txt` lists only the first; `git -C $S/cwd status --porcelain` is empty (`tree-isolated`).
 - **Not git.** `$H api POST /spaces/5/send '{"text":"Reply with one word."}'` is 202. `wait_for '/turns?space=5&status=failed' lead`. `$H api GET '/turns?space=5'` is one `lead` turn, `failed`, `"error":"work items need the project folder to be a git repo with a commit: $S/plain: git rev-parse --verify HEAD in $S/plain: exit status 128: fatal: not a git repository ..."`. `grep 'turn of lead in space 5 failed' $E/serve.log` prints that error, and `$H api GET /health` is 200 (`tree-not-git`).
 
-Attach to a work item with a dirty main checkout (Space 6, `solo`, whose lead has `write`):
+Attach to a work item with a dirty main checkout (Space 6, `solo`, whose lead is the `lead` Bot):
 
 - **Note and move.** `$H api POST /spaces '{"projectId":1,"name":"promo"}'` (id 6). `echo dirty > $S/cwd/dirty.txt`. `$H api POST /spaces/6/send '{"text":"Reply with one word."}'`, `wait_done 6 1`. `$H api POST /work-items '{"projectId":1,"title":"C"}'` (4), `$H api POST /spaces/6/attach '{"workItemId":4}'` is 200. `$H api GET '/messages?space=6'` has a `reef` message `This Space is now attached to work item "C" (4). It works in $S/full/worktrees/1/4 on work-item/4. Uncommitted changes stay on the main checkout.`. `$H api POST /spaces/6/send '{"text":"Reply with one word."}'`, `wait_done 6 2`. The Space has 2 lead turns that share one session; the session file has `"cwd":"$S/cwd"` and `"cwd":"$S/full/worktrees/1/4"`, `git -C $S/cwd worktree list` has `$S/full/worktrees/1/4 [work-item/4]`, and `git -C $S/cwd status --porcelain` is only `?? dirty.txt` (`tree-attach-dirty`).
 
@@ -172,7 +171,7 @@ Inbox (Spaces 7 to 9 are quick sessions, so they make no worktree):
 
 Codex on the test fixture (`write-codex-readonly`), folder `cx`. A shim logs what the server sends to the fixture `agent/codex/testdata/codex`:
 
-- **Setup.** `$H serve-stop`. `mkdir -p $S/spy && printf '#!/bin/sh\ntee -a %s/codex-in.log | %s/agent/codex/testdata/codex "$@"\n' "$E" "$PWD" > $S/spy/codex && chmod +x $S/spy/codex`. `$H reef --data-name cx -- team apply $E/cx.json`. `FAKE_CODEX=replay PATH=$S/spy:$PATH ANTHROPIC_MODEL=sonnet $H serve-start --data-name cx`, set `A`. `$H api POST /projects '{"name":"cx","path":"'$S'/cwd"}'`, `$H api POST /spaces '{"projectId":1,"name":"cx room","team":"cx"}'`.
+- **Setup.** `$H serve-stop`. `mkdir -p $S/spy && printf '#!/bin/sh\ntee -a %s/codex-in.log | %s/agent/codex/testdata/codex "$@"\n' "$E" "$PWD" > $S/spy/codex && chmod +x $S/spy/codex`. `FAKE_CODEX=replay PATH=$S/spy:$PATH ANTHROPIC_MODEL=sonnet $H serve-start --data-name cx`, set `A`, then `$H team-apply $E/cx.json`. `$H api POST /projects '{"name":"cx","path":"'$S'/cwd"}'`, `$H api POST /spaces '{"projectId":1,"name":"cx room","team":"cx"}'`.
 - **Sandbox.** `$H api POST /spaces/1/send '{"text":"@tester hi"}'`, `wait_done 1 1`, `$H api POST /spaces/1/send '{"text":"@developer hi"}'`, `wait_done 1 2`. `$H sql "select id, role, backend, status from turn"` is `1|tester|codex|done`, `2|developer|codex|done`. `grep thread/start $E/codex-in.log | grep -o '"sandbox":"[a-z-]*"'` prints `"sandbox":"read-only"` (the tester, whose file says `workspace-write`), then `"sandbox":"workspace-write"` (the developer).
 
 Window (`$H ui`, with `REEF_VERIFY_CHROME` on Linux, see `window.md`):
@@ -182,13 +181,13 @@ Window (`$H ui`, with `REEF_VERIFY_CHROME` on Linux, see `window.md`):
 Google login end to end (`google-login`), folder `google`, real claude on sonnet. A throwaway Go app with an email login page and one test is the project:
 
 - **App.** In `$S/google-app`: `go.mod` (`module example.com/shop`, `go 1.22`), `main.go` with `routes()` serving `GET /login` (a form with email, password and `Sign in`) and `POST /login`, and `main_test.go` with `TestLoginPage`. `(cd $S/google-app && go test ./...)` passes. `git -C $S/google-app init -q -b main && git -C $S/google-app add -A && git -C $S/google-app -c user.name=v -c user.email=v@example.com commit -qm "shop with email login"`.
-- **Setup.** `$H serve-stop`, `$H reef --data-name google -- team apply $PWD/teams/full.json`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name google`, set `A`. `$H api POST /projects '{"name":"shop","path":"'$S'/google-app"}'`, `$H api POST /work-items '{"projectId":1,"title":"Google login"}'`, `$H api POST /spaces '{"projectId":1,"workItemId":1,"name":"google","team":"full"}'`. Record both streams: `curl -sN --max-time 1800 http://$A/inbox/events > $E/google-inbox.txt &` and `curl -sN --max-time 1800 http://$A/spaces/1/events > $E/google-events.txt &`. `idle() { for i in $(seq 120); do [ "$(curl -s "http://$A/turns?space=1&status=running")" = "[]" ] && { sleep 4; [ "$(curl -s "http://$A/turns?space=1&status=running")" = "[]" ] && return; }; sleep 5; done; echo "timeout"; }`.
+- **Setup.** `$H serve-stop`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name google`, set `A`, `$H team-apply $PWD/teams/full.json`. `$H api POST /projects '{"name":"shop","path":"'$S'/google-app"}'`, `$H api POST /work-items '{"projectId":1,"title":"Google login"}'`, `$H api POST /spaces '{"projectId":1,"workItemId":1,"name":"google","team":"full"}'`. Record both streams: `curl -sN --max-time 1800 http://$A/inbox/events > $E/google-inbox.txt &` and `curl -sN --max-time 1800 http://$A/spaces/1/events > $E/google-events.txt &`. `idle() { for i in $(seq 120); do [ "$(curl -s "http://$A/turns?space=1&status=running")" = "[]" ] && { sleep 4; [ "$(curl -s "http://$A/turns?space=1&status=running")" = "[]" ] && return; }; sleep 5; done; echo "timeout"; }`.
 - **Ask.** Send the Google login request, then `wait_done 1 5`. `$H sql "select id, role, status from turn where space_id=1 order by id"` is lead, architect, developer, tester, lead, all done. The approval table has no rows.
 - **Proof.** The developer turn has a checkpoint and one commit on `work-item/1`; the tester turn is done; the main checkout is clean and unchanged. The inbox ends with one `waiting` item, and the Space event stream has no approval event.
 
 Handoffs, notes, retry and rollback rules, folder `fu`, on the same scratch cwd:
 
-- **Setup.** Apply `full` and `pair`, where the pair lead follows an instruction to write a handoff mention. Create work items and Spaces `fa1`, `fb1` and `fc1`, and a free Space `fa2`. `P` asks the lead to output `@developer reply with one word, use no tools.`
+- **Setup.** Start the server on folder `fu`, then `$H team-apply` `full` and `pair` (pair's `lead`, `developer` and `tester` replace full's Bots of those names; `architect` stays), where the pair lead follows an instruction to write a handoff mention. Create work items and Spaces `fa1`, `fb1` and `fc1`, and a free Space `fa2`. `P` asks the lead to output `@developer reply with one word, use no tools.`
 - **Automatic handoff.** Run one developer turn in Space 1, then send `$P`. `wait_done 1 3`; the turns are developer, lead, developer, all done, and the approval table has no rows (`handoff-no-approval`).
 - **Note on a retry, once.** `$H api POST /spaces/1/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}'`, `sleep 4`, `$H serve-stop --kill`, `ANTHROPIC_MODEL=sonnet $H serve-start --data-name fu`, set `A`, `F=<newest turn of space 1>`. `$H api GET /inbox` has `"kind":"failed","spaceId":1,...,"text":"developer failed: server restarted",...,"turnId":<F>`. `$H api POST /turns/$F/rollback` 204, `$H api POST /turns/$F/retry` 202, `wait_done 1 4`. `prompt <session>` has `reef wrote: Turn <F> by developer failed: server restarted. The worktree may be dirty; retry or roll back.\nreef wrote: Rolled back to before turn <F>.` before the text. Then `$H api POST /spaces/1/send '{"text":"@developer Reply with one word. Use no tools."}'`, `wait_done 1 5`: its `prompt` has no `reef wrote:` (`note-retry`).
 - **Superseded.** The 600 send to Space 1 again, `sleep 4`, `$H serve-stop --kill`, restart, set `A`, `G=<newest turn of space 1>`. Send `@developer Reply with one word. Use no tools.`, `wait_done 1 6`. `$H api POST /turns/$G/retry` is 409 `turn <G> cannot be retried: conflict`, `$H api GET '/turns?space=1&retryable=1'` is `[]` and `$H api GET /inbox` has no `failed` item of Space 1 (`retry-superseded`).
@@ -203,7 +202,7 @@ Handoffs, notes, retry and rollback rules, folder `fu`, on the same scratch cwd:
 - **Settings allow Edit.** `$S/p153`: `git init -q -b main`, `a.txt` with `one`, one commit, then an untracked `.claude/settings.json` with `{"permissions":{"allow":["Edit","Write","Edit(*)","Write(*)"]}}`. Project `p153` (5), Space `{"projectId":5,"name":"settings q","team":"pair"}` (10). `$H api POST /spaces/10/send '{"text":"@tester Use the Edit tool to replace the word one with nope in a.txt. Say what happened."}'`, `wait_done 10 1`. `cat $S/p153/a.txt` is `one`, `git -C $S/p153 status --porcelain` is only `?? .claude/`, and the tester's session file has an `"is_error":true` tool result (`write-settings`).
 - **One active Space.** Work item `K` with Space `k1` (team `pair`), then `$H api POST /spaces '{"projectId":1,"workItemId":<K>,"name":"k2"}'` is 409 `{"error":"conflict: work item <K> already has an active Space"}`, and `$H sql "select count(*) from space where work_item_id = <K>"` is `1` (`space-active-one`).
 - **Attach shows on the item.** A free Space `free k` and work item `K2`: `$H api POST /spaces/<free k>/attach '{"workItemId":<K2>}'` is 200, and `$H api GET '/spaces?workItem=<K2>'` has the Space with `"kind":"work_item"` (`space-attach-list`).
-- **Members are copied.** `$H api PUT /teams/frozen '{"name":"frozen","roles":[{"name":"lead","lead":true,"backend":"claude"},{"name":"dev","backend":"claude","write":true,"tools":["Read","Edit"]}]}'`, a Space `frozen room` of team `frozen`, then the same PUT with `dev` having no `write` and `"tools":["Read"]`. `$H api GET /spaces/<frozen room>/members` still has `dev` with `"write":true` and `"tools":["Read","Edit"]`; a Space `later room` made after the edit has `"write":false` and `"tools":["Read"]` (`space-members-frozen`).
+- **Members are live.** `$H api POST /bots '{"name":"dev","backend":"claude","write":true,"tools":["Read","Edit"]}'`, `$H api PUT /teams/frozen '{"name":"frozen","roles":[{"botId":1,"lead":true},{"botId":<dev>}]}'`, a Space `frozen room` of team `frozen`. `$H api GET /spaces/<frozen room>/members` has `dev` with `"write":true` and `"tools":["Read","Edit"]`, and `$H sql "select bot_id, lead from space_member where space_id = <frozen room>"` has only the two Bot ids and the lead flag. Then `$H api PUT /bots/<dev> '{"name":"dev","backend":"claude","tools":["Read"]}'`: the same members call now shows `"write":false` and `"tools":["Read"]` (`space-members-live`).
 
 When done: `$H cleanup`, then remove claude's state for the worktrees and for `google-app` (claude keeps a `memory` folder under the key of a worktree's main checkout): `rm -rf ~/.claude/projects/$(printf %s "$S" | sed 's/[^A-Za-z0-9]/-/g')-*`.
 
@@ -214,6 +213,6 @@ When done: `$H cleanup`, then remove claude's state for the worktrees and for `g
 - The Google flow uses 4 agent hops (architect, developer, tester, lead) of the 6 the cap allows. Turns that call a tool other than Reef's own reset the count, so a longer back and forth of working roles does not pause; one that only posts to the Space reaches the hop cap and pauses it with hold rows.
 - The single-writer lock and the checkpoints are per process. `pgrep -P $(cat $S/serve.pid) -x claude` lists only this server's agents.
 - `serve-stop --kill` is a real crash: the running claude is a child in its own process group and is ended by `cleanup` if it outlives the server.
-- A plain `Bash` in a role's `tools` lets a role change files through the shell (`echo x > f` works), so `reef team apply` rejects it for a claude role without `write`. The `crew` tester lists only `Bash(ls:*)`.
+- A plain `Bash` in a role's `tools` lets a role change files through the shell (`echo x > f` works), so `POST /bots` rejects it for a claude Bot without `write`. The `crew` tester lists only `Bash(ls:*)`.
 - A background `curl` inside a command whose output is piped keeps the pipe open until `--max-time`; run the stream in its own call or redirect its stderr too.
 - Turn and message ids are global to a data folder; the steps name them by query when other Spaces wrote before.

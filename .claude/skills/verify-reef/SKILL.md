@@ -362,10 +362,10 @@ REEF_VERIFY_RUN=<id> $H ui pr        # the header PR chip opens the PR panel: ch
 ```
 
 `teams` needs the teams `duo` and `full` (and `inbox`, `theme`, `phone`, `coordination` need `duo`) applied to the `ui` folder first: run
-`$H reef --data-name ui -- team apply FILE.json` for each before `serve-start --data-name ui` (the
+`$H team-apply FILE.json` for each after `serve-start --data-name ui` (the
 files are in `features/bots.md`). `inbox` counts every item of the server, so run it first, or
 on a folder of its own (`--data-name inbox`, with `duo` applied). `inspector`, `review` and `workshop`
-need the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"`.
+need the team `full` applied: `$H team-apply "$PWD/teams/full.json"` (the server must run; it makes the four Bots, then `reef team apply`).
 
 Each scenario adds a project on the scratch cwd and makes it a git repo with one commit when it
 is not one, because a Space on a work item runs in a git worktree. Each scenario adds its own work item,
@@ -576,6 +576,7 @@ claude, above).
 | `serve-stop [--kill]` | SIGINT (or SIGKILL) to the recorded server, prints exit code and seconds |
 | `serve-second [--same-addr]` | second `reef serve` on the same data folder; must be refused |
 | `api [-H 'N: v']... METHOD PATH [JSON]` | one HTTP call, prints status and body, logs to `api.log` |
+| `team-apply FILE` | needs the running server: each role of FILE with a profile (`teams/*.json` shape) makes its Bot through `POST /bots`, or updates the Bot of that name with `PUT /bots/{id}`; then `reef team apply` stores the roster of Bot ids. Bots are global and unique by name, so a later file replaces an earlier file's Bot of that name |
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |

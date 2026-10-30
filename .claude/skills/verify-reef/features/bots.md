@@ -1,8 +1,8 @@
 # Bots and Teams
 
-A user keeps Bots (a description, skills, a backend, a model, a face and default access rules) and puts them
-into Teams, with a responsibility text that suggests a Team for a proposed work item. A Team is a lead and
-specialists, defined in a JSON file with `reef team apply` or built from Bots in the window. A user
+A user keeps Bots (a description, skills, a backend, a model, a face and access rules) and puts them
+into Teams, with a responsibility text that suggests a Team for a proposed work item. A Team is a roster of
+existing Bots, a lead and specialists: `reef team apply` takes a JSON file of Bot ids, and the window builds one from Bots. A user
 opens a Space on a Team and talks to its lead. The lead hands work to a specialist by an `@mention`. The
 server wakes the specialist in its own agent session, which stops when its turn ends, and the reply lands in
 a thread. The user replies in that thread and the thread's owner answers. Agents that keep waking each other
@@ -12,18 +12,18 @@ Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 ## Sub-features
 
 - `bot-rest` `POST /bots` makes a Bot (201, its `write` false unless given); the same name is 409, a backend other than `claude` or `codex` is 400; `GET /bots` lists them (the seeded `lead` first); `PUT /bots/{id}` replaces every field; `DELETE` is 204, and 400 naming the Team while the Bot is in one.
-- `team-members` `PUT /teams/{name}` with a `responsibility` and one lead makes a Team; `POST /teams/{name}/members` adds a Bot with its default access copied (201), twice is 409, a second lead is 400; `PUT /teams/{name}/members/{id}` changes the access in that Team only and the Bot's default stays; `DELETE` of the member is 204.
+- `team-members` `PUT /teams/{name}` with a `responsibility` and one lead makes a Team; `POST /teams/{name}/members` adds a Bot by `botId` (201), twice is 409, a second lead is 400; a member holds no access of its own, so `PUT /teams/{name}/members/{id}` changes only `lead` and the Bot's access is unchanged; `DELETE` of the member is 204.
 - `team-delete` `DELETE /teams/{name}` is 204 and the Team is then 404; `DELETE /teams/solo` is 400.
-- `team-apply` `reef team apply FILE.json` creates a team; `reef team list` shows each team with its roles and backends, the lead starred. The same name again replaces its roles but never rewrites an existing Bot: a changed description in the file leaves the Bot's description as it was.
-- `team-errors` a file with no lead or two leads, a role named `user` or with a space, a bad backend, an unknown field, a missing file, and no subcommand each fail with `reef: ...`, exit 1, and change nothing.
+- `team-apply` `reef team apply FILE.json` creates a team from `{botId, lead}` members of existing Bots; `reef team list` shows each team with its roles and backends, the lead starred. The same name again replaces its roles; the command never creates or rewrites a Bot. The harness's `$H team-apply` makes or updates the Bots of a profile file first.
+- `team-errors` a file with no lead or two leads, an unknown Bot id, a member with no `botId`, a member with config such as `backend`, a role named by `name`, a missing file, and no subcommand each fail with `reef: ...`, exit 1, and change nothing; a Bot with a bad name or backend is refused by `POST /bots`.
 - `team-rest` `GET /teams` lists teams by name (`solo` always exists); `GET /teams/{name}` returns one with its roles, 404 for an unknown name; the routes take no write; a role has no `mcpServers` key.
-- `team-space` `POST /spaces` with `team` stores it and fills `role` (the lead's name), `backend` and `permissionMode` from the lead role; with no team the Space is in `solo`; an unknown team and a `role` other than `lead` are 400.
+- `team-space` `POST /spaces` with `team` stores it and fills `role` (the lead Bot's name); a Space has no `backend` or `permissionMode`, its Bots decide; with no team the Space is in `solo`; an unknown team and a `role` other than `lead` are 400.
 - `team-reapply-live` a team applied again with a new role while the lead is live: `@tester` runs a tester turn.
 - `thread-send` `POST /spaces/{id}/send` with `parent` stores the reply under that top-level message; a parent that is not a top-level message of the Space is 400; `role` is no longer a field (400).
 - `thread-read` the `read_thread` MCP tool with `root` returns the root and its replies in order; a reply id as `root` is `not found`; in a quick session it reads the token's own Space.
 - `lazy-lead` a first message `@architect ...` in a new Space starts only the architect: no lead turn, no lead token, one `claude` child while it runs and none after.
 - `start-fails` a role whose agent fails to start (a `codex` that runs `exit 1` first on `PATH`) leaves one `failed` turn of that role with the start error in `GET /turns?space=ID`, and the server log has a line with it.
-- `session-per-bot` the lead's `claude` stays after its turn; a specialist's is gone when its wake ends; each has its own token, its own session id, the role's description and skills and team line in its first prompt, and the role's `tools` as `--allowedTools`; a second wake resumes the same session.
+- `session-per-bot` the lead's `claude` stays after its turn; a specialist's is gone when its wake ends; each has its own token, its own session id, the Bot's description and skills and team line in its first prompt, and the Bot's `tools` as `--allowedTools`; a second wake resumes the same session.
 - `route-lead-architect` the user asks the lead; the lead's reply `@architect ...` wakes the architect, which posts a top-level message it owns; the lead gets no turn after it.
 - `route-thread-owner` a user reply with `parent` on the architect's message goes to the architect, not the lead, and the answer lands in the same thread.
 - `route-default-lead` a user message with no mention and no thread goes to the lead.
@@ -40,14 +40,14 @@ Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 - `handoff-runs` a lead mention wakes the architect automatically with no approval API or event.
 - `wrap-wakes-nobody` a `/wrap` turn whose reply says `@architect` starts no architect turn.
 - `restart-held` after a restart a hop-cap pause stays, and `continue` runs the held wake.
-- `codex-bot` a role on `codex` is woken and its reply is stored (driven with the codex test fixture, not a real codex).
+- `codex-bot` a Bot on `codex` is woken and its reply is stored (driven with the codex test fixture, not a real codex).
 - `provider-rest` `GET /providers` lists the detected `claude` and `codex` with `path` and `version`; `POST /providers` adds a second claude from another folder and it appears with its folder and version; a bad kind, a relative or missing folder, a folder with no executable of the kind, a bad name, a duplicate name and the name `claude` are rejected with an error; `DELETE` removes an added one and refuses `claude` and `codex`.
-- `provider-role` a role with `"provider":"NAME"` runs that install's binary: with two wrapper folders that each log a marker and `exec` the fake `claude`, only the named install's marker appears and a role with no provider logs none. A team that names an unknown provider, or one of the other kind, is `invalid`; a removed provider, or a Space `backend` that differs from the install's kind, gives a `failed` turn with the reason, not a run of the `PATH` binary.
+- `provider-role` a Bot with `"provider":"NAME"` runs that install's binary: with two wrapper folders that each log a marker and `exec` the fake `claude`, only the named install's marker appears and a Bot with no provider logs none. `POST /bots` with an unknown provider, or one of the other kind, is `invalid`; a removed provider gives a `failed` turn with the reason, not a run of the `PATH` binary.
 - `window-teams` the window picks a team, names the running bot, opens a Thread pane from a root's Reply button, and shows `N replies in thread` on the root in the main list (`$H ui teams`, see Window below).
 
 ## How to get to it (user POV)
 
-- Write a team file (see `docs/memory.md`), `reef team apply team.json`, then in the window choose the team in the New Space form, or `POST /spaces` with `"team":"<name>"`.
+- Make the Bots (`POST /bots` or the Bots page), write a team file of their ids (see `docs/memory.md`), `reef team apply team.json`, then in the window choose the team in the New Space form, or `POST /spaces` with `"team":"<name>"`.
 - Talk to the lead with `POST /spaces/{id}/send`. Reply in a thread with `"parent": <root id>`. Watch `GET /spaces/{id}/events`.
 
 ## Driving it with verify-reef
@@ -63,7 +63,7 @@ wait_done() { for i in $(seq 60); do [ "$(curl -s "http://$A/turns?space=$1&stat
 wait_for() { for i in $(seq 60); do curl -s "http://$A$1" | grep -q "$2" && return; sleep 2; done; echo "timeout: $1 never had $2"; return 1; }
 ```
 
-- Team files in `$E`. `duo.json` (a lead that mentions the architect only when the message says DESIGN, and an architect with a description, a skill and one tool):
+- Team files in `$E`. They are profile files: `$H team-apply FILE` (needs the server) makes or updates one Bot per role with a profile, then runs `reef team apply` on the roster of Bot ids; a Bot name is unique, so a later file's role replaces the Bot of that name. `duo.json` (a lead that mentions the architect only when the message says DESIGN, and an architect with a description, a skill and one tool):
 
 ```sh
 cat > $E/duo.json <<'EOF'
@@ -99,36 +99,36 @@ cat > $E/pingpong.json <<'EOF'
 EOF
 sed 's/short-plans/very-short-plans/' $E/duo.json > $E/duo2.json
 sed -e 's/"name": "duo"/"name": "mixed"/' -e '/"name": "architect"/{n;s/"claude"/"codex", "permissionMode": "read-only"/}' $E/duo.json > $E/mixed.json
-printf '{"name":"bad","roles":[{"name":"a","backend":"claude"}]}' > $E/nolead.json
-printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude"},{"name":"b","lead":true,"backend":"codex"}]}' > $E/twolead.json
-printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"gemini"}]}' > $E/badbackend.json
-printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude"},{"name":"user","backend":"claude"}]}' > $E/userrole.json
-printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude"},{"name":"two words","backend":"claude"}]}' > $E/spacerole.json
+printf '{"name":"bad","roles":[{"botId":1}]}' > $E/nolead.json
+printf '{"name":"bad","roles":[{"botId":1,"lead":true},{"botId":2,"lead":true}]}' > $E/twolead.json
+printf '{"name":"bad","roles":[{"botId":99,"lead":true}]}' > $E/unknownbot.json
+printf '{"name":"bad","roles":[{"lead":true}]}' > $E/nobotid.json
+printf '{"name":"bad","roles":[{"botId":1,"lead":true,"backend":"claude"}]}' > $E/memberconfig.json
+printf '{"name":"bad","roles":[{"name":"a","lead":true}]}' > $E/rolename.json
+printf '{"name":"duo","roles":[{"botId":1,"lead":true},{"botId":2}]}' > $E/duo-ids.json
 printf '{"name":"keys","roles":[{"name":"lead","lead":true,"backend":"claude","mcpServers":[{"command":"true","env":{"API_KEY":"sk-verify-5521"}}]}]}' > $E/keys.json
 printf '{"name":"duo","roles":[{"name":"lead","lead":true,"backend":"claude","description":"You are the lead. Answer in one short sentence."},{"name":"architect","backend":"claude"},{"name":"tester","backend":"claude","description":"You are the tester. Answer in one short sentence, and end it with the word TESTED. Never @mention anyone."}]}' > $E/duo3.json
-printf '{"name":"bad","roles":[{"name":"a","lead":true,"backend":"claude","color":"red"}]}' > $E/unknownfield.json
 ```
 
-Teams, no server needed (data folder `teams`):
+Teams (data folder `teams`; `$H team-apply` needs the server, so start it first: `ANTHROPIC_MODEL=sonnet $H serve-start --data-name teams`, then `A=$(cat $S/serve.addr)`):
 
-- **Apply and list.** `$H reef --data-name teams -- team apply $E/duo.json` prints `applied team duo: lead*(claude) architect(claude)`. `$H reef -- team list` prints `duo  lead*(claude) architect(claude)` and `solo  lead*(claude)`. `$H sql "select team.name, member.name, lead from team_member member join team on team.id = team_id order by team.name, member.id"` shows `duo|lead|1`, `duo|architect|0`, `solo|lead|1`.
-- **Apply again.** `$H reef -- team apply $E/duo2.json` prints the same line. `$H sql "select count(*) from team"` is still `2`, and `$H sql "select skills from bot where name = 'duo-architect'"` is still `["short-plans"]`: the Bot behind the role is kept as it was. The original needs no putting back.
+- **Apply and list.** `$H team-apply $E/duo.json` makes the Bots `lead` (the seed, updated) and `architect` and prints `applied team duo: lead*(claude) architect(claude)`. `$H reef -- team list` prints `duo  lead*(claude) architect(claude)` and `solo  lead*(claude)`. `$H sql "select team.name, bot.name, lead from team_member member join team on team.id = team_id join bot on bot.id = bot_id order by team.name, member.id"` shows `duo|lead|1`, `duo|architect|0`, `solo|lead|1`.
+- **Apply again.** `$H reef -- team apply $E/duo-ids.json` prints the same line. `$H sql "select count(*) from team"` is still `2`, and `$H sql "select skills from bot where name = 'architect'"` is still `["short-plans"]`: `reef team apply` names Bots by id and never rewrites one.
 - **Errors.** Each `$H reef -- team apply $E/<file>` ends `exit: 1` and `$H sql "select count(*) from team"` stays `2`:
   - `nolead.json`: `reef: invalid: team bad needs exactly one lead role, has 0`
   - `twolead.json`: `reef: invalid: team bad needs exactly one lead role, has 2`
-  - `badbackend.json`: `reef: role a: invalid: backend must be claude or codex`
-  - `userrole.json`: `reef: invalid: role name "user" must be letters, digits, _ or -, and not user or reef`
-  - `spacerole.json`: `reef: invalid: role name "two words" must be letters, digits, _ or -, and not user or reef`
-  - `unknownfield.json`: `reef: parse <path>: json: unknown field "color"`
+  - `unknownbot.json`: `reef: invalid: unknown bot 99`
+  - `nobotid.json`: `reef: invalid: every member needs a botId`
+  - `memberconfig.json`: `reef: parse <path>: json: unknown field "backend"`
+  - `rolename.json`: `reef: parse <path>: json: unknown field "name"`
   - `$H reef -- team apply /nonexistent.json`: `reef: read team file: open /nonexistent.json: no such file or directory`
   - `$H reef -- team`: `reef: usage: reef team apply FILE.json | list [--data DIR]`
-- **Two more teams.** `$H reef -- team apply $E/pingpong.json` and `$H reef -- team apply $E/keys.json` print `applied team ...`. `$H sql "select count(*) from team_member where mcp_servers like '%sk-verify-5521%'"` is `1`: the env is stored for the agent.
+  - A Bot is refused by `POST /bots`: `'{"name":"x y","backend":"claude"}'` and `'{"name":"user","backend":"claude"}'` are 400 `invalid: role name "..." must be letters, digits, _ or -, and not user or reef`, `'{"name":"b","backend":"gemini"}'` is 400 `role b: invalid: backend must be claude or codex`.
+- **Two more teams.** `$H team-apply $E/pingpong.json` and `$H team-apply $E/keys.json` print `applied team ...`. `$H sql "select count(*) from bot where mcp_servers like '%sk-verify-5521%'"` is `1`: the env is stored for the agent.
 
-Server (the same folder): `ANTHROPIC_MODEL=sonnet $H serve-start --data-name teams`, then `A=$(cat $S/serve.addr)`.
-
-- **REST.** `$H api GET /teams` is 200 with `duo`, `keys`, `pingpong`, `solo` in that order; each role has `name`, `lead`, `write`, `backend`, `permissionMode`, `description`, `skills`, and `tools`, with no `gates` key. `$H api GET /teams/keys` is 200 and has no `mcpServers` key; neither it nor `$H api GET /teams` contains `mcpServers`, `sk-verify-5521` or `API_KEY`. `$H api GET /teams/nope` is 404 `team nope: not found`. `$H api POST /teams '{}'` is 405.
+- **REST.** `$H api GET /teams` is 200 with `duo`, `keys`, `pingpong`, `solo` in that order; each role has `botId`, `name`, `lead`, `write`, `backend`, `permissionMode`, `description`, `skills`, and `tools`, with no `gates` key. `$H api GET /teams/keys` is 200 and has no `mcpServers` key; neither it nor `$H api GET /teams` contains `mcpServers`, `sk-verify-5521` or `API_KEY`. `$H api GET /teams/nope` is 404 `team nope: not found`. `$H api POST /teams '{}'` is 405.
 - **Setup.** `$H api POST /projects '{"name":"teams","path":"'$S'/cwd"}'`, `$H api POST /work-items '{"projectId":1,"title":"Login"}'`.
-- **Space on a team.** `$H api POST /spaces '{"projectId":1,"name":"plain","backend":"claude"}'` (a free Space) is 201 id 1 with `"team":"solo"`. `$H api POST /spaces '{"projectId":1,"workItemId":1,"name":"duo room","team":"duo"}'` is id 2 with `"team":"duo","role":"lead","backend":"claude"`: the backend came from the lead role, the request named none. Then create the free Spaces `lazy` on `duo` and `ping room` on `pingpong` (a work item has one active Space, so only `duo room` is on item 1). An unknown team is 400, as is a role other than lead.
+- **Space on a team.** `$H api POST /spaces '{"projectId":1,"name":"plain"}'` (a free Space) is 201 id 1 with `"team":"solo"`. `$H api POST /spaces '{"projectId":1,"workItemId":1,"name":"duo room","team":"duo"}'` is id 2 with `"team":"duo","role":"lead"`: the role is the lead Bot's name, and the Space has no `backend` or `permissionMode` (`$H api POST /spaces` with `"backend":"claude"` is 400 `invalid: bad JSON: json: unknown field "backend"`). Then create the free Spaces `lazy` on `duo` and `ping room` on `pingpong` (a work item has one active Space, so only `duo room` is on item 1). An unknown team is 400, as is a role other than lead.
 
 Lazy lead, Space 3. `claude` processes of the server are `pgrep -P $(cat $S/serve.pid) -x claude`:
 
@@ -158,10 +158,10 @@ Hop cap, Space 4 (`pingpong`: the lead always says `@architect ping`, the archit
 Bots and members, a folder of its own (`$H serve-stop`, `$H serve-start --data-name tm`; no Space runs). The seeded `lead` is Bot 1:
 
 - **Bots.** `$H api POST /bots '{"name":"sam","backend":"claude","write":false,"description":"Sam answers briefly."}'` is 201 id 2 with `"write":false`. The same again is 409 `conflict: a bot named "sam" already exists`; `'{"name":"bad","backend":"gemini"}'` is 400 `role bad: invalid: backend must be claude or codex`. `$H api GET /bots` lists `lead` then `sam`. `$H api PUT /bots/2 '{"name":"sam","backend":"claude","write":true,"description":"Sam answers briefly."}'` is 200 with `"write":true` (`bot-rest`).
-- **Team members.** `$H api PUT /teams/crew '{"responsibility":"Checkout pages","roles":[{"name":"lead","lead":true,"backend":"claude"}]}'` is 200 with `"responsibility":"Checkout pages"`. `$H api POST /teams/crew/members '{"botId":2}'` is 201 with `"lead":false,"write":true` (the Bot's default). The same again is 409 `team crew already has bot 2 or a member with its name`; with `"lead":true` it is 400 `invalid: the team already has a lead, lead`. `$H api PUT /teams/crew/members/2 '{"lead":false,"tools":["Read"],"write":false,"permissionMode":"acceptEdits"}'` is 200 with `"tools":["Read"]`, and `$H api GET /bots/2` still has `"write":true` and no tools. `$H api DELETE /bots/2` is 400 `invalid: bot sam is in team crew; remove it from the team first`; `$H api DELETE /teams/crew/members/2` is 204, then `$H api DELETE /bots/2` is 204 (`team-members`).
+- **Team members.** `$H api PUT /teams/crew '{"name":"crew","responsibility":"Checkout pages","roles":[{"botId":1,"lead":true}]}'` is 200 with `"responsibility":"Checkout pages"`. `$H api POST /teams/crew/members '{"botId":2}'` is 201 with `"lead":false,"write":true`, read from the Bot. The same again is 409 `team crew already has bot 2`; with `"lead":true` it is 400 `invalid: the team already has a lead, lead`. `$H api PUT /teams/crew/members/2 '{"lead":false,"tools":["Read"]}'` is 400 `invalid: bad JSON: json: unknown field "tools"` (a member takes only `lead`) and `$H api GET /bots/2` still has `"write":true` and no tools. `$H api DELETE /bots/2` is 400 `invalid: bot sam is in team crew; remove it from the team first`; `$H api DELETE /teams/crew/members/2` is 204, then `$H api DELETE /bots/2` is 204 (`team-members`).
 - **Delete a Team.** `$H api DELETE /teams/crew` is 204 and `$H api GET /teams/crew` is 404 `team crew: not found`. `$H api DELETE /teams/solo` is 400 `invalid: team solo is the default team and cannot be deleted` (`team-delete`).
 
-Direct requests, a folder of its own (`--data-name direct`) with the team `full` (`$H reef --data-name direct -- team apply $PWD/teams/full.json`) and `$S/cwd` a repo with one commit. The fake scenarios are `order-lead`, `order-developer`, `order-tester`, `order-noted`, `coordinate-send`, `direct-review`, `direct-noted`, `coordinate-fail`, `direct-fail`, `hop6-lead`, `hop6-confirm`, `hop6-noted`, `hop6-fail`, `wrap-propose` and `say-ok-one-word`:
+Direct requests, a folder of its own (`--data-name direct`) with the team `full` (`$H team-apply $PWD/teams/full.json` once the server runs) and `$S/cwd` a repo with one commit. The fake scenarios are `order-lead`, `order-developer`, `order-tester`, `order-noted`, `coordinate-send`, `direct-review`, `direct-noted`, `coordinate-fail`, `direct-fail`, `hop6-lead`, `hop6-confirm`, `hop6-noted`, `hop6-fail`, `wrap-propose` and `say-ok-one-word`:
 
 - **Setup.** `$H serve-start --data-name direct`, `$H api POST /projects '{"name":"direct","path":"'$S'/cwd"}'`, then three work items `order`, `held` and `failed` (ids 1 to 3) and `$H sql --write "update work_item set status = 'in_progress' where id in (1, 2, 3)"`. One Space each: `$H api POST /spaces '{"projectId":1,"workItemId":N,"name":"sN","team":"full"}'` (ids 1 to 3). The token budget of a Space is its top-level work item's.
 - **Order.** `$H api POST /spaces/1/send '{"text":"ORDER the build check."}'`, then `$H sql "select role, status from turn where space_id = 1 order by id"` is `lead`, `developer`, `tester`, `lead`, all `done`: the lead sent the developer a direct request and its reply handed off to `@tester`, and the request, stored first, ran first. `$H sql "select from_role, to_role, status, state from direct_message where space_id = 1"` is `lead|developer|sent|answered` and `developer|lead|done|`.
@@ -175,7 +175,7 @@ Direct requests, a folder of its own (`--data-name direct`) with the team `full`
 
 Re-apply while the lead is live, Space 6:
 
-- **New role mid-space.** `$H api POST /work-items '{"projectId":1,"title":"Reapply"}'` (item 2), then `$H api POST /spaces '{"projectId":1,"workItemId":2,"name":"reapply","team":"duo"}'` is id 6. `$H api POST /spaces/6/send '{"text":"Hello. Reply with one word."}'`, `wait_done 6 1`: the lead's `claude` is live. `$H reef -- team apply $E/duo3.json` prints `applied team duo: lead*(claude) architect(claude) tester(claude)`. `$H api POST /spaces/6/send '{"text":"@tester run the checks"}'`, `wait_done 6 2`. `$H sql "select role, status from turn where space_id = 6 order by id"` is `lead|done`, `tester|done`, and the newest message is by `tester` and ends `TESTED`.
+- **New role mid-space.** `$H api POST /work-items '{"projectId":1,"title":"Reapply"}'` (item 2), then `$H api POST /spaces '{"projectId":1,"workItemId":2,"name":"reapply","team":"duo"}'` is id 6. `$H api POST /spaces/6/send '{"text":"Hello. Reply with one word."}'`, `wait_done 6 1`: the lead's `claude` is live. `$H team-apply $E/duo3.json` (it updates the Bot `architect` and makes `tester`) prints `applied team duo: lead*(claude) architect(claude) tester(claude)`. `$H api POST /spaces/6/send '{"text":"@tester run the checks"}'`, `wait_done 6 2`. `$H sql "select role, status from turn where space_id = 6 order by id"` is `lead|done`, `tester|done`, and the newest message is by `tester` and ends `TESTED`.
 
 Restart with paused Space 4:
 
@@ -183,7 +183,7 @@ Restart with paused Space 4:
 
 Codex bot on the test fixture (`mixed`: the architect is on `codex`). The fixture `agent/codex/testdata/codex` plays a codex that answers `hi`. This does not prove real codex; with a logged-in `codex`, leave the `PATH` and `FAKE_CODEX` part out and the architect answers for real.
 
-- **Setup.** `$H serve-stop`. `mkdir -p $S/shim && ln -s "$PWD/agent/codex/testdata/codex" $S/shim/codex`. `$H reef --data-name mixed -- team apply $E/mixed.json` prints `applied team mixed: lead*(claude) architect(codex)`. `FAKE_CODEX=replay PATH=$S/shim:$PATH ANTHROPIC_MODEL=sonnet $H serve-start --data-name mixed`, set `A`. `$H api POST /projects '{"name":"teams","path":"'$S'/cwd"}'`, `$H api POST /spaces '{"projectId":1,"name":"mixed room","team":"mixed"}'` (a quick session, 201 with `"team":"mixed"`).
+- **Setup.** `$H serve-stop`. `mkdir -p $S/shim && ln -s "$PWD/agent/codex/testdata/codex" $S/shim/codex`. `FAKE_CODEX=replay PATH=$S/shim:$PATH ANTHROPIC_MODEL=sonnet $H serve-start --data-name mixed`, set `A`, then `$H team-apply $E/mixed.json` prints `applied team mixed: lead*(claude) architect(codex)`. `$H api POST /projects '{"name":"teams","path":"'$S'/cwd"}'`, `$H api POST /spaces '{"projectId":1,"name":"mixed room","team":"mixed"}'` (a quick session, 201 with `"team":"mixed"`).
 - **Wake.** `$H api POST /spaces/1/send '{"text":"DESIGN a form."}'`, `wait_done 1 2`. `$H sql "select id, role, backend, status, session_id from turn"` is `1|lead|claude|done|<uuid>` and `2|architect|codex|done|t1`. `$H api GET '/messages?space=1'` ends with an `architect` message `hi`.
 
 Failed start, the same `mixed` folder (`start-fails`): a `codex` first on `PATH` that runs `exit 1`, so the architect's agent cannot start.
@@ -193,10 +193,10 @@ Failed start, the same `mixed` folder (`start-fails`): a `codex` first on `PATH`
 
 Space role as lead, a new folder `role` (`route-space-role`). `reef chat` and the API only make `lead` Spaces, so the recipe renames the role by hand to `developer`, as an older data folder may hold. Its work item is 3: the `teams` folder's worktrees already hold branches `work-item/1` and `work-item/2`, and `reef chat` fails with `branch work-item/N is checked out at ...` for the same id.
 
-- **Setup.** `$H serve-stop`. `$H reef --data-name role -- project add`, `$H reef -- work-item add one`, `$H reef -- work-item add two`, `$H reef -- work-item add Roles` (item 3). `ANTHROPIC_MODEL=sonnet $H reef -- chat 3 --backend claude` prints `space 1: resume with reef chat --space 1`, `exit: 0` (stdin is empty, so no turn runs). `$H sql --write "update space set role = 'developer' where id = 1"`. `$H sql "select space.id, space.role, team.name from space join team on team.id = team_id"` is `1|developer|solo`. `ANTHROPIC_MODEL=sonnet $H serve-start --data-name role`, set `A`.
+- **Setup.** `$H serve-stop`. `$H reef --data-name role -- project add`, `$H reef -- work-item add one`, `$H reef -- work-item add two`, `$H reef -- work-item add Roles` (item 3). `ANTHROPIC_MODEL=sonnet $H reef -- chat 3` prints `space 1: resume with reef chat --space 1`, `exit: 0` (stdin is empty, so no turn runs). `$H sql --write "update space set role = 'developer' where id = 1"`. `$H sql "select space.id, space.role, team.name from space join team on team.id = team_id"` is `1|developer|solo`. `ANTHROPIC_MODEL=sonnet $H serve-start --data-name role`, set `A`.
 - **`@lead` wakes the Space role.** `$H api POST /spaces/1/send '{"text":"@lead hi"}'` is 202, `wait_done 1 1`. `$H sql "select id, role, status from turn"` is one row, `1|developer|done`. `$H sql "select role from token"` is `developer` only: no `lead` token. `pgrep -P $(cat $S/serve.pid) -x claude | wc -l` is `1`, the developer's process, which stays like a lead's. The developer's reply may name `@lead` too; it wakes no one.
 
-Window (`$H ui teams` drives New Space and Thread; the hop cap is by hand). Apply `duo` and `full` to the server's data folder, start the server, then run `$H ui teams` with `REEF_VERIFY_CHROME` on Linux (see `window.md`).
+Window (`$H ui teams` drives New Space and Thread; the hop cap is by hand). Start the server on the `ui` folder, `$H team-apply` `duo` and `full` (and `pingpong` for the hop cap), then run `$H ui teams` with `REEF_VERIFY_CHROME` on Linux (see `window.md`).
 
 - **New space.** The New Space form has a team picker listing `duo`, `solo` and any other applied team. Pick `duo`, create the Space: the sidebar shows it, `GET /spaces/<id>` has `"team":"duo"`.
 - **Thread.** Send `DESIGN a short plan for a login form.`. While each bot runs, the live turn names it: `Lead is working...`, then `Architect is working...`. When it ends, the architect's message has a Reply button; a Thread pane opens on click; reply there. The architect (not the lead) answers in the pane, and the main list shows the root with an `N replies in thread` button; the replies appear only in the Thread pane.
@@ -215,14 +215,14 @@ exec $S/fake/claude "\$@"
 EOF
 chmod +x $E/prov$m/claude; done; : > $E/markers.log; mkdir -p $E/emptydir
 printf '{"name":"provteam","roles":[{"name":"lead","lead":true,"backend":"claude","provider":"installB","description":"You are the lead."}]}' > $E/provteam.json
-printf '{"name":"plainteam","roles":[{"name":"lead","lead":true,"backend":"claude","description":"You are the lead."}]}' > $E/plainteam.json
+printf '{"name":"plainteam","roles":[{"name":"plain","lead":true,"backend":"claude","description":"You are plain."}]}' > $E/plainteam.json
 ```
 
 - **List.** `$H api GET /providers` is 200 with `claude` (`detected:true`, `path` the fake, `version` `0.0.0 (Claude Code) fake`) and `codex` with its path and version.
 - **Add and reject.** `POST /providers` `{"name":"installA","kind":"claude","folder":"'$E'/provA"}` and the same for `installB` with `provB` are 201 with `version` `A-9.0.0 (Claude Code)` and `B-9.0.0 ...`; `GET /providers` lists both after the two detected. These are 400: `kind` `gemini` (`provider kind must be claude or codex`), folder `/nonexistent` (`not a directory`), folder `relative` (`not an absolute path`), `$E/emptydir` (`no claude binary in ...`), kind `codex` on `provA` (`no codex binary in ...`), name `my x`. These are 409: `installA` again, name `claude`.
-- **Team checks.** `$H reef --data-name providers -- team apply` of a file whose role says `"provider":"nope"` is `reef: invalid: role lead: provider "nope" is not installed`, exit 1; `"backend":"codex","provider":"installB"` is `... provider "installB" is a claude install, the role runs on codex`. Apply `provteam.json` and `plainteam.json`; `GET /teams/provteam` shows `"provider":"installB"`.
+- **Bot checks.** `$H api POST /bots '{"name":"p","backend":"claude","provider":"nope"}'` is 400 `invalid: role p: provider "nope" is not installed`; `'{"name":"p","backend":"codex","provider":"installB"}'` is 400 `... provider "installB" is a claude install, the role runs on codex`. `$H team-apply $E/provteam.json` and `$H team-apply $E/plainteam.json` (the Bots `lead` and `plain`); `GET /teams/provteam` shows `"provider":"installB"`.
 - **Runs that binary.** `POST /projects` `{"name":"prov","path":"'$S'/cwd"}` and `POST /work-items` `{"projectId":1,"title":"Prov"}`. `POST /spaces` `{"projectId":1,"workItemId":1,"name":"on B","team":"provteam"}` (id 1), `POST /spaces/1/send` `{"text":"Say ok in one word"}`, wait for a done turn: `cat $E/markers.log` is one line, `B ran in <data>/worktrees/1/prov`. Space 2 on `plainteam` and the same send: `markers.log` is still one line and `fake-claude.log` has a second `replay` line.
-- **Removed or mismatched.** `DELETE /providers/installA` and `installB` are 204, `claude` and `codex` are 400, `ghost` is 404. A new Space 3 on `provteam` and a send gives a `failed` turn whose `error` is `invalid: role lead: provider "installB" is not installed`, and `markers.log` is unchanged. Add `installB` again; Space 4 `{"team":"provteam","backend":"codex"}` and a send gives a `failed` turn with `provider "installB" is a claude install, the role runs on codex`.
+- **Removed or mismatched.** `DELETE /providers/installA` and `installB` are 204, `claude` and `codex` are 400, `ghost` is 404. A new Space 3 on `provteam` and a send gives a `failed` turn whose `error` is `invalid: role lead: provider "installB" is not installed`, and `markers.log` is unchanged. Add `installB` again; `PUT /bots/<lead>` with `"backend":"codex"` and the same body otherwise (the provider kept) is 400 with `provider "installB" is a claude install, the role runs on codex`.
 
 ## Gotchas
 

@@ -1,15 +1,15 @@
 # Team management
 
-Build and doctor a fresh run, apply `teams/full.json` to its `ui` data folder, then build the
-window and start the server:
+Build and doctor a fresh run, build the window, start the server on its `ui` data folder, then make
+the Bots and the team of `teams/full.json` (`$H team-apply` needs the running server):
 
 ```sh
 H=.claude/skills/verify-reef/scripts/verify-reef
 id=$($H build)
 REEF_VERIFY_RUN=$id $H doctor
-REEF_VERIFY_RUN=$id $H reef --data-name ui -- team apply "$PWD/teams/full.json"
 (cd web && npm run build)
 ANTHROPIC_MODEL=sonnet REEF_VERIFY_RUN=$id $H serve-start --data-name ui
+REEF_VERIFY_RUN=$id $H team-apply "$PWD/teams/full.json"
 ```
 
 `REEF_VERIFY_RUN=<id> $H ui team-management` creates a Team from `full` through the window,
