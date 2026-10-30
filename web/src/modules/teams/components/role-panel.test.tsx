@@ -91,7 +91,9 @@ describe('RolePanel', () => {
     expect(markup).not.toContain('Builds what the architect sketched.');
     expect(markup).not.toContain('developer model');
     expect(markup).toContain('aria-label="developer lead"');
-    expect(markup).toContain('2 allowed');
+    expect(markup).not.toContain('2 allowed');
+    expect(markup).not.toContain('developer permission mode');
+    expect(markup).not.toContain('developer write');
   });
 });
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"strings"
 	"testing"
 
 	"github.com/bhanuprakaash/reef/store"
@@ -46,14 +48,13 @@ func TestTeammateAndMembership(t *testing.T) {
 		{"edit defaults", http.MethodPut, "/teammates/3",
 			`{"name":"sam","persona":"You test.","skills":["how"],"backend":"claude","face":"otter","colour":"violet","tools":["Read","Grep"],"write":false}`,
 			200, `{"id":3,"name":"sam","persona":"You test.","skills":["how"],"backend":"claude","face":"otter","colour":"violet","tools":["Read","Grep"],"mcp":[],"write":false,"permissionMode":""}`},
-		{"membership kept its copy", http.MethodGet, "/teams/core", "", 200,
+		{"membership uses profile", http.MethodGet, "/teams/core", "", 200,
 			`{"id":2,"name":"core","responsibility":"","roles":[{"teammateId":2,"name":"boss","lead":true,"write":false,"backend":"claude","permissionMode":"","persona":"","skills":[],"tools":[],"mcp":[]},` +
-				`{"teammateId":3,"name":"sam","lead":false,"write":true,"backend":"claude","permissionMode":"acceptEdits","persona":"You test.","skills":["how"],"face":"otter","colour":"violet","tools":["Read"],"mcp":[]}]}`},
-		{"edit membership", http.MethodPut, "/teams/core/members/3",
-			`{"lead":false,"tools":["Read","Edit"],"write":true,"permissionMode":"acceptEdits"}`,
-			200, `{"teammateId":3,"name":"sam","lead":false,"write":true,"backend":"claude","permissionMode":"acceptEdits","persona":"You test.","skills":["how"],"face":"otter","colour":"violet","tools":["Read","Edit"],"mcp":[]}`},
-		{"second lead", http.MethodPut, "/teams/core/members/3",
-			`{"lead":true,"tools":[],"write":false,"permissionMode":""}`,
+				`{"teammateId":3,"name":"sam","lead":false,"write":false,"backend":"claude","permissionMode":"","persona":"You test.","skills":["how"],"face":"otter","colour":"violet","tools":["Read","Grep"],"mcp":[]}]}`},
+		{"reject membership settings", http.MethodPut, "/teams/core/members/3",
+			`{"lead":false,"tools":["Read","Edit"]}`,
+			400, `{"error":"invalid: bad JSON: json: unknown field \"tools\""}`},
+		{"second lead", http.MethodPut, "/teams/core/members/3", `{"lead":true}`,
 			400, `{"error":"invalid: the team already has a lead, boss"}`},
 		{"delete while in a team", http.MethodDelete, "/teammates/3", "",
 			400, `{"error":"invalid: teammate sam is in team core; remove it from the team first"}`},
@@ -68,5 +69,38 @@ func TestTeammateAndMembership(t *testing.T) {
 				t.Errorf("%s %s = %d %q, want %d %q", tt.method, tt.path, status, body, tt.status, tt.want)
 			}
 		})
+	}
+}
+
+func TestProfileUpdateReachesSpaceMembersREST(t *testing.T) {
+	ctx := context.Background()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	project, err := st.CreateProject(ctx, store.Project{Name: "shop", Path: "/tmp/shop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot, err := st.CreateTeammate(ctx, store.Teammate{Name: "sam", Backend: "claude", Tools: []string{"Read"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	space, err := st.CreateTeammateSpace(ctx, store.Space{ProjectID: project.ID, Name: "chat"}, bot.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
+	ts := httptest.NewServer(h)
+	t.Cleanup(ts.Close)
+	t.Cleanup(h.Close)
+	status, body := do(t, http.MethodPut, ts.URL+"/teammates/"+strconv.FormatInt(bot.ID, 10), `{"name":"sam","persona":"Checks examples.","backend":"claude","tools":["Read","Grep"],"write":true}`)
+	if status != http.StatusOK {
+		t.Fatalf("update profile = %d %s", status, body)
+	}
+	status, body = do(t, http.MethodGet, ts.URL+"/spaces/"+strconv.FormatInt(space.ID, 10)+"/members", "")
+	if status != http.StatusOK || !strings.Contains(body, `"tools":["Read","Grep"]`) || !strings.Contains(body, `"write":true`) || !strings.Contains(body, `"persona":"Checks examples."`) {
+		t.Errorf("Space members = %d %s, want updated profile", status, body)
 	}
 }

@@ -262,13 +262,12 @@ func (s *Store) SuggestTeam(ctx context.Context, text string) (Team, error) {
 }
 
 // roles lists the members in table (team_member or space_member) whose key column is id, lead
-// first, with the Teammate's persona, skills, backend, face and colour. The access rules are the
-// member's own.
+// first, with the Teammate's configuration.
 func (s *Store) roles(ctx context.Context, table, key string, id int64) ([]Role, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT teammate.id, member.name, member.lead, member.write, teammate.backend, "+
-			"member.permission_mode, teammate.persona, teammate.skills, teammate.face, teammate.colour, teammate.model, "+
-			"teammate.provider, member.tools, member.mcp_servers "+
+		"SELECT teammate.id, member.name, member.lead, teammate.write, teammate.backend, "+
+			"teammate.permission_mode, teammate.persona, teammate.skills, teammate.face, teammate.colour, teammate.model, "+
+			"teammate.provider, teammate.tools, teammate.mcp_servers "+
 			"FROM "+table+" member JOIN teammate ON teammate.id = member.teammate_id "+
 			"WHERE member."+key+" = ? ORDER BY member.lead DESC, member.id", id)
 	if err != nil {

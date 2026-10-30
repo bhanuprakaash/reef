@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
-	"slices"
 	"strconv"
 
 	"github.com/bhanuprakaash/reef/agent"
@@ -45,11 +44,8 @@ type mcpView struct {
 	Label string `json:"label"`
 }
 
-// teamRoleBody is a role in a Team request. Its mcpRemove lists the servers to drop, as GET
-// showed them.
 type teamRoleBody struct {
 	store.Role
-	MCPRemove []mcpView `json:"mcpRemove"`
 }
 
 type teamBody struct {
@@ -135,11 +131,6 @@ func (s *server) getTeam(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, viewTeam(t))
 }
 
-// putTeam applies the body like `reef team apply`. A role whose body omits mcpServers keeps
-// the server's stored ones, since the window never sees them, except those its `mcpRemove`
-// lists; a listed server that no longer matches by name and label is a conflict. With a `from` query param it instead copies the team
-// named by `from`: `name` must not exist yet, and a role's stored mcpServers come from
-// `from`'s role of the same name.
 func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	from := r.URL.Query().Get("from")
@@ -195,8 +186,7 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 }
 
 // fillMCPServers gives each role of t that omits mcpServers the servers of existing's role of
-// the same name, since the window never sees them, minus the ones the role's body lists in
-// mcpRemove.
+// the same name, since the window never sees them.
 func fillMCPServers(t store.Team, body teamBody, existing store.Team) error {
 	for i, role := range t.Roles {
 		if role.MCPServers != nil {
@@ -206,37 +196,11 @@ func fillMCPServers(t store.Team, body teamBody, existing store.Team) error {
 			if er.Name != role.Name {
 				continue
 			}
-			kept, err := removeMCP(er.MCPServers, body.Roles[i].MCPRemove)
-			if err != nil {
-				return err
-			}
-			t.Roles[i].MCPServers = kept
+			t.Roles[i].MCPServers = er.MCPServers
 			break
 		}
 	}
 	return nil
-}
-
-// removeMCP drops the servers that remove names. Each must match a stored server by both name
-// and label, so a team changed by `reef team apply` since the window loaded it is a conflict,
-// never a removal of the wrong server.
-func removeMCP(servers []agent.MCPServer, remove []mcpView) ([]agent.MCPServer, error) {
-	if len(remove) == 0 {
-		return servers, nil
-	}
-	views := viewMCP(servers)
-	for _, r := range remove {
-		if !slices.Contains(views, r) {
-			return nil, fmt.Errorf("%w: MCP servers changed since you loaded the team; reload", store.ErrConflict)
-		}
-	}
-	var kept []agent.MCPServer
-	for i, srv := range servers {
-		if !slices.Contains(remove, views[i]) {
-			kept = append(kept, srv)
-		}
-	}
-	return kept, nil
 }
 
 func viewMCP(servers []agent.MCPServer) []mcpView {

@@ -8,6 +8,7 @@ import type { Look } from '@/components/creature';
 import { Dialog } from '@/components/dialog';
 import { Select } from '@/components/select';
 import { TextField } from '@/components/text-field';
+import { TextArea } from '@/components/text-area';
 
 const rolePattern = /^[A-Za-z0-9_-]+$/;
 
@@ -27,6 +28,7 @@ type FormProps = { onCreated: (id: number) => void; onClose: () => void };
 
 function NewTeammateForm({ onCreated, onClose }: FormProps) {
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [look, setLook] = useState<Look>({ face: 'pebble' });
   const [backend, setBackend] = useState('claude');
   const valid = rolePattern.test(name.trim());
@@ -38,7 +40,7 @@ function NewTeammateForm({ onCreated, onClose }: FormProps) {
       onSubmit={(e) => {
         e.preventDefault();
         create.mutate(
-          { ...blankRole, name: name.trim(), backend, ...look },
+          { ...blankRole, name: name.trim(), persona: description.trim(), backend, ...look },
           {
             onSuccess: (saved) => {
               onCreated(saved.id);
@@ -52,7 +54,7 @@ function NewTeammateForm({ onCreated, onClose }: FormProps) {
         <CreaturePicker value={look} onChange={setLook} size={56} />
       </div>
       <label className="block">
-        <span className="mb-1.5 block text-[12.5px] text-muted">Teammate name</span>
+        <span className="mb-1.5 block text-[12.5px] text-muted">Name</span>
         <TextField
           className="w-full"
           autoFocus
@@ -60,6 +62,14 @@ function NewTeammateForm({ onCreated, onClose }: FormProps) {
           placeholder="e.g. researcher"
           value={name}
           onChange={(e) => setName(e.target.value)}
+        />
+      </label>
+      <label className="block">
+        <span className="mb-1.5 block text-[12.5px] text-muted">Describe this Bot</span>
+        <TextArea
+          className="w-full"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
         />
       </label>
       <label className="block">
@@ -78,7 +88,7 @@ function NewTeammateForm({ onCreated, onClose }: FormProps) {
           Cancel
         </Button>
         <Button variant="primary" type="submit" disabled={!valid} loading={create.isPending}>
-          Create teammate
+          Create Bot
         </Button>
       </div>
     </form>
@@ -89,7 +99,7 @@ type Props = { open: boolean; onClose: () => void; onCreated: (id: number) => vo
 
 export function NewTeammateDialog({ open, onClose, onCreated }: Props) {
   return (
-    <Dialog open={open} onClose={onClose} title="New Teammate">
+    <Dialog open={open} onClose={onClose} title="New Bot">
       {open && <NewTeammateForm onCreated={onCreated} onClose={onClose} />}
     </Dialog>
   );

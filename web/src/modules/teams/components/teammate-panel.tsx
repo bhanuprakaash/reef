@@ -34,7 +34,7 @@ export function TeammatePanel({ teammate, skills, providers, noProject, onClose 
           loading={save.isPending}
           onClick={() => save.mutate({ id: teammate.id, role })}
         >
-          Save teammate
+          Save Bot
         </Button>
         {save.isSuccess && <span className="text-sm text-muted">Saved</span>}
         <Link to={`/teammates/${teammate.id}`} className="ml-auto text-sm text-soft">

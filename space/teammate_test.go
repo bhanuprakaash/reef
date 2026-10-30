@@ -12,7 +12,7 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-func TestSession_OneTeammateRunsWithTheAccessOfEachMembership(t *testing.T) {
+func TestSession_OneTeammateRunsWithProfileAccess(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	for _, name := range []string{"a", "b"} {
@@ -35,11 +35,6 @@ func TestSession_OneTeammateRunsWithTheAccessOfEachMembership(t *testing.T) {
 	if _, err := st.AddMember(ctx, "b", sam.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.EditMember(ctx, "b", sam.ID, store.Membership{
-		Tools: []string{"Read", "Edit", "Write"},
-	}); err != nil {
-		t.Fatal(err)
-	}
 	ms := testMemory(t, st)
 	item := remember(t, ms, teammateScope(strconv.FormatInt(sam.ID, 10)),
 		memory.KindLesson, "sam", "Check the empty case first.")
@@ -52,7 +47,7 @@ func TestSession_OneTeammateRunsWithTheAccessOfEachMembership(t *testing.T) {
 		checkpoint bool
 	}{
 		{"a", []string{"Read", "Edit", "Write", "Task", "mcp__reef__*"}, nil, true},
-		{"b", []string{"Read", "mcp__reef__*"}, []string{"Edit", "Write", "MultiEdit", "NotebookEdit"}, false},
+		{"b", []string{"Read", "Edit", "Write", "Task", "mcp__reef__*"}, nil, true},
 	}
 	for _, tt := range tests {
 		ch, err := st.CreateSpace(ctx, store.Space{

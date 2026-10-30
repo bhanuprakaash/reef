@@ -58,48 +58,7 @@ func TestCreateSpace_RefusesSecondActiveSpaceOfWorkItem(t *testing.T) {
 	}
 }
 
-func TestSpaceTeam_KeepsRulesCopiedWhenTheSpaceWasMade(t *testing.T) {
-	ctx := context.Background()
-	s := spaceMemberStore(t)
-	running, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "running", Team: "core"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	team, err := s.Team(ctx, "core")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dev := team.Roles[1]
-
-	if _, err := s.EditMember(ctx, "core", dev.TeammateID,
-		Membership{Tools: []string{"Read", "Grep"}, Write: false}); err != nil {
-		t.Fatal(err)
-	}
-
-	got, err := s.SpaceTeam(ctx, running.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if len(got.Roles) != 2 || got.Roles[0].Name != "boss" || !got.Roles[0].Lead {
-		t.Fatalf("members = %+v, want boss (lead) then dev", got.Roles)
-	}
-	if d := got.Roles[1]; d.Name != "dev" || !d.Write || !reflect.DeepEqual(d.Tools, []string{"Read"}) {
-		t.Errorf("running Space's dev = %+v, want write and tools [Read] as copied", d)
-	}
-	later, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "later", Team: "core"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	got, err = s.SpaceTeam(ctx, later.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if d := got.Roles[1]; d.Write || !reflect.DeepEqual(d.Tools, []string{"Read", "Grep"}) {
-		t.Errorf("new Space's dev = %+v, want no write and tools [Read Grep]", d)
-	}
-}
-
-func TestAddSpaceMemberTool_ChangesOnlyThatSpacesMember(t *testing.T) {
+func TestSpaceTeam_UsesProfileConfiguration(t *testing.T) {
 	ctx := context.Background()
 	s := spaceMemberStore(t)
 	one, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "one", Team: "core"})
@@ -114,38 +73,30 @@ func TestAddSpaceMemberTool_ChangesOnlyThatSpacesMember(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	dev := team.Roles[1]
-
-	for range 2 {
-		if _, err := s.AddSpaceMemberTool(ctx, one.ID, dev.TeammateID, "WebFetch"); err != nil {
+	bot, err := s.Teammate(ctx, team.Roles[1].TeammateID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	bot.Tools = []string{"Read", "Grep"}
+	bot.Write = false
+	if _, err := s.UpdateTeammate(ctx, bot); err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []int64{one.ID, two.ID} {
+		got, err := s.SpaceTeam(ctx, id)
+		if err != nil {
 			t.Fatal(err)
 		}
-	}
-
-	for _, c := range []struct {
-		name  string
-		tools []string
-		got   func() []string
-	}{
-		{"Space one", []string{"Read", "WebFetch"}, func() []string {
-			got, _ := s.SpaceTeam(ctx, one.ID)
-			return got.Roles[1].Tools
-		}},
-		{"Space two", []string{"Read"}, func() []string {
-			got, _ := s.SpaceTeam(ctx, two.ID)
-			return got.Roles[1].Tools
-		}},
-		{"the Team", []string{"Read"}, func() []string {
-			got, _ := s.Team(ctx, "core")
-			return got.Roles[1].Tools
-		}},
-	} {
-		if got := c.got(); !reflect.DeepEqual(got, c.tools) {
-			t.Errorf("dev tools in %s = %v, want %v", c.name, got, c.tools)
+		if d := got.Roles[1]; d.Write || !reflect.DeepEqual(d.Tools, []string{"Read", "Grep"}) {
+			t.Errorf("Space %d member = %+v, want profile settings", id, d)
 		}
 	}
-	if _, err := s.AddSpaceMemberTool(ctx, one.ID, 999, "WebFetch"); !errors.Is(err, ErrNotFound) {
-		t.Errorf("unknown teammate = %v, want ErrNotFound", err)
+	team, err = s.Team(ctx, "core")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d := team.Roles[1]; d.Write || !reflect.DeepEqual(d.Tools, []string{"Read", "Grep"}) {
+		t.Errorf("team member = %+v, want profile settings", d)
 	}
 }
 

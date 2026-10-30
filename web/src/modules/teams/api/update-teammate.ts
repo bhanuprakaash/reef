@@ -11,6 +11,10 @@ export function useUpdateTeammate() {
         method: 'PUT',
         body: JSON.stringify(teammateRequestBody(role)),
       }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['teammates'] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['teammates'] });
+      void queryClient.invalidateQueries({ queryKey: ['teams'] });
+      void queryClient.invalidateQueries({ queryKey: ['spaces'] });
+    },
   });
 }

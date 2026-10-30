@@ -1,15 +1,12 @@
-import { useAddRoleTool } from '@/lib/api/add-role-tool';
 import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { deniedTools, isAllowed } from '@/modules/spaces/utils/denied-tools';
 import type { Space, Role } from '@/types/api';
-import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
 
 type Props = { space: Space; roles: Role[]; running: boolean };
 
-export function DeniedToolRows({ space, roles, running }: Props) {
+export function DeniedToolRows({ space, roles }: Props) {
   const inspector = useInspector(space.id, true);
-  const add = useAddRoleTool();
   const rows = deniedTools(inspector.data?.turns ?? []).flatMap((d) => {
     const role = roles.find((r) => r.name === d.role);
     return role ? [{ ...d, role }] : [];
@@ -42,27 +39,12 @@ export function DeniedToolRows({ space, roles, running }: Props) {
               ) : added ? (
                 <span className="text-[13px] text-done">Added</span>
               ) : (
-                <Button
-                  variant="primary"
-                  type="button"
-                  disabled={running || add.isPending}
-                  onClick={() =>
-                    add.mutate({
-                      space: space.id,
-                      teammateId: d.role.teammateId,
-                      pattern: d.pattern,
-                      stopSpace: lead ? space.id : undefined,
-                    })
-                  }
-                >
-                  Add to role
-                </Button>
+                <span className="text-[13px] text-muted">Edit this Bot to allow the tool</span>
               )}
             </li>
           );
         })}
       </ul>
-      {add.isError && <p className="text-sm text-danger">{add.error.message}</p>}
     </div>
   );
 }

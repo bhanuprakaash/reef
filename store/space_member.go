@@ -5,12 +5,10 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"slices"
 )
 
 // SpaceTeam is the roster of Space id: its own members, lead first, as the roles a turn runs
-// with. The access rules are the ones copied when the Space was made or the member added, so
-// editing a Team or a Teammate later leaves them alone. Name is the Team's, empty for a Space
+// with. Name is the Team's, empty for a Space
 // with no Team.
 func (s *Store) SpaceTeam(ctx context.Context, id int64) (Team, error) {
 	c, err := s.Space(ctx, id)
@@ -56,40 +54,6 @@ func (s *Store) AddSpaceMember(ctx context.Context, id, teammateID int64) (Role,
 		if r.TeammateID == teammateID {
 			return r, nil
 		}
-	}
-	return Role{}, fmt.Errorf("teammate %d in Space %d: %w", teammateID, id, ErrNotFound)
-}
-
-// AddSpaceMemberTool allows tool for the Teammate's place in Space id, which is where the next
-// wake reads it. The Team and the Teammate keep their own rules.
-func (s *Store) AddSpaceMemberTool(ctx context.Context, id, teammateID int64, tool string) (Role, error) {
-	if tool == "" {
-		return Role{}, fmt.Errorf("%w: tool is required", ErrInvalid)
-	}
-	roles, err := s.roles(ctx, "space_member", "space_id", id)
-	if err != nil {
-		return Role{}, fmt.Errorf("read members of Space %d: %w", id, err)
-	}
-	for _, r := range roles {
-		if r.TeammateID != teammateID {
-			continue
-		}
-		if !slices.Contains(r.Tools, tool) {
-			r.Tools = append(r.Tools, tool)
-		}
-		if err := validateRole(r); err != nil {
-			return Role{}, err
-		}
-		_, tools, _, err := encodeLists(nil, r.Tools, nil)
-		if err != nil {
-			return Role{}, err
-		}
-		if _, err := s.db.ExecContext(ctx,
-			"UPDATE space_member SET tools = ? WHERE space_id = ? AND teammate_id = ?",
-			tools, id, teammateID); err != nil {
-			return Role{}, fmt.Errorf("update Space member: %w", err)
-		}
-		return r, nil
 	}
 	return Role{}, fmt.Errorf("teammate %d in Space %d: %w", teammateID, id, ErrNotFound)
 }

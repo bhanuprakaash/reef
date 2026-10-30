@@ -1,7 +1,6 @@
 import { useEffect, type ReactNode } from 'react';
 import { Link } from 'react-router';
 import type { Provider, Role, Skills } from '@/types/api';
-import { ChipList } from '@/modules/teams/components/chip-list';
 import { CreaturePicker } from '@/modules/teams/components/creature-picker';
 import { SkillPicker } from '@/modules/teams/components/skill-picker';
 import { ToolPicker } from '@/modules/teams/components/tool-picker';
@@ -112,6 +111,7 @@ export function RolePanel({
             className="min-w-0 flex-1"
             aria-label={`${label} name`}
             value={role.name}
+            readOnly={!teammate}
             onChange={(e) => onChange({ ...role, name: e.target.value })}
           />
           <button
@@ -137,7 +137,7 @@ export function RolePanel({
         {!teammate && (
           <>
             <p className="text-xs text-muted">
-              Persona, skills and model belong to the teammate. Edit them on the{' '}
+              Bot settings belong to the Bot. Edit them on the{' '}
               <Link to="/teammates" className="underline">
                 Teammates page
               </Link>
@@ -152,23 +152,19 @@ export function RolePanel({
             </SettingRow>
           </>
         )}
-        <SettingRow
-          title="Can edit code"
-          hint={
-            teammate ? 'Default for teams that add this teammate.' : 'Off keeps the role read-only.'
-          }
-        >
-          <Toggle
-            label={`${label} write`}
-            checked={role.write}
-            onChange={(write) => onChange({ ...role, write })}
-          />
-        </SettingRow>
+        {teammate && (
+          <SettingRow title="Can edit code" hint="Off keeps the Bot read-only.">
+            <Toggle
+              label={`${label} write`}
+              checked={role.write}
+              onChange={(write) => onChange({ ...role, write })}
+            />
+          </SettingRow>
+        )}
       </div>
 
       {teammate && (
-        <Section title="Persona">
-          <p className="text-xs text-muted">How this role thinks and works. Sent on every turn.</p>
+        <Section title="Describe this Bot">
           <TextArea
             className="w-full leading-normal"
             rows={7}
@@ -179,70 +175,72 @@ export function RolePanel({
         </Section>
       )}
 
-      <Section title={teammate ? 'Runtime' : 'Access'}>
-        {teammate && (
-          <>
-            <SettingRow title="Backend">
-              <Select
-                variant="pill"
-                aria-label={`${label} backend`}
-                value={role.backend}
-                options={backendOptions}
-                onChange={(backend) =>
-                  onChange({
-                    ...role,
-                    backend,
-                    provider: providerFor(role.provider, backend, providers),
-                    permissionMode: (modes[backend] ?? []).includes(role.permissionMode)
-                      ? role.permissionMode
-                      : '',
-                    model: '',
-                  })
-                }
-              />
-            </SettingRow>
-            <SettingRow title="Provider" hint="Add installs in Settings.">
-              <Select
-                variant="pill"
-                aria-label={`${label} provider`}
-                value={role.provider ?? ''}
-                options={providerOptions(role, providers)}
-                onChange={(provider) => onChange({ ...role, provider: provider || undefined })}
-              />
-            </SettingRow>
-            <SettingRow title="Model">
-              {role.backend === 'claude' ? (
+      {teammate && (
+        <Section title="Capabilities">
+          {teammate && (
+            <>
+              <SettingRow title="Backend">
                 <Select
                   variant="pill"
-                  aria-label={`${label} model`}
-                  value={role.model ?? ''}
-                  options={claudeModelOptions(role.model ?? '')}
-                  onChange={(model) => onChange({ ...role, model })}
+                  aria-label={`${label} backend`}
+                  value={role.backend}
+                  options={backendOptions}
+                  onChange={(backend) =>
+                    onChange({
+                      ...role,
+                      backend,
+                      provider: providerFor(role.provider, backend, providers),
+                      permissionMode: (modes[backend] ?? []).includes(role.permissionMode)
+                        ? role.permissionMode
+                        : '',
+                      model: '',
+                    })
+                  }
                 />
-              ) : (
-                <TextField
-                  className="w-40"
-                  aria-label={`${label} model`}
-                  placeholder="Default"
-                  value={role.model ?? ''}
-                  onChange={(e) => onChange({ ...role, model: e.target.value })}
+              </SettingRow>
+              <SettingRow title="Provider" hint="Add installs in Settings.">
+                <Select
+                  variant="pill"
+                  aria-label={`${label} provider`}
+                  value={role.provider ?? ''}
+                  options={providerOptions(role, providers)}
+                  onChange={(provider) => onChange({ ...role, provider: provider || undefined })}
                 />
-              )}
-            </SettingRow>
-          </>
-        )}
-        <SettingRow title="Permission mode">
-          <Select
-            variant="pill"
-            aria-label={`${label} permission mode`}
-            value={role.permissionMode}
-            options={modeOptions(role)}
-            onChange={(permissionMode) => onChange({ ...role, permissionMode })}
-          />
-        </SettingRow>
-      </Section>
+              </SettingRow>
+              <SettingRow title="Model">
+                {role.backend === 'claude' ? (
+                  <Select
+                    variant="pill"
+                    aria-label={`${label} model`}
+                    value={role.model ?? ''}
+                    options={claudeModelOptions(role.model ?? '')}
+                    onChange={(model) => onChange({ ...role, model })}
+                  />
+                ) : (
+                  <TextField
+                    className="w-40"
+                    aria-label={`${label} model`}
+                    placeholder="Default"
+                    value={role.model ?? ''}
+                    onChange={(e) => onChange({ ...role, model: e.target.value })}
+                  />
+                )}
+              </SettingRow>
+            </>
+          )}
+          <SettingRow title="Permission mode">
+            <Select
+              variant="pill"
+              aria-label={`${label} permission mode`}
+              value={role.permissionMode}
+              options={modeOptions(role)}
+              onChange={(permissionMode) => onChange({ ...role, permissionMode })}
+            />
+          </SettingRow>
+        </Section>
+      )}
 
-      {role.backend === 'claude' && (
+      {teammate && role.backend === 'claude' && (
         <Section>
           <ToolPicker
             label={label}
@@ -263,23 +261,6 @@ export function RolePanel({
             noProject={noProject}
             limits={role.backend === 'claude'}
             onChange={(next) => onChange({ ...role, skills: next })}
-          />
-        </Section>
-      )}
-
-      {!teammate && (
-        <Section>
-          <ChipList
-            label="MCP servers"
-            empty="None. Add them with reef team apply."
-            values={role.mcp.map((m) => (m.label ? `${m.name} · ${m.label}` : m.name))}
-            onRemove={(i) =>
-              onChange({
-                ...role,
-                mcp: role.mcp.filter((_, j) => j !== i),
-                mcpRemove: [...(role.mcpRemove ?? []), role.mcp[i]],
-              })
-            }
           />
         </Section>
       )}

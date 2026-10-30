@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestTeammate_MembershipKeepsCopiedRules(t *testing.T) {
+func TestTeammate_MembershipUsesProfileRules(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
 	if err != nil {
@@ -39,9 +39,9 @@ func TestTeammate_MembershipKeepsCopiedRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	got := team.Roles[1]
-	if got.Name != "sam" || !reflect.DeepEqual(got.Tools, []string{"Read"}) || !got.Write ||
+	if got.Name != "sam" || !reflect.DeepEqual(got.Tools, []string{"Read", "Grep"}) || got.Write ||
 		got.PermissionMode != "acceptEdits" {
-		t.Errorf("member sam = %+v, want tools [Read], write, acceptEdits as copied", got)
+		t.Errorf("member sam = %+v, want tools [Read Grep], no write, acceptEdits", got)
 	}
 	back, err := s.Teammate(ctx, sam.ID)
 	if err != nil || !reflect.DeepEqual(back.Tools, []string{"Read", "Grep"}) || back.Write {

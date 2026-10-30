@@ -167,8 +167,6 @@ func (s *server) addMember(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, viewRole(role))
 }
 
-// editMember replaces the lead flag and access rules of a membership. A body that omits
-// mcpServers keeps the stored ones.
 func (s *server) editMember(w http.ResponseWriter, r *http.Request) {
 	id, err := pathID(r)
 	if err != nil {
@@ -181,18 +179,6 @@ func (s *server) editMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	team := r.PathValue("name")
-	if in.MCPServers == nil {
-		t, err := s.st.Team(r.Context(), team)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		for _, role := range t.Roles {
-			if role.TeammateID == id {
-				in.MCPServers = role.MCPServers
-			}
-		}
-	}
 	role, err := s.st.EditMember(r.Context(), team, id, in)
 	if err != nil {
 		writeError(w, err)

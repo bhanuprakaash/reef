@@ -156,7 +156,6 @@ export type Role = {
   model?: string;
   tools: string[];
   mcp: { name: string; label: string }[];
-  mcpRemove?: { name: string; label: string }[];
 };
 
 export type Provider = {
@@ -173,7 +172,7 @@ export type SkillInfo = { name: string; description: string };
 
 export type Skills = { claude: SkillInfo[]; codex: SkillInfo[] };
 
-export type Teammate = Omit<Role, 'lead' | 'teammateId' | 'mcpRemove'> & { id: number };
+export type Teammate = Omit<Role, 'lead' | 'teammateId'> & { id: number };
 
 export type Team = {
   id: number;

@@ -11,10 +11,7 @@ import (
 	"github.com/bhanuprakaash/reef/agent"
 )
 
-// Teammate is one persistent agent: who it is (persona, skills, face, colour) and what runs it (backend,
-// model, provider). Tools, MCPServers, Write and PermissionMode are its default access rules,
-// copied into a team_member or space_member row when it joins a Team or a Space; editing them
-// later leaves memberships alone.
+// Teammate is one persistent agent and its configuration.
 type Teammate struct {
 	ID             int64             `json:"id"`
 	Name           string            `json:"name"`
@@ -31,14 +28,8 @@ type Teammate struct {
 	PermissionMode string            `json:"permissionMode"`
 }
 
-// Membership is a Teammate's place in one Team: whether it leads, and the access rules it runs
-// with there.
 type Membership struct {
-	Lead           bool              `json:"lead"`
-	Tools          []string          `json:"tools"`
-	MCPServers     []agent.MCPServer `json:"mcpServers"`
-	Write          bool              `json:"write"`
-	PermissionMode string            `json:"permissionMode"`
+	Lead bool `json:"lead"`
 }
 
 const _teammateCols = "id, name, persona, skills, backend, model, provider, face, colour, tools, " +
@@ -98,8 +89,7 @@ func (s *Store) Teammates(ctx context.Context) ([]Teammate, error) {
 	return scanAll(rows, scanTeammate)
 }
 
-// UpdateTeammate replaces every field of the Teammate with t.ID. Teams that hold it keep the
-// access rules they copied.
+// UpdateTeammate replaces every field of the Teammate with t.ID.
 func (s *Store) UpdateTeammate(ctx context.Context, t Teammate) (Teammate, error) {
 	t, err := s.checkTeammate(ctx, t)
 	if err != nil {
@@ -204,35 +194,17 @@ func (s *Store) AddMember(
 	return s.member(ctx, team, teammateID)
 }
 
-// EditMember replaces the lead flag and access rules of the Teammate's place in the team.
+// EditMember replaces the lead flag of the Teammate's place in the team.
 func (s *Store) EditMember(
 	ctx context.Context, team string, teammateID int64, m Membership,
 ) (Role, error) {
 	err := s.changeMembers(ctx, team, func(tx *sql.Tx, teamID int64) error {
-		var name, backend string
-		err := tx.QueryRowContext(ctx, "SELECT name, backend FROM teammate WHERE id = ?", teammateID).
-			Scan(&name, &backend)
-		switch {
-		case errors.Is(err, sql.ErrNoRows):
-			return fmt.Errorf("teammate %d: %w", teammateID, ErrNotFound)
-		case err != nil:
-			return fmt.Errorf("read teammate: %w", err)
-		}
-		if err := validateRole(Role{Name: name, Backend: backend, Write: m.Write,
-			PermissionMode: m.PermissionMode, Tools: m.Tools}); err != nil {
-			return err
-		}
 		if err := checkLead(ctx, tx, teamID, teammateID, m.Lead); err != nil {
 			return err
 		}
-		_, tools, servers, err := encodeLists(nil, m.Tools, m.MCPServers)
-		if err != nil {
-			return err
-		}
 		res, err := tx.ExecContext(ctx,
-			"UPDATE team_member SET lead = ?, tools = ?, mcp_servers = ?, write = ?, "+
-				"permission_mode = ? WHERE team_id = ? AND teammate_id = ?",
-			m.Lead, tools, servers, m.Write, m.PermissionMode, teamID, teammateID)
+			"UPDATE team_member SET lead = ? WHERE team_id = ? AND teammate_id = ?",
+			m.Lead, teamID, teammateID)
 		if err != nil {
 			return fmt.Errorf("update member: %w", err)
 		}
