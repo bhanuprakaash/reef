@@ -12,7 +12,7 @@ type Props = {
 const live: ChainState[] = ['working', 'paused'];
 
 export function CoordinationItem({ chain, faces, open, onOpen }: Props) {
-  const { from, to } = chain.messages[0];
+  const { from, to, fromBotId, toBotId } = chain.messages[0];
   const count = chain.messages.length;
   const verb = live.includes(chain.state) ? 'are coordinating' : 'coordinated';
 
@@ -24,7 +24,7 @@ export function CoordinationItem({ chain, faces, open, onOpen }: Props) {
         onClick={onOpen}
         className="flex w-full items-center gap-3 px-4 py-3 text-left after:absolute after:inset-0 after:rounded-card"
       >
-        <GroupAvatar roles={[from, to]} faces={faces} size={24} />
+        <GroupAvatar roles={[fromBotId, toBotId]} faces={faces} size={24} />
         <span className="min-w-0 flex-1">
           <span className="block text-[14.5px] first-letter:uppercase">
             {`${from} and ${to} ${verb} · ${count} ${count === 1 ? 'message' : 'messages'}`}

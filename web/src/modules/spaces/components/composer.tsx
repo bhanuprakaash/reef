@@ -10,7 +10,8 @@ import { findMention, insertMention } from '@/modules/spaces/utils/mention';
 import { insertFiles, withPaths } from '@/modules/spaces/utils/file-path';
 import { ClipboardChip } from '@/modules/spaces/components/clipboard-chip';
 import { Button } from '@/components/button';
-import { Creature, type CreatureState, type Faces } from '@/components/creature';
+import { Creature, faceOf, type CreatureState, type Faces } from '@/components/creature';
+import type { Role } from '@/types/api';
 import { Menu } from '@/components/menu';
 
 type Props = {
@@ -19,9 +20,10 @@ type Props = {
   paused: boolean;
   parent?: number;
   reason?: string;
-  roles?: string[];
+  roles?: Role[];
   faces?: Faces;
   working?: string;
+  workingBotId?: number;
 };
 
 type DropEvent = {
@@ -56,6 +58,7 @@ export function Composer({
   roles,
   faces,
   working,
+  workingBotId,
 }: Props) {
   const [text, setText] = useDraft(`reef.draft.${spaceId}.${parent ?? 'main'}`);
   const messages = useMessages(spaceId);
@@ -74,7 +77,7 @@ export function Composer({
 
   const mention = closed || paused ? null : findMention(text, caret);
   const matches = mention
-    ? (roles ?? []).filter((name) => name.toLowerCase().startsWith(mention.query.toLowerCase()))
+    ? (roles ?? []).filter((r) => r.name.toLowerCase().startsWith(mention.query.toLowerCase()))
     : [];
   const open = mention !== null && matches.length > 0;
   const highlighted = Math.min(active, matches.length - 1);
@@ -143,8 +146,8 @@ export function Composer({
   }
 
   const narrow = useMediaQuery('(max-width: 767px)');
-  const state = (name: string): CreatureState =>
-    !running ? 'idle' : name === working ? 'working' : 'asleep';
+  const state = (botId: number): CreatureState =>
+    !running ? 'idle' : botId === workingBotId ? 'working' : 'asleep';
   const placeholder = paused
     ? reason
       ? `Paused: ${reason}`
@@ -174,21 +177,23 @@ export function Composer({
           aria-label="Mention"
           className="absolute bottom-full left-4 z-10 mb-2 w-[260px]"
         >
-          {matches.map((name, i) => (
+          {matches.map((role, i) => (
             <div
-              key={name}
+              key={role.botId}
               role="option"
               aria-selected={i === highlighted}
               tabIndex={-1}
               className={`flex h-[38px] cursor-pointer items-center gap-2.5 rounded-lg px-2 ${i === highlighted ? 'bg-hover' : ''}`}
               onMouseDown={(e) => {
                 e.preventDefault();
-                pick(name);
+                pick(role.name);
               }}
             >
-              <Creature look={faces?.[name]} size={22} state={state(name)} />
-              {name}
-              <span className="ml-auto text-xs text-muted">{state(name).replace('-', ' ')}</span>
+              <Creature look={faceOf(faces, role.botId)} size={22} state={state(role.botId)} />
+              {role.name}
+              <span className="ml-auto text-xs text-muted">
+                {state(role.botId).replace('-', ' ')}
+              </span>
             </div>
           ))}
         </Menu>
@@ -277,7 +282,7 @@ export function Composer({
                 }
                 if (e.key === 'Enter' || e.key === 'Tab') {
                   e.preventDefault();
-                  pick(matches[highlighted]);
+                  pick(matches[highlighted].name);
                   return;
                 }
                 if (e.key === 'Escape') {

@@ -11,9 +11,9 @@ type Props = {
   space: SpaceDetail;
   scope: ReactNode;
   status?: string;
-  roles: string[];
+  roles: number[];
   faces: Faces;
-  working: string | null;
+  working: number | null;
   pullRequest: PullRequest | null;
   onPullRequest: () => void;
   pullRequestOpen: boolean;

@@ -21,7 +21,9 @@ const request: DirectMessage = {
   replyToId: null,
   sourceMessageId: null,
   from: 'developer',
+  fromBotId: 1,
   to: 'tester',
+  toBotId: 2,
   body: 'Is the build green?',
   status: 'sent',
   state: 'waiting',
@@ -32,7 +34,9 @@ const response: DirectMessage = {
   id: 2,
   replyToId: 1,
   from: 'tester',
+  fromBotId: 2,
   to: 'developer',
+  toBotId: 1,
   body: 'Yes, all green',
   status: 'done',
   state: undefined,
@@ -106,7 +110,7 @@ describe('CoordinationPanel', () => {
   });
 
   it('shows the text and tool rows of the running direct turn, and nothing without one', () => {
-    const [chain] = groupChains([request], { ...none, running: 'tester' });
+    const [chain] = groupChains([request], { ...none, running: 2 });
     const live = {
       status: 'running' as const,
       directMessageId: 1,

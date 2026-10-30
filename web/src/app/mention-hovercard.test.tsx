@@ -26,7 +26,7 @@ const text = (markup: string) =>
 const render = (role: Role, working: boolean) =>
   renderToStaticMarkup(
     <MemoryRouter>
-      <MentionCard team="full" role={role} working={working} />
+      <MentionCard role={role} working={working} />
     </MemoryRouter>,
   );
 
@@ -37,7 +37,7 @@ describe('MentionCard', () => {
     expect(text(markup)).toBe(
       'developer Claude Code · Sonnet Edit You are the developer. State Working Access Can write Tools 3',
     );
-    expect(markup).toContain('href="/teams?team=full&amp;role=developer"');
+    expect(markup).toContain('href="/bots?bot=1"');
   });
 
   it('shows an idle read-only codex role without tools', () => {

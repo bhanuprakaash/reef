@@ -85,6 +85,7 @@ export type Space = {
   name: string;
   team: string;
   role: string;
+  botId?: number | null;
   backend: string;
   permissionMode: string;
   paused: string;
@@ -111,6 +112,7 @@ export type Proposal = {
   id: number;
   spaceId: number;
   role: string;
+  botId?: number | null;
   kind: 'wrap' | 'brief';
   brief: string;
   items: ProposedItem[];
@@ -124,6 +126,7 @@ export type Message = {
   spaceId: number;
   parentId: number | null;
   author: string;
+  botId?: number | null;
   body: string;
   createdAt: string;
 };
@@ -132,6 +135,7 @@ export type Turn = {
   id: number;
   spaceId: number;
   role: string;
+  botId?: number | null;
   status: string;
   error: string;
   wakeText: string;
@@ -188,7 +192,9 @@ export type DirectMessage = {
   replyToId: number | null;
   sourceMessageId: number | null;
   from: string;
+  fromBotId?: number | null;
   to: string;
+  toBotId?: number | null;
   body: string;
   status: 'sent' | 'done' | 'failed';
   state?: 'waiting' | 'delivered' | 'answered' | 'failed' | 'stopped';
@@ -244,6 +250,7 @@ export type InspectorToolCall = {
 export type InspectorTurn = {
   id: number;
   role: string;
+  botId?: number | null;
   startedAt: string;
   status: string;
   model: string;
@@ -255,6 +262,7 @@ export type InspectorTurn = {
 
 export type InspectorRole = {
   role: string;
+  botId?: number | null;
   turns: number;
   usage: Usage;
   costUsd: number | null;

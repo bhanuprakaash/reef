@@ -12,7 +12,7 @@ import { messageTime, showTimestamp, timestampLabel } from '@/modules/spaces/uti
 import { checkResult, pullRequestNote } from '@/modules/spaces/utils/pull-request';
 import { latestMessageAnchor } from '@/utils/anchors';
 import { Button } from '@/components/button';
-import { Creature, GroupAvatar, type Faces } from '@/components/creature';
+import { Creature, faceOf, GroupAvatar, type Faces } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 import { StatusDot } from '@/components/status-dot';
 
@@ -70,13 +70,13 @@ export function MessageList({
   }
 
   const newest = Math.max(...threads.map(({ root, replies }) => (replies.at(-1) ?? root).id));
-  const firstId = new Map<string, number>();
+  const firstId = new Map<number, number>();
   for (const { root, replies } of threads) {
     for (const m of [root, ...replies]) {
-      firstId.set(m.author, Math.min(m.id, firstId.get(m.author) ?? m.id));
+      if (m.botId != null) firstId.set(m.botId, Math.min(m.id, firstId.get(m.botId) ?? m.id));
     }
   }
-  const founder = Math.min(...[...firstId].filter(([author]) => isBot(author)).map(([, id]) => id));
+  const founder = Math.min(...firstId.values());
   const now = new Date();
   const anchors = checkpointAnchor(turns, checkpoints, threads);
   const before: Chain[][] = threads.map(() => []);
@@ -102,11 +102,15 @@ export function MessageList({
         const previous = threads[i - 1]?.root;
         const stamped = showTimestamp(previous?.createdAt, root.createdAt);
         const joined =
-          isBot(root.author) && firstId.get(root.author) === root.id && root.id !== founder;
-        const named = isBot(root.author) && (stamped || joined || previous?.author !== root.author);
+          root.botId != null && firstId.get(root.botId) === root.id && root.id !== founder;
+        const named =
+          isBot(root.author) &&
+          (stamped || joined || previous?.botId !== root.botId || root.botId == null);
         const pullRequest = pullRequestNote(root);
         const check = checkResult(root);
-        const repliers = [...new Set(replies.map((r) => r.author).filter(isBot))];
+        const repliers = [
+          ...new Set(replies.filter((r) => isBot(r.author)).map((r) => r.botId ?? null)),
+        ];
         const anchor = anchors.get(root.id);
         return (
           <Fragment key={root.id}>
@@ -119,7 +123,7 @@ export function MessageList({
             {joined && (
               <li className="flex items-center justify-center gap-2 py-2.5 text-sm text-muted">
                 Joined
-                <Creature look={faces[root.author]} size={18} />
+                <Creature look={faceOf(faces, root.botId)} size={18} />
                 <span className="capitalize text-fg">{root.author}</span>
               </li>
             )}
@@ -169,7 +173,7 @@ export function MessageList({
                 </>
               ) : (
                 <>
-                  {named && <Author name={root.author} look={faces[root.author]} />}
+                  {named && <Author name={root.author} look={faceOf(faces, root.botId)} />}
                   <Bubble own={root.author === 'user'} ringed={root.id === openId}>
                     {root.body}
                   </Bubble>

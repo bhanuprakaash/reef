@@ -15,15 +15,7 @@ function modelLabel(role: Role) {
   return known ? known.label : role.model;
 }
 
-export function MentionCard({
-  team,
-  role,
-  working,
-}: {
-  team: string;
-  role: Role;
-  working: boolean;
-}) {
+export function MentionCard({ role, working }: { role: Role; working: boolean }) {
   const description = role.description.split('\n')[0];
   return (
     <div className="flex flex-col gap-3">
@@ -36,7 +28,7 @@ export function MentionCard({
           </div>
         </div>
         <Link
-          to={`/teams?${new URLSearchParams({ team, role: role.name })}`}
+          to={`/bots?bot=${role.botId}`}
           className="rounded-sm text-[13px] text-soft outline-none hover:text-fg focus-visible:ring-2 focus-visible:ring-ring"
         >
           Edit
@@ -74,12 +66,12 @@ export function MentionCardsProvider({
   const teams = useTeams();
   const running = useRunningTurns();
   const found = teams.data?.find((t) => t.name === team);
-  const working = (running.data ?? []).filter((t) => t.spaceId === spaceId).map((t) => t.role);
+  const working = (running.data ?? []).filter((t) => t.spaceId === spaceId).map((t) => t.botId);
 
   function card(name: string) {
     const role = found?.roles.find((r) => r.name === name);
     if (!found || !role) return null;
-    return <MentionCard team={team} role={role} working={working.includes(name)} />;
+    return <MentionCard role={role} working={working.includes(role.botId)} />;
   }
 
   return <MentionCards.Provider value={card}>{children}</MentionCards.Provider>;

@@ -8,7 +8,7 @@ type Props = { space: Space; roles: Role[]; running: boolean };
 export function DeniedToolRows({ space, roles }: Props) {
   const inspector = useInspector(space.id, true);
   const rows = deniedTools(inspector.data?.turns ?? []).flatMap((d) => {
-    const role = roles.find((r) => r.name === d.role);
+    const role = roles.find((r) => r.botId === d.botId);
     return role ? [{ ...d, role }] : [];
   });
 

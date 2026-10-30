@@ -3,7 +3,7 @@ import { useDecideProposal } from '@/modules/spaces/api/decide-proposal';
 import { useProposal } from '@/modules/spaces/api/get-proposal';
 import { ProposalBody } from '@/modules/spaces/components/proposal-body';
 import { Button } from '@/components/button';
-import { Creature, type Faces } from '@/components/creature';
+import { Creature, faceOf, type Faces } from '@/components/creature';
 
 export function ProposalPanel({
   spaceId,
@@ -59,7 +59,7 @@ export function ProposalPanel({
       className="flex scroll-mb-44 flex-col gap-2.5 rounded-card border border-line bg-card p-4 [--creature-ring:var(--color-card)]"
     >
       <div className="flex items-center gap-2">
-        <Creature look={faces[p.role]} size={22} />
+        <Creature look={faceOf(faces, p.botId)} size={22} />
         <h2>{p.kind === 'brief' ? 'Brief update' : `Wrap-up proposal from ${p.role}`}</h2>
         <span className="ml-auto text-[12.5px] text-muted">{summary}</span>
       </div>

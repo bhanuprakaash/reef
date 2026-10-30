@@ -1,6 +1,12 @@
 import type { InspectorToolCall, InspectorTurn } from '@/types/api';
 
-export type Denial = { turnId: number; role: string; pattern: string; needsWrite: boolean };
+export type Denial = {
+  turnId: number;
+  botId: number;
+  role: string;
+  pattern: string;
+  needsWrite: boolean;
+};
 
 const _editTools = ['Edit', 'Write', 'MultiEdit', 'NotebookEdit'];
 const _notGranted = /^Claude requested permissions to use \S+, but you haven't granted it yet\./;
@@ -25,12 +31,14 @@ function withChildren(call: InspectorToolCall): InspectorToolCall[] {
 }
 
 export function deniedTools(turns: InspectorTurn[]): Denial[] {
-  const latest = new Map<string, InspectorTurn>();
+  const latest = new Map<number, InspectorTurn>();
   for (const turn of turns) {
-    if (turn.id > (latest.get(turn.role)?.id ?? 0)) latest.set(turn.role, turn);
+    if (turn.botId != null && turn.id > (latest.get(turn.botId)?.id ?? 0)) {
+      latest.set(turn.botId, turn);
+    }
   }
   const found: Denial[] = [];
-  for (const turn of latest.values()) {
+  for (const [botId, turn] of latest) {
     if (turn.status === 'running') continue;
     for (const call of turn.toolCalls.flatMap(withChildren)) {
       const disabled = _disabled.exec(call.result)?.[1];
@@ -46,6 +54,7 @@ export function deniedTools(turns: InspectorTurn[]): Denial[] {
       if (found.some((d) => d.turnId === turn.id && d.pattern === pattern)) continue;
       found.push({
         turnId: turn.id,
+        botId,
         role: turn.role,
         pattern,
         needsWrite: disabled !== undefined,

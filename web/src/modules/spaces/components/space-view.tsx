@@ -40,6 +40,7 @@ import { groupThreads } from '@/modules/spaces/utils/group-threads';
 import { latestPullRequest } from '@/modules/spaces/utils/pull-request';
 import type { SpaceDetail, WorkItem } from '@/types/api';
 import { Button } from '@/components/button';
+import { faceOf } from '@/components/creature';
 
 type Props = {
   space: SpaceDetail;
@@ -97,9 +98,10 @@ export function SpaceView({
     side?.kind === 'thread' ? threads.find((t) => t.root.id === side.rootId) : undefined;
   const members = useSpaceMembers(space.id);
   const roles = members.data ?? [];
-  const faces = Object.fromEntries(roles.map((r) => [r.name, r]));
+  const faces = Object.fromEntries(roles.map((r) => [r.botId, r]));
+  const workingBotId = turn.botId ?? roles.find((r) => r.lead)?.botId;
   const working = turn.role || space.role || 'agent';
-  const look = faces[working];
+  const look = faceOf(faces, workingBotId);
   const action = browserAction(turn);
   const last = messages.data?.at(-1);
   const { box, onScroll, atBottom, toBottom } = useStickToBottom(
@@ -108,7 +110,7 @@ export function SpaceView({
   const chains = groupChains(direct.data ?? [], {
     retryable: failedTurns.data ?? [],
     paused: space.paused !== '',
-    running: (running || turn.status === 'done') && turn.directMessageId ? turn.role : undefined,
+    running: (running || turn.status === 'done') && turn.directMessageId ? turn.botId : undefined,
   });
   const turns = useSpaceTurns(space.id).data ?? [];
   const rollbackable = useTurns(space.id).data ?? [];
@@ -152,9 +154,9 @@ export function SpaceView({
         space={space}
         scope={scope}
         status={status}
-        roles={roles.length > 0 ? roles.map((r) => r.name) : [space.role]}
+        roles={roles.map((r) => r.botId)}
         faces={faces}
-        working={running ? working : null}
+        working={running ? (workingBotId ?? null) : null}
         pullRequest={latestPullRequest(messages.data ?? [])}
         onPullRequest={() => openSide(side?.kind === 'pr' ? null : { kind: 'pr' })}
         pullRequestOpen={side?.kind === 'pr'}
@@ -285,9 +287,10 @@ export function SpaceView({
                   running={running}
                   paused={blocksUser(space.paused)}
                   reason={space.paused}
-                  roles={roles.map((r) => r.name)}
+                  roles={roles}
                   faces={faces}
                   working={working}
+                  workingBotId={workingBotId}
                 />
               )}
             </div>
@@ -326,12 +329,13 @@ export function SpaceView({
                   spaceId={space.id}
                   thread={thread}
                   lead={space.role}
-                  roles={roles.map((r) => r.name)}
+                  roles={roles}
                   faces={faces}
                   running={running}
                   paused={blocksUser(space.paused)}
                   reason={space.paused}
                   working={working}
+                  workingBotId={workingBotId}
                   closed={closed}
                   onClose={closeSide}
                 />
@@ -388,7 +392,7 @@ export function SpaceView({
                 spaceId={space.id}
                 workItemId={space.workItemId}
                 roles={roles}
-                working={running ? working : null}
+                working={running ? (workingBotId ?? null) : null}
                 brief={brief}
                 onClose={() => setTeamOpen(false)}
               />

@@ -3,11 +3,13 @@ import type { Message, Turn } from '@/types/api';
 import { checkpointAnchor, unanchoredCheckpoints } from './checkpoint-anchor';
 import { groupThreads } from './group-threads';
 
+const botIds: Record<string, number> = { developer: 1, tester: 2, lead: 3 };
 const message = (id: number, author: string, createdAt: string): Message => ({
   id,
   spaceId: 2,
   parentId: null,
   author,
+  botId: botIds[author] ?? null,
   body: `body ${id}`,
   createdAt,
 });
@@ -15,6 +17,7 @@ const turn = (id: number, role: string, startedAt: string): Turn => ({
   id,
   spaceId: 2,
   role,
+  botId: botIds[role],
   status: 'done',
   error: '',
   wakeText: '',
@@ -40,6 +43,14 @@ describe('checkpointAnchor', () => {
 
     expect(anchors.get(2)?.id).toBe(7);
     expect(anchors.size).toBe(1);
+  });
+
+  it('follows the Bot id, so a message from another Bot with the same name does not anchor', () => {
+    const reused = groupThreads([{ ...message(2, 'developer', '2026-10-18T10:03:00Z'), botId: 9 }]);
+    const checkpoint = turn(7, 'developer', '2026-10-18T10:02:00Z');
+
+    expect(checkpointAnchor([checkpoint], [checkpoint], reused).size).toBe(0);
+    expect(checkpointAnchor([checkpoint], [checkpoint], threads).get(4)?.id).toBe(7);
   });
 
   it('anchors nothing when the role posted nothing in the turn', () => {

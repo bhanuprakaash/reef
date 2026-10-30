@@ -21,12 +21,12 @@ export type Chain = {
 type Context = {
   retryable: Turn[];
   paused: boolean;
-  running?: string;
+  running?: number;
 };
 
 function stateOf(request: DirectMessage, ctx: Context): ChainState {
   if (request.state === 'stopped') return 'stopped';
-  if (request.state === 'failed') return ctx.running === request.to ? 'working' : 'failed';
+  if (request.state === 'failed') return ctx.running === request.toBotId ? 'working' : 'failed';
   if (ctx.paused) return 'paused';
   return request.state === 'answered' ? 'completed' : 'working';
 }
@@ -34,7 +34,7 @@ function stateOf(request: DirectMessage, ctx: Context): ChainState {
 export function groupChains(direct: DirectMessage[], ctx: Context): Chain[] {
   const byPair = new Map<string, DirectMessage[]>();
   for (const m of direct) {
-    const key = [...[m.from, m.to].sort(), m.sourceMessageId].join('|');
+    const key = [...[m.fromBotId, m.toBotId].sort(), m.sourceMessageId].join('|');
     byPair.set(key, [...(byPair.get(key) ?? []), m]);
   }
   return [...byPair.values()].map((messages) => {

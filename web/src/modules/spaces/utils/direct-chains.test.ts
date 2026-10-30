@@ -9,7 +9,9 @@ const request: DirectMessage = {
   replyToId: null,
   sourceMessageId: null,
   from: 'developer',
+  fromBotId: 1,
   to: 'tester',
+  toBotId: 2,
   body: 'Is the build green?',
   status: 'sent',
   state: 'waiting',
@@ -20,7 +22,9 @@ const response: DirectMessage = {
   id: 2,
   replyToId: 1,
   from: 'tester',
+  fromBotId: 2,
   to: 'developer',
+  toBotId: 1,
   body: 'Yes',
   status: 'done',
   state: undefined,
@@ -32,7 +36,7 @@ const turn = (error: string) => ({ id: 5, directMessageId: 1, error }) as Turn;
 
 describe('groupChains', () => {
   it('groups messages in order, one chain per role pair', () => {
-    const other = { ...request, id: 3, chainId: 3, to: 'lead' };
+    const other = { ...request, id: 3, chainId: 3, to: 'lead', toBotId: 3 };
     const chains = groupChains([request, other, response], none);
 
     expect(chains.map((c) => [c.id, c.messages.map((m) => m.id)])).toEqual([
@@ -44,7 +48,7 @@ describe('groupChains', () => {
   it('is working until the request is answered, whatever runs', () => {
     expect(groupChains([request], none)[0].state).toBe('working');
     expect(groupChains([{ ...request, state: 'delivered' }], none)[0].state).toBe('working');
-    expect(groupChains([request], { ...none, running: 'tester' })[0].state).toBe('working');
+    expect(groupChains([request], { ...none, running: 2 })[0].state).toBe('working');
   });
 
   it('is paused when the Space is paused and the request is not failed', () => {
@@ -63,12 +67,20 @@ describe('groupChains', () => {
   });
 
   it('is working when the recipient runs a retry of a failed attempt', () => {
-    expect(groupChains([failed], { ...none, running: 'tester' })[0].state).toBe('working');
-    expect(groupChains([failed], { ...none, running: 'lead' })[0].state).toBe('failed');
+    expect(groupChains([failed], { ...none, running: 2 })[0].state).toBe('working');
+    expect(groupChains([failed], { ...none, running: 3 })[0].state).toBe('failed');
   });
 
   it('is one item per role pair and source, counting the messages of every chain', () => {
-    const second = { ...request, id: 3, chainId: 3, from: 'tester', to: 'developer' };
+    const second = {
+      ...request,
+      id: 3,
+      chainId: 3,
+      from: 'tester',
+      fromBotId: 2,
+      to: 'developer',
+      toBotId: 1,
+    };
     const third = { ...request, id: 4, chainId: 4 };
     const [one] = groupChains([request], none);
     const [two] = groupChains([request, response, second], none);
@@ -89,7 +101,7 @@ describe('groupChains', () => {
   });
 
   it('keeps different pairs, and different sources of one pair, apart', () => {
-    const lead = { ...request, id: 3, chainId: 3, to: 'lead' };
+    const lead = { ...request, id: 3, chainId: 3, to: 'lead', toBotId: 3 };
     const sourced = { ...request, id: 4, chainId: 4, sourceMessageId: 7 };
 
     expect(groupChains([request, lead, sourced], none).map((c) => c.id)).toEqual([1, 3, 4]);

@@ -11,7 +11,9 @@ const request: DirectMessage = {
   replyToId: null,
   sourceMessageId: null,
   from: 'developer',
+  fromBotId: 1,
   to: 'tester',
+  toBotId: 2,
   body: 'Secret body',
   status: 'sent',
   state: 'waiting',
@@ -22,7 +24,9 @@ const response: DirectMessage = {
   id: 2,
   replyToId: 1,
   from: 'tester',
+  fromBotId: 2,
   to: 'developer',
+  toBotId: 1,
   status: 'done',
   state: undefined,
 };
@@ -41,7 +45,7 @@ function render(messages: DirectMessage[], ctx: Partial<Parameters<typeof groupC
 
 describe('CoordinationItem', () => {
   it('is one button naming the pair, the count and the state, without any message body', () => {
-    const markup = render([request], { running: 'tester' });
+    const markup = render([request], { running: 2 });
 
     expect(markup).toContain('developer and tester are coordinating · 1 message<');
     expect(markup).toContain('</span>working</span>');

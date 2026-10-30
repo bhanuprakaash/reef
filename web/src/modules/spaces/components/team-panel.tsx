@@ -10,7 +10,7 @@ type Props = {
   spaceId: number;
   workItemId: number | null;
   roles: Role[];
-  working: string | null;
+  working: number | null;
   brief?: string;
   onClose: () => void;
 };
@@ -29,7 +29,7 @@ export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose 
   const inspector = useInspector(spaceId, true);
 
   function stateOf(role: Role): CreatureState {
-    if (role.name === working) return 'working';
+    if (role.botId === working) return 'working';
     return role.lead ? 'idle' : 'asleep';
   }
 
@@ -61,10 +61,10 @@ export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose 
         <ul className="space-y-0.5">
           {roles.map((role) => {
             const state = stateOf(role);
-            const usage = inspector.data?.roles.find((r) => r.role === role.name)?.usage;
+            const usage = inspector.data?.roles.find((r) => r.botId === role.botId)?.usage;
             return (
               <li
-                key={role.name}
+                key={role.botId}
                 className={`flex items-center gap-3 rounded-field px-1.5 py-2 ${state === 'working' ? 'bg-card' : ''}`}
               >
                 <Creature look={role} state={state} size={30} animate />
