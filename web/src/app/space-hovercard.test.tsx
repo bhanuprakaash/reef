@@ -32,8 +32,6 @@ const space: SpacePreview = {
   name: 'build',
   team: 'full',
   role: 'lead',
-  backend: 'claude',
-  permissionMode: 'default',
   paused: '',
   createdAt: '',
   closedAt: null,

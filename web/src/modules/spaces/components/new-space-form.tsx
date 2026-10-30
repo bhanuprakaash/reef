@@ -23,7 +23,7 @@ export function NewSpaceForm({ projectId, workItemId, itemTeam, onClose }: Props
   const navigate = useNavigate();
   const nameId = useId();
   const teamList = (
-    teams.data ?? [{ name: 'solo', roles: [{ name: 'lead', face: 'jellyfish' }] }]
+    teams.data ?? [{ name: 'solo', roles: [{ botId: 0, name: 'lead', face: 'jellyfish' }] }]
   ).filter((t) => itemTeam === undefined || t.name === itemTeam);
 
   return (
@@ -74,8 +74,8 @@ export function NewSpaceForm({ projectId, workItemId, itemTeam, onClose }: Props
               }`}
             >
               <GroupAvatar
-                roles={t.roles.map((r) => r.name)}
-                faces={Object.fromEntries(t.roles.map((r) => [r.name, r]))}
+                roles={t.roles.map((r) => r.botId)}
+                faces={Object.fromEntries(t.roles.map((r) => [r.botId, r]))}
                 size={26}
               />
               <span className="truncate">{t.name}</span>

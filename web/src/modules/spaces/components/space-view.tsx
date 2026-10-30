@@ -360,7 +360,11 @@ export function SpaceView({
               {turnOpen && <TurnPanel turn={turn} role={working} look={look} onClose={closeSide} />}
               {wide && diffPanel?.(closeSide)}
               {side?.kind === 'inspector' && (
-                <InspectorPanel spaceId={space.id} faces={faces} onClose={closeSide} />
+                <InspectorPanel
+                  spaceId={space.id}
+                  faces={Object.fromEntries(roles.map((r) => [r.name, r]))}
+                  onClose={closeSide}
+                />
               )}
               {side?.kind === 'pr' && space.workItemId !== null && (
                 <PrPanel workItemId={space.workItemId} onClose={closeSide} />

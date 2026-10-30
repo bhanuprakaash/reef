@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
-import { botRequestBody } from '@/modules/teams/api/bot-request-body';
+import { botRequestBody } from '@/lib/api/bot-request-body';
 import type { Role, Bot } from '@/types/api';
 
 export function useUpdateBot() {

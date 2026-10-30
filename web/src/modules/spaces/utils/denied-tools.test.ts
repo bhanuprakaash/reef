@@ -2,13 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { deniedTools, isAllowed } from './denied-tools';
 import type { InspectorTurn } from '@/types/api';
 
-const botIds: Record<string, number> = { lead: 3, dev: 1, tester: 2 };
-
 function turn(id: number, role: string, calls: [string, string, string][], status = 'done') {
   return {
     id,
     role,
-    botId: botIds[role],
     status,
     toolCalls: calls.map(([name, input, result]) => ({ name, input, result })),
   } as InspectorTurn;
@@ -21,7 +18,7 @@ const disabled =
 describe('deniedTools', () => {
   it('finds a tool the role was not granted', () => {
     expect(deniedTools([turn(1, 'lead', [['WebFetch', '{}', notGranted]])])).toEqual([
-      { turnId: 1, botId: 3, role: 'lead', pattern: 'WebFetch', needsWrite: false },
+      { turnId: 1, role: 'lead', pattern: 'WebFetch', needsWrite: false },
     ]);
   });
 
@@ -29,7 +26,6 @@ describe('deniedTools', () => {
     const nested = {
       id: 1,
       role: 'lead',
-      botId: 3,
       status: 'done',
       toolCalls: [
         {
@@ -41,7 +37,7 @@ describe('deniedTools', () => {
       ],
     } as InspectorTurn;
     expect(deniedTools([nested])).toEqual([
-      { turnId: 1, botId: 3, role: 'lead', pattern: 'WebFetch', needsWrite: false },
+      { turnId: 1, role: 'lead', pattern: 'WebFetch', needsWrite: false },
     ]);
   });
 
@@ -69,7 +65,7 @@ describe('deniedTools', () => {
 
   it('marks a disabled edit tool as needing write access', () => {
     expect(deniedTools([turn(1, 'tester', [['Write', '{}', disabled]])])).toEqual([
-      { turnId: 1, botId: 2, role: 'tester', pattern: 'Write', needsWrite: true },
+      { turnId: 1, role: 'tester', pattern: 'Write', needsWrite: true },
     ]);
   });
 

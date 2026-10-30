@@ -1,14 +1,17 @@
+import { useAddBotTool } from '@/lib/api/add-bot-tool';
 import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { deniedTools, isAllowed } from '@/modules/spaces/utils/denied-tools';
 import type { Space, Role } from '@/types/api';
+import { Button } from '@/components/button';
 import { Creature } from '@/components/creature';
 
 type Props = { space: Space; roles: Role[]; running: boolean };
 
-export function DeniedToolRows({ space, roles }: Props) {
+export function DeniedToolRows({ space, roles, running }: Props) {
   const inspector = useInspector(space.id, true);
+  const add = useAddBotTool();
   const rows = deniedTools(inspector.data?.turns ?? []).flatMap((d) => {
-    const role = roles.find((r) => r.botId === d.botId);
+    const role = roles.find((r) => r.name === d.role);
     return role ? [{ ...d, role }] : [];
   });
 
@@ -19,7 +22,6 @@ export function DeniedToolRows({ space, roles }: Props) {
       <ul className="space-y-2">
         {rows.map((d) => {
           const lead = d.role.lead;
-          const backend = lead ? space.backend : d.role.backend;
           const added = isAllowed(d.role.tools, d.pattern);
           return (
             <li
@@ -32,19 +34,33 @@ export function DeniedToolRows({ space, roles }: Props) {
                 {' was denied '}
                 <code className="font-mono text-[13px]">{d.pattern}</code>
               </p>
-              {backend === 'codex' ? (
+              {d.role.backend === 'codex' ? (
                 <span className="text-[13px] text-muted">Codex ignores allowed tools</span>
               ) : d.needsWrite && !d.role.write ? (
                 <span className="text-[13px] text-muted">Needs write access</span>
               ) : added ? (
                 <span className="text-[13px] text-done">Added</span>
               ) : (
-                <span className="text-[13px] text-muted">Edit this Bot to allow the tool</span>
+                <Button
+                  variant="primary"
+                  type="button"
+                  disabled={running || add.isPending}
+                  onClick={() =>
+                    add.mutate({
+                      role: d.role,
+                      pattern: d.pattern,
+                      stopSpace: lead ? space.id : undefined,
+                    })
+                  }
+                >
+                  Add to role
+                </Button>
               )}
             </li>
           );
         })}
       </ul>
+      {add.isError && <p className="text-sm text-danger">{add.error.message}</p>}
     </div>
   );
 }

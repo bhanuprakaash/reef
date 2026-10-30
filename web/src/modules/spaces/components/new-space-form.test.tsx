@@ -9,7 +9,12 @@ vi.mock('@/modules/spaces/api/create-space', () => ({
 vi.mock('@/lib/api/get-teams', () => ({
   useTeams: () => ({
     data: [
-      { id: 1, name: 'solo', responsibility: '', roles: [{ name: 'lead', face: 'jellyfish' }] },
+      {
+        id: 1,
+        name: 'solo',
+        responsibility: '',
+        roles: [{ botId: 1, name: 'lead', face: 'jellyfish' }],
+      },
     ],
   }),
 }));

@@ -27,7 +27,7 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
   const waiting = inbox.data ?? [];
   const faces =
     c.kind === 'conversation'
-      ? { [c.role]: bots.data?.find((t) => t.id === c.botId) }
+      ? { [c.role]: bots.data?.find((t) => t.name === c.role) }
       : roleFaces(teams.data, c.team);
   const roles = Object.keys(faces);
   const roleNames = (running.data ?? []).filter((t) => t.spaceId === c.id).map((t) => t.role);

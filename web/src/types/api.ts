@@ -85,9 +85,6 @@ export type Space = {
   name: string;
   team: string;
   role: string;
-  botId?: number | null;
-  backend: string;
-  permissionMode: string;
   paused: string;
   createdAt: string;
   closedAt: string | null;
@@ -250,7 +247,6 @@ export type InspectorToolCall = {
 export type InspectorTurn = {
   id: number;
   role: string;
-  botId?: number | null;
   startedAt: string;
   status: string;
   model: string;
@@ -262,7 +258,6 @@ export type InspectorTurn = {
 
 export type InspectorRole = {
   role: string;
-  botId?: number | null;
   turns: number;
   usage: Usage;
   costUsd: number | null;

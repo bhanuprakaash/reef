@@ -10,8 +10,6 @@ const space = (id: number, team: string): Space => ({
   name: `c${id}`,
   team,
   role: 'lead',
-  backend: 'claude',
-  permissionMode: 'acceptEdits',
   paused: '',
   createdAt: '',
   closedAt: null,
