@@ -140,7 +140,7 @@ func TestFailRunningTurns_MissingDirectMessageDoesNotBlock(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c", Backend: "claude"})
+	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -182,7 +182,7 @@ func TestFailRunningTurns_ValidDirectRecovery(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c", Backend: "claude"})
+	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -221,11 +221,11 @@ func TestClearStaleActiveTurns(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	stale, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "stale", Backend: "claude"})
+	stale, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "stale"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	kept, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "kept", Backend: "claude"})
+	kept, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "kept"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -258,7 +258,7 @@ func TestClearActiveTurnIf(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c", Backend: "claude"})
+	ch, err := s.CreateSpace(ctx, Space{ProjectID: 1, Name: "c"})
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -370,15 +370,15 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 	if err != nil {
 		return c.release(err)
 	}
-	if t.kind == _message {
-		s.nameSpace(ctx, id, ch.Backend, t.text)
-	}
 	team, err := s.st.SpaceTeam(ctx, id)
 	if err != nil {
 		return c.release(err)
 	}
 	if len(team.Roles) == 0 {
 		return c.release(fmt.Errorf("Space %d has no lead: %w", id, store.ErrConflict))
+	}
+	if t.kind == _message {
+		s.nameSpace(ctx, id, team.Roles[0].Backend, t.text)
 	}
 	leadID := team.Roles[0].BotID
 	queue := []wake{{from: _userAuthor, role: role, botID: &leadID, text: t.text, parent: t.parent}}

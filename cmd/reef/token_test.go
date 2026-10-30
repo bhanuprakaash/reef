@@ -53,9 +53,8 @@ func TestCLI_Token(t *testing.T) {
 				t.Errorf("token = %+v, %v, want role lead on Space 1", tok, err)
 			}
 			ch, err := st.Space(context.Background(), 1)
-			if err != nil || ch.Name != "lead (claude code)" || ch.Role != "lead" ||
-				ch.Backend != "claude" {
-				t.Errorf("space = %+v, %v, want lead role and claude backend", ch, err)
+			if err != nil || ch.Name != "lead (claude code)" || ch.Role != "lead" {
+				t.Errorf("space = %+v, %v, want lead role", ch, err)
 			}
 		})
 	}

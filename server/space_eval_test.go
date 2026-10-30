@@ -467,7 +467,7 @@ func newEval(t *testing.T, backend string) *evalEnv {
 	e.serve()
 	do(t, http.MethodPost, e.url+"/projects", `{"name":"reef","path":"`+t.TempDir()+`"}`)
 	do(t, http.MethodPost, e.url+"/spaces",
-		`{"projectId":1,"name":"browser issue","backend":"`+backend+`","team":"small"}`)
+		`{"projectId":1,"name":"browser issue","team":"small"}`)
 	return e
 }
 

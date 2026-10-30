@@ -52,7 +52,7 @@ func TestSession_OneBotRunsWithProfileAccess(t *testing.T) {
 	for _, tt := range tests {
 		ch, err := st.CreateSpace(ctx, store.Space{
 			ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: tt.team, Role: "lead",
-			Backend: "claude", Team: tt.team,
+			Team: tt.team,
 		})
 		if err != nil {
 			t.Fatal(err)

@@ -82,13 +82,13 @@ func TestAttach_RefusedWhenTheWorkItemHasAnActiveSpace(t *testing.T) {
 	gitProject(t, env, 1)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
 	if status, body := do(t, http.MethodPost, env.url+"/spaces",
-		`{"projectId":1,"workItemId":1,"name":"c","backend":"claude"}`); status != 201 {
+		`{"projectId":1,"workItemId":1,"name":"c"}`); status != 201 {
 		t.Fatalf("create = %d %s, want 201", status, body)
 	}
 	const want = `{"error":"conflict: work item 1 already has an active Space"}`
 
 	if status, body := do(t, http.MethodPost, env.url+"/spaces",
-		`{"projectId":1,"workItemId":1,"name":"again","backend":"claude"}`); status != 409 || body != want {
+		`{"projectId":1,"workItemId":1,"name":"again"}`); status != 409 || body != want {
 		t.Errorf("second Space of work item 1 = %d %s, want 409 %s", status, body, want)
 	}
 	if status, body := do(t, http.MethodPost, env.url+"/spaces/1/attach", `{"workItemId":1}`); status != 409 || body != want {
@@ -224,7 +224,7 @@ func TestCreateSpace_FromABotAddsMembersOneByOne(t *testing.T) {
 func TestProposalRoutes(t *testing.T) {
 	env := newLiveEnv(t)
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Login"}`)
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"c","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"c"}`)
 	if status, body := do(t, http.MethodGet, env.url+"/spaces/2/proposal", ""); status != 404 ||
 		body != `{"error":"pending proposal of Space 2: not found"}` {
 		t.Errorf("proposal before = %d %s, want 404", status, body)

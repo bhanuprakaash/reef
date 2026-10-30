@@ -113,7 +113,7 @@ func TestBotConversations_NewestActivityFirstAndOnlyOwnConversations(t *testing.
 	}
 	start := func(name string, with Bot, kind string) Space {
 		c, err := s.CreateBotSpace(ctx,
-			Space{ProjectID: 1, Name: name, Kind: kind, Role: with.Name, Backend: "claude"}, with.ID)
+			Space{ProjectID: 1, Name: name, Kind: kind, Role: with.Name}, with.ID)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -152,7 +152,7 @@ func TestBotSpace_HasOneLeadAndTakesMoreOneByOne(t *testing.T) {
 		t.Fatal(err)
 	}
 	chat, err := s.CreateBotSpace(ctx,
-		Space{ProjectID: 1, Name: "chat", Kind: KindConversation, Role: "sam", Backend: "claude"}, sam.ID)
+		Space{ProjectID: 1, Name: "chat", Kind: KindConversation, Role: "sam"}, sam.ID)
 	if err != nil || chat.Kind != KindConversation || chat.Team != "" {
 		t.Fatalf("conversation = %+v, %v, want kind conversation and no team", chat, err)
 	}
@@ -161,7 +161,7 @@ func TestBotSpace_HasOneLeadAndTakesMoreOneByOne(t *testing.T) {
 	}
 
 	free, err := s.CreateBotSpace(ctx,
-		Space{ProjectID: 1, Name: "free", Role: "sam", Backend: "claude"}, sam.ID)
+		Space{ProjectID: 1, Name: "free", Role: "sam"}, sam.ID)
 	if err != nil || free.Kind != KindFree {
 		t.Fatalf("free Space = %+v, %v, want kind free", free, err)
 	}
@@ -233,7 +233,7 @@ func TestMoveConversation_FreeSpaceWithBothBotsAndTheConversationMarked(t *testi
 		t.Fatal(err)
 	}
 	conv, err := s.CreateBotSpace(ctx,
-		Space{ProjectID: 1, Name: "talk", Kind: KindConversation, Role: "sam", Backend: "claude"}, sam.ID)
+		Space{ProjectID: 1, Name: "talk", Kind: KindConversation, Role: "sam"}, sam.ID)
 	if err != nil {
 		t.Fatal(err)
 	}

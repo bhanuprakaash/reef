@@ -124,8 +124,7 @@ func editBot(t *testing.T, st *store.Store, name string, edit func(*store.Bot)) 
 func sessionSpace(t *testing.T, st *store.Store, f store.WorkItem, quick bool) store.Space {
 	t.Helper()
 	c := store.Space{
-		ProjectID: f.ProjectID, Name: "chat", Role: "architect", Backend: "claude",
-		PermissionMode: "acceptEdits",
+		ProjectID: f.ProjectID, Name: "chat", Role: "architect",
 	}
 	if !quick {
 		c.WorkItemID = &f.ID
@@ -358,7 +357,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -446,7 +445,7 @@ func TestSession_RunAsMemberAddedAfterOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -499,7 +498,7 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -570,7 +569,7 @@ func TestSession_MissingSessionStartsNewOne(t *testing.T) {
 			}
 			ch, err := st.CreateSpace(ctx, store.Space{
 				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
-				Backend: "claude", Team: "core",
+				Team: "core",
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -685,7 +684,7 @@ func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -734,7 +733,7 @@ func TestSession_TeamWriteEditLeavesRunningSpaceAlone(t *testing.T) {
 				t.Fatal(err)
 			}
 			ch, err := st.CreateSpace(ctx, store.Space{
-				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 				Team: "core",
 			})
 			if err != nil {
@@ -785,7 +784,7 @@ func TestSession_PersonaUnchangedNoRoleIntroOnResume(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -823,7 +822,7 @@ func TestSession_NoEditFourResumedWakesOnlyFirstHasIntro(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -869,7 +868,7 @@ func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -919,7 +918,7 @@ func TestSession_NoEditFourLiveWakesOnlyFirstHasIntro(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -969,7 +968,7 @@ func TestSession_EditAfterSecondLiveWakeUpdatesOnceThenNone(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -1023,7 +1022,7 @@ func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -1063,7 +1062,7 @@ func TestOpen_Errors(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	bad, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, Name: "typo", Role: "architect", Backend: "nope",
+		ProjectID: f.ProjectID, Name: "typo", Role: "architect",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1288,7 +1287,7 @@ func TestSession_CodexWrapRunsInAFreshThread(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateBotSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "architect", Backend: "codex",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "architect",
 	}, *testBotID(t, st, "architect"))
 	if err != nil {
 		t.Fatal(err)
@@ -1534,7 +1533,7 @@ func TestSession_CoordinatorUsesProfileProvider(t *testing.T) {
 			}
 			ch, err := st.CreateSpace(ctx, store.Space{
 				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
-				Backend: tc.backend, Team: "core",
+				Team: "core",
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -1574,7 +1573,7 @@ func TestSession_RoleRunsItsProviderBinary(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -1630,7 +1629,7 @@ func TestSession_RoleTheSpaceLacksStoresFailedTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {
@@ -1681,7 +1680,7 @@ func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "core",
 	})
 	if err != nil {

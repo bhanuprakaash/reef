@@ -34,7 +34,7 @@ func (e *liveEnv) defaultNamed(t *testing.T, n *namer) {
 	t.Helper()
 	e.h.s.name = n.propose
 	if status, body := do(t, http.MethodPost, e.url+"/spaces",
-		`{"projectId":1,"name":"claude 02:32 PM","backend":"claude"}`); status != 201 {
+		`{"projectId":1,"name":"solo 02:32 PM"}`); status != 201 {
 		t.Fatalf("create Space = %d %s, want 201", status, body)
 	}
 }
@@ -74,7 +74,7 @@ func TestSend_NameAttemptedOnce(t *testing.T) {
 		}
 	}
 	env.h.Close()
-	if got := env.spaceName(t, 2); got != "claude 02:32 PM" {
+	if got := env.spaceName(t, 2); got != "solo 02:32 PM" {
 		t.Errorf("name = %q, want the default name kept", got)
 	}
 	if got := n.calls.Load(); got != 1 {
@@ -121,12 +121,12 @@ func TestSend_RenameBeforeFirstMessageWins(t *testing.T) {
 	}
 }
 
-func TestSend_PermissionChangeKeepsNamePending(t *testing.T) {
+func TestSend_SameNameUpdateKeepsNamePending(t *testing.T) {
 	env := newLiveEnv(t)
 	n := &namer{name: "proposed"}
 	env.defaultNamed(t, n)
 
-	do(t, http.MethodPut, env.url+"/spaces/2", `{"name":"claude 02:32 PM","permissionMode":"acceptEdits"}`)
+	do(t, http.MethodPut, env.url+"/spaces/2", `{"name":"solo 02:32 PM"}`)
 	env.sendTo(t, 2, "hello")
 	env.h.Close()
 	if got, want := env.spaceName(t, 2), "proposed claude hello"; got != want {
@@ -139,9 +139,9 @@ func TestSend_TypedNameIsNeverProposed(t *testing.T) {
 		name string
 		give string
 	}{
-		{"plain", `{"projectId":1,"name":"build","backend":"claude"}`},
-		{"time after another word", `{"projectId":1,"name":"standup 10:30","backend":"claude"}`},
-		{"default of the other backend", `{"projectId":1,"name":"codex 02:32 PM","backend":"claude"}`},
+		{"plain", `{"projectId":1,"name":"build"}`},
+		{"time after another word", `{"projectId":1,"name":"standup 10:30"}`},
+		{"default of another team", `{"projectId":1,"name":"frontend 02:32 PM"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

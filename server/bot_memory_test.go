@@ -37,7 +37,7 @@ func TestRenamingABotKeepsItsMemoryItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	c, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: 1, WorkItemID: &f.ID, Name: "auth", Role: "boss", Backend: "claude", Team: "core",
+		ProjectID: 1, WorkItemID: &f.ID, Name: "auth", Role: "boss", Team: "core",
 	})
 	if err != nil {
 		t.Fatal(err)

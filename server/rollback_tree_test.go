@@ -20,7 +20,7 @@ func TestRollback_OnlyInTheTreeItWasTakenIn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"name":"quick","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":2,"name":"quick"}`)
 	const ref = "refs/reef/checkpoints/2"
 	if err := worktree.Checkpoint(ctx, p.Path, ref); err != nil {
 		t.Fatal(err)

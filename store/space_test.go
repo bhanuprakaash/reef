@@ -219,7 +219,7 @@ func TestSpace_NameSteps(t *testing.T) {
 	}
 	mk := func(name string) int64 {
 		t.Helper()
-		c, err := s.CreateSpace(ctx, Space{ProjectID: p.ID, Name: name, Backend: "claude"})
+		c, err := s.CreateSpace(ctx, Space{ProjectID: p.ID, Name: name})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -286,7 +286,7 @@ func TestSpace_NameSteps(t *testing.T) {
 	if err := s.MarkNamePending(ctx, same); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.UpdateSpace(ctx, Space{ID: same, Name: "claude 02:35 PM", PermissionMode: "acceptEdits"}); err != nil {
+	if _, err := s.UpdateSpace(ctx, Space{ID: same, Name: "claude 02:35 PM"}); err != nil {
 		t.Fatal(err)
 	}
 	if ok, err := s.ClaimName(ctx, same); err != nil || !ok {

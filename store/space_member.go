@@ -80,8 +80,7 @@ func (s *Store) MoveConversation(ctx context.Context, id, botID int64) (Space, e
 		return Space{}, fmt.Errorf("%w: conversation has no lead", ErrInvalid)
 	}
 	leadID := team.Roles[0].BotID
-	moved := Space{ProjectID: conv.ProjectID, Name: conv.Name, Role: team.Roles[0].Name, Backend: conv.Backend,
-		PermissionMode: conv.PermissionMode, Kind: KindFree}
+	moved := Space{ProjectID: conv.ProjectID, Name: conv.Name, Role: team.Roles[0].Name, Kind: KindFree}
 	return s.insertSpace(ctx, moved, nil, func(tx *sql.Tx, newID int64) error {
 		res, err := tx.ExecContext(ctx,
 			"INSERT INTO space_member (space_id, bot_id, lead) SELECT ?, id, id = ? "+

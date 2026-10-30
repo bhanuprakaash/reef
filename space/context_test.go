@@ -251,7 +251,7 @@ func TestContext_OmitsDirectMessages(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "earlier", Role: "lead", Backend: "claude"})
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "earlier", Role: "lead"})
 	if err != nil {
 		t.Fatal(err)
 	}

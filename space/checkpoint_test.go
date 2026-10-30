@@ -78,7 +78,7 @@ func TestSession_CheckpointsWriteTurnsOnly(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "lead",
 		Team: "crew",
 	})
 	if err != nil {
@@ -153,8 +153,7 @@ func TestSession_NoCheckpointWhenProjectIsASubfolderOfARepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateBotSpace(ctx, store.Space{
-		ProjectID: p.ID, Name: "chat", Role: "architect", Backend: "claude",
-		PermissionMode: "acceptEdits",
+		ProjectID: p.ID, Name: "chat", Role: "architect",
 	}, *id)
 	if err != nil {
 		t.Fatal(err)

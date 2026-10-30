@@ -226,8 +226,8 @@ func TestClose_FailsRunningTurn(t *testing.T) {
 
 func TestClose_ClosesSessionsInParallel(t *testing.T) {
 	env := newLiveEnv(t)
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"two","backend":"claude"}`)
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"three","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"two"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"three"}`)
 	var closing sync.WaitGroup
 	var met atomic.Int32
 	closing.Add(3)

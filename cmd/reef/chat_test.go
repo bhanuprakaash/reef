@@ -446,9 +446,7 @@ func TestRun_ChatResumeRejectsNewSettings(t *testing.T) {
 		give []string
 	}{
 		{"role", []string{"--role", "tester"}},
-		{"backend", []string{"--backend", "codex"}},
 		{"name", []string{"--name", "x"}},
-		{"permission mode", []string{"--permission-mode", "acceptEdits"}},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -460,23 +458,12 @@ func TestRun_ChatResumeRejectsNewSettings(t *testing.T) {
 	}
 }
 
-func TestRun_ChatBackendTypoLeavesNoSpace(t *testing.T) {
-	dir := t.TempDir()
-	t.Chdir(t.TempDir())
-	mustReef(t, dir, "project", "add")
-	mustReef(t, dir, "work-item", "add", "Login")
-
-	_, err := reef(t, dir, "chat", "1", "--backend", "nope")
-	if err == nil || err.Error() != `invalid: unknown backend "nope"` {
-		t.Errorf("chat error = %v, want unknown backend", err)
-	}
-	st, err := store.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = st.Close() }()
-	if chs, err := st.Spaces(context.Background(), store.SpaceFilter{}); err != nil || len(chs) != 0 {
-		t.Errorf("spaces = %+v, %v, want none", chs, err)
+func TestRun_ChatTakesNoBackendOrPermissionMode(t *testing.T) {
+	for _, flag := range []string{"--backend", "--permission-mode"} {
+		_, err := reef(t, t.TempDir(), "chat", "1", flag, "codex")
+		if err == nil || !strings.Contains(err.Error(), "flag provided but not defined: -"+strings.TrimPrefix(flag, "--")) {
+			t.Errorf("chat %s error = %v, want an undefined flag", flag, err)
+		}
 	}
 }
 
@@ -501,9 +488,9 @@ func TestRun_ChatRefusesWhatCannotLeadItsSpace(t *testing.T) {
 		give []string
 		want string
 	}{
-		{"another role", []string{"chat", "1", "--role", "developer", "--backend", "claude"},
+		{"another role", []string{"chat", "1", "--role", "developer"},
 			"invalid: reef chat runs the lead of team solo, lead: --role developer is not it"},
-		{"sub-item", []string{"chat", "2", "--backend", "claude"},
+		{"sub-item", []string{"chat", "2"},
 			"invalid: work item 2 is a sub-item of work item 1: open its parent"},
 	}
 	for _, tt := range tests {
@@ -531,7 +518,7 @@ func TestRun_ChatResumesPausedSpace(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(context.Background(), store.Space{
-		ProjectID: p.ID, Name: "chat", Role: "lead", Backend: "claude",
+		ProjectID: p.ID, Name: "chat", Role: "lead",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -577,7 +564,7 @@ func TestRun_ChatRefusesMovedSpace(t *testing.T) {
 	}
 	for _, name := range []string{"talk", "moved"} {
 		if _, err := st.CreateSpace(ctx, store.Space{
-			ProjectID: p.ID, Name: name, Role: "lead", Backend: "claude",
+			ProjectID: p.ID, Name: name, Role: "lead",
 		}); err != nil {
 			t.Fatal(err)
 		}
@@ -621,7 +608,7 @@ func TestChat_ResumeMultiRoleTeamUsesWindow(t *testing.T) {
 		t.Fatal(err)
 	}
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: p.ID, Name: "chat", Team: "duo", Role: "lead", Backend: "claude",
+		ProjectID: p.ID, Name: "chat", Team: "duo", Role: "lead",
 	})
 	if err != nil {
 		t.Fatal(err)

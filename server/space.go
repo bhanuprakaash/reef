@@ -1,7 +1,6 @@
 package server
 
 import (
-	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -158,7 +157,7 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 	if in.Team == "" {
 		in.Team = store.SoloTeam
 	}
-	autoName := isDefaultName(in.Name, cmp.Or(in.Backend, in.Team))
+	autoName := isDefaultName(in.Name, in.Team)
 	team, err := s.st.Team(r.Context(), in.Team)
 	if errors.Is(err, store.ErrNotFound) {
 		err = fmt.Errorf("%w: unknown team %s", store.ErrInvalid, in.Team)
@@ -169,16 +168,6 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 	}
 	lead := team.Roles[0]
 	in.Role = lead.Name
-	if in.Backend == "" {
-		in.Backend = lead.Backend
-	}
-	if in.PermissionMode == "" && in.Backend == lead.Backend {
-		in.PermissionMode = lead.PermissionMode
-	}
-	if err := store.ValidateAgent(in.Backend, in.PermissionMode); err != nil {
-		writeError(w, err)
-		return
-	}
 	c, err := s.st.CreateSpace(r.Context(), in.Space)
 	if err != nil {
 		writeError(w, err)
@@ -215,7 +204,7 @@ func (s *server) useItemTeam(ctx context.Context, in *store.Space) error {
 }
 
 // createBotSpace creates a Space with no Team and one member, the Bot, which leads it
-// with its backend and default access rules.
+// and runs on its profile.
 func (s *server) createBotSpace(
 	w http.ResponseWriter, r *http.Request, in store.Space, botID int64,
 ) {
@@ -231,8 +220,8 @@ func (s *server) createBotSpace(
 		writeError(w, err)
 		return
 	}
-	autoName := isDefaultName(in.Name, cmp.Or(in.Backend, t.Name))
-	in.Role, in.Backend, in.PermissionMode = t.Name, t.Backend, t.PermissionMode
+	autoName := isDefaultName(in.Name, t.Name)
+	in.Role = t.Name
 	c, err := s.st.CreateBotSpace(r.Context(), in, botID)
 	if err != nil {
 		writeError(w, err)
@@ -248,7 +237,7 @@ func (s *server) createBotSpace(
 }
 
 // isDefaultName reports whether name is what the new-space form sends when its name field
-// is empty: the backend (or the team when there is none), a space and the time as hours and
+// is empty: the team (or the Bot's name), a space and the time as hours and
 // minutes, with AM or PM in a 12-hour locale.
 func isDefaultName(name, prefix string) bool {
 	return regexp.MustCompile(`^` + regexp.QuoteMeta(prefix) +
@@ -284,8 +273,7 @@ func (s *server) updateSpace(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		Name           string  `json:"name"`
-		PermissionMode *string `json:"permissionMode"`
+		Name string `json:"name"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
@@ -295,13 +283,6 @@ func (s *server) updateSpace(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeError(w, err)
 		return
-	}
-	if in.PermissionMode != nil {
-		current.PermissionMode = *in.PermissionMode
-		if err := store.ValidateAgent(current.Backend, current.PermissionMode); err != nil {
-			writeError(w, err)
-			return
-		}
 	}
 	current.Name = in.Name
 	c, err := s.st.UpdateSpace(r.Context(), current)

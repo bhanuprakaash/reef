@@ -63,27 +63,25 @@ func TestCreateSpaceOfWorkItemUsesItsTeam(t *testing.T) {
 	}
 }
 
-func TestUpdateSpacePermissionModeUsedWhenSessionOpens(t *testing.T) {
+func TestSpaceTakesNoBackendOrPermissionMode(t *testing.T) {
 	env := newLiveEnv(t)
-	var openedMode string
-	env.open = func(ctx context.Context) (session, error) {
-		ch, err := env.st.Space(ctx, 1)
-		if err != nil {
-			return nil, err
+	for _, body := range []string{
+		`{"name":"scratch","permissionMode":"acceptEdits"}`,
+		`{"name":"scratch","backend":"codex"}`,
+	} {
+		if status, out := do(t, http.MethodPut, env.url+"/spaces/1", body); status != 400 ||
+			!strings.Contains(out, "unknown field") {
+			t.Errorf("PUT /spaces/1 %s = %d %s, want 400 unknown field", body, status, out)
 		}
-		openedMode = ch.PermissionMode
-		return env.fake, nil
 	}
-
-	if status, body := do(t, http.MethodPut, env.url+"/spaces/1",
-		`{"name":"scratch","permissionMode":"acceptEdits"}`); status != 200 {
-		t.Fatalf("update Space = %d %s, want 200", status, body)
-	}
-	if status, body := env.send(t, "hello"); status != 202 {
-		t.Fatalf("send = %d %s, want 202", status, body)
-	}
-	if openedMode != "acceptEdits" {
-		t.Errorf("permission mode at session open = %q, want acceptEdits", openedMode)
+	for _, body := range []string{
+		`{"projectId":1,"name":"x","backend":"codex"}`,
+		`{"projectId":1,"name":"x","permissionMode":"read-only"}`,
+	} {
+		if status, out := do(t, http.MethodPost, env.url+"/spaces", body); status != 400 ||
+			!strings.Contains(out, "unknown field") {
+			t.Errorf("POST /spaces %s = %d %s, want 400 unknown field", body, status, out)
+		}
 	}
 }
 
@@ -100,7 +98,7 @@ func TestSpaceStatus(t *testing.T) {
 			name:       "unknown project",
 			method:     http.MethodPost,
 			path:       "/spaces",
-			give:       `{"projectId":9,"name":"c","backend":"claude"}`,
+			give:       `{"projectId":9,"name":"c"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: unknown project 9"}`,
 		},
@@ -108,7 +106,7 @@ func TestSpaceStatus(t *testing.T) {
 			name:       "work item of another project",
 			method:     http.MethodPost,
 			path:       "/spaces",
-			give:       `{"projectId":2,"workItemId":1,"name":"c","backend":"claude"}`,
+			give:       `{"projectId":2,"workItemId":1,"name":"c"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: work item 1 is not in project 2"}`,
 		},
@@ -116,7 +114,7 @@ func TestSpaceStatus(t *testing.T) {
 			name:       "unknown work item",
 			method:     http.MethodPost,
 			path:       "/spaces",
-			give:       `{"projectId":1,"workItemId":9,"name":"c","backend":"claude"}`,
+			give:       `{"projectId":1,"workItemId":9,"name":"c"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: unknown work item 9"}`,
 		},
@@ -132,7 +130,7 @@ func TestSpaceStatus(t *testing.T) {
 			name:       "role other than lead",
 			method:     http.MethodPost,
 			path:       "/spaces",
-			give:       `{"projectId":1,"name":"c","role":"architect","backend":"claude"}`,
+			give:       `{"projectId":1,"name":"c","role":"architect"}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: role must be lead"}`,
 		},
@@ -140,7 +138,7 @@ func TestSpaceStatus(t *testing.T) {
 			name:       "missing name",
 			method:     http.MethodPost,
 			path:       "/spaces",
-			give:       `{"projectId":1,"backend":"claude"}`,
+			give:       `{"projectId":1}`,
 			wantStatus: 400,
 			wantBody:   `{"error":"invalid: Space name is required"}`,
 		},
@@ -194,9 +192,9 @@ func TestSpaceStatus(t *testing.T) {
 func TestListSpacesLastMessage(t *testing.T) {
 	ts := newTestServer(t)
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"talk","backend":"claude"}`)
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"empty","backend":"claude"}`)
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"long","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"talk"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"empty"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"long"}`)
 	for _, m := range []string{
 		`{"spaceId":1,"author":"user","body":"hi"}`,
 		`{"spaceId":1,"author":"lead","body":"hello there"}`,
@@ -242,13 +240,13 @@ func TestSpaceRoundTrip(t *testing.T) {
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
 	do(t, http.MethodPost, ts.URL+"/work-items", `{"projectId":1,"title":"Auth"}`)
 
-	status, body := do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"scratch","role":"lead","backend":"claude","permissionMode":"acceptEdits"}`)
+	status, body := do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"scratch","role":"lead"}`)
 	if status != 201 || !strings.HasPrefix(body,
-		`{"id":1,"kind":"free","projectId":1,"workItemId":null,"name":"scratch","role":"lead","backend":"claude",`+
-			`"permissionMode":"acceptEdits","paused":"","tokenBudget":1000000,"team":"solo","createdAt":"`) {
+		`{"id":1,"kind":"free","projectId":1,"workItemId":null,"name":"scratch","role":"lead",`+
+			`"paused":"","tokenBudget":1000000,"team":"solo","createdAt":"`) {
 		t.Fatalf("quick session = %d %s", status, body)
 	}
-	status, body = do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"auth","backend":"claude"}`)
+	status, body = do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"workItemId":1,"name":"auth"}`)
 	if status != 201 || !strings.Contains(body, `"workItemId":1,"name":"auth"`) {
 		t.Fatalf("work item Space = %d %s", status, body)
 	}
@@ -262,16 +260,9 @@ func TestSpaceRoundTrip(t *testing.T) {
 		t.Fatalf("by work item = %d %s", status, body)
 	}
 
-	status, body = do(t, http.MethodPut, ts.URL+"/spaces/1",
-		`{"name":"renamed","permissionMode":"default"}`)
-	if status != 200 || !strings.Contains(body,
-		`"projectId":1,"workItemId":null,"name":"renamed"`) ||
-		!strings.Contains(body, `"permissionMode":"default"`) {
+	status, body = do(t, http.MethodPut, ts.URL+"/spaces/1", `{"name":"renamed"}`)
+	if status != 200 || !strings.Contains(body, `"projectId":1,"workItemId":null,"name":"renamed"`) {
 		t.Fatalf("rename quick session = %d %s", status, body)
-	}
-	if status, body = do(t, http.MethodPut, ts.URL+"/spaces/1",
-		`{"name":"renamed","permissionMode":"workspace-write"}`); status != 400 {
-		t.Fatalf("bad permission mode = %d %s, want 400", status, body)
 	}
 	status, body = do(t, http.MethodPut, ts.URL+"/spaces/2", `{"name":"renamed"}`)
 	if status != 200 || !strings.Contains(body, `"projectId":1,"workItemId":1,"name":"renamed"`) {

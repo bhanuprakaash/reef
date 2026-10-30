@@ -435,7 +435,10 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	if err != nil {
 		return nil, err
 	}
-	backend := s.ch.Backend
+	backend := "claude"
+	if len(team.Roles) > 0 {
+		backend = team.Roles[0].Backend
+	}
 	var botID *int64
 	defer func() {
 		if err != nil {

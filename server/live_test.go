@@ -234,7 +234,7 @@ func newLiveEnv(t *testing.T) *liveEnv {
 	env.st, env.fake.st = st, st
 	env.serve(t)
 	do(t, http.MethodPost, env.url+"/projects", `{"name":"reef","path":"`+t.TempDir()+`"}`)
-	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"scratch","backend":"claude"}`)
+	do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"scratch"}`)
 	return env
 }
 
@@ -334,7 +334,7 @@ func (e *liveEnv) sendTo(t *testing.T, id int, text string) (int, string) {
 func (e *liveEnv) workItemSpace(t *testing.T) int {
 	t.Helper()
 	do(t, http.MethodPost, e.url+"/work-items", `{"projectId":1,"title":"Login"}`)
-	do(t, http.MethodPost, e.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"c","backend":"claude"}`)
+	do(t, http.MethodPost, e.url+"/spaces", `{"projectId":1,"workItemId":1,"name":"c"}`)
 	return 2
 }
 
@@ -599,7 +599,7 @@ func TestSend_RoutesAndWakes(t *testing.T) {
 func TestSend_SpaceRoleStandsInForLead(t *testing.T) {
 	env := newLiveEnv(t)
 	_, err := env.st.CreateBotSpace(context.Background(), store.Space{
-		ProjectID: 1, Name: "dev", Role: "developer", Backend: "claude",
+		ProjectID: 1, Name: "dev", Role: "developer",
 	}, *testServerBot(t, env.st, "developer"))
 	if err != nil {
 		t.Fatal(err)
@@ -1318,14 +1318,6 @@ func TestLiveRoutes_Errors(t *testing.T) {
 		{"send by GET", http.MethodGet, "/spaces/1/send", "", 405, `{"error":"method not allowed"}`},
 		{"events by POST", http.MethodPost, "/spaces/1/events", "", 405, `{"error":"method not allowed"}`},
 		{"stop by GET", http.MethodGet, "/spaces/1/stop", "", 405, `{"error":"method not allowed"}`},
-		{"unknown backend", http.MethodPost, "/spaces", `{"projectId":1,"name":"c","backend":"gpt"}`, 400,
-			`{"error":"invalid: backend must be claude or codex"}`},
-		{"bad permission mode", http.MethodPost, "/spaces",
-			`{"projectId":1,"name":"c","backend":"codex","permissionMode":"acceptEdits"}`, 400,
-			`{"error":"invalid: permissionMode for codex must be empty, read-only or workspace-write"}`},
-		{"claude permission mode", http.MethodPost, "/spaces",
-			`{"projectId":1,"name":"c","backend":"claude","permissionMode":"workspace-write"}`, 400,
-			`{"error":"invalid: permissionMode for claude must be empty, default or acceptEdits"}`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -1341,8 +1333,8 @@ func TestLiveRoutes_Errors(t *testing.T) {
 func TestCreateSpace_RoleDefaultsToLead(t *testing.T) {
 	env := newLiveEnv(t)
 	status, body := do(t, http.MethodPost, env.url+"/spaces",
-		`{"projectId":1,"name":"c","backend":"codex","permissionMode":"workspace-write"}`)
-	if status != 201 || !strings.Contains(body, `"role":"lead","backend":"codex","permissionMode":"workspace-write"`) {
+		`{"projectId":1,"name":"c"}`)
+	if status != 201 || !strings.Contains(body, `"role":"lead"`) {
 		t.Errorf("create = %d %s, want role lead", status, body)
 	}
 }

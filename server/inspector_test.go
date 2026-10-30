@@ -24,7 +24,7 @@ func TestGetInspector(t *testing.T) {
 	t.Cleanup(h.Close)
 
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"c","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"c"}`)
 	if _, err := st.CreateTurn(ctx, store.Turn{SpaceID: 1, Role: "architect", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestGetInspectorNestsSubagentToolCalls(t *testing.T) {
 	t.Cleanup(h.Close)
 
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"c","backend":"claude"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"c"}`)
 	if _, err := st.CreateTurn(ctx, store.Turn{SpaceID: 1, Role: "developer", Backend: "claude"}); err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +117,7 @@ func TestGetInspectorNullCostForCodex(t *testing.T) {
 	t.Cleanup(h.Close)
 
 	do(t, http.MethodPost, ts.URL+"/projects", `{"name":"reef","path":"/tmp"}`)
-	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"c","backend":"codex"}`)
+	do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"c"}`)
 	if _, err := st.CreateTurn(ctx, store.Turn{SpaceID: 1, Role: "developer", Backend: "codex"}); err != nil {
 		t.Fatal(err)
 	}

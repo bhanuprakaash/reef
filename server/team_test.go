@@ -63,7 +63,7 @@ func TestSpaceMembersOmitMCPServers(t *testing.T) {
 	if _, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: t.TempDir()}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, Name: "talk", Team: "keys", Backend: "claude"}); err != nil {
+	if _, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, Name: "talk", Team: "keys"}); err != nil {
 		t.Fatal(err)
 	}
 	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
@@ -216,11 +216,9 @@ func TestSpaceTeam(t *testing.T) {
 		wantIn     string
 	}{
 		{"no team is solo", `{"projectId":1,"name":"a"}`, 201,
-			`"backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"team":"solo"`},
-		{"team lead sets defaults", `{"projectId":1,"name":"b","team":"core"}`, 201,
-			`"backend":"codex","permissionMode":"read-only","paused":"","tokenBudget":1000000,"team":"core"`},
-		{"request overrides lead", `{"projectId":1,"name":"c","team":"core","backend":"claude"}`, 201,
-			`"backend":"claude","permissionMode":"","paused":"","tokenBudget":1000000,"team":"core"`},
+			`"role":"lead","paused":"","tokenBudget":1000000,"team":"solo"`},
+		{"team lead leads the space", `{"projectId":1,"name":"b","team":"core"}`, 201,
+			`"role":"core-lead","paused":"","tokenBudget":1000000,"team":"core"`},
 		{"lead role names the space", `{"projectId":1,"name":"e","team":"crew"}`, 201,
 			`"name":"e","role":"crew-boss"`},
 		{"unknown team", `{"projectId":1,"name":"d","team":"nope"}`, 400,

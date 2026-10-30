@@ -43,7 +43,7 @@ const (
 )
 
 const _spaceCols = "space.id, space.project_id, space.work_item_id, space.name, " +
-	"space.role, space.backend, space.permission_mode, space.paused, " +
+	"space.role, space.paused, " +
 	"COALESCE((SELECT root.token_budget FROM work_item item JOIN work_item root " +
 	"ON root.id = COALESCE(item.parent_id, item.id) WHERE item.id = space.work_item_id), " +
 	"space.token_budget), space.created_at, space.closed_at, space.active_turn, " +
@@ -53,19 +53,17 @@ const _spaceCols = "space.id, space.project_id, space.work_item_id, space.name, 
 // Space made from one Bot. Who is in the Space is its space_member list of Bot ids, set when the
 // Space was made.
 type Space struct {
-	ID             int64      `json:"id"`
-	Kind           string     `json:"kind"`
-	ProjectID      int64      `json:"projectId"`
-	WorkItemID     *int64     `json:"workItemId"`
-	Name           string     `json:"name"`
-	Role           string     `json:"role"`
-	Backend        string     `json:"backend"`
-	PermissionMode string     `json:"permissionMode"`
-	Paused         string     `json:"paused"`
-	TokenBudget    int64      `json:"tokenBudget"`
-	Team           string     `json:"team"`
-	CreatedAt      time.Time  `json:"createdAt"`
-	ClosedAt       *time.Time `json:"closedAt"`
+	ID          int64      `json:"id"`
+	Kind        string     `json:"kind"`
+	ProjectID   int64      `json:"projectId"`
+	WorkItemID  *int64     `json:"workItemId"`
+	Name        string     `json:"name"`
+	Role        string     `json:"role"`
+	Paused      string     `json:"paused"`
+	TokenBudget int64      `json:"tokenBudget"`
+	Team        string     `json:"team"`
+	CreatedAt   time.Time  `json:"createdAt"`
+	ClosedAt    *time.Time `json:"closedAt"`
 	// MovedTo is the Space a direct conversation became when a Bot was added: the
 	// conversation is read-only from then on.
 	MovedTo *int64 `json:"movedTo"`
@@ -195,10 +193,9 @@ func (s *Store) insertSpace(
 	defer func() { _ = tx.Rollback() }()
 	now := time.Now().UTC()
 	res, err := tx.ExecContext(ctx,
-		"INSERT INTO space (project_id, work_item_id, name, role, backend, permission_mode, "+
-			"token_budget, created_at, team_id, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-		c.ProjectID, c.WorkItemID, c.Name, c.Role, c.Backend, c.PermissionMode, TokenBudget,
-		now.Format(time.RFC3339Nano), teamID, c.Kind)
+		"INSERT INTO space (project_id, work_item_id, name, role, token_budget, created_at, "+
+			"team_id, kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+		c.ProjectID, c.WorkItemID, c.Name, c.Role, TokenBudget, now.Format(time.RFC3339Nano), teamID, c.Kind)
 	if err != nil {
 		_ = tx.Rollback()
 		return Space{}, s.spaceWriteErr(ctx, "insert space", err, c.WorkItemID,
@@ -291,7 +288,7 @@ func (s *Store) spacePreviews(
 	return scanAll(rows, scanSpacePreview)
 }
 
-// UpdateSpace sets the name and permission mode of c.ID. A Space never changes
+// UpdateSpace sets the name of c.ID. A Space never changes
 // project, and its work item changes only from nil, through AttachSpace.
 func (s *Store) UpdateSpace(ctx context.Context, c Space) (Space, error) {
 	if err := c.validate(); err != nil {
@@ -299,8 +296,8 @@ func (s *Store) UpdateSpace(ctx context.Context, c Space) (Space, error) {
 	}
 	res, err := s.db.ExecContext(ctx,
 		"UPDATE space SET name_auto = CASE WHEN name = ? THEN name_auto ELSE 0 END, "+
-			"name = ?, permission_mode = ? WHERE id = ?",
-		c.Name, c.Name, c.PermissionMode, c.ID)
+			"name = ? WHERE id = ?",
+		c.Name, c.Name, c.ID)
 	if err != nil {
 		return Space{}, fmt.Errorf("update Space: %w", err)
 	}
@@ -554,8 +551,8 @@ func scanSpacePreview(r interface{ Scan(...any) error }) (SpacePreview, error) {
 	var author, body, lastCreated, closed sql.NullString
 	// active_turn is a server-side hint (not client data), so the preview reads it without
 	// exposing it: the Space JSON omits it.
-	if err := r.Scan(&p.ID, &p.ProjectID, &p.WorkItemID, &p.Name, &p.Role, &p.Backend,
-		&p.PermissionMode, &p.Paused, &p.TokenBudget, &created, &closed, &p.ActiveTurn, &p.Team,
+	if err := r.Scan(&p.ID, &p.ProjectID, &p.WorkItemID, &p.Name, &p.Role,
+		&p.Paused, &p.TokenBudget, &created, &closed, &p.ActiveTurn, &p.Team,
 		&p.Kind, &p.MovedTo,
 		&author, &body, &lastCreated); err != nil {
 		return SpacePreview{}, err
@@ -583,8 +580,8 @@ func scanSpace(r interface{ Scan(...any) error }) (Space, error) {
 	var c Space
 	var created string
 	var closed sql.NullString
-	if err := r.Scan(&c.ID, &c.ProjectID, &c.WorkItemID, &c.Name, &c.Role, &c.Backend,
-		&c.PermissionMode, &c.Paused, &c.TokenBudget, &created, &closed, &c.ActiveTurn, &c.Team,
+	if err := r.Scan(&c.ID, &c.ProjectID, &c.WorkItemID, &c.Name, &c.Role,
+		&c.Paused, &c.TokenBudget, &created, &closed, &c.ActiveTurn, &c.Team,
 		&c.Kind, &c.MovedTo); err != nil {
 		return Space{}, err
 	}

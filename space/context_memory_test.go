@@ -169,7 +169,7 @@ func TestFirstPrompt_FreeSpaceAndConversationShelves(t *testing.T) {
 	ms := testMemory(t, st)
 	newSpace := func(kind string) store.Space {
 		c, err := st.CreateBotSpace(ctx, store.Space{
-			Kind: kind, ProjectID: f.ProjectID, Name: "chat", Role: "lead", Backend: "claude",
+			Kind: kind, ProjectID: f.ProjectID, Name: "chat", Role: "lead",
 		}, 1)
 		if err != nil {
 			t.Fatal(err)
@@ -301,7 +301,7 @@ func TestScopes(t *testing.T) {
 		return w.ID
 	}
 	save := func(t *testing.T, c store.Space) store.Space {
-		c.ProjectID, c.Name, c.Role, c.Backend = f.ProjectID, "chat", "lead", "claude"
+		c.ProjectID, c.Name, c.Role = f.ProjectID, "chat", "lead"
 		c, err := st.CreateSpace(ctx, c)
 		if err != nil {
 			t.Fatal(err)
@@ -349,7 +349,6 @@ func TestScopes(t *testing.T) {
 			give: func(t *testing.T) (store.Space, string) {
 				c, err := st.CreateBotSpace(ctx, store.Space{
 					Kind: store.KindConversation, ProjectID: f.ProjectID, Name: "chat", Role: "lead",
-					Backend: "claude",
 				}, 1)
 				if err != nil {
 					t.Fatal(err)

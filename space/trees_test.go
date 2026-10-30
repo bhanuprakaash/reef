@@ -71,7 +71,7 @@ func newTreeRig(t *testing.T, st *store.Store) *treeRig {
 func (r *treeRig) session(t *testing.T, name string, f store.WorkItem) *Session {
 	t.Helper()
 	ch, err := r.st.CreateSpace(context.Background(), store.Space{
-		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: name, Role: "lead", Backend: "claude",
+		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: name, Role: "lead",
 		Team: "crew",
 	})
 	if err != nil {
@@ -335,7 +335,7 @@ func TestSession_ShellThatChangesFilesRunsAsAWriteTurn(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.role, func(t *testing.T) {
 			ch, err := st.CreateSpace(ctx, store.Space{
-				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: tt.role, Role: "lead", Backend: "claude",
+				ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: tt.role, Role: "lead",
 				Team: "crew",
 			})
 			if err != nil {

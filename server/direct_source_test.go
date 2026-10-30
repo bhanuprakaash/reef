@@ -25,7 +25,7 @@ func TestDirectSourceMessage(t *testing.T) {
 	one := int64(1)
 	closeSpace(t, st, 1)
 	ch, err := st.CreateSpace(ctx, store.Space{
-		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude",
+		ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead",
 	})
 	if err != nil {
 		t.Fatal(err)

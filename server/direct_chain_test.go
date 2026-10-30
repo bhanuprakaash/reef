@@ -659,7 +659,7 @@ func TestDirectCloseRejectsSend(t *testing.T) {
 		t.Fatal(err)
 	}
 	closeSpace(t, st, 1)
-	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead", Backend: "claude"})
+	ch, err := st.CreateSpace(ctx, store.Space{ProjectID: 1, WorkItemID: &one, Name: "team", Team: "core", Role: "lead"})
 	if err != nil {
 		t.Fatal(err)
 	}
