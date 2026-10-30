@@ -54,7 +54,6 @@ export function TeamsPage() {
           <TeamEditor
             key={team.name}
             team={team}
-            openRole={params.get('role') ?? undefined}
             onSaved={(n) => setParams({ team: n })}
             onDeleted={() => setParams({ team: 'solo' })}
             onDuplicate={() => setCreating({ from: team.name })}

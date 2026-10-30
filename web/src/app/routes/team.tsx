@@ -38,14 +38,10 @@ export function TeamPage() {
             <h2 className="mb-2.5 text-[11px] uppercase tracking-[0.08em] text-muted">Roster</h2>
             {team.roles.map((role) => (
               <RoleRow
-                key={role.name}
+                key={role.botId}
                 role={role}
                 selected={false}
-                onSelect={() =>
-                  navigate(
-                    `/teams?team=${encodeURIComponent(team.name)}&role=${encodeURIComponent(role.name)}`,
-                  )
-                }
+                onSelect={() => void navigate(`/bots?bot=${role.botId}`)}
               />
             ))}
           </section>

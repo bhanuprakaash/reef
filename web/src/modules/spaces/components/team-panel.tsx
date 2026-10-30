@@ -1,3 +1,4 @@
+import { Link } from 'react-router';
 import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { formatTokens } from '@/modules/spaces/utils/format-tokens';
 import type { Role } from '@/types/api';
@@ -71,7 +72,9 @@ export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose 
                   <span
                     className={`flex items-center gap-2 text-[14.5px] ${state === 'asleep' ? 'text-muted' : ''}`}
                   >
-                    <span className="truncate capitalize">{role.name}</span>
+                    <Link to={`/bots?bot=${role.botId}`} className="truncate capitalize">
+                      {role.name}
+                    </Link>
                     {role.lead && <Chip className="h-5 px-2 text-[11px]">lead</Chip>}
                   </span>
                   <span className="block text-[12.5px] text-muted">

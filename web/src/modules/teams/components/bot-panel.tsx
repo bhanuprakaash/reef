@@ -19,7 +19,6 @@ export function BotPanel({ bot, skills, providers, noProject, onClose }: Props) 
 
   return (
     <RolePanel
-      scope="bot"
       role={role}
       skills={skills}
       providers={providers}

@@ -1,33 +1,28 @@
 import { useState } from 'react';
-import { Link } from 'react-router';
+import { Link, useNavigate } from 'react-router';
 import { useDeleteTeam } from '@/modules/teams/api/delete-team';
 import { useUpdateTeam } from '@/modules/teams/api/update-team';
 import { AddMemberRow } from '@/modules/teams/components/add-member-row';
-import { RolePanel } from '@/modules/teams/components/role-panel';
 import { RoleRow } from '@/modules/teams/components/role-row';
 import type { Role, Team } from '@/types/api';
 import { Button, buttonClass } from '@/components/button';
 import { Dialog } from '@/components/dialog';
 import { TextArea } from '@/components/text-area';
 import { TextField } from '@/components/text-field';
+import { Toggle } from '@/components/toggle';
 
 type Props = {
   team: Team;
-  openRole?: string;
   onSaved: (name: string) => void;
   onDeleted: () => void;
   onDuplicate: () => void;
 };
 
-export function TeamEditor({ team, openRole, onSaved, onDeleted, onDuplicate }: Props) {
+export function TeamEditor({ team, onSaved, onDeleted, onDuplicate }: Props) {
   const [loaded, setLoaded] = useState(team);
   const [responsibility, setResponsibility] = useState(team.responsibility);
   const [roles, setRoles] = useState<Role[]>(team.roles);
-  const [keys, setKeys] = useState(() => team.roles.map((_, i) => i));
-  const [selected, setSelected] = useState<number | null>(() => {
-    const i = team.roles.findIndex((r) => r.name === openRole);
-    return i < 0 ? null : i;
-  });
+  const navigate = useNavigate();
   const save = useUpdateTeam();
   const remove = useDeleteTeam();
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -36,21 +31,17 @@ export function TeamEditor({ team, openRole, onSaved, onDeleted, onDuplicate }: 
     setLoaded(t);
     setResponsibility(t.responsibility);
     setRoles(t.roles);
-    setKeys(t.roles.map((_, i) => i));
   }
   const unsaved =
     responsibility !== loaded.responsibility ||
     JSON.stringify(roles) !== JSON.stringify(loaded.roles);
   if (team !== loaded && !unsaved) load(team);
 
-  const current = selected === null ? undefined : roles[selected];
   function updateRole(i: number, role: Role) {
     setRoles(roles.map((r, idx) => (idx === i ? role : r)));
   }
   function removeRole(i: number) {
     setRoles(roles.filter((_, idx) => idx !== i));
-    setKeys(keys.filter((_, idx) => idx !== i));
-    setSelected(null);
   }
   return (
     <>
@@ -119,12 +110,23 @@ export function TeamEditor({ team, openRole, onSaved, onDeleted, onDuplicate }: 
         <section aria-label="Roles" className="space-y-1.5">
           <h2 className="mb-2.5 text-[11px] uppercase tracking-[0.08em] text-muted">Roles</h2>
           {roles.map((role, i) => (
-            <RoleRow
-              key={keys[i]}
-              role={role}
-              selected={selected === i}
-              onSelect={() => setSelected(i)}
-            />
+            <div key={role.botId} className="flex items-center gap-2">
+              <div className="min-w-0 flex-1">
+                <RoleRow
+                  role={role}
+                  selected={false}
+                  onSelect={() => void navigate(`/bots?bot=${role.botId}`)}
+                />
+              </div>
+              <Toggle
+                label={`${role.name} lead`}
+                checked={role.lead}
+                onChange={(lead) => updateRole(i, { ...role, lead })}
+              />
+              <Button type="button" variant="ghost" onClick={() => removeRole(i)}>
+                Remove
+              </Button>
+            </div>
           ))}
           <AddMemberRow
             team={team.name}
@@ -132,31 +134,11 @@ export function TeamEditor({ team, openRole, onSaved, onDeleted, onDuplicate }: 
             onAdded={(role) => {
               setRoles([...roles, role]);
               setLoaded({ ...loaded, roles: [...loaded.roles, role] });
-              setKeys([...keys, Math.max(-1, ...keys) + 1]);
-              setSelected(roles.length);
             }}
           />
         </section>
       </div>
 
-      {current && selected !== null && (
-        <RolePanel
-          key={keys[selected]}
-          scope="member"
-          role={current}
-          onChange={(r) => updateRole(selected, r)}
-          onClose={() => setSelected(null)}
-        >
-          <Button
-            variant="ghost"
-            type="button"
-            className="text-danger!"
-            onClick={() => removeRole(selected)}
-          >
-            Remove from team
-          </Button>
-        </RolePanel>
-      )}
       <Dialog
         open={confirmDelete}
         onClose={() => setConfirmDelete(false)}
