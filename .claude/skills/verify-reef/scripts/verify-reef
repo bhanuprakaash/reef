@@ -13,6 +13,7 @@ usage: verify-reef build
        REEF_VERIFY_RUN=ID verify-reef serve-stop [--kill]
        REEF_VERIFY_RUN=ID verify-reef serve-second [--same-addr]
        REEF_VERIFY_RUN=ID verify-reef api [-H 'Name: value']... METHOD PATH [JSON]
+       REEF_VERIFY_RUN=ID verify-reef team-apply FILE
        REEF_VERIFY_RUN=ID verify-reef sql [--write] "SQL"
        REEF_VERIFY_RUN=ID verify-reef reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A | --sigint-at-prompt]] [--timeout S] -- REEF_ARGS...
        REEF_TOKEN=T REEF_VERIFY_RUN=ID verify-reef mcp-call TOOL [JSON]
@@ -473,6 +474,18 @@ cmd_api() {
 	cat "$tmp"
 }
 
+# team-apply FILE: the running server's data folder gets the team in FILE. Its roles make or
+# update their Bots through REST (see team-roster.py), then `reef team apply` stores the
+# roster of Bot ids, so the CLI under test makes the team.
+cmd_team_apply() {
+	load_run
+	[ $# -eq 1 ] || usage
+	[ -s "$SCR/serve.addr" ] && [ -f "$SCR/serve.pid" ] || fail "no running server for this run; serve-start first"
+	roster="$SCR/team-roster.json"
+	python3 -I "$REPO/.claude/skills/verify-reef/scripts/team-roster.py" "$1" "$(cat "$SCR/serve.addr")" "$EV/api.log" "$roster" || exit 1
+	cmd_reef -- team apply "$roster"
+}
+
 cmd_sql() {
 	load_run
 	flags=(-header -cmd '.timeout 5000')
@@ -859,6 +872,7 @@ serve-start) cmd_serve_start "$@" ;;
 serve-stop) cmd_serve_stop "$@" ;;
 serve-second) cmd_serve_second "$@" ;;
 api) cmd_api "$@" ;;
+team-apply) cmd_team_apply "$@" ;;
 sql) cmd_sql "$@" ;;
 reef) cmd_reef "$@" ;;
 mcp-call) cmd_mcp_call "$@" ;;
