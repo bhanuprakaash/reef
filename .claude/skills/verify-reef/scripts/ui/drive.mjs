@@ -156,9 +156,10 @@ async function openTurn() {
   await main.getByRole('button', { name: /is working/ }).click();
   await turnPanel.waitFor();
 }
-// The top-level message rows of the main list that `author` wrote (they have the Reply button).
+// The top-level message rows of the main list that `author` wrote (they have the reply-in-thread icon or the replies button).
+const replyButtonName = /^Reply in thread$|^\d+ replies? in thread$/;
 const rootRow = (author) =>
-  main.locator('ul > li:has(> button)').filter({ has: page.getByText(author, { exact: true }) });
+  main.locator('ul > li').filter({ has: page.getByRole('button', { name: replyButtonName }) }).filter({ has: page.getByText(author, { exact: true }) });
 // Starts a Space on `team` from the form (backend and permission mode stay the team's).
 async function newTeamSpace(team, name, step) {
   await main.getByRole('button', { name: 'New Space' }).click();
@@ -1635,8 +1636,8 @@ async function teams() {
   await idle();
   const root = (await getJson(`/messages?space=${cid}`)).find((m) => m.author === 'architect' && m.parentId === null);
   check(!!root, 'the architect posted a top-level message', root && `message ${root.id}: ${root.body}`);
-  const replyButton = rootRow('architect').last().getByRole('button');
-  check((await replyButton.textContent()) === 'Reply', 'the architect root shows a Reply button');
+  const replyButton = rootRow('architect').last().getByRole('button', { name: 'Reply in thread' });
+  check((await replyButton.count()) === 1, 'the architect root shows a Reply in thread button');
   await shot('architect-posted');
 
   await replyButton.click();
@@ -1656,8 +1657,8 @@ async function teams() {
   const inThread = (await getJson(`/messages?space=${cid}`)).filter((m) => m.parentId === root.id).map((m) => m.author);
   check(inThread.join(',') === 'user,architect', 'both replies are stored under the root', inThread.join(','));
   await pane.getByRole('button', { name: 'Close' }).click();
-  const count = await rootRow('architect').last().getByRole('button').textContent();
-  check(count === '2 replies in thread', 'the main list shows the root with a replies button', count);
+  const count = (await rootRow('architect').last().getByRole('button', { name: /replies in thread/ }).innerText()).trim();
+  check(count === '2 replies in thread','the main list shows the root with a replies button', count);
   await shot('main-list');
 
   await addWorkItem('Handoff');
