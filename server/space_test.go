@@ -50,7 +50,7 @@ func TestCreateSpaceOfWorkItemUsesItsTeam(t *testing.T) {
 
 	for _, c := range []struct{ name, body string }{
 		{"another Team", `{"projectId":1,"workItemId":1,"name":"a","team":"release"}`},
-		{"a Teammate", `{"projectId":1,"workItemId":1,"name":"a","teammateId":1}`},
+		{"a Bot", `{"projectId":1,"workItemId":1,"name":"a","botId":1}`},
 		{"a sub-item", `{"projectId":1,"workItemId":2,"name":"a"}`},
 	} {
 		if status, body := do(t, http.MethodPost, ts.URL+"/spaces", c.body); status != 400 {

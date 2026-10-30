@@ -26,7 +26,7 @@ const (
 	ScopeProject      = "project"
 	ScopeWorkItem     = "work_item"
 	ScopeTeam         = "team"
-	ScopeTeammate     = "teammate"
+	ScopeBot          = "bot"
 	ScopeSpace        = "space"
 	ScopeConversation = "conversation"
 )
@@ -64,7 +64,7 @@ var (
 	}
 	_scopeKinds = map[string]bool{
 		ScopeProject: true, ScopeWorkItem: true, ScopeTeam: true,
-		ScopeTeammate: true, ScopeSpace: true, ScopeConversation: true,
+		ScopeBot: true, ScopeSpace: true, ScopeConversation: true,
 	}
 	_rels = map[string]bool{RelAbout: true, RelSource: true, RelReplaces: true, RelRelated: true}
 )
@@ -467,7 +467,7 @@ func statusFor(w Writer, n Note) string {
 	if w.Approved {
 		return StatusAccepted
 	}
-	if n.Kind == KindConvention && w.Scope.Kind != ScopeTeammate {
+	if n.Kind == KindConvention && w.Scope.Kind != ScopeBot {
 		return StatusCandidate
 	}
 	return StatusAccepted

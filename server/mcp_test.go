@@ -40,7 +40,7 @@ func closeSpace(t *testing.T, st *store.Store, id int64) {
 
 func testServerBot(t *testing.T, st *store.Store, name string) *int64 {
 	t.Helper()
-	bots, err := st.Teammates(context.Background())
+	bots, err := st.Bots(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +49,7 @@ func testServerBot(t *testing.T, st *store.Store, name string) *int64 {
 			return &bot.ID
 		}
 	}
-	bot, err := st.CreateTeammate(context.Background(), store.Teammate{Name: name, Backend: "claude"})
+	bot, err := st.CreateBot(context.Background(), store.Bot{Name: name, Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -59,13 +59,13 @@ func testServerBot(t *testing.T, st *store.Store, name string) *int64 {
 func testServerTeam(t *testing.T, st *store.Store, ctx context.Context, team store.Team) (store.Team, error) {
 	t.Helper()
 	for i, role := range team.Roles {
-		if role.TeammateID == 0 {
+		if role.BotID == 0 {
 			id := *testServerBot(t, st, role.Name)
-			bot := store.Teammate{ID: id, Name: role.Name, Backend: role.Backend, Persona: role.Persona, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
-			if _, err := st.UpdateTeammate(ctx, bot); err != nil {
+			bot := store.Bot{ID: id, Name: role.Name, Backend: role.Backend, Description: role.Description, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
+			if _, err := st.UpdateBot(ctx, bot); err != nil {
 				return store.Team{}, err
 			}
-			team.Roles[i].TeammateID = id
+			team.Roles[i].BotID = id
 		}
 	}
 	return st.ApplyTeam(ctx, team)
@@ -74,13 +74,13 @@ func testServerTeam(t *testing.T, st *store.Store, ctx context.Context, team sto
 func testServerCreateTeam(t *testing.T, st *store.Store, ctx context.Context, team store.Team) (store.Team, error) {
 	t.Helper()
 	for i, role := range team.Roles {
-		if role.TeammateID == 0 {
+		if role.BotID == 0 {
 			id := *testServerBot(t, st, role.Name)
-			bot := store.Teammate{ID: id, Name: role.Name, Backend: role.Backend, Persona: role.Persona, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
-			if _, err := st.UpdateTeammate(ctx, bot); err != nil {
+			bot := store.Bot{ID: id, Name: role.Name, Backend: role.Backend, Description: role.Description, Skills: role.Skills, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
+			if _, err := st.UpdateBot(ctx, bot); err != nil {
 				return store.Team{}, err
 			}
-			team.Roles[i].TeammateID = id
+			team.Roles[i].BotID = id
 		}
 	}
 	return st.CreateTeam(ctx, team)
@@ -88,7 +88,7 @@ func testServerCreateTeam(t *testing.T, st *store.Store, ctx context.Context, te
 
 func testToken(t *testing.T, st *store.Store, ctx context.Context, spaceID int64, name string) (store.Token, error) {
 	t.Helper()
-	id, err := st.SpaceMemberTeammateID(ctx, spaceID, name)
+	id, err := st.SpaceMemberBotID(ctx, spaceID, name)
 	if err != nil {
 		return store.Token{}, err
 	}
@@ -130,7 +130,7 @@ func mcpFixture(t *testing.T) (*store.Store, store.Token) {
 		if name == "quick" {
 			name = "architect"
 		}
-		_, err = st.CreateTeammateSpace(ctx, c, *testServerBot(t, st, name))
+		_, err = st.CreateBotSpace(ctx, c, *testServerBot(t, st, name))
 		must(err)
 		if c.Name == "developer" {
 			closeSpace(t, st, 2)
@@ -385,7 +385,7 @@ func TestMCPProposeWrap(t *testing.T) {
 		"brief": "v2",
 		"items": []any{
 			map[string]any{"kind": "decision", "body": "use sessions", "why": "simple"},
-			map[string]any{"kind": "lesson", "body": "reply short", "why": "", "scope": "teammate"},
+			map[string]any{"kind": "lesson", "body": "reply short", "why": "", "scope": "bot"},
 		},
 	})
 	if want := `{"id":1,"message":"proposal saved; the user will approve it"}`; got != want || isErr {
@@ -399,7 +399,7 @@ func TestMCPProposeWrap(t *testing.T) {
 		ID: 1, SpaceID: 1, BotID: tok.BotID, Role: "architect", Kind: store.ProposalWrap, Brief: "v2",
 		Items: []store.ProposedItem{
 			{Kind: "decision", Body: "use sessions", Why: "simple", Scope: "work_item"},
-			{Kind: "lesson", Body: "reply short", Scope: "teammate"},
+			{Kind: "lesson", Body: "reply short", Scope: "bot"},
 		},
 		Retire: []int64{},
 		Status: store.ProposalPending,
@@ -443,10 +443,10 @@ func TestMCPRemember(t *testing.T) {
 			want: item(1, "decision", "work_item:1", "developer", "accepted"),
 		},
 		{
-			name: "scope teammate is the role",
+			name: "scope bot is the role",
 			call: dev,
-			give: map[string]any{"kind": "lesson", "body": "item 2", "scope": "teammate"},
-			want: item(2, "lesson", "teammate:3", "developer", "accepted"),
+			give: map[string]any{"kind": "lesson", "body": "item 2", "scope": "bot"},
+			want: item(2, "lesson", "bot:3", "developer", "accepted"),
 		},
 		{
 			name: "a developer's convention is a candidate",
@@ -464,7 +464,7 @@ func TestMCPRemember(t *testing.T) {
 			name:    "scope team is refused",
 			call:    dev,
 			give:    map[string]any{"kind": "lesson", "body": "item 6", "scope": "team"},
-			want:    `invalid: scope "team" is not work_item, space, conversation, project or teammate`,
+			want:    `invalid: scope "team" is not work_item, space, conversation, project or bot`,
 			wantErr: true,
 		},
 		{
@@ -496,7 +496,7 @@ func TestMCPRememberDefaultsToTheSpacesOwnShelf(t *testing.T) {
 		return callToolMemory(t, st, ms, tok, t.TempDir())
 	}
 	chat := func() int64 {
-		c, err := st.CreateTeammateSpace(ctx,
+		c, err := st.CreateBotSpace(ctx,
 			store.Space{ProjectID: 1, Name: "chat", Kind: store.KindConversation}, 1)
 		if err != nil {
 			t.Fatal(err)
@@ -675,7 +675,7 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 	call("remember", map[string]any{"kind": "fact", "body": "project item", "scope": "project"})
 
 	const (
-		notLive       = "invalid: memory %d is not a live item in work_item:1, project:1, teammate:2"
+		notLive       = "invalid: memory %d is not a live item in work_item:1, project:1, bot:2"
 		notOnTheShelf = "invalid: memory %d is not a live item in work_item:1"
 	)
 	tests := []struct {
@@ -704,12 +704,12 @@ func TestMCPProposeWrapRejectsBadMemoryIDs(t *testing.T) {
 		{
 			"unknown scope",
 			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "scope": "space"}}},
-			`invalid: scope "space" is not one of work_item, project, teammate`,
+			`invalid: scope "space" is not one of work_item, project, bot`,
 		},
 		{
 			"team scope on a solo space",
 			map[string]any{"items": []any{map[string]any{"kind": "fact", "body": "x", "scope": "team"}}},
-			`invalid: scope "team" is not one of work_item, project, teammate`,
+			`invalid: scope "team" is not one of work_item, project, bot`,
 		},
 	}
 	for _, tt := range tests {
@@ -906,7 +906,7 @@ func TestMCPProposeWorkItem(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	chat, err := st.CreateTeammateSpace(ctx,
+	chat, err := st.CreateBotSpace(ctx,
 		store.Space{ProjectID: 1, Name: "chat", Kind: store.KindConversation}, 1)
 	if err != nil {
 		t.Fatal(err)

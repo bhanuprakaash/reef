@@ -158,7 +158,7 @@ func TestAttach_AttachedSpaceAndConversation(t *testing.T) {
 	do(t, http.MethodPost, env.url+"/work-items", `{"projectId":1,"title":"Search"}`)
 	do(t, http.MethodPost, env.url+"/spaces/1/attach", `{"workItemId":1}`)
 	do(t, http.MethodPost, env.url+"/spaces",
-		`{"projectId":1,"name":"talk","teammateId":1,"kind":"conversation"}`)
+		`{"projectId":1,"name":"talk","botId":1,"kind":"conversation"}`)
 
 	status, body := do(t, http.MethodPost, env.url+"/spaces/1/attach", `{"workItemId":2}`)
 	if status != 400 || body != `{"error":"invalid: Space 1 already has work item 1"}` {
@@ -187,31 +187,31 @@ func TestAttach_WhileRunning(t *testing.T) {
 	env.fake.release <- struct{}{}
 }
 
-func TestCreateSpace_FromATeammateAddsMembersOneByOne(t *testing.T) {
+func TestCreateSpace_FromABotAddsMembersOneByOne(t *testing.T) {
 	ctx := context.Background()
 	env := newLiveEnv(t)
-	sam, err := env.st.CreateTeammate(ctx, store.Teammate{
+	sam, err := env.st.CreateBot(ctx, store.Bot{
 		Name: "sam", Backend: "claude", Write: true, Tools: []string{"Read"}})
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	status, body := do(t, http.MethodPost, env.url+"/spaces",
-		`{"projectId":1,"name":"two","teammateId":1,"team":"solo"}`)
-	if status != 400 || body != `{"error":"invalid: give teammateId or team, not both"}` {
+		`{"projectId":1,"name":"two","botId":1,"team":"solo"}`)
+	if status != 400 || body != `{"error":"invalid: give botId or team, not both"}` {
 		t.Errorf("create with both = %d %s, want 400 not both", status, body)
 	}
-	status, body = do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"two","teammateId":1}`)
+	status, body = do(t, http.MethodPost, env.url+"/spaces", `{"projectId":1,"name":"two","botId":1}`)
 	if status != 201 || !strings.Contains(body, `"kind":"free"`) || !strings.Contains(body, `"team":""`) ||
 		!strings.Contains(body, `"role":"lead"`) {
-		t.Fatalf("create from teammate 1 = %d %s, want a free Space with no team led by lead", status, body)
+		t.Fatalf("create from bot 1 = %d %s, want a free Space with no team led by lead", status, body)
 	}
 
-	status, body = do(t, http.MethodPost, env.url+"/spaces/2/members", fmt.Sprintf(`{"teammateId":%d}`, sam.ID))
+	status, body = do(t, http.MethodPost, env.url+"/spaces/2/members", fmt.Sprintf(`{"botId":%d}`, sam.ID))
 	if status != 201 || !strings.Contains(body, `"name":"sam","lead":false,"write":true`) {
 		t.Fatalf("add sam = %d %s, want 201 with sam, not lead, write", status, body)
 	}
-	status, body = do(t, http.MethodPost, env.url+"/spaces/2/members", fmt.Sprintf(`{"teammateId":%d}`, sam.ID))
+	status, body = do(t, http.MethodPost, env.url+"/spaces/2/members", fmt.Sprintf(`{"botId":%d}`, sam.ID))
 	if status != 409 {
 		t.Errorf("add sam again = %d %s, want 409", status, body)
 	}

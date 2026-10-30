@@ -128,15 +128,15 @@ func (s *server) listSpaces(w http.ResponseWriter, r *http.Request) {
 func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		store.Space
-		TeammateID int64 `json:"teammateId"`
+		BotID int64 `json:"botId"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
 	if in.WorkItemID != nil {
-		if in.TeammateID != 0 {
-			writeError(w, fmt.Errorf("%w: the Space of a work item is made by a Team, not a Teammate", store.ErrInvalid))
+		if in.BotID != 0 {
+			writeError(w, fmt.Errorf("%w: the Space of a work item is made by a Team, not a Bot", store.ErrInvalid))
 			return
 		}
 		if err := s.useItemTeam(r.Context(), &in.Space); err != nil {
@@ -144,8 +144,8 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
-	if in.TeammateID != 0 {
-		s.createTeammateSpace(w, r, in.Space, in.TeammateID)
+	if in.BotID != 0 {
+		s.createBotSpace(w, r, in.Space, in.BotID)
 		return
 	}
 	if in.Role == "" {
@@ -214,18 +214,18 @@ func (s *server) useItemTeam(ctx context.Context, in *store.Space) error {
 	return nil
 }
 
-// createTeammateSpace creates a Space with no Team and one member, the Teammate, which leads it
+// createBotSpace creates a Space with no Team and one member, the Bot, which leads it
 // with its backend and default access rules.
-func (s *server) createTeammateSpace(
-	w http.ResponseWriter, r *http.Request, in store.Space, teammateID int64,
+func (s *server) createBotSpace(
+	w http.ResponseWriter, r *http.Request, in store.Space, botID int64,
 ) {
 	if in.Team != "" {
-		writeError(w, fmt.Errorf("%w: give teammateId or team, not both", store.ErrInvalid))
+		writeError(w, fmt.Errorf("%w: give botId or team, not both", store.ErrInvalid))
 		return
 	}
-	t, err := s.st.Teammate(r.Context(), teammateID)
+	t, err := s.st.Bot(r.Context(), botID)
 	if errors.Is(err, store.ErrNotFound) {
-		err = fmt.Errorf("%w: unknown teammate %d", store.ErrInvalid, teammateID)
+		err = fmt.Errorf("%w: unknown bot %d", store.ErrInvalid, botID)
 	}
 	if err != nil {
 		writeError(w, err)
@@ -233,7 +233,7 @@ func (s *server) createTeammateSpace(
 	}
 	autoName := isDefaultName(in.Name, cmp.Or(in.Backend, t.Name))
 	in.Role, in.Backend, in.PermissionMode = t.Name, t.Backend, t.PermissionMode
-	c, err := s.st.CreateTeammateSpace(r.Context(), in, teammateID)
+	c, err := s.st.CreateBotSpace(r.Context(), in, botID)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -415,21 +415,21 @@ func (s *server) addSpaceMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		TeammateID int64 `json:"teammateId"`
+		BotID int64 `json:"botId"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
 		return
 	}
 	if ch, err := s.st.Space(r.Context(), id); err == nil && ch.Kind == store.KindConversation {
-		if err := s.moveConversation(r.Context(), ch, in.TeammateID); err != nil {
+		if err := s.moveConversation(r.Context(), ch, in.BotID); err != nil {
 			writeError(w, err)
 			return
 		}
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
-	role, err := s.st.AddSpaceMember(r.Context(), id, in.TeammateID)
+	role, err := s.st.AddSpaceMember(r.Context(), id, in.BotID)
 	if err != nil {
 		writeError(w, err)
 		return

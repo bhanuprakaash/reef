@@ -144,15 +144,15 @@ func TestSession_NoCheckpointWhenProjectIsASubfolderOfARepo(t *testing.T) {
 		t.Fatal(err)
 	}
 	id := testBotID(t, st, "architect")
-	bot, err := st.Teammate(ctx, *id)
+	bot, err := st.Bot(ctx, *id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bot.Write = true
-	if _, err = st.UpdateTeammate(ctx, bot); err != nil {
+	if _, err = st.UpdateBot(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := st.CreateTeammateSpace(ctx, store.Space{
+	ch, err := st.CreateBotSpace(ctx, store.Space{
 		ProjectID: p.ID, Name: "chat", Role: "architect", Backend: "claude",
 		PermissionMode: "acceptEdits",
 	}, *id)

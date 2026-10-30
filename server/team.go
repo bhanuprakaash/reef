@@ -21,13 +21,13 @@ type teamView struct {
 }
 
 type roleView struct {
-	TeammateID     int64     `json:"teammateId,omitempty"`
+	BotID          int64     `json:"botId,omitempty"`
 	Name           string    `json:"name"`
 	Lead           bool      `json:"lead"`
 	Write          bool      `json:"write"`
 	Backend        string    `json:"backend"`
 	PermissionMode string    `json:"permissionMode"`
-	Persona        string    `json:"persona"`
+	Description    string    `json:"description"`
 	Skills         []string  `json:"skills"`
 	Face           string    `json:"face,omitempty"`
 	Colour         string    `json:"colour,omitempty"`
@@ -77,8 +77,8 @@ func (s *server) createTeam(w http.ResponseWriter, r *http.Request) {
 	}
 	t := teamFromBody(body)
 	for _, role := range t.Roles {
-		if role.TeammateID == 0 {
-			writeError(w, fmt.Errorf("%w: role %s needs a teammateId", store.ErrInvalid, role.Name))
+		if role.BotID == 0 {
+			writeError(w, fmt.Errorf("%w: role %s needs a botId", store.ErrInvalid, role.Name))
 			return
 		}
 	}
@@ -225,8 +225,8 @@ func viewTeam(t store.Team) teamView {
 
 func viewRole(r store.Role) roleView {
 	return roleView{
-		TeammateID: r.TeammateID, Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend,
-		PermissionMode: r.PermissionMode, Persona: r.Persona, Skills: r.Skills, Face: r.Face,
+		BotID: r.BotID, Name: r.Name, Lead: r.Lead, Write: r.Write, Backend: r.Backend,
+		PermissionMode: r.PermissionMode, Description: r.Description, Skills: r.Skills, Face: r.Face,
 		Colour: r.Colour, Model: r.Model, Provider: r.Provider, Tools: r.Tools, MCP: viewMCP(r.MCPServers),
 	}
 }

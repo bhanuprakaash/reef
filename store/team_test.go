@@ -39,14 +39,14 @@ func TestTeam_Responsibility(t *testing.T) {
 	}
 }
 
-func TestCreateTeam_CopiesTeammateDefaults(t *testing.T) {
+func TestCreateTeam_CopiesBotDefaults(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	teammate, err := s.CreateTeammate(ctx, Teammate{
+	bot, err := s.CreateBot(ctx, Bot{
 		Name: "sam", Backend: "claude", Tools: []string{"Read"}, PermissionMode: "default",
 	})
 	if err != nil {
@@ -54,17 +54,17 @@ func TestCreateTeam_CopiesTeammateDefaults(t *testing.T) {
 	}
 
 	team, err := s.CreateTeam(ctx, Team{Name: "release", Roles: []Role{{
-		TeammateID: teammate.ID, Name: "lead", Lead: true, Backend: "claude", Write: true,
+		BotID: bot.ID, Name: "lead", Lead: true, Backend: "claude", Write: true,
 		PermissionMode: "acceptEdits", Tools: []string{"Edit"},
 	}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := team.Roles[0]
-	if got.TeammateID != teammate.ID || got.Write || got.PermissionMode != "default" ||
+	if got.BotID != bot.ID || got.Write || got.PermissionMode != "default" ||
 		!reflect.DeepEqual(got.Tools, []string{"Read"}) {
-		t.Errorf("created membership = %+v, want teammate %d with defaults Read, default, no write",
-			got, teammate.ID)
+		t.Errorf("created membership = %+v, want bot %d with defaults Read, default, no write",
+			got, bot.ID)
 	}
 }
 
@@ -264,7 +264,7 @@ func TestApplyTeam_Write(t *testing.T) {
 	}
 }
 
-func TestApplyTeam_KeepsExistingTeammate(t *testing.T) {
+func TestApplyTeam_KeepsExistingBot(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
 	if err != nil {
@@ -273,7 +273,7 @@ func TestApplyTeam_KeepsExistingTeammate(t *testing.T) {
 	defer func() { _ = s.Close() }()
 
 	if _, err := s.ApplyTeam(ctx, Team{Name: "crew", Roles: []Role{
-		{Name: "lead", Lead: true, Backend: "claude", Persona: "Plans.", Face: "whale", Model: "opus"},
+		{Name: "lead", Lead: true, Backend: "claude", Description: "Plans.", Face: "whale", Model: "opus"},
 	}}); err != nil {
 		t.Fatal(err)
 	}
@@ -283,8 +283,8 @@ func TestApplyTeam_KeepsExistingTeammate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r := got.Roles[0]; r.Persona != "Plans." || r.Face != "whale" || r.Model != "opus" {
-		t.Errorf("lead after a second apply = %+v, want persona Plans., face whale, model opus", r)
+	if r := got.Roles[0]; r.Description != "Plans." || r.Face != "whale" || r.Model != "opus" {
+		t.Errorf("lead after a second apply = %+v, want description Plans., face whale, model opus", r)
 	}
 }
 

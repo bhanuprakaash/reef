@@ -23,14 +23,14 @@ func TestTeam_ApplyAndList(t *testing.T) {
 	dir := t.TempDir()
 	file := writeTeam(t, `{"name":"core","roles":[
 		{"name":"architect","backend":"codex"},
-		{"name":"lead","lead":true,"backend":"claude","persona":"old"}]}`)
+		{"name":"lead","lead":true,"backend":"claude","description":"old"}]}`)
 	if got, want := mustReef(t, dir, "team", "apply", file),
 		"applied team core: core-lead*(claude) core-architect(codex)\n"; got != want {
 		t.Errorf("apply = %q, want %q", got, want)
 	}
 
 	file = writeTeam(t, `{"name":"core","roles":[
-		{"name":"lead","lead":true,"backend":"claude","persona":"new"}]}`)
+		{"name":"lead","lead":true,"backend":"claude","description":"new"}]}`)
 	mustReef(t, dir, "team", "apply", file)
 	if got, want := mustReef(t, dir, "team", "list"),
 		"core  core-lead*(claude)\nsolo  lead*(claude)\n"; got != want {

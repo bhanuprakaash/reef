@@ -73,13 +73,13 @@ func TestSpaceTeam_UsesProfileConfiguration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bot, err := s.Teammate(ctx, team.Roles[1].TeammateID)
+	bot, err := s.Bot(ctx, team.Roles[1].BotID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bot.Tools = []string{"Read", "Grep"}
 	bot.Write = false
-	if _, err := s.UpdateTeammate(ctx, bot); err != nil {
+	if _, err := s.UpdateBot(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
 	for _, id := range []int64{one.ID, two.ID} {
@@ -100,19 +100,19 @@ func TestSpaceTeam_UsesProfileConfiguration(t *testing.T) {
 	}
 }
 
-func TestTeammateConversations_NewestActivityFirstAndOnlyOwnConversations(t *testing.T) {
+func TestBotConversations_NewestActivityFirstAndOnlyOwnConversations(t *testing.T) {
 	ctx := context.Background()
 	s := spaceMemberStore(t)
-	sam, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude"})
+	sam, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	kim, err := s.CreateTeammate(ctx, Teammate{Name: "kim", Backend: "claude"})
+	kim, err := s.CreateBot(ctx, Bot{Name: "kim", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	start := func(name string, with Teammate, kind string) Space {
-		c, err := s.CreateTeammateSpace(ctx,
+	start := func(name string, with Bot, kind string) Space {
+		c, err := s.CreateBotSpace(ctx,
 			Space{ProjectID: 1, Name: name, Kind: kind, Role: with.Name, Backend: "claude"}, with.ID)
 		if err != nil {
 			t.Fatal(err)
@@ -127,7 +127,7 @@ func TestTeammateConversations_NewestActivityFirstAndOnlyOwnConversations(t *tes
 		t.Fatal(err)
 	}
 
-	got, err := s.TeammateConversations(ctx, sam.ID)
+	got, err := s.BotConversations(ctx, sam.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,18 +140,18 @@ func TestTeammateConversations_NewestActivityFirstAndOnlyOwnConversations(t *tes
 	}
 }
 
-func TestTeammateSpace_HasOneLeadAndTakesMoreOneByOne(t *testing.T) {
+func TestBotSpace_HasOneLeadAndTakesMoreOneByOne(t *testing.T) {
 	ctx := context.Background()
 	s := spaceMemberStore(t)
-	sam, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude", Tools: []string{"Read"}})
+	sam, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude", Tools: []string{"Read"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	kim, err := s.CreateTeammate(ctx, Teammate{Name: "kim", Backend: "claude", Write: true})
+	kim, err := s.CreateBot(ctx, Bot{Name: "kim", Backend: "claude", Write: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	chat, err := s.CreateTeammateSpace(ctx,
+	chat, err := s.CreateBotSpace(ctx,
 		Space{ProjectID: 1, Name: "chat", Kind: KindConversation, Role: "sam", Backend: "claude"}, sam.ID)
 	if err != nil || chat.Kind != KindConversation || chat.Team != "" {
 		t.Fatalf("conversation = %+v, %v, want kind conversation and no team", chat, err)
@@ -160,7 +160,7 @@ func TestTeammateSpace_HasOneLeadAndTakesMoreOneByOne(t *testing.T) {
 		t.Errorf("add to a conversation = %v, want ErrInvalid", err)
 	}
 
-	free, err := s.CreateTeammateSpace(ctx,
+	free, err := s.CreateBotSpace(ctx,
 		Space{ProjectID: 1, Name: "free", Role: "sam", Backend: "claude"}, sam.ID)
 	if err != nil || free.Kind != KindFree {
 		t.Fatalf("free Space = %+v, %v, want kind free", free, err)
@@ -177,8 +177,8 @@ func TestTeammateSpace_HasOneLeadAndTakesMoreOneByOne(t *testing.T) {
 		!reflect.DeepEqual(team.Roles[0].Tools, []string{"Read"}) {
 		t.Errorf("SpaceTeam = %+v, %v, want no team, sam (lead, tools [Read]) then kim", team, err)
 	}
-	if err := s.DeleteTeammate(ctx, sam.ID); !errors.Is(err, ErrInvalid) {
-		t.Errorf("delete a teammate that is in Spaces = %v, want ErrInvalid", err)
+	if err := s.DeleteBot(ctx, sam.ID); !errors.Is(err, ErrInvalid) {
+		t.Errorf("delete a bot that is in Spaces = %v, want ErrInvalid", err)
 	}
 }
 
@@ -221,28 +221,28 @@ func TestAttachSpace(t *testing.T) {
 	}
 }
 
-func TestMoveConversation_FreeSpaceWithBothTeammatesAndTheConversationMarked(t *testing.T) {
+func TestMoveConversation_FreeSpaceWithBothBotsAndTheConversationMarked(t *testing.T) {
 	ctx := context.Background()
 	s := spaceMemberStore(t)
-	sam, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude", Tools: []string{"Read"}})
+	sam, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude", Tools: []string{"Read"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	kim, err := s.CreateTeammate(ctx, Teammate{Name: "kim", Backend: "claude", Write: true})
+	kim, err := s.CreateBot(ctx, Bot{Name: "kim", Backend: "claude", Write: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	conv, err := s.CreateTeammateSpace(ctx,
+	conv, err := s.CreateBotSpace(ctx,
 		Space{ProjectID: 1, Name: "talk", Kind: KindConversation, Role: "sam", Backend: "claude"}, sam.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if _, err := s.MoveConversation(ctx, conv.ID, sam.ID); !errors.Is(err, ErrInvalid) {
-		t.Errorf("move to its own Teammate = %v, want ErrInvalid", err)
+		t.Errorf("move to its own Bot = %v, want ErrInvalid", err)
 	}
 	if _, err := s.MoveConversation(ctx, conv.ID, 99); !errors.Is(err, ErrInvalid) {
-		t.Errorf("move to an unknown Teammate = %v, want ErrInvalid", err)
+		t.Errorf("move to an unknown Bot = %v, want ErrInvalid", err)
 	}
 	moved, err := s.MoveConversation(ctx, conv.ID, kim.ID)
 	if err != nil {

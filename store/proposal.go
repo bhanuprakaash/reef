@@ -26,7 +26,7 @@ const _proposalCols = "id, space_id, role, kind, brief, items, retire, status, "
 	"created_at, decided_at, bot_id"
 
 // ProposedItem is a memory item that approving its proposal saves. Scope is the memory scope
-// kind: work_item, project, teammate or team. Replaces are the memory items it replaces.
+// kind: work_item, project, bot or team. Replaces are the memory items it replaces.
 type ProposedItem struct {
 	Kind     string  `json:"kind"`
 	Body     string  `json:"body"`

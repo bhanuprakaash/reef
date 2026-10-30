@@ -132,7 +132,7 @@ var _roleRe = regexp.MustCompile(`You are the (\S+) (?:on work item|in project)`
 // "[Space N, message M, thread T]", or a direct message's (server/wake.go).
 var _headerRe = regexp.MustCompile(`(?m)^\[Space [^\n\]]*\]$`)
 
-// _wroteRe starts a teammate's message in a wake: "<role> wrote: " or "<role> wrote privately: ".
+// _wroteRe starts a bot's message in a wake: "<role> wrote: " or "<role> wrote privately: ".
 var _wroteRe = regexp.MustCompile(`(?m)^\S+ wrote(?: privately)?: `)
 
 // _leadLinesRe is the lines a block may have before its messages.
@@ -142,7 +142,7 @@ var _leadLinesRe = regexp.MustCompile(`\A(?:(?:Asked together: |\d+ older messag
 // block, or the whole prompt when it has none (a Space's first prompt, with no wake yet).
 // That message ends the block, after reef's notes ("reef wrote: ...") and the older unread
 // messages ("New in the Space:"), each list ending in a blank line: it is the last
-// teammate's "<role> wrote: ", else the user's text after the last blank line.
+// bot's "<role> wrote: ", else the user's text after the last blank line.
 func textPart(prompt string) string {
 	locs := _headerRe.FindAllStringIndex(prompt, -1)
 	if len(locs) == 0 {

@@ -515,7 +515,7 @@ func (s *server) wakeCoordinator(
 		}
 		return err
 	}
-	botID := team.Roles[0].TeammateID
+	botID := team.Roles[0].BotID
 	w := wake{from: store.ReefAuthor, role: team.Roles[0].Name, botID: &botID, text: text}
 	if err := chain.resume(ctx, ch, []wake{w}); err != nil {
 		if errors.Is(err, store.ErrConflict) {

@@ -38,19 +38,19 @@ func colours() []string {
 	return []string{"orange", "red", "yellow", "green", "teal", "blue", "violet", "pink"}
 }
 
-// Role is one teammate's setup. Face picks the creature the window draws for the role and Colour
+// Role is one bot's setup. Face picks the creature the window draws for the role and Colour
 // its body colour; empty Colour is the creature's own. Model names the model the backend runs the role on; empty is
 // the backend's default. Provider names an added install (see Provider) whose binary the role
 // runs; empty is the claude or codex found on PATH. Tools are the backend's allowed tools. Write says whether the
 // role may change files: without it the backend's tools and sandbox are held to read-only.
 type Role struct {
-	TeammateID     int64             `json:"teammateId,omitempty"`
+	BotID          int64             `json:"botId,omitempty"`
 	Name           string            `json:"name"`
 	Lead           bool              `json:"lead"`
 	Write          bool              `json:"write"`
 	Backend        string            `json:"backend"`
 	PermissionMode string            `json:"permissionMode"`
-	Persona        string            `json:"persona"`
+	Description    string            `json:"description"`
 	Skills         []string          `json:"skills"`
 	Face           string            `json:"face,omitempty"`
 	Colour         string            `json:"colour,omitempty"`
@@ -118,7 +118,7 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 		Scan(&id); err != nil {
 		return Team{}, fmt.Errorf("read team: %w", err)
 	}
-	behind, err := roleTeammates(ctx, tx, id)
+	behind, err := roleBots(ctx, tx, id)
 	if err != nil {
 		return Team{}, err
 	}
@@ -130,37 +130,37 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 		if err != nil {
 			return Team{}, err
 		}
-		if r.TeammateID != 0 {
-			query := "INSERT INTO team_member (team_id, teammate_id, name, lead, tools, mcp_servers, " +
-				"write, permission_mode) SELECT ?, id, ?, ?, ?, ?, ?, ? FROM teammate WHERE id = ?"
-			args := []any{id, r.Name, r.Lead, tools, servers, r.Write, r.PermissionMode, r.TeammateID}
+		if r.BotID != 0 {
+			query := "INSERT INTO team_member (team_id, bot_id, name, lead, tools, mcp_servers, " +
+				"write, permission_mode) SELECT ?, id, ?, ?, ?, ?, ?, ? FROM bot WHERE id = ?"
+			args := []any{id, r.Name, r.Lead, tools, servers, r.Write, r.PermissionMode, r.BotID}
 			if createOnly {
-				query = "INSERT INTO team_member (team_id, teammate_id, name, lead, tools, " +
+				query = "INSERT INTO team_member (team_id, bot_id, name, lead, tools, " +
 					"mcp_servers, write, permission_mode) SELECT ?, id, ?, ?, tools, mcp_servers, " +
-					"write, permission_mode FROM teammate WHERE id = ?"
-				args = []any{id, r.Name, r.Lead, r.TeammateID}
+					"write, permission_mode FROM bot WHERE id = ?"
+				args = []any{id, r.Name, r.Lead, r.BotID}
 			}
 			res, err := tx.ExecContext(ctx, query, args...)
 			if err != nil {
 				return Team{}, fmt.Errorf("insert member %s: %w", r.Name, err)
 			}
 			if n, err := res.RowsAffected(); err == nil && n == 0 {
-				return Team{}, fmt.Errorf("%w: unknown teammate %d", ErrInvalid, r.TeammateID)
+				return Team{}, fmt.Errorf("%w: unknown bot %d", ErrInvalid, r.BotID)
 			}
 			continue
 		}
 		tm := cmp.Or(behind[r.Name], t.Name+"-"+r.Name)
 		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO teammate (name, persona, skills, backend, model, provider, face, colour, "+
+			"INSERT INTO bot (name, description, skills, backend, model, provider, face, colour, "+
 				"tools, mcp_servers, write, permission_mode) "+
 				"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING",
-			tm, r.Persona, skills, r.Backend, r.Model, r.Provider, r.Face, r.Colour, tools,
+			tm, r.Description, skills, r.Backend, r.Model, r.Provider, r.Face, r.Colour, tools,
 			servers, r.Write, r.PermissionMode); err != nil {
-			return Team{}, fmt.Errorf("insert teammate %s: %w", tm, err)
+			return Team{}, fmt.Errorf("insert bot %s: %w", tm, err)
 		}
 		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO team_member (team_id, teammate_id, name, lead, tools, mcp_servers, write, "+
-				"permission_mode) SELECT ?, id, ?, ?, ?, ?, ?, ? FROM teammate WHERE name = ?",
+			"INSERT INTO team_member (team_id, bot_id, name, lead, tools, mcp_servers, write, "+
+				"permission_mode) SELECT ?, id, ?, ?, ?, ?, ?, ? FROM bot WHERE name = ?",
 			id, r.Name, r.Lead, tools, servers, r.Write, r.PermissionMode, tm); err != nil {
 			return Team{}, fmt.Errorf("insert member %s: %w", r.Name, err)
 		}
@@ -171,22 +171,22 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 	return s.Team(ctx, t.Name)
 }
 
-// roleTeammates maps each role name of the team to the name of the Teammate behind it.
-func roleTeammates(ctx context.Context, tx *sql.Tx, teamID int64) (map[string]string, error) {
+// roleBots maps each role name of the team to the name of the Bot behind it.
+func roleBots(ctx context.Context, tx *sql.Tx, teamID int64) (map[string]string, error) {
 	rows, err := tx.QueryContext(ctx,
-		"SELECT member.name, teammate.name FROM team_member member "+
-			"JOIN teammate ON teammate.id = member.teammate_id WHERE member.team_id = ?", teamID)
+		"SELECT member.name, bot.name FROM team_member member "+
+			"JOIN bot ON bot.id = member.bot_id WHERE member.team_id = ?", teamID)
 	if err != nil {
 		return nil, fmt.Errorf("read members: %w", err)
 	}
 	defer func() { _ = rows.Close() }()
 	behind := make(map[string]string)
 	for rows.Next() {
-		var role, teammate string
-		if err := rows.Scan(&role, &teammate); err != nil {
+		var role, bot string
+		if err := rows.Scan(&role, &bot); err != nil {
 			return nil, fmt.Errorf("read members: %w", err)
 		}
-		behind[role] = teammate
+		behind[role] = bot
 	}
 	return behind, rows.Err()
 }
@@ -262,13 +262,13 @@ func (s *Store) SuggestTeam(ctx context.Context, text string) (Team, error) {
 }
 
 // roles lists the members in table (team_member or space_member) whose key column is id, lead
-// first, with the Teammate's configuration.
+// first, with the Bot's configuration.
 func (s *Store) roles(ctx context.Context, table, key string, id int64) ([]Role, error) {
 	rows, err := s.db.QueryContext(ctx,
-		"SELECT teammate.id, teammate.name, member.lead, teammate.write, teammate.backend, "+
-			"teammate.permission_mode, teammate.persona, teammate.skills, teammate.face, teammate.colour, teammate.model, "+
-			"teammate.provider, teammate.tools, teammate.mcp_servers "+
-			"FROM "+table+" member JOIN teammate ON teammate.id = member.teammate_id "+
+		"SELECT bot.id, bot.name, member.lead, bot.write, bot.backend, "+
+			"bot.permission_mode, bot.description, bot.skills, bot.face, bot.colour, bot.model, "+
+			"bot.provider, bot.tools, bot.mcp_servers "+
+			"FROM "+table+" member JOIN bot ON bot.id = member.bot_id "+
 			"WHERE member."+key+" = ? ORDER BY member.lead DESC, member.id", id)
 	if err != nil {
 		return nil, err
@@ -442,7 +442,7 @@ func ValidateAgent(backend, permissionMode string) error {
 func scanRole(r interface{ Scan(...any) error }) (Role, error) {
 	var ro Role
 	var skills, tools, servers string
-	if err := r.Scan(&ro.TeammateID, &ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Persona,
+	if err := r.Scan(&ro.BotID, &ro.Name, &ro.Lead, &ro.Write, &ro.Backend, &ro.PermissionMode, &ro.Description,
 		&skills, &ro.Face, &ro.Colour, &ro.Model, &ro.Provider, &tools, &servers); err != nil {
 		return Role{}, err
 	}

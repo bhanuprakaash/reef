@@ -22,47 +22,47 @@ func (s *Store) SpaceTeam(ctx context.Context, id int64) (Team, error) {
 	return Team{Name: c.Team, Roles: roles}, nil
 }
 
-// AddSpaceMember puts the Teammate in Space id with a copy of its default access rules. A
-// direct conversation keeps its one Teammate.
-func (s *Store) AddSpaceMember(ctx context.Context, id, teammateID int64) (Role, error) {
+// AddSpaceMember puts the Bot in Space id with a copy of its default access rules. A
+// direct conversation keeps its one Bot.
+func (s *Store) AddSpaceMember(ctx context.Context, id, botID int64) (Role, error) {
 	c, err := s.Space(ctx, id)
 	if err != nil {
 		return Role{}, err
 	}
 	if c.Kind == KindConversation {
-		return Role{}, fmt.Errorf("%w: Space %d is a direct conversation with one Teammate", ErrInvalid, id)
+		return Role{}, fmt.Errorf("%w: Space %d is a direct conversation with one Bot", ErrInvalid, id)
 	}
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO space_member (space_id, teammate_id, name, lead, tools, mcp_servers, write, "+
+		"INSERT INTO space_member (space_id, bot_id, name, lead, tools, mcp_servers, write, "+
 			"permission_mode) SELECT ?, id, name, 0, tools, mcp_servers, write, permission_mode "+
-			"FROM teammate WHERE id = ?", id, teammateID)
+			"FROM bot WHERE id = ?", id, botID)
 	if err != nil {
 		if isUnique(err) {
-			return Role{}, fmt.Errorf("%w: Space %d already has teammate %d or a member with its name",
-				ErrConflict, id, teammateID)
+			return Role{}, fmt.Errorf("%w: Space %d already has bot %d or a member with its name",
+				ErrConflict, id, botID)
 		}
 		return Role{}, fmt.Errorf("insert Space member: %w", err)
 	}
 	if n, err := res.RowsAffected(); err == nil && n == 0 {
-		return Role{}, fmt.Errorf("%w: unknown teammate %d", ErrInvalid, teammateID)
+		return Role{}, fmt.Errorf("%w: unknown bot %d", ErrInvalid, botID)
 	}
 	roles, err := s.roles(ctx, "space_member", "space_id", id)
 	if err != nil {
 		return Role{}, fmt.Errorf("read members of Space %d: %w", id, err)
 	}
 	for _, r := range roles {
-		if r.TeammateID == teammateID {
+		if r.BotID == botID {
 			return r, nil
 		}
 	}
-	return Role{}, fmt.Errorf("teammate %d in Space %d: %w", teammateID, id, ErrNotFound)
+	return Role{}, fmt.Errorf("bot %d in Space %d: %w", botID, id, ErrNotFound)
 }
 
 // MoveConversation turns the direct conversation id into a free Space with no Team: the
-// conversation's Teammate leads it and the Teammate teammateID joins, each with its default
+// conversation's Bot leads it and the Bot botID joins, each with its default
 // access rules. The conversation is marked moved to the new Space, which it returns, in the
 // same transaction.
-func (s *Store) MoveConversation(ctx context.Context, id, teammateID int64) (Space, error) {
+func (s *Store) MoveConversation(ctx context.Context, id, botID int64) (Space, error) {
 	conv, err := s.Space(ctx, id)
 	if err != nil {
 		return Space{}, err
@@ -81,19 +81,19 @@ func (s *Store) MoveConversation(ctx context.Context, id, teammateID int64) (Spa
 	if len(team.Roles) == 0 {
 		return Space{}, fmt.Errorf("%w: conversation has no lead", ErrInvalid)
 	}
-	leadID := team.Roles[0].TeammateID
+	leadID := team.Roles[0].BotID
 	moved := Space{ProjectID: conv.ProjectID, Name: conv.Name, Role: team.Roles[0].Name, Backend: conv.Backend,
 		PermissionMode: conv.PermissionMode, Kind: KindFree}
 	return s.insertSpace(ctx, moved, nil, func(tx *sql.Tx, newID int64) error {
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO space_member (space_id, teammate_id, name, lead, tools, mcp_servers, write, "+
+			"INSERT INTO space_member (space_id, bot_id, name, lead, tools, mcp_servers, write, "+
 				"permission_mode) SELECT ?, id, name, id = ?, tools, mcp_servers, write, "+
-				"permission_mode FROM teammate WHERE id IN (?, ?)", newID, leadID, leadID, teammateID)
+				"permission_mode FROM bot WHERE id IN (?, ?)", newID, leadID, leadID, botID)
 		if err != nil {
 			return err
 		}
 		if n, err := res.RowsAffected(); err == nil && n < 2 {
-			return fmt.Errorf("%w: teammate %d is unknown or leads the conversation", ErrInvalid, teammateID)
+			return fmt.Errorf("%w: bot %d is unknown or leads the conversation", ErrInvalid, botID)
 		}
 		res, err = tx.ExecContext(ctx,
 			"UPDATE space SET moved_to = ? WHERE id = ? AND moved_to IS NULL", newID, id)
@@ -107,19 +107,19 @@ func (s *Store) MoveConversation(ctx context.Context, id, teammateID int64) (Spa
 	})
 }
 
-// SpaceMemberTeammateID returns the id of the Teammate that holds role in Space id, or
+// SpaceMemberBotID returns the id of the Bot that holds role in Space id, or
 // ErrNotFound.
-func (s *Store) SpaceMemberTeammateID(ctx context.Context, id int64, role string) (int64, error) {
-	var teammateID int64
+func (s *Store) SpaceMemberBotID(ctx context.Context, id int64, role string) (int64, error) {
+	var botID int64
 	err := s.db.QueryRowContext(ctx,
-		"SELECT member.teammate_id FROM space_member member JOIN teammate ON teammate.id = member.teammate_id "+
-			"WHERE member.space_id = ? AND teammate.name = ?", id, role).
-		Scan(&teammateID)
+		"SELECT member.bot_id FROM space_member member JOIN bot ON bot.id = member.bot_id "+
+			"WHERE member.space_id = ? AND bot.name = ?", id, role).
+		Scan(&botID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return 0, fmt.Errorf("role %s in Space %d: %w", role, id, ErrNotFound)
 	}
 	if err != nil {
-		return 0, fmt.Errorf("read teammate of role %s: %w", role, err)
+		return 0, fmt.Errorf("read bot of role %s: %w", role, err)
 	}
-	return teammateID, nil
+	return botID, nil
 }

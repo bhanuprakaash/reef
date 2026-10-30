@@ -595,12 +595,12 @@ func TestPollGitHub_FailedCheckWakesRenamedCoordinator(t *testing.T) {
 	t.Cleanup(ts.Close)
 	repo := ghWorkItemSetup(t, ts.URL, "crew")
 	coordinatorID := *testServerBot(t, st, "lead")
-	coordinator, err := st.Teammate(ctx, coordinatorID)
+	coordinator, err := st.Bot(ctx, coordinatorID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	coordinator.Name = "Maya"
-	if _, err = st.UpdateTeammate(ctx, coordinator); err != nil {
+	if _, err = st.UpdateBot(ctx, coordinator); err != nil {
 		t.Fatal(err)
 	}
 	replacement := *testServerBot(t, st, "lead")

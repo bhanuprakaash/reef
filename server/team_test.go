@@ -108,7 +108,7 @@ func TestCreateUpdateAndDeleteTeam(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	developer, err := st.CreateTeammate(context.Background(), store.Teammate{
+	developer, err := st.CreateBot(context.Background(), store.Bot{
 		Name: "developer", Backend: "claude", Write: true,
 	})
 	if err != nil {
@@ -124,15 +124,15 @@ func TestCreateUpdateAndDeleteTeam(t *testing.T) {
 
 	status, body := do(t, http.MethodPost, ts.URL+"/teams", `{
 		"name":"release","responsibility":"Ship Reef safely.",
-		"roles":[{"teammateId":1,"name":"lead","lead":true,"backend":"claude"},
-		{"teammateId":2,"name":"developer","backend":"claude","write":true}]}`)
+		"roles":[{"botId":1,"name":"lead","lead":true,"backend":"claude"},
+		{"botId":2,"name":"developer","backend":"claude","write":true}]}`)
 	if status != http.StatusCreated || !strings.Contains(body, `"responsibility":"Ship Reef safely."`) {
 		t.Fatalf("POST /teams = %d %s, want 201 with responsibility", status, body)
 	}
 	status, body = do(t, http.MethodPut, ts.URL+"/teams/release", `{
 		"responsibility":"Own releases and rollback.",
-		"roles":[{"teammateId":1,"name":"lead","lead":true,"backend":"claude"},
-		{"teammateId":2,"name":"developer","backend":"claude","write":true}]}`)
+		"roles":[{"botId":1,"name":"lead","lead":true,"backend":"claude"},
+		{"botId":2,"name":"developer","backend":"claude","write":true}]}`)
 	if status != http.StatusOK || !strings.Contains(body, `"responsibility":"Own releases and rollback."`) {
 		t.Fatalf("PUT /teams/release = %d %s, want 200 with updated responsibility", status, body)
 	}
@@ -262,9 +262,9 @@ func TestSpaceTeam(t *testing.T) {
 	}
 
 	status, body := do(t, http.MethodGet, ts.URL+"/teams/core", "")
-	want := `{"id":2,"name":"core","responsibility":"","roles":[{"teammateId":2,"name":"core-lead","lead":true,"write":false,"backend":"codex",` +
-		`"permissionMode":"read-only","persona":"","skills":[],"tools":[],"mcp":[]},` +
-		`{"teammateId":3,"name":"core-architect","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"",` +
+	want := `{"id":2,"name":"core","responsibility":"","roles":[{"botId":2,"name":"core-lead","lead":true,"write":false,"backend":"codex",` +
+		`"permissionMode":"read-only","description":"","skills":[],"tools":[],"mcp":[]},` +
+		`{"botId":3,"name":"core-architect","lead":false,"write":true,"backend":"claude","permissionMode":"","description":"",` +
 		`"skills":[],"tools":[],"mcp":[]}]}`
 	if status != 200 || body != want {
 		t.Errorf("GET /teams/core = %d %s, want %s", status, body, want)
@@ -281,7 +281,7 @@ func TestPutTeam(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	_, err = st.ApplyTeam(context.Background(), store.Team{Name: "crew", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude", Persona: "old persona", MCPServers: []agent.MCPServer{
+		{Name: "lead", Lead: true, Backend: "claude", Description: "old description", MCPServers: []agent.MCPServer{
 			{Command: "my-mcp", Args: []string{"--key", "sk-secret-456"}},
 		}},
 		{Name: "developer", Backend: "claude", Write: true},
@@ -294,10 +294,10 @@ func TestPutTeam(t *testing.T) {
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
 
-	// A body that omits mcpServers keeps the lead's stored one, and a persona in it does not rewrite the Teammate.
+	// A body that omits mcpServers keeps the lead's stored one, and a description in it does not rewrite the Bot.
 	body := `{"name":"crew","roles":[` +
-		`{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"","persona":"new persona","skills":[],"tools":[]},` +
-		`{"name":"developer","lead":false,"write":true,"backend":"claude","permissionMode":"","persona":"","skills":[],"tools":[]}]}`
+		`{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"","description":"new description","skills":[],"tools":[]},` +
+		`{"name":"developer","lead":false,"write":true,"backend":"claude","permissionMode":"","description":"","skills":[],"tools":[]}]}`
 	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew", body)
 	if status != 200 || strings.Contains(resBody, "mcpServers") {
 		t.Fatalf("PUT /teams/crew = %d %s, want 200 without mcpServers", status, resBody)
@@ -306,8 +306,8 @@ func TestPutTeam(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got.Roles[0].Persona != "old persona" {
-		t.Errorf("lead persona = %q, want %q", got.Roles[0].Persona, "old persona")
+	if got.Roles[0].Description != "old description" {
+		t.Errorf("lead description = %q, want %q", got.Roles[0].Description, "old description")
 	}
 	if len(got.Roles[0].MCPServers) != 1 || got.Roles[0].MCPServers[0].Args[1] != "sk-secret-456" {
 		t.Errorf("lead mcpServers = %+v, want the stored one kept", got.Roles[0].MCPServers)
@@ -379,8 +379,8 @@ func TestPutTeamCopyFrom(t *testing.T) {
 	t.Cleanup(ts.Close)
 	t.Cleanup(h.Close)
 
-	body := `{"roles":[{"teammateId":1,"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"",` +
-		`"persona":"","skills":[],"tools":[]}]}`
+	body := `{"roles":[{"botId":1,"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"",` +
+		`"description":"","skills":[],"tools":[]}]}`
 	status, resBody := do(t, http.MethodPut, ts.URL+"/teams/crew2?from=crew", body)
 	if status != 200 || strings.Contains(resBody, "mcpServers") {
 		t.Fatalf("PUT /teams/crew2?from=crew = %d %s, want 200 without mcpServers", status, resBody)
@@ -430,7 +430,7 @@ func TestPutTeamCopyFrom_Concurrent(t *testing.T) {
 	t.Cleanup(h.Close)
 
 	body := `{"roles":[{"name":"lead","lead":true,"write":false,"backend":"claude","permissionMode":"",` +
-		`"persona":"","skills":[],"tools":[]}]}`
+		`"description":"","skills":[],"tools":[]}]}`
 	put := func() (int, error) {
 		req, err := http.NewRequest(http.MethodPut, ts.URL+"/teams/race?from=crew", strings.NewReader(body))
 		if err != nil {

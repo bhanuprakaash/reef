@@ -103,22 +103,22 @@ func (a *recordingAgent) Send(ctx context.Context, prompt string) error {
 
 func (a *recordingAgent) factory(string) (agent.Agent, error) { return a, nil }
 
-func editTeammate(t *testing.T, st *store.Store, name string, edit func(*store.Teammate)) {
+func editBot(t *testing.T, st *store.Store, name string, edit func(*store.Bot)) {
 	t.Helper()
-	all, err := st.Teammates(context.Background())
+	all, err := st.Bots(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, m := range all {
 		if m.Name == name {
 			edit(&m)
-			if _, err := st.UpdateTeammate(context.Background(), m); err != nil {
+			if _, err := st.UpdateBot(context.Background(), m); err != nil {
 				t.Fatal(err)
 			}
 			return
 		}
 	}
-	t.Fatalf("no teammate %s", name)
+	t.Fatalf("no bot %s", name)
 }
 
 func sessionSpace(t *testing.T, st *store.Store, f store.WorkItem, quick bool) store.Space {
@@ -131,15 +131,15 @@ func sessionSpace(t *testing.T, st *store.Store, f store.WorkItem, quick bool) s
 		c.WorkItemID = &f.ID
 	}
 	id := testBotID(t, st, "architect")
-	bot, err := st.Teammate(context.Background(), *id)
+	bot, err := st.Bot(context.Background(), *id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bot.Write, bot.PermissionMode = true, "acceptEdits"
-	if _, err = st.UpdateTeammate(context.Background(), bot); err != nil {
+	if _, err = st.UpdateBot(context.Background(), bot); err != nil {
 		t.Fatal(err)
 	}
-	ch, err := st.CreateTeammateSpace(context.Background(), c, *id)
+	ch, err := st.CreateBotSpace(context.Background(), c, *id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -232,7 +232,7 @@ func TestOpen_QuickSession(t *testing.T) {
 		"This is a free Space: it has no work item, so there is no brief or work item items.\n" +
 		"\n## How to work\n" +
 		"Details are on demand through the reef MCP tools recall and read_memory. " +
-		"remember saves to this Space by default; use scope project or teammate for what holds " +
+		"remember saves to this Space by default; use scope project or bot for what holds " +
 		"across the project or for you.\n" +
 		"\n\nhi"
 	if len(ag.prompts) != 1 || ag.prompts[0] != want {
@@ -351,7 +351,7 @@ func TestSession_RunAsSpecialist(t *testing.T) {
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 		{
-			Name: "architect", Backend: "claude", Persona: "You design.", Skills: []string{"sketch"},
+			Name: "architect", Backend: "claude", Description: "You design.", Skills: []string{"sketch"},
 			Tools: []string{"Read", "Grep"}, MCPServers: []agent.MCPServer{{URL: "http://x"}},
 		},
 	}}); err != nil {
@@ -467,7 +467,7 @@ func TestSession_RunAsMemberAddedAfterOpen(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	tester, err := st.CreateTeammate(ctx, store.Teammate{Name: "tester", Backend: "claude", Persona: "You test."})
+	tester, err := st.CreateBot(ctx, store.Bot{Name: "tester", Backend: "claude", Description: "You test."})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -478,7 +478,7 @@ func TestSession_RunAsMemberAddedAfterOpen(t *testing.T) {
 		t.Fatalf("RunAs tester error = %v, want nil", err)
 	}
 	if len(ags) != 2 || !strings.HasPrefix(ags[1].prompts[0], "## You\nYou test.") {
-		t.Errorf("agents = %d, tester prompts = %q, want a tester turn with its persona", len(ags), ags[1].prompts)
+		t.Errorf("agents = %d, tester prompts = %q, want a tester turn with its description", len(ags), ags[1].prompts)
 	}
 }
 
@@ -494,7 +494,7 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Description: "You code."}
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
 		t.Fatal(err)
 	}
@@ -520,12 +520,12 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	editTeammate(t, st, "developer", func(m *store.Teammate) { m.Persona = "You code in Go only." })
+	editBot(t, st, "developer", func(m *store.Bot) { m.Description = "You code in Go only." })
 	if err := s.RunAs(ctx, "developer", "build more", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(ags) != 2 || ags[1].resumed != "s1" || !strings.Contains(ags[1].prompts[0], "You code in Go only.") {
-		t.Errorf("second developer: resumed = %q, prompts = %q, want resumed with the new persona",
+		t.Errorf("second developer: resumed = %q, prompts = %q, want resumed with the new description",
 			ags[1].resumed, ags[1].prompts)
 	}
 
@@ -540,7 +540,7 @@ func TestSession_PersonaEditReachesResumedSession(t *testing.T) {
 		}
 	}
 	if !strings.Contains(last.Prompt, "You code in Go only.") {
-		t.Errorf("stored turn.prompt = %q, want it to contain the new persona", last.Prompt)
+		t.Errorf("stored turn.prompt = %q, want it to contain the new description", last.Prompt)
 	}
 }
 
@@ -564,7 +564,7 @@ func TestSession_MissingSessionStartsNewOne(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
 			st, f := openStore(t)
-			lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Persona: "You lead."}
+			lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Description: "You lead."}
 			if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
 				t.Fatal(err)
 			}
@@ -680,7 +680,7 @@ func TestSession_LeadSessionFromStartIsStored(t *testing.T) {
 func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Persona: "You lead."}
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Description: "You lead."}
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
 		t.Fatal(err)
 	}
@@ -709,12 +709,12 @@ func TestSession_PersonaEditReachesLiveLead(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	editTeammate(t, st, "lead", func(m *store.Teammate) { m.Persona = "You lead with care." })
+	editBot(t, st, "lead", func(m *store.Bot) { m.Description = "You lead with care." })
 	if err := s.Run(ctx, "again", nil, discard); err != nil {
 		t.Fatal(err)
 	}
 	if len(ags) != 1 || len(ags[0].prompts) != 2 || !strings.Contains(ags[0].prompts[1], "You lead with care.") {
-		t.Errorf("second lead prompt = %q, want the lead kept live with the new persona",
+		t.Errorf("second lead prompt = %q, want the lead kept live with the new description",
 			ags[0].prompts)
 	}
 }
@@ -780,7 +780,7 @@ func TestSession_PersonaUnchangedNoRoleIntroOnResume(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Description: "You code."}
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
 		t.Fatal(err)
 	}
@@ -818,7 +818,7 @@ func TestSession_NoEditFourResumedWakesOnlyFirstHasIntro(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Description: "You code."}
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
 		t.Fatal(err)
 	}
@@ -850,7 +850,7 @@ func TestSession_NoEditFourResumedWakesOnlyFirstHasIntro(t *testing.T) {
 	}
 	if len(ags[0].prompts) != 1 || !strings.Contains(ags[0].prompts[0], "You code.") ||
 		!strings.HasSuffix(ags[0].prompts[0], "wake 1") {
-		t.Errorf("wake 1: prompts = %q, want the persona and wake 1", ags[0].prompts)
+		t.Errorf("wake 1: prompts = %q, want the description and wake 1", ags[0].prompts)
 	}
 	want := []string{"wake 2", "wake 3", "wake 4"}
 	for i, ag := range ags[1:] {
@@ -864,7 +864,7 @@ func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Description: "You code."}
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
 		t.Fatal(err)
 	}
@@ -892,7 +892,7 @@ func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
 	if err := s.RunAs(ctx, "developer", "wake 2", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	editTeammate(t, st, "developer", func(m *store.Teammate) { m.Persona = "You code in Go only." })
+	editBot(t, st, "developer", func(m *store.Bot) { m.Description = "You code in Go only." })
 	if err := s.RunAs(ctx, "developer", "wake 3", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
@@ -902,7 +902,7 @@ func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
 	if len(ags) != 4 {
 		t.Fatalf("agents = %d, want 4", len(ags))
 	}
-	want3 := "Your persona or skills changed:\n\nYou code in Go only.\n\n\n\nwake 3"
+	want3 := "Your description or skills changed:\n\nYou code in Go only.\n\n\n\nwake 3"
 	if len(ags[2].prompts) != 1 || ags[2].prompts[0] != want3 {
 		t.Errorf("wake 3: prompts = %q, want [%q]", ags[2].prompts, want3)
 	}
@@ -914,7 +914,7 @@ func TestSession_EditAfterSecondResumedWakeUpdatesOnceThenNone(t *testing.T) {
 func TestSession_NoEditFourLiveWakesOnlyFirstHasIntro(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Persona: "You lead."}
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Description: "You lead."}
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
 		t.Fatal(err)
 	}
@@ -951,7 +951,7 @@ func TestSession_NoEditFourLiveWakesOnlyFirstHasIntro(t *testing.T) {
 		t.Fatalf("prompts = %q, want 4", ags[0].prompts)
 	}
 	if !strings.Contains(ags[0].prompts[0], "You lead.") || !strings.HasSuffix(ags[0].prompts[0], "wake 1") {
-		t.Errorf("wake 1: prompt = %q, want the persona and wake 1", ags[0].prompts[0])
+		t.Errorf("wake 1: prompt = %q, want the description and wake 1", ags[0].prompts[0])
 	}
 	want := []string{"wake 2", "wake 3", "wake 4"}
 	for i, p := range ags[0].prompts[1:] {
@@ -964,7 +964,7 @@ func TestSession_NoEditFourLiveWakesOnlyFirstHasIntro(t *testing.T) {
 func TestSession_EditAfterSecondLiveWakeUpdatesOnceThenNone(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Persona: "You lead."}
+	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Description: "You lead."}
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead}}); err != nil {
 		t.Fatal(err)
 	}
@@ -995,7 +995,7 @@ func TestSession_EditAfterSecondLiveWakeUpdatesOnceThenNone(t *testing.T) {
 	if err := s.Run(ctx, "wake 2", nil, discard); err != nil {
 		t.Fatal(err)
 	}
-	editTeammate(t, st, "lead", func(m *store.Teammate) { m.Persona = "You lead with care." })
+	editBot(t, st, "lead", func(m *store.Bot) { m.Description = "You lead with care." })
 	if err := s.Run(ctx, "wake 3", nil, discard); err != nil {
 		t.Fatal(err)
 	}
@@ -1005,7 +1005,7 @@ func TestSession_EditAfterSecondLiveWakeUpdatesOnceThenNone(t *testing.T) {
 	if len(ags) != 1 || len(ags[0].prompts) != 4 {
 		t.Fatalf("agents = %d, prompts = %q, want 1 agent with 4 prompts", len(ags), ags[0].prompts)
 	}
-	want3 := "Your persona or skills changed:\n\nYou lead with care.\n\n\n\nwake 3"
+	want3 := "Your description or skills changed:\n\nYou lead with care.\n\n\n\nwake 3"
 	if ags[0].prompts[2] != want3 {
 		t.Errorf("wake 3: prompt = %q, want %q", ags[0].prompts[2], want3)
 	}
@@ -1018,7 +1018,7 @@ func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	architect := store.Role{Name: "architect", Backend: "claude", Persona: "You design."}
+	architect := store.Role{Name: "architect", Backend: "claude", Description: "You design."}
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, architect}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1046,7 +1046,7 @@ func TestSession_RunAsRoleChangedBackend(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	editTeammate(t, st, "architect", func(m *store.Teammate) { m.Backend = "codex" })
+	editBot(t, st, "architect", func(m *store.Bot) { m.Backend = "codex" })
 	if err := s.RunAs(ctx, "architect", "again", nil, nil, discard); err != nil {
 		t.Fatal(err)
 	}
@@ -1211,7 +1211,7 @@ func TestSession_WrapIncludesDirectExchanges(t *testing.T) {
 	if _, err := s.Wrap(ctx, discard); err != nil {
 		t.Fatal(err)
 	}
-	want := "Direct exchanges in this Space, private between two teammates:\n" +
+	want := "Direct exchanges in this Space, private between two bots:\n" +
 		"[direct 1] developer -> tester: use the sqlite fixture\n" +
 		"[direct 1] tester -> developer (failed): half an answer\n" +
 		"[direct 1] tester -> developer: fixture works\n" +
@@ -1243,7 +1243,7 @@ func TestSession_WrapSaysHowManyExchangesItLeftOut(t *testing.T) {
 	if _, err := s.Wrap(ctx, discard); err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(ag.prompts[0], "teammates:\n20 older exchanges left out (read_direct_messages)\n"+
+	if !strings.Contains(ag.prompts[0], "bots:\n20 older exchanges left out (read_direct_messages)\n"+
 		"[direct 21] developer -> tester: message 21\n") || strings.Contains(ag.prompts[0], "message 20\n") {
 		t.Errorf("prompt = %q, want 20 older exchanges left out and message 21 first", ag.prompts[0])
 	}
@@ -1287,7 +1287,7 @@ func TestSession_WrapRunsInACopyOfTheLeadsSession(t *testing.T) {
 func TestSession_CodexWrapRunsInAFreshThread(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
-	ch, err := st.CreateTeammateSpace(ctx, store.Space{
+	ch, err := st.CreateBotSpace(ctx, store.Space{
 		ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: "chat", Role: "architect", Backend: "codex",
 	}, *testBotID(t, st, "architect"))
 	if err != nil {
@@ -1676,7 +1676,7 @@ func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	lead := store.Role{Name: "lead", Lead: true, Backend: "claude"}
-	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Persona: "You code."}
+	developer := store.Role{Name: "developer", Write: true, Backend: "claude", Description: "You code."}
 	if _, err := testApplyTeam(t, st, ctx, store.Team{Name: "core", Roles: []store.Role{lead, developer}}); err != nil {
 		t.Fatal(err)
 	}
@@ -1738,7 +1738,7 @@ func TestSession_QuitMidTurnKeepsPromptAndTokens(t *testing.T) {
 		t.Errorf("turn = %q %q %+v, want failed, chat exited, %+v", got.Status, got.Error, got.Usage, want)
 	}
 	if !strings.Contains(got.Prompt, "You code.") || !strings.HasSuffix(got.Prompt, "build it") {
-		t.Errorf("prompt = %q, want the persona and the wake", got.Prompt)
+		t.Errorf("prompt = %q, want the description and the wake", got.Prompt)
 	}
 
 	if used, err := st.SpaceTokens(ctx, ch.ID); err != nil || used != 22 {
@@ -1834,12 +1834,12 @@ func TestSession_DirectBotUsesRecipientIDAfterRename(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	original := *testBotID(t, st, "architect")
-	bot, err := st.Teammate(ctx, original)
+	bot, err := st.Bot(ctx, original)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bot.Name = "renamed"
-	if _, err = st.UpdateTeammate(ctx, bot); err != nil {
+	if _, err = st.UpdateBot(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
 	replacement := *testBotID(t, st, "architect")
@@ -1877,13 +1877,13 @@ func TestSession_CoordinatorUsesEditedProfileOnReopen(t *testing.T) {
 	st, f := openStore(t)
 	ch := sessionSpace(t, st, f, false)
 	id := *testBotID(t, st, "architect")
-	bot, err := st.Teammate(ctx, id)
+	bot, err := st.Bot(ctx, id)
 	if err != nil {
 		t.Fatal(err)
 	}
 	bot.Backend = "codex"
 	bot.PermissionMode = "workspace-write"
-	if _, err = st.UpdateTeammate(ctx, bot); err != nil {
+	if _, err = st.UpdateBot(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
 	ag := newRecordingAgent()

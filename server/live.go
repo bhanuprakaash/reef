@@ -133,12 +133,12 @@ type retry struct {
 // userTurn is a turn that starts with a user message: text, a reply in the thread of parent
 // when it is set. A message turn runs for the role the message is routed to, and its reply
 // goes in the same thread; a wrap turn runs for the lead; a move turn runs for the lead too, and
-// moves the conversation to a Space with the Teammate to.
+// moves the conversation to a Space with the Bot to.
 type userTurn struct {
 	kind   turnKind
 	text   string
 	parent *int64
-	to     store.Teammate
+	to     store.Bot
 }
 
 // chain is the claim on an idle Space to run a chain of turns. It ends with start, which
@@ -380,7 +380,7 @@ func (s *server) startUserTurn(ctx context.Context, id int64, t userTurn) error 
 	if len(team.Roles) == 0 {
 		return c.release(fmt.Errorf("Space %d has no lead: %w", id, store.ErrConflict))
 	}
-	leadID := team.Roles[0].TeammateID
+	leadID := team.Roles[0].BotID
 	queue := []wake{{from: _userAuthor, role: role, botID: &leadID, text: t.text, parent: t.parent}}
 	switch t.kind {
 	case _message:
@@ -484,7 +484,7 @@ func (s *server) runOne(
 	if w.botID == nil {
 		err = fmt.Errorf("%w: wake has no Bot ID", store.ErrInvalid)
 	} else {
-		bot, lookupErr := s.st.Teammate(ctx, *w.botID)
+		bot, lookupErr := s.st.Bot(ctx, *w.botID)
 		err = lookupErr
 		if err == nil {
 			w.role = bot.Name
@@ -1146,7 +1146,7 @@ func (c *chain) start(
 	if queue[0].botID == nil {
 		return c.release(fmt.Errorf("%w: wake has no Bot ID", store.ErrInvalid))
 	}
-	bot, err := c.s.st.Teammate(ctx, *queue[0].botID)
+	bot, err := c.s.st.Bot(ctx, *queue[0].botID)
 	if err != nil {
 		return c.release(err)
 	}
@@ -1290,8 +1290,8 @@ func (c *chain) runTurn(sess session, kind turnKind, queue []wake, after, afterD
 			if queue[0].botID == nil {
 				err = fmt.Errorf("%w: wake has no Bot ID", store.ErrInvalid)
 			} else {
-				var bot store.Teammate
-				bot, err = s.st.Teammate(c.ctx, *queue[0].botID)
+				var bot store.Bot
+				bot, err = s.st.Bot(c.ctx, *queue[0].botID)
 				if err == nil {
 					queue[0].role = bot.Name
 				}

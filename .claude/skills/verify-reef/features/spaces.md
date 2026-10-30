@@ -1,14 +1,14 @@
 # Spaces and messages
 
-A user talks to a Teammate or a Team in Spaces. A free Space belongs to no work item (a quick session); a work item Space is the one
-active Space of one top-level work item, where its Team works; a conversation is a Space with one Teammate
+A user talks to a Bot or a Team in Spaces. A free Space belongs to no work item (a quick session); a work item Space is the one
+active Space of one top-level work item, where its Team works; a conversation is a Space with one Bot
 (`conversations.md`). A Space runs its agents live: the user sends, follows the events, stops, wraps up, attaches a free Space to a
 work item and decides the proposal. Messages are added to a Space and never edited or removed one by one.
 Contract: `docs/server.md` (Spaces, Spaces live, Wrap-up and attach, Caps).
 
 ## Sub-features
 
-- `space-create` a free Space (`workItemId` null) and a work item Space; the work item must be of the same project. `backend` is `claude` or `codex` (it defaults to the team lead's), a request `role` is empty or `lead`, and the reply's `role` is the name of the team's lead role (`lead` in `solo`, `boss` for a team whose lead is `boss`, where `"role":"boss"` is 400 `role must be lead`), and `permissionMode` must suit the backend; the reply also has `paused` (`""`), `tokenBudget` (1000000) and `team` (`solo`); Teams are in `teammates.md`.
+- `space-create` a free Space (`workItemId` null) and a work item Space; the work item must be of the same project. `backend` is `claude` or `codex` (it defaults to the team lead's), a request `role` is empty or `lead`, and the reply's `role` is the name of the team's lead role (`lead` in `solo`, `boss` for a team whose lead is `boss`, where `"role":"boss"` is 400 `role must be lead`), and `permissionMode` must suit the backend; the reply also has `paused` (`""`), `tokenBudget` (1000000) and `team` (`solo`); Teams are in `bots.md`.
 - `space-filter` `GET /spaces` filters by `?project=ID` and `?workItem=ID`.
 - `space-fixed` update changes the name only; project and work item stay as created.
 - `message-append` messages are added with `POST` and read with `GET /messages?space=ID`; `?after=ID` returns only newer ones.
@@ -16,13 +16,13 @@ Contract: `docs/server.md` (Spaces, Spaces live, Wrap-up and attach, Caps).
 - `message-append-only` `PUT`, `PATCH` and `DELETE` on a message are 405.
 - `space-cascade` deleting a Space deletes its messages; deleting a work item deletes its Spaces.
 - `live-send` `POST /spaces/{id}/send {"text":...}` answers 202 at once and the user message is stored before the answer; a send while a message chain runs is 202 and its turn runs after the current one; a send while a wrap turn runs is 409; an empty text is 400.
-- `live-events` `GET /spaces/{id}/events` starts with `turn {"status":"idle"}` between turns, or the running chain's frames so far; then `turn` running (with the running teammate's `role`, here `lead`), `agent` events, `turn` done or failed, and `pause` frames. Wakes between teammates, and the hop cap are in `teammates.md` and `caps.md`.
+- `live-events` `GET /spaces/{id}/events` starts with `turn {"status":"idle"}` between turns, or the running chain's frames so far; then `turn` running (with the running bot's `role`, here `lead`), `agent` events, `turn` done or failed, and `pause` frames. Wakes between bots, and the hop cap are in `bots.md` and `caps.md`.
 - `live-stop` `POST /spaces/{id}/stop` during a turn stores it `failed`, `interrupted`, stops the agent and frees the chat lock; the next send resumes the session.
 - `live-text-commands` the text `/wrap` runs a wrap-up turn; any other text, `/attach` included, is a plain message.
 - `live-wrap` `POST /spaces/{id}/wrap` on a work item Space ends with a pending proposal (`GET /spaces/{id}/proposal`); on a free Space it is 400 before any agent starts.
 - `live-attach` `POST /spaces/{id}/attach {"workItemId":N}` on a free Space sets the Space's work item and kind and posts a `reef` note with the worktree path; no agent turn runs; a Space that has a work item is 400, a work item with an active Space is 409, a turn running is 409.
 - `live-decide` `POST /proposals/{id}/approve` adds a brief version and returns `itemsAdded`; `reject` changes nothing; deciding twice is 400.
-- `live-caps` a Space paused by the token budget refuses a send with 409 and the reason; a hop-cap pause (`hop cap: 6 agent hops without a user message`) does not: a user send clears it, answers 202 and runs the turn. `POST /spaces/{id}/continue` clears a pause (409 when not paused or while a turn runs), also runs held wakes (see `teammates.md`), and sets a used-up token budget (the work item's, shared by all its Spaces) to the tokens used plus 1000000.
+- `live-caps` a Space paused by the token budget refuses a send with 409 and the reason; a hop-cap pause (`hop cap: 6 agent hops without a user message`) does not: a user send clears it, answers 202 and runs the turn. `POST /spaces/{id}/continue` clears a pause (409 when not paused or while a turn runs), also runs held wakes (see `bots.md`), and sets a used-up token budget (the work item's, shared by all its Spaces) to the tokens used plus 1000000.
 - `live-delete` `DELETE /spaces/{id}` on a live Space stops its agent first.
 
 ## How to get to it (user POV)
@@ -54,7 +54,7 @@ Preconditions: baseline from the README, and a server started with the model set
 
 - **Setup.** `$H api POST /projects '{"name":"live","path":"<scratch>/cwd"}'`, `$H api POST /work-items '{"projectId":1,"title":"Login"}'`, `$H api POST /spaces '{"projectId":1,"workItemId":1,"name":"build","backend":"claude","permissionMode":"acceptEdits"}'` (Space 1, `"role":"lead"`), `$H api POST /spaces '{"projectId":1,"name":"idea","backend":"claude"}'` (Space 2, quick session).
 - **Events between turns.** `curl -sN --max-time 2 http://$A/spaces/1/events` prints `event: turn` / `data: {"status":"idle"}` first.
-- **Send.** Start `curl -sN --max-time 120 http://$A/spaces/1/events > ~/.reef-verify/<id>/live-events.txt &`, then `$H api POST /spaces/1/send '{"text":"Remember this secret word: pineapple. List the files in this directory with a tool, then read one of them with a tool, then summarize what you saw in two sentences."}'` gives `HTTP 202`; at once `$H api GET '/messages?space=1'` already has the user message. A send before the turn ends is 202 and queues behind it (`teammates.md`, Send while busy), so do not send a second one here. When `$H sql "select status from turn where space_id=1"` is `done`, the events file has `turn` running, `agent` lines with `"kind":"tool_call"` and `"kind":"text"`, and `turn` done. `$H api POST /spaces/1/send '{"text":""}'` gives 400.
+- **Send.** Start `curl -sN --max-time 120 http://$A/spaces/1/events > ~/.reef-verify/<id>/live-events.txt &`, then `$H api POST /spaces/1/send '{"text":"Remember this secret word: pineapple. List the files in this directory with a tool, then read one of them with a tool, then summarize what you saw in two sentences."}'` gives `HTTP 202`; at once `$H api GET '/messages?space=1'` already has the user message. A send before the turn ends is 202 and queues behind it (`bots.md`, Send while busy), so do not send a second one here. When `$H sql "select status from turn where space_id=1"` is `done`, the events file has `turn` running, `agent` lines with `"kind":"tool_call"` and `"kind":"text"`, and `turn` done. `$H api POST /spaces/1/send '{"text":""}'` gives 400.
 - **Stop and resume.** `$H api POST /spaces/1/send '{"text":"Write a 1500-word story about lighthouses. Use no tools."}'`, wait 5 seconds, `$H api POST /spaces/1/stop` gives 204; the turn row is `failed|interrupted`. `$H api POST /spaces/1/send '{"text":"What was the secret word? Answer with the word only."}'`, then the newest `lead` message contains `pineapple`.
 - **Text commands.** `$H api POST /spaces/1/send '{"text":"/attach"}'` gives 202; after the turn the user message is `/attach`, `$H api GET /spaces/1/proposal` is 404 and `$H api GET /work-items/1/brief/versions` is `[]`.
 - **Wrap.** `$H api POST /spaces/2/wrap` gives 400 `quick session`. `$H api POST /spaces/1/wrap` gives 202; after the turn `$H api GET /spaces/1/proposal` is 200 `pending`. `$H api POST /proposals/1/reject` gives 200 `rejected` and brief versions stay `[]`; a second reject gives 400 `already rejected`.

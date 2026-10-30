@@ -26,7 +26,7 @@ func TestFirstPrompt_Size(t *testing.T) {
 	}
 	for _, scope := range []memory.Ref{
 		workScope(f), projectScope(f),
-		{Kind: memory.ScopeTeam, ID: "core"}, teammateScope("1"),
+		{Kind: memory.ScopeTeam, ID: "core"}, botScope("1"),
 	} {
 		for i := 1; i <= 30; i++ {
 			body := fmt.Sprintf("%s item %d\nsecond line", scope.Kind, i)
@@ -86,8 +86,8 @@ func TestFirstPrompt_Size(t *testing.T) {
 	if n := strings.Count(got, "\ndecision "); n != 60 {
 		t.Errorf("decision lines = %d, want 60", n)
 	}
-	for _, scope := range []string{"work_item", "project", "team", "teammate"} {
-		limit := map[string]int{"work_item": 5, "project": 10, "team": 5, "teammate": 5}[scope]
+	for _, scope := range []string{"work_item", "project", "team", "bot"} {
+		limit := map[string]int{"work_item": 5, "project": 10, "team": 5, "bot": 5}[scope]
 		want := fmt.Sprintf("%d of 30; recall(..., scope=%s)\n", limit, scope)
 		if n := strings.Count(got, want); n != 1 {
 			t.Errorf("count line %q appears %d times in\n%s", want, n, got)

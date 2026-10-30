@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-func TestTeammate_MembershipUsesProfileRules(t *testing.T) {
+func TestBot_MembershipUsesProfileRules(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
 	if err != nil {
@@ -19,7 +19,7 @@ func TestTeammate_MembershipUsesProfileRules(t *testing.T) {
 		Roles: []Role{{Name: "boss", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
-	sam, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude", Write: true,
+	sam, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude", Write: true,
 		Tools: []string{"Read"}, PermissionMode: "acceptEdits"})
 	if err != nil {
 		t.Fatal(err)
@@ -30,7 +30,7 @@ func TestTeammate_MembershipUsesProfileRules(t *testing.T) {
 
 	sam.Tools = []string{"Read", "Grep"}
 	sam.Write = false
-	if _, err := s.UpdateTeammate(ctx, sam); err != nil {
+	if _, err := s.UpdateBot(ctx, sam); err != nil {
 		t.Fatal(err)
 	}
 
@@ -43,13 +43,13 @@ func TestTeammate_MembershipUsesProfileRules(t *testing.T) {
 		got.PermissionMode != "acceptEdits" {
 		t.Errorf("member sam = %+v, want tools [Read Grep], no write, acceptEdits", got)
 	}
-	back, err := s.Teammate(ctx, sam.ID)
+	back, err := s.Bot(ctx, sam.ID)
 	if err != nil || !reflect.DeepEqual(back.Tools, []string{"Read", "Grep"}) || back.Write {
-		t.Errorf("Teammate sam = %+v, %v, want the edited defaults", back, err)
+		t.Errorf("Bot sam = %+v, %v, want the edited defaults", back, err)
 	}
 }
 
-func TestTeammate_Refusals(t *testing.T) {
+func TestBot_Refusals(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
 	if err != nil {
@@ -60,11 +60,11 @@ func TestTeammate_Refusals(t *testing.T) {
 		Roles: []Role{{Name: "boss", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
-	sam, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude"})
+	sam, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ann, err := s.CreateTeammate(ctx, Teammate{Name: "ann", Backend: "claude"})
+	ann, err := s.CreateBot(ctx, Bot{Name: "ann", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -75,7 +75,7 @@ func TestTeammate_Refusals(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	boss := core.Roles[0].TeammateID
+	boss := core.Roles[0].BotID
 
 	tests := []struct {
 		name string
@@ -83,8 +83,8 @@ func TestTeammate_Refusals(t *testing.T) {
 		want error
 		msg  string
 	}{
-		{"delete a member", func() error { return s.DeleteTeammate(ctx, sam.ID) },
-			ErrInvalid, "invalid: teammate sam is in team core; remove it from the team first"},
+		{"delete a member", func() error { return s.DeleteBot(ctx, sam.ID) },
+			ErrInvalid, "invalid: bot sam is in team core; remove it from the team first"},
 		{"second lead on edit", func() error {
 			_, err := s.EditMember(ctx, "core", sam.ID, Membership{Lead: true})
 			return err
@@ -100,13 +100,13 @@ func TestTeammate_Refusals(t *testing.T) {
 			return err
 		}, ErrInvalid, "invalid: team core needs exactly one lead, has 0"},
 		{"name taken", func() error {
-			_, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude"})
+			_, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude"})
 			return err
-		}, ErrConflict, `conflict: a teammate named "sam" already exists`},
+		}, ErrConflict, `conflict: a bot named "sam" already exists`},
 		{"already a member", func() error {
 			_, err := s.AddMember(ctx, "core", sam.ID, false)
 			return err
-		}, ErrConflict, "conflict: team core already has teammate"},
+		}, ErrConflict, "conflict: team core already has bot"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -123,7 +123,7 @@ func TestTeammate_Refusals(t *testing.T) {
 	if err := s.RemoveMember(ctx, "core", sam.ID); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.DeleteTeammate(ctx, sam.ID); err != nil {
-		t.Errorf("DeleteTeammate after leaving the team = %v, want nil", err)
+	if err := s.DeleteBot(ctx, sam.ID); err != nil {
+		t.Errorf("DeleteBot after leaving the team = %v, want nil", err)
 	}
 }

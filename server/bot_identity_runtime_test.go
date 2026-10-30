@@ -23,7 +23,7 @@ func TestRenamedBotKeepsThreadAndDirectRouting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bot, err := st.CreateTeammate(ctx, store.Teammate{Name: "Prakash", Backend: "claude"})
+	bot, err := st.CreateBot(ctx, store.Bot{Name: "Prakash", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -35,10 +35,10 @@ func TestRenamedBotKeepsThreadAndDirectRouting(t *testing.T) {
 		t.Fatal(err)
 	}
 	bot.Name = "Parker"
-	if _, err = st.UpdateTeammate(ctx, bot); err != nil {
+	if _, err = st.UpdateBot(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
-	other, err := st.CreateTeammate(ctx, store.Teammate{Name: "Prakash", Backend: "claude"})
+	other, err := st.CreateBot(ctx, store.Bot{Name: "Prakash", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -82,7 +82,7 @@ func TestRenamedBotMCPMemoryUsesItsIdentity(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bot, err := st.CreateTeammate(ctx, store.Teammate{Name: "sam", Backend: "claude"})
+	bot, err := st.CreateBot(ctx, store.Bot{Name: "sam", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -99,10 +99,10 @@ func TestRenamedBotMCPMemoryUsesItsIdentity(t *testing.T) {
 	}
 	m := &mcpServer{st: st, ms: ms, tok: tok}
 	bot.Name = "sally"
-	if _, err = st.UpdateTeammate(ctx, bot); err != nil {
+	if _, err = st.UpdateBot(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
-	_, out, err := m.remember(ctx, nil, rememberIn{Kind: "fact", Body: "use sqlite", Scope: memory.ScopeTeammate})
+	_, out, err := m.remember(ctx, nil, rememberIn{Kind: "fact", Body: "use sqlite", Scope: memory.ScopeBot})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -110,16 +110,16 @@ func TestRenamedBotMCPMemoryUsesItsIdentity(t *testing.T) {
 	if err != nil || item.Author != "sally" {
 		t.Fatalf("item = %+v, %v", item, err)
 	}
-	_, recalled, err := m.recall(ctx, nil, recallIn{Query: "sqlite", Scope: memory.ScopeTeammate})
+	_, recalled, err := m.recall(ctx, nil, recallIn{Query: "sqlite", Scope: memory.ScopeBot})
 	if err != nil || len(recalled.Hits) != 1 {
 		t.Fatalf("recall = %+v, %v", recalled, err)
 	}
-	outsider, err := st.CreateTeammate(ctx, store.Teammate{Name: "outsider", Backend: "claude"})
+	outsider, err := st.CreateBot(ctx, store.Bot{Name: "outsider", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	m.tok.BotID = &outsider.ID
-	if _, _, err = m.remember(ctx, nil, rememberIn{Kind: "fact", Body: "wrong", Scope: memory.ScopeTeammate}); err == nil {
+	if _, _, err = m.remember(ctx, nil, rememberIn{Kind: "fact", Body: "wrong", Scope: memory.ScopeBot}); err == nil {
 		t.Fatal("non-member token accepted")
 	}
 }
@@ -138,11 +138,11 @@ func TestProposalKeepsBotMemoryAfterRenameAndNameReuse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bot, err := st.CreateTeammate(ctx, store.Teammate{Name: "sam", Backend: "claude"})
+	bot, err := st.CreateBot(ctx, store.Bot{Name: "sam", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	ch, err := st.CreateTeammateSpace(ctx, store.Space{ProjectID: 1, WorkItemID: &item.ID, Name: "chat"}, bot.ID)
+	ch, err := st.CreateBotSpace(ctx, store.Space{ProjectID: 1, WorkItemID: &item.ID, Name: "chat"}, bot.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -155,15 +155,15 @@ func TestProposalKeepsBotMemoryAfterRenameAndNameReuse(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := &mcpServer{st: st, ms: ms, tok: tok}
-	_, proposal, err := m.proposeWrap(ctx, nil, wrapIn{Brief: "done", Items: []store.ProposedItem{{Kind: "fact", Body: "keep this", Scope: memory.ScopeTeammate}, {Kind: "convention", Body: "use tabs", Scope: memory.ScopeProject}}})
+	_, proposal, err := m.proposeWrap(ctx, nil, wrapIn{Brief: "done", Items: []store.ProposedItem{{Kind: "fact", Body: "keep this", Scope: memory.ScopeBot}, {Kind: "convention", Body: "use tabs", Scope: memory.ScopeProject}}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	bot.Name = "sally"
-	if _, err = st.UpdateTeammate(ctx, bot); err != nil {
+	if _, err = st.UpdateBot(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
-	other, err := st.CreateTeammate(ctx, store.Teammate{Name: "sam", Backend: "claude"})
+	other, err := st.CreateBot(ctx, store.Bot{Name: "sam", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -209,7 +209,7 @@ func TestBotNameDoesNotGrantConventionAuthority(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	bot, err := st.CreateTeammate(ctx, store.Teammate{Name: "sam", Backend: "claude"})
+	bot, err := st.CreateBot(ctx, store.Bot{Name: "sam", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -225,7 +225,7 @@ func TestBotNameDoesNotGrantConventionAuthority(t *testing.T) {
 		t.Fatal(err)
 	}
 	bot.Name = "architect"
-	if _, err = st.UpdateTeammate(ctx, bot); err != nil {
+	if _, err = st.UpdateBot(ctx, bot); err != nil {
 		t.Fatal(err)
 	}
 	m := &mcpServer{st: st, ms: ms, tok: tok}
@@ -252,11 +252,11 @@ func TestCanceledBotLookupClosesSessionAndStopsDirect(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	from, err := st.CreateTeammate(ctx, store.Teammate{Name: "sender", Backend: "claude"})
+	from, err := st.CreateBot(ctx, store.Bot{Name: "sender", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	to, err := st.CreateTeammate(ctx, store.Teammate{Name: "recipient", Backend: "claude"})
+	to, err := st.CreateBot(ctx, store.Bot{Name: "recipient", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}

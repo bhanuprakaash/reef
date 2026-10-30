@@ -67,14 +67,14 @@ func (f *fakeSession) Say(ctx context.Context, body string, parent *int64) (stor
 }
 
 func (f *fakeSession) RunBot(ctx context.Context, id int64, text string, parent, messageID *int64, onEvent func(agent.Event)) error {
-	bot, err := f.st.Teammate(ctx, id)
+	bot, err := f.st.Bot(ctx, id)
 	if err != nil {
 		return err
 	}
 	return f.RunAs(ctx, bot.Name, text, parent, messageID, onEvent)
 }
 func (f *fakeSession) WakeBot(ctx context.Context, id int64, text string, scopes store.Scopes, parent, messageID *int64, onEvent func(agent.Event)) error {
-	bot, err := f.st.Teammate(ctx, id)
+	bot, err := f.st.Bot(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -84,7 +84,7 @@ func (f *fakeSession) RunDirectBot(ctx context.Context, id int64, text string, d
 	if dm.ToBotID == nil || *dm.ToBotID != id {
 		return store.ErrInvalid
 	}
-	bot, err := f.st.Teammate(ctx, id)
+	bot, err := f.st.Bot(ctx, id)
 	if err != nil {
 		return err
 	}
@@ -598,7 +598,7 @@ func TestSend_RoutesAndWakes(t *testing.T) {
 
 func TestSend_SpaceRoleStandsInForLead(t *testing.T) {
 	env := newLiveEnv(t)
-	_, err := env.st.CreateTeammateSpace(context.Background(), store.Space{
+	_, err := env.st.CreateBotSpace(context.Background(), store.Space{
 		ProjectID: 1, Name: "dev", Role: "developer", Backend: "claude",
 	}, *testServerBot(t, env.st, "developer"))
 	if err != nil {

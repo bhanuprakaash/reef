@@ -36,7 +36,7 @@ func TestApproveProposalSavesItemsAndRetires(t *testing.T) {
 		"brief": "v2",
 		"items": []any{
 			map[string]any{"kind": "decision", "body": "use sessions", "why": "simple"},
-			map[string]any{"kind": "lesson", "body": "reply short", "scope": "teammate"},
+			map[string]any{"kind": "lesson", "body": "reply short", "scope": "bot"},
 			map[string]any{"kind": "fact", "body": "login at /in", "scope": "project", "replaces": []any{3}},
 		},
 		"retire": []any{1},
@@ -63,7 +63,7 @@ func TestApproveProposalSavesItemsAndRetires(t *testing.T) {
 		2: {memory.Ref{Kind: "work_item", ID: "1"}, memory.StatusAccepted},
 		3: {memory.Ref{Kind: "project", ID: "1"}, memory.StatusRetired},
 		4: {memory.Ref{Kind: "work_item", ID: "1"}, memory.StatusAccepted},
-		5: {memory.Ref{Kind: "teammate", ID: "2"}, memory.StatusAccepted},
+		5: {memory.Ref{Kind: "bot", ID: "2"}, memory.StatusAccepted},
 		6: {memory.Ref{Kind: "project", ID: "1"}, memory.StatusAccepted},
 	}
 	for id, w := range want {
@@ -212,12 +212,12 @@ func TestApproveProposalSkipsItemAlreadySaved(t *testing.T) {
 	st, tok := mcpFixture(t)
 	call := callTool(t, st, tok)
 	call("remember", map[string]any{"kind": "decision", "body": "use sessions"})
-	call("remember", map[string]any{"kind": "lesson", "body": "ask first", "scope": "teammate", "needsApproval": true})
+	call("remember", map[string]any{"kind": "lesson", "body": "ask first", "scope": "bot", "needsApproval": true})
 	if got, isErr := call("propose_wrap", map[string]any{
 		"brief": "v2",
 		"items": []any{
 			map[string]any{"kind": "decision", "body": "use sessions"},
-			map[string]any{"kind": "lesson", "body": "ask first", "scope": "teammate"},
+			map[string]any{"kind": "lesson", "body": "ask first", "scope": "bot"},
 			map[string]any{"kind": "decision", "body": "use sessions", "scope": "project"},
 		},
 	}); isErr {

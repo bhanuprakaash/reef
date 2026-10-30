@@ -35,7 +35,7 @@ func validActiveTurn(kind string) bool {
 }
 
 // Space kinds: a Work item's Space, a free Space with no Work item, and a direct conversation
-// with one Teammate.
+// with one Bot.
 const (
 	KindWorkItem     = "work_item"
 	KindFree         = "free"
@@ -50,7 +50,7 @@ const _spaceCols = "space.id, space.project_id, space.work_item_id, space.name, 
 	"COALESCE((SELECT name FROM team WHERE id = space.team_id), ''), space.kind, space.moved_to"
 
 // Space with a nil WorkItemID is a free Space or a direct conversation. Team is empty for a
-// Space made from one Teammate. Who is in the Space is its space_member list, copied when the
+// Space made from one Bot. Who is in the Space is its space_member list, copied when the
 // Space was made.
 type Space struct {
 	ID             int64      `json:"id"`
@@ -66,7 +66,7 @@ type Space struct {
 	Team           string     `json:"team"`
 	CreatedAt      time.Time  `json:"createdAt"`
 	ClosedAt       *time.Time `json:"closedAt"`
-	// MovedTo is the Space a direct conversation became when a Teammate was added: the
+	// MovedTo is the Space a direct conversation became when a Bot was added: the
 	// conversation is read-only from then on.
 	MovedTo *int64 `json:"movedTo"`
 	// ActiveTurn is the kind of turn currently running on the Space ("message" or
@@ -147,17 +147,17 @@ func (s *Store) CreateSpace(ctx context.Context, c Space) (Space, error) {
 	}
 	return s.insertSpace(ctx, c, &teamID, func(tx *sql.Tx, id int64) error {
 		_, err := tx.ExecContext(ctx,
-			"INSERT INTO space_member (space_id, teammate_id, name, lead, tools, mcp_servers, write, "+
-				"permission_mode) SELECT ?, teammate_id, name, lead, tools, mcp_servers, write, "+
+			"INSERT INTO space_member (space_id, bot_id, name, lead, tools, mcp_servers, write, "+
+				"permission_mode) SELECT ?, bot_id, name, lead, tools, mcp_servers, write, "+
 				"permission_mode FROM team_member WHERE team_id = ?", id, teamID)
 		return err
 	})
 }
 
-// CreateTeammateSpace adds c with no Team and one member, the lead: a copy of the Teammate's
+// CreateBotSpace adds c with no Team and one member, the lead: a copy of the Bot's
 // default access rules. c.Kind is KindConversation for a direct conversation, which cannot have
 // a work item; any other value makes a free Space, or a work item's Space when WorkItemID is set.
-func (s *Store) CreateTeammateSpace(ctx context.Context, c Space, teammateID int64) (Space, error) {
+func (s *Store) CreateBotSpace(ctx context.Context, c Space, botID int64) (Space, error) {
 	if err := c.validate(); err != nil {
 		return Space{}, err
 	}
@@ -171,14 +171,14 @@ func (s *Store) CreateTeammateSpace(ctx context.Context, c Space, teammateID int
 	}
 	return s.insertSpace(ctx, c, nil, func(tx *sql.Tx, id int64) error {
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO space_member (space_id, teammate_id, name, lead, tools, mcp_servers, write, "+
+			"INSERT INTO space_member (space_id, bot_id, name, lead, tools, mcp_servers, write, "+
 				"permission_mode) SELECT ?, id, name, 1, tools, mcp_servers, write, permission_mode "+
-				"FROM teammate WHERE id = ?", id, teammateID)
+				"FROM bot WHERE id = ?", id, botID)
 		if err != nil {
 			return err
 		}
 		if n, err := res.RowsAffected(); err == nil && n == 0 {
-			return fmt.Errorf("%w: unknown teammate %d", ErrInvalid, teammateID)
+			return fmt.Errorf("%w: unknown bot %d", ErrInvalid, botID)
 		}
 		return nil
 	})
@@ -270,13 +270,13 @@ func (s *Store) SpacePreviews(ctx context.Context, f SpaceFilter) ([]SpacePrevie
 	return s.spacePreviews(ctx, where, args, "space.id")
 }
 
-// TeammateConversations is the direct conversations with the Teammate, the one with the newest
+// BotConversations is the direct conversations with the Bot, the one with the newest
 // message (or, with none, the newest created) first.
-func (s *Store) TeammateConversations(ctx context.Context, teammateID int64) ([]SpacePreview, error) {
+func (s *Store) BotConversations(ctx context.Context, botID int64) ([]SpacePreview, error) {
 	return s.spacePreviews(ctx,
 		" AND space.kind = ? AND EXISTS "+
-			"(SELECT 1 FROM space_member WHERE space_id = space.id AND teammate_id = ?)",
-		[]any{KindConversation, teammateID},
+			"(SELECT 1 FROM space_member WHERE space_id = space.id AND bot_id = ?)",
+		[]any{KindConversation, botID},
 		"COALESCE(m.created_at, space.created_at) DESC, space.id DESC")
 }
 

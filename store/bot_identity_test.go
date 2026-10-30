@@ -21,14 +21,14 @@ func TestStoredBotIdentitySurvivesRename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sam, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude"})
+	sam, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if _, err = s.AddSpaceMember(ctx, space.ID, sam.ID); err != nil {
 		t.Fatal(err)
 	}
-	ann, err := s.CreateTeammate(ctx, Teammate{Name: "ann", Backend: "claude"})
+	ann, err := s.CreateBot(ctx, Bot{Name: "ann", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -56,10 +56,10 @@ func TestStoredBotIdentitySurvivesRename(t *testing.T) {
 		t.Fatal(err)
 	}
 	sam.Name = "sally"
-	if _, err = s.UpdateTeammate(ctx, sam); err != nil {
+	if _, err = s.UpdateBot(ctx, sam); err != nil {
 		t.Fatal(err)
 	}
-	other, err := s.CreateTeammate(ctx, Teammate{Name: "sam", Backend: "claude"})
+	other, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -73,15 +73,15 @@ func TestStoredBotIdentitySurvivesRename(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !slices.ContainsFunc(roster.Roles, func(r Role) bool { return r.Name == "sally" && r.TeammateID == sam.ID }) {
+	if !slices.ContainsFunc(roster.Roles, func(r Role) bool { return r.Name == "sally" && r.BotID == sam.ID }) {
 		t.Fatalf("renamed roster = %+v", roster.Roles)
 	}
-	id, err := s.SpaceMemberTeammateID(ctx, space.ID, "sally")
+	id, err := s.SpaceMemberBotID(ctx, space.ID, "sally")
 	if err != nil || id != sam.ID {
 		t.Fatalf("renamed member = %d, %v", id, err)
 	}
 	ann.Name = "anna"
-	if _, err = s.UpdateTeammate(ctx, ann); err != nil {
+	if _, err = s.UpdateBot(ctx, ann); err != nil {
 		t.Fatal(err)
 	}
 	response, err := s.CreateDirectResponse(ctx, dm.ID, &ann.ID, "anna", "hi")

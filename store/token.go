@@ -12,7 +12,7 @@ import (
 
 const _tokenBytes = 32
 
-// Token lets one teammate's MCP process act as role in one Space.
+// Token lets one bot's MCP process act as role in one Space.
 type Token struct {
 	Token     string    `json:"token"`
 	SpaceID   int64     `json:"spaceId"`
@@ -28,7 +28,7 @@ func (s *Store) CreateToken(ctx context.Context, spaceID, botID int64) (Token, e
 		return Token{}, fmt.Errorf("generate token: %w", err)
 	}
 	t := Token{Token: hex.EncodeToString(raw), SpaceID: spaceID, BotID: &botID, CreatedAt: time.Now().UTC()}
-	err := s.db.QueryRowContext(ctx, "INSERT INTO token (token, space_id, role, bot_id, created_at) SELECT ?, ?, teammate.name, teammate.id, ? FROM teammate JOIN space_member ON space_member.teammate_id = teammate.id WHERE space_member.space_id = ? AND teammate.id = ? RETURNING role", t.Token, spaceID, t.CreatedAt.Format(time.RFC3339Nano), spaceID, botID).Scan(&t.Role)
+	err := s.db.QueryRowContext(ctx, "INSERT INTO token (token, space_id, role, bot_id, created_at) SELECT ?, ?, bot.name, bot.id, ? FROM bot JOIN space_member ON space_member.bot_id = bot.id WHERE space_member.space_id = ? AND bot.id = ? RETURNING role", t.Token, spaceID, t.CreatedAt.Format(time.RFC3339Nano), spaceID, botID).Scan(&t.Role)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Token{}, fmt.Errorf("%w: Bot is not a Space member", ErrInvalid)
 	}
@@ -43,7 +43,7 @@ func (s *Store) Token(ctx context.Context, value string) (Token, error) {
 	t := Token{Token: value}
 	var created string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT token.space_id, token.role, token.bot_id, token.created_at FROM token JOIN space_member ON space_member.space_id = token.space_id AND space_member.teammate_id = token.bot_id WHERE token.token = ?", value).
+		"SELECT token.space_id, token.role, token.bot_id, token.created_at FROM token JOIN space_member ON space_member.space_id = token.space_id AND space_member.bot_id = token.bot_id WHERE token.token = ?", value).
 		Scan(&t.SpaceID, &t.Role, &t.BotID, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Token{}, fmt.Errorf("token: %w", ErrNotFound)

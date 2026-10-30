@@ -21,7 +21,7 @@ func TestRoute_ScopesComeFromTheMessagesNotFromTheirText(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	leadID, err := env.st.SpaceMemberTeammateID(ctx, int64(id), "lead")
+	leadID, err := env.st.SpaceMemberBotID(ctx, int64(id), "lead")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -10,10 +10,10 @@ Five user surfaces exist so far:
 - `reef-agent` (`cmd/reef-agent`) runs one backend (`claude` or `codex`) and prints one JSON
   `Event` per line. Contract: `docs/agents.md`.
 - `reef serve` (`cmd/reef`) keeps Reef's data in one SQLite file and serves it as a JSON
-  REST API. It also runs a Space's team: it routes messages between teammates, holds
+  REST API. It also runs a Space's team: it routes messages between bots, holds
   caps hops. Contract: `docs/server.md`.
 - The memory loop (`cmd/reef`): the CLI (`reef project`, `work-item`, `brief`, `decide`,
-  `team`, `context`, `token`), `reef mcp` (stdio MCP tools for one teammate) and `reef
+  `team`, `context`, `token`), `reef mcp` (stdio MCP tools for one bot) and `reef
   chat` (one role in one space, in the terminal). Contract: `docs/memory.md`.
 - The window: the React app `reef serve` serves (`web/`). Contract: `docs/server.md` (Web UI).
 - The desktop app (`desktop/`): Electron around its own `reef serve` and the window, with a
@@ -28,10 +28,10 @@ Recipes use the server's own nouns:
 
 - **Project**: a name and a repo folder.
 - **Work item**: a title, a description, acceptance lines, a type that is only a label (`feature`, `bug`, `incident`, `investigation`, `task`, `improvement`) and a status (`backlog`, `queued`, `in_progress`, `needs_you`, `review`, `done`, `dropped`). A top-level item has a Team, a brief and a worktree `<data folder>/worktrees/<project id>/<work item id>` on the branch `work-item/<id>`. A sub-item has a parent, shares its Space and worktree, has no brief, and only the lead moves it.
-- **Teammate**: a persona, skills, a backend, a model, a face and default access rules. A **Team** is a lead and members copied from Teammates, with a responsibility text; the seeded `solo` Team has the seeded `lead` Teammate. A Team works one top-level item at a time: the queue starts the next one when an item reaches `review`, `done` or `dropped`, and an item in `needs_you` keeps the Team busy.
-- **Space**: free (no work item), a work item's (one active Space per item) or a conversation (one Teammate, one session). Its members are Teammates; `@name` or Add Teammate moves a conversation to a new Space. A Space pauses at a cap and the work item goes to `needs_you`.
+- **Bot**: a description, skills, a backend, a model, a face and default access rules. A **Team** is a lead and members copied from Bots, with a responsibility text; the seeded `solo` Team has the seeded `lead` Bot. A Team works one top-level item at a time: the queue starts the next one when an item reaches `review`, `done` or `dropped`, and an item in `needs_you` keeps the Team busy.
+- **Space**: free (no work item), a work item's (one active Space per item) or a conversation (one Bot, one session). Its members are Bots; `@name` or Add Bot moves a conversation to a new Space. A Space pauses at a cap and the work item goes to `needs_you`.
 - **Review**: the lead sets sub-items done and calls `submit_for_review` with proof (ticked acceptance lines with notes, test commands and output, screenshots); the user sends the item back with a note (to the top of the queue) or sets it `done`, which approves the lead's wrap-up.
-- **Memory items** live in the scopes `work_item`, `space`, `conversation`, `project`, `teammate` and `team`. Agents also have `create_sub_item`, `set_sub_item_status` (lead only), `submit_for_review` (lead only) and `propose_work_item`.
+- **Memory items** live in the scopes `work_item`, `space`, `conversation`, `project`, `bot` and `team`. Agents also have `create_sub_item`, `set_sub_item_status` (lead only), `submit_for_review` (lead only) and `propose_work_item`.
 
 All commands below run from the repo root. `H=.claude/skills/verify-reef/scripts/verify-reef`.
 Each Bash call starts a new shell, so pass `REEF_VERIFY_RUN=<id>` on every call.
@@ -333,37 +333,37 @@ REEF_VERIFY_RUN=<id> $H ui diff      # a turn writes a file, the review page lis
 REEF_VERIFY_RUN=<id> $H ui memory    # project page lists, adds and retires the project's memory items, stored in the database and surviving a reload; New Work item and New free Space work from the page
 REEF_VERIFY_RUN=<id> $H ui inspector # full team: lead then developer turns, Inspector panel role blocks match the API, a developer turn expands to its prompt and a tool call
 REEF_VERIFY_RUN=<id> $H ui review    # review page: A/M/D list, struck-through deletion, No text changes, drafts sent as one message to the developer's latest thread
-REEF_VERIFY_RUN=<id> $H ui workshop  # /teammates panel edits the developer's persona, creature and skills, keeps its mcpServers; /teams shows reef team apply's errors, saves tools and MCP removal, copies a team; next developer wake uses the new persona
+REEF_VERIFY_RUN=<id> $H ui workshop  # /bots panel edits the developer's description, creature and skills, keeps its mcpServers; /teams shows reef team apply's errors, saves tools and MCP removal, copies a team; next developer wake uses the new description
 REEF_VERIFY_RUN=<id> $H ui first-run # the browser project step has no Choose…; a stub desktop bridge's Choose… fills the repo folder (needs a server with no profile and no project)
 REEF_VERIFY_RUN=<id> $H ui theme     # Settings Appearance: Dark, Light and Match macOS restyle the page, survive a reload; text contrast of the Space, inbox and Work item page in both themes (needs `duo`)
 REEF_VERIFY_RUN=<id> $H ui phone     # below 768 px the tab bar replaces the sidebar; each tab one column with 44 px targets; a Space, thread, team and inspector sheets and the review page at 390x844 (needs `duo`)
-REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, picks a type, types, Enter shows Captured and clears the box, a Backlog Work item is stored; "Talk to a Teammate" opens a conversation with the text as its first message; a failing request shows its error
+REEF_VERIFY_RUN=<id> $H ui capture   # /capture picks a project, picks a type, types, Enter shows Captured and clears the box, a Backlog Work item is stored; "Talk to a Bot" opens a conversation with the text as its first message; a failing request shows its error
 REEF_VERIFY_RUN=<id> $H ui coordination # direct messages show as one item (working, completed, stopped, failed, Retry) with a Coordination panel and a source-message link, at 1280x800 and 390x844 (needs `duo`)
 REEF_VERIFY_RUN=<id> $H ui team      # full team: header avatars ring the working role; Team opens a popover without changing Space width; Escape, outside click and X close it (needs `full`)
 REEF_VERIFY_RUN=<id> $H ui denials # a refused tool call shows a card with Add to role: the Space member row gets the pattern, its next start has it in --allowedTools; write-needing and codex roles get no Add (fake claude only)
 REEF_VERIFY_RUN=<id> $H ui subagent  # a claude Agent call shows as a subagent row with its nested tool calls, collapsed once it is done, and the same in the inspector (fake claude replay of `subagent-read`)
 REEF_VERIFY_RUN=<id> $H ui composer  # message box: one corner radius from 1 line to the height cap, no wrap of the placeholder, dropped or pasted files insert their path (stub desktop bridge) or their name, the clipboard chip, resize 1280 to 390
 REEF_VERIFY_RUN=<id> $H ui naming  # a Space started with its default name is renamed by the provider after the first message, in the sidebar and header; a typed name, a rename, a failed proposal keep theirs (needs `name-login`, `name-fail` fake scenarios)
-REEF_VERIFY_RUN=<id> $H ui sidebar # Search, Inbox, Board, Spaces, Conversations top to bottom and Teammates, Teams, Settings at the foot, each link opens its page; the + menu creates a Work item, a free Space and a conversation and opens each; a Space leaves the Spaces section when its Work item is in Review; the phone Menu opens the sidebar as a sheet with no horizontal scroll, at 1280x800 and 390x844
-REEF_VERIFY_RUN=<id> $H ui conversation-move # `@kit` at the start of a line and the Add Teammate button each move a conversation with `sam` to a new Space with `kit`: read-only conversation with a link, kit's first prompt has the summary only, at 1280x800 and 390x844
-REEF_VERIFY_RUN=<id> $H ui conversation # two conversations with a Teammate (`sam` is made through the API), the sidebar lists them newest first, continuing the older one moves it up and resumes its session, the phone Spaces tab lists both, at 1280x800 and 390x844
+REEF_VERIFY_RUN=<id> $H ui sidebar # Search, Inbox, Board, Spaces, Conversations top to bottom and Bots, Teams, Settings at the foot, each link opens its page; the + menu creates a Work item, a free Space and a conversation and opens each; a Space leaves the Spaces section when its Work item is in Review; the phone Menu opens the sidebar as a sheet with no horizontal scroll, at 1280x800 and 390x844
+REEF_VERIFY_RUN=<id> $H ui conversation-move # `@kit` at the start of a line and the Add Bot button each move a conversation with `sam` to a new Space with `kit`: read-only conversation with a link, kit's first prompt has the summary only, at 1280x800 and 390x844
+REEF_VERIFY_RUN=<id> $H ui conversation # two conversations with a Bot (`sam` is made through the API), the sidebar lists them newest first, continuing the older one moves it up and resumes its session, the phone Spaces tab lists both, at 1280x800 and 390x844
 REEF_VERIFY_RUN=<id> $H ui hovercard # sidebar Space hovercard: delay, branch, changes and roles against REST, dismiss on leave, Escape, click and navigation, keyboard focus, light and dark, none at 390 px (needs the team `full`)
-REEF_VERIFY_RUN=<id> $H ui mention # hovercard on an @mention of a teammate in a Space: role, backend and model, persona, state, access and tools against REST, Edit opens the team page with the role selected, unknown @word has no card, dismiss on leave, Escape, click, back, keyboard focus, flip at the right edge, light and dark, none at 390 px (needs the team `full`)
-REEF_VERIFY_RUN=<id> $H ui providers # Settings Providers lists the detected installs with path and version, adds the fake claude folder as a second install (bad folder, wrong kind, taken name show the server error inline), a Teammate picks it in the Teammate panel and it round-trips through REST, Remove is refused while a Teammate uses it, at 1280x800 and 390x844 in dark and light
-REEF_VERIFY_RUN=<id> $H ui teammates # create a Teammate on the Teammates page, add it to a Team from the team editor, change its write access in that Team only (REST: Teammate default unchanged), no horizontal scroll at 390x844
-REEF_VERIFY_RUN=<id> $H ui creatures # a Teammate's creature and colour round-trip through POST/PUT/GET /teammates and the New teammate dialog and panel; Sam as lead in one Team and developer in another is one creature with two role badges; a Teammate with no creature is a pebble whatever its role is called; 1280x800 and 390x844
-REEF_VERIFY_RUN=<id> $H ui teammate  # a Teammate's profile page: the Teams it sits in with their own write access, its conversations newest first, its teammate-scope memory against `reef memory recall`, Start conversation opens a new one, empty states, 1280x800 and 390x844
+REEF_VERIFY_RUN=<id> $H ui mention # hovercard on an @mention of a bot in a Space: role, backend and model, description, state, access and tools against REST, Edit opens the team page with the role selected, unknown @word has no card, dismiss on leave, Escape, click, back, keyboard focus, flip at the right edge, light and dark, none at 390 px (needs the team `full`)
+REEF_VERIFY_RUN=<id> $H ui providers # Settings Providers lists the detected installs with path and version, adds the fake claude folder as a second install (bad folder, wrong kind, taken name show the server error inline), a Bot picks it in the Bot panel and it round-trips through REST, Remove is refused while a Bot uses it, at 1280x800 and 390x844 in dark and light
+REEF_VERIFY_RUN=<id> $H ui bots # create a Bot on the Bots page, add it to a Team from the team editor, change its write access in that Team only (REST: Bot default unchanged), no horizontal scroll at 390x844
+REEF_VERIFY_RUN=<id> $H ui creatures # a Bot's creature and colour round-trip through POST/PUT/GET /bots and the New bot dialog and panel; Sam as lead in one Team and developer in another is one creature with two role badges; a Bot with no creature is a pebble whatever its role is called; 1280x800 and 390x844
+REEF_VERIFY_RUN=<id> $H ui bot  # a Bot's profile page: the Teams it sits in with their own write access, its conversations newest first, its bot-scope memory against `reef memory recall`, Start conversation opens a new one, empty states, 1280x800 and 390x844
 REEF_VERIFY_RUN=<id> $H ui board     # /board: each status in its column, the type and Team filters, drag Backlog <-> Queued, reorder Queued (REST positions), a drop into Review or Done, or an item with no Team into Queued, is refused, no horizontal scroll at 390x844
 REEF_VERIFY_RUN=<id> $H ui work-item # a work item's page: acceptance lines and a sub-item added from the page match REST, the Team chip, brief, proof (a row inserted in SQLite, there is no REST write) shown read-only; editing the title and adding a line keeps a lead tick and note (REST); a sub-item's page has no brief, sub-items, proof or New Space, shows its parent's branch and Spaces, links to its parent, and POST /spaces for it is 400; 1280x800 and 390x844
 REEF_VERIFY_RUN=<id> $H ui work-item-review # a top-level item in review: Review panel with proof and wrap-up proposal; Send back with a note wakes the lead with it; Done saves the memory items and sets Done in one click; a sub-item in review is not offered Done; 1280x800 and 390x844
 REEF_VERIFY_RUN=<id> $H ui team-page # /teams/<name>: responsibility and roster with role badges, the item in progress links to its Space (REST), the queue in order and a drag to the top changes queue_position (REST), an empty queue shows the Team as idle, an item made in the window gets its Team in the edit form (prefilled from a suggestion, shown with who proposed it) and queued it starts, its started FYI is not counted as needs you on Home or in the sidebar, the editor links to the page, no horizontal scroll at 390x844
-REEF_VERIFY_RUN=<id> $H ui space-header # the Space header by kind: a Work item Space shows the item's title, status and budget used (= REST tokensUsed) with Open Work item; a free Space has Attach to Work item and Add Teammate; a conversation shows its Teammate's creature and Add Teammate; the member list against GET /spaces/{id}/members; Attach moves the Space onto the item's page; 1280x800 and 390x844 (no agent turn runs)
+REEF_VERIFY_RUN=<id> $H ui space-header # the Space header by kind: a Work item Space shows the item's title, status and budget used (= REST tokensUsed) with Open Work item; a free Space has Attach to Work item and Add Bot; a conversation shows its Bot's creature and Add Bot; the member list against GET /spaces/{id}/members; Attach moves the Space onto the item's page; 1280x800 and 390x844 (no agent turn runs)
 REEF_VERIFY_RUN=<id> $H ui pr        # the header PR chip opens the PR panel: checks, Merge disabled while not mergeable, confirm dialog, merged state (fake gh, see features/window.md)
 ```
 
 `teams` needs the teams `duo` and `full` (and `inbox`, `theme`, `phone`, `coordination` need `duo`) applied to the `ui` folder first: run
 `$H reef --data-name ui -- team apply FILE.json` for each before `serve-start --data-name ui` (the
-files are in `features/teammates.md`). `inbox` counts every item of the server, so run it first, or
+files are in `features/bots.md`). `inbox` counts every item of the server, so run it first, or
 on a folder of its own (`--data-name inbox`, with `duo` applied). `inspector`, `review` and `workshop`
 need the team `full` applied: `$H reef --data-name ui -- team apply "$PWD/teams/full.json"`.
 
@@ -450,7 +450,7 @@ done) with `H`, `REEF_VERIFY_RUN`, `E` and `S` exported, tees its output to
 
 | Script | Drives |
 | --- | --- |
-| `work-item-flow.sh` | the `flow-*` lines of `queue-and-review.md`, `work-items.md` and `conversations.md` and the `hop-*` lines of `caps.md`: two work items queued on a Team, the lead's sub-items, developer and tester, submit for review, send back, Done, a conversation with a Teammate added, a proposed work item, the hop cap |
+| `work-item-flow.sh` | the `flow-*` lines of `queue-and-review.md`, `work-items.md` and `conversations.md` and the `hop-*` lines of `caps.md`: two work items queued on a Team, the lead's sub-items, developer and tester, submit for review, send back, Done, a conversation with a Bot added, a proposed work item, the hop cap |
 | `queue-and-review.sh` | the `queue-*` lines of `queue-and-review.md` |
 | `full-team.sh` | every line of `full-team.md` |
 | `github.sh` | every line of `github.md` |
@@ -461,7 +461,7 @@ checked out in the first one's worktree (`github` after `queue-and-review` fails
 
 `work-item-flow` runs on the fake `claude`: its `flow-*`, `work-*` and `talk-*` recordings in
 `fake/recordings/` come from one `REEF_VERIFY_CLAUDE=record` run of it on real claude (sonnet),
-whose team personas and prompts name every answer and tool call. Record it again the same way
+whose team descriptions and prompts name every answer and tool call. Record it again the same way
 after a change to those prompts, then `git checkout` the recordings it also overwrote that other
 recipes own (`queue-lead`, `wrap-propose`, `sam-*`, `kit-takeover`). Its three sections (`flow`, `conv`, `caps`) run at the same time, each as its
 own run `<id>/<section>` (`build`, `doctor`, its own scratch folder and server), so the run takes
@@ -579,7 +579,7 @@ claude, above).
 | `sql [--write] "SQL"` | `sqlite3` on the run's `reef.db`, logs to `sql.log` |
 | `reef [--data-name NAME] [--cwd DIR] [--stdin FILE [--answer A \| --sigint-at-prompt]] [--timeout S] -- ARGS` | one `reef` command in the scratch cwd (or `<scratch>/DIR`) on the run's data folder, logs to `reef.log`; `--answer` answers the wrap-up prompt, `--sigint-at-prompt` sends SIGINT there |
 | `mcp-call TOOL [JSON]` | `reef mcp` with `$REEF_TOKEN`: handshake, `tools/list`, one `tools/call`, logs to `reef-mcp.log` |
-| `ui live\|brief\|attach\|cap\|pages\|stop\|wrap\|teams\|team-management\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers\|work-item\|work-item-review\|teammate|team-page|space-header` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
+| `ui live\|brief\|attach\|cap\|pages\|stop\|wrap\|teams\|team-management\|retry\|rollback\|inbox\|diff\|memory\|inspector\|review\|board\|workshop\|capture\|pr\|coordination\|team\|subagent\|composer\|naming\|hovercard\|mention\|providers\|work-item\|work-item-review\|bot|team-page|space-header` | one browser scenario against this run's server (needs `serve-start` and a built web app), logs to `ui-<scenario>.log`, screenshots in `ui/` |
 | `feature NAME` | runs `features/NAME.sh` with `H`, `REEF_VERIFY_RUN`, `E`, `S` exported, logs to `feature-NAME.log` |
 | `real` | the real-claude set (`scripts/real.sh`), forced onto real claude, logs to `real.log` |
 | `desktop` | builds and launches the Reef app with a scratch HOME, drives its window, browser tools and terminal pane, quits it (`scripts/desktop.sh`), logs to `desktop.log` |

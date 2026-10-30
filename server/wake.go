@@ -33,7 +33,7 @@ type wake struct {
 	scopes store.Scopes
 	// hold is the id of the cap hold a wake was released by, when it was.
 	hold int64
-	// moveTo is the id of the Teammate a move turn adds: text asks the lead for the summary it
+	// moveTo is the id of the Bot a move turn adds: text asks the lead for the summary it
 	// starts from, and messageID is the user's message that asked.
 	moveTo int64
 }
@@ -123,19 +123,41 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 	var ws []wake
 	for _, m := range msgs {
 		if author == nil {
-			if m.BotID != nil || m.Author != _userAuthor { continue }
-		} else if m.BotID == nil || *m.BotID != *author { continue }
+			if m.BotID != nil || m.Author != _userAuthor {
+				continue
+			}
+		} else if m.BotID == nil || *m.BotID != *author {
+			continue
+		}
 		var owner string
 		if m.ParentID != nil {
 			ownerID, err := s.st.ThreadOwnerBotID(ctx, m.ID)
-			if err != nil { return nil, err }
-			if ownerID == nil { owner = _userAuthor } else {
-				for _, r := range team.Roles { if r.TeammateID == *ownerID { owner = r.Name; break } }
+			if err != nil {
+				return nil, err
+			}
+			if ownerID == nil {
+				owner = _userAuthor
+			} else {
+				for _, r := range team.Roles {
+					if r.BotID == *ownerID {
+						owner = r.Name
+						break
+					}
+				}
 			}
 		}
 		routed := m
-		if m.BotID != nil { for _, r := range team.Roles { if r.TeammateID == *m.BotID { routed.Author = r.Name; break } } }
-		if len(team.Roles) == 0 { return nil, fmt.Errorf("Space %d has no lead: %w", id, store.ErrConflict) }
+		if m.BotID != nil {
+			for _, r := range team.Roles {
+				if r.BotID == *m.BotID {
+					routed.Author = r.Name
+					break
+				}
+			}
+		}
+		if len(team.Roles) == 0 {
+			return nil, fmt.Errorf("Space %d has no lead: %w", id, store.ErrConflict)
+		}
 		woken := space.Route(routed, owner, roles, team.Roles[0].Name)
 		if len(woken) == 0 {
 			continue
@@ -161,7 +183,12 @@ func (s *server) route(ctx context.Context, id int64, msgs []store.Message, auth
 		}
 		for _, role := range woken {
 			var botID int64
-			for _, member := range team.Roles { if member.Name == role { botID = member.TeammateID; break } }
+			for _, member := range team.Roles {
+				if member.Name == role {
+					botID = member.BotID
+					break
+				}
+			}
 			if i := slices.IndexFunc(ws, func(w wake) bool { return w.botID != nil && *w.botID == botID }); i >= 0 {
 				ws[i].text += "\n\n" + header + "\n" + text
 				ws[i].scopes = addScope(ws[i].scopes, thread, asked)

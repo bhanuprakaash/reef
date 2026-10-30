@@ -109,12 +109,12 @@ cat >"$E/realteam.json" <<'EOF'
   "name": "realteam",
   "roles": [
     {"name": "lead", "lead": true, "backend": "claude",
-     "persona": "You are the lead. Answer in one short sentence. Never @mention anyone."},
+     "description": "You are the lead. Answer in one short sentence. Never @mention anyone."},
     {"name": "developer", "write": true, "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the developer. Do what the user asks with as few tool calls as you can, then answer in one short sentence. Never @mention anyone.",
+     "description": "You are the developer. Do what the user asks with as few tool calls as you can, then answer in one short sentence. Never @mention anyone.",
      "tools": ["Read", "Edit", "Write", "Bash"]},
     {"name": "tester", "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the tester. Do what the user asks, then answer in one short sentence. Never @mention anyone.",
+     "description": "You are the tester. Do what the user asks, then answer in one short sentence. Never @mention anyone.",
      "tools": ["Read", "Edit", "Write", "Bash(ls:*)"]}
   ]
 }

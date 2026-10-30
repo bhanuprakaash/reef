@@ -591,8 +591,8 @@ func TestOpen_UpgradesTheFirstMemorySchema(t *testing.T) {
 	if _, err := Open(db, nil); err != nil {
 		t.Fatalf("second Open: %v", err)
 	}
-	if n := count(t, db, `SELECT version FROM memory_version`); n != 3 {
-		t.Fatalf("version = %d, want 3", n)
+	if n := count(t, db, `SELECT version FROM memory_version`); n != 4 {
+		t.Fatalf("version = %d, want 4", n)
 	}
 	if n := count(t, db, `SELECT count(*) FROM memory_version`); n != 1 {
 		t.Fatalf("version rows = %d, want 1", n)
@@ -641,7 +641,7 @@ func TestOpen_RefusesNewerMemorySchema(t *testing.T) {
 		t.Fatal(err)
 	}
 	_, err := Open(db, nil)
-	want := "memory tables are newer than this reef (version 99, this reef knows 3)"
+	want := "memory tables are newer than this reef (version 99, this reef knows 4)"
 	if err == nil || !strings.Contains(err.Error(), want) {
 		t.Fatalf("Open err = %v, want it to contain %q", err, want)
 	}

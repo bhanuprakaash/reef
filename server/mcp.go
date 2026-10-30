@@ -39,13 +39,13 @@ type (
 		About         []string `json:"about,omitempty" jsonschema:"what it is about, each as kind:id, such as work_item:3"`
 		Replaces      []int64  `json:"replaces,omitempty" jsonschema:"ids of accepted items this one amends or replaces; they are retired"`
 		Why           string   `json:"why,omitempty" jsonschema:"the reason for it"`
-		Scope         string   `json:"scope,omitempty" jsonschema:"where it is kept: this work item, this Space (a free Space) or this conversation (a direct one), whichever you are in, by default; project, or teammate (you, on every work item)"`
+		Scope         string   `json:"scope,omitempty" jsonschema:"where it is kept: this work item, this Space (a free Space) or this conversation (a direct one), whichever you are in, by default; project, or bot (you, on every work item)"`
 		NeedsApproval bool     `json:"needsApproval,omitempty" jsonschema:"ask the user to approve it before it counts"`
 	}
 	recallIn struct {
 		Query string `json:"query" jsonschema:"text to find"`
 		Limit int    `json:"limit,omitempty" jsonschema:"most hits to return, default 10"`
-		Scope string `json:"scope,omitempty" jsonschema:"only this scope: work_item, space, conversation, project, team or teammate; omit for all you can read"`
+		Scope string `json:"scope,omitempty" jsonschema:"only this scope: work_item, space, conversation, project, team or bot; omit for all you can read"`
 	}
 	readMemoryIn struct {
 		ID int64 `json:"id" jsonschema:"memory id"`
@@ -108,8 +108,8 @@ type (
 		Parent *int64 `json:"parent,omitempty" jsonschema:"id of a top-level message to reply to in its thread; omit to post at the top level"`
 	}
 	directIn struct {
-		To   string `json:"to" jsonschema:"exactly one teammate role"`
-		Body string `json:"body" jsonschema:"the private message for that teammate"`
+		To   string `json:"to" jsonschema:"exactly one bot role"`
+		Body string `json:"body" jsonschema:"the private message for that bot"`
 	}
 	directListIn struct {
 		After int64 `json:"after,omitempty" jsonschema:"only direct messages with a larger id"`
@@ -119,7 +119,7 @@ type (
 	}
 	wrapIn struct {
 		Brief  string               `json:"brief" jsonschema:"the full rewritten brief: goal, status, key decisions, open questions"`
-		Items  []store.ProposedItem `json:"items,omitempty" jsonschema:"memory items made in this Space that are not saved with remember yet: kind (decision, finding, fact, lesson or convention), body, why, scope (work_item by default, project, teammate, or team for a team lead), replaces (ids of live items it replaces)"`
+		Items  []store.ProposedItem `json:"items,omitempty" jsonschema:"memory items made in this Space that are not saved with remember yet: kind (decision, finding, fact, lesson or convention), body, why, scope (work_item by default, project, bot, or team for a team lead), replaces (ids of live items it replaces)"`
 		Retire []int64              `json:"retire,omitempty" jsonschema:"ids of live memory items that are stale or duplicate"`
 	}
 	briefIn struct {
@@ -176,7 +176,7 @@ type (
 	}
 )
 
-// NewMCP returns the MCP server for one teammate: tok names the Space it
+// NewMCP returns the MCP server for one bot: tok names the Space it
 // works in, the role it speaks as and, through the Space, the work item.
 // dataDir is the Reef data folder, where the Reef app's browser socket is.
 func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) *mcp.Server {
@@ -192,7 +192,7 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"the work goes, not progress, proof or a won't-fix list. The default scope keeps it " +
 			"on this work item, free Space or direct conversation, whichever you are in (a " +
 			"conversation item is found only with recall), project on every work item of the project, " +
-			"teammate on you across work items. Pass replaces when it amends or replaces " +
+			"bot on you across work items. Pass replaces when it amends or replaces " +
 			"earlier items: they are retired. Shared conventions wait for the user's approval.",
 	}, m.remember)
 	mcp.AddTool(srv, &mcp.Tool{
@@ -217,11 +217,11 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "post_to_space",
 		Description: "Post a message to this Space as yourself. Start a line with @name to wake " +
-			"that teammate when your turn ends; a post with no such line wakes no one.",
+			"that bot when your turn ends; a post with no such line wakes no one.",
 	}, m.postToSpace)
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "send_to_role",
-		Description: "Send a private message to exactly one teammate. The teammate's ordinary " +
+		Description: "Send a private message to exactly one bot. The bot's ordinary " +
 			"reply comes back privately once; use send_to_role again to continue.",
 	}, m.sendToRole)
 	mcp.AddTool(srv, &mcp.Tool{
@@ -235,7 +235,7 @@ func NewMCP(st *store.Store, ms *memory.Store, tok store.Token, dataDir string) 
 			"anything is saved. brief is the full rewritten brief (goal, status, key " +
 			"decisions, open questions). items are memory items made in this Space that " +
 			"are not saved with remember yet, each with a kind, body, why, a scope " +
-			"(work_item by default; project, teammate, or team when you are the team lead: " +
+			"(work_item by default; project, bot, or team when you are the team lead: " +
 			"team items wait for the user) and replaces for earlier items it replaces. " +
 			"retire lists ids of live memory items that are stale or duplicate.",
 	}, m.proposeWrap)
@@ -325,7 +325,7 @@ func (m *mcpServer) currentName(ctx context.Context) (string, error) {
 		return "", err
 	}
 	for _, role := range team.Roles {
-		if role.TeammateID == *m.tok.BotID {
+		if role.BotID == *m.tok.BotID {
 			return role.Name, nil
 		}
 	}
@@ -373,10 +373,10 @@ func (m *mcpServer) remember(
 	case "":
 		in.Scope = scopes[0].Kind
 	case memory.ScopeWorkItem, memory.ScopeSpace, memory.ScopeConversation, memory.ScopeProject,
-		memory.ScopeTeammate:
+		memory.ScopeBot:
 	default:
 		return nil, rememberOut{}, fmt.Errorf(
-			"%w: scope %q is not work_item, space, conversation, project or teammate",
+			"%w: scope %q is not work_item, space, conversation, project or bot",
 			store.ErrInvalid, in.Scope)
 	}
 	i := slices.IndexFunc(scopes, func(r memory.Ref) bool { return r.Kind == in.Scope })
@@ -613,7 +613,7 @@ func (m *mcpServer) sendToRole(
 	var recipient *int64
 	for _, role := range team.Roles {
 		if role.Name == in.To {
-			id := role.TeammateID
+			id := role.BotID
 			recipient = &id
 			break
 		}
@@ -729,7 +729,7 @@ func (m *mcpServer) isLead(ctx context.Context) (bool, error) {
 		return false, err
 	}
 	return slices.ContainsFunc(t.Roles, func(r store.Role) bool {
-		return r.Lead && m.tok.BotID != nil && r.TeammateID == *m.tok.BotID
+		return r.Lead && m.tok.BotID != nil && r.BotID == *m.tok.BotID
 	}), nil
 }
 

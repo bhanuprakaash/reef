@@ -20,7 +20,7 @@ import (
 
 func testCLIBot(t *testing.T, st *store.Store, name string) *int64 {
 	t.Helper()
-	bots, err := st.Teammates(context.Background())
+	bots, err := st.Bots(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -29,7 +29,7 @@ func testCLIBot(t *testing.T, st *store.Store, name string) *int64 {
 			return &b.ID
 		}
 	}
-	b, err := st.CreateTeammate(context.Background(), store.Teammate{Name: name, Backend: "claude"})
+	b, err := st.CreateBot(context.Background(), store.Bot{Name: name, Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func (f *fakeSession) Wrap(ctx context.Context, onEvent func(agent.Event)) (stor
 	if !f.propose {
 		return store.Proposal{}, space.ErrNoProposal
 	}
-	id, err := f.st.SpaceMemberTeammateID(ctx, f.spaceID, "architect")
+	id, err := f.st.SpaceMemberBotID(ctx, f.spaceID, "architect")
 	if err != nil {
 		return store.Proposal{}, err
 	}
@@ -79,7 +79,7 @@ func (f *fakeSession) Wrap(ctx context.Context, onEvent func(agent.Event)) (stor
 		SpaceID: f.spaceID, BotID: &id, Role: "architect", Brief: "new brief",
 		Items: []store.ProposedItem{
 			{Kind: "decision", Body: "use sessions", Why: "simple", Scope: "work_item", Replaces: f.replaces},
-			{Kind: "lesson", Body: "reply short", Scope: "teammate"},
+			{Kind: "lesson", Body: "reply short", Scope: "bot"},
 		},
 	})
 }
@@ -201,7 +201,7 @@ func TestConverse_Wrap(t *testing.T) {
 		{name: "end of input", propose: true,
 			wantOut: "proposal 1 left pending",
 			wantExactOut: "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nitems:\n" +
-				"- decision (work_item): use sessions (simple)\n- lesson (teammate): reply short\n\n" +
+				"- decision (work_item): use sessions (simple)\n- lesson (bot): reply short\n\n" +
 				"approve? [y/N] \nproposal 1 left pending\n\n",
 			wantPending: true},
 		{name: "no proposal", wantOut: "no proposal made"},
@@ -294,7 +294,7 @@ func TestConverse_WrapCancelledAtPromptLeavesProposalPending(t *testing.T) {
 	out := c.end(t)
 
 	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nitems:\n" +
-		"- decision (work_item): use sessions (simple)\n- lesson (teammate): reply short\n\n" +
+		"- decision (work_item): use sessions (simple)\n- lesson (bot): reply short\n\n" +
 		"approve? [y/N] \nproposal 1 left pending\n\n"
 	if out != want {
 		t.Errorf("output = %q, want %q", out, want)
@@ -321,7 +321,7 @@ func TestConverse_WrapIgnoresTypedAheadLines(t *testing.T) {
 	out := c.end(t)
 
 	want := "> ok\n\nproposal 1 from architect\n\nbrief:\nnew brief\n\nitems:\n" +
-		"- decision (work_item): use sessions (simple)\n- lesson (teammate): reply short\n\n" +
+		"- decision (work_item): use sessions (simple)\n- lesson (bot): reply short\n\n" +
 		"approve? [y/N] \n" +
 		"ignored while wrapping: a\nignored while wrapping: y\napprove? [y/N] \n" +
 		"proposal 1 left pending\n\n"

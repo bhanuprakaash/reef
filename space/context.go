@@ -1,4 +1,4 @@
-// Package space builds what a teammate is told at the start of a Space.
+// Package space builds what a bot is told at the start of a Space.
 package space
 
 import (
@@ -27,7 +27,7 @@ const (
 		"read_thread and search_sessions. Record decisions with remember. When the " +
 		"user and the team agree on the goal, scope or plan, call propose_brief."
 	_quickToolsLine = "Details are on demand through the reef MCP tools recall and read_memory. " +
-		"remember saves to this %s by default; use scope project or teammate for what holds " +
+		"remember saves to this %s by default; use scope project or bot for what holds " +
 		"across the project or for you."
 )
 
@@ -46,10 +46,10 @@ var _shelfParts = map[string][]shelfPart{
 		{label: "Decisions", kinds: []string{memory.KindDecision}},
 		{label: "Findings", kinds: _findingKinds, limit: _findingsLimit},
 	},
-	memory.ScopeSpace:    {{label: "Space", limit: _spaceLimit}},
-	memory.ScopeProject:  {{label: "Project", limit: _projectLimit}},
-	memory.ScopeTeam:     {{label: "Team", limit: _teamLimit}},
-	memory.ScopeTeammate: {{label: "Your items", limit: _yourLimit}},
+	memory.ScopeSpace:   {{label: "Space", limit: _spaceLimit}},
+	memory.ScopeProject: {{label: "Project", limit: _projectLimit}},
+	memory.ScopeTeam:    {{label: "Team", limit: _teamLimit}},
+	memory.ScopeBot:     {{label: "Your items", limit: _yourLimit}},
 }
 
 // Context is the first prompt of a role on a work item without a team: what `reef context`
@@ -66,27 +66,27 @@ func Context(
 
 // Scopes are the shelves of memory a role reads and writes in ch. The first is the Space's own:
 // the work item's, the Space's for a free Space, or the conversation's. Then the project's, the
-// team's unless it is the solo team, and the Teammate's own, named by its id. A role the Space
-// does not have, such as an agent attached by hand with reef token, has no Teammate: its shelf
+// team's unless it is the solo team, and the Bot's own, named by its id. A role the Space
+// does not have, such as an agent attached by hand with reef token, has no Bot: its shelf
 // is named by the role.
 func Scopes(
 	ctx context.Context, st *store.Store, ch store.Space, role string,
 ) ([]memory.Ref, error) {
-	teammate := role
-	switch id, err := teammateID(ctx, st, ch, role); {
+	bot := role
+	switch id, err := botID(ctx, st, ch, role); {
 	case err == nil:
-		teammate = strconv.FormatInt(id, 10)
+		bot = strconv.FormatInt(id, 10)
 	case !errors.Is(err, store.ErrNotFound):
 		return nil, err
 	}
-	return botScopes(ch, teammate), nil
+	return botScopes(ch, bot), nil
 }
 
 func BotScopes(ch store.Space, botID int64) []memory.Ref {
 	return botScopes(ch, strconv.FormatInt(botID, 10))
 }
 
-func botScopes(ch store.Space, teammate string) []memory.Ref {
+func botScopes(ch store.Space, bot string) []memory.Ref {
 	var scopes []memory.Ref
 	switch {
 	case ch.WorkItemID != nil:
@@ -103,15 +103,15 @@ func botScopes(ch store.Space, teammate string) []memory.Ref {
 	if ch.Team != "" && ch.Team != store.SoloTeam {
 		scopes = append(scopes, memory.Ref{Kind: memory.ScopeTeam, ID: ch.Team})
 	}
-	return append(scopes, memory.Ref{Kind: memory.ScopeTeammate, ID: teammate})
+	return append(scopes, memory.Ref{Kind: memory.ScopeBot, ID: bot})
 }
 
-// teammateID is the id of the Teammate that holds role in ch. With no Space (ch.ID is 0, as for
+// botID is the id of the Bot that holds role in ch. With no Space (ch.ID is 0, as for
 // reef context) it is the one that holds role in the Team of the work item, or else the
-// Teammate named role.
-func teammateID(ctx context.Context, st *store.Store, ch store.Space, role string) (int64, error) {
+// Bot named role.
+func botID(ctx context.Context, st *store.Store, ch store.Space, role string) (int64, error) {
 	if ch.ID != 0 {
-		return st.SpaceMemberTeammateID(ctx, ch.ID, role)
+		return st.SpaceMemberBotID(ctx, ch.ID, role)
 	}
 	if ch.WorkItemID != nil {
 		w, err := st.WorkItem(ctx, *ch.WorkItemID)
@@ -125,12 +125,12 @@ func teammateID(ctx context.Context, st *store.Store, ch store.Space, role strin
 			}
 			for _, r := range t.Roles {
 				if r.Name == role {
-					return r.TeammateID, nil
+					return r.BotID, nil
 				}
 			}
 		}
 	}
-	all, err := st.Teammates(ctx)
+	all, err := st.Bots(ctx)
 	if err != nil {
 		return 0, err
 	}
@@ -139,11 +139,11 @@ func teammateID(ctx context.Context, st *store.Store, ch store.Space, role strin
 			return t.ID, nil
 		}
 	}
-	return 0, fmt.Errorf("teammate %s: %w", role, store.ErrNotFound)
+	return 0, fmt.Errorf("bot %s: %w", role, store.ErrNotFound)
 }
 
 // ReadScopes are Scopes and the conversation shelves of every direct conversation the role's
-// Teammate has had. They are never loaded at wake: only recall and read_memory reach them.
+// Bot has had. They are never loaded at wake: only recall and read_memory reach them.
 func ReadScopes(
 	ctx context.Context, st *store.Store, ch store.Space, role string,
 ) ([]memory.Ref, error) {
@@ -151,7 +151,7 @@ func ReadScopes(
 	if err != nil {
 		return nil, err
 	}
-	id, err := st.SpaceMemberTeammateID(ctx, ch.ID, role)
+	id, err := st.SpaceMemberBotID(ctx, ch.ID, role)
 	if errors.Is(err, store.ErrNotFound) {
 		return scopes, nil
 	}
@@ -166,7 +166,7 @@ func ReadBotScopes(ctx context.Context, st *store.Store, ch store.Space, id int6
 }
 
 func readBotConversations(ctx context.Context, st *store.Store, scopes []memory.Ref, id int64) ([]memory.Ref, error) {
-	convs, err := st.TeammateConversations(ctx, id)
+	convs, err := st.BotConversations(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -180,11 +180,11 @@ func readBotConversations(ctx context.Context, st *store.Store, scopes []memory.
 }
 
 // wakeScopes are the shelves of scopes loaded at wake. A conversation shelf never is, and a
-// direct conversation loads only its Teammate's.
+// direct conversation loads only its Bot's.
 func wakeScopes(ch store.Space, scopes []memory.Ref) []memory.Ref {
 	return slices.DeleteFunc(slices.Clone(scopes), func(r memory.Ref) bool {
 		return r.Kind == memory.ScopeConversation ||
-			ch.Kind == store.KindConversation && r.Kind != memory.ScopeTeammate
+			ch.Kind == store.KindConversation && r.Kind != memory.ScopeBot
 	})
 }
 
@@ -335,8 +335,8 @@ func itemParts(
 ) ([]string, error) {
 	var scopes []memory.Ref
 	var err error
-	if role.TeammateID != 0 {
-		scopes = BotScopes(ch, role.TeammateID)
+	if role.BotID != 0 {
+		scopes = BotScopes(ch, role.BotID)
 	} else {
 		scopes, err = Scopes(ctx, st, ch, role.Name)
 	}
@@ -411,11 +411,11 @@ func changedSince(
 	return strings.Join(parts, "\n"), nil
 }
 
-// roleIntro is the role's persona and skills, when it has any, to put before its context.
+// roleIntro is the role's description and skills, when it has any, to put before its context.
 func roleIntro(r store.Role) string {
 	var b strings.Builder
-	if r.Persona != "" {
-		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(r.Persona))
+	if r.Description != "" {
+		fmt.Fprintf(&b, "%s\n\n", strings.TrimSpace(r.Description))
 	}
 	if len(r.Skills) > 0 {
 		fmt.Fprintf(&b, "Your skills:\n%s\n\n", strings.Join(r.Skills, ", "))
@@ -425,7 +425,7 @@ func roleIntro(r store.Role) string {
 
 // _introChangedPrefix marks roleIntro text as a change to a role whose session is already
 // running, so the agent knows this replaces what it was told before.
-const _introChangedPrefix = "Your persona or skills changed:\n\n"
+const _introChangedPrefix = "Your description or skills changed:\n\n"
 
 // updatedRoleIntro is roleIntro(r), marked as a change to a role whose session is already
 // running, so the agent knows this replaces what it was told before.
@@ -433,7 +433,7 @@ func updatedRoleIntro(r store.Role) string {
 	return _introChangedPrefix + roleIntro(r)
 }
 
-// teamIntro tells a teammate who is on its team and how public and direct delivery differ. A
+// teamIntro tells a bot who is on its team and how public and direct delivery differ. A
 // team of one gets none.
 func teamIntro(team store.Team, r store.Role) string {
 	if len(team.Roles) < 2 {
@@ -445,14 +445,14 @@ func teamIntro(team store.Team, r store.Role) string {
 	}
 	s := fmt.Sprintf("Your team: %s. Use post_to_space and @mentions for work "+
 		"the whole team needs: decisions, blockers, questions for the user and outcomes belong in the "+
-		"Space. Only a line that starts with @name wakes that teammate; an @name inside a sentence "+
-		"wakes nobody. Use send_to_role for detailed coordination with exactly one teammate; "+
+		"Space. Only a line that starts with @name wakes that bot; an @name inside a sentence "+
+		"wakes nobody. Use send_to_role for detailed coordination with exactly one bot; "+
 		"their ordinary reply returns directly once, and continuing requires another send_to_role. "+
 		"When a direct chain completes with information the team or the user needs, publish "+
 		"one concise outcome with post_to_space; raw logs and routine acknowledgements stay "+
 		"private. "+
 		"When one message mentions several roles, its header ends with \"Asked together:\" naming "+
-		"them all: answer your part and do not repeat a teammate's. "+
+		"them all: answer your part and do not repeat a bot's. "+
 		"A public message that wakes you starts with "+
 		"[Space N, message N] or [Space N, message N, thread N]: your plain reply goes where "+
 		"the header says, a top-level one starting your own thread; pass thread as the parent of "+

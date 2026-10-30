@@ -9,7 +9,7 @@ import (
 func identityTestBots(t *testing.T, s *Store) map[string]*int64 {
 	t.Helper()
 	bots := map[string]*int64{}
-	existing, err := s.Teammates(context.Background())
+	existing, err := s.Bots(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +21,7 @@ func identityTestBots(t *testing.T, s *Store) map[string]*int64 {
 		if bots[name] != nil {
 			continue
 		}
-		bot, err := s.CreateTeammate(context.Background(), Teammate{Name: name, Backend: "claude"})
+		bot, err := s.CreateBot(context.Background(), Bot{Name: name, Backend: "claude"})
 		if err != nil {
 			t.Fatal(err)
 		}

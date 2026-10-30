@@ -12,7 +12,7 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-func TestSession_OneTeammateRunsWithProfileAccess(t *testing.T) {
+func TestSession_OneBotRunsWithProfileAccess(t *testing.T) {
 	ctx := context.Background()
 	st, f := openStore(t)
 	for _, name := range []string{"a", "b"} {
@@ -22,8 +22,8 @@ func TestSession_OneTeammateRunsWithProfileAccess(t *testing.T) {
 			t.Fatal(err)
 		}
 	}
-	sam, err := st.CreateTeammate(ctx, store.Teammate{
-		Name: "sam", Backend: "claude", Persona: "You test.", Write: true,
+	sam, err := st.CreateBot(ctx, store.Bot{
+		Name: "sam", Backend: "claude", Description: "You test.", Write: true,
 		Tools: []string{"Read", "Edit", "Write"},
 	})
 	if err != nil {
@@ -36,7 +36,7 @@ func TestSession_OneTeammateRunsWithProfileAccess(t *testing.T) {
 		t.Fatal(err)
 	}
 	ms := testMemory(t, st)
-	item := remember(t, ms, teammateScope(strconv.FormatInt(sam.ID, 10)),
+	item := remember(t, ms, botScope(strconv.FormatInt(sam.ID, 10)),
 		memory.KindLesson, "sam", "Check the empty case first.")
 	dataDir := t.TempDir()
 
@@ -83,7 +83,7 @@ func TestSession_OneTeammateRunsWithProfileAccess(t *testing.T) {
 		}
 		want := "lesson " + strconv.FormatInt(item.ID, 10) + ": Check the empty case first."
 		if !strings.Contains(turns[0].Prompt, "You test.") || !strings.Contains(turns[0].Prompt, want) {
-			t.Errorf("team %s: prompt =\n%s\nwant it to hold the persona and %q", tt.team, turns[0].Prompt, want)
+			t.Errorf("team %s: prompt =\n%s\nwant it to hold the description and %q", tt.team, turns[0].Prompt, want)
 		}
 	}
 }

@@ -10,18 +10,18 @@ import (
 	"github.com/bhanuprakaash/reef/store"
 )
 
-// conversation adds the Teammates sam (2) and kit (3) and a direct conversation with sam
+// conversation adds the Bots sam (2) and kit (3) and a direct conversation with sam
 // (Space 2). Sam answers a request for a summary with a message.
 func (e *liveEnv) conversation(t *testing.T) {
 	t.Helper()
 	for _, name := range []string{"sam", "kit"} {
-		if status, body := do(t, http.MethodPost, e.url+"/teammates",
+		if status, body := do(t, http.MethodPost, e.url+"/bots",
 			`{"name":"`+name+`","backend":"claude"}`); status != 201 {
 			t.Fatalf("create %s = %d %s", name, status, body)
 		}
 	}
 	if status, body := do(t, http.MethodPost, e.url+"/spaces",
-		`{"projectId":1,"name":"talk","teammateId":2,"kind":"conversation"}`); status != 201 {
+		`{"projectId":1,"name":"talk","botId":2,"kind":"conversation"}`); status != 201 {
 		t.Fatalf("create conversation = %d %s", status, body)
 	}
 	e.fake.onRun = func(role, text string, _ *int64) {
@@ -47,7 +47,7 @@ func (e *liveEnv) waitRan(t *testing.T, n int) []string {
 	return nil
 }
 
-func TestSend_AtTeammateMovesConversation(t *testing.T) {
+func TestSend_AtBotMovesConversation(t *testing.T) {
 	env := newLiveEnv(t)
 	env.conversation(t)
 
@@ -77,7 +77,7 @@ func TestSend_AtTeammateMovesConversation(t *testing.T) {
 	}
 }
 
-func TestSend_AtTeammateInsideLineMovesNothing(t *testing.T) {
+func TestSend_AtBotInsideLineMovesNothing(t *testing.T) {
 	env := newLiveEnv(t)
 	env.conversation(t)
 
@@ -99,10 +99,10 @@ func TestAddSpaceMember_MovesConversation(t *testing.T) {
 	env := newLiveEnv(t)
 	env.conversation(t)
 
-	if status, body := do(t, http.MethodPost, env.url+"/spaces/2/members", `{"teammateId":2}`); status != 400 {
+	if status, body := do(t, http.MethodPost, env.url+"/spaces/2/members", `{"botId":2}`); status != 400 {
 		t.Errorf("add the lead = %d %s, want 400", status, body)
 	}
-	if status, body := do(t, http.MethodPost, env.url+"/spaces/2/members", `{"teammateId":3}`); status != 202 {
+	if status, body := do(t, http.MethodPost, env.url+"/spaces/2/members", `{"botId":3}`); status != 202 {
 		t.Fatalf("add kit = %d %s, want 202", status, body)
 	}
 	env.waitRan(t, 2)

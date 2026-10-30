@@ -21,7 +21,7 @@ import (
 	"github.com/bhanuprakaash/reef/worktree"
 )
 
-// Session is a Space with one agent session per teammate in use. Each is opened for its
+// Session is a Space with one agent session per bot in use. Each is opened for its
 // first turn. The lead's stays open until Close; a specialist's is closed after its turn.
 type Session struct {
 	st       *store.Store
@@ -78,7 +78,7 @@ const (
 		"longer true, and keep it short. Add as items what this Space made that you have not " +
 		"saved with remember yet: decisions, findings, facts, lessons and conventions, each " +
 		"with its scope (work_item by default; project for what holds across the project; " +
-		"teammate for what only you should recall). Skip what you already saved with " +
+		"bot for what only you should recall). Skip what you already saved with " +
 		"remember. If you are the team lead, you may add team lessons about how this team " +
 		"works together; the user approves those. Use recall to find stale or duplicate " +
 		"items: pass retire with their ids, and replaces on a new item that amends older " +
@@ -86,7 +86,7 @@ const (
 	_maxDirectLines = 100
 	_maxDirectRunes = 1000
 
-	_directIntro = "Direct exchanges in this Space, private between two teammates:\n"
+	_directIntro = "Direct exchanges in this Space, private between two bots:\n"
 	_directAsk   = "Propose as items what these exchanges decided or found that is not saved yet, " +
 		"and a brief that reflects the direct work that is complete.\n\n"
 )
@@ -123,7 +123,7 @@ func Open(
 		return nil, fmt.Errorf("%w: Space %d has no members", store.ErrConflict, spaceID)
 	}
 	s := &Session{
-		st: st, ms: ms, dataDir: dataDir, exe: exe, ch: ch, leadID: team.Roles[0].TeammateID, project: p, mk: mk, lock: lock,
+		st: st, ms: ms, dataDir: dataDir, exe: exe, ch: ch, leadID: team.Roles[0].BotID, project: p, mk: mk, lock: lock,
 		members: map[int64]*member{}, trees: trees,
 	}
 	defer func() {
@@ -250,7 +250,7 @@ func (s *Session) allReadBot(ctx context.Context, id int64, scopes store.Scopes)
 		return false
 	}
 	for _, r := range team.Roles {
-		if r.TeammateID == id {
+		if r.BotID == id {
 			return s.readScopes(ctx, r, scopes)
 		}
 	}
@@ -259,19 +259,19 @@ func (s *Session) allReadBot(ctx context.Context, id int64, scopes store.Scopes)
 
 func (s *Session) readScopes(ctx context.Context, r store.Role, scopes store.Scopes) bool {
 	sessionID := ""
-	if m, ok := s.members[r.TeammateID]; ok {
+	if m, ok := s.members[r.BotID]; ok {
 		if m.run.sessionGone {
 			return false
 		}
 		sessionID = m.run.sessionID
 	} else {
-		last, err := newestSessionTurn(ctx, s.st, s.ch.ID, r.TeammateID, r.Backend)
+		last, err := newestSessionTurn(ctx, s.st, s.ch.ID, r.BotID, r.Backend)
 		if err != nil {
 			return false
 		}
 		sessionID = last.SessionID
 	}
-	text, _, err := wakeText(ctx, s.st, s.ch.ID, r.TeammateID, sessionID, scopes)
+	text, _, err := wakeText(ctx, s.st, s.ch.ID, r.BotID, sessionID, scopes)
 	return err == nil && text == ""
 }
 
@@ -294,7 +294,7 @@ func (s *Session) runAs(ctx context.Context, role string, in runInput) error {
 // RunDirectAs runs a role for a direct message, keeping the request/response boundary in
 // Runner while applying the same role setup, worktree access and session lifetime as RunAs.
 func (s *Session) RunDirectAs(ctx context.Context, role, text string, dm store.DirectMessage, onEvent func(agent.Event)) error {
-	id, err := s.st.SpaceMemberTeammateID(context.WithoutCancel(ctx), s.ch.ID, role)
+	id, err := s.st.SpaceMemberBotID(context.WithoutCancel(ctx), s.ch.ID, role)
 	if err != nil {
 		return err
 	}
@@ -445,12 +445,12 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	var r store.Role
 	if in.botID != nil {
 		for _, member := range team.Roles {
-			if member.TeammateID == *in.botID {
+			if member.BotID == *in.botID {
 				r = member
 				break
 			}
 		}
-		if r.TeammateID == 0 {
+		if r.BotID == 0 {
 			return nil, fmt.Errorf("%w: Bot %d is not a Space member", store.ErrInvalid, *in.botID)
 		}
 		role = r.Name
@@ -461,8 +461,8 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		}
 	}
 	backend = r.Backend
-	botID = &r.TeammateID
-	if m, ok := s.members[r.TeammateID]; ok && !in.fork {
+	botID = &r.BotID
+	if m, ok := s.members[r.BotID]; ok && !in.fork {
 		m.run.endWatch()
 		_, err := os.Stat(m.dir)
 		if !errors.Is(err, os.ErrNotExist) && !m.run.sessionGone &&
@@ -470,7 +470,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 			// Before its first turn m has no session id and nothing sent to compare against: its
 			// first prompt is built with the role as it is when the turn runs.
 			if intro := roleIntro(r); intro != "" && m.run.sessionID != "" {
-				sent, err := introSent(wctx, s.st, s.ch.ID, r.TeammateID, r.Backend, m.run.sessionID)
+				sent, err := introSent(wctx, s.st, s.ch.ID, r.BotID, r.Backend, m.run.sessionID)
 				if err != nil {
 					return nil, err
 				}
@@ -497,14 +497,14 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		}
 	}()
 
-	last, err := newestSessionTurn(wctx, s.st, s.ch.ID, r.TeammateID, r.Backend)
+	last, err := newestSessionTurn(wctx, s.st, s.ch.ID, r.BotID, r.Backend)
 	if err != nil {
 		return nil, err
 	}
 	if in.fork && r.Backend != "claude" {
 		last = store.Turn{} // only claude can resume a copy of a session
 	}
-	tok, err := s.st.CreateToken(wctx, s.ch.ID, r.TeammateID)
+	tok, err := s.st.CreateToken(wctx, s.ch.ID, r.BotID)
 	if err != nil {
 		return nil, err
 	}
@@ -539,7 +539,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		err = ctx.Err()
 	case last.SessionID != "":
 		if intro := roleIntro(r); intro != "" {
-			sent, serr := introSent(wctx, s.st, s.ch.ID, r.TeammateID, r.Backend, last.SessionID)
+			sent, serr := introSent(wctx, s.st, s.ch.ID, r.BotID, r.Backend, last.SessionID)
 			if serr != nil {
 				return nil, serr
 			}
@@ -556,10 +556,10 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		return nil, err
 	}
 	m.run = NewRunner(s.st, ag, s.ch.ID, role, r.Backend, preamble)
-	m.run.botID = &r.TeammateID
+	m.run.botID = &r.BotID
 	m.run.sessionID = last.SessionID
 	if last.SessionID != "" {
-		compacted, err := s.st.SessionCompacted(wctx, s.ch.ID, r.TeammateID, last.SessionID)
+		compacted, err := s.st.SessionCompacted(wctx, s.ch.ID, r.BotID, last.SessionID)
 		if err != nil {
 			return nil, err
 		}
@@ -576,12 +576,12 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 		}
 		var r store.Role
 		for _, member := range team.Roles {
-			if member.TeammateID == *m.run.botID {
+			if member.BotID == *m.run.botID {
 				r = member
 				break
 			}
 		}
-		if r.TeammateID == 0 {
+		if r.BotID == 0 {
 			return "", fmt.Errorf("%w: Bot %d is not in Space", store.ErrNotFound, *m.run.botID)
 		}
 		return firstPrompt(ctx, s.st, s.ms, ch.ProjectID, ch.WorkItemID, ch.ID, team, r)
@@ -594,7 +594,7 @@ func (s *Session) member(ctx context.Context, role string, in runInput) (_ *memb
 	}
 	m.run.OnNote = s.onNote
 	if !in.fork {
-		s.members[r.TeammateID] = m
+		s.members[r.BotID] = m
 	}
 	return m, nil
 }
@@ -872,7 +872,7 @@ func sessionMissing(msg string) bool {
 
 // introSent is the role intro its session (same session id) in the Space was last given:
 // the session's first turn always carries one, from firstPrompt, after its "## You" header,
-// and a later turn carries one when the role's persona or skills changed since, from
+// and a later turn carries one when the role's description or skills changed since, from
 // updatedRoleIntro. Empty when neither applies, so a prefix check against it never matches a
 // non-empty roleIntro.
 func introSent(

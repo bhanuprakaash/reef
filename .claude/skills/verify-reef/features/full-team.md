@@ -18,9 +18,9 @@ One line per acceptance line of the full-team slice and its sub-issues.
 - `write-default` a team file with no `write` field loads with `write: false` for every role; the seeded `solo` lead has `write`.
 - `full-apply` `reef team apply teams/full.json`, then `reef team list` shows 4 roles, lead starred.
 - `full-rest` `GET /teams/full` shows developer `write: true`, the others `false`, and no `gates` key.
-- `tree-two-work-items` one wake on work item `1` and one on `2` make two worktrees on `work-item/1` and `work-item/2`; each teammate's claude session has its own tree as `cwd`.
+- `tree-two-work-items` one wake on work item `1` and one on `2` make two worktrees on `work-item/1` and `work-item/2`; each bot's claude session has its own tree as `cwd`.
 - `tree-reuse` a second turn in work item `a`'s Space runs in the same tree: `git worktree list` is unchanged and a file put there before stays.
-- `tree-quick` a quick session's teammate runs in the project path.
+- `tree-quick` a quick session's bot runs in the project path.
 - `tree-isolated` a file a developer wrote in `a`'s tree is absent from `b`'s and from the main checkout.
 - `tree-not-git` a work item of a project that is not a git repo: one `failed` turn whose error starts `work items need the project folder to be a git repo with a commit: $S/plain: `, a log line, and `GET /health` still 200.
 - `tree-attach-dirty` a free Space attached to a work item while the main checkout has an untracked file: `reef` posts where the work item works, the next wake resumes the same session in the worktree, and the main checkout is still dirty.
@@ -70,7 +70,7 @@ One line per acceptance line of the full-team slice and its sub-issues.
 Preconditions:
 
 - Baseline from the README. `ANTHROPIC_MODEL=sonnet` on every `serve-start`. Codex is not needed: the codex line uses the repo's test fixture, so `doctor` showing `FAIL codex-auth` does not matter here. Start a server that uses the fixture with `BASH_ENV=` set: a `BASH_ENV` that resets `PATH` hides the shim and the real codex runs.
-- In every Bash call set `H=.claude/skills/verify-reef/scripts/verify-reef`, `REEF_VERIFY_RUN=<id>`, `E=~/.reef-verify/<id>`, `S=$(cd /tmp && pwd -P)/reef-verify/<id>` and, once a server runs, `A=$(cat $S/serve.addr)`. Paste `wait_done` and `wait_for` from `teammates.md`.
+- In every Bash call set `H=.claude/skills/verify-reef/scripts/verify-reef`, `REEF_VERIFY_RUN=<id>`, `E=~/.reef-verify/<id>`, `S=$(cd /tmp && pwd -P)/reef-verify/<id>` and, once a server runs, `A=$(cat $S/serve.addr)`. Paste `wait_done` and `wait_for` from `bots.md`.
 - `$H reef` runs in the scratch cwd, so a repo file is named by its full path: `$PWD/teams/full.json`.
 - The scratch cwd is the project and must be a git repo with one commit:
 
@@ -86,12 +86,12 @@ cat > $E/crew.json <<'EOF'
   "name": "crew",
   "roles": [
     {"name": "lead", "lead": true, "backend": "claude",
-     "persona": "You are the lead. Answer in one short sentence. Never @mention anyone."},
+     "description": "You are the lead. Answer in one short sentence. Never @mention anyone."},
     {"name": "developer", "write": true, "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the developer. Do what the user asks with as few tool calls as you can, then answer in one short sentence. Never @mention anyone.",
+     "description": "You are the developer. Do what the user asks with as few tool calls as you can, then answer in one short sentence. Never @mention anyone.",
      "tools": ["Read", "Edit", "Write", "Bash"]},
     {"name": "tester", "backend": "claude", "permissionMode": "acceptEdits",
-     "persona": "You are the tester. Do what the user asks, then answer in one short sentence. Never @mention anyone.",
+     "description": "You are the tester. Do what the user asks, then answer in one short sentence. Never @mention anyone.",
      "tools": ["Read", "Edit", "Write", "Bash(ls:*)"]}
   ]
 }
@@ -111,9 +111,9 @@ cat > $E/relay.json <<'EOF'
   "name": "relay",
   "roles": [
     {"name": "lead", "lead": true, "backend": "claude",
-     "persona": "You are the lead. Whatever you are told, reply with exactly one line: @tester check this"},
+     "description": "You are the lead. Whatever you are told, reply with exactly one line: @tester check this"},
     {"name": "tester", "backend": "claude",
-     "persona": "You are the tester. Answer in one short sentence. Never @mention anyone."}
+     "description": "You are the tester. Answer in one short sentence. Never @mention anyone."}
   ]
 }
 EOF
@@ -209,8 +209,8 @@ When done: `$H cleanup`, then remove claude's state for the worktrees and for `g
 
 ## Gotchas
 
-- The model decides the words, so check structure: `turn.role`, `turn.checkpoint`, git state and files. The `crew` personas keep turns short and tool-free unless asked.
-- Only an `@name` at the start of a message or of a line wakes that teammate (decision 80); "I'll hand it to @developer" in a sentence wakes nobody. `teams/full.json` tells each role to start a line with `@` only for the teammate it hands work to; if a run still takes another path, start again on a fresh repo and folder.
+- The model decides the words, so check structure: `turn.role`, `turn.checkpoint`, git state and files. The `crew` descriptions keep turns short and tool-free unless asked.
+- Only an `@name` at the start of a message or of a line wakes that bot (decision 80); "I'll hand it to @developer" in a sentence wakes nobody. `teams/full.json` tells each role to start a line with `@` only for the bot it hands work to; if a run still takes another path, start again on a fresh repo and folder.
 - The Google flow uses 4 agent hops (architect, developer, tester, lead) of the 6 the cap allows. Turns that call a tool other than Reef's own reset the count, so a longer back and forth of working roles does not pause; one that only posts to the Space reaches the hop cap and pauses it with hold rows.
 - The single-writer lock and the checkpoints are per process. `pgrep -P $(cat $S/serve.pid) -x claude` lists only this server's agents.
 - `serve-stop --kill` is a real crash: the running claude is a child in its own process group and is ended by `cleanup` if it outlives the server.

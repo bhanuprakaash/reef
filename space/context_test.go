@@ -14,7 +14,7 @@ import (
 
 func testBotID(t *testing.T, st *store.Store, name string) *int64 {
 	t.Helper()
-	bots, err := st.Teammates(context.Background())
+	bots, err := st.Bots(context.Background())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,7 +23,7 @@ func testBotID(t *testing.T, st *store.Store, name string) *int64 {
 			return &bot.ID
 		}
 	}
-	bot, err := st.CreateTeammate(context.Background(), store.Teammate{Name: name, Backend: "claude"})
+	bot, err := st.CreateBot(context.Background(), store.Bot{Name: name, Backend: "claude"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -41,17 +41,17 @@ func testApplyTeam(t *testing.T, st *store.Store, ctx context.Context, team stor
 	t.Helper()
 	_, teamErr := st.Team(ctx, team.Name)
 	for i, role := range team.Roles {
-		if role.TeammateID != 0 {
+		if role.BotID != 0 {
 			continue
 		}
 		id := testBotID(t, st, role.Name)
-		bot := store.Teammate{ID: *id, Name: role.Name, Persona: role.Persona, Skills: role.Skills, Backend: role.Backend, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
+		bot := store.Bot{ID: *id, Name: role.Name, Description: role.Description, Skills: role.Skills, Backend: role.Backend, Model: role.Model, Provider: role.Provider, Face: role.Face, Colour: role.Colour, Tools: role.Tools, MCPServers: role.MCPServers, Write: role.Write, PermissionMode: role.PermissionMode}
 		if teamErr != nil {
-			if _, err := st.UpdateTeammate(ctx, bot); err != nil {
+			if _, err := st.UpdateBot(ctx, bot); err != nil {
 				return store.Team{}, err
 			}
 		}
-		team.Roles[i].TeammateID = *id
+		team.Roles[i].BotID = *id
 	}
 	return st.ApplyTeam(ctx, team)
 }
@@ -119,8 +119,8 @@ func projectScope(f store.WorkItem) memory.Ref {
 	return memory.Ref{Kind: memory.ScopeProject, ID: strconv.FormatInt(f.ProjectID, 10)}
 }
 
-func teammateScope(role string) memory.Ref {
-	return memory.Ref{Kind: memory.ScopeTeammate, ID: role}
+func botScope(role string) memory.Ref {
+	return memory.Ref{Kind: memory.ScopeBot, ID: role}
 }
 
 func TestContext(t *testing.T) {
@@ -138,8 +138,8 @@ func TestContext(t *testing.T) {
 	for _, body := range []string{"use OAuth", "store sessions in SQLite\nsecret second line", strings.Repeat("é", 101)} {
 		decided = append(decided, remember(t, ms, workScope(f), memory.KindDecision, "user", body))
 	}
-	remember(t, ms, teammateScope("architect"), memory.KindLesson, "architect", "Keep the session in a cookie.")
-	remember(t, ms, teammateScope("developer"), memory.KindLesson, "developer", "developer-only note")
+	remember(t, ms, botScope("architect"), memory.KindLesson, "architect", "Keep the session in a cookie.")
+	remember(t, ms, botScope("developer"), memory.KindLesson, "developer", "developer-only note")
 	var spaces []store.Space
 	for i, name := range []string{"spike", "build"} {
 		c, err := st.CreateSpace(ctx, store.Space{ProjectID: f.ProjectID, WorkItemID: &f.ID, Name: name})
@@ -188,7 +188,7 @@ decision 1: use OAuth (user, ` + day + `)
 
 ### Your items
 lesson 4: Keep the session in a cookie. (architect, ` + day + `)
-1 of 1; recall(..., scope=teammate)
+1 of 1; recall(..., scope=bot)
 
 ### On demand
 2 earlier Spaces (search_sessions).
@@ -285,7 +285,7 @@ You are the lead in project "shop" (` + p.Path + `).
 This is a free Space: it has no work item, so there is no brief or work item items.
 
 ## How to work
-Details are on demand through the reef MCP tools recall and read_memory. remember saves to this Space by default; use scope project or teammate for what holds across the project or for you.
+Details are on demand through the reef MCP tools recall and read_memory. remember saves to this Space by default; use scope project or bot for what holds across the project or for you.
 `
 	if got != want {
 		t.Errorf("quick session with no memory =\n%s\nwant\n%s", got, want)
@@ -293,7 +293,7 @@ Details are on demand through the reef MCP tools recall and read_memory. remembe
 
 	day := remember(t, ms, projectScope(f), memory.KindFact, "user", "Use Go, not Python.").
 		CreatedAt.Format(_dateLayout)
-	remember(t, ms, teammateScope("1"), memory.KindLesson, "lead", "Ask before renaming.")
+	remember(t, ms, botScope("1"), memory.KindLesson, "lead", "Ask before renaming.")
 	if _, err := st.PutProfile(ctx, store.Profile{Name: "Ada"}); err != nil {
 		t.Fatal(err)
 	}
@@ -312,7 +312,7 @@ Details are on demand through the reef MCP tools recall and read_memory. remembe
 		"\n\n## What we know\n### Project\nfact 1: Use Go, not Python. (user, " + day + ")\n" +
 			"1 of 1; recall(..., scope=project)\n\n" +
 			"### Your items\nlesson 2: Ask before renaming. (lead, " + day + ")\n" +
-			"1 of 1; recall(..., scope=teammate)\n",
+			"1 of 1; recall(..., scope=bot)\n",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("quick session =\n%s\nwant it to contain %q", got, want)
@@ -410,13 +410,13 @@ func TestTeamIntro(t *testing.T) {
 	team := store.Team{Name: "core", Roles: []store.Role{lead, architect}}
 	const common = "Your team: @lead, @architect. Use post_to_space and @mentions " +
 		"for work the whole team needs: decisions, blockers, questions for the user and outcomes " +
-		"belong in the Space. Only a line that starts with @name wakes that teammate; an @name " +
+		"belong in the Space. Only a line that starts with @name wakes that bot; an @name " +
 		"inside a sentence wakes nobody. Use send_to_role for detailed coordination with exactly one " +
-		"teammate; their ordinary reply returns directly once, and continuing requires another " +
+		"bot; their ordinary reply returns directly once, and continuing requires another " +
 		"send_to_role. When a direct chain completes with information the team or the user needs, " +
 		"publish one concise outcome with post_to_space; raw logs and routine acknowledgements " +
 		"stay private. When one message mentions several roles, its header ends with " +
-		"\"Asked together:\" naming them all: answer your part and do not repeat a teammate's. " +
+		"\"Asked together:\" naming them all: answer your part and do not repeat a bot's. " +
 		"A public message that wakes you starts with [Space N, message N] or " +
 		"[Space N, message N, thread N]: your " +
 		"plain reply goes where the header says, a top-level one starting your own thread; pass " +

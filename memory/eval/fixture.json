@@ -246,14 +246,14 @@
       "forbidden": ["theirs"]
     },
     {
-      "name": "isolation-other-teammate",
+      "name": "isolation-other-bot",
       "category": "cross-team isolation",
       "items": [
-        { "ref": "ada", "kind": "lesson", "scope": "teammate:ada", "body": "Run go vet before asking for review" },
-        { "ref": "bob", "kind": "lesson", "scope": "teammate:bob", "body": "Run go vet and the linter before asking for review" },
+        { "ref": "ada", "kind": "lesson", "scope": "bot:ada", "body": "Run go vet before asking for review" },
+        { "ref": "bob", "kind": "lesson", "scope": "bot:bob", "body": "Run go vet and the linter before asking for review" },
         { "ref": "style", "kind": "convention", "scope": "project:1", "body": "Follow the Go style doc" }
       ],
-      "query": { "text": "go vet before review", "scopes": ["project:1", "teammate:ada"] },
+      "query": { "text": "go vet before review", "scopes": ["project:1", "bot:ada"] },
       "expect": ["ada"],
       "forbidden": ["bob"]
     },
@@ -337,10 +337,10 @@
       "category": "scope restriction",
       "items": [
         { "ref": "team", "kind": "lesson", "scope": "team:a", "body": "Hand off with a short written summary" },
-        { "ref": "mine", "kind": "lesson", "scope": "teammate:ada", "body": "Hand off after the tests pass" },
+        { "ref": "mine", "kind": "lesson", "scope": "bot:ada", "body": "Hand off after the tests pass" },
         { "ref": "project", "kind": "convention", "scope": "project:1", "body": "Hand off through the Work item brief" }
       ],
-      "query": { "text": "hand off", "scopes": ["project:1", "team:a", "teammate:ada"], "scope": "team:a" },
+      "query": { "text": "hand off", "scopes": ["project:1", "team:a", "bot:ada"], "scope": "team:a" },
       "expect": ["team"],
       "forbidden": ["mine", "project"]
     },
@@ -363,7 +363,7 @@
         { "ref": "other", "kind": "fact", "scope": "space:4", "body": "The kitchen rota is pinned to the fridge" },
         { "ref": "project", "kind": "fact", "scope": "project:1", "body": "Billing exports run nightly at 02:00 UTC" }
       ],
-      "query": { "text": "kitchen rota", "scopes": ["space:3", "project:1", "teammate:ada"] },
+      "query": { "text": "kitchen rota", "scopes": ["space:3", "project:1", "bot:ada"] },
       "expect": ["mine"],
       "forbidden": ["other", "project"]
     },
@@ -373,9 +373,9 @@
       "items": [
         { "ref": "earlier", "kind": "fact", "scope": "conversation:5", "body": "Ada prefers tabs over spaces in Go files" },
         { "ref": "stranger", "kind": "fact", "scope": "conversation:9", "body": "Ada prefers tabs when she reads a diff" },
-        { "ref": "mine", "kind": "lesson", "scope": "teammate:ada", "author": "ada", "role": "developer", "body": "Run gofmt before every commit" }
+        { "ref": "mine", "kind": "lesson", "scope": "bot:ada", "author": "ada", "role": "developer", "body": "Run gofmt before every commit" }
       ],
-      "query": { "text": "prefers tabs", "scopes": ["conversation:5", "conversation:6", "project:1", "teammate:ada"] },
+      "query": { "text": "prefers tabs", "scopes": ["conversation:5", "conversation:6", "project:1", "bot:ada"] },
       "expect": ["earlier"],
       "forbidden": ["stranger", "mine"]
     },
