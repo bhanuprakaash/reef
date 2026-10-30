@@ -3210,22 +3210,22 @@ async function creatures() {
   check(bad.status === 400, 'an unknown colour is refused', `${bad.status}`);
 
   const ada = await call('POST', '/bots', { name: `ada-${suffix}`, backend: 'claude', face: 'whale' });
-  const plain = await call('POST', '/bots', { name: `plain-${suffix}`, backend: 'claude' });
-  const role = (teammate, _name, extra) => ({ botId: teammate.id, ...extra });
+  const plain = await call('POST', '/bots', { name: `architect-${suffix}`, backend: 'claude' });
+  const role = (bot, _name, extra) => ({ botId: bot.id, ...extra });
   await call('POST', '/teams', { name: teamA, roles: [role(sam, 'lead', { lead: true })] });
   await call('POST', '/teams', { name: teamB, roles: [role(ada, 'lead', { lead: true }), role(sam, 'developer')] });
   await call('POST', '/teams', { name: teamC, roles: [role(plain, 'architect', { lead: true })] });
 
   await page.goto(`${base}/bots`);
-  await main.getByRole('heading', { name: 'Teammates', level: 1 }).waitFor();
-  const row = main.getByRole('region', { name: 'All teammates' }).getByRole('button', { name: new RegExp(`^${sam.name}`) });
+  await main.getByRole('heading', { name: 'Bots', level: 1 }).waitFor();
+  const row = main.getByRole('region', { name: 'All bots' }).getByRole('button', { name: new RegExp(`^${sam.name}`) });
   await row.waitFor();
   const samFace = await row.locator('svg').first().innerHTML();
-  check((await row.locator('svg').count()) === 1, 'Sam is one creature on the Teammates page');
-  check(await row.getByText(`lead · ${teamA}`, { exact: true }).isVisible(), `Sam's role in ${teamA} is a text badge`);
-  check(await row.getByText(`developer · ${teamB}`, { exact: true }).isVisible(), `Sam's role in ${teamB} is a text badge`);
+  check((await row.locator('svg').count()) === 1, 'Sam is one creature on the Bots page');
+  check(await row.getByText(`${sam.name} · ${teamA}`, { exact: true }).isVisible(), `Sam's name in ${teamA} is a text badge`);
+  check(await row.getByText(`${sam.name} · ${teamB}`, { exact: true }).isVisible(), `Sam's name in ${teamB} is a text badge`);
   check(samFace.includes('#8B5CF6') && !samFace.includes('#C08A5B'), "Sam's otter is drawn in violet, not the otter's own brown");
-  await shot('teammates-1280x800');
+  await shot('bots-1280x800');
 
   const faceIn = async (team, roleName) => {
     await page.goto(`${base}/teams?team=${team}`);
@@ -3233,38 +3233,38 @@ async function creatures() {
     await button.waitFor();
     return button.locator('svg').first().innerHTML();
   };
-  const inA = await faceIn(teamA, 'lead');
+  const inA = await faceIn(teamA, sam.name);
   await shot('team-a-1280x800');
-  const inB = await faceIn(teamB, 'developer');
+  const inB = await faceIn(teamB, sam.name);
   await shot('team-b-1280x800');
-  check(inA === samFace && inB === samFace, 'Sam as lead in one Team and developer in the other is the same creature in both Teams and on the Teammates page');
-  check((await faceIn(teamB, 'lead')) !== samFace, "another Teammate in that Team keeps its own creature");
+  check(inA === samFace && inB === samFace, 'Sam in two Teams is the same creature in both Teams and on the Bots page');
+  check((await faceIn(teamB, ada.name)) !== samFace, "another Bot in that Team keeps its own creature");
 
-  const pebble = await faceIn(teamC, 'architect');
-  check(pebble.includes('#8E8E93') && !pebble.includes('#8B5CF6'), 'a Teammate with no creature, in a role named architect, is a pebble, not a whale');
+  const pebble = await faceIn(teamC, plain.name);
+  check(pebble.includes('#8E8E93') && !pebble.includes('#8B5CF6'), 'a Bot with no creature, named like a whale-faced role, is a pebble');
 
   await page.goto(`${base}/bots`);
-  await main.getByRole('button', { name: 'New Teammate' }).click();
-  const dialog = page.getByRole('dialog', { name: 'New Teammate' });
+  await main.getByRole('button', { name: 'New Bot' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New Bot' });
   const kit = `kit-${suffix}`;
-  await dialog.getByLabel('Teammate name').fill(kit);
+  await dialog.getByLabel('Name', { exact: true }).fill(kit);
   await dialog.getByRole('button', { name: /^Change creature/ }).click();
   await dialog.getByRole('button', { name: 'Penguin', exact: true }).click();
   await dialog.getByRole('button', { name: /^Change creature/ }).click();
   await shot('picker-1280x800');
   await dialog.getByRole('button', { name: 'Pink colour', exact: true }).click();
-  await dialog.getByRole('button', { name: 'Create teammate' }).click();
-  await page.waitForURL((url) => url.searchParams.has('teammate'));
+  await dialog.getByRole('button', { name: 'Create Bot' }).click();
+  await page.waitForURL((url) => url.searchParams.has('bot'));
   const made = (await getJson('/bots')).find((t) => t.name === kit);
-  check(look(made) === '{"face":"penguin","colour":"pink"}', 'the New Teammate dialog saves the creature and colour picked', look(made));
+  check(look(made) === '{"face":"penguin","colour":"pink"}', 'the New Bot dialog saves the creature and colour picked', look(made));
 
   await main.getByRole('button', { name: /^Change creature/ }).click();
   await main.getByRole('button', { name: 'Shark', exact: true }).click();
   await main.getByRole('button', { name: /^Change creature/ }).click();
   await main.getByRole('button', { name: 'Blue colour', exact: true }).click();
-  await main.getByRole('button', { name: 'Save teammate' }).click();
+  await main.getByRole('button', { name: 'Save Bot' }).click();
   await main.getByText('Saved').waitFor();
-  check(look(await getJson(`/bots/${made.id}`)) === '{"face":"shark","colour":"blue"}', 'the Teammate panel saves a new creature and colour', look(await getJson(`/bots/${made.id}`)));
+  check(look(await getJson(`/bots/${made.id}`)) === '{"face":"shark","colour":"blue"}', 'the Bot panel saves a new creature and colour', look(await getJson(`/bots/${made.id}`)));
 
   for (const route of ['/bots', `/teams?team=${teamB}`]) {
     await page.setViewportSize({ width: 390, height: 844 });
@@ -3274,8 +3274,8 @@ async function creatures() {
     await shot(`phone-${route.replace(/\W+/g, '-').replace(/^-|-$/g, '')}`);
   }
   await page.goto(`${base}/bots`);
-  await main.getByRole('button', { name: 'New Teammate' }).click();
-  await page.getByRole('dialog', { name: 'New Teammate' }).getByRole('button', { name: /^Change creature/ }).click();
+  await main.getByRole('button', { name: 'New Bot' }).click();
+  await page.getByRole('dialog', { name: 'New Bot' }).getByRole('button', { name: /^Change creature/ }).click();
   await shot('phone-picker');
 }
 
