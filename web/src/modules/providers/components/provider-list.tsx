@@ -68,7 +68,7 @@ export function ProviderList() {
     <>
       <p className="text-[13px] text-muted">
         The claude and codex installs Reef can run. Add one from another folder, then pick it on a
-        Teammate.
+        Bot.
       </p>
       {providers.isPending && <p className="text-sm text-muted">Loading...</p>}
       {providers.isError && <p className="text-sm text-danger">{providers.error.message}</p>}

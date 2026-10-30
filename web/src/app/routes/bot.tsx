@@ -1,11 +1,11 @@
 import { Link, useNavigate, useParams } from 'react-router';
 import { useMemory } from '@/lib/api/get-memory';
-import { useTeammates } from '@/lib/api/get-teammates';
+import { useBots } from '@/lib/api/get-bots';
 import { useTeams } from '@/lib/api/get-teams';
 import { useCurrentProject } from '@/lib/current-project';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { useStartConversation } from '@/modules/spaces/api/start-conversation';
-import { useTeammateConversations } from '@/modules/teams/api/get-teammate-conversations';
+import { useBotConversations } from '@/modules/teams/api/get-bot-conversations';
 import { backendLabel } from '@/modules/teams/utils/backend-label';
 import { rowTime } from '@/utils/row-time';
 import { BackButton } from '@/components/back-button';
@@ -15,31 +15,31 @@ import { Chip } from '@/components/chip';
 import { Creature } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 
-export function TeammatePage() {
+export function BotPage() {
   const id = Number(useParams().id);
-  const teammates = useTeammates();
+  const bots = useBots();
   const teams = useTeams();
-  const conversations = useTeammateConversations(id);
-  const memory = useMemory(`teammate:${id}`);
+  const conversations = useBotConversations(id);
+  const memory = useMemory(`bot:${id}`);
   const projects = useProjects();
   const [project] = useCurrentProject(projects.data);
   const create = useStartConversation();
   const navigate = useNavigate();
 
-  if (teammates.isPending) return <p className="text-sm text-muted">Loading...</p>;
-  if (teammates.isError) return <p className="text-sm text-danger">{teammates.error.message}</p>;
-  const teammate = teammates.data.find((t) => t.id === id);
-  if (!teammate) return <p className="text-sm text-danger">No teammate {id}</p>;
+  if (bots.isPending) return <p className="text-sm text-muted">Loading...</p>;
+  if (bots.isError) return <p className="text-sm text-danger">{bots.error.message}</p>;
+  const bot = bots.data.find((t) => t.id === id);
+  if (!bot) return <p className="text-sm text-danger">No Bot {id}</p>;
 
   const memberships = (teams.data ?? []).flatMap((team) =>
-    team.roles.filter((r) => r.teammateId === id).map((role) => ({ team, role })),
+    team.roles.filter((r) => r.botId === id).map((role) => ({ team, role })),
   );
 
   function start() {
     if (!project) return;
-    if (!teammate) return;
+    if (!bot) return;
     create.mutate(
-      { projectId: project.id, teammate },
+      { projectId: project.id, bot },
       { onSuccess: (space) => void navigate(`/spaces/${space.id}`) },
     );
   }
@@ -47,17 +47,17 @@ export function TeammatePage() {
   return (
     <div className="mx-auto flex w-full max-w-[820px] flex-col gap-6 py-6">
       <header className="flex flex-wrap items-center gap-4">
-        <BackButton fallback="/teammates" />
-        <Creature look={teammate} size={64} animate />
+        <BackButton fallback="/bots" />
+        <Creature look={bot} size={64} animate />
         <div className="min-w-0 flex-1 basis-56">
-          <h1 className="text-[32px] font-normal tracking-[-0.02em]">{teammate.name}</h1>
+          <h1 className="text-[32px] font-normal tracking-[-0.02em]">{bot.name}</h1>
           <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-            <Chip>{backendLabel(teammate.backend)}</Chip>
-            {teammate.model && <Chip>{teammate.model}</Chip>}
+            <Chip>{backendLabel(bot.backend)}</Chip>
+            {bot.model && <Chip>{bot.model}</Chip>}
           </div>
         </div>
         <div className="flex items-center gap-2">
-          <Link to={`/teammates?teammate=${id}`} className={buttonClass('secondary')}>
+          <Link to={`/bots?bot=${id}`} className={buttonClass('secondary')}>
             Edit
           </Link>
           <Button variant="primary" disabled={!project} loading={create.isPending} onClick={start}>
@@ -66,7 +66,7 @@ export function TeammatePage() {
         </div>
       </header>
       {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
-      {teammate.persona && <p className="max-w-xl text-sm text-soft">{teammate.persona}</p>}
+      {bot.description && <p className="max-w-xl text-sm text-soft">{bot.description}</p>}
 
       <Card title="Teams" flush>
         {memberships.length === 0 ? (
@@ -140,7 +140,7 @@ export function TeammatePage() {
           <div className="px-6 pb-5">
             <EmptyState
               title="Nothing remembered yet"
-              body={`What ${teammate.name} keeps across every work item lands here.`}
+              body={`What ${bot.name} keeps across every work item lands here.`}
               compact
             />
           </div>

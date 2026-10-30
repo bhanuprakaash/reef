@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { StatusDot } from './status-dot';
 
 describe('StatusDot', () => {
-  it('pulses with a tooltip while a teammate is working', () => {
+  it('pulses with a tooltip while a bot is working', () => {
     const markup = renderToStaticMarkup(
       <StatusDot status="working" label="developer is working" />,
     );

@@ -1,27 +1,27 @@
 import { useNavigate } from 'react-router';
-import { useTeammates } from '@/lib/api/get-teammates';
+import { useBots } from '@/lib/api/get-bots';
 import { useStartConversation } from '@/modules/spaces/api/start-conversation';
 import { GroupAvatar } from '@/components/creature';
 
 type Props = { projectId: number; onClose: () => void };
 
 export function NewConversationForm({ projectId, onClose }: Props) {
-  const teammates = useTeammates();
+  const bots = useBots();
   const create = useStartConversation();
   const navigate = useNavigate();
 
   return (
     <div className="space-y-3.5">
-      {teammates.data?.length === 0 && <p className="text-sm text-muted">No Teammates yet</p>}
+      {bots.data?.length === 0 && <p className="text-sm text-muted">No Bots yet</p>}
       <div className="grid grid-cols-2 gap-2">
-        {teammates.data?.map((t) => (
+        {bots.data?.map((t) => (
           <button
             key={t.id}
             type="button"
             disabled={create.isPending}
             onClick={() => {
               create.mutate(
-                { projectId, teammate: t },
+                { projectId, bot: t },
                 {
                   onSuccess: (space) => {
                     onClose();
@@ -37,8 +37,8 @@ export function NewConversationForm({ projectId, onClose }: Props) {
           </button>
         ))}
       </div>
-      {(teammates.isError || create.isError) && (
-        <p className="text-sm text-danger">{(teammates.error ?? create.error)?.message}</p>
+      {(bots.isError || create.isError) && (
+        <p className="text-sm text-danger">{(bots.error ?? create.error)?.message}</p>
       )}
     </div>
   );

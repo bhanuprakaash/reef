@@ -1,14 +1,14 @@
 import { expect, it } from 'vitest';
-import { teammateRequestBody } from './teammate-request-body';
+import { botRequestBody } from './bot-request-body';
 
-it('sends only the fields the server knows for a Teammate', () => {
-  const body = teammateRequestBody({
+it('sends only the fields the server knows for a Bot', () => {
+  const body = botRequestBody({
     name: 'sam',
     lead: true,
     write: false,
     backend: 'claude',
     permissionMode: '',
-    persona: 'Reads.',
+    description: 'Reads.',
     skills: [],
     tools: ['Read'],
     mcp: [{ name: 'mcp1', label: 'true' }],
@@ -17,11 +17,11 @@ it('sends only the fields the server knows for a Teammate', () => {
   expect(Object.keys(body).sort()).toEqual([
     'backend',
     'colour',
+    'description',
     'face',
     'model',
     'name',
     'permissionMode',
-    'persona',
     'provider',
     'skills',
     'tools',

@@ -2,10 +2,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { CapturePage } from './capture';
 
-const { useCreateWorkItem, useProjects, useTeammates, useStartConversation } = vi.hoisted(() => ({
+const { useCreateWorkItem, useProjects, useBots, useStartConversation } = vi.hoisted(() => ({
   useCreateWorkItem: vi.fn(),
   useProjects: vi.fn(),
-  useTeammates: vi.fn(() => ({ data: [] })),
+  useBots: vi.fn(() => ({ data: [] })),
   useStartConversation: vi.fn(() => ({
     isPending: false,
     isError: false,
@@ -17,7 +17,7 @@ const { useCreateWorkItem, useProjects, useTeammates, useStartConversation } = v
 
 vi.mock('@/modules/work-items/api/create-work-item', () => ({ useCreateWorkItem }));
 vi.mock('@/modules/projects/api/get-projects', () => ({ useProjects }));
-vi.mock('@/lib/api/get-teammates', () => ({ useTeammates }));
+vi.mock('@/lib/api/get-bots', () => ({ useBots }));
 vi.mock('@/modules/spaces/api/start-conversation', () => ({ useStartConversation }));
 
 function stubWindow(reef?: object) {

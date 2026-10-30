@@ -172,7 +172,7 @@ export function Sidebar() {
         </span>
         <span className="min-w-0 truncate text-sm">{profileName}</span>
         <div className="ml-auto flex gap-0.5">
-          <BarLink to="/teammates" label="Teammates" active={pathname.startsWith('/teammates')}>
+          <BarLink to="/bots" label="Bots" active={pathname.startsWith('/bots')}>
             <circle cx="12" cy="8" r="4" />
             <path d="M4 21c.8-4.2 4-6 8-6s7.2 1.8 8 6" />
           </BarLink>

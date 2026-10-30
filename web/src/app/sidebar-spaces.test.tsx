@@ -76,7 +76,7 @@ function render(item: WorkItem = workItem) {
 }
 
 describe('SidebarSpaces', () => {
-  it('shows a working tooltip on a Space whose teammate is running', () => {
+  it('shows a working tooltip on a Space whose bot is running', () => {
     useRunningTurns.mockReturnValue({
       data: [{ spaceId: 4, role: 'developer', status: 'running' }],
     });

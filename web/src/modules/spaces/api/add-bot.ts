@@ -1,13 +1,13 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { api } from '@/lib/api-client';
 
-export function useAddTeammate(spaceId: number) {
+export function useAddBot(spaceId: number) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (teammateId: number) =>
+    mutationFn: (botId: number) =>
       api<void>(`/spaces/${spaceId}/members`, {
         method: 'POST',
-        body: JSON.stringify({ teammateId }),
+        body: JSON.stringify({ botId }),
       }),
     onSuccess: () =>
       Promise.all([

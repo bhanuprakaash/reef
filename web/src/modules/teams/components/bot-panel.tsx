@@ -1,25 +1,25 @@
 import { useState } from 'react';
 import { Link } from 'react-router';
-import { useUpdateTeammate } from '@/modules/teams/api/update-teammate';
+import { useUpdateBot } from '@/modules/teams/api/update-bot';
 import { RolePanel } from '@/modules/teams/components/role-panel';
-import type { Provider, Role, Skills, Teammate } from '@/types/api';
+import type { Provider, Role, Skills, Bot } from '@/types/api';
 import { Button } from '@/components/button';
 
 type Props = {
-  teammate: Teammate;
+  bot: Bot;
   skills?: Skills;
   providers?: Provider[];
   noProject?: boolean;
   onClose: () => void;
 };
 
-export function TeammatePanel({ teammate, skills, providers, noProject, onClose }: Props) {
-  const [role, setRole] = useState<Role>({ ...teammate, teammateId: teammate.id, lead: false });
-  const save = useUpdateTeammate();
+export function BotPanel({ bot, skills, providers, noProject, onClose }: Props) {
+  const [role, setRole] = useState<Role>({ ...bot, botId: bot.id, lead: false });
+  const save = useUpdateBot();
 
   return (
     <RolePanel
-      scope="teammate"
+      scope="bot"
       role={role}
       skills={skills}
       providers={providers}
@@ -32,12 +32,12 @@ export function TeammatePanel({ teammate, skills, providers, noProject, onClose 
           variant="primary"
           type="button"
           loading={save.isPending}
-          onClick={() => save.mutate({ id: teammate.id, role })}
+          onClick={() => save.mutate({ id: bot.id, role })}
         >
           Save Bot
         </Button>
         {save.isSuccess && <span className="text-sm text-muted">Saved</span>}
-        <Link to={`/teammates/${teammate.id}`} className="ml-auto text-sm text-soft">
+        <Link to={`/bots/${bot.id}`} className="ml-auto text-sm text-soft">
           Open profile
         </Link>
       </div>

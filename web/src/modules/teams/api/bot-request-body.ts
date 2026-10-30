@@ -1,11 +1,11 @@
 import type { Role } from '@/types/api';
 
-export function teammateRequestBody(role: Omit<Role, 'teammateId'>) {
-  const { name, persona, skills, backend, provider, model, face, colour } = role;
+export function botRequestBody(role: Omit<Role, 'botId'>) {
+  const { name, description, skills, backend, provider, model, face, colour } = role;
   const { tools, write, permissionMode } = role;
   return {
     name,
-    persona,
+    description,
     skills,
     backend,
     provider,

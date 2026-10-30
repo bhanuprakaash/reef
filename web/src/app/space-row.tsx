@@ -4,7 +4,7 @@ import { GroupAvatar } from '@/components/creature';
 import { Hovercard } from '@/components/hovercard';
 import { Row } from '@/components/row';
 import { StatusDot } from '@/components/status-dot';
-import { useTeammates } from '@/lib/api/get-teammates';
+import { useBots } from '@/lib/api/get-bots';
 import { useTeams } from '@/lib/api/get-teams';
 import { useRunningTurns } from '@/modules/spaces/api/get-turns';
 import { useWorkItems } from '@/modules/work-items/api/get-work-items';
@@ -20,14 +20,14 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
   const { pathname } = useLocation();
   const workItems = useWorkItems();
   const teams = useTeams();
-  const teammates = useTeammates();
+  const bots = useBots();
   const inbox = useInbox();
   const running = useRunningTurns();
 
   const waiting = inbox.data ?? [];
   const faces =
     c.kind === 'conversation'
-      ? { [c.role]: teammates.data?.find((t) => t.name === c.role) }
+      ? { [c.role]: bots.data?.find((t) => t.name === c.role) }
       : roleFaces(teams.data, c.team);
   const roles = Object.keys(faces);
   const roleNames = (running.data ?? []).filter((t) => t.spaceId === c.id).map((t) => t.role);

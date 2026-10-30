@@ -142,14 +142,14 @@ export type Turn = {
 };
 
 export type Role = {
-  teammateId: number;
+  botId: number;
   name: string;
   lead: boolean;
   write: boolean;
   backend: string;
   provider?: string;
   permissionMode: string;
-  persona: string;
+  description: string;
   skills: string[];
   face?: string;
   colour?: string;
@@ -172,7 +172,7 @@ export type SkillInfo = { name: string; description: string };
 
 export type Skills = { claude: SkillInfo[]; codex: SkillInfo[] };
 
-export type Teammate = Omit<Role, 'lead' | 'teammateId'> & { id: number };
+export type Bot = Omit<Role, 'lead' | 'botId'> & { id: number };
 
 export type Team = {
   id: number;

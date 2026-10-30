@@ -24,7 +24,7 @@ export function MentionCard({
   role: Role;
   working: boolean;
 }) {
-  const persona = role.persona.split('\n')[0];
+  const description = role.description.split('\n')[0];
   return (
     <div className="flex flex-col gap-3">
       <div className="flex items-center gap-2.5">
@@ -42,7 +42,7 @@ export function MentionCard({
           Edit
         </Link>
       </div>
-      {persona && <p className="truncate text-[13px] text-soft">{persona}</p>}
+      {description && <p className="truncate text-[13px] text-soft">{description}</p>}
       <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1.5 text-[13px]">
         <dt className="text-muted">State</dt>
         <dd className="flex items-center gap-2">

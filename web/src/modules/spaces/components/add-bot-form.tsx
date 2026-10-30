@@ -1,24 +1,23 @@
-import { useTeammates } from '@/lib/api/get-teammates';
-import { useAddTeammate } from '@/modules/spaces/api/add-teammate';
+import { useBots } from '@/lib/api/get-bots';
+import { useAddBot } from '@/modules/spaces/api/add-bot';
 import { useSpaceMembers } from '@/modules/spaces/api/get-space-members';
 import { GroupAvatar } from '@/components/creature';
 import type { Space } from '@/types/api';
 
-export function AddTeammateForm({ space, onClose }: { space: Space; onClose: () => void }) {
-  const teammates = useTeammates();
+export function AddBotForm({ space, onClose }: { space: Space; onClose: () => void }) {
+  const bots = useBots();
   const members = useSpaceMembers(space.id);
-  const add = useAddTeammate(space.id);
-  const choices =
-    teammates.data?.filter((t) => !members.data?.some((m) => m.teammateId === t.id)) ?? [];
+  const add = useAddBot(space.id);
+  const choices = bots.data?.filter((t) => !members.data?.some((m) => m.botId === t.id)) ?? [];
 
   return (
     <div className="space-y-3.5">
       <p className="-mt-2.5 text-[13px] text-muted">
         {space.kind === 'conversation'
           ? `${space.role} writes a summary, and #${space.name} becomes a Space with both of them.`
-          : `The Teammate joins #${space.name}.`}
+          : `The Bot joins #${space.name}.`}
       </p>
-      {choices.length === 0 && <p className="text-sm text-muted">No other Teammates yet</p>}
+      {choices.length === 0 && <p className="text-sm text-muted">No other Bots yet</p>}
       <div className="grid grid-cols-2 gap-2">
         {choices.map((t) => (
           <button
@@ -33,8 +32,8 @@ export function AddTeammateForm({ space, onClose }: { space: Space; onClose: () 
           </button>
         ))}
       </div>
-      {(teammates.isError || add.isError) && (
-        <p className="text-sm text-danger">{(teammates.error ?? add.error)?.message}</p>
+      {(bots.isError || add.isError) && (
+        <p className="text-sm text-danger">{(bots.error ?? add.error)?.message}</p>
       )}
     </div>
   );

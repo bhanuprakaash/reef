@@ -14,7 +14,7 @@ import { Toggle } from '@/components/toggle';
 import { claudeModels } from '@/utils/models';
 
 type Props = {
-  scope: 'member' | 'teammate';
+  scope: 'member' | 'bot';
   role: Role;
   skills?: Skills;
   providers?: Provider[];
@@ -81,7 +81,7 @@ export function RolePanel({
   children,
 }: Props) {
   const label = role.name || 'role';
-  const teammate = scope === 'teammate';
+  const bot = scope === 'bot';
 
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
@@ -93,12 +93,12 @@ export function RolePanel({
 
   return (
     <aside
-      aria-label={teammate ? 'Teammate' : 'Role'}
+      aria-label={bot ? 'Bot' : 'Role'}
       className="fixed inset-y-3 right-3 z-30 w-[calc(100%-24px)] max-w-[420px] space-y-[18px] overflow-y-auto rounded-card border border-line bg-card p-5 shadow-dialog"
     >
       <div className="space-y-3">
         <div className="flex items-center gap-3">
-          {teammate ? (
+          {bot ? (
             <CreaturePicker
               size={56}
               value={role}
@@ -110,8 +110,9 @@ export function RolePanel({
           <TextField
             className="min-w-0 flex-1"
             aria-label={`${label} name`}
+            placeholder="Name"
             value={role.name}
-            readOnly={!teammate}
+            readOnly={!bot}
             onChange={(e) => onChange({ ...role, name: e.target.value })}
           />
           <button
@@ -134,12 +135,12 @@ export function RolePanel({
             </svg>
           </button>
         </div>
-        {!teammate && (
+        {!bot && (
           <>
             <p className="text-xs text-muted">
               Bot settings belong to the Bot. Edit them on the{' '}
-              <Link to="/teammates" className="underline">
-                Teammates page
+              <Link to="/bots" className="underline">
+                Bots page
               </Link>
               .
             </p>
@@ -152,7 +153,7 @@ export function RolePanel({
             </SettingRow>
           </>
         )}
-        {teammate && (
+        {bot && (
           <SettingRow title="Can edit code" hint="Off keeps the Bot read-only.">
             <Toggle
               label={`${label} write`}
@@ -163,21 +164,21 @@ export function RolePanel({
         )}
       </div>
 
-      {teammate && (
+      {bot && (
         <Section title="Describe this Bot">
           <TextArea
             className="w-full leading-normal"
             rows={7}
-            aria-label={`${label} persona`}
-            value={role.persona}
-            onChange={(e) => onChange({ ...role, persona: e.target.value })}
+            aria-label={`${label} description`}
+            value={role.description}
+            onChange={(e) => onChange({ ...role, description: e.target.value })}
           />
         </Section>
       )}
 
-      {teammate && (
+      {bot && (
         <Section title="Capabilities">
-          {teammate && (
+          {bot && (
             <>
               <SettingRow title="Backend">
                 <Select
@@ -240,7 +241,7 @@ export function RolePanel({
         </Section>
       )}
 
-      {teammate && role.backend === 'claude' && (
+      {bot && role.backend === 'claude' && (
         <Section>
           <ToolPicker
             label={label}
@@ -252,7 +253,7 @@ export function RolePanel({
         </Section>
       )}
 
-      {teammate && (
+      {bot && (
         <Section>
           <SkillPicker
             label={label}

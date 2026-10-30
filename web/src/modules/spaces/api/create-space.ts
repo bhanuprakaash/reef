@@ -9,7 +9,7 @@ type NewSpace = {
   team?: string;
   backend?: string;
   permissionMode?: string;
-  teammateId?: number;
+  botId?: number;
   kind?: Space['kind'];
 };
 

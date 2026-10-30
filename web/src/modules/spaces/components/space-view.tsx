@@ -12,7 +12,7 @@ import { useSpaceTurns, useTurns } from '@/modules/spaces/api/get-turns';
 import { useReopenSpace } from '@/modules/spaces/api/reopen-space';
 import { useProposal } from '@/modules/spaces/api/get-proposal';
 import { useWrapSpace } from '@/modules/spaces/api/wrap-space';
-import { AddTeammateForm } from '@/modules/spaces/components/add-teammate-form';
+import { AddBotForm } from '@/modules/spaces/components/add-bot-form';
 import { AttachForm } from '@/modules/spaces/components/attach-form';
 import { SpaceHeader } from '@/modules/spaces/components/space-header';
 import { CheckpointRows } from '@/modules/spaces/components/checkpoint-rows';
@@ -165,7 +165,7 @@ export function SpaceView({
         onWrap={() => wrap.mutate()}
         attachDisabled={running}
         onAttach={() => setAttaching(true)}
-        onAddTeammate={() => setAdding(true)}
+        onAddBot={() => setAdding(true)}
         onInspector={() => openSide(side?.kind === 'inspector' ? null : { kind: 'inspector' })}
         onTeam={() => {
           setTeamOpen(!teamOpen);
@@ -180,8 +180,8 @@ export function SpaceView({
         </Dialog>
       )}
       {space.kind !== 'work_item' && (
-        <Dialog open={adding} onClose={() => setAdding(false)} title="Add a Teammate">
-          {adding && <AddTeammateForm space={space} onClose={() => setAdding(false)} />}
+        <Dialog open={adding} onClose={() => setAdding(false)} title="Add a Bot">
+          {adding && <AddBotForm space={space} onClose={() => setAdding(false)} />}
         </Dialog>
       )}
       <div className="relative flex min-h-0 flex-1">

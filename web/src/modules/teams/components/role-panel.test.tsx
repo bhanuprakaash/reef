@@ -14,26 +14,26 @@ vi.mock('@/modules/teams/api/delete-team', () => ({ useDeleteTeam }));
 vi.mock('@/modules/teams/api/add-member', () => ({
   useAddMember: () => ({ isPending: false, isError: false }),
 }));
-vi.mock('@/lib/api/get-teammates', () => ({ useTeammates: () => ({ data: [] }) }));
+vi.mock('@/lib/api/get-bots', () => ({ useBots: () => ({ data: [] }) }));
 vi.mock('@/modules/teams/api/update-team', () => ({ useUpdateTeam }));
 
 const role: Role = {
-  teammateId: 1,
+  botId: 1,
   name: 'developer',
   lead: false,
   write: true,
   backend: 'claude',
   permissionMode: '',
-  persona: 'Builds what the architect sketched.',
+  description: 'Builds what the architect sketched.',
   skills: [],
   tools: ['Read', 'Grep'],
   mcp: [],
 };
 
 describe('RolePanel', () => {
-  it('shows the persona, the tool count and a close button for a claude role', () => {
+  it('shows the description, the tool count and a close button for a claude role', () => {
     const markup = renderToStaticMarkup(
-      <RolePanel scope="teammate" role={role} onChange={() => {}} onClose={() => {}}>
+      <RolePanel scope="bot" role={role} onChange={() => {}} onClose={() => {}}>
         {null}
       </RolePanel>,
     );
@@ -48,7 +48,7 @@ describe('RolePanel', () => {
     const render = (r: Role) =>
       renderToStaticMarkup(
         <RolePanel
-          scope="teammate"
+          scope="bot"
           role={r}
           providers={providers}
           onChange={() => {}}
@@ -67,7 +67,7 @@ describe('RolePanel', () => {
   it('hides the tools of a codex role', () => {
     const markup = renderToStaticMarkup(
       <RolePanel
-        scope="teammate"
+        scope="bot"
         role={{ ...role, backend: 'codex' }}
         onChange={() => {}}
         onClose={() => {}}
@@ -79,7 +79,7 @@ describe('RolePanel', () => {
     expect(markup).not.toContain('Tools');
   });
 
-  it('leaves the persona and the model to the teammate when it shows a team membership', () => {
+  it('leaves the description and the model to the bot when it shows a team membership', () => {
     const markup = renderToStaticMarkup(
       <MemoryRouter>
         <RolePanel scope="member" role={role} onChange={() => {}} onClose={() => {}}>

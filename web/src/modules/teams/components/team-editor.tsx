@@ -162,7 +162,7 @@ export function TeamEditor({ team, openRole, onSaved, onDeleted, onDuplicate }: 
         onClose={() => setConfirmDelete(false)}
         title={`Delete ${team.name}?`}
       >
-        <p className="text-sm text-muted">Its existing Spaces keep their copied teammates.</p>
+        <p className="text-sm text-muted">Its existing Spaces keep their Bots.</p>
         {remove.isError && <p className="mt-3 text-sm text-danger">{remove.error.message}</p>}
         <div className="mt-5 flex justify-end gap-2">
           <Button type="button" onClick={() => setConfirmDelete(false)}>

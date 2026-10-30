@@ -24,7 +24,7 @@ type Props = {
   onWrap: () => void;
   attachDisabled: boolean;
   onAttach: () => void;
-  onAddTeammate: () => void;
+  onAddBot: () => void;
   onInspector: () => void;
   onTeam: () => void;
 };
@@ -48,7 +48,7 @@ export function SpaceHeader({
   onWrap,
   attachDisabled,
   onAttach,
-  onAddTeammate,
+  onAddBot,
   onInspector,
   onTeam,
 }: Props) {
@@ -211,10 +211,10 @@ export function SpaceHeader({
           <Button
             variant="ghost"
             type="button"
-            aria-label="Add Teammate"
+            aria-label="Add Bot"
             className={phoneIcon}
             disabled={attachDisabled}
-            onClick={onAddTeammate}
+            onClick={onAddBot}
           >
             <svg
               width="20"
@@ -230,7 +230,7 @@ export function SpaceHeader({
               <circle cx="9" cy="8" r="3.5" />
               <path d="M3 19c0-3.3 2.7-6 6-6s6 2.7 6 6M19 8v6M16 11h6" />
             </svg>
-            <span className="max-md:hidden">Add Teammate</span>
+            <span className="max-md:hidden">Add Bot</span>
           </Button>
         )}
       </div>

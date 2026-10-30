@@ -30,7 +30,7 @@ type Props = {
   onOpenChain: (chainId: number) => void;
 };
 
-const isTeammate = (author: string) => author !== 'user' && author !== 'reef';
+const isBot = (author: string) => author !== 'user' && author !== 'reef';
 
 const icon = {
   width: 15,
@@ -76,9 +76,7 @@ export function MessageList({
       firstId.set(m.author, Math.min(m.id, firstId.get(m.author) ?? m.id));
     }
   }
-  const founder = Math.min(
-    ...[...firstId].filter(([author]) => isTeammate(author)).map(([, id]) => id),
-  );
+  const founder = Math.min(...[...firstId].filter(([author]) => isBot(author)).map(([, id]) => id));
   const now = new Date();
   const anchors = checkpointAnchor(turns, checkpoints, threads);
   const before: Chain[][] = threads.map(() => []);
@@ -104,12 +102,11 @@ export function MessageList({
         const previous = threads[i - 1]?.root;
         const stamped = showTimestamp(previous?.createdAt, root.createdAt);
         const joined =
-          isTeammate(root.author) && firstId.get(root.author) === root.id && root.id !== founder;
-        const named =
-          isTeammate(root.author) && (stamped || joined || previous?.author !== root.author);
+          isBot(root.author) && firstId.get(root.author) === root.id && root.id !== founder;
+        const named = isBot(root.author) && (stamped || joined || previous?.author !== root.author);
         const pullRequest = pullRequestNote(root);
         const check = checkResult(root);
-        const repliers = [...new Set(replies.map((r) => r.author).filter(isTeammate))];
+        const repliers = [...new Set(replies.map((r) => r.author).filter(isBot))];
         const anchor = anchors.get(root.id);
         return (
           <Fragment key={root.id}>

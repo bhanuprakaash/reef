@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useCurrentProject } from '@/lib/current-project';
-import { useTeammates } from '@/lib/api/get-teammates';
+import { useBots } from '@/lib/api/get-bots';
 import { useCreateWorkItem } from '@/modules/work-items/api/create-work-item';
 import { useProjects } from '@/modules/projects/api/get-projects';
 import { useStartConversation } from '@/modules/spaces/api/start-conversation';
@@ -22,7 +22,7 @@ const TYPES: { value: WorkItemType; label: string }[] = [
 
 export function CapturePage() {
   const projects = useProjects();
-  const teammates = useTeammates();
+  const bots = useBots();
   const createItem = useCreateWorkItem();
   const startConversation = useStartConversation();
   const [project, pickProject] = useCurrentProject(projects.data);
@@ -30,8 +30,8 @@ export function CapturePage() {
   const [text, setText] = useState('');
   const [description, setDescription] = useState('');
   const [talk, setTalk] = useState(false);
-  const [teammateId, setTeammateId] = useState('');
-  const teammate = teammates.data?.find((t) => String(t.id) === teammateId) ?? teammates.data?.[0];
+  const [botId, setBotId] = useState('');
+  const bot = bots.data?.find((t) => String(t.id) === botId) ?? bots.data?.[0];
   const create = talk ? startConversation : createItem;
   // A plain browser tab's window.close() does nothing, so show a status instead there;
   // the desktop capture window still closes on success.
@@ -67,8 +67,8 @@ export function CapturePage() {
             }
           },
         };
-        if (talk && teammate) {
-          startConversation.mutate({ projectId: Number(project?.id), teammate, text }, options);
+        if (talk && bot) {
+          startConversation.mutate({ projectId: Number(project?.id), bot, text }, options);
         } else {
           createItem.mutate(
             { projectId: Number(project?.id), type, title: text, description },
@@ -103,10 +103,10 @@ export function CapturePage() {
           <Select
             variant="pill"
             className="max-w-36 min-w-0 [&>button]:h-[34px]!"
-            aria-label="Capture teammate"
-            value={teammate ? String(teammate.id) : ''}
-            onChange={setTeammateId}
-            options={(teammates.data ?? []).map((t) => ({ value: String(t.id), label: t.name }))}
+            aria-label="Capture Bot"
+            value={bot ? String(bot.id) : ''}
+            onChange={setBotId}
+            options={(bots.data ?? []).map((t) => ({ value: String(t.id), label: t.name }))}
           />
         ) : (
           <Select
@@ -133,15 +133,15 @@ export function CapturePage() {
           ]}
         />
         <label className="flex items-center gap-2 text-[13px] text-soft">
-          <Toggle checked={talk} onChange={setTalk} label="Talk to a Teammate" />
-          Talk to a Teammate
+          <Toggle checked={talk} onChange={setTalk} label="Talk to a Bot" />
+          Talk to a Bot
         </label>
         <span className="ml-auto text-xs text-muted">↵ save · esc close</span>
         <Button
           type="submit"
           variant="primary"
           className="h-[34px]! text-[13.5px]!"
-          disabled={!project || (talk && !teammate)}
+          disabled={!project || (talk && !bot)}
           loading={create.isPending}
         >
           Capture
@@ -156,7 +156,7 @@ export function CapturePage() {
           {!project
             ? 'Pick a project to capture into.'
             : talk
-              ? `Starts a conversation with ${teammate?.name ?? 'a Teammate'} in ${project.name}.`
+              ? `Starts a conversation with ${bot?.name ?? 'a Bot'} in ${project.name}.`
               : `Lands in the ${project.name} Backlog as a ${type} titled "${text}".`}
         </p>
       )}
