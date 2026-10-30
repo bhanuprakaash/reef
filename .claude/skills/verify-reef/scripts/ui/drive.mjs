@@ -1,11 +1,11 @@
 // Drives the Reef window in Chrome and prints PASS/FAIL lines. See ../../SKILL.md.
-// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page|space-header|sidebar BASE_URL
+// usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|team-page|space-header|sidebar BASE_URL
 // env: REEF_UI_DATA (data folder of the server, for sqlite3), REEF_UI_PROJECT (project
 // folder, default a new temp dir), REEF_UI_PROOF (screenshot folder, default ./proof),
 // REEF_VERIFY_CHROME (path of a Chrome or Chromium binary; default the system Chrome),
 // REEF_FAKE_GH (pr only: the folder the server's fake gh keeps its PR in, see fake-gh/gh).
 // REEF_FAKE_LOG (denials and naming only: the fake claude's log, one line per turn with its args).
-// REEF_UI_REEF (memory and teammate only: the reef binary, to run reef memory add and recall).
+// REEF_UI_REEF (memory and bot only: the reef binary, to run reef memory add and recall).
 // REEF_UI_FAKE (providers only: the folder holding the fake claude, used as a second install).
 import { chromium } from 'playwright-core';
 import { execFileSync } from 'node:child_process';
@@ -14,9 +14,9 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 
 const [scenario, base] = process.argv.slice(2);
-const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, teammates, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, teammate, 'team-page': teamPage, 'space-header': spaceHeader, sidebar };
+const scenarios = { live, brief, attach, cap, pages, stop, wrap, teams, 'team-management': teamManagement, retry, rollback, inbox, 'inbox-groups': inboxGroups, diff, memory, inspector, review, board, workshop, capture, theme, phone, pr, coordination, team, denials, subagent, composer, naming, conversation, 'conversation-move': conversationMove, hovercard, mention, providers, bots, 'work-item': workItem, 'work-item-review': workItemReview, 'first-run': firstRun, creatures, bot, 'team-page': teamPage, 'space-header': spaceHeader, sidebar };
 if (!scenarios[scenario] || !base) {
-  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|teammates|work-item|work-item-review|first-run|creatures|teammate|team-page|space-header|sidebar BASE_URL');
+  console.error('usage: node drive.mjs live|brief|attach|cap|pages|stop|wrap|teams|team-management|retry|rollback|inbox|inbox-groups|diff|memory|inspector|review|board|workshop|capture|theme|phone|pr|coordination|team|denials|subagent|composer|naming|conversation|conversation-move|hovercard|mention|providers|bots|work-item|work-item-review|first-run|creatures|bot|team-page|space-header|sidebar BASE_URL');
   process.exit(2);
 }
 const data = process.env.REEF_UI_DATA;
@@ -269,8 +269,8 @@ async function teamManagement() {
   const confirm = page.getByRole('dialog', { name: `Delete ${name}?` });
   await confirm.getByRole('button', { name: 'Delete team' }).click();
   await page.waitForURL((url) => url.searchParams.get('team') === 'solo');
-  check(sql(`select count(*) from team where name = '${name}'`) === '0', 'Delete team removes the Team while its Space keeps its copied roster');
-  check(Number(sql(`select count(*) from space_member where space_id = ${id}`)) >= 2, "the deleted Team's Space still has its teammates");
+  check(sql(`select count(*) from team where name = '${name}'`) === '0', 'Delete team removes the Team while its Space keeps its Bots');
+  check(Number(sql(`select count(*) from space_member where space_id = ${id}`)) >= 2, "the deleted Team's Space still has its Bots");
 }
 
 async function brief() {
@@ -3094,7 +3094,7 @@ async function providers() {
   await shot('desktop-dark-removed');
 }
 
-async function teammates() {
+async function bots() {
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   const suffix = Date.now().toString(36);
   const mate = `sam-${suffix}`;
@@ -3102,27 +3102,53 @@ async function teammates() {
   await page.setViewportSize({ width: 1280, height: 800 });
   await addProject();
   await page.goto(`${base}/bots`);
-  await main.getByRole('heading', { name: 'Teammates', level: 1 }).waitFor();
+  await main.getByRole('heading', { name: 'Bots', level: 1 }).waitFor();
 
-  await main.getByRole('button', { name: 'New Teammate' }).click();
-  const dialog = page.getByRole('dialog', { name: 'New Teammate' });
-  await dialog.getByLabel('Teammate name').fill(mate);
-  await dialog.getByRole('button', { name: 'Create teammate' }).click();
-  await page.waitForURL((url) => url.searchParams.has('teammate'));
-  const id = Number(new URL(page.url()).searchParams.get('teammate'));
-  const persona = `Checks the release notes of ${suffix}.`;
-  await main.getByLabel(`${mate} persona`).fill(persona);
-  await pick(`${mate} model`, 'Sonnet', main);
-  await shot('teammates-1280x800');
-  await main.getByRole('button', { name: 'Save teammate' }).click();
-  await main.getByText('Saved').waitFor();
-  let teammate = await getJson(`/bots/${id}`);
+  await main.getByRole('button', { name: 'New Bot' }).click();
+  const dialog = page.getByRole('dialog', { name: 'New Bot' });
+  const description = `Checks the release notes of ${suffix}.`;
+  const fields = await dialog.locator('label').allInnerTexts();
   check(
-    teammate.name === mate && teammate.description === persona && teammate.model === 'sonnet' && teammate.write === false,
-    'the window creates a Teammate and saves its persona and model through REST',
-    JSON.stringify({ name: teammate.name, model: teammate.model, write: teammate.write }),
+    fields.some((t) => t.startsWith('Name')) && fields.some((t) => t.startsWith('Describe this Bot')) && !fields.some((t) => /persona|routing|instruction/i.test(t)),
+    'the New Bot dialog asks for Name and Describe this Bot, with no persona or routing field',
+    fields.map((t) => t.split('\n')[0]).join(' | '),
   );
-  check((await main.getByRole('region', { name: 'All teammates' }).innerText()).includes(mate), 'the Teammates page lists the new Teammate');
+  await dialog.getByLabel('Name', { exact: true }).fill(mate);
+  await dialog.getByLabel('Describe this Bot').fill(description);
+  await shot('new-dialog');
+  await dialog.getByRole('button', { name: 'Create Bot' }).click();
+  await page.waitForURL((url) => url.searchParams.has('bot'));
+  const id = Number(new URL(page.url()).searchParams.get('bot'));
+  const panel = page.getByRole('complementary', { name: 'Bot' });
+  await panel.waitFor();
+  let bot = await getJson(`/bots/${id}`);
+  check(
+    bot.name === mate && bot.description === description && bot.backend === 'claude' && !bot.model && bot.tools.length === 0 && !bot.permissionMode && bot.write === false,
+    'a Bot made from Name and a plain-language description alone is stored with default backend, no model, no tools, no permission mode and read-only',
+    JSON.stringify({ name: bot.name, backend: bot.backend, model: bot.model, tools: bot.tools, permissionMode: bot.permissionMode, write: bot.write }),
+  );
+  check((await main.getByRole('region', { name: 'All bots' }).innerText()).includes(mate), 'the Bots page lists the new Bot');
+
+  const after = async () => getJson(`/bots/${id}`);
+  const save = async () => {
+    await panel.getByRole('button', { name: 'Save Bot' }).click();
+    await panel.getByText('Saved').waitFor();
+    await panel.getByText('Saved').waitFor({ state: 'hidden', timeout: 30000 }).catch(() => {});
+    return after();
+  };
+  await pick(`${mate} model`, 'Sonnet', panel);
+  await shot('editor-1280x800');
+  bot = await save();
+  check(bot.model === 'sonnet' && bot.description === description && bot.write === false && !bot.permissionMode, 'saving only a model changes the model and nothing else', JSON.stringify({ model: bot.model, permissionMode: bot.permissionMode, write: bot.write }));
+  await pick(`${mate} permission mode`, 'acceptEdits', panel);
+  bot = await save();
+  check(bot.permissionMode === 'acceptEdits' && bot.model === 'sonnet' && bot.write === false, 'saving only a permission mode changes the permission mode and nothing else', JSON.stringify({ model: bot.model, permissionMode: bot.permissionMode, write: bot.write }));
+  await panel.getByRole('switch', { name: `${mate} tool Read` }).click();
+  bot = await save();
+  check(bot.tools.join() === 'Read' && bot.permissionMode === 'acceptEdits' && bot.model === 'sonnet', 'saving only a tool changes the tools and nothing else', JSON.stringify(bot.tools));
+  await panel.getByLabel(`${mate} description`).fill(`${description} Edited.`);
+  bot = await save();
+  check(bot.description === `${description} Edited.` && bot.tools.join() === 'Read' && bot.model === 'sonnet', 'editing the description leaves model, tools and permission mode as they were', bot.description);
 
   await page.goto(`${base}/teams`);
   await main.getByRole('button', { name: 'New team' }).click();
@@ -3131,28 +3157,28 @@ async function teammates() {
   await newTeam.getByRole('button', { name: 'Create team' }).click();
   await page.waitForURL((url) => url.searchParams.get('team') === teamName);
   await main.getByLabel('Team name').waitFor();
-  await main.getByRole('button', { name: 'Add a Teammate' }).click();
-  const picker = page.getByRole('dialog', { name: 'Add a Teammate' });
+  await main.getByRole('button', { name: 'Add a Bot' }).click();
+  const picker = page.getByRole('dialog', { name: 'Add a Bot' });
   await picker.getByRole('button', { name: new RegExp(`^${mate}`) }).click();
-  const writeSwitch = main.getByRole('switch', { name: `${mate} write` });
-  await writeSwitch.waitFor();
-  let member = (await getJson(`/teams/${teamName}`)).roles.find((r) => r.botId === id);
-  check(member && member.write === false && !member.lead, 'adding a Teammate from the picker puts it in the Team with its default access', JSON.stringify(member && { name: member.name, write: member.write, lead: member.lead }));
+  const roles = main.getByRole('region', { name: 'Roles' });
+  const leadSwitch = roles.getByRole('switch', { name: `${mate} lead` });
+  await leadSwitch.waitFor();
+  const member = (await getJson(`/teams/${teamName}`)).roles.find((r) => r.botId === id);
+  check(member && !member.lead && member.name === mate, 'adding a Bot from the picker puts it in the Team by Bot id', JSON.stringify(member && { botId: member.botId, name: member.name, lead: member.lead }));
+  const editable = await roles.locator('textarea, input:not([role=switch]), [role=combobox]').count();
   check(
-    (await main.getByLabel(`${mate} persona`).count()) === 0 && (await main.getByRole('link', { name: 'Teammates page' }).count()) === 1,
-    "the membership panel leaves the persona to the Teammates page",
+    editable === 0 && (await roles.getByRole('switch', { name: `${mate} write` }).count()) === 0,
+    'the Team editor has no field, select or write switch for a member: only lead and Remove',
+    `${editable} fields`,
   );
-
-  await writeSwitch.click();
-  await main.getByRole('button', { name: 'Save team' }).click();
-  await main.getByText('Saved').waitFor();
-  member = (await getJson(`/teams/${teamName}`)).roles.find((r) => r.botId === id);
-  teammate = await getJson(`/bots/${id}`);
-  check(member?.write === true, "changing write access in the team editor changes the Teammate's membership", `member write ${member?.write}`);
-  check(teammate.write === false, "the Teammate's default access stays unchanged", `teammate write ${teammate.write}`);
   await shot('team-editor-1280x800');
+  await roles.getByRole('button', { name: new RegExp(`^${mate}`) }).click();
+  await page.waitForURL((url) => url.pathname === '/bots' && url.searchParams.get('bot') === String(id));
+  check(true, "a member row opens the Bot's own editor at /bots?bot=ID");
+  const tools = (await after()).tools.join();
+  check(tools === 'Read', "opening the editor from the Team changed nothing on the Bot", tools);
 
-  for (const route of ['/bots', `/teams?team=${teamName}`, `/bots?teammate=${id}`, `/teams?team=${teamName}&role=${mate}`]) {
+  for (const route of ['/bots', `/teams?team=${teamName}`, `/bots?bot=${id}`, `/bots/${id}`]) {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(base + route);
     await main.getByRole('heading', { level: 1 }).or(main.getByRole('region', { name: 'Roles' })).first().waitFor();
@@ -3373,7 +3399,7 @@ async function sidebar() {
   check(true, 'creating from the phone sheet opens the new Space and closes the sheet', urlPath());
 }
 
-async function teammate() {
+async function bot() {
   const noOverflow = () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth);
   const call = async (method, route, body) => {
     const res = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -3393,7 +3419,7 @@ async function teammate() {
   const member = (t, _name, extra) => ({ botId: t.id, ...extra });
   await call('POST', '/teams', { name: teamA, roles: [member(ada, 'lead', { lead: true }), member(sam, 'developer')] });
   await call('POST', '/teams', { name: teamB, roles: [member(sam, 'reviewer', { lead: true })] });
-  await call('PUT', `/teams/${teamA}/members/${sam.id}`, { lead: false, write: true, tools: [], permissionMode: 'acceptEdits' });
+  await call('PUT', `/bots/${sam.id}`, { name: sam.name, description: sam.description, backend: 'claude', model: 'sonnet', face: 'otter', colour: 'violet', write: true, permissionMode: 'acceptEdits' });
 
   const word = `note${suffix}`;
   const scope = `bot:${sam.id}`;
@@ -3407,20 +3433,21 @@ async function teammate() {
   await call('POST', '/spaces', { projectId: project, name: 'older chat', botId: sam.id, kind: 'conversation' });
   await call('POST', '/spaces', { projectId: project, name: 'newer chat', botId: sam.id, kind: 'conversation' });
 
-  await page.goto(`${base}/bots?teammate=${sam.id}`);
+  await page.goto(`${base}/bots?bot=${sam.id}`);
   await main.getByRole('link', { name: 'Open profile' }).click();
   await page.waitForURL(`**/bots/${sam.id}`);
   await main.getByRole('heading', { name: sam.name, level: 1 }).waitFor();
-  check(true, 'Open profile on the Teammates page panel opens /bots/{id}');
+  check(true, 'Open profile on the Bots page panel opens /bots/{id}');
   await main.getByRole('region', { name: 'Teams' }).getByRole('link').first().waitFor();
 
   const teamsCard = main.getByRole('region', { name: 'Teams' });
   const teamRows = (await teamsCard.getByRole('link').allInnerTexts()).map((t) => t.replace(/\s+/g, ' ').trim());
   const rest = (await getJson('/teams')).flatMap((t) => t.roles.filter((r) => r.botId === sam.id).map((r) => ({ team: t.name, role: r.name, write: r.write })));
+  const botWrite = (await getJson(`/bots/${sam.id}`)).write;
   const shown = (r) => teamRows.some((t) => t.startsWith(`${r.team} ${r.role}`) && t.endsWith(r.write ? 'edits code' : 'read-only'));
-  check(rest.length === 2 && rest.every(shown), 'both Teams show with their own role and write access, and REST agrees', `${JSON.stringify(rest)} | ${JSON.stringify(teamRows)}`);
-  check(rest.find((r) => r.team === teamA).write === true && rest.find((r) => r.team === teamB).write === false, 'the two Teams have different write access in REST');
-  check((await main.getByText(`Reviews the ${suffix} release notes.`).count()) === 1, 'the persona shows');
+  check(rest.length === 2 && rest.every(shown), 'both Teams show the Bot by its name with the Bot\'s one write access, and REST agrees', `${JSON.stringify(rest)} | ${JSON.stringify(teamRows)}`);
+  check(botWrite === true && rest.every((r) => r.write === botWrite && r.role === sam.name), 'both Teams show the Bot\'s name and its own write access: a Team keeps none', JSON.stringify(rest));
+  check((await main.getByText(`Reviews the ${suffix} release notes.`).count()) === 1, 'the description shows');
   check((await main.getByText('Sonnet', { exact: true }).or(main.getByText('sonnet', { exact: true })).count()) === 1, 'the model chip shows');
 
   const memoryCard = main.getByRole('region', { name: 'Memory' });
@@ -3430,7 +3457,7 @@ async function teammate() {
   const listed = (await getJson(`/memory?scope=${scope}`)).map((m) => `${m.kind} ${m.body}`).sort();
   check(
     recalled.length === 2 && JSON.stringify(shownMemory) === JSON.stringify(listed) && listed.every((l, i) => l.endsWith(recalled[i])),
-    "the memory list equals recall over the teammate scope (retired and other-scope items left out)",
+    "the memory list equals recall over the Bot scope (retired and other-scope items left out)",
     `page ${JSON.stringify(shownMemory)} | recall ${JSON.stringify(recalled)}`,
   );
   const memoryCount = (await memoryCard.locator('h2 + span').innerText()).trim();
@@ -3449,7 +3476,7 @@ async function teammate() {
   const spaceId = page.url().split('/').pop();
   const row = sql(`select kind, team_id is null from Space where id=${spaceId}`);
   const members = sql(`select bot_id from space_member where space_id=${spaceId}`);
-  check(row === 'conversation|1' && members === String(sam.id), 'Start conversation opens a new conversation with the Teammate and no Team', `${row} members ${members}`);
+  check(row === 'conversation|1' && members === String(sam.id), 'Start conversation opens a new conversation with the Bot and no Team', `${row} members ${members}`);
   check(!(await restOrder()).slice(1).includes(spaceId) && (await restOrder())[0] === spaceId, 'REST lists it first', (await restOrder()).join());
   await page.goto(`${base}/bots/${sam.id}`);
   await convoCard.getByRole('link').nth(2).waitFor();
@@ -3463,11 +3490,11 @@ async function teammate() {
   await shot('phone-390x844');
   await page.goto(`${base}/bots/${loner.id}`);
   await main.getByRole('heading', { name: loner.name, level: 1 }).waitFor();
-  check((await main.getByText('In no Team yet').count()) === 1 && (await main.getByText('No conversations yet').count()) === 1 && (await main.getByText('Nothing remembered yet').count()) === 1, 'a Teammate with no Team, conversation or memory shows three empty states');
+  check((await main.getByText('In no Team yet').count()) === 1 && (await main.getByText('No conversations yet').count()) === 1 && (await main.getByText('Nothing remembered yet').count()) === 1, 'a Bot with no Team, conversation or memory shows three empty states');
   await shot('phone-empty-390x844');
   await page.goto(`${base}/bots/999999`);
-  await main.getByText('No teammate 999999').waitFor();
-  check(true, 'an unknown Teammate shows an error, not a blank page');
+  await main.getByText('No Bot 999999').waitFor();
+  check(true, 'an unknown Bot shows an error, not a blank page');
 }
 
 async function board() {
