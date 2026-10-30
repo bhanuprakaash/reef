@@ -127,11 +127,10 @@ async function addWorkItem(name) {
   return page.url().split('/').pop();
 }
 // Starts a claude Space from the form in `box` and returns its id. The sidebar (`aside`) opens it from the + menu.
-async function newSpace(box, openName, name, mode = 'acceptEdits') {
+async function newSpace(box, openName, name, team) {
   if (box === aside) await plus(openName);
   else await box.getByRole('button', { name: openName }).click();
-  await pick('Backend', 'claude', box);
-  if (mode) await pick('Permission mode', mode, box);
+  if (team) await box.getByRole('button', { name: team, exact: true }).click();
   await box.getByLabel('Name', { exact: true }).fill(name);
   await box.getByRole('button', { name: 'Start' }).click();
   await page.getByRole('heading', { name, level: 1 }).waitFor();
@@ -174,6 +173,19 @@ async function newTeamSpace(team, name, step) {
   return { id: page.url().split('/').pop(), options };
 }
 const getJson = async (route) => (await fetch(base + route)).json();
+const sendJson = async (method, route, body) => {
+  const res = await fetch(base + route, { method, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+  return { status: res.status, body: await res.json().catch(() => null) };
+};
+// A Bot decides whether a Space may write, so a scenario that needs edits makes this one Bot and a Team that leads with it.
+async function writerTeam() {
+  let bot = (await getJson('/bots')).find((b) => b.name === 'writer');
+  if (!bot) {
+    bot = (await sendJson('POST', '/bots', { name: 'writer', description: 'Writes the files the user asks for.', backend: 'claude', write: true, permissionMode: 'acceptEdits', tools: ['Read', 'Grep', 'Glob', 'Edit', 'Write', 'Bash'] })).body;
+  }
+  await sendJson('PUT', '/teams/writers', { name: 'writers', responsibility: 'Edits files.', roles: [{ botId: bot.id, lead: true }] });
+  return 'writers';
+}
 
 async function live() {
   writeFileSync(path.join(projectDir, 'notes.txt'), 'Reef window check: notes file.\n');
@@ -271,7 +283,7 @@ async function brief() {
   });
   check(res.status === 201, 'brief stored over REST', `PUT brief -> ${res.status}`);
   await page.reload();
-  const cid = await newSpace(main, 'New Space', 'brief check', '');
+  const cid = await newSpace(main, 'New Space', 'brief check');
   await send('what is the goal of this work item?');
   await working();
   await idle();
@@ -791,7 +803,7 @@ async function rollback() {
   ensureRepo();
   const section = await addProject();
   const itemId = await addWorkItem('Login');
-  const cid = await newSpace(main, 'New Space', 'rollback chat');
+  const cid = await newSpace(main, 'New Space', 'rollback chat', await writerTeam());
   const tree = path.join(data, 'worktrees', sql(`select project_id from Space where id=${cid}`), itemId);
   const state = () => [git(tree, 'rev-parse', 'HEAD'), git(tree, 'status', '--porcelain'), git(tree, 'log', '--oneline'), git(tree, 'ls-files')].join('\n--\n');
 
@@ -804,12 +816,12 @@ async function rollback() {
   git(tree, 'add', '-A');
   git(tree, '-c', 'user.name=t', '-c', 'user.email=t@t', 'commit', '-qm', 'by the turn');
   const turnId = sql(`select id from turn where space_id=${cid} order by id desc limit 1`);
-  const list = main.getByRole('region', { name: 'Checkpoints' });
-  await list.getByText('2 checkpoints').waitFor({ timeout: 15000 });
+  const rollbackIcon = main.getByRole('button', { name: new RegExp(`^Roll back · Before turn ${turnId} · writer`) });
+  await rollbackIcon.waitFor({ state: 'attached', timeout: 15000 });
   await shot('checkpoints');
   check(
-    git(tree, 'log', '--oneline').includes('by the turn') && (await list.innerText()).includes('2 checkpoints'),
-    'the two turns fold into one checkpoint row and the turn left a commit and new.txt',
+    git(tree, 'log', '--oneline').includes('by the turn') && (await main.getByRole('button', { name: /^Roll back · Before turn/ }).count()) === 2,
+    'each turn has a rollback icon on its reply and the turn left a commit and new.txt',
     `files: ${git(tree, 'ls-files')}; log:\n${git(tree, 'log', '--oneline')}`,
   );
   let asked = '';
@@ -817,9 +829,9 @@ async function rollback() {
     asked = d.message();
     d.accept();
   });
-  await list.getByRole('button', { name: 'Roll back…' }).click();
-  await shot('checkpoint-menu');
-  await page.getByRole('menuitem', { name: new RegExp(`^Before turn ${turnId} · lead`) }).click();
+  await rollbackIcon.locator('xpath=ancestor::li[1]').hover();
+  await shot('checkpoint-hover');
+  await rollbackIcon.click();
   await page.getByText(`Rolled back to before turn ${turnId}.`).waitFor({ timeout: 15000 });
   await shot('rolled-back');
   check(asked.includes(`Roll back to before turn ${turnId}?`), 'Roll back asks to confirm', asked);
@@ -2417,7 +2429,6 @@ async function naming() {
   const startUnnamed = async () => {
     const was = page.url();
     await plus('New Space');
-    await pick('Backend', 'claude', aside);
     await aside.getByRole('button', { name: 'Start' }).click();
     await page.waitForURL((u) => u.href !== was && /\/spaces\/\d+$/.test(u.pathname));
     return page.url().split('/').pop();
@@ -3297,7 +3308,6 @@ async function sidebar() {
   check(urlPath() === `/work-items/${item.split('|')[0]}` && item.endsWith('|backlog'), '+ New Work item stores a Work item and opens it', `${item} at ${urlPath()}`);
 
   await plus('New Space');
-  await pick('Backend', 'claude', aside);
   await aside.getByLabel('Name', { exact: true }).fill('free room');
   await aside.getByRole('button', { name: 'Start' }).click();
   await main.getByRole('heading', { name: 'free room', level: 1 }).waitFor();
