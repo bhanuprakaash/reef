@@ -216,9 +216,9 @@ func TestSpaceTeam(t *testing.T) {
 		wantIn     string
 	}{
 		{"no team is solo", `{"projectId":1,"name":"a"}`, 201,
-			`"role":"lead","paused":"","tokenBudget":1000000,"team":"solo"`},
+			`"role":"lead","botId":1,"paused":"","tokenBudget":1000000,"team":"solo"`},
 		{"team lead leads the space", `{"projectId":1,"name":"b","team":"core"}`, 201,
-			`"role":"core-lead","paused":"","tokenBudget":1000000,"team":"core"`},
+			`"role":"core-lead","botId":2,"paused":"","tokenBudget":1000000,"team":"core"`},
 		{"lead role names the space", `{"projectId":1,"name":"e","team":"crew"}`, 201,
 			`"name":"e","role":"crew-boss"`},
 		{"unknown team", `{"projectId":1,"name":"d","team":"nope"}`, 400,

@@ -46,7 +46,7 @@ const (
 )
 
 const _selectItem = `SELECT id, kind, body, why, scope_kind, scope_id, author, role, status,
-	retired_at, replaced_by, created_at, accepted_at FROM memory`
+	retired_at, replaced_by, created_at, accepted_at, bot_id FROM memory`
 
 var (
 	// ErrNotFound is wrapped when the id matches no item.
@@ -108,6 +108,7 @@ type Item struct {
 	Kind, Body, Why string
 	Scope           Ref
 	Author, Role    string
+	BotID           *int64
 	Status          string
 	RetiredAt       *time.Time
 	ReplacedBy      *int64
@@ -189,10 +190,10 @@ func (s *Store) Remember(ctx context.Context, w Writer, n Note) (Result, error) 
 		acceptedAt = &now
 	}
 	res, err := tx.ExecContext(ctx,
-		`INSERT INTO memory (kind, body, why, scope_kind, scope_id, author, role, status, created_at,
-		 accepted_at, vector) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		n.Kind, n.Body, n.Why, w.Scope.Kind, w.Scope.ID, w.Author, w.Role, status, now, acceptedAt,
-		blob)
+		`INSERT INTO memory (kind, body, why, scope_kind, scope_id, author, role, bot_id, status, created_at,
+		 accepted_at, vector) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		n.Kind, n.Body, n.Why, w.Scope.Kind, w.Scope.ID, w.Author, w.Role, w.BotID, status, now,
+		acceptedAt, blob)
 	if err != nil {
 		return Result{}, fmt.Errorf("insert item: %w", err)
 	}
@@ -643,7 +644,7 @@ func scanItem(rows *sql.Rows) (Item, error) {
 		acceptedAt sql.NullString
 	)
 	if err := rows.Scan(&it.ID, &it.Kind, &it.Body, &it.Why, &it.Scope.Kind, &it.Scope.ID,
-		&it.Author, &it.Role, &it.Status, &retiredAt, &replacedBy, &createdAt, &acceptedAt); err != nil {
+		&it.Author, &it.Role, &it.Status, &retiredAt, &replacedBy, &createdAt, &acceptedAt, &it.BotID); err != nil {
 		return Item{}, fmt.Errorf("scan item: %w", err)
 	}
 	var err error

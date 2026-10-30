@@ -43,15 +43,17 @@ const (
 )
 
 const _spaceCols = "space.id, space.project_id, space.work_item_id, space.name, " +
-	"space.role, space.paused, " +
+	"COALESCE((SELECT bot.name FROM space_member JOIN bot ON bot.id = space_member.bot_id " +
+	"WHERE space_member.space_id = space.id AND space_member.lead = 1), space.role), space.paused, " +
 	"COALESCE((SELECT root.token_budget FROM work_item item JOIN work_item root " +
 	"ON root.id = COALESCE(item.parent_id, item.id) WHERE item.id = space.work_item_id), " +
 	"space.token_budget), space.created_at, space.closed_at, space.active_turn, " +
-	"COALESCE((SELECT name FROM team WHERE id = space.team_id), ''), space.kind, space.moved_to"
+	"COALESCE((SELECT name FROM team WHERE id = space.team_id), ''), space.kind, space.moved_to, " +
+	"(SELECT bot_id FROM space_member WHERE space_id = space.id AND lead = 1)"
 
 // Space with a nil WorkItemID is a free Space or a direct conversation. Team is empty for a
 // Space made from one Bot. Who is in the Space is its space_member list of Bot ids, set when the
-// Space was made.
+// Space was made. BotID is the lead Bot and Role is that Bot's current name.
 type Space struct {
 	ID          int64      `json:"id"`
 	Kind        string     `json:"kind"`
@@ -59,6 +61,7 @@ type Space struct {
 	WorkItemID  *int64     `json:"workItemId"`
 	Name        string     `json:"name"`
 	Role        string     `json:"role"`
+	BotID       *int64     `json:"botId"`
 	Paused      string     `json:"paused"`
 	TokenBudget int64      `json:"tokenBudget"`
 	Team        string     `json:"team"`
@@ -211,8 +214,7 @@ func (s *Store) insertSpace(
 	if err := tx.Commit(); err != nil {
 		return Space{}, fmt.Errorf("commit create Space: %w", err)
 	}
-	c.ID, c.Paused, c.TokenBudget, c.CreatedAt = id, "", TokenBudget, now
-	return c, nil
+	return s.Space(ctx, id)
 }
 
 // spaceWriteErr turns a failed write of a Space row into ErrConflict when the work item
@@ -553,7 +555,7 @@ func scanSpacePreview(r interface{ Scan(...any) error }) (SpacePreview, error) {
 	// exposing it: the Space JSON omits it.
 	if err := r.Scan(&p.ID, &p.ProjectID, &p.WorkItemID, &p.Name, &p.Role,
 		&p.Paused, &p.TokenBudget, &created, &closed, &p.ActiveTurn, &p.Team,
-		&p.Kind, &p.MovedTo,
+		&p.Kind, &p.MovedTo, &p.BotID,
 		&author, &body, &lastCreated); err != nil {
 		return SpacePreview{}, err
 	}
@@ -582,7 +584,7 @@ func scanSpace(r interface{ Scan(...any) error }) (Space, error) {
 	var closed sql.NullString
 	if err := r.Scan(&c.ID, &c.ProjectID, &c.WorkItemID, &c.Name, &c.Role,
 		&c.Paused, &c.TokenBudget, &created, &closed, &c.ActiveTurn, &c.Team,
-		&c.Kind, &c.MovedTo); err != nil {
+		&c.Kind, &c.MovedTo, &c.BotID); err != nil {
 		return Space{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

@@ -62,6 +62,7 @@ type (
 		Scope      string     `json:"scope"`
 		Author     string     `json:"author"`
 		Role       string     `json:"role"`
+		BotID      *int64     `json:"botId"`
 		Status     string     `json:"status"`
 		RetiredAt  *time.Time `json:"retiredAt"`
 		ReplacedBy *int64     `json:"replacedBy"`
@@ -983,7 +984,7 @@ func toItemOut(it memory.Item) itemOut {
 	}
 	return itemOut{
 		ID: it.ID, Kind: it.Kind, Body: it.Body, Why: it.Why, Scope: refString(it.Scope),
-		Author: it.Author, Role: it.Role, Status: it.Status, RetiredAt: it.RetiredAt,
+		Author: it.Author, Role: it.Role, BotID: it.BotID, Status: it.Status, RetiredAt: it.RetiredAt,
 		ReplacedBy: it.ReplacedBy, CreatedAt: it.CreatedAt, Links: links,
 	}
 }

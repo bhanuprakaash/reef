@@ -293,3 +293,45 @@ func TestSpace_NameSteps(t *testing.T) {
 		t.Errorf("ClaimName after an update that kept the name = %v, %v, want true", ok, err)
 	}
 }
+
+func TestSpace_RoleFollowsLeadBotRename(t *testing.T) {
+	ctx := context.Background()
+	s, err := Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	project, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sam, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	c, err := s.CreateBotSpace(ctx, Space{ProjectID: project.ID, Name: "chat", Role: "sam"}, sam.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if c.BotID == nil || *c.BotID != sam.ID || c.Role != "sam" {
+		t.Fatalf("created Space botId = %v, role = %q", c.BotID, c.Role)
+	}
+	sam.Name = "sally"
+	if _, err = s.UpdateBot(ctx, sam); err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude"}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.Space(ctx, c.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Role != "sally" || got.BotID == nil || *got.BotID != sam.ID {
+		t.Fatalf("renamed Space role = %q, botId = %v, want sally, %d", got.Role, got.BotID, sam.ID)
+	}
+	previews, err := s.SpacePreviews(ctx, SpaceFilter{})
+	if err != nil || len(previews) != 1 || previews[0].Role != "sally" || *previews[0].BotID != sam.ID {
+		t.Fatalf("previews = %+v, %v", previews, err)
+	}
+}

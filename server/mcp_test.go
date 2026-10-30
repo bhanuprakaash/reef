@@ -433,7 +433,8 @@ func TestMCPRemember(t *testing.T) {
 	arch := callTool(t, st, architect)
 	item := func(id int, kind, scope, role, status string) string {
 		space := map[string]string{"developer": "2", "architect": "1"}[role]
-		return `{"item":{"author":"` + role + `","body":"item ` + strconv.Itoa(id) + `","createdAt":"T","id":` + strconv.Itoa(id) +
+		botID := map[string]string{"developer": "3", "architect": "2"}[role]
+		return `{"item":{"author":"` + role + `","body":"item ` + strconv.Itoa(id) + `","botId":` + botID + `,"createdAt":"T","id":` + strconv.Itoa(id) +
 			`,"kind":"` + kind + `","links":[{"rel":"source","to":"space:` + space + `"}],"replacedBy":null,"retiredAt":null,"role":"` + role +
 			`","scope":"` + scope + `","status":"` + status + `","why":""}}`
 	}
@@ -555,7 +556,7 @@ func TestMCPRememberReportsLookalikesAndEmbedErrors(t *testing.T) {
 
 	got, isErr := call("remember", map[string]any{"kind": "decision", "body": "use sessions for login."})
 	want := `{"embedError":"provider down","item":{"author":"architect","body":"use sessions for login.",` +
-		`"createdAt":"T","id":2,"kind":"decision","links":[{"rel":"source","to":"space:1"}],` +
+		`"botId":2,"createdAt":"T","id":2,"kind":"decision","links":[{"rel":"source","to":"space:1"}],` +
 		`"replacedBy":null,"retiredAt":null,"role":"architect","scope":"work_item:1","status":"accepted","why":""},` +
 		`"similar":[{"body":"use sessions for login","id":1}]}`
 	if got != want || isErr {
@@ -634,7 +635,7 @@ func TestMCPMemoryScopes(t *testing.T) {
 		})
 	}
 	got, isErr := authCall("read_memory", map[string]any{"id": 3})
-	want := `{"author":"architect","body":"billing runs nightly","createdAt":"T","id":3,"kind":"fact",` +
+	want := `{"author":"architect","body":"billing runs nightly","botId":2,"createdAt":"T","id":3,"kind":"fact",` +
 		`"links":[{"rel":"source","to":"space:3"}],"replacedBy":null,"retiredAt":null,"role":"architect","scope":"project:1",` +
 		`"status":"accepted","why":""}`
 	if got != want || isErr {

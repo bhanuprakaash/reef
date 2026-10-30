@@ -242,7 +242,7 @@ func TestSpaceRoundTrip(t *testing.T) {
 
 	status, body := do(t, http.MethodPost, ts.URL+"/spaces", `{"projectId":1,"name":"scratch","role":"lead"}`)
 	if status != 201 || !strings.HasPrefix(body,
-		`{"id":1,"kind":"free","projectId":1,"workItemId":null,"name":"scratch","role":"lead",`+
+		`{"id":1,"kind":"free","projectId":1,"workItemId":null,"name":"scratch","role":"lead","botId":1,`+
 			`"paused":"","tokenBudget":1000000,"team":"solo","createdAt":"`) {
 		t.Fatalf("quick session = %d %s", status, body)
 	}
