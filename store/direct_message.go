@@ -19,6 +19,8 @@ type DirectMessage struct {
 	ChainID         int64     `json:"chainId"`
 	ReplyToID       *int64    `json:"replyToId"`
 	SourceMessageID *int64    `json:"sourceMessageId"`
+	FromBotID       *int64    `json:"fromBotId,omitempty"`
+	ToBotID         *int64    `json:"toBotId,omitempty"`
 	From            string    `json:"from"`
 	To              string    `json:"to"`
 	Body            string    `json:"body"`
@@ -27,7 +29,7 @@ type DirectMessage struct {
 	CreatedAt       time.Time `json:"createdAt"`
 }
 
-const _directCols = "id, space_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, state, created_at"
+const _directCols = "id, space_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, state, created_at, from_bot_id, to_bot_id"
 
 const (
 	DirectSent   = "sent"
@@ -130,7 +132,7 @@ func (s *Store) CreateDirectMessage(ctx context.Context, m DirectMessage) (Direc
 	if m.From == "" || m.To == "" {
 		return DirectMessage{}, fmt.Errorf("%w: direct message sender and recipient are required", ErrInvalid)
 	}
-	if m.From == m.To {
+	if m.From == m.To || (m.FromBotID != nil && m.ToBotID != nil && *m.FromBotID == *m.ToBotID) {
 		return DirectMessage{}, fmt.Errorf("%w: cannot send a direct message to yourself", ErrInvalid)
 	}
 	if strings.TrimSpace(m.Body) == "" {
@@ -143,8 +145,8 @@ func (s *Store) CreateDirectMessage(ctx context.Context, m DirectMessage) (Direc
 	}
 	defer func() { _ = tx.Rollback() }()
 	res, err := tx.ExecContext(ctx,
-		"INSERT INTO direct_message (space_id, source_message_id, from_role, to_role, body, status, state, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-		m.SpaceID, m.SourceMessageID, m.From, m.To, m.Body, DirectSent, DirectWaiting, now.Format(time.RFC3339Nano))
+		"INSERT INTO direct_message (space_id, source_message_id, from_role, to_role, body, status, state, created_at, from_bot_id, to_bot_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+		m.SpaceID, m.SourceMessageID, m.From, m.To, m.Body, DirectSent, DirectWaiting, now.Format(time.RFC3339Nano), m.FromBotID, m.ToBotID)
 	if err != nil {
 		return DirectMessage{}, s.writeErr(ctx, "insert direct message", err, ErrInvalid,
 			parent{table: "space", id: &m.SpaceID})
@@ -168,14 +170,14 @@ func (s *Store) CreateDirectMessage(ctx context.Context, m DirectMessage) (Direc
 func (s *Store) CreateDirectResponse(
 	ctx context.Context, requestID int64, from, body string,
 ) (DirectMessage, error) {
-	return s.createDirectResponse(ctx, s.db, requestID, from, body, DirectDone)
+	return s.createDirectResponse(ctx, s.db, requestID, from, body, DirectDone, nil)
 }
 
 // CreateFailedDirectResponseTx is the transactional variant used by recovery code.
 func (s *Store) CreateFailedDirectResponseTx(
 	ctx context.Context, tx *sql.Tx, requestID int64, from, body string,
 ) (DirectMessage, error) {
-	return s.createDirectResponse(ctx, tx, requestID, from, body, DirectFailed)
+	return s.createDirectResponse(ctx, tx, requestID, from, body, DirectFailed, nil)
 }
 
 // CreateFailedDirectResponse preserves partial output from a failed direct turn. It is
@@ -183,17 +185,22 @@ func (s *Store) CreateFailedDirectResponseTx(
 func (s *Store) CreateFailedDirectResponse(
 	ctx context.Context, requestID int64, from, body string,
 ) (DirectMessage, error) {
-	return s.createDirectResponse(ctx, s.db, requestID, from, body, DirectFailed)
+	return s.createDirectResponse(ctx, s.db, requestID, from, body, DirectFailed, nil)
+}
+
+func (s *Store) CreateDirectResponseByBot(ctx context.Context, requestID, botID int64, from, body string) (DirectMessage, error) {
+	return s.createDirectResponse(ctx, s.db, requestID, from, body, DirectDone, &botID)
 }
 
 func (s *Store) createDirectResponse(
-	ctx context.Context, db execer, requestID int64, from, body, status string,
+	ctx context.Context, db execer, requestID int64, from, body, status string, botID *int64,
 ) (DirectMessage, error) {
 	request, err := s.DirectMessage(ctx, requestID)
 	if err != nil {
 		return DirectMessage{}, err
 	}
-	if request.ReplyToID != nil || request.To != from {
+	if request.ReplyToID != nil || (botID == nil && request.To != from) ||
+		(botID != nil && (request.ToBotID == nil || *request.ToBotID != *botID)) {
 		return DirectMessage{}, fmt.Errorf("%w: direct message %d cannot be answered by %s",
 			ErrInvalid, requestID, from)
 	}
@@ -203,13 +210,13 @@ func (s *Store) createDirectResponse(
 	now := time.Now().UTC()
 	m := DirectMessage{SpaceID: request.SpaceID, ChainID: request.ChainID,
 		ReplyToID: &request.ID, SourceMessageID: request.SourceMessageID,
-		From: from, To: request.From, Body: body, Status: status, CreatedAt: now}
+		From: from, To: request.From, FromBotID: request.ToBotID, ToBotID: request.FromBotID, Body: body, Status: status, CreatedAt: now}
 	res, err := db.ExecContext(ctx,
 		`INSERT INTO direct_message
-		(space_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, state, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		(space_id, chain_id, reply_to_id, source_message_id, from_role, to_role, body, status, state, created_at, from_bot_id, to_bot_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 		m.SpaceID, m.ChainID, m.ReplyToID, m.SourceMessageID, m.From, m.To, m.Body, m.Status,
-		"", now.Format(time.RFC3339Nano))
+		"", now.Format(time.RFC3339Nano), m.FromBotID, m.ToBotID)
 	if err != nil {
 		if isUnique(err) {
 			return DirectMessage{}, fmt.Errorf("direct message %d already has a response: %w",
@@ -267,6 +274,17 @@ func (s *Store) DirectMessagesForRole(
 	return scanAll(rows, scanDirect)
 }
 
+func (s *Store) DirectMessagesForBot(ctx context.Context, spaceID, botID, after int64) ([]DirectMessage, error) {
+	if err := s.requireSpace(ctx, spaceID); err != nil {
+		return nil, err
+	}
+	rows, err := s.db.QueryContext(ctx, "SELECT "+_directCols+" FROM direct_message WHERE space_id = ? AND id > ? AND (from_bot_id = ? OR to_bot_id = ?) ORDER BY id", spaceID, after, botID, botID)
+	if err != nil {
+		return nil, fmt.Errorf("list direct messages for Bot: %w", err)
+	}
+	return scanAll(rows, scanDirect)
+}
+
 // LastDirectMessageID returns the newest direct message id in a Space, or zero.
 func (s *Store) LastDirectMessageID(ctx context.Context, spaceID int64) (int64, error) {
 	var id int64
@@ -279,7 +297,7 @@ func scanDirect(r interface{ Scan(...any) error }) (DirectMessage, error) {
 	var m DirectMessage
 	var created string
 	if err := r.Scan(&m.ID, &m.SpaceID, &m.ChainID, &m.ReplyToID, &m.SourceMessageID,
-		&m.From, &m.To, &m.Body, &m.Status, &m.State, &created); err != nil {
+		&m.From, &m.To, &m.Body, &m.Status, &m.State, &created, &m.FromBotID, &m.ToBotID); err != nil {
 		return DirectMessage{}, err
 	}
 	t, err := time.Parse(time.RFC3339Nano, created)

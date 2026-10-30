@@ -17,11 +17,12 @@ type Token struct {
 	Token     string    `json:"token"`
 	SpaceID   int64     `json:"spaceId"`
 	Role      string    `json:"role"`
+	BotID     *int64    `json:"botId,omitempty"`
 	CreatedAt time.Time `json:"createdAt"`
 }
 
 // CreateToken adds a token. It never expires; it goes when its Space is deleted.
-func (s *Store) CreateToken(ctx context.Context, spaceID int64, role string) (Token, error) {
+func (s *Store) CreateToken(ctx context.Context, spaceID int64, role string, botID ...*int64) (Token, error) {
 	if role == "" {
 		return Token{}, fmt.Errorf("%w: token role is required", ErrInvalid)
 	}
@@ -33,9 +34,12 @@ func (s *Store) CreateToken(ctx context.Context, spaceID int64, role string) (To
 		Token: hex.EncodeToString(raw), SpaceID: spaceID, Role: role,
 		CreatedAt: time.Now().UTC(),
 	}
+	if len(botID) > 0 {
+		t.BotID = botID[0]
+	}
 	_, err := s.db.ExecContext(ctx,
-		"INSERT INTO token (token, space_id, role, created_at) VALUES (?, ?, ?, ?)",
-		t.Token, t.SpaceID, t.Role, t.CreatedAt.Format(time.RFC3339Nano))
+		"INSERT INTO token (token, space_id, role, bot_id, created_at) VALUES (?, ?, ?, ?, ?)",
+		t.Token, t.SpaceID, t.Role, t.BotID, t.CreatedAt.Format(time.RFC3339Nano))
 	if err != nil {
 		return Token{}, s.writeErr(ctx, "insert token", err, ErrNotFound,
 			parent{table: "space", id: &spaceID})
@@ -48,8 +52,8 @@ func (s *Store) Token(ctx context.Context, value string) (Token, error) {
 	t := Token{Token: value}
 	var created string
 	err := s.db.QueryRowContext(ctx,
-		"SELECT space_id, role, created_at FROM token WHERE token = ?", value).
-		Scan(&t.SpaceID, &t.Role, &created)
+		"SELECT space_id, role, bot_id, created_at FROM token WHERE token = ?", value).
+		Scan(&t.SpaceID, &t.Role, &t.BotID, &created)
 	if errors.Is(err, sql.ErrNoRows) {
 		return Token{}, fmt.Errorf("token: %w", ErrNotFound)
 	}

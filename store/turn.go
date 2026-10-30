@@ -34,7 +34,7 @@ const (
 		"input_tokens, output_tokens, cache_read_tokens, cache_write_tokens, started_at, ended_at, " +
 		"wake_text, wake_parent, retried, checkpoint, sent, model, cost_usd, prompt, direct_message_id, reply, " +
 		"session_cost_usd, session_input_tokens, session_output_tokens, session_cache_read_tokens, " +
-		"session_cache_write_tokens, scopes, compacted, wake_message_id"
+		"session_cache_write_tokens, scopes, compacted, wake_message_id, bot_id"
 )
 
 // Turn is one agent run in a Space. It starts running and ends once, as
@@ -46,6 +46,7 @@ type Turn struct {
 	ID         int64       `json:"id"`
 	SpaceID    int64       `json:"spaceId"`
 	Role       string      `json:"role"`
+	BotID      *int64      `json:"botId,omitempty"`
 	Backend    string      `json:"backend"`
 	SessionID  string      `json:"sessionId"`
 	Status     string      `json:"status"`
@@ -94,6 +95,7 @@ type Turn struct {
 // keeps the turns Retryable reports true for.
 type TurnFilter struct {
 	SpaceID   *int64
+	BotID     *int64
 	Status    string
 	Retryable bool
 }
@@ -109,10 +111,10 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 	now := time.Now().UTC()
 	res, err := s.db.ExecContext(ctx,
 		"INSERT INTO turn (space_id, role, backend, session_id, status, started_at, "+
-			"wake_text, wake_parent, direct_message_id, scopes, wake_message_id) "+
-			"VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?)",
+			"wake_text, wake_parent, direct_message_id, scopes, wake_message_id, bot_id) "+
+			"VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), ?, ?, ?, ?, ?)",
 		t.SpaceID, t.Role, t.Backend, t.SessionID, _turnRunning, now.Format(time.RFC3339Nano),
-		t.WakeText, t.WakeParent, t.DirectMessageID, t.Scopes, t.WakeMessageID)
+		t.WakeText, t.WakeParent, t.DirectMessageID, t.Scopes, t.WakeMessageID, t.BotID)
 	if err != nil {
 		return Turn{}, s.writeErr(ctx, "insert turn", err, ErrInvalid,
 			parent{table: "space", id: &t.SpaceID}, parent{table: "message", id: t.WakeParent},
@@ -129,7 +131,7 @@ func (s *Store) CreateTurn(ctx context.Context, t Turn) (Turn, error) {
 		}
 	}
 	return Turn{
-		ID: id, SpaceID: t.SpaceID, Role: t.Role, Backend: t.Backend,
+		ID: id, SpaceID: t.SpaceID, Role: t.Role, BotID: t.BotID, Backend: t.Backend,
 		SessionID: t.SessionID, Status: _turnRunning, StartedAt: now,
 		WakeText: t.WakeText, WakeParent: t.WakeParent, DirectMessageID: t.DirectMessageID,
 		WakeMessageID: t.WakeMessageID, Scopes: t.Scopes,
@@ -154,6 +156,9 @@ func (s *Store) Turns(ctx context.Context, f TurnFilter) ([]Turn, error) {
 	q, args := "SELECT "+_turnCols+" FROM turn t WHERE 1 = 1", []any{}
 	if f.SpaceID != nil {
 		q, args = q+" AND space_id = ?", append(args, *f.SpaceID)
+	}
+	if f.BotID != nil {
+		q, args = q+" AND bot_id = ?", append(args, *f.BotID)
 	}
 	if f.Status != "" {
 		q, args = q+" AND status = ?", append(args, f.Status)
@@ -586,7 +591,7 @@ func scanTurn(r interface{ Scan(...any) error }) (Turn, error) {
 		&t.Usage.CacheWriteTokens, &started, &ended, &wake, &t.WakeParent, &t.Retried,
 		&checkpoint, &t.Sent, &t.Model, &t.CostUSD, &t.Prompt, &t.DirectMessageID, &t.Reply,
 		&t.SessionCostUSD, &session.input, &session.output, &session.cacheRead, &session.cacheWrite,
-		&t.Scopes, &t.Compacted, &t.WakeMessageID); err != nil {
+		&t.Scopes, &t.Compacted, &t.WakeMessageID, &t.BotID); err != nil {
 		return Turn{}, err
 	}
 	if session.input != nil {
