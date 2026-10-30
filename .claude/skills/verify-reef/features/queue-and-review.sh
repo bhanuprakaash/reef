@@ -123,7 +123,7 @@ check queue-submit-proof "$proof_ok" "proof of item 1: $STATUS $proof_body; wrap
 api_call PATCH /work-items/3 '{"status":"queued"}'
 queued_before=$(item 3)
 "$H" serve-stop
-"$H" sql --write "insert into token (token, space_id, role, created_at) values ('lead-2', 2, 'lead', '2026-10-27T00:00:00Z')" >/dev/null
+"$H" sql --write "insert into token (token, space_id, role, created_at, bot_id) values ('lead-2', 2, 'lead', '2026-10-27T00:00:00Z', 1)" >/dev/null
 submit_out=$(REEF_TOKEN=lead-2 "$H" mcp-call submit_for_review '{"commands":[{"command":"true","output":""}]}')
 before=$(item 3)
 start_server

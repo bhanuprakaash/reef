@@ -77,8 +77,8 @@ EOF
 section_flow() {
 ### Two work items queued on a Team (data folder flow)
 
-"$H" reef --data-name flow -- team apply "$E/crew.json" >/dev/null
 start_server flow
+"$H" team-apply "$E/crew.json" >/dev/null
 api_call GET /teams/crew
 crew=$(echo "$BODY" | grep -o '"id":[0-9]*' | head -1 | cut -d: -f2)
 api_call POST /projects '{"name":"shop","path":"'"$S"'/cwd"}'
@@ -190,7 +190,7 @@ start_server conv
 api_call POST /projects '{"name":"talk","path":"'"$S"'/cwd"}'
 api_call POST /bots '{"name":"sam","backend":"claude","write":false}'
 api_call POST /bots '{"name":"kit","backend":"claude","write":false,"description":"You are kit. Unless a message asks you for a tool call, call no tool, answer in one short sentence and start no line with @."}'
-"$H" reef --data-name conv -- team apply "$E/crew.json" >/dev/null
+"$H" team-apply "$E/crew.json" >/dev/null
 api_call POST /spaces '{"projectId":1,"name":"plan","botId":2,"kind":"conversation"}'
 api_call POST /spaces/1/send '{"text":"Ada wants a login page with an email field and a Google button. Use no tools. Acknowledge in one short sentence."}'
 wait_sql "select count(*) from turn where space_id = 1 and status = 'done'" 1
@@ -211,9 +211,9 @@ echo "$BODY" | grep -q '"movedTo":2' || add_ok=0
 api_call POST /spaces/1/send '{"text":"more"}'
 [ "$STATUS" = 409 ] || add_ok=0
 [ "$(sql1 "select kind || '|' || (team_id is null) from space where id = 2")" = "free|1" ] || add_ok=0
-[ "$("$H" sql "select name || '|' || lead || '|' || write from space_member where space_id = 2 order by id" | tail -n +2 | tr '\n' ' ')" = "sam|1|0 kit|0|0 " ] || add_ok=0
+[ "$("$H" sql "select bot.name || '|' || lead || '|' || write from space_member member join bot on bot.id = bot_id where space_id = 2 order by member.id" | tail -n +2 | tr '\n' ' ')" = "sam|1|0 kit|0|0 " ] || add_ok=0
 [ "$(replays kit-takeover)" = 1 ] || add_ok=0
-check flow-add-bot "$add_ok" "POST members: $add_status; Space 1 moved to Space 2 ($(sql1 "select kind from space where id = 2"), members: $("$H" sql "select name from space_member where space_id = 2 order by id" | tail -n +2 | tr '\n' ' ')); send to Space 1: $STATUS; kit-takeover replays: $(replays kit-takeover)"
+check flow-add-bot "$add_ok" "POST members: $add_status; Space 1 moved to Space 2 ($(sql1 "select kind from space where id = 2"), members: $("$H" sql "select bot.name from space_member member join bot on bot.id = bot_id where space_id = 2 order by member.id" | tail -n +2 | tr '\n' ' ')); send to Space 1: $STATUS; kit-takeover replays: $(replays kit-takeover)"
 
 api_call POST /spaces/2/send '{"text":"@kit PROPOSE THE SLOW SEARCH: call propose_work_item once with type bug, title \"Search results load slowly\", description \"The search page takes ten seconds to show results.\" and the one acceptance line \"Results show within two seconds\", then answer Proposed."}'
 wait_sql "select count(*) from work_item" 1
@@ -235,8 +235,8 @@ check flow-propose "$propose_ok" "item 1: $(echo "$BODY" | cut -c1-300); crew te
 section_caps() {
 ### Hop cap with the team pong (data folder caps)
 
-"$H" reef --data-name caps -- team apply "$E/pong.json" >/dev/null
 start_server caps
+"$H" team-apply "$E/pong.json" >/dev/null
 api_call POST /projects '{"name":"hop","path":"'"$S"'/cwd"}'
 api_call POST /work-items '{"projectId":1,"title":"workpong"}'
 api_call POST /work-items '{"projectId":1,"title":"talkpong"}'
@@ -310,7 +310,7 @@ if [ "$sections" != "$all_sections" ]; then
 		echo "$lines" | grep -q '^FAIL' && failed=1
 	done
 else
-	for id in $(sed -n '/^## Sub-features/,/^## /s/^- `\(flow-[a-z-]*\|hop-[a-z-]*\)`.*/\1/p' "$here/queue-and-review.md" "$here/work-items.md" "$here/conversations.md" "$here/caps.md"); do
+	for id in $(sed -nE '/^## Sub-features/,/^## /s/^- `(flow-[a-z-]*|hop-[a-z-]*)`.*/\1/p' "$here/queue-and-review.md" "$here/work-items.md" "$here/conversations.md" "$here/caps.md"); do
 		line=$(grep -h "^\(PASS\|FAIL\) $id:" "$E"/*/work-item-flow.log 2>/dev/null | head -1)
 		if [ -n "$line" ]; then
 			echo "$line"
