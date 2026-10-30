@@ -7,8 +7,6 @@ type NewSpace = {
   workItemId?: number | null;
   name: string;
   team?: string;
-  backend?: string;
-  permissionMode?: string;
   botId?: number;
   kind?: Space['kind'];
 };

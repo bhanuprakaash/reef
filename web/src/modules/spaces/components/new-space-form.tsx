@@ -2,10 +2,8 @@ import { useId, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useCreateSpace } from '@/modules/spaces/api/create-space';
 import { useTeams } from '@/lib/api/get-teams';
-import { BACKENDS, PERMISSION_MODES } from '@/modules/spaces/utils/backends';
 import { Button } from '@/components/button';
 import { GroupAvatar } from '@/components/creature';
-import { Select } from '@/components/select';
 import { TextField } from '@/components/text-field';
 
 const labelClass = 'mb-1.5 block text-[12.5px] text-muted';
@@ -18,8 +16,6 @@ type Props = {
 };
 
 export function NewSpaceForm({ projectId, workItemId, itemTeam, onClose }: Props) {
-  const [backend, setBackend] = useState('');
-  const [permissionMode, setPermissionMode] = useState('');
   const [team, setTeam] = useState(itemTeam ?? 'solo');
   const [name, setName] = useState('');
   const create = useCreateSpace();
@@ -40,10 +36,8 @@ export function NewSpaceForm({ projectId, workItemId, itemTeam, onClose }: Props
           {
             projectId,
             workItemId,
-            name: name.trim() || `${backend || team} ${time}`,
+            name: name.trim() || `${team} ${time}`,
             team,
-            backend,
-            permissionMode,
           },
           {
             onSuccess: (space) => {
@@ -65,38 +59,6 @@ export function NewSpaceForm({ projectId, workItemId, itemTeam, onClose }: Props
           value={name}
           onChange={(e) => setName(e.target.value)}
         />
-      </div>
-      <div className="grid grid-cols-2 gap-2">
-        <div>
-          <div className={labelClass}>Backend</div>
-          <Select
-            className="w-full"
-            aria-label="Backend"
-            value={backend}
-            onChange={(v) => {
-              setBackend(v);
-              setPermissionMode('');
-            }}
-            options={[
-              { value: '', label: 'Team default' },
-              ...BACKENDS.map((b) => ({ value: b, label: b })),
-            ]}
-          />
-        </div>
-        <div>
-          <div className={labelClass}>Permission</div>
-          <Select
-            className="w-full"
-            aria-label="Permission mode"
-            disabled={!backend}
-            value={permissionMode}
-            onChange={setPermissionMode}
-            options={[
-              { value: '', label: 'Backend default' },
-              ...(PERMISSION_MODES[backend] ?? []).map((m) => ({ value: m, label: m })),
-            ]}
-          />
-        </div>
       </div>
       <div>
         <div className={labelClass}>Team</div>
