@@ -20,7 +20,7 @@ func spaceMemberStore(t *testing.T) *Store {
 	if _, err := s.CreateProject(ctx, Project{Name: "shop", Path: "/tmp/shop"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ApplyTeam(ctx, Team{Name: "core", Roles: []Role{
+	if _, err := testApplyTeam(t, s, ctx, Team{Name: "core", Roles: []Role{
 		{Name: "boss", Lead: true, Backend: "claude"},
 		{Name: "dev", Backend: "claude", Write: true, Tools: []string{"Read"}},
 	}}); err != nil {

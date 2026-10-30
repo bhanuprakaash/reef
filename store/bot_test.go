@@ -15,7 +15,7 @@ func TestBot_MembershipUsesProfileRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if _, err := s.ApplyTeam(ctx, Team{Name: "core",
+	if _, err := testApplyTeam(t, s, ctx, Team{Name: "core",
 		Roles: []Role{{Name: "boss", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -56,7 +56,7 @@ func TestBot_Refusals(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-	if _, err := s.ApplyTeam(ctx, Team{Name: "core",
+	if _, err := testApplyTeam(t, s, ctx, Team{Name: "core",
 		Roles: []Role{{Name: "boss", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -126,4 +126,53 @@ func TestBot_Refusals(t *testing.T) {
 	if err := s.DeleteBot(ctx, sam.ID); err != nil {
 		t.Errorf("DeleteBot after leaving the team = %v, want nil", err)
 	}
+}
+
+// testApplyTeam creates a Bot for each role without a BotID, named after the role, then
+// applies the team of them. testCreateTeam does the same and creates the team.
+func testApplyTeam(t *testing.T, s *Store, ctx context.Context, team Team) (Team, error) {
+	t.Helper()
+	spec, err := testTeamSpec(t, s, ctx, team)
+	if err != nil {
+		return Team{}, err
+	}
+	return s.ApplyTeam(ctx, spec)
+}
+
+func testCreateTeam(t *testing.T, s *Store, ctx context.Context, team Team) (Team, error) {
+	t.Helper()
+	spec, err := testTeamSpec(t, s, ctx, team)
+	if err != nil {
+		return Team{}, err
+	}
+	return s.CreateTeam(ctx, spec)
+}
+
+func testTeamSpec(t *testing.T, s *Store, ctx context.Context, team Team) (TeamSpec, error) {
+	t.Helper()
+	spec := TeamSpec{Name: team.Name, Responsibility: team.Responsibility}
+	for _, r := range team.Roles {
+		if r.BotID == 0 {
+			b, err := s.CreateBot(ctx, Bot{Name: r.Name, Description: r.Description, Skills: r.Skills,
+				Backend: r.Backend, Model: r.Model, Provider: r.Provider, Face: r.Face, Colour: r.Colour,
+				Tools: r.Tools, MCPServers: r.MCPServers, Write: r.Write, PermissionMode: r.PermissionMode})
+			if errors.Is(err, ErrConflict) {
+				bots, lerr := s.Bots(ctx)
+				if lerr != nil {
+					return TeamSpec{}, lerr
+				}
+				for _, existing := range bots {
+					if existing.Name == r.Name {
+						b, err = existing, nil
+					}
+				}
+			}
+			if err != nil {
+				return TeamSpec{}, err
+			}
+			r.BotID = b.ID
+		}
+		spec.Roles = append(spec.Roles, Member{BotID: r.BotID, Lead: r.Lead})
+	}
+	return spec, nil
 }

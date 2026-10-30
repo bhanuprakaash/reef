@@ -1,7 +1,6 @@
 package store
 
 import (
-	"cmp"
 	"context"
 	"database/sql"
 	"encoding/json"
@@ -27,6 +26,20 @@ type Team struct {
 	Roles          []Role `json:"roles"`
 }
 
+// Member places an existing Bot in a Team, and Lead marks the coordinator.
+type Member struct {
+	BotID int64 `json:"botId"`
+	Lead  bool  `json:"lead"`
+}
+
+// TeamSpec is the Team to create or replace: a name, a responsibility and the Bots in it. A
+// Team holds no configuration of its own; each Bot keeps its one profile.
+type TeamSpec struct {
+	Name           string   `json:"name"`
+	Responsibility string   `json:"responsibility"`
+	Roles          []Member `json:"roles"`
+}
+
 func faces() []string {
 	return []string{
 		"jellyfish", "whale", "penguin", "shark", "octopus", "turtle", "seahorse", "otter",
@@ -38,7 +51,8 @@ func colours() []string {
 	return []string{"orange", "red", "yellow", "green", "teal", "blue", "violet", "pink"}
 }
 
-// Role is one bot's setup. Face picks the creature the window draws for the role and Colour
+// Role is a Bot as it sits in a Team or Space: its profile, read from the Bot, and Lead from its
+// membership. Face picks the creature the window draws for the role and Colour
 // its body colour; empty Colour is the creature's own. Model names the model the backend runs the role on; empty is
 // the backend's default. Provider names an added install (see Provider) whose binary the role
 // runs; empty is the claude or codex found on PATH. Tools are the backend's allowed tools. Write says whether the
@@ -67,32 +81,22 @@ func UnrestrictedBash(tool string) bool {
 	return slices.Contains([]string{"Bash", "Bash(*)", "Bash(:*)"}, strings.TrimSpace(tool))
 }
 
-// ApplyTeam creates team t, or replaces the roles of the team with that name.
-func (s *Store) ApplyTeam(ctx context.Context, t Team) (Team, error) {
+// ApplyTeam creates team t, or replaces the members of the team with that name. Every member
+// names an existing Bot.
+func (s *Store) ApplyTeam(ctx context.Context, t TeamSpec) (Team, error) {
 	return s.applyTeam(ctx, t, false)
 }
 
 // CreateTeam creates team t, failing with ErrConflict when a team with that name already
 // exists. The check and the insert are one statement, so two concurrent calls for the same
 // name cannot both succeed.
-func (s *Store) CreateTeam(ctx context.Context, t Team) (Team, error) {
+func (s *Store) CreateTeam(ctx context.Context, t TeamSpec) (Team, error) {
 	return s.applyTeam(ctx, t, true)
 }
 
-func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, error) {
+func (s *Store) applyTeam(ctx context.Context, t TeamSpec, createOnly bool) (Team, error) {
 	if err := t.validate(); err != nil {
 		return Team{}, err
-	}
-	t.Roles = slices.Clone(t.Roles)
-	for i, r := range t.Roles {
-		names, err := cleanSkills(r)
-		if err != nil {
-			return Team{}, err
-		}
-		t.Roles[i].Skills = names
-		if _, err := s.RoleBin(ctx, r); err != nil {
-			return Team{}, err
-		}
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err != nil {
@@ -118,77 +122,36 @@ func (s *Store) applyTeam(ctx context.Context, t Team, createOnly bool) (Team, e
 		Scan(&id); err != nil {
 		return Team{}, fmt.Errorf("read team: %w", err)
 	}
-	behind, err := roleBots(ctx, tx, id)
-	if err != nil {
-		return Team{}, err
-	}
 	if _, err := tx.ExecContext(ctx, "DELETE FROM team_member WHERE team_id = ?", id); err != nil {
 		return Team{}, fmt.Errorf("delete members: %w", err)
 	}
-	for _, r := range t.Roles {
-		skills, tools, servers, err := encodeLists(r.Skills, r.Tools, r.MCPServers)
+	for _, m := range t.Roles {
+		res, err := tx.ExecContext(ctx,
+			"INSERT INTO team_member (team_id, bot_id, lead) SELECT ?, id, ? FROM bot WHERE id = ?",
+			id, m.Lead, m.BotID)
 		if err != nil {
-			return Team{}, err
+			return Team{}, fmt.Errorf("insert member %d: %w", m.BotID, err)
 		}
-		if r.BotID != 0 {
-			query := "INSERT INTO team_member (team_id, bot_id, name, lead, tools, mcp_servers, " +
-				"write, permission_mode) SELECT ?, id, ?, ?, ?, ?, ?, ? FROM bot WHERE id = ?"
-			args := []any{id, r.Name, r.Lead, tools, servers, r.Write, r.PermissionMode, r.BotID}
-			if createOnly {
-				query = "INSERT INTO team_member (team_id, bot_id, name, lead, tools, " +
-					"mcp_servers, write, permission_mode) SELECT ?, id, ?, ?, tools, mcp_servers, " +
-					"write, permission_mode FROM bot WHERE id = ?"
-				args = []any{id, r.Name, r.Lead, r.BotID}
-			}
-			res, err := tx.ExecContext(ctx, query, args...)
-			if err != nil {
-				return Team{}, fmt.Errorf("insert member %s: %w", r.Name, err)
-			}
-			if n, err := res.RowsAffected(); err == nil && n == 0 {
-				return Team{}, fmt.Errorf("%w: unknown bot %d", ErrInvalid, r.BotID)
-			}
-			continue
+		if n, err := res.RowsAffected(); err == nil && n == 0 {
+			return Team{}, fmt.Errorf("%w: unknown bot %d", ErrInvalid, m.BotID)
 		}
-		tm := cmp.Or(behind[r.Name], t.Name+"-"+r.Name)
-		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO bot (name, description, skills, backend, model, provider, face, colour, "+
-				"tools, mcp_servers, write, permission_mode) "+
-				"VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (name) DO NOTHING",
-			tm, r.Description, skills, r.Backend, r.Model, r.Provider, r.Face, r.Colour, tools,
-			servers, r.Write, r.PermissionMode); err != nil {
-			return Team{}, fmt.Errorf("insert bot %s: %w", tm, err)
+	}
+	if t.Name == SoloTeam {
+		var leads int
+		if err := tx.QueryRowContext(ctx,
+			"SELECT COUNT(*) FROM team_member JOIN bot ON bot.id = bot_id "+
+				"WHERE team_id = ? AND lead = 1 AND bot.name = 'lead'", id).Scan(&leads); err != nil {
+			return Team{}, fmt.Errorf("read lead: %w", err)
 		}
-		if _, err := tx.ExecContext(ctx,
-			"INSERT INTO team_member (team_id, bot_id, name, lead, tools, mcp_servers, write, "+
-				"permission_mode) SELECT ?, id, ?, ?, ?, ?, ?, ? FROM bot WHERE name = ?",
-			id, r.Name, r.Lead, tools, servers, r.Write, r.PermissionMode, tm); err != nil {
-			return Team{}, fmt.Errorf("insert member %s: %w", r.Name, err)
+		if leads != 1 || len(t.Roles) != 1 {
+			return Team{}, fmt.Errorf("%w: team %s must have exactly one lead, the bot named lead",
+				ErrInvalid, SoloTeam)
 		}
 	}
 	if err := tx.Commit(); err != nil {
 		return Team{}, fmt.Errorf("commit apply team: %w", err)
 	}
 	return s.Team(ctx, t.Name)
-}
-
-// roleBots maps each role name of the team to the name of the Bot behind it.
-func roleBots(ctx context.Context, tx *sql.Tx, teamID int64) (map[string]string, error) {
-	rows, err := tx.QueryContext(ctx,
-		"SELECT member.name, bot.name FROM team_member member "+
-			"JOIN bot ON bot.id = member.bot_id WHERE member.team_id = ?", teamID)
-	if err != nil {
-		return nil, fmt.Errorf("read members: %w", err)
-	}
-	defer func() { _ = rows.Close() }()
-	behind := make(map[string]string)
-	for rows.Next() {
-		var role, bot string
-		if err := rows.Scan(&role, &bot); err != nil {
-			return nil, fmt.Errorf("read members: %w", err)
-		}
-		behind[role] = bot
-	}
-	return behind, rows.Err()
 }
 
 // Team returns the team with the name, lead first, or ErrNotFound.
@@ -346,33 +309,28 @@ func (s *Store) DeleteTeam(ctx context.Context, name string) error {
 	return nil
 }
 
-func (t Team) validate() error {
+func (t TeamSpec) validate() error {
 	if t.Name == "" {
 		return fmt.Errorf("%w: team name is required", ErrInvalid)
 	}
 	if !_roleName.MatchString(t.Name) {
 		return fmt.Errorf("%w: team name %q must be letters, digits, _ or -", ErrInvalid, t.Name)
 	}
-	if t.Name == SoloTeam && (len(t.Roles) != 1 || t.Roles[0].Name != "lead" || !t.Roles[0].Lead) {
-		return fmt.Errorf("%w: team %s must have exactly one lead role named lead",
-			ErrInvalid, SoloTeam)
-	}
-	leads, seen := 0, make(map[string]bool, len(t.Roles))
-	for _, r := range t.Roles {
-		if err := validateRole(r); err != nil {
-			return err
+	leads, seen := 0, make(map[int64]bool, len(t.Roles))
+	for _, m := range t.Roles {
+		if m.BotID == 0 {
+			return fmt.Errorf("%w: every member needs a botId", ErrInvalid)
 		}
-		if seen[r.Name] {
-			return fmt.Errorf("%w: role %s appears twice", ErrInvalid, r.Name)
+		if seen[m.BotID] {
+			return fmt.Errorf("%w: bot %d appears twice", ErrInvalid, m.BotID)
 		}
-		seen[r.Name] = true
-		if r.Lead {
+		seen[m.BotID] = true
+		if m.Lead {
 			leads++
 		}
 	}
 	if leads != 1 {
-		return fmt.Errorf("%w: team %s needs exactly one lead role, has %d",
-			ErrInvalid, t.Name, leads)
+		return fmt.Errorf("%w: team %s needs exactly one lead role, has %d", ErrInvalid, t.Name, leads)
 	}
 	return nil
 }

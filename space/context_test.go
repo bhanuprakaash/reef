@@ -53,7 +53,11 @@ func testApplyTeam(t *testing.T, st *store.Store, ctx context.Context, team stor
 		}
 		team.Roles[i].BotID = *id
 	}
-	return st.ApplyTeam(ctx, team)
+	spec := store.TeamSpec{Name: team.Name, Responsibility: team.Responsibility}
+	for _, role := range team.Roles {
+		spec.Roles = append(spec.Roles, store.Member{BotID: role.BotID, Lead: role.Lead})
+	}
+	return st.ApplyTeam(ctx, spec)
 }
 
 func openStore(t *testing.T) (*store.Store, store.WorkItem) {

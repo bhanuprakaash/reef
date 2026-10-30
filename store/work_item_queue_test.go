@@ -35,7 +35,7 @@ func TestTeamQueue(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ApplyTeam(ctx, Team{Name: "core", Roles: []Role{
+	if _, err := testApplyTeam(t, s, ctx, Team{Name: "core", Roles: []Role{
 		{Name: "lead", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestMoveInQueue(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ApplyTeam(ctx, Team{Name: "core", Roles: []Role{
+	if _, err := testApplyTeam(t, s, ctx, Team{Name: "core", Roles: []Role{
 		{Name: "lead", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +142,7 @@ func TestDeleteAndUpdateKeepTheQueueRight(t *testing.T) {
 	if _, err := s.CreateProject(ctx, Project{Name: "reef", Path: "/tmp/reef"}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.ApplyTeam(ctx, Team{Name: "core", Roles: []Role{
+	if _, err := testApplyTeam(t, s, ctx, Team{Name: "core", Roles: []Role{
 		{Name: "lead", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}

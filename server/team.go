@@ -44,16 +44,6 @@ type mcpView struct {
 	Label string `json:"label"`
 }
 
-type teamRoleBody struct {
-	store.Role
-}
-
-type teamBody struct {
-	Name           string         `json:"name"`
-	Responsibility string         `json:"responsibility"`
-	Roles          []teamRoleBody `json:"roles"`
-}
-
 func (s *server) teamRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /teams", s.listTeams)
 	mux.HandleFunc("POST /teams", s.createTeam)
@@ -70,25 +60,13 @@ func (s *server) teamRoutes(mux *http.ServeMux) {
 }
 
 func (s *server) createTeam(w http.ResponseWriter, r *http.Request) {
-	var body teamBody
-	if err := readJSON(r, &body); err != nil {
+	var t store.TeamSpec
+	if err := readJSON(r, &t); err != nil {
 		writeError(w, err)
 		return
 	}
-	t := teamFromBody(body)
-	for _, role := range t.Roles {
-		if role.BotID == 0 {
-			writeError(w, fmt.Errorf("%w: role %s needs a botId", store.ErrInvalid, role.Name))
-			return
-		}
-	}
 	if from := r.URL.Query().Get("from"); from != "" {
-		source, err := s.st.Team(r.Context(), from)
-		if err != nil {
-			writeError(w, err)
-			return
-		}
-		if err := fillMCPServers(t, body, source); err != nil {
+		if _, err := s.st.Team(r.Context(), from); err != nil {
 			writeError(w, err)
 			return
 		}
@@ -134,12 +112,11 @@ func (s *server) getTeam(w http.ResponseWriter, r *http.Request) {
 func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 	name := r.PathValue("name")
 	from := r.URL.Query().Get("from")
-	var body teamBody
-	if err := readJSON(r, &body); err != nil {
+	var t store.TeamSpec
+	if err := readJSON(r, &t); err != nil {
 		writeError(w, err)
 		return
 	}
-	t := teamFromBody(body)
 	if t.Name == "" {
 		t.Name = name
 	} else if t.Name != name {
@@ -147,15 +124,6 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if from == "" {
-		existing, err := s.st.Team(r.Context(), name)
-		if err != nil && !errors.Is(err, store.ErrNotFound) {
-			writeError(w, err)
-			return
-		}
-		if err := fillMCPServers(t, body, existing); err != nil {
-			writeError(w, err)
-			return
-		}
 		applied, err := s.st.ApplyTeam(r.Context(), t)
 		if err != nil {
 			writeError(w, err)
@@ -164,17 +132,12 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, viewTeam(applied))
 		return
 	}
-	source, err := s.st.Team(r.Context(), from)
-	if err != nil {
+	if _, err := s.st.Team(r.Context(), from); err != nil {
 		if errors.Is(err, store.ErrNotFound) {
 			writeError(w, fmt.Errorf("%w: team %q not found", store.ErrNotFound, from))
 		} else {
 			writeError(w, err)
 		}
-		return
-	}
-	if err := fillMCPServers(t, body, source); err != nil {
-		writeError(w, err)
 		return
 	}
 	applied, err := s.st.CreateTeam(r.Context(), t)
@@ -183,24 +146,6 @@ func (s *server) putTeam(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, viewTeam(applied))
-}
-
-// fillMCPServers gives each role of t that omits mcpServers the servers of existing's role of
-// the same name, since the window never sees them.
-func fillMCPServers(t store.Team, body teamBody, existing store.Team) error {
-	for i, role := range t.Roles {
-		if role.MCPServers != nil {
-			continue
-		}
-		for _, er := range existing.Roles {
-			if er.Name != role.Name {
-				continue
-			}
-			t.Roles[i].MCPServers = er.MCPServers
-			break
-		}
-	}
-	return nil
 }
 
 func viewMCP(servers []agent.MCPServer) []mcpView {
@@ -232,13 +177,3 @@ func viewRole(r store.Role) roleView {
 }
 
 func mcpName(i int) string { return "mcp" + strconv.Itoa(i+1) }
-
-func teamFromBody(body teamBody) store.Team {
-	t := store.Team{
-		Name: body.Name, Responsibility: body.Responsibility, Roles: make([]store.Role, len(body.Roles)),
-	}
-	for i, role := range body.Roles {
-		t.Roles[i] = role.Role
-	}
-	return t
-}

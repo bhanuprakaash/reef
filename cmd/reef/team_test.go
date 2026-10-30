@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -19,74 +20,41 @@ func writeTeam(t *testing.T, body string) string {
 	return path
 }
 
+func newBots(t *testing.T, dir string, bots ...store.Bot) []int64 {
+	t.Helper()
+	st, err := store.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = st.Close() }()
+	var ids []int64
+	for _, b := range bots {
+		created, err := st.CreateBot(context.Background(), b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		ids = append(ids, created.ID)
+	}
+	return ids
+}
+
 func TestTeam_ApplyAndList(t *testing.T) {
 	dir := t.TempDir()
-	file := writeTeam(t, `{"name":"core","roles":[
-		{"name":"architect","backend":"codex"},
-		{"name":"lead","lead":true,"backend":"claude","description":"old"}]}`)
+	ids := newBots(t, dir,
+		store.Bot{Name: "architect", Backend: "codex"},
+		store.Bot{Name: "boss", Backend: "claude", Description: "Plans."})
+	file := writeTeam(t, fmt.Sprintf(`{"name":"core","roles":[
+		{"botId":%d},{"botId":%d,"lead":true}]}`, ids[0], ids[1]))
 	if got, want := mustReef(t, dir, "team", "apply", file),
-		"applied team core: core-lead*(claude) core-architect(codex)\n"; got != want {
+		"applied team core: boss*(claude) architect(codex)\n"; got != want {
 		t.Errorf("apply = %q, want %q", got, want)
 	}
 
-	file = writeTeam(t, `{"name":"core","roles":[
-		{"name":"lead","lead":true,"backend":"claude","description":"new"}]}`)
+	file = writeTeam(t, fmt.Sprintf(`{"name":"core","roles":[{"botId":%d,"lead":true}]}`, ids[1]))
 	mustReef(t, dir, "team", "apply", file)
 	if got, want := mustReef(t, dir, "team", "list"),
-		"core  core-lead*(claude)\nsolo  lead*(claude)\n"; got != want {
+		"core  boss*(claude)\nsolo  lead*(claude)\n"; got != want {
 		t.Errorf("list = %q, want %q", got, want)
-	}
-}
-
-func TestTeam_ApplyKeepsFace(t *testing.T) {
-	dir := t.TempDir()
-	mustReef(t, dir, "team", "apply", writeTeam(t, `{"name":"core","roles":[
-		{"name":"lead","lead":true,"backend":"claude","face":"otter"},
-		{"name":"architect","backend":"codex"}]}`))
-
-	st, err := store.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = st.Close() }()
-	teams, err := st.Teams(context.Background())
-	if err != nil {
-		t.Fatal(err)
-	}
-	var faces []string
-	for _, tm := range teams {
-		if tm.Name == "core" {
-			for _, r := range tm.Roles {
-				faces = append(faces, r.Name+"="+r.Face)
-			}
-		}
-	}
-	if got, want := strings.Join(faces, " "), "core-lead=otter core-architect="; got != want {
-		t.Errorf("faces = %q, want %q", got, want)
-	}
-}
-
-func TestTeam_ApplyKeepsModel(t *testing.T) {
-	dir := t.TempDir()
-	mustReef(t, dir, "team", "apply", writeTeam(t, `{"name":"core","roles":[
-		{"name":"lead","lead":true,"backend":"claude","model":"opus"},
-		{"name":"developer","backend":"claude"}]}`))
-
-	st, err := store.Open(dir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = st.Close() }()
-	tm, err := st.Team(context.Background(), "core")
-	if err != nil {
-		t.Fatal(err)
-	}
-	var models []string
-	for _, r := range tm.Roles {
-		models = append(models, r.Name+"="+r.Model)
-	}
-	if got, want := strings.Join(models, " "), "core-lead=opus core-developer="; got != want {
-		t.Errorf("models = %q, want %q", got, want)
 	}
 }
 
@@ -96,44 +64,26 @@ func TestTeam_ApplyErrors(t *testing.T) {
 		give string
 		want string
 	}{
-		{"no lead", `{"name":"a","roles":[{"name":"x","backend":"claude"}]}`,
+		{"no lead", `{"name":"a","roles":[{"botId":1}]}`,
 			"invalid: team a needs exactly one lead role, has 0"},
-		{"bad name", `{"name":"a b","roles":[{"name":"x","lead":true,"backend":"claude"}]}`,
+		{"bad name", `{"name":"a b","roles":[{"botId":1,"lead":true}]}`,
 			`invalid: team name "a b" must be letters, digits, _ or -`},
-		{"two leads", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude"},` +
-			`{"name":"y","lead":true,"backend":"claude"}]}`,
+		{"two leads", `{"name":"a","roles":[{"botId":1,"lead":true},{"botId":2,"lead":true}]}`,
 			"invalid: team a needs exactly one lead role, has 2"},
-		{"bad backend", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"gpt"}]}`,
-			"role x: invalid: backend must be claude or codex"},
-		{"unknown face", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude","face":"dragon"}]}`,
-			`role x: face "dragon" must be one of jellyfish, whale, penguin, shark, octopus, turtle, ` +
-				"seahorse, otter, clownfish, manta-ray, pebble"},
-		{"skills as a string", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude","skills":"x"}]}`,
-			"skills"},
-		{"read-only claude role with Bash", `{"name":"a","roles":[{"name":"x","lead":true,"backend":"claude"},` +
-			`{"name":"tester","backend":"claude","tools":["Bash"]}]}`,
-			"role tester has no write, so it cannot have unrestricted Bash; " +
-				"list command patterns such as Bash(go test:*)"},
+		{"unknown bot", `{"name":"a","roles":[{"botId":99,"lead":true}]}`,
+			"invalid: unknown bot 99"},
+		{"no bot id", `{"name":"a","roles":[{"lead":true}]}`,
+			"invalid: every member needs a botId"},
+		{"member config", `{"name":"a","roles":[{"botId":1,"lead":true,"backend":"claude"}]}`,
+			`unknown field "backend"`},
+		{"role by name", `{"name":"a","roles":[{"name":"x","lead":true}]}`,
+			`unknown field "name"`},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			_, err := reef(t, t.TempDir(), "team", "apply", writeTeam(t, tt.give))
 			if err == nil || !strings.Contains(err.Error(), tt.want) {
 				t.Errorf("err = %v, want %q", err, tt.want)
-			}
-		})
-	}
-}
-
-func TestTeam_ApplyTeamFiles(t *testing.T) {
-	files, err := filepath.Glob(filepath.Join("..", "..", "teams", "*.json"))
-	if err != nil || len(files) == 0 {
-		t.Fatalf("teams/*.json = %v, %v, want files", files, err)
-	}
-	for _, file := range files {
-		t.Run(filepath.Base(file), func(t *testing.T) {
-			if _, err := reef(t, t.TempDir(), "team", "apply", file); err != nil {
-				t.Error(err)
 			}
 		})
 	}

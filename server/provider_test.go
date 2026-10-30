@@ -84,8 +84,8 @@ func TestProviders(t *testing.T) {
 		})
 	}
 
-	lead := store.Role{Name: "lead", Lead: true, Backend: "claude", Provider: "work"}
-	team, err := st.ApplyTeam(context.Background(), store.Team{Name: "t", Roles: []store.Role{lead}})
+	lead := store.Role{Name: "t-lead", Lead: true, Backend: "claude", Provider: "work"}
+	team, err := testServerTeam(t, st, context.Background(), store.Team{Name: "t", Roles: []store.Role{lead}})
 	if err != nil {
 		t.Fatal(err)
 	}

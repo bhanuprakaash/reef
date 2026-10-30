@@ -17,8 +17,8 @@ func TestBotAndMembership(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.ApplyTeam(context.Background(), store.Team{Name: "core",
-		Roles: []store.Role{{Name: "boss", Lead: true, Backend: "claude"}}}); err != nil {
+	if _, err := testServerTeam(t, st, context.Background(), store.Team{Name: "core",
+		Roles: []store.Role{{Name: "core-boss", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}
 	h := New(st, testMemory(t, st), t.TempDir(), "/bin/reef")
@@ -55,7 +55,7 @@ func TestBotAndMembership(t *testing.T) {
 			`{"lead":false,"tools":["Read","Edit"]}`,
 			400, `{"error":"invalid: bad JSON: json: unknown field \"tools\""}`},
 		{"second lead", http.MethodPut, "/teams/core/members/3", `{"lead":true}`,
-			400, `{"error":"invalid: the team already has a lead, boss"}`},
+			400, `{"error":"invalid: the team already has a lead, core-boss"}`},
 		{"delete while in a team", http.MethodDelete, "/bots/3", "",
 			400, `{"error":"invalid: bot sam is in team core; remove it from the team first"}`},
 		{"leave", http.MethodDelete, "/teams/core/members/3", "", 204, ""},

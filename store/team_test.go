@@ -16,7 +16,7 @@ func TestTeam_Responsibility(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 
-	created, err := s.CreateTeam(ctx, Team{
+	created, err := testCreateTeam(t, s, ctx, Team{
 		Name:           "release",
 		Responsibility: "Ships Reef safely.",
 		Roles:          []Role{{Name: "lead", Lead: true, Backend: "claude"}},
@@ -29,7 +29,7 @@ func TestTeam_Responsibility(t *testing.T) {
 	}
 
 	created.Responsibility = "Owns releases and rollback."
-	updated, err := s.ApplyTeam(ctx, created)
+	updated, err := testApplyTeam(t, s, ctx, created)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -53,7 +53,7 @@ func TestCreateTeam_CopiesBotDefaults(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	team, err := s.CreateTeam(ctx, Team{Name: "release", Roles: []Role{{
+	team, err := testCreateTeam(t, s, ctx, Team{Name: "release", Roles: []Role{{
 		BotID: bot.ID, Name: "lead", Lead: true, Backend: "claude", Write: true,
 		PermissionMode: "acceptEdits", Tools: []string{"Edit"},
 	}}})
@@ -93,7 +93,7 @@ func TestDeleteTeam_QueuedWorkItem(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 
-	team, err := s.CreateTeam(ctx, Team{Name: "release", Roles: []Role{
+	team, err := testCreateTeam(t, s, ctx, Team{Name: "release", Roles: []Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 	}})
 	if err != nil {
@@ -152,7 +152,7 @@ func TestApplyTeam_Solo(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := s.ApplyTeam(ctx, Team{Name: SoloTeam, Roles: tt.give})
+			_, err := testApplyTeam(t, s, ctx, Team{Name: SoloTeam, Roles: tt.give})
 			if !errors.Is(err, tt.want) {
 				t.Errorf("ApplyTeam solo error = %v, want %v", err, tt.want)
 			}
@@ -163,7 +163,7 @@ func TestApplyTeam_Solo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := s.ApplyTeam(ctx, seeded)
+	got, err := testApplyTeam(t, s, ctx, seeded)
 	if err != nil {
 		t.Fatalf("ApplyTeam seeded solo = %v, want nil", err)
 	}
@@ -192,7 +192,7 @@ func TestApplyTeam_RoleName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := s.ApplyTeam(ctx, Team{Name: "t", Roles: []Role{
+			_, err := testApplyTeam(t, s, ctx, Team{Name: "t", Roles: []Role{
 				{Name: "lead", Lead: true, Backend: "claude"}, {Name: tt.give, Backend: "claude"},
 			}})
 			if err == nil || err.Error() != tt.want {
@@ -200,7 +200,7 @@ func TestApplyTeam_RoleName(t *testing.T) {
 			}
 		})
 	}
-	if _, err := s.ApplyTeam(ctx, Team{Name: "t", Roles: []Role{
+	if _, err := testApplyTeam(t, s, ctx, Team{Name: "t", Roles: []Role{
 		{Name: "lead", Lead: true, Backend: "claude"}, {Name: "Dev_2-b", Backend: "claude"},
 	}}); err != nil {
 		t.Errorf("ApplyTeam with role Dev_2-b error = %v, want nil", err)
@@ -224,7 +224,7 @@ func TestApplyTeam_Name(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := s.ApplyTeam(ctx, Team{Name: tt.give, Roles: []Role{
+			_, err := testApplyTeam(t, s, ctx, Team{Name: tt.give, Roles: []Role{
 				{Name: "lead", Lead: true, Backend: "claude"},
 			}})
 			if err == nil || err.Error() != tt.want {
@@ -232,59 +232,61 @@ func TestApplyTeam_Name(t *testing.T) {
 			}
 		})
 	}
-	if _, err := s.ApplyTeam(ctx, Team{Name: "Team_2-b", Roles: []Role{
+	if _, err := testApplyTeam(t, s, ctx, Team{Name: "Team_2-b", Roles: []Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 	}}); err != nil {
 		t.Errorf("ApplyTeam with name Team_2-b error = %v, want nil", err)
 	}
 }
 
-func TestApplyTeam_Write(t *testing.T) {
+func TestApplyTeam_ReferencesExistingBotsOnly(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
 	}
 	defer func() { _ = s.Close() }()
-
-	got, err := s.ApplyTeam(ctx, Team{Name: "crew", Roles: []Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-		{Name: "developer", Write: true, Backend: "claude"},
-		{Name: "tester", Backend: "codex"},
-	}})
+	lead, err := s.CreateBot(ctx, Bot{Name: "boss", Backend: "claude", Description: "Plans.", Write: true})
 	if err != nil {
 		t.Fatal(err)
 	}
-	var writes []bool
+	dev, err := s.CreateBot(ctx, Bot{Name: "dev", Backend: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := s.ApplyTeam(ctx, TeamSpec{Name: "crew", Roles: []Member{{BotID: lead.ID, Lead: true}, {BotID: dev.ID}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
 	for _, r := range got.Roles {
-		writes = append(writes, r.Write)
+		names = append(names, r.Name)
 	}
-	if want := []bool{false, true, false}; !reflect.DeepEqual(writes, want) {
-		t.Errorf("write of lead, developer, tester = %v, want %v", writes, want)
+	if want := []string{"boss", "dev"}; !reflect.DeepEqual(names, want) {
+		t.Errorf("roles = %v, want %v", names, want)
 	}
-}
+	if r := got.Roles[0]; r.Description != "Plans." || !r.Write {
+		t.Errorf("lead = %+v, want the Bot's description and write", r)
+	}
 
-func TestApplyTeam_KeepsExistingBot(t *testing.T) {
-	ctx := context.Background()
-	s, err := Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
+	tests := []struct {
+		name string
+		give []Member
+	}{
+		{"unknown bot", []Member{{BotID: lead.ID, Lead: true}, {BotID: 999}}},
+		{"no bot id", []Member{{BotID: lead.ID, Lead: true}, {}}},
+		{"bot twice", []Member{{BotID: lead.ID, Lead: true}, {BotID: lead.ID}}},
 	}
-	defer func() { _ = s.Close() }()
-
-	if _, err := s.ApplyTeam(ctx, Team{Name: "crew", Roles: []Role{
-		{Name: "lead", Lead: true, Backend: "claude", Description: "Plans.", Face: "whale", Model: "opus"},
-	}}); err != nil {
-		t.Fatal(err)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if _, err := s.ApplyTeam(ctx, TeamSpec{Name: "crew", Roles: tt.give}); !errors.Is(err, ErrInvalid) {
+				t.Errorf("ApplyTeam error = %v, want ErrInvalid", err)
+			}
+		})
 	}
-	got, err := s.ApplyTeam(ctx, Team{Name: "crew", Roles: []Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-	}})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if r := got.Roles[0]; r.Description != "Plans." || r.Face != "whale" || r.Model != "opus" {
-		t.Errorf("lead after a second apply = %+v, want description Plans., face whale, model opus", r)
+	if bots, err := s.Bots(ctx); err != nil || len(bots) != 3 {
+		t.Errorf("Bots = %d, %v, want 3: the solo lead, boss and dev", len(bots), err)
 	}
 }
 
@@ -313,7 +315,7 @@ func TestApplyTeam_ReadOnlyClaudeBash(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := s.ApplyTeam(ctx, Team{Name: "t", Roles: []Role{
+			_, err := testApplyTeam(t, s, ctx, Team{Name: "t", Roles: []Role{
 				{Name: "lead", Lead: true, Backend: "claude"},
 				{Name: "tester", Write: tt.write, Backend: tt.backend, Tools: tt.tools},
 			}})
@@ -336,7 +338,7 @@ func TestSuggestTeam(t *testing.T) {
 		"infra":    "Deploys, CI pipelines, servers and cloud infrastructure.",
 		"quiet":    "",
 	} {
-		if _, err := s.CreateTeam(ctx, Team{
+		if _, err := testCreateTeam(t, s, ctx, Team{
 			Name: name, Responsibility: responsibility,
 			Roles: []Role{{Name: "lead", Lead: true, Backend: "claude"}},
 		}); err != nil {
@@ -362,7 +364,7 @@ func TestSuggestTeam(t *testing.T) {
 		t.Fatal(err)
 	}
 	infra.Responsibility = "Billing and invoices."
-	if _, err := s.ApplyTeam(ctx, infra); err != nil {
+	if _, err := testApplyTeam(t, s, ctx, infra); err != nil {
 		t.Fatal(err)
 	}
 	if got, err := s.SuggestTeam(ctx, "The production deploy is failing"); err != nil || got.Name != SoloTeam {

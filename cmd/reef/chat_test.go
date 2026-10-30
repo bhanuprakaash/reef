@@ -614,9 +614,9 @@ func TestChat_ResumeMultiRoleTeamUsesWindow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "duo", Roles: []store.Role{
-		{Name: "lead", Lead: true, Backend: "claude"},
-		{Name: "architect", Backend: "claude"},
+	if _, err := st.ApplyTeam(ctx, store.TeamSpec{Name: "duo", Roles: []store.Member{
+		{BotID: *testCLIBot(t, st, "lead"), Lead: true},
+		{BotID: *testCLIBot(t, st, "architect")},
 	}}); err != nil {
 		t.Fatal(err)
 	}

@@ -99,12 +99,7 @@ func (s *Store) UpdateBot(ctx context.Context, t Bot) (Bot, error) {
 	if err != nil {
 		return Bot{}, err
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return Bot{}, fmt.Errorf("begin update bot: %w", err)
-	}
-	defer func() { _ = tx.Rollback() }()
-	res, err := tx.ExecContext(ctx,
+	res, err := s.db.ExecContext(ctx,
 		"UPDATE bot SET name = ?, description = ?, skills = ?, backend = ?, model = ?, provider = ?, "+
 			"face = ?, colour = ?, tools = ?, mcp_servers = ?, write = ?, permission_mode = ? "+
 			"WHERE id = ?",
@@ -118,14 +113,6 @@ func (s *Store) UpdateBot(ctx context.Context, t Bot) (Bot, error) {
 	}
 	if n, err := res.RowsAffected(); err == nil && n == 0 {
 		return Bot{}, fmt.Errorf("bot %d: %w", t.ID, ErrNotFound)
-	}
-	for _, table := range []string{"team_member", "space_member"} {
-		if _, err := tx.ExecContext(ctx, "UPDATE "+table+" SET name = ? WHERE bot_id = ?", t.Name, t.ID); err != nil {
-			return Bot{}, fmt.Errorf("update bot membership: %w", err)
-		}
-	}
-	if err := tx.Commit(); err != nil {
-		return Bot{}, fmt.Errorf("commit update bot: %w", err)
 	}
 	return s.Bot(ctx, t.ID)
 }
@@ -177,7 +164,7 @@ func (s *Store) DeleteBot(ctx context.Context, id int64) error {
 	return tx.Commit()
 }
 
-// AddMember puts the Bot in the team with a copy of its default access rules.
+// AddMember puts the Bot in the team.
 func (s *Store) AddMember(
 	ctx context.Context, team string, botID int64, lead bool,
 ) (Role, error) {
@@ -186,13 +173,11 @@ func (s *Store) AddMember(
 			return err
 		}
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO team_member (team_id, bot_id, name, lead, tools, mcp_servers, write, "+
-				"permission_mode) SELECT ?, id, name, ?, tools, mcp_servers, write, permission_mode "+
-				"FROM bot WHERE id = ?", teamID, lead, botID)
+			"INSERT INTO team_member (team_id, bot_id, lead) SELECT ?, id, ? FROM bot WHERE id = ?",
+			teamID, lead, botID)
 		if err != nil {
 			if isUnique(err) {
-				return fmt.Errorf("%w: team %s already has bot %d or a member with its name",
-					ErrConflict, team, botID)
+				return fmt.Errorf("%w: team %s already has bot %d", ErrConflict, team, botID)
 			}
 			return fmt.Errorf("insert member: %w", err)
 		}
@@ -289,7 +274,8 @@ func checkLead(ctx context.Context, tx *sql.Tx, teamID, botID int64, lead bool) 
 	}
 	var name string
 	err := tx.QueryRowContext(ctx,
-		"SELECT name FROM team_member WHERE team_id = ? AND lead = 1 AND bot_id != ?",
+		"SELECT bot.name FROM team_member JOIN bot ON bot.id = bot_id "+
+			"WHERE team_id = ? AND lead = 1 AND bot_id != ?",
 		teamID, botID).Scan(&name)
 	switch {
 	case errors.Is(err, sql.ErrNoRows):

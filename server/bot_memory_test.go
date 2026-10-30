@@ -18,7 +18,7 @@ func TestRenamingABotKeepsItsMemoryItems(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	if _, err := st.ApplyTeam(ctx, store.Team{Name: "core",
+	if _, err := testServerTeam(t, st, ctx, store.Team{Name: "core",
 		Roles: []store.Role{{Name: "boss", Lead: true, Backend: "claude"}}}); err != nil {
 		t.Fatal(err)
 	}

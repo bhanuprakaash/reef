@@ -68,7 +68,11 @@ func testServerTeam(t *testing.T, st *store.Store, ctx context.Context, team sto
 			team.Roles[i].BotID = id
 		}
 	}
-	return st.ApplyTeam(ctx, team)
+	spec := store.TeamSpec{Name: team.Name, Responsibility: team.Responsibility}
+	for _, role := range team.Roles {
+		spec.Roles = append(spec.Roles, store.Member{BotID: role.BotID, Lead: role.Lead})
+	}
+	return st.ApplyTeam(ctx, spec)
 }
 
 func testServerCreateTeam(t *testing.T, st *store.Store, ctx context.Context, team store.Team) (store.Team, error) {
@@ -83,7 +87,11 @@ func testServerCreateTeam(t *testing.T, st *store.Store, ctx context.Context, te
 			team.Roles[i].BotID = id
 		}
 	}
-	return st.CreateTeam(ctx, team)
+	spec := store.TeamSpec{Name: team.Name, Responsibility: team.Responsibility}
+	for _, role := range team.Roles {
+		spec.Roles = append(spec.Roles, store.Member{BotID: role.BotID, Lead: role.Lead})
+	}
+	return st.CreateTeam(ctx, spec)
 }
 
 func testToken(t *testing.T, st *store.Store, ctx context.Context, spaceID int64, name string) (store.Token, error) {

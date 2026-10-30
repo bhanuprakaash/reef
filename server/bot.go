@@ -152,7 +152,7 @@ func (s *server) deleteBot(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-// addMember puts a Bot in the team with a copy of its default access rules.
+// addMember puts a Bot in the team.
 func (s *server) addMember(w http.ResponseWriter, r *http.Request) {
 	var in addMemberBody
 	if err := readJSON(r, &in); err != nil {

@@ -39,7 +39,7 @@ func TestGetSpaceTokensUsed(t *testing.T) {
 
 func TestCreateSpaceOfWorkItemUsesItsTeam(t *testing.T) {
 	ts, st := newEmbedServer(t, nil)
-	if _, err := st.CreateTeam(context.Background(), store.Team{Name: "release", Roles: []store.Role{
+	if _, err := testServerCreateTeam(t, st, context.Background(), store.Team{Name: "release", Roles: []store.Role{
 		{Name: "lead", Lead: true, Backend: "claude"},
 	}}); err != nil {
 		t.Fatal(err)

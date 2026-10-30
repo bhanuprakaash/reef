@@ -22,7 +22,7 @@ func (s *Store) SpaceTeam(ctx context.Context, id int64) (Team, error) {
 	return Team{Name: c.Team, Roles: roles}, nil
 }
 
-// AddSpaceMember puts the Bot in Space id with a copy of its default access rules. A
+// AddSpaceMember puts the Bot in Space id. A
 // direct conversation keeps its one Bot.
 func (s *Store) AddSpaceMember(ctx context.Context, id, botID int64) (Role, error) {
 	c, err := s.Space(ctx, id)
@@ -33,9 +33,8 @@ func (s *Store) AddSpaceMember(ctx context.Context, id, botID int64) (Role, erro
 		return Role{}, fmt.Errorf("%w: Space %d is a direct conversation with one Bot", ErrInvalid, id)
 	}
 	res, err := s.db.ExecContext(ctx,
-		"INSERT INTO space_member (space_id, bot_id, name, lead, tools, mcp_servers, write, "+
-			"permission_mode) SELECT ?, id, name, 0, tools, mcp_servers, write, permission_mode "+
-			"FROM bot WHERE id = ?", id, botID)
+		"INSERT INTO space_member (space_id, bot_id, lead) SELECT ?, id, 0 FROM bot WHERE id = ?",
+		id, botID)
 	if err != nil {
 		if isUnique(err) {
 			return Role{}, fmt.Errorf("%w: Space %d already has bot %d or a member with its name",
@@ -59,8 +58,7 @@ func (s *Store) AddSpaceMember(ctx context.Context, id, botID int64) (Role, erro
 }
 
 // MoveConversation turns the direct conversation id into a free Space with no Team: the
-// conversation's Bot leads it and the Bot botID joins, each with its default
-// access rules. The conversation is marked moved to the new Space, which it returns, in the
+// conversation's Bot leads it and the Bot botID joins. The conversation is marked moved to the new Space, which it returns, in the
 // same transaction.
 func (s *Store) MoveConversation(ctx context.Context, id, botID int64) (Space, error) {
 	conv, err := s.Space(ctx, id)
@@ -86,9 +84,8 @@ func (s *Store) MoveConversation(ctx context.Context, id, botID int64) (Space, e
 		PermissionMode: conv.PermissionMode, Kind: KindFree}
 	return s.insertSpace(ctx, moved, nil, func(tx *sql.Tx, newID int64) error {
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO space_member (space_id, bot_id, name, lead, tools, mcp_servers, write, "+
-				"permission_mode) SELECT ?, id, name, id = ?, tools, mcp_servers, write, "+
-				"permission_mode FROM bot WHERE id IN (?, ?)", newID, leadID, leadID, botID)
+			"INSERT INTO space_member (space_id, bot_id, lead) SELECT ?, id, id = ? "+
+				"FROM bot WHERE id IN (?, ?)", newID, leadID, leadID, botID)
 		if err != nil {
 			return err
 		}

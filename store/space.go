@@ -50,7 +50,7 @@ const _spaceCols = "space.id, space.project_id, space.work_item_id, space.name, 
 	"COALESCE((SELECT name FROM team WHERE id = space.team_id), ''), space.kind, space.moved_to"
 
 // Space with a nil WorkItemID is a free Space or a direct conversation. Team is empty for a
-// Space made from one Bot. Who is in the Space is its space_member list, copied when the
+// Space made from one Bot. Who is in the Space is its space_member list of Bot ids, set when the
 // Space was made.
 type Space struct {
 	ID             int64      `json:"id"`
@@ -147,16 +147,14 @@ func (s *Store) CreateSpace(ctx context.Context, c Space) (Space, error) {
 	}
 	return s.insertSpace(ctx, c, &teamID, func(tx *sql.Tx, id int64) error {
 		_, err := tx.ExecContext(ctx,
-			"INSERT INTO space_member (space_id, bot_id, name, lead, tools, mcp_servers, write, "+
-				"permission_mode) SELECT ?, bot_id, name, lead, tools, mcp_servers, write, "+
-				"permission_mode FROM team_member WHERE team_id = ?", id, teamID)
+			"INSERT INTO space_member (space_id, bot_id, lead) SELECT ?, bot_id, lead "+
+				"FROM team_member WHERE team_id = ?", id, teamID)
 		return err
 	})
 }
 
-// CreateBotSpace adds c with no Team and one member, the lead: a copy of the Bot's
-// default access rules. c.Kind is KindConversation for a direct conversation, which cannot have
-// a work item; any other value makes a free Space, or a work item's Space when WorkItemID is set.
+// CreateBotSpace adds c with no Team and one member, the Bot, which leads it. c.Kind is
+// KindConversation for a direct conversation, which cannot have a work item; any other value makes a free Space, or a work item's Space when WorkItemID is set.
 func (s *Store) CreateBotSpace(ctx context.Context, c Space, botID int64) (Space, error) {
 	if err := c.validate(); err != nil {
 		return Space{}, err
@@ -171,9 +169,8 @@ func (s *Store) CreateBotSpace(ctx context.Context, c Space, botID int64) (Space
 	}
 	return s.insertSpace(ctx, c, nil, func(tx *sql.Tx, id int64) error {
 		res, err := tx.ExecContext(ctx,
-			"INSERT INTO space_member (space_id, bot_id, name, lead, tools, mcp_servers, write, "+
-				"permission_mode) SELECT ?, id, name, 1, tools, mcp_servers, write, permission_mode "+
-				"FROM bot WHERE id = ?", id, botID)
+			"INSERT INTO space_member (space_id, bot_id, lead) SELECT ?, id, 1 FROM bot WHERE id = ?",
+			id, botID)
 		if err != nil {
 			return err
 		}
