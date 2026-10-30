@@ -16,7 +16,7 @@ Reef is a personal Mac app where a team of AI agents works on your projects in o
 
 ## Core entities
 
-The target model below is settled; the existing runtime still uses Teams and Teammates. The numbered decisions override historical descriptions below where they conflict. See [server](server.md), [memory](memory.md) and [agents](agents.md) for current behavior.
+The target model below is settled. The runtime already has Bots, one global profile each, and still has Teams (Crews are not built yet); Bot ids sit in Team and Space rosters. The numbered decisions override historical descriptions below where they conflict. See [server](server.md), [memory](memory.md) and [agents](agents.md) for current behavior.
 
 | Entity | Responsibility |
 | --- | --- |
@@ -32,7 +32,7 @@ The target model below is settled; the existing runtime still uses Teams and Tea
 
 Conversations have zero or more Project associations. A Project filter organizes them; it does not own or copy them. A Work item may span Projects, while each Project represents one repository.
 
-> The sections through the decision table describe the existing runtime and earlier design. The target decisions 143–155 supersede conflicting Team, Teammate, queue, and project-ownership rules.
+> The sections through the decision table describe the existing runtime and earlier design. The target decisions 143–155 supersede conflicting Team, queue, and project-ownership rules; Teammate is now Bot.
 
 ## Work items
 
@@ -49,17 +49,17 @@ Conversations have zero or more Project associations. A Project filter organizes
 
 Only you set a top-level item Done. A parent goes to Review only when every sub-item is Done or Dropped.
 
-**Starting work.** You create an item on the board, from the "+" menu or with capture, or a Teammate proposes one (`propose_work_item`): it lands in Backlog marked "proposed by X" with a Team suggested from the Teams' responsibility texts, and an FYI tells you. Nothing runs until you queue it on a Team.
+**Starting work.** You create an item on the board, from the "+" menu or with capture, or a Bot proposes one (`propose_work_item`): it lands in Backlog marked "proposed by X" with a Team suggested from the Teams' responsibility texts, and an FYI tells you. Nothing runs until you queue it on a Team.
 
 **Team queue.** A Team works one item at a time: one In progress or Needs you. The first Queued item starts by itself when the Team is free. The server opens the item's Space with the Team's lead and sends it the item. Review frees the Team and the next item starts. Needs you does not, because the item still holds the worktree. An item you send back from Review goes to the top of the queue.
 
-**Sub-items.** Any Teammate can create a sub-item without asking. It stays with the same Team, shares the parent's Space and worktree, and shows as an FYI. Sub-items run one turn at a time; subagents inside one turn are fine. True parallel work is a later slice.
+**Sub-items.** Any Bot can create a sub-item without asking. It stays with the same Team, shares the parent's Space and worktree, and shows as an FYI. Sub-items run one turn at a time; subagents inside one turn are fine. True parallel work is a later slice.
 
 **Review.** The lead submits an item with the proof: the PR (found from the branch), each acceptance line ticked with a note, test commands with their output, and screenshots. Submitting also starts the wrap-up, so the brief and memory items wait for you next to the proof. Setting Done approves the wrap-up. Sending back needs a note, which rejects the wrap-up and goes to the lead.
 
 **Closing.** Closing a Work item closes all its Spaces; reopening restores the item only.
 
-**Later.** Ask a Teammate (a bounded question from one Teammate to another), Channels and Automation, Space continuation when one grows too long, a cap on sub-items, and versions of a Work item are not built.
+**Later.** Ask a Bot (a bounded question from one Bot to another), Channels and Automation, Space continuation when one grows too long, a cap on sub-items, and versions of a Work item are not built.
 
 ## Teams and Spaces
 
@@ -68,23 +68,23 @@ A Space is where talk happens. Inside it each member is its own agent session, a
 **Kinds.**
 - A Work item's Space. A Work item has one active Space. Phases (design, build, test) are threads inside it or sub-items, never a Space each, because splitting phases splits context.
 - A free Space: no Work item, running on the main checkout. Create one with "new Space" and a Team. Attach it to a Work item later: it moves to the item's worktree and its Space memory moves to the item.
-- A direct conversation: one Teammate, no Team and no Work item. A Teammate can have many; continue any of them. They run with the Teammate's default access rules.
+- A direct conversation: one Bot, no Team and no Work item. A Bot can have many; continue any of them. They run with the Bot's profile.
 
-**Members.** A Space has its own member list: Teammate, lead flag and access rules, copied from the Team or from the Teammate's defaults. Editing the Team later does not change a running Space.
+**Members.** A Space has its own member list: Bot ids and a lead flag, copied from the Team or the Bot. A member carries no name, tools, MCP servers, permissions or backend of its own: a turn reads the Bot's profile, and a Space has no backend or permission setting. Editing the Team later does not change a running Space's roster.
 
-**Adding a Teammate.** In a direct conversation, `@Y` at the start of a line or "add Teammate" turns it into a free Space with you, X and Y. The conversation is marked moved and linked. Y gets a summary the lead writes, never the transcript.
+**Adding a Bot.** In a direct conversation, `@Y` at the start of a line or "add Bot" turns it into a free Space with you, X and Y. The conversation is marked moved and linked. Y gets a summary the lead writes, never the transcript.
 
 **The lead.** One member per Team answers by default. You talk to it naturally; it clarifies and pulls in specialists. Specialists post directly in the Space; the lead does not summarize them back and only speaks when addressed or @mentioned.
 
 **Routing rules** (plain code, not an LLM):
 
 1. A user reply inside a thread goes to whoever owns that thread
-2. An @mention at the start of a message or line goes to that teammate
+2. An @mention at the start of a message or line goes to that bot
 3. Anything else from the user goes to the lead
 
 A Team's responsibility text only suggests a Team for a proposed Work item. It routes nothing else.
 
-**How teammates talk.** A teammate uses `post_to_space` for progress, decisions, blockers and outcomes the whole team needs. It uses `send_to_role` for detailed one-to-one coordination. A direct request wakes one role; that role's ordinary reply returns directly once. Handling the response does not reply again automatically, so another exchange requires an explicit `send_to_role`. Direct exchanges stay under the Space and are inspectable by the user, while only participating roles can read them through Reef tools.
+**How bots talk.** A bot uses `post_to_space` for progress, decisions, blockers and outcomes the whole team needs. It uses `send_to_role` for detailed one-to-one coordination. A direct request wakes one role; that role's ordinary reply returns directly once. Handling the response does not reply again automatically, so another exchange requires an explicit `send_to_role`. Direct exchanges stay under the Space and are inspectable by the user, while only participating roles can read them through Reef tools.
 
 **Example flow.** You queue "Google login" on a Team. The queue starts it and the lead asks @architect for a plan → plan posted as a thread, you reply in the thread with questions → architect hands off to @developer → developer asks @architect a doubt → developer pings @tester → tester reports back → the lead submits the item for Review with the proof.
 
@@ -94,31 +94,31 @@ A Team's responsibility text only suggests a Team for a proposed Work item. It r
 
 **Crash recovery.** Every turn is recorded as running, done or failed. On restart, running turns are marked failed and a note is posted to the Space; the worktree may be dirty. No automatic retry; you retry or roll back to a checkpoint.
 
-**Teammate identity.** Each member connects to Reef's MCP server with its own token, issued when its agent starts. One server, any number of teams and roles.
+**Bot identity.** Each member connects to Reef's MCP server with its own token, issued when its agent starts. One server, any number of teams and roles.
 
 ## Context and memory
 
 Never preload history, only a summary; details are fetched on demand.
 
-**What a teammate wakes up with:**
+**What a bot wakes up with:**
 
 | Layer | Contents | When loaded |
 | --- | --- | --- |
-| Role | Persona, skills, tools, MCPs | Always |
+| Role | Description, skills, tools, MCPs | Always |
 | Brief | Goal, status, key decisions, open questions; rewritten after each session | Always |
-| Memory items | Every live decision of the Work item, and the newest findings, project, team and teammate items, each part with how many exist | Always |
+| Memory items | Every live decision of the Work item, and the newest findings, project, team and bot items, each part with how many exist | Always |
 | Index | One line per sub-item in progress, and a count of open sub-items and earlier Spaces | Always |
 | Details | Full memory items, old sub-items, old chats, PR diffs, Space threads | On demand via tools |
 
-One assembler builds the first prompt of every Space in three sections: `## You` (persona, skills, role, Work item, project, the user, description, base branch), `## How to work` (team rules, one line on the tools) and `## What we know` (brief, sub-items in progress, memory items, one count line). A part with nothing in it is left out (decisions 85 to 87, 91). A free Space has no brief; a direct conversation loads only the Teammate's own items.
+One assembler builds the first prompt of every Space in three sections: `## You` (description, skills, role, Work item, project, the user, description, base branch), `## How to work` (team rules, one line on the tools) and `## What we know` (brief, sub-items in progress, memory items, one count line). A part with nothing in it is left out (decisions 85 to 87, 91). A free Space has no brief; a direct conversation loads only the Bot's own items.
 
-**Memory scopes.** Project, Work item, Team, Teammate, Space and conversation. Space items live on a free Space and move to the Work item when it is attached. Conversation items are searchable but never loaded at wake.
+**Memory scopes.** Project, Work item, Team, Bot, Space and conversation. Space items live on a free Space and move to the Work item when it is attached. Conversation items are searchable but never loaded at wake.
 
 **Reef as an MCP server.** The on-demand tools (recall, read memory, search sessions, read thread) are exposed by Reef's own MCP server, so Claude Code and Codex query history the same way. The same server holds the sub-item tools, `propose_work_item` and `submit_for_review`.
 
-**Browser tools.** The same MCP server lets teammates drive the built-in browser: open and navigate, read the page (accessibility snapshot), click, type, take screenshots, read console and network logs. You watch live in the browser pane and can take over at any time. The tester uses this to verify UI changes.
+**Browser tools.** The same MCP server lets bots drive the built-in browser: open and navigate, read the page (accessibility snapshot), click, type, take screenshots, read console and network logs. You watch live in the browser pane and can take over at any time. The tester uses this to verify UI changes.
 
-**Session lifetime.** Within a Space each teammate's session persists and resumes. When it gets long the backend compacts it, and the role's next turn gets the full first prompt again (decision 94). Across Spaces sessions are not shared: a teammate's memory of other Spaces is the brief, the memory items and the on-demand tools, never the raw session. After 30 to 40 chats the architect still starts small and relevant.
+**Session lifetime.** Within a Space each bot's session persists and resumes. When it gets long the backend compacts it, and the role's next turn gets the full first prompt again (decision 94). Across Spaces sessions are not shared: a bot's memory of other Spaces is the brief, the memory items and the on-demand tools, never the raw session. After 30 to 40 chats the architect still starts small and relevant.
 
 **Brief and memory items.** The agent writes the brief from the conversation and the shared understanding with you; you approve it before it becomes the new brief. A memory item is never edited or deleted, but can be retired or replaced; each has an author and a role, and one an agent saves links to the Space or wrap-up it came from. An item you add in the window or with `reef decide` has no link.
 
@@ -135,11 +135,11 @@ One assembler builds the first prompt of every Space in three sections: `## You`
 Not everything is a Work item; these places cover the rest.
 
 - **Free Spaces:** a Space under a project with no Work item, running on the main checkout. Attach it to a Work item when it turns into real work; no brief is written for it. (The context prompt calls it a quick session.)
-- **Direct conversations:** talk to one Teammate about anything. Many per Teammate, any can be continued, nothing splits by itself. They have no project work attached, but they can propose a Work item.
+- **Direct conversations:** talk to one Bot about anything. Many per Bot, any can be continued, nothing splits by itself. They have no project work attached, but they can propose a Work item.
 - **Project memory:** memory items in the project's scope (conventions, facts, decisions) shared by every Work item and free Space in a repo, like a smarter CLAUDE.md. The 10 newest load into every session.
-- **Teammates and Teams pages:** tune a Teammate (persona, skills, tools, MCPs) and a Team (roster, responsibility text, queue) separately from project work.
+- **Bots and Teams pages:** tune a Bot (description, skills, tools, MCPs) and a Team (roster, responsibility text, queue) separately from project work.
 - **Board:** the top-level Work items of a project by status, filtered by type, Team and project. You drag a card between Backlog and Queued and reorder a Team's queue; other moves are the item's own actions.
-- **Capture:** a global shortcut drops a Work item into a project's Backlog with a type and a description, or starts a conversation with a Teammate.
+- **Capture:** a global shortcut drops a Work item into a project's Backlog with a type and a description, or starts a conversation with a Bot.
 
 ## Supporting capabilities
 
@@ -147,7 +147,7 @@ Not everything is a Work item; these places cover the rest.
 | --- | --- | --- |
 | Inbox | What waits on you, in three groups: Needs you (a paused Space, a failed turn, a held wake), Review (a Work item with proof) and FYI (a sub-item created, an item proposed, a queued item started). Desktop notifications | Seamless |
 | Worktree per Work item | One worktree per top-level Work item on branch `work-item/<id>`, shared by all its Spaces and its sub-items. Free Spaces use the main checkout | Robust |
-| Checkpoints and undo | Snapshot before each teammate's changes, one-click rollback | Robust |
+| Checkpoints and undo | Snapshot before each bot's changes, one-click rollback | Robust |
 | Diff review panel | Inline comments on changes go back to the developer's thread | Robust |
 | Permissions per role | Only the developer edits code by default; it may spawn parallel subagents. Other roles are read-only unless you grant write. Only you merge to main | Robust |
 | Quick capture | Global shortcut to drop an idea, todo or bug into a project | Seamless |
@@ -155,7 +155,7 @@ Not everything is a Work item; these places cover the rest.
 | Daily digest | Morning summary of what teams did, what is blocked, what waits on you | Seamless |
 | GitHub integration | PR status and CI results flow into Spaces; failed CI pings the developer | Plug-in |
 | Shared skills and MCP library | Define once, attach to any role | Plug-in |
-| Inspector | Each teammate's prompts, tool calls, tokens and cost | Learning |
+| Inspector | Each bot's prompts, tool calls, tokens and cost | Learning |
 | Built-in terminal and browser | One window for terminal, browser, commits, PRs | Later |
 
 ## Tech stack
@@ -164,8 +164,8 @@ A Go server is the brain, a React UI is the face, and Electron wraps both into t
 
 | Layer | Choice | Role |
 | --- | --- | --- |
-| Backend | Go local server | Router, teammates, sessions, memory, Reef MCP server |
-| Storage | SQLite | Projects, Work items, Teammates, Teams, Spaces, memory items |
+| Backend | Go local server | Router, bots, sessions, memory, Reef MCP server |
+| Storage | SQLite | Projects, Work items, Bots, Teams, Spaces, memory items |
 | Agent adapters | Claude Code and Codex CLIs in headless JSON-streaming mode, both in the baseline | One common Agent interface (Start, Send, Events, Interrupt, Resume); Jellyfish later |
 | UI | React, rendered inside the Mac app window | Talks to the Go server over HTTP and Server-Sent Events on localhost |
 | Desktop shell | Electron (the Mac app) | Main process launches the Go server; renderer shows the UI; hosts the built-in browser pane |
