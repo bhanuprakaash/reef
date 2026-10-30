@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+# Run features and window scenarios side by side, each in its own run (own build, binary,
+# ports and data), so none can touch another's server.
+#
+#   verify-parallel feature:work-item-flow feature:github ui:bots ui:teams
+#
+# Prints one PASS or FAIL line per job, the log path for each, and cleans the runs that
+# passed. A feature leaves exit 1 on any FAIL line; a ui scenario needs `serve-start
+# --data-name ui` first, which this script does.
+set -u
+H="$(cd "$(dirname "$0")" && pwd)/verify-reef"
+[ $# -ge 1 ] || { echo "usage: verify-parallel feature:NAME|ui:SCENARIO ..." >&2; exit 2; }
+
+out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
+
+job() {
+	local kind=${1%%:*} name=${1#*:} id
+	id=$("$H" build 2>"$out/$2.build") || { cp "$out/$2.build" "$out/$2.log"; echo 1 >"$out/$2.rc"; return; }
+	export REEF_VERIFY_RUN=$id
+	(
+		"$H" doctor | grep -v '^ok' || true
+		case $kind in
+		feature) "$H" feature "$name" ;;
+		ui)
+			"$H" serve-start --data-name ui || exit 1
+			"$H" ui "$name"
+			rc=$?
+			"$H" serve-stop
+			exit $rc
+			;;
+		*) echo "unknown job kind: $kind"; exit 2 ;;
+		esac
+	) >"$out/$2.log" 2>&1
+	echo $? >"$out/$2.rc"
+	echo "$id" >"$out/$2.id"
+}
+
+i=0
+for spec in "$@"; do
+	i=$((i + 1))
+	job "$spec" "$i" &
+done
+wait
+
+status=0
+i=0
+for spec in "$@"; do
+	i=$((i + 1))
+	rc=$(cat "$out/$i.rc" 2>/dev/null || echo 1)
+	id=$(cat "$out/$i.id" 2>/dev/null || echo "-")
+	log="${TMPDIR:-/tmp}/verify-parallel-$id-${spec//[:\/]/_}.log"
+	cp "$out/$i.log" "$log"
+	if [ "$rc" = 0 ]; then
+		echo "PASS $spec  run=$id  log=$log"
+		[ "$id" = "-" ] || REEF_VERIFY_RUN=$id "$H" cleanup >/dev/null 2>&1
+	else
+		echo "FAIL $spec  run=$id  log=$log"
+		grep -E '^FAIL' "$log" | head -5 | cut -c1-200
+		status=1
+	fi
+done
+exit $status

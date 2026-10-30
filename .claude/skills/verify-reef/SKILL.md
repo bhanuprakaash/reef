@@ -443,6 +443,11 @@ Rules:
 
 ## Feature scripts
 
+Run several at once with `scripts/verify-parallel feature:github feature:work-item-flow ui:bots`:
+each job gets its own run (build, ports, data), so they do not wait on each other, and passed
+runs are cleaned. Never run two features in one run id: the second finds the first's server
+and every wait times out.
+
 `REEF_VERIFY_RUN=<id> $H feature NAME` runs `features/NAME.sh` (needs `build` and `doctor`
 done) with `H`, `REEF_VERIFY_RUN`, `E` and `S` exported, tees its output to
 `~/.reef-verify/<id>/feature-NAME.log`, and exits 1 if any line is `FAIL`. Each script prints one

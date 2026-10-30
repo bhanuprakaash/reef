@@ -48,7 +48,7 @@ chmod +x "$GH/bin/gh"
 : >"$GH/resp.json"
 export GH_FAKE_RESPONSE="$GH/resp.json" GH_FAKE_ERR="$GH/err.txt" GH_FAKE_LOG="$GH/log.txt"
 
-REEF_GH_INTERVAL=1s PATH="$GH/bin:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name github
+REEF_GH_INTERVAL=1s PATH="$GH/bin:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name github || exit 1
 A=$(cat "$S/serve.addr")
 "$H" team-apply "$PWD/teams/full.json" >/dev/null
 
@@ -107,7 +107,7 @@ check check-failed-wake "$fail_ok" "turn $turn1 wake_text: $(echo "$wake1" | tr 
 n3=$(msg_count 1)
 t3=$("$H" sql "select count(*) from turn where space_id = 1" | tail -1)
 "$H" serve-stop
-REEF_GH_INTERVAL=1s PATH="$GH/bin:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name github
+REEF_GH_INTERVAL=1s PATH="$GH/bin:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name github || exit 1
 A=$(cat "$S/serve.addr")
 sleep 3
 n4=$(msg_count 1)
@@ -306,7 +306,7 @@ for d in /usr/local/sbin /usr/local/bin /usr/sbin /usr/bin /sbin /bin; do
 		[ -e "$NOGH/$b" ] || ln -s "$f" "$NOGH/$b" 2>/dev/null
 	done
 done
-PATH="$NOGH" REEF_GH_INTERVAL=1s ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name github-nogh
+PATH="$NOGH" REEF_GH_INTERVAL=1s ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name github-nogh || exit 1
 sleep 3
 health=$(curl -s -o /dev/null -w '%{http_code}' --max-time 2 "http://$(cat "$S/serve.addr")/health")
 "$H" serve-stop

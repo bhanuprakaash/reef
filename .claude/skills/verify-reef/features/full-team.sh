@@ -88,7 +88,7 @@ section_full() {
 ### Teams (data folder full). Bots are global, so each file's roles update the Bot of that name:
 ### crew's lead, developer and tester replace full's, and relay names two of them.
 
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full || exit 1
 A=$(cat "$S/serve.addr")
 seed_write=$("$H" sql "select write from bot where name = 'lead'" | tail -1)
 apply_full=$("$H" team-apply "$PWD/teams/full.json")
@@ -386,7 +386,7 @@ check tree-attach-dirty "$attach_ok" "attach 200 with the move note, 2 lead turn
 api_call POST /spaces/3/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}'
 sleep 3
 "$H" serve-stop --kill
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full || exit 1
 A=$(cat "$S/serve.addr")
 F=$("$H" sql "select max(id) from turn where space_id = 3" | tail -1)
 api_call GET "/turns/$F"
@@ -432,7 +432,7 @@ echo "$BODY" | grep -q '"spaceId":9' && echo "note: Space 9 unexpectedly in the 
 api_call POST /spaces/9/send '{"text":"Write the numbers from 1 to 600 separated by spaces."}'
 sleep 3
 "$H" serve-stop --kill
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full || exit 1
 A=$(cat "$S/serve.addr")
 C=$("$H" sql "select max(id) from turn where space_id = 9" | tail -1)
 
@@ -506,7 +506,7 @@ restart_budget_status=$STATUS
 api_call GET /inbox
 echo "$BODY" >"$E/inbox-before.txt"
 "$H" serve-stop
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name full || exit 1
 A=$(cat "$S/serve.addr")
 api_call GET /inbox
 echo "$BODY" >"$E/inbox-after.txt"
@@ -526,7 +526,7 @@ section_cx() {
 mkdir -p "$S/spy"
 printf '#!/bin/sh\ntee -a %s/codex-in.log | %s/agent/codex/testdata/codex "$@"\n' "$E" "$PWD" >"$S/spy/codex"
 chmod +x "$S/spy/codex"
-BASH_ENV= FAKE_CODEX=replay PATH="$S/spy:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name cx
+BASH_ENV= FAKE_CODEX=replay PATH="$S/spy:$PATH" ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name cx || exit 1
 A=$(cat "$S/serve.addr")
 "$H" team-apply "$E/cx.json" >/dev/null
 api_call POST /projects '{"name":"cx","path":"'"$S"'/cwd"}'
@@ -549,7 +549,7 @@ check write-codex-readonly "$codex_ok" "turns: $(echo "$rows_cx" | tr '\n' ' ');
 }
 
 section_ui2() {
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name ui2
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name ui2 || exit 1
 run_ui window-rollback rollback
 run_ui window-retry retry
 }
@@ -623,7 +623,7 @@ git -C "$S/google-app" init -q -b main
 git -C "$S/google-app" add -A
 git -C "$S/google-app" -c user.name=v -c user.email=v@example.com commit -qm "shop with email login" >/dev/null
 
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name google
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name google || exit 1
 A=$(cat "$S/serve.addr")
 "$H" team-apply "$PWD/teams/full.json" >/dev/null
 api_call POST /projects '{"name":"shop","path":"'"$S"'/google-app"}'
@@ -711,7 +711,7 @@ cat >"$E/pair.json" <<'EOF'
   ]
 }
 EOF
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu || exit 1
 A=$(cat "$S/serve.addr")
 "$H" team-apply "$PWD/teams/full.json" >/dev/null
 "$H" team-apply "$E/pair.json" >/dev/null
@@ -741,7 +741,7 @@ check handoff-no-approval "$handoff_ok" "lead woke developer automatically with 
 api_call POST /spaces/1/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}'
 sleep 4
 "$H" serve-stop --kill
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu || exit 1
 A=$(cat "$S/serve.addr")
 F2=$("$H" sql "select id from turn where space_id = 1 order by id desc limit 1" | tail -1)
 api_call GET /inbox
@@ -768,7 +768,7 @@ check note-retry "$note_retry_ok" "failed/rollback/retry notes land in the retri
 api_call POST /spaces/1/send '{"text":"@developer Write the numbers from 1 to 600 separated by spaces. Use no tools."}'
 sleep 4
 "$H" serve-stop --kill
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu || exit 1
 A=$(cat "$S/serve.addr")
 G=$("$H" sql "select id from turn where space_id = 1 order by id desc limit 1" | tail -1)
 api_call POST /spaces/1/send '{"text":"@developer Reply with one word. Use no tools."}'
@@ -787,7 +787,7 @@ api_call POST /spaces/1/wrap
 wrap_send_status=$STATUS
 sleep 4
 "$H" serve-stop --kill
-ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu
+ANTHROPIC_MODEL=sonnet "$H" serve-start --data-name fu || exit 1
 A=$(cat "$S/serve.addr")
 newest1=$("$H" sql "select id from turn where space_id = 1 order by id desc limit 1" | tail -1)
 row_wrap=$("$H" sql "select role, status, error, wake_text is null from turn where id = $newest1" | tail -1)
