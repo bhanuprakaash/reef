@@ -11,7 +11,7 @@ export function DeniedToolRows({ space, roles, running }: Props) {
   const inspector = useInspector(space.id, true);
   const add = useAddBotTool();
   const rows = deniedTools(inspector.data?.turns ?? []).flatMap((d) => {
-    const role = roles.find((r) => r.name === d.role);
+    const role = roles.find((r) => r.botId === d.botId);
     return role ? [{ ...d, role }] : [];
   });
 

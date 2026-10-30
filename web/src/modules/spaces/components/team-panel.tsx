@@ -61,7 +61,7 @@ export function TeamPanel({ spaceId, workItemId, roles, working, brief, onClose 
         <ul className="space-y-0.5">
           {roles.map((role) => {
             const state = stateOf(role);
-            const usage = inspector.data?.roles.find((r) => r.role === role.name)?.usage;
+            const usage = inspector.data?.roles.find((r) => r.botId === role.botId)?.usage;
             return (
               <li
                 key={role.botId}

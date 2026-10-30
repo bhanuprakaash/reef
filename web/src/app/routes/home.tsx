@@ -95,7 +95,7 @@ function WorkItemCard({ workItem }: { workItem: WorkItem }) {
   const mine = spaces.data?.filter((c) => c.workItemId === workItem.id) ?? [];
   const latest = mine[mine.length - 1];
   const team = teams.data?.find((t) => t.name === latest?.team);
-  const roles = team ? team.roles.map((r) => r.name) : latest ? [latest.role] : [];
+  const roles = team ? team.roles.map((r) => r.botId) : latest ? [latest.botId] : [];
   const faces = roleFaces(teams.data, latest?.team);
   const waiting = inbox.data?.some((i) => i.workItemId === workItem.id) ?? false;
 

@@ -10,6 +10,7 @@ const space = (id: number, team: string): Space => ({
   name: `c${id}`,
   team,
   role: 'lead',
+  botId: 1,
   paused: '',
   createdAt: '',
   closedAt: null,

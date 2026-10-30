@@ -7,7 +7,6 @@ import { type DiffScope, useDiff } from '@/modules/work-items/api/get-diff';
 import { useWorkItem } from '@/modules/work-items/api/get-work-item';
 import { DiffPanel } from '@/modules/work-items/components/diff-panel';
 import { useProjects } from '@/modules/projects/api/get-projects';
-import { roleFaces } from '@/utils/role-faces';
 
 const iconButton = 'flex size-9 items-center justify-center rounded-field text-soft hover:bg-card';
 
@@ -41,7 +40,9 @@ export function ReviewDiff({ id, onClose, defaultScope = 'full' }: Props) {
       }
       scope={scope}
       onScopeChange={setScope}
-      developerLook={roleFaces(teams.data, latestTeam).developer}
+      developerLook={teams.data
+        ?.find((t) => t.name === latestTeam)
+        ?.roles.find((r) => r.name === 'developer')}
       leading={!onClose && <BackButton fallback={`/work-items/${id}`} />}
       actions={
         onClose &&

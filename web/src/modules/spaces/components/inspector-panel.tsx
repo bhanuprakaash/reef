@@ -2,7 +2,7 @@ import { useInspector } from '@/modules/spaces/api/get-inspector';
 import { formatTokens } from '@/modules/spaces/utils/format-tokens';
 import { subagentLabel } from '@/modules/spaces/utils/subagent-label';
 import type { InspectorToolCall, InspectorTurn, Usage } from '@/types/api';
-import { Creature, type Faces } from '@/components/creature';
+import { Creature, faceOf, type Faces } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 
 const NO_COST = 'n/a';
@@ -58,7 +58,7 @@ function TurnRow({ turn, faces }: { turn: InspectorTurn; faces: Faces }) {
   return (
     <details className="rounded-menu bg-field text-[12.5px]">
       <summary className="flex cursor-pointer items-center gap-2.5 px-3 py-2.5 text-[13.5px]">
-        <Creature look={faces[turn.role]} size={20} />
+        <Creature look={faceOf(faces, turn.botId)} size={20} />
         <span className="whitespace-nowrap">Turn {turn.id}</span>
         <span
           className={`min-w-0 truncate ${turn.status === 'failed' ? 'text-danger' : 'text-muted'}`}
@@ -168,8 +168,8 @@ export function InspectorPanel({
             <h3 className="mb-1.5 text-[12.5px] font-normal text-muted">By role</h3>
             <ul className="text-[13.5px] tabular-nums">
               {roles.map((role) => (
-                <li key={role.role} className="flex min-h-9 items-center gap-2">
-                  <Creature look={faces[role.role]} size={20} />
+                <li key={role.botId ?? role.role} className="flex min-h-9 items-center gap-2">
+                  <Creature look={faceOf(faces, role.botId)} size={20} />
                   <span className="min-w-0 flex-1 truncate capitalize">{role.role}</span>
                   <span className="text-right text-muted">{turnsLabel(role.turns)}</span>
                   <span className="w-11 text-right text-muted">{tokens(role.usage)}</span>

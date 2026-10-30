@@ -2,7 +2,7 @@ import { useState } from 'react';
 import type { MemoryItem } from '@/types/api';
 import { Button } from '@/components/button';
 import { Card } from '@/components/card';
-import { Creature, type Faces } from '@/components/creature';
+import { Creature, faceOf, type Faces } from '@/components/creature';
 import { EmptyState } from '@/components/empty-state';
 
 type Props = {
@@ -48,7 +48,7 @@ function MemoryRow({
             {author[0]}
           </span>
         ) : (
-          <Creature look={faces[item.author]} size={22} />
+          <Creature look={faceOf(faces, item.botId)} size={22} />
         )}
       </button>
       <Button

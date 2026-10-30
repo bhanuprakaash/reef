@@ -11,6 +11,7 @@ function item(id: number): MemoryItem {
     why: `reason-${id}`,
     scope: 'work_item:1',
     author: 'user',
+    botId: null,
     createdAt: '2026-10-01T09:00:00Z',
   };
 }

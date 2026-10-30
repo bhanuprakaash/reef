@@ -52,6 +52,7 @@ const space: SpacePreview = {
   name: 'build',
   team: 'core',
   role: 'lead',
+  botId: 1,
   paused: '',
   createdAt: '',
   closedAt: null,

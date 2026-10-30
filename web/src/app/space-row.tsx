@@ -25,12 +25,15 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
   const running = useRunningTurns();
 
   const waiting = inbox.data ?? [];
+  const lead = bots.data?.find((b) => b.id === c.botId);
   const faces =
-    c.kind === 'conversation'
-      ? { [c.role]: bots.data?.find((t) => t.name === c.role) }
-      : roleFaces(teams.data, c.team);
+    c.kind === 'conversation' ? (lead ? { [lead.id]: lead } : {}) : roleFaces(teams.data, c.team);
   const roles = Object.keys(faces);
-  const roleNames = (running.data ?? []).filter((t) => t.spaceId === c.id).map((t) => t.role);
+  const turns = (running.data ?? []).filter((t) => t.spaceId === c.id);
+  const workingBots = turns.flatMap((t) => bots.data?.find((b) => b.id === t.botId) ?? []);
+  const members = { ...faces, ...Object.fromEntries(workingBots.map((b) => [b.id, b])) };
+  const workingName = (t: (typeof turns)[number]) =>
+    bots.data?.find((b) => b.id === t.botId)?.name ?? t.role;
   const workItem = workItems.data?.find((f) => f.id === c.workItemId);
   const title = c.kind === 'work_item' ? `#${c.name}` : c.name;
 
@@ -40,8 +43,8 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
         <SpaceCard
           space={c}
           workItem={workItem}
-          faces={faces}
-          working={roleNames}
+          members={members}
+          working={turns.map((t) => t.botId)}
           waiting={waiting.filter((i) => i.spaceId === c.id).map((i) => i.kind)}
         />
       }
@@ -53,7 +56,7 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
           active={pathname === `/spaces/${c.id}`}
           avatar={
             <span className="relative flex-none">
-              <GroupAvatar roles={roles.length > 0 ? roles : [c.role]} faces={faces} size={30} />
+              <GroupAvatar roles={roles.length > 0 ? roles : [c.botId]} faces={faces} size={30} />
               {waiting.some((i) => i.spaceId === c.id && i.group === 'needs_you') && (
                 <span
                   role="img"
@@ -65,8 +68,11 @@ export function SpaceRow({ space: c }: { space: SpacePreview }) {
           }
           title={title}
           live={
-            roleNames.length > 0 ? (
-              <StatusDot status="working" label={`${roleNames.at(-1)} is working`} />
+            turns.length > 0 ? (
+              <StatusDot
+                status="working"
+                label={`${workingName(turns[turns.length - 1])} is working`}
+              />
             ) : undefined
           }
           aside={c.lastMessage && rowTime(c.lastMessage.createdAt)}

@@ -99,7 +99,11 @@ export function ProjectPage() {
               {freeSpaces.map((c) => (
                 <li key={c.id}>
                   <Link to={`/spaces/${c.id}`} className={rowClass}>
-                    <GroupAvatar roles={[c.role]} faces={roleFaces(teams.data, c.team)} size={22} />
+                    <GroupAvatar
+                      roles={[c.botId]}
+                      faces={roleFaces(teams.data, c.team)}
+                      size={22}
+                    />
                     {c.name}
                     <span className="ml-auto text-[12.5px] text-muted">
                       {rowTime(c.lastMessage?.createdAt ?? c.createdAt)}
