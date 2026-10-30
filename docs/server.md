@@ -1,9 +1,22 @@
 # Server
 
+> **Target contract:** [Product decisions 143–155](product.md#decisions) define Bots, roster-only Crews, global conversations and execution boundaries. This document describes the existing runtime until those changes are implemented; its Team and Teammate terms do not define the target. Use a fresh development data directory for the new model. No legacy migration or compatibility path is required, but preserve histories created by the new runtime.
+
 `reef serve` keeps Reef's data in one SQLite file and serves it as a JSON REST API. The
 store is [`store/`](../store), the routes are [`server/`](../server), the entry point is
 [`cmd/reef/main.go`](../cmd/reef/main.go). The code is the source of truth. This doc says
 what it does and why.
+
+## Fresh development database for the target model
+
+Use a new, isolated data directory when developing the new model. For example:
+
+```sh
+reef_data_dir="$(mktemp -d /private/tmp/reef-dev.XXXXXX)"
+reef serve --data "$reef_data_dir" --addr 127.0.0.1:7701
+```
+
+This starts with a fresh database and leaves the existing data directory untouched. Use the same directory to test restart and history preservation after the new runtime creates records. The current runtime still applies its existing migrations; the target transition needs no legacy migration or compatibility program.
 
 ## Run
 
@@ -164,7 +177,7 @@ migration 11 [`011_turn_wake.sql`](../store/migrations/011_turn_wake.sql) (`turn
 migration 12 [`012_turn_checkpoint.sql`](../store/migrations/012_turn_checkpoint.sql) (`turn.checkpoint`) and
 migration 18 [`018_profile.sql`](../store/migrations/018_profile.sql) (`profile`) and
 migration 32 [`032_provider.sql`](../store/migrations/032_provider.sql) (`provider`, `role.provider`) and
-migration 33 [`033_space_name_auto.sql`](../store/migrations/033_space_name_auto.sql) (`space.name_auto`) and
+migration 33 [`033_channel_name_auto.sql`](../store/migrations/033_channel_name_auto.sql) (`space.name_auto`) and
 migration 36 [`036_turn_scopes.sql`](../store/migrations/036_turn_scopes.sql) (`turn.scopes`, `approval.scopes`) and
 migration 37 [`037_turn_session_totals.sql`](../store/migrations/037_turn_session_totals.sql) (`turn.session_cost_usd`, `turn.session_input_tokens` and the other three token counts) and
 migration 38 [`038_proposal_items.sql`](../store/migrations/038_proposal_items.sql) (`proposal.items`; drops `proposal.notes` and `proposal.decisions`, clears `proposal.retire` and rejects the wrap proposals still pending) and

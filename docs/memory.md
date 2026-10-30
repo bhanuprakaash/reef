@@ -1,5 +1,7 @@
 # Memory
 
+> **Target contract:** [Product decisions 143–155](product.md#decisions) define Bots, roster-only Crews, global conversations and execution boundaries. This document describes the existing runtime until those changes are implemented; its Team and Teammate terms do not define the target. Use a fresh development data directory for the new model. No legacy migration or compatibility path is required, but preserve histories created by the new runtime.
+
 The memory loop gives every session on a work item the same starting point, and saves what
 the session learned when it ends. It has four parts: the `reef` CLI
 ([`cmd/reef/cli.go`](../cmd/reef/cli.go)), the MCP server `reef mcp`

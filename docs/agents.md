@@ -1,5 +1,7 @@
 # Agents
 
+> **Target contract:** [Product decisions 143–155](product.md#decisions) define Bots, roster-only Crews, global conversations and execution boundaries. This document describes the existing runtime until those changes are implemented; its Team and Teammate terms do not define the target. Use a fresh development data directory for the new model. No legacy migration or compatibility path is required, but preserve histories created by the new runtime.
+
 Reef drives coding agents through one Go interface, [`agent/agent.go`](../agent/agent.go).
 Two backends implement it: Claude Code ([`agent/claude`](../agent/claude/claude.go)) and
 Codex ([`agent/codex`](../agent/codex/codex.go)). The code is the source of truth. This doc
