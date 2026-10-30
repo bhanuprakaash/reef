@@ -127,7 +127,9 @@ func (s *server) listSpaces(w http.ResponseWriter, r *http.Request) {
 func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 	var in struct {
 		store.Space
-		BotID int64 `json:"botId"`
+		BotID         int64   `json:"botId"`
+		BotIDs        []int64 `json:"botIds"`
+		CoordinatorID int64   `json:"coordinatorBotId"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
@@ -158,6 +160,21 @@ func (s *server) createSpace(w http.ResponseWriter, r *http.Request) {
 		in.Team = store.SoloTeam
 	}
 	autoName := isDefaultName(in.Name, in.Team)
+	if len(in.BotIDs) > 0 {
+		c, err := s.st.CreateSpaceOf(r.Context(), in.Space, in.BotIDs, in.CoordinatorID)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		if autoName {
+			if err := s.st.MarkNamePending(r.Context(), c.ID); err != nil {
+				writeError(w, err)
+				return
+			}
+		}
+		writeJSON(w, http.StatusCreated, c)
+		return
+	}
 	team, err := s.st.Team(r.Context(), in.Team)
 	if errors.Is(err, store.ErrNotFound) {
 		err = fmt.Errorf("%w: unknown team %s", store.ErrInvalid, in.Team)
@@ -396,10 +413,20 @@ func (s *server) addSpaceMember(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var in struct {
-		BotID int64 `json:"botId"`
+		BotID int64  `json:"botId"`
+		Crew  string `json:"crew"`
 	}
 	if err := readJSON(r, &in); err != nil {
 		writeError(w, err)
+		return
+	}
+	if in.Crew != "" {
+		roles, err := s.st.AddSpaceCrew(r.Context(), id, in.Crew)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, viewTeam(store.Team{Roles: roles}).Roles)
 		return
 	}
 	if ch, err := s.st.Space(r.Context(), id); err == nil && ch.Kind == store.KindConversation {

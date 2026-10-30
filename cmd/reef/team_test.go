@@ -64,12 +64,10 @@ func TestTeam_ApplyErrors(t *testing.T) {
 		give string
 		want string
 	}{
-		{"no lead", `{"name":"a","roles":[{"botId":1}]}`,
-			"invalid: team a needs exactly one lead role, has 0"},
 		{"bad name", `{"name":"a b","roles":[{"botId":1,"lead":true}]}`,
 			`invalid: team name "a b" must be letters, digits, _ or -`},
 		{"two leads", `{"name":"a","roles":[{"botId":1,"lead":true},{"botId":2,"lead":true}]}`,
-			"invalid: team a needs exactly one lead role, has 2"},
+			"invalid: team a has 2 coordinator suggestions, at most one"},
 		{"unknown bot", `{"name":"a","roles":[{"botId":99,"lead":true}]}`,
 			"invalid: unknown bot 99"},
 		{"no bot id", `{"name":"a","roles":[{"lead":true}]}`,

@@ -70,7 +70,7 @@ describe('RolePanel', () => {
 });
 
 describe('TeamEditor', () => {
-  it('lists member Bots with lead and remove controls but no per-member settings', () => {
+  it('lists member Bots with coordinator suggestion and remove controls but no per-member settings', () => {
     useUpdateTeam.mockReturnValue({ isPending: false, isSuccess: false, isError: false });
     const team: Team = { id: 1, name: 'solo', responsibility: '', roles: [role] };
 
@@ -81,7 +81,7 @@ describe('TeamEditor', () => {
     );
 
     expect(markup).toContain('developer');
-    expect(markup).toContain('aria-label="developer lead"');
+    expect(markup).toContain('aria-label="developer suggested coordinator"');
     expect(markup).toContain('Remove');
     expect(markup).not.toContain('aria-label="developer name"');
     expect(markup).not.toContain('aria-label="developer permission mode"');

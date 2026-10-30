@@ -2,8 +2,9 @@ import { useId, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useCreateSpace } from '@/modules/spaces/api/create-space';
 import { useTeams } from '@/lib/api/get-teams';
+import type { Role } from '@/types/api';
 import { Button } from '@/components/button';
-import { GroupAvatar } from '@/components/creature';
+import { Creature, GroupAvatar } from '@/components/creature';
 import { TextField } from '@/components/text-field';
 
 const labelClass = 'mb-1.5 block text-[12.5px] text-muted';
@@ -16,28 +17,48 @@ type Props = {
 };
 
 export function NewSpaceForm({ projectId, workItemId, itemTeam, onClose }: Props) {
-  const [team, setTeam] = useState(itemTeam ?? 'solo');
+  const [picked, setPicked] = useState([itemTeam ?? 'solo']);
+  const [dropped, setDropped] = useState<number[]>([]);
+  const [chosen, setChosen] = useState<number | null>(null);
   const [name, setName] = useState('');
   const create = useCreateSpace();
   const teams = useTeams();
   const navigate = useNavigate();
   const nameId = useId();
-  const teamList = (
-    teams.data ?? [{ name: 'solo', roles: [{ botId: 0, name: 'lead', face: 'jellyfish' }] }]
-  ).filter((t) => itemTeam === undefined || t.name === itemTeam);
+  const teamList = (teams.data ?? []).filter((t) => itemTeam === undefined || t.name === itemTeam);
+
+  const pickedRoles = picked.flatMap((n) => teams.data?.find((t) => t.name === n)?.roles ?? []);
+  const listed = pickedRoles.filter(
+    (r, i) => pickedRoles.findIndex((o) => o.botId === r.botId) === i,
+  );
+  const roster = listed.filter((r) => !dropped.includes(r.botId));
+  const coordinator =
+    roster.find((r) => r.botId === chosen) ?? roster.find((r) => r.lead) ?? roster[0];
+
+  function toggleCrew(crew: string) {
+    setPicked(picked.includes(crew) ? picked.filter((n) => n !== crew) : [...picked, crew]);
+  }
+  function toggleBot(r: Role) {
+    setDropped(
+      dropped.includes(r.botId) ? dropped.filter((b) => b !== r.botId) : [...dropped, r.botId],
+    );
+  }
 
   return (
     <form
       className="space-y-3.5"
       onSubmit={(e) => {
         e.preventDefault();
+        if (!coordinator) return;
         const time = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
         create.mutate(
           {
             projectId,
             workItemId,
-            name: name.trim() || `${team} ${time}`,
-            team,
+            name: name.trim() || `${picked[0]} ${time}`,
+            team: picked[0],
+            botIds: roster.map((r) => r.botId),
+            coordinatorBotId: coordinator.botId,
           },
           {
             onSuccess: (space) => {
@@ -61,16 +82,16 @@ export function NewSpaceForm({ projectId, workItemId, itemTeam, onClose }: Props
         />
       </div>
       <div>
-        <div className={labelClass}>Team</div>
+        <div className={labelClass}>Crews</div>
         <div className="grid grid-cols-2 gap-2">
           {teamList.map((t) => (
             <button
               key={t.name}
               type="button"
-              aria-pressed={t.name === team}
-              onClick={() => setTeam(t.name)}
+              aria-pressed={picked.includes(t.name)}
+              onClick={() => toggleCrew(t.name)}
               className={`flex min-w-0 items-center gap-2 rounded-menu border p-2.5 text-left text-sm outline-none focus-visible:ring-3 focus-visible:ring-ring ${
-                t.name === team ? 'border-fg bg-raised text-fg' : 'border-line text-soft'
+                picked.includes(t.name) ? 'border-fg bg-raised text-fg' : 'border-line text-soft'
               }`}
             >
               <GroupAvatar
@@ -83,6 +104,43 @@ export function NewSpaceForm({ projectId, workItemId, itemTeam, onClose }: Props
           ))}
         </div>
       </div>
+      <div>
+        <div className={labelClass}>Bots in this Space</div>
+        <ul className="space-y-1">
+          {listed.map((r) => {
+            const out = dropped.includes(r.botId);
+            return (
+              <li key={r.botId} className="flex items-center gap-2 text-sm">
+                <input
+                  type="checkbox"
+                  aria-label={`Include ${r.name}`}
+                  checked={!out}
+                  onChange={() => toggleBot(r)}
+                />
+                <Creature look={r} size={22} />
+                <span className={`min-w-0 flex-1 truncate ${out ? 'text-faint' : ''}`}>
+                  {r.name}
+                </span>
+                {!out && (
+                  <label className="flex items-center gap-1.5 text-xs text-muted">
+                    <input
+                      type="radio"
+                      name="coordinator"
+                      aria-label={`${r.name} coordinates`}
+                      checked={coordinator?.botId === r.botId}
+                      onChange={() => setChosen(r.botId)}
+                    />
+                    coordinator
+                  </label>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+        <p className="mt-1.5 text-xs text-muted">
+          A Crew only lists Bots. The coordinator gets messages that mention nobody.
+        </p>
+      </div>
       {create.isError && <p className="text-sm text-danger">{create.error.message}</p>}
       <div className="flex justify-end gap-2">
         <Button
@@ -94,7 +152,7 @@ export function NewSpaceForm({ projectId, workItemId, itemTeam, onClose }: Props
         >
           Cancel
         </Button>
-        <Button variant="primary" type="submit" loading={create.isPending}>
+        <Button variant="primary" type="submit" disabled={!coordinator} loading={create.isPending}>
           Start
         </Button>
       </div>

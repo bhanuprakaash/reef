@@ -111,20 +111,8 @@ logged in and on `PATH`.
   Review and FYI, with a count and the action of each item (Continue, Retry, Review, Open,
   Dismiss on FYI). The window asks once, on a click, to show desktop notifications and then
   shows one for each new item since the page loaded, except the FYI items of Work items.
-- Teams (`/teams`): lists teams, creates one (`POST /teams`, with its responsibility text), deletes
-  one (`DELETE /teams/{name}`, refused while it has a work item in progress, needing you or queued) and edits one's
-  roster, saving with `PUT /teams/{name}`. A Team's page (`/teams/{name}`) shows its responsibility, roster and queue: the item
-  in progress or needing you, then the queued items, which you reorder by dragging (`PUT
-  /work-items/{id}/queue-position`). An opened role shows its Bot's description, skills, allowed tools, permission
-  mode and MCP servers, read from the Bot; they are edited on the Bot, not in the Team. Skills are picked from the current project's `GET /skills` list for the
-  role's backend; a picked name that is not on disk shows as missing. Allowed tools are
-  checkboxes (`Read`, `Grep`, `Glob`, `Edit`, `Write`, `Bash`, `WebFetch`, `WebSearch`, and
-  `mcp__<name>__*` for each MCP server) plus a field for patterns such as `Bash(git log:*)`,
-  and are hidden on a Codex role. A server can be removed there, not added.
-  "New team" (Duplicate opens it too) asks for a name, a responsibility text and a team to start from,
-  and sends `POST /teams?from=<source>` with the source's Bot ids; it is rejected if that name is
-  taken. The hop and token caps are not team fields, so the
-  page has no Caps section.
+- Crews (`/teams`): lists Crews, creates one (`POST /teams`) with a name, an optional description (the `responsibility` field), Bots and an optional coordinator suggestion, deletes one (`DELETE /teams/{name}`) and edits one's Bots, saving with `PUT /teams/{name}`. A Crew has no queue, memory or capability editor: a Bot's profile is edited on the Bot. "New crew" (Duplicate opens it too) asks for a name, a description and a Crew to start from, and sends `POST /teams?from=<source>` with the source's Bot ids; it is rejected if that name is taken.
+- Starting a Space (the New Space form) picks one or more Crews and previews their Bots without duplicates, each with an include box, and one coordinator. Picking another Crew adds its Bots and keeps the coordinator. Start sends `POST /spaces` with `botIds` and `coordinatorBotId`.
 - Bots (`/bots`): lists bots and edits one's description, skills, backend, model, face and access
   rules (`PUT /bots/{id}`), the one place they are set. A Bot's page (`/bots/{id}`) shows its Teams, its
   direct conversations (`GET /bots/{id}/conversations`) and its memory items.
@@ -405,7 +393,7 @@ memory item of kind `decision` (`remember`, `reef decide`, `POST /memory`). Its 
 
 ### team
 
-A named roster of existing Bots, with a queue of Work items. A team has exactly one lead. `reef
+A reusable roster of existing Bots, shown as a Crew. A team has at most one lead, its suggested coordinator. `reef
 team apply` (see [memory.md](memory.md#teams)), `PUT /teams/{name}` and `POST /teams` all take Bot ids and a lead
 flag only, through the same validation: they never create a Bot and take no per-member configuration. The
 seed team `solo` has one member, the Bot `lead`; it cannot be deleted or have members changed.
@@ -417,7 +405,7 @@ seed team `solo` has one member, the Bot `lead`; it cannot be deleted or have me
 | `responsibility` | string | default `""`; what the team is for. `propose_work_item` suggests the team whose text best matches the proposal (`team_fts`); nothing else reads it |
 | `roles` | array | the members, the lead first, then the others in the order given. A request sends `{"botId", "lead"}` for each, nothing else; a response shows each as a [role](#role) read from its Bot |
 
-Deleting a team (`DELETE /teams/{name}`) is `invalid` for `solo` and 409 while it has a top-level work item `queued`, `in_progress` or `needs_you`. Its Spaces keep running and lose the team link.
+Deleting a team (`DELETE /teams/{name}`) is `invalid` for `solo`. Its Bots, its Spaces and their members stay; its Work items and Spaces lose the team link.
 
 ### bot
 
@@ -434,8 +422,7 @@ One persistent agent with one global profile, which can sit in several teams and
 | `tools`, `mcpServers`, `write`, `permissionMode` | | the bot's access rules, read at every start of its session from every team and Space it sits in. REST shows `mcp` (name and label) instead of `mcpServers` |
 
 A bot that sits in a team cannot be deleted: the error is `invalid:` and names the team. A team has at
-most one lead; a second one is `invalid`. A team always has exactly one lead: removing the lead or
-saving it with `lead` false is `invalid` and changes nothing. `solo` keeps its one lead and takes no member changes.
+most one lead; a second one is `invalid`. `solo` keeps its one lead and takes no member changes.
 A `team_member` or `space_member` row holds only the bot id and `lead`. A member's role name is the bot's
 name, so renaming the bot renames the role everywhere and leaves messages, memberships and turns pointing at
 the same id; messages and turns keep the name they were written under. Team requests never rewrite a bot:
@@ -601,7 +588,7 @@ tool calls.
 | `PUT /teams/{name}/members/{id}` | `lead` | 200 the role | 400 as `PUT /teams`, a second lead; 404 |
 | `DELETE /teams/{name}/members/{id}` | | 204 | 400 `solo`; 404 |
 | `GET /spaces` | `?project=ID`, `?workItem=ID` | 200 each Space also has `lastMessage`: `{author, body, createdAt}` of its newest message (a thread reply counts; `body` is cut to its first 200 characters), `null` when it has none | 400 bad id |
-| `POST /spaces` | `projectId`, `workItemId`, `name`, `team` (a team name; default `solo`), `role` (empty or `lead`; the Space's `role` becomes the name of the team's lead role), `botId` (instead of `team`: a Space with no Team and one member, that Bot as lead; `kind` `conversation` makes it a direct conversation, which cannot have a work item). A Space takes no `backend` or `permissionMode`: its Bots decide. A `name` is required; one that is the new-space form's default, `<team or bot name> <hh:mm>` (`solo 14:32`, `solo 02:32 PM`), marks the Space as waiting for a provider name, see [Space names](#space-names) | 201 | 400 unknown project, work item, team or Bot, work item of another project, a field the table does not list, a role other than `lead` |
+| `POST /spaces` | `projectId`, `workItemId`, `name`, `team` (a team name; default `solo`), `role` (empty or `lead`; the Space's `role` becomes the name of the team's lead role), `botIds` and `coordinatorBotId` (the Space's members are exactly these Bots, de-duplicated, led by the coordinator or the first Bot; `team`, when given, only names the Crew it started from), `botId` (instead of `team`: a Space with no Team and one member, that Bot as lead; `kind` `conversation` makes it a direct conversation, which cannot have a work item). A Space takes no `backend` or `permissionMode`: its Bots decide. A `name` is required; one that is the new-space form's default, `<team or bot name> <hh:mm>` (`solo 14:32`, `solo 02:32 PM`), marks the Space as waiting for a provider name, see [Space names](#space-names) | 201 | 400 unknown project, work item, team or Bot, work item of another project, a field the table does not list, a role other than `lead` |
 | `GET /spaces/{id}` | | 200 | 404 |
 | `PUT /spaces/{id}` | `name` (required); project, work item and role stay unchanged. A name that differs from the stored one ends any wait for a provider name | 200 | 400 bad JSON or any other field, 404 |
 | `DELETE /spaces/{id}` | stops the Space first if it is live; a send during the delete is 404 | 204 | 404, 409 the Space is the proof's Space of a work item in review |
@@ -616,7 +603,7 @@ tool calls.
 | `POST /spaces/{id}/wrap` | no body needed | 202, no body | 400 a quick session (no work item); 404, 409 and 503 as send |
 | `POST /spaces/{id}/attach` | `workItemId` (required) | 200 the Space | 400 no `workItemId`, Space already has a work item or is a conversation, work item of another project, project not a git repo with a commit; 404; 409 a turn running, or the work item already has an active Space |
 | `GET /spaces/{id}/members` | | 200 the Space's members, lead first: the role fields of a [team](#team) role | 404 |
-| `POST /spaces/{id}/members` | `botId` (required) | 201 the member. On a conversation: 202, the same as the user writing `@name` at the start of a line (see [Spaces live](#spaces-live)) | 400 unknown Bot, or the conversation's own; 404; 409 already a member or its name is taken, or a turn is running |
+| `POST /spaces/{id}/members` | `botId`, or `crew` (a team name) | 201 the member. `crew` adds each of its Bots that is not yet in the Space, never changes the coordinator, and is 200 with the Space's members. On a conversation: 202, the same as the user writing `@name` at the start of a line (see [Spaces live](#spaces-live)) | 400 unknown Bot, or the conversation's own; 404; 409 already a member or its name is taken, or a turn is running |
 | `GET /spaces/{id}/proposal` | | 200 the Space's pending proposal | 404 none pending |
 | `POST /proposals/{id}/approve` | no body needed | 200 the proposal, `itemsAdded` and `warnings` (a line for each saved item that looks like a stored one or has no vector; left out when none); a wrap closes the proposal's Space and stops its agent, a brief proposal does neither | 400 already decided, 404 |
 | `POST /proposals/{id}/reject` | no body needed | 200 the proposal | 400 already decided, 404 |

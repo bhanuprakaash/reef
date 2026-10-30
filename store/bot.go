@@ -261,8 +261,8 @@ func (s *Store) changeMembers(
 		"SELECT COUNT(*) FROM team_member WHERE team_id = ? AND lead = 1", teamID).Scan(&leads); err != nil {
 		return fmt.Errorf("read lead: %w", err)
 	}
-	if leads != 1 {
-		return fmt.Errorf("%w: team %s needs exactly one lead, has %d", ErrInvalid, team, leads)
+	if leads > 1 {
+		return fmt.Errorf("%w: team %s has %d coordinator suggestions, at most one", ErrInvalid, team, leads)
 	}
 	return tx.Commit()
 }

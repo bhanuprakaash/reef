@@ -71,11 +71,6 @@ func TestBot_Refusals(t *testing.T) {
 	if _, err := s.AddMember(ctx, "core", sam.ID, false); err != nil {
 		t.Fatal(err)
 	}
-	core, err := s.Team(ctx, "core")
-	if err != nil {
-		t.Fatal(err)
-	}
-	boss := core.Roles[0].BotID
 
 	tests := []struct {
 		name string
@@ -93,12 +88,6 @@ func TestBot_Refusals(t *testing.T) {
 			_, err := s.AddMember(ctx, "core", ann.ID, true)
 			return err
 		}, ErrInvalid, "invalid: the team already has a lead, boss"},
-		{"remove the lead", func() error { return s.RemoveMember(ctx, "core", boss) },
-			ErrInvalid, "invalid: team core needs exactly one lead, has 0"},
-		{"un-lead the lead", func() error {
-			_, err := s.EditMember(ctx, "core", boss, Membership{Lead: false})
-			return err
-		}, ErrInvalid, "invalid: team core needs exactly one lead, has 0"},
 		{"name taken", func() error {
 			_, err := s.CreateBot(ctx, Bot{Name: "sam", Backend: "claude"})
 			return err

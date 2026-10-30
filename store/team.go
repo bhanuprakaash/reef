@@ -18,7 +18,7 @@ import (
 // SoloTeam is the lead-only team a Space gets when none is named.
 const SoloTeam = "solo"
 
-// Team is a named set of roles, exactly one of them the lead.
+// Team is a named roster of Bots, at most one of them the suggested coordinator.
 type Team struct {
 	ID             int64  `json:"id"`
 	Name           string `json:"name"`
@@ -266,8 +266,7 @@ func (s *Store) Teams(ctx context.Context) ([]Team, error) {
 	return teams, nil
 }
 
-// DeleteTeam removes the named Team. A top-level Queued, In progress or Needs you Work item
-// keeps it in place and is named in the conflict. Existing Spaces keep their copied members.
+// DeleteTeam removes the named Team. Its Bots, its Spaces and their members stay.
 func (s *Store) DeleteTeam(ctx context.Context, name string) error {
 	if name == SoloTeam {
 		return fmt.Errorf("%w: team %s is the default team and cannot be deleted", ErrInvalid, SoloTeam)
@@ -284,18 +283,6 @@ func (s *Store) DeleteTeam(ctx context.Context, name string) error {
 		return fmt.Errorf("team %s: %w", name, ErrNotFound)
 	case err != nil:
 		return fmt.Errorf("read team %s: %w", name, err)
-	}
-	var title, status string
-	err = tx.QueryRowContext(ctx,
-		"SELECT title, status FROM work_item WHERE team_id = ? AND parent_id IS NULL "+
-			"AND status IN ('in_progress', 'needs_you', 'queued') ORDER BY id LIMIT 1", id).
-		Scan(&title, &status)
-	switch {
-	case err == nil:
-		return fmt.Errorf("%w: team %s has work item %q in %s", ErrConflict, name, title,
-			strings.ReplaceAll(status, "_", " "))
-	case !errors.Is(err, sql.ErrNoRows):
-		return fmt.Errorf("read work of team %s: %w", name, err)
 	}
 	if _, err := tx.ExecContext(ctx, "UPDATE space SET team_id = NULL WHERE team_id = ?", id); err != nil {
 		return fmt.Errorf("detach Spaces from team %s: %w", name, err)
@@ -329,8 +316,8 @@ func (t TeamSpec) validate() error {
 			leads++
 		}
 	}
-	if leads != 1 {
-		return fmt.Errorf("%w: team %s needs exactly one lead role, has %d", ErrInvalid, t.Name, leads)
+	if leads > 1 {
+		return fmt.Errorf("%w: team %s has %d coordinator suggestions, at most one", ErrInvalid, t.Name, leads)
 	}
 	return nil
 }

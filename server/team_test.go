@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -144,7 +145,7 @@ func TestCreateUpdateAndDeleteTeam(t *testing.T) {
 	}
 }
 
-func TestDeleteTeam_QueuedWorkItem(t *testing.T) {
+func TestDeleteTeam_KeepsWorkItem(t *testing.T) {
 	ctx := context.Background()
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -178,9 +179,8 @@ func TestDeleteTeam_QueuedWorkItem(t *testing.T) {
 	res := httptest.NewRecorder()
 	(&server{st: st}).deleteTeam(res, req)
 	status, body := res.Code, strings.TrimSpace(res.Body.String())
-	want := `{"error":"conflict: team release has work item \"Ship desktop updater\" in queued"}`
-	if status != http.StatusConflict || body != want {
-		t.Errorf("DELETE /teams/release = %d %s, want 409 %s", status, body, want)
+	if status != http.StatusNoContent || body != "" {
+		t.Errorf("DELETE /teams/release = %d %s, want 204", status, body)
 	}
 }
 
@@ -283,7 +283,7 @@ func TestPutTeam(t *testing.T) {
 
 	// The same error as `reef team apply`: two leads.
 	status, resBody = do(t, http.MethodPut, ts.URL+"/teams/crew", `{"roles":[{"botId":2,"lead":true},{"botId":3,"lead":true}]}`)
-	want := `{"error":"invalid: team crew needs exactly one lead role, has 2"}`
+	want := `{"error":"invalid: team crew has 2 coordinator suggestions, at most one"}`
 	if status != 400 || resBody != want {
 		t.Errorf("PUT /teams/crew two leads = %d %s, want 400 %s", status, resBody, want)
 	}
@@ -486,5 +486,66 @@ func TestPutBotSkills(t *testing.T) {
 	if status, resBody := do(t, http.MethodPut, ts.URL+"/bots/1", body); status != http.StatusOK ||
 		!strings.Contains(resBody, `"skills":["how","why"]`) {
 		t.Errorf("PUT skills with a padded name = %d %s, want 200 and the trimmed names", status, resBody)
+	}
+}
+
+func TestCrewRosterOnly(t *testing.T) {
+	ts, st := newEmbedServer(t, nil)
+	ctx := context.Background()
+	ann, bob, cy := *testServerBot(t, st, "ann"), *testServerBot(t, st, "bob"), *testServerBot(t, st, "cy")
+	project, err := st.CreateProject(ctx, store.Project{Name: "reef", Path: t.TempDir()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	post := func(path, body string) (int, string) { return do(t, http.MethodPost, ts.URL+path, body) }
+	put := func(path, body string) (int, string) { return do(t, http.MethodPut, ts.URL+path, body) }
+
+	// A Crew needs no coordinator suggestion.
+	if status, body := post("/teams", fmt.Sprintf(
+		`{"name":"duo","responsibility":"pair","roles":[{"botId":%d},{"botId":%d}]}`, ann, bob)); status != 201 {
+		t.Fatalf("POST /teams = %d %s, want 201", status, body)
+	}
+	if status, body := post("/teams", fmt.Sprintf(
+		`{"name":"trio","roles":[{"botId":%d,"lead":true},{"botId":%d},{"botId":%d}]}`, bob, ann, cy)); status != 201 {
+		t.Fatalf("POST /teams = %d %s, want 201", status, body)
+	}
+
+	// Adding a Crew puts in only the missing Bots and keeps the coordinator.
+	status, body := post("/spaces", fmt.Sprintf(`{"projectId":%d,"name":"s","team":"duo"}`, project.ID))
+	if status != 201 {
+		t.Fatalf("POST /spaces = %d %s, want 201", status, body)
+	}
+	status, body = post("/spaces/1/members", `{"crew":"trio"}`)
+	if status != 200 || strings.Count(body, `"lead":true`) != 1 || strings.Count(body, `"botId"`) != 3 ||
+		!strings.HasPrefix(body, fmt.Sprintf(`[{"botId":%d,"name":"ann","lead":true`, ann)) {
+		t.Errorf("POST /spaces/1/members crew = %d %s, want ann still leading, three members", status, body)
+	}
+
+	// A start with a user-adjusted roster and coordinator.
+	status, body = post("/spaces", fmt.Sprintf(
+		`{"projectId":%d,"name":"t","team":"trio","botIds":[%d,%d,%d],"coordinatorBotId":%d}`,
+		project.ID, bob, ann, bob, ann))
+	if status != 201 {
+		t.Fatalf("POST /spaces adjusted = %d %s, want 201", status, body)
+	}
+	status, body = do(t, http.MethodGet, ts.URL+"/spaces/2/members", "")
+	if status != 200 || strings.Count(body, `"botId"`) != 2 ||
+		!strings.HasPrefix(body, fmt.Sprintf(`[{"botId":%d,"name":"ann","lead":true`, ann)) {
+		t.Errorf("GET /spaces/2/members = %d %s, want ann leading and bob", status, body)
+	}
+
+	// Changing and deleting a Crew leaves the Bots and the Space members.
+	if status, body := put("/teams/trio", fmt.Sprintf(`{"roles":[{"botId":%d}]}`, cy)); status != 200 {
+		t.Fatalf("PUT /teams/trio = %d %s, want 200", status, body)
+	}
+	if status, body := do(t, http.MethodDelete, ts.URL+"/teams/duo", ""); status != 204 {
+		t.Fatalf("DELETE /teams/duo = %d %s, want 204", status, body)
+	}
+	status, body = do(t, http.MethodGet, ts.URL+"/spaces/1/members", "")
+	if status != 200 || strings.Count(body, `"botId"`) != 3 {
+		t.Errorf("GET /spaces/1/members after = %d %s, want three members", status, body)
+	}
+	if status, body = do(t, http.MethodGet, ts.URL+"/bots", ""); status != 200 || !strings.Contains(body, `"name":"ann"`) {
+		t.Errorf("GET /bots after = %d %s, want ann kept", status, body)
 	}
 }

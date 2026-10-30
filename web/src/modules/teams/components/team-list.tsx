@@ -8,7 +8,7 @@ const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? '' : 's'}`;
 export function TeamList({ teams, selected, onSelect }: Props) {
   return (
     <section
-      aria-label="All teams"
+      aria-label="All crews"
       className="flex w-full flex-col gap-1.5 md:group-has-[[aria-label=Role]]:hidden lg:w-60"
     >
       {teams.map((t) => {
@@ -34,7 +34,7 @@ export function TeamList({ teams, selected, onSelect }: Props) {
                 <Creature key={r.name} look={r} size={26} animate />
               ))}
             </div>
-            <div className="mt-2 text-xs text-muted">{plural(t.roles.length, 'role')}</div>
+            <div className="mt-2 text-xs text-muted">{plural(t.roles.length, 'Bot')}</div>
           </div>
         );
       })}

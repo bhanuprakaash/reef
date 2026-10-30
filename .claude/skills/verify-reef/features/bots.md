@@ -13,9 +13,10 @@ Caps) and `docs/memory.md` (Teams, reef mcp, the context prompt).
 
 - `bot-rest` `POST /bots` makes a Bot (201, its `write` false unless given); the same name is 409, a backend other than `claude` or `codex` is 400; `GET /bots` lists them (the seeded `lead` first); `PUT /bots/{id}` replaces every field; `DELETE` is 204, and 400 naming the Team while the Bot is in one.
 - `team-members` `PUT /teams/{name}` with a `responsibility` and one lead makes a Team; `POST /teams/{name}/members` adds a Bot by `botId` (201), twice is 409, a second lead is 400; a member holds no access of its own, so `PUT /teams/{name}/members/{id}` changes only `lead` and the Bot's access is unchanged; `DELETE` of the member is 204.
-- `team-delete` `DELETE /teams/{name}` is 204 and the Team is then 404; `DELETE /teams/solo` is 400.
+- `team-delete` `DELETE /teams/{name}` is 204 and the Team is then 404; `DELETE /teams/solo` is 400. A team with a queued work item deletes too (204), the item stays with no `teamId`, and the Team's Bots and its Spaces' members are unchanged.
+- `crew-roster` a team with no lead is 201 (`roles` carry no `lead`); `POST /spaces/{id}/members` with `{"crew":"name"}` adds only the Bots not yet in the Space and keeps the coordinator; `POST /spaces` with `botIds` (one repeated) and `coordinatorBotId` makes a Space with those Bots once each and that coordinator; a Crew edit or delete changes no Space's members.
 - `team-apply` `reef team apply FILE.json` creates a team from `{botId, lead}` members of existing Bots; `reef team list` shows each team with its roles and backends, the lead starred. The same name again replaces its roles; the command never creates or rewrites a Bot. The harness's `$H team-apply` makes or updates the Bots of a profile file first.
-- `team-errors` a file with no lead or two leads, an unknown Bot id, a member with no `botId`, a member with config such as `backend`, a role named by `name`, a missing file, and no subcommand each fail with `reef: ...`, exit 1, and change nothing; a Bot with a bad name or backend is refused by `POST /bots`.
+- `team-errors` a file with two leads, an unknown Bot id, a member with no `botId`, a member with config such as `backend`, a role named by `name`, a missing file, and no subcommand each fail with `reef: ...`, exit 1, and change nothing; a Bot with a bad name or backend is refused by `POST /bots`.
 - `team-rest` `GET /teams` lists teams by name (`solo` always exists); `GET /teams/{name}` returns one with its roles, 404 for an unknown name; the routes take no write; a role has no `mcpServers` key.
 - `team-space` `POST /spaces` with `team` stores it and fills `role` (the lead Bot's name); a Space has no `backend` or `permissionMode`, its Bots decide; with no team the Space is in `solo`; an unknown team and a `role` other than `lead` are 400.
 - `team-reapply-live` a team applied again with a new role while the lead is live: `@tester` runs a tester turn.
@@ -99,7 +100,6 @@ cat > $E/pingpong.json <<'EOF'
 EOF
 sed 's/short-plans/very-short-plans/' $E/duo.json > $E/duo2.json
 sed -e 's/"name": "duo"/"name": "mixed"/' -e '/"name": "architect"/{n;s/"claude"/"codex", "permissionMode": "read-only"/}' $E/duo.json > $E/mixed.json
-printf '{"name":"bad","roles":[{"botId":1}]}' > $E/nolead.json
 printf '{"name":"bad","roles":[{"botId":1,"lead":true},{"botId":2,"lead":true}]}' > $E/twolead.json
 printf '{"name":"bad","roles":[{"botId":99,"lead":true}]}' > $E/unknownbot.json
 printf '{"name":"bad","roles":[{"lead":true}]}' > $E/nobotid.json
@@ -115,8 +115,7 @@ Teams (data folder `teams`; `$H team-apply` needs the server, so start it first:
 - **Apply and list.** `$H team-apply $E/duo.json` makes the Bots `lead` (the seed, updated) and `architect` and prints `applied team duo: lead*(claude) architect(claude)`. `$H reef -- team list` prints `duo  lead*(claude) architect(claude)` and `solo  lead*(claude)`. `$H sql "select team.name, bot.name, lead from team_member member join team on team.id = team_id join bot on bot.id = bot_id order by team.name, member.id"` shows `duo|lead|1`, `duo|architect|0`, `solo|lead|1`.
 - **Apply again.** `$H reef -- team apply $E/duo-ids.json` prints the same line. `$H sql "select count(*) from team"` is still `2`, and `$H sql "select skills from bot where name = 'architect'"` is still `["short-plans"]`: `reef team apply` names Bots by id and never rewrites one.
 - **Errors.** Each `$H reef -- team apply $E/<file>` ends `exit: 1` and `$H sql "select count(*) from team"` stays `2`:
-  - `nolead.json`: `reef: invalid: team bad needs exactly one lead role, has 0`
-  - `twolead.json`: `reef: invalid: team bad needs exactly one lead role, has 2`
+  - `twolead.json`: `reef: invalid: team bad has 2 coordinator suggestions, at most one`
   - `unknownbot.json`: `reef: invalid: unknown bot 99`
   - `nobotid.json`: `reef: invalid: every member needs a botId`
   - `memberconfig.json`: `reef: parse <path>: json: unknown field "backend"`

@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"slices"
 )
 
 // SpaceTeam is the roster of Space id: its own members, lead first, as the roles a turn runs
@@ -55,6 +56,79 @@ func (s *Store) AddSpaceMember(ctx context.Context, id, botID int64) (Role, erro
 		}
 	}
 	return Role{}, fmt.Errorf("bot %d in Space %d: %w", botID, id, ErrNotFound)
+}
+
+// AddSpaceCrew puts every Bot of the Team that is not yet in Space id into it, with no lead.
+// The Space keeps its coordinator. It returns the Space's members.
+func (s *Store) AddSpaceCrew(ctx context.Context, id int64, crew string) ([]Role, error) {
+	c, err := s.Space(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if c.Kind == KindConversation {
+		return nil, fmt.Errorf("%w: Space %d is a direct conversation with one Bot", ErrInvalid, id)
+	}
+	if _, err := s.Team(ctx, crew); err != nil {
+		return nil, err
+	}
+	if _, err := s.db.ExecContext(ctx,
+		"INSERT OR IGNORE INTO space_member (space_id, bot_id, lead) "+
+			"SELECT ?, bot_id, 0 FROM team_member WHERE team_id = (SELECT id FROM team WHERE name = ?) "+
+			"ORDER BY id", id, crew); err != nil {
+		return nil, fmt.Errorf("insert Space crew: %w", err)
+	}
+	return s.roles(ctx, "space_member", "space_id", id)
+}
+
+// CreateSpaceOf adds c with exactly the Bots as members; the coordinator, or the first Bot when
+// it is 0, leads. c.Team, when set, names the Team the Space was started from.
+func (s *Store) CreateSpaceOf(ctx context.Context, c Space, bots []int64, coordinator int64) (Space, error) {
+	if err := c.validate(); err != nil {
+		return Space{}, err
+	}
+	if len(bots) == 0 {
+		return Space{}, fmt.Errorf("%w: a Space needs at least one Bot", ErrInvalid)
+	}
+	if coordinator == 0 {
+		coordinator = bots[0]
+	}
+	if !slices.Contains(bots, coordinator) {
+		return Space{}, fmt.Errorf("%w: coordinator %d is not among the Bots", ErrInvalid, coordinator)
+	}
+	var teamID *int64
+	if c.Team != "" {
+		var id int64
+		if err := s.db.QueryRowContext(ctx, "SELECT id FROM team WHERE name = ?", c.Team).Scan(&id); err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return Space{}, fmt.Errorf("%w: unknown team %s", ErrInvalid, c.Team)
+			}
+			return Space{}, fmt.Errorf("read team: %w", err)
+		}
+		teamID = &id
+	}
+	c.Kind = KindFree
+	if c.WorkItemID != nil {
+		c.Kind = KindWorkItem
+	}
+	return s.insertSpace(ctx, c, teamID, func(tx *sql.Tx, id int64) error {
+		seen := map[int64]bool{}
+		for _, b := range bots {
+			if seen[b] {
+				continue
+			}
+			seen[b] = true
+			res, err := tx.ExecContext(ctx,
+				"INSERT OR IGNORE INTO space_member (space_id, bot_id, lead) SELECT ?, id, id = ? FROM bot WHERE id = ?",
+				id, coordinator, b)
+			if err != nil {
+				return err
+			}
+			if n, err := res.RowsAffected(); err == nil && n == 0 {
+				return fmt.Errorf("%w: unknown bot %d", ErrInvalid, b)
+			}
+		}
+		return nil
+	})
 }
 
 // MoveConversation turns the direct conversation id into a free Space with no Team: the

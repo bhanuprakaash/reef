@@ -19,7 +19,7 @@ vi.mock('@/lib/api/get-teams', () => ({
   }),
 }));
 
-it('asks for a name and a team, not a backend or permission mode', () => {
+it('asks for a name and Crews, not a backend or permission mode', () => {
   const markup = renderToStaticMarkup(
     <MemoryRouter>
       <NewSpaceForm projectId={1} workItemId={null} onClose={() => {}} />
@@ -29,4 +29,15 @@ it('asks for a name and a team, not a backend or permission mode', () => {
   expect(markup).toContain('solo');
   expect(markup).not.toContain('Backend');
   expect(markup).not.toContain('Permission');
+});
+
+it('previews the roster with a coordinator to adjust', () => {
+  const markup = renderToStaticMarkup(
+    <MemoryRouter>
+      <NewSpaceForm projectId={1} workItemId={null} onClose={() => {}} />
+    </MemoryRouter>,
+  );
+
+  expect(markup).toContain('aria-label="Include lead"');
+  expect(markup).toContain('aria-label="lead coordinates"');
 });

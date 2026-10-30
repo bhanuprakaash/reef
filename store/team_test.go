@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"reflect"
-	"strings"
 	"testing"
 )
 
@@ -85,7 +84,7 @@ func TestTeams_SkipsTeamWithoutRoles(t *testing.T) {
 	}
 }
 
-func TestDeleteTeam_QueuedWorkItem(t *testing.T) {
+func TestDeleteTeam_KeepsWorkItem(t *testing.T) {
 	ctx := context.Background()
 	s, err := Open(t.TempDir())
 	if err != nil {
@@ -108,18 +107,22 @@ func TestDeleteTeam_QueuedWorkItem(t *testing.T) {
 		Scan(&teamID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := s.CreateWorkItem(ctx, WorkItem{
+	item, err := s.CreateWorkItem(ctx, WorkItem{
 		ProjectID: project.ID,
 		Title:     "Ship desktop updater",
 		Status:    "queued",
 		TeamID:    &teamID,
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	err = s.DeleteTeam(ctx, "release")
-	if !errors.Is(err, ErrConflict) || !strings.Contains(err.Error(), "Ship desktop updater") {
-		t.Errorf("DeleteTeam error = %v, want conflict naming Ship desktop updater", err)
+	if err := s.DeleteTeam(ctx, "release"); err != nil {
+		t.Fatalf("DeleteTeam = %v, want nil", err)
+	}
+	got, err := s.WorkItem(ctx, item.ID)
+	if err != nil || got.TeamID != nil || got.Title != "Ship desktop updater" {
+		t.Errorf("work item after delete = %+v, %v, want it kept with no team", got, err)
 	}
 }
 

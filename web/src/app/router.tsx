@@ -12,7 +12,6 @@ import { ReviewPage } from '@/app/routes/review';
 import { SettingsPage } from '@/app/routes/settings';
 import { BotPage } from '@/app/routes/bot';
 import { BotsPage } from '@/app/routes/bots';
-import { TeamPage } from '@/app/routes/team';
 import { TeamsPage } from '@/app/routes/teams';
 
 export const router = createBrowserRouter([
@@ -30,7 +29,6 @@ export const router = createBrowserRouter([
       { path: '/projects/:id', element: <ProjectPage /> },
       { path: '/inbox', element: <InboxPage /> },
       { path: '/teams', element: <TeamsPage /> },
-      { path: '/teams/:name', element: <TeamPage /> },
       { path: '/bots', element: <BotsPage /> },
       { path: '/bots/:id', element: <BotPage /> },
       { path: '/settings', element: <SettingsPage /> },

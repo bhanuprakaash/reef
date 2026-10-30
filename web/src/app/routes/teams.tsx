@@ -17,9 +17,9 @@ export function TeamsPage() {
     <div className="group mx-auto flex w-full max-w-[1200px] flex-col gap-6 py-6 md:has-[[aria-label=Role]]:pr-[444px]">
       <header className="flex flex-wrap items-center gap-3">
         <div>
-          <h1 className="text-[32px] font-normal tracking-[-0.02em]">Teams</h1>
+          <h1 className="text-[32px] font-normal tracking-[-0.02em]">Crews</h1>
           <p className="mt-1 text-[13px] text-muted">
-            Define a team once, start any Space with it.
+            A Crew is a reusable list of Bots. Start a Space with one or more.
           </p>
         </div>
         <Button
@@ -39,7 +39,7 @@ export function TeamsPage() {
           >
             <path d="M12 5v14M5 12h14" />
           </svg>
-          New team
+          New crew
         </Button>
       </header>
       {teams.isPending && <p className="text-sm text-muted">Loading...</p>}

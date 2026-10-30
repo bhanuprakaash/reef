@@ -176,7 +176,7 @@ export function Sidebar() {
             <circle cx="12" cy="8" r="4" />
             <path d="M4 21c.8-4.2 4-6 8-6s7.2 1.8 8 6" />
           </BarLink>
-          <BarLink to="/teams" label="Teams" active={pathname.startsWith('/teams')}>
+          <BarLink to="/teams" label="Crews" active={pathname.startsWith('/teams')}>
             <circle cx="9" cy="9" r="4" />
             <circle cx="17" cy="11" r="3" />
             <path d="M2 20c.8-3.5 3.6-5 7-5s6.2 1.5 7 5M15.5 15.5c2.6 0 4.7 1.3 5.5 4.5" />

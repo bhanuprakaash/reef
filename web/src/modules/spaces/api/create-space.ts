@@ -8,6 +8,8 @@ type NewSpace = {
   name: string;
   team?: string;
   botId?: number;
+  botIds?: number[];
+  coordinatorBotId?: number;
   kind?: Space['kind'];
 };
 

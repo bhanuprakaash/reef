@@ -149,9 +149,20 @@ func (s *Store) CreateSpace(ctx context.Context, c Space) (Space, error) {
 	return s.insertSpace(ctx, c, &teamID, func(tx *sql.Tx, id int64) error {
 		_, err := tx.ExecContext(ctx,
 			"INSERT INTO space_member (space_id, bot_id, lead) SELECT ?, bot_id, lead "+
-				"FROM team_member WHERE team_id = ?", id, teamID)
-		return err
+				"FROM team_member WHERE team_id = ? ORDER BY lead DESC, id", id, teamID)
+		if err != nil {
+			return err
+		}
+		return ensureCoordinator(ctx, tx, id)
 	})
+}
+
+// ensureCoordinator makes the first member of Space id its coordinator when none leads.
+func ensureCoordinator(ctx context.Context, tx *sql.Tx, id int64) error {
+	_, err := tx.ExecContext(ctx,
+		"UPDATE space_member SET lead = 1 WHERE id = (SELECT MIN(id) FROM space_member WHERE space_id = ?) "+
+			"AND NOT EXISTS (SELECT 1 FROM space_member WHERE space_id = ? AND lead = 1)", id, id)
+	return err
 }
 
 // CreateBotSpace adds c with no Team and one member, the Bot, which leads it. c.Kind is
